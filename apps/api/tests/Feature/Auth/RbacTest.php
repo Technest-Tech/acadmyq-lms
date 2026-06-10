@@ -57,8 +57,9 @@ it('lets a Teacher report on their own session but not another teacher\'s', func
 
     Sanctum::actingAs($this->teacherUser);
 
-    $this->postJson("/api/sessions/{$ownSession}/report", ['values' => ['notes' => 'ok']])->assertOk();
-    $this->postJson("/api/sessions/{$otherSession}/report", ['values' => ['notes' => 'no']])->assertForbidden();
+    // The report endpoint moved to PUT in Sprint 6 (§8); the teacher-scoping seam is unchanged.
+    $this->putJson("/api/sessions/{$ownSession}/report", ['values' => ['notes' => 'ok']])->assertOk();
+    $this->putJson("/api/sessions/{$otherSession}/report", ['values' => ['notes' => 'no']])->assertForbidden();
 });
 
 // ── TC-2.17 / AC-2.8: revoking a capability takes effect on the next request ─

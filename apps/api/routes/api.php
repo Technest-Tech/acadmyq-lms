@@ -10,6 +10,7 @@ use App\Http\Controllers\People\GuardianController;
 use App\Http\Controllers\People\StudentController;
 use App\Http\Controllers\People\TeacherController;
 use App\Http\Controllers\ReportFieldController;
+use App\Http\Controllers\Scheduling\AttendanceController;
 use App\Http\Controllers\Scheduling\CalendarController;
 use App\Http\Controllers\Scheduling\GenerateSessionsController;
 use App\Http\Controllers\Scheduling\ScheduleController;
@@ -125,7 +126,17 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
 
     Route::post('/admin/generate-sessions', GenerateSessionsController::class);
 
+    // Attendance & custom reports (Sprint 6 §8). The attendance outcome fires the billing hook
+    // (§5) and sets the billable status Sprint 5 left untouched; the report engine renders the
+    // academy's report_field_definitions and stores values keyed by field key. Every route is
+    // capability-gated, RLS-scoped, and (for Teachers) row-filtered to their own sessions (§3.6).
+    Route::get('/sessions/pending-attendance', [SessionController::class, 'pendingAttendance']);
+    Route::get('/sessions/{id}', [SessionController::class, 'show']);
+    Route::post('/sessions/{id}/attendance', [AttendanceController::class, 'store']);
+    Route::put('/sessions/{id}/report', [SessionReportController::class, 'put']);
+    Route::post('/sessions/{id}/report/whatsapp-sent', [SessionReportController::class, 'whatsappSent']);
+    Route::get('/students/{id}/reports', [SessionReportController::class, 'archive']);
+
     // Minimal domain mutations exercising two-layer authorization (full invoicing: Sprint 7).
     Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
-    Route::post('/sessions/{id}/report', [SessionReportController::class, 'store']);
 });
