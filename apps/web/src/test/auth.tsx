@@ -13,8 +13,17 @@ import arMessages from "../../messages/ar.json";
 const PERMISSIONS_BY_ROLE: Record<AppRole, string[]> = {
   SUPER_ADMIN: ["academy.read", "academy.enter", "plan.manage", "audit.read"],
   ACADEMY_OWNER: [
+    "guardian.read",
+    "guardian.create",
+    "guardian.update",
     "student.read",
+    "student.create",
+    "student.update",
+    "student.deactivate",
     "teacher.read",
+    "teacher.create",
+    "teacher.update",
+    "teacher.deactivate",
     "schedule.read",
     "invoice.read",
     "payout.read",
@@ -24,6 +33,7 @@ const PERMISSIONS_BY_ROLE: Record<AppRole, string[]> = {
   TEACHER: [
     "schedule.read",
     "student.read",
+    "teacher.read_own",
     "session.write_report",
     "payout.read_own",
   ],

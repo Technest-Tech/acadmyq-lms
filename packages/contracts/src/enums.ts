@@ -26,7 +26,12 @@ export const INVOICE_STATUS = [
 ] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUS)[number];
 
-export const PAYMENT_METHOD = ["CASH", "BANK_TRANSFER", "GATEWAY", "OTHER"] as const;
+export const PAYMENT_METHOD = [
+  "CASH",
+  "BANK_TRANSFER",
+  "GATEWAY",
+  "OTHER",
+] as const;
 export type PaymentMethod = (typeof PAYMENT_METHOD)[number];
 
 export const ACADEMY_STATUS = ["ACTIVE", "SUSPENDED", "TRIAL"] as const;
@@ -49,3 +54,6 @@ export type AppRole = (typeof APP_ROLE)[number];
 
 export const INVOICE_GROUPING = ["PER_GUARDIAN", "PER_STUDENT"] as const;
 export type InvoiceGrouping = (typeof INVOICE_GROUPING)[number];
+
+export const PRICE_BASIS = ["PER_SESSION", "PER_MONTH"] as const;
+export type PriceBasis = (typeof PRICE_BASIS)[number];

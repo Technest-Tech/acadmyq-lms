@@ -6,6 +6,7 @@
   "nav": {
     "dashboard": "لوحة التحكم",
     "academies": "الأكاديميات",
+    "guardians": "أولياء الأمور",
     "students": "الطلاب",
     "teachers": "المعلمون",
     "schedule": "الجدول",
@@ -120,6 +121,187 @@
       "deleteBlocked": "هذا الحقل يحتوي على قيم تقارير ولا يمكن إلا إلغاء تنشيطه.",
       "selectNeedsOptions": "حقل القائمة يتطلب خيارًا واحدًا على الأقل.",
       "empty": "لا توجد حقول تقارير مُعدّة."
+    }
+  },
+  "datatable": {
+    "search": "بحث",
+    "empty": "لا نتائج.",
+    "retry": "إعادة المحاولة",
+    "total": "{count} إجمالاً",
+    "pageSize": "حجم الصفحة",
+    "prev": "السابق",
+    "next": "التالي"
+  },
+  "guardians": {
+    "title": "أولياء الأمور",
+    "new": "ولي أمر جديد",
+    "empty": "لا يوجد أولياء أمور بعد — أضف الأول.",
+    "back": "رجوع",
+    "manage": "فتح",
+    "colName": "الاسم",
+    "colPhone": "واتساب",
+    "colCountry": "الدولة",
+    "colCurrency": "العملة",
+    "filter": {
+      "status": "النشط وغير النشط",
+      "active": "النشط فقط",
+      "inactive": "غير النشط فقط",
+      "all": "الكل"
+    },
+    "form": {
+      "fullName": "الاسم الكامل",
+      "phone": "رقم واتساب (E.164)",
+      "country": "الدولة (ISO-2)",
+      "currency": "العملة",
+      "notes": "ملاحظات",
+      "create": "إنشاء ولي أمر",
+      "creating": "جارٍ الإنشاء…",
+      "save": "حفظ التغييرات",
+      "saving": "جارٍ الحفظ…",
+      "saved": "تم الحفظ."
+    },
+    "detail": {
+      "children": "الطلاب",
+      "addChild": "إضافة طالب",
+      "noChildren": "لا يوجد طلاب بعد.",
+      "deactivate": "تعطيل ولي الأمر",
+      "deactivateBlocked": "عطّل طلاب ولي الأمر النشطين أولاً.",
+      "selfGuardian": "ولي أمر نفسه"
+    }
+  },
+  "teachers": {
+    "title": "المعلمون",
+    "new": "معلم جديد",
+    "empty": "لا يوجد معلمون بعد — أضف الأول.",
+    "back": "رجوع",
+    "manage": "فتح",
+    "colName": "الاسم",
+    "colSpecialization": "التخصص",
+    "colRate": "أجر الحصة",
+    "colPhone": "الهاتف",
+    "filter": {
+      "status": "النشط وغير النشط",
+      "active": "النشط فقط",
+      "inactive": "غير النشط فقط",
+      "all": "الكل"
+    },
+    "form": {
+      "fullName": "الاسم الكامل",
+      "phone": "الهاتف (E.164)",
+      "specialization": "التخصص",
+      "rate": "أجر الحصة",
+      "currency": "العملة",
+      "timezone": "المنطقة الزمنية",
+      "createLogin": "إنشاء حساب دخول لهذا المعلم",
+      "email": "بريد الدخول",
+      "create": "إنشاء معلم",
+      "creating": "جارٍ الإنشاء…",
+      "save": "حفظ التغييرات",
+      "saving": "جارٍ الحفظ…",
+      "saved": "تم الحفظ."
+    },
+    "detail": {
+      "profile": "الملف",
+      "rate": "أجر الحصة",
+      "availability": "التوفر الأسبوعي",
+      "students": "الطلاب الحاليون",
+      "noStudents": "لا يوجد طلاب نشطون.",
+      "noAvailability": "لم تُحدَّد أوقات توفر.",
+      "addWindow": "إضافة فترة",
+      "weekday": "اليوم",
+      "start": "البداية",
+      "end": "النهاية",
+      "remove": "إزالة",
+      "deactivate": "تعطيل المعلم",
+      "deactivateBlocked": "أعد إسناد طلاب هذا المعلم النشطين أولاً."
+    },
+    "weekday": {
+      "0": "الأحد",
+      "1": "الإثنين",
+      "2": "الثلاثاء",
+      "3": "الأربعاء",
+      "4": "الخميس",
+      "5": "الجمعة",
+      "6": "السبت"
+    }
+  },
+  "students": {
+    "title": "الطلاب",
+    "new": "طالب جديد",
+    "empty": "لا يوجد طلاب بعد — أضف الأول.",
+    "back": "رجوع",
+    "manage": "فتح",
+    "colName": "الاسم",
+    "colGuardian": "ولي الأمر",
+    "colTeacher": "المعلم",
+    "colPrice": "السعر",
+    "colStatus": "الحالة",
+    "none": "—",
+    "filter": {
+      "status": "النشط وغير النشط",
+      "active": "النشط فقط",
+      "inactive": "غير النشط فقط",
+      "all": "الكل",
+      "teacher": "أي معلم",
+      "subscriptionStatus": "أي اشتراك"
+    },
+    "subStatus": {
+      "ACTIVE": "نشط",
+      "PAUSED": "متوقف",
+      "ENDED": "منتهٍ"
+    },
+    "basis": {
+      "PER_SESSION": "لكل حصة",
+      "PER_MONTH": "شهري"
+    },
+    "form": {
+      "fullName": "الاسم الكامل",
+      "phone": "رقم واتساب (E.164)",
+      "country": "الدولة (ISO-2)",
+      "status": "الحالة",
+      "notes": "ملاحظات",
+      "guardian": "ولي الأمر",
+      "selfGuardian": "طالب بالغ (ولي أمر نفسه)",
+      "selfGuardianHint": "يُنشأ سجل ولي أمر تلقائياً من بيانات الطالب.",
+      "teacher": "المعلم",
+      "none": "بدون",
+      "create": "إنشاء طالب",
+      "creating": "جارٍ الإنشاء…",
+      "save": "حفظ التغييرات",
+      "saving": "جارٍ الحفظ…",
+      "saved": "تم الحفظ."
+    },
+    "subscription": {
+      "title": "الاشتراك",
+      "planLabel": "اسم الخطة",
+      "sessionsPerMonth": "حصص / شهر",
+      "price": "السعر",
+      "currency": "العملة",
+      "basis": "أساس السعر",
+      "startDate": "تاريخ البدء",
+      "set": "تعيين الاشتراك",
+      "saving": "جارٍ الحفظ…",
+      "none": "لا يوجد اشتراك نشط.",
+      "editPrice": "تغيير السعر",
+      "newPrice": "السعر الجديد",
+      "priceChanged": "تم تحديث السعر. يسري على الفوترة المستقبلية فقط.",
+      "saved": "تم حفظ الاشتراك."
+    },
+    "teacher": {
+      "title": "المعلم",
+      "current": "المعلم الحالي",
+      "none": "لم يُسند معلم.",
+      "change": "تغيير المعلم",
+      "effectiveDate": "تاريخ السريان",
+      "assign": "إسناد",
+      "history": "سجل الإسناد",
+      "ongoing": "مستمر",
+      "from": "من",
+      "to": "إلى"
+    },
+    "detail": {
+      "profile": "الملف",
+      "deactivate": "تعطيل الطالب"
     }
   }
 }

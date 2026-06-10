@@ -336,3 +336,331 @@ export function deleteReportField(
 export function listPlans(): Promise<{ plans: Plan[]; addOns: unknown[] }> {
   return apiFetch("/api/admin/plans");
 }
+
+// ── People: the server-driven DataTable contract (Sprint 4 §6.2) ─────────────
+
+/** A page of a server-driven list: the rows plus the total for pagination. */
+export interface ListResult<T> {
+  rows: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** The query a DataTable sends; serialised to ?search=&filter[k]=&sort=&page=&pageSize=. */
+export interface DataTableQuery {
+  search?: string;
+  sort?: string;
+  page?: number;
+  pageSize?: number;
+  filter?: Record<string, string>;
+}
+
+/** Serialise a DataTableQuery to a query string (omitting empties). */
+export function toQueryString(q: DataTableQuery): string {
+  const params = new URLSearchParams();
+  if (q.search) params.set("search", q.search);
+  if (q.sort) params.set("sort", q.sort);
+  if (q.page) params.set("page", String(q.page));
+  if (q.pageSize) params.set("pageSize", String(q.pageSize));
+  for (const [k, v] of Object.entries(q.filter ?? {})) {
+    if (v !== "" && v != null) params.set(`filter[${k}]`, v);
+  }
+  const s = params.toString();
+  return s ? `?${s}` : "";
+}
+
+// ── Guardians (Sprint 4 §8) ──────────────────────────────────────────────────
+
+export interface GuardianRow {
+  id: string;
+  full_name: string;
+  whatsapp_phone: string;
+  country: string | null;
+  currency: string;
+  notes: string | null;
+  deleted_at: string | null;
+  created_at: string;
+}
+
+export interface GuardianChild {
+  id: string;
+  full_name: string;
+  whatsapp_phone: string | null;
+  status: string | null;
+  is_self_guardian: boolean;
+  deleted_at: string | null;
+}
+
+export interface GuardianInput {
+  full_name?: string;
+  whatsapp_phone?: string;
+  country?: string | null;
+  currency?: string | null;
+  notes?: string | null;
+}
+
+export function listGuardians(
+  q: DataTableQuery = {},
+): Promise<ListResult<GuardianRow>> {
+  return apiFetch(`/api/guardians${toQueryString(q)}`);
+}
+
+export function getGuardian(
+  id: string,
+): Promise<{ guardian: GuardianRow; children: GuardianChild[] }> {
+  return apiFetch(`/api/guardians/${id}`);
+}
+
+export function createGuardian(
+  input: GuardianInput,
+): Promise<{ guardianId: string }> {
+  return apiFetch("/api/guardians", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateGuardian(
+  id: string,
+  patch: GuardianInput,
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/guardians/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deactivateGuardian(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/guardians/${id}/deactivate`, { method: "POST" });
+}
+
+// ── Teachers (Sprint 4 §8) ───────────────────────────────────────────────────
+
+export interface AvailabilityWindow {
+  weekday: number;
+  start_local: string;
+  end_local: string;
+}
+
+export interface TeacherRow {
+  id: string;
+  user_id: string | null;
+  full_name: string;
+  phone: string | null;
+  specialization: string | null;
+  session_rate_minor: number;
+  currency: string;
+  timezone: string | null;
+  availability: AvailabilityWindow[];
+  is_active: boolean;
+  deleted_at: string | null;
+  created_at: string;
+}
+
+export interface TeacherStudent {
+  id: string;
+  full_name: string;
+  started_at: string;
+}
+
+export interface TeacherInput {
+  full_name?: string;
+  phone?: string | null;
+  specialization?: string | null;
+  session_rate_minor?: number;
+  currency?: string | null;
+  timezone?: string | null;
+  availability?: AvailabilityWindow[];
+  create_login?: boolean;
+  email?: string | null;
+}
+
+export function listTeachers(
+  q: DataTableQuery = {},
+): Promise<ListResult<TeacherRow>> {
+  return apiFetch(`/api/teachers${toQueryString(q)}`);
+}
+
+export function getTeacher(
+  id: string,
+): Promise<{ teacher: TeacherRow; students: TeacherStudent[] }> {
+  return apiFetch(`/api/teachers/${id}`);
+}
+
+export function createTeacher(
+  input: TeacherInput,
+): Promise<{ teacherId: string; userId: string | null }> {
+  return apiFetch("/api/teachers", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateTeacher(
+  id: string,
+  patch: TeacherInput,
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/teachers/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deactivateTeacher(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/teachers/${id}/deactivate`, { method: "POST" });
+}
+
+// ── Students, subscriptions & teacher assignment (Sprint 4 §8) ───────────────
+
+export interface StudentRow {
+  id: string;
+  full_name: string;
+  whatsapp_phone: string | null;
+  status: string | null;
+  is_self_guardian: boolean;
+  guardian_id: string;
+  guardian_name: string | null;
+  subscription_id: string | null;
+  price_minor: number | null;
+  price_currency: string | null;
+  price_basis: string | null;
+  plan_label: string | null;
+  sessions_per_month: number | null;
+  start_date: string | null;
+  subscription_status: string | null;
+  teacher_id: string | null;
+  teacher_name: string | null;
+  deleted_at: string | null;
+  created_at: string;
+}
+
+export interface SubscriptionInput {
+  plan_label: string;
+  sessions_per_month?: number | null;
+  price_minor: number;
+  currency?: string | null;
+  price_basis?: "PER_SESSION" | "PER_MONTH";
+  start_date: string;
+}
+
+export interface StudentInput {
+  full_name?: string;
+  whatsapp_phone?: string | null;
+  country?: string | null;
+  status?: string | null;
+  notes?: string | null;
+  is_self_guardian?: boolean;
+  guardian_id?: string | null;
+  currency?: string | null;
+  teacher_id?: string | null;
+  subscription?: SubscriptionInput;
+}
+
+export interface StudentDetail {
+  student: Record<string, unknown> & {
+    id: string;
+    full_name: string;
+    guardian_id: string;
+    is_self_guardian: boolean;
+    status: string | null;
+  };
+  guardian: GuardianRow | null;
+  subscription:
+    | (Record<string, unknown> & {
+        id: string;
+        price_minor: number;
+        currency: string;
+        price_basis: string;
+        plan_label: string;
+        sessions_per_month: number | null;
+        start_date: string;
+      })
+    | null;
+  currentTeacher: {
+    teacher_id: string;
+    teacher_name: string | null;
+    started_at: string;
+  } | null;
+}
+
+export interface TeacherAssignmentHistoryItem {
+  id: string;
+  teacher_id: string;
+  teacher_name: string | null;
+  started_at: string;
+  ended_at: string | null;
+}
+
+export function listStudents(
+  q: DataTableQuery = {},
+): Promise<ListResult<StudentRow>> {
+  return apiFetch(`/api/students${toQueryString(q)}`);
+}
+
+export function getStudent(id: string): Promise<StudentDetail> {
+  return apiFetch(`/api/students/${id}`);
+}
+
+export function createStudent(
+  input: StudentInput,
+): Promise<{ studentId: string; guardianId: string }> {
+  return apiFetch("/api/students", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateStudent(
+  id: string,
+  patch: StudentInput,
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/students/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deactivateStudent(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/students/${id}/deactivate`, { method: "POST" });
+}
+
+export function setSubscription(
+  studentId: string,
+  input: SubscriptionInput,
+): Promise<{ subscriptionId: string }> {
+  return apiFetch(`/api/students/${studentId}/subscription`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function changeSubscriptionPrice(
+  studentId: string,
+  input: {
+    price_minor: number;
+    currency?: string;
+    price_basis?: "PER_SESSION" | "PER_MONTH";
+  },
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/students/${studentId}/subscription/price`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function reassignTeacher(
+  studentId: string,
+  input: { teacher_id: string; effective_date?: string },
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/students/${studentId}/teacher`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getTeacherHistory(
+  studentId: string,
+): Promise<{ history: TeacherAssignmentHistoryItem[] }> {
+  return apiFetch(`/api/students/${studentId}/teacher-history`);
+}

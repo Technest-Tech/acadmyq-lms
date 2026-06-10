@@ -6,6 +6,7 @@
   "nav": {
     "dashboard": "Dashboard",
     "academies": "Academies",
+    "guardians": "Guardians",
     "students": "Students",
     "teachers": "Teachers",
     "schedule": "Schedule",
@@ -120,6 +121,187 @@
       "deleteBlocked": "This field has report values and can only be deactivated.",
       "selectNeedsOptions": "A SELECT field needs at least one option.",
       "empty": "No report fields configured."
+    }
+  },
+  "datatable": {
+    "search": "Search",
+    "empty": "No results.",
+    "retry": "Retry",
+    "total": "{count} total",
+    "pageSize": "Page size",
+    "prev": "Previous",
+    "next": "Next"
+  },
+  "guardians": {
+    "title": "Guardians",
+    "new": "New guardian",
+    "empty": "No guardians yet — add your first.",
+    "back": "Back",
+    "manage": "Open",
+    "colName": "Name",
+    "colPhone": "WhatsApp",
+    "colCountry": "Country",
+    "colCurrency": "Currency",
+    "filter": {
+      "status": "Active & inactive",
+      "active": "Active only",
+      "inactive": "Inactive only",
+      "all": "All"
+    },
+    "form": {
+      "fullName": "Full name",
+      "phone": "WhatsApp phone (E.164)",
+      "country": "Country (ISO-2)",
+      "currency": "Currency",
+      "notes": "Notes",
+      "create": "Create guardian",
+      "creating": "Creating…",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "saved": "Saved."
+    },
+    "detail": {
+      "children": "Students",
+      "addChild": "Add student",
+      "noChildren": "No students yet.",
+      "deactivate": "Deactivate guardian",
+      "deactivateBlocked": "Deactivate this guardian's active students first.",
+      "selfGuardian": "Self-guardian"
+    }
+  },
+  "teachers": {
+    "title": "Teachers",
+    "new": "New teacher",
+    "empty": "No teachers yet — add your first.",
+    "back": "Back",
+    "manage": "Open",
+    "colName": "Name",
+    "colSpecialization": "Specialization",
+    "colRate": "Session rate",
+    "colPhone": "Phone",
+    "filter": {
+      "status": "Active & inactive",
+      "active": "Active only",
+      "inactive": "Inactive only",
+      "all": "All"
+    },
+    "form": {
+      "fullName": "Full name",
+      "phone": "Phone (E.164)",
+      "specialization": "Specialization",
+      "rate": "Session rate",
+      "currency": "Currency",
+      "timezone": "Timezone override",
+      "createLogin": "Create a login for this teacher",
+      "email": "Login email",
+      "create": "Create teacher",
+      "creating": "Creating…",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "saved": "Saved."
+    },
+    "detail": {
+      "profile": "Profile",
+      "rate": "Session rate",
+      "availability": "Weekly availability",
+      "students": "Current students",
+      "noStudents": "No active students.",
+      "noAvailability": "No availability windows set.",
+      "addWindow": "Add window",
+      "weekday": "Day",
+      "start": "Start",
+      "end": "End",
+      "remove": "Remove",
+      "deactivate": "Deactivate teacher",
+      "deactivateBlocked": "Reassign this teacher's active students first."
+    },
+    "weekday": {
+      "0": "Sunday",
+      "1": "Monday",
+      "2": "Tuesday",
+      "3": "Wednesday",
+      "4": "Thursday",
+      "5": "Friday",
+      "6": "Saturday"
+    }
+  },
+  "students": {
+    "title": "Students",
+    "new": "New student",
+    "empty": "No students yet — add your first.",
+    "back": "Back",
+    "manage": "Open",
+    "colName": "Name",
+    "colGuardian": "Guardian",
+    "colTeacher": "Teacher",
+    "colPrice": "Price",
+    "colStatus": "Status",
+    "none": "—",
+    "filter": {
+      "status": "Active & inactive",
+      "active": "Active only",
+      "inactive": "Inactive only",
+      "all": "All",
+      "teacher": "Any teacher",
+      "subscriptionStatus": "Any subscription"
+    },
+    "subStatus": {
+      "ACTIVE": "Active",
+      "PAUSED": "Paused",
+      "ENDED": "Ended"
+    },
+    "basis": {
+      "PER_SESSION": "Per session",
+      "PER_MONTH": "Per month"
+    },
+    "form": {
+      "fullName": "Full name",
+      "phone": "WhatsApp phone (E.164)",
+      "country": "Country (ISO-2)",
+      "status": "Status",
+      "notes": "Notes",
+      "guardian": "Guardian",
+      "selfGuardian": "Adult student (is their own guardian)",
+      "selfGuardianHint": "A guardian record is created automatically from the student's details.",
+      "teacher": "Teacher",
+      "none": "None",
+      "create": "Create student",
+      "creating": "Creating…",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "saved": "Saved."
+    },
+    "subscription": {
+      "title": "Subscription",
+      "planLabel": "Plan label",
+      "sessionsPerMonth": "Sessions / month",
+      "price": "Price",
+      "currency": "Currency",
+      "basis": "Price basis",
+      "startDate": "Start date",
+      "set": "Set subscription",
+      "saving": "Saving…",
+      "none": "No active subscription.",
+      "editPrice": "Change price",
+      "newPrice": "New price",
+      "priceChanged": "Price updated. Applies to future billing only.",
+      "saved": "Subscription saved."
+    },
+    "teacher": {
+      "title": "Teacher",
+      "current": "Current teacher",
+      "none": "No teacher assigned.",
+      "change": "Change teacher",
+      "effectiveDate": "Effective date",
+      "assign": "Assign",
+      "history": "Assignment history",
+      "ongoing": "ongoing",
+      "from": "From",
+      "to": "To"
+    },
+    "detail": {
+      "profile": "Profile",
+      "deactivate": "Deactivate student"
     }
   }
 }

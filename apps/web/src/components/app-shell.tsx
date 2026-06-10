@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 type NavKey =
   | "dashboard"
   | "academies"
+  | "guardians"
   | "students"
   | "teachers"
   | "schedule"
@@ -49,12 +50,23 @@ const NAV: ReadonlyArray<{
     href: "/academies",
   },
   {
+    key: "guardians",
+    icon: Users,
+    permission: "guardian.read",
+    href: "/guardians",
+  },
+  {
     key: "students",
     icon: GraduationCap,
     permission: "student.read",
-    href: "#",
+    href: "/students",
   },
-  { key: "teachers", icon: Users, permission: "teacher.read", href: "#" },
+  {
+    key: "teachers",
+    icon: Users,
+    permission: "teacher.read",
+    href: "/teachers",
+  },
   {
     key: "schedule",
     icon: CalendarDays,
