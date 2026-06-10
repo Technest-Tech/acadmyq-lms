@@ -50,19 +50,37 @@ jobs:
           cp .env.example .env
           php artisan key:generate
 
+      - name: Provision RLS roles
+        # Tests MUST connect as a NON-superuser, NON-BYPASSRLS role that owns the schema,
+        # or FORCE ROW LEVEL SECURITY is skipped and isolation silently fails. The service
+        # container's `postgres` user is a superuser (bypasses RLS), so create academiq_app
+        # + academiq_rls_bypass and hand them ownership of the test database's schema.
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d academiq_test -v ON_ERROR_STOP=1 <<'SQL'
+            create role academiq_rls_bypass nologin bypassrls;
+            create role academiq_app login password 'academiq' nosuperuser nobypassrls;
+            grant academiq_rls_bypass to academiq_app;
+            grant create on database academiq_test to academiq_app;
+            alter schema public owner to academiq_app;
+            grant create, usage on schema public to academiq_app;
+          SQL
+
       - name: Pint (code style)
         run: ./vendor/bin/pint --test
 
-      - name: Pest (tests, against PostgreSQL)
+      - name: Pest (tests, against PostgreSQL as the RLS app role)
         env:
-          # Real env vars override the non-forced sqlite values in phpunit.xml,
-          # so the health integration tests run against PostgreSQL (TC-0.10).
+          # Real env vars override the non-forced phpunit.xml values. Connect as the
+          # NON-superuser app role so FORCE RLS is exercised; CI's host/port differ.
           DB_CONNECTION: pgsql
           DB_HOST: localhost
           DB_PORT: 5432
           DB_DATABASE: academiq_test
-          DB_USERNAME: postgres
-          DB_PASSWORD: postgres
+          DB_USERNAME: academiq_app
+          DB_PASSWORD: academiq
+          DB_RLS_BYPASS_ROLE: academiq_rls_bypass
         run: ./vendor/bin/pest
 
   web:
