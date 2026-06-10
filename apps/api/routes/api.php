@@ -10,6 +10,10 @@ use App\Http\Controllers\People\GuardianController;
 use App\Http\Controllers\People\StudentController;
 use App\Http\Controllers\People\TeacherController;
 use App\Http\Controllers\ReportFieldController;
+use App\Http\Controllers\Scheduling\CalendarController;
+use App\Http\Controllers\Scheduling\GenerateSessionsController;
+use App\Http\Controllers\Scheduling\ScheduleController;
+use App\Http\Controllers\Scheduling\SessionController;
 use App\Http\Controllers\SessionReportController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -105,6 +109,21 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/teachers/{id}', [TeacherController::class, 'show']);
     Route::patch('/teachers/{id}', [TeacherController::class, 'update']);
     Route::post('/teachers/{id}/deactivate', [TeacherController::class, 'deactivate']);
+
+    // Scheduling & sessions (Sprint 5 §8). The weekly schedule is the rule; sessions are the
+    // materialised occurrences. Every route is capability-gated and tenant-scoped by RLS;
+    // generation is idempotent and audited (generator.run with created/removed counts).
+    Route::get('/students/{id}/schedule', [ScheduleController::class, 'show']);
+    Route::put('/students/{id}/schedule', [ScheduleController::class, 'put']);
+    Route::delete('/students/{id}/schedule', [ScheduleController::class, 'destroy']);
+
+    Route::post('/sessions', [SessionController::class, 'store']);
+    Route::post('/sessions/{id}/reschedule', [SessionController::class, 'reschedule']);
+    Route::post('/sessions/{id}/cancel', [SessionController::class, 'cancel']);
+
+    Route::get('/calendar', [CalendarController::class, 'index']);
+
+    Route::post('/admin/generate-sessions', GenerateSessionsController::class);
 
     // Minimal domain mutations exercising two-layer authorization (full invoicing: Sprint 7).
     Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
