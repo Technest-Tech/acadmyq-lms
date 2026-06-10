@@ -66,11 +66,35 @@ class DemoAcademySeeder extends Seeder
         }
     }
 
+    /**
+     * The Qur'an academy-type report-field template (Sprint 3 §5). Stored on the
+     * `academy_types` row as data, then COPIED into a new academy's
+     * `report_field_definitions` at provisioning — so adding a type is a catalog change with
+     * no code touch to the report engine (R-CRF, TC-3.27/3.28). Shape mirrors what the
+     * provisioning endpoint reads: [key, label_ar, label_en, field_type, options, is_required].
+     *
+     * @return list<array<string,mixed>>
+     */
+    public static function quranReportFieldTemplate(): array
+    {
+        return [
+            ['key' => 'surah_from', 'label_ar' => 'من سورة / آية', 'label_en' => 'From surah / ayah', 'field_type' => 'TEXT', 'options' => null, 'is_required' => true],
+            ['key' => 'surah_to', 'label_ar' => 'إلى سورة / آية', 'label_en' => 'To surah / ayah', 'field_type' => 'TEXT', 'options' => null, 'is_required' => true],
+            ['key' => 'tajweed_rating', 'label_ar' => 'تقييم التجويد', 'label_en' => 'Tajweed rating', 'field_type' => 'SELECT', 'options' => ['ممتاز', 'جيد جداً', 'جيد'], 'is_required' => false],
+            ['key' => 'next_assignment', 'label_ar' => 'الوِرد القادم', 'label_en' => 'Next assignment', 'field_type' => 'TEXT', 'options' => null, 'is_required' => false],
+            ['key' => 'notes', 'label_ar' => 'ملاحظات للأهل', 'label_en' => 'Notes for family', 'field_type' => 'TEXTAREA', 'options' => null, 'is_required' => false],
+        ];
+    }
+
     private function seedPlatformCatalog(): void
     {
         DB::table('academy_types')->updateOrInsert(
             ['code' => 'QURAN'],
-            ['name' => "Qur'an", 'description' => "Qur'an memorization & tajweed"]
+            [
+                'name' => "Qur'an",
+                'description' => "Qur'an memorization & tajweed",
+                'report_field_template' => json_encode(self::quranReportFieldTemplate()),
+            ]
         );
 
         foreach ([
@@ -272,26 +296,19 @@ class DemoAcademySeeder extends Seeder
         ]);
     }
 
+    /** Seed the demo academy's report fields by copying the Qur'an type template (§5). */
     private function seedReportFields(): void
     {
-        $fields = [
-            ['surah_from', 'من سورة', 'Surah from', 'TEXT', null, 1, true],
-            ['surah_to', 'إلى سورة', 'Surah to', 'TEXT', null, 2, true],
-            ['tajweed_rating', 'تقييم التجويد', 'Tajweed rating', 'SELECT',
-                '["excellent","good","needs_work"]', 3, false],
-            ['next_assignment', 'الواجب القادم', 'Next assignment', 'TEXT', null, 4, false],
-            ['notes', 'ملاحظات', 'Notes', 'TEXTAREA', null, 5, false],
-        ];
-        foreach ($fields as [$key, $ar, $en, $type, $options, $order, $required]) {
+        foreach (self::quranReportFieldTemplate() as $i => $field) {
             DB::table('report_field_definitions')->updateOrInsert(
-                ['academy_id' => self::ACADEMY_ID, 'key' => $key],
+                ['academy_id' => self::ACADEMY_ID, 'key' => $field['key']],
                 [
-                    'label_ar' => $ar,
-                    'label_en' => $en,
-                    'field_type' => $type,
-                    'options' => $options,
-                    'sort_order' => $order,
-                    'is_required' => $required,
+                    'label_ar' => $field['label_ar'],
+                    'label_en' => $field['label_en'],
+                    'field_type' => $field['field_type'],
+                    'options' => $field['options'] !== null ? json_encode($field['options']) : null,
+                    'sort_order' => $i + 1,
+                    'is_required' => $field['is_required'],
                     'is_active' => true,
                 ]
             );

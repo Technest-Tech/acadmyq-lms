@@ -52,9 +52,13 @@ final class PermissionCatalog
 
         return [
             // Platform capabilities + the ability to act within an entered academy.
+            // Onboarding (Sprint 3) is Super-Admin-only: provisioning the first owner login
+            // (user.invite) and seeding/editing an academy's report fields
+            // (report_field.manage) are platform actions the Super Admin performs in the new
+            // academy's context (§3.4, §4.2, §7).
             'SUPER_ADMIN' => [
                 'academy.create', 'academy.suspend', 'academy.configure', 'academy.enter', 'academy.read',
-                'plan.manage', 'role.assign', 'audit.read',
+                'plan.manage', 'user.invite', 'role.assign', 'report_field.manage', 'audit.read',
             ],
             // All academy-scoped capabilities, never the platform ones.
             'ACADEMY_OWNER' => $academyScoped,
