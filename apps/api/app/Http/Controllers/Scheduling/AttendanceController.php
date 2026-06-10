@@ -1,0 +1,94 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Scheduling;
+
+use App\Domain\SessionClassifier;
+use App\Enums\SessionStatus;
+use App\Http\Controllers\Controller;
+use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Services\AttendanceService;
+use App\Support\Audit;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Record a session's outcome (Sprint 6 §2, §8). This is the entry surface for both the Teacher
+ * (own sessions, §3.6) and the Owner/support (any session, R-BIL-4): `session.mark_attendance`
+ * gates it, RLS isolates the academy, and a TEACHER is additionally row-filtered to sessions
+ * they teach (TC-6.22). The five billable/non-billable outcomes are set here; the heavy lifting
+ * (classification → billing hook → audit) is delegated to {@see AttendanceService} (§5).
+ *
+ * The timing gate (§3.7, AC-6.9) prevents marking a future lesson attended; an Owner/Super Admin
+ * may override with an audited correction. Non-billable cancels are ALSO settable via the
+ * Sprint 5 cancel endpoint; this endpoint is the full outcome surface including the billable
+ * ABSENT_* statuses Sprint 5 deliberately left untouched.
+ */
+final class AttendanceController extends Controller
+{
+    use InteractsWithScheduling;
+
+    /** The outcomes a human records post-session. SCHEDULED/RESCHEDULED are never set here. */
+    private const OUTCOME_STATUSES = [
+        'ATTENDED',
+        'ABSENT_UNEXCUSED',
+        'ABSENT_EXCUSED',
+        'CANCELLED_BY_TEACHER',
+        'CANCELLED_BY_STUDENT',
+    ];
+
+    /** POST /api/sessions/{id}/attendance — gated by session.mark_attendance (+ teacher filter). */
+    public function store(Request $request, AttendanceService $service, string $sessionId): JsonResponse
+    {
+        Gate::authorize('session.mark_attendance');
+
+        $academyId = $this->currentAcademyId();
+        $session = $this->findOwnedSession($sessionId);
+
+        $data = $request->validate([
+            'status' => ['required', Rule::in(self::OUTCOME_STATUSES)],
+            'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'override_timing' => ['sometimes', 'boolean'],
+        ]);
+
+        $next = SessionStatus::from($data['status']);
+        $this->assertTimingAllowed($session, (bool) ($data['override_timing'] ?? false), $academyId);
+
+        $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role);
+
+        return response()->json([
+            'status' => $result['status'],
+            'billed' => $result['billed'],
+            'classification' => SessionClassifier::classify($next),
+        ]);
+    }
+
+    /**
+     * Block recording an outcome on a session still in the future beyond the configured grace
+     * (§3.7). An Owner/Super Admin may override (`override_timing`), which is audited; a Teacher
+     * cannot. The grace lets "now-ish" sessions be marked while keeping clearly-future ones safe.
+     */
+    private function assertTimingAllowed(object $session, bool $override, string $academyId): void
+    {
+        $grace = (int) config('attendance.grace_minutes', 0);
+        $startUtc = Carbon::parse($session->scheduled_at_utc)->utc();
+        $threshold = $startUtc->copy()->subMinutes($grace);
+
+        if (now()->lt($threshold)) {
+            $isOwner = in_array($this->ctx()->role, ['ACADEMY_OWNER', 'SUPER_ADMIN'], true);
+            if (! ($override && $isOwner)) {
+                throw ValidationException::withMessages([
+                    'status' => ['This session has not started yet; attendance cannot be recorded. / لم تبدأ هذه الحصة بعد، لا يمكن تسجيل الحضور.'],
+                ]);
+            }
+
+            Audit::log('session.attendance_override', 'session', (string) $session->id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['scheduled_at_utc' => $startUtc->toIso8601String(), 'override' => true]);
+        }
+    }
+}

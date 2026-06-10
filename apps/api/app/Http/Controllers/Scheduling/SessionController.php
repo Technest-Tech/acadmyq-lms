@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Scheduling;
 
+use App\Domain\SessionClassifier;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Support\Audit;
+use App\Support\ReportFields;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -182,25 +184,89 @@ final class SessionController extends Controller
         return response()->json(['ok' => true, 'status' => $status]);
     }
 
-    // ── internals ────────────────────────────────────────────────────────────
-
-    /** Load a session in the academy; a TEACHER is further limited to their own sessions (§3.6). */
-    private function findOwnedSession(string $sessionId): object
+    /**
+     * GET /api/sessions/{id} — one session with its report (if any) and the academy's active
+     * report-field definitions (the form for new entry). Deactivated fields that still carry a
+     * value in this report are returned separately so the UI can render them read-only (AC-6.6).
+     * session.read; a Teacher sees only their own sessions (§3.6).
+     */
+    public function show(string $sessionId): JsonResponse
     {
-        $session = DB::table('sessions')->where('id', $sessionId)->first();
-        if ($session === null) {
-            abort(404, 'Session not found.');
-        }
+        Gate::authorize('session.read');
+
+        $session = $this->findOwnedSession($sessionId);
+
+        $student = DB::table('students')->where('id', $session->student_id)->first(['id', 'full_name', 'guardian_id']);
+        $teacherName = DB::table('teachers')->where('id', $session->teacher_id)->value('full_name');
+        $report = DB::table('session_reports')->where('session_id', $sessionId)->first();
+        $values = $report !== null ? (json_decode($report->values, true) ?: []) : [];
+
+        return response()->json([
+            'session' => [
+                'id' => (string) $session->id,
+                'student_id' => (string) $session->student_id,
+                'teacher_id' => (string) $session->teacher_id,
+                'student_name' => $student?->full_name,
+                'teacher_name' => $teacherName,
+                'scheduled_at_utc' => Carbon::parse($session->scheduled_at_utc)->utc()->toIso8601String(),
+                'duration_minutes' => (int) $session->duration_minutes,
+                'status' => (string) $session->status,
+                'status_reason' => $session->status_reason,
+                'billed' => (bool) $session->billed,
+                'outcome_set_at' => $session->outcome_set_at !== null ? Carbon::parse($session->outcome_set_at)->utc()->toIso8601String() : null,
+                'classification' => SessionClassifier::classifyValue((string) $session->status),
+            ],
+            'report' => $report !== null ? [
+                'values' => $values,
+                'filled_by_user_id' => $report->filled_by_user_id,
+                'filled_at' => $report->filled_at !== null ? Carbon::parse($report->filled_at)->utc()->toIso8601String() : null,
+                'whatsapp_sent_at' => $report->whatsapp_sent_at !== null ? Carbon::parse($report->whatsapp_sent_at)->utc()->toIso8601String() : null,
+                'whatsapp_channel' => $report->whatsapp_channel,
+            ] : null,
+            'reportFields' => ReportFields::active((string) $session->academy_id),
+            'inactiveReportFields' => ReportFields::inactiveWithValues((string) $session->academy_id, $values),
+        ]);
+    }
+
+    /**
+     * GET /api/sessions/pending-attendance — sessions whose time has passed but still sit in
+     * SCHEDULED, i.e. they need an outcome (§8). A Teacher sees only their own (§3.6); RLS keeps
+     * every caller inside their academy. session.read.
+     */
+    public function pendingAttendance(): JsonResponse
+    {
+        Gate::authorize('session.read');
+
+        $query = DB::table('sessions as se')
+            ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
+            ->leftJoin('teachers as te', 'te.id', '=', 'se.teacher_id')
+            ->where('se.status', 'SCHEDULED')
+            ->where('se.scheduled_at_utc', '<=', now()->format('Y-m-d H:i:sP'))
+            ->select([
+                'se.id', 'se.student_id', 'se.teacher_id', 'se.scheduled_at_utc',
+                'se.duration_minutes', 'se.status',
+                'st.full_name as student_name', 'te.full_name as teacher_name',
+            ])
+            ->orderBy('se.scheduled_at_utc')->orderBy('se.id');
 
         if ($this->ctx()->role === 'TEACHER') {
-            $teacherId = $this->callerTeacherId();
-            if ($teacherId === null || (string) $session->teacher_id !== $teacherId) {
-                abort(403, 'Not your session.');
+            $ownTeacherId = $this->callerTeacherId();
+            if ($ownTeacherId === null) {
+                abort(403, 'No teacher record for this user.');
             }
+            $query->where('se.teacher_id', $ownTeacherId);
         }
 
-        return $session;
+        $rows = $query->limit(200)->get()->map(function ($r) {
+            $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
+
+            return $r;
+        });
+
+        return response()->json(['sessions' => $rows]);
     }
+
+    // ── internals ────────────────────────────────────────────────────────────
 
     private function currentTeacherFor(string $studentId): ?string
     {

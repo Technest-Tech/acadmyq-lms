@@ -50,6 +50,28 @@ trait InteractsWithScheduling
     }
 
     /**
+     * Load a session in the current academy (RLS already scopes to it); a TEACHER is further
+     * limited to their OWN sessions (Sprint 2 §3.6) — acting on another teacher's session is a
+     * 403, never a cross-academy leak. Owners/Super Admins carry no per-teacher filter.
+     */
+    protected function findOwnedSession(string $sessionId): object
+    {
+        $session = DB::table('sessions')->where('id', $sessionId)->first();
+        if ($session === null) {
+            abort(404, 'Session not found.');
+        }
+
+        if ($this->ctx()->role === 'TEACHER') {
+            $teacherId = $this->callerTeacherId();
+            if ($teacherId === null || (string) $session->teacher_id !== $teacherId) {
+                abort(403, 'Not your session.');
+            }
+        }
+
+        return $session;
+    }
+
+    /**
      * Resolve a requested instant from either an explicit UTC ISO string (`scheduled_at_utc`) or
      * a local wall-clock (`local_datetime` + `timezone`), converted per-date so DST is correct.
      */
