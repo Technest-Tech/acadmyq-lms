@@ -1,4 +1,9 @@
-import type { HealthResponse } from "@academiq/contracts";
+import type {
+  AcademyStatus,
+  HealthResponse,
+  InvoiceGrouping,
+  ReportFieldType,
+} from "@academiq/contracts";
 
 /**
  * Typed HTTP client for the Laravel JSON API.
@@ -156,4 +161,178 @@ export function setLocale(
 /** POST /api/admin/academies/exit — Super Admin returns to the platform view. */
 export function exitAcademy(): Promise<{ ok: boolean }> {
   return apiFetch("/api/admin/academies/exit", { method: "POST" });
+}
+
+// ── Academy management surface (Sprint 3 §7) ─────────────────────────────────
+
+/** A row in the Super Admin platform list (audited app.admin_list_academies). */
+export interface AcademyListItem {
+  id: string;
+  name: string;
+  status: AcademyStatus;
+  plan_id: string | null;
+  plan_code: string | null;
+  default_currency: string;
+  timezone: string;
+  invoice_grouping: InvoiceGrouping;
+  subdomain: string | null;
+  student_count: number;
+  teacher_count: number;
+}
+
+export interface AcademyType {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  reportFieldTemplate: ReportFieldTemplateItem[];
+}
+
+export interface ReportFieldTemplateItem {
+  key: string;
+  label_ar: string;
+  label_en: string;
+  field_type: ReportFieldType;
+  options: string[] | null;
+  is_required: boolean;
+}
+
+/** A persisted, per-academy report-field definition. */
+export interface ReportField {
+  id: string;
+  academy_id: string;
+  key: string;
+  label_ar: string;
+  label_en: string;
+  field_type: ReportFieldType;
+  options: string[] | null;
+  sort_order: number;
+  is_required: boolean;
+  is_active: boolean;
+}
+
+export interface Plan {
+  id: string;
+  code: string;
+  name: string;
+  price_minor: number;
+  currency: string;
+  is_active: boolean;
+}
+
+/** The wizard payload for creating an academy + seeding fields + first owner. */
+export interface CreateAcademyInput {
+  name: string;
+  academy_type_id: string;
+  plan_id?: string | null;
+  default_currency: string;
+  timezone: string;
+  invoice_grouping?: InvoiceGrouping;
+  billing_day?: number;
+  status?: "ACTIVE" | "TRIAL";
+  brand_display_name?: string | null;
+  brand_logo_url?: string | null;
+  subdomain?: string | null;
+  owner_full_name: string;
+  owner_email: string;
+}
+
+export function listAcademies(): Promise<{ academies: AcademyListItem[] }> {
+  return apiFetch("/api/admin/academies");
+}
+
+export function getAcademyTypes(): Promise<{ academyTypes: AcademyType[] }> {
+  return apiFetch("/api/admin/academy-types");
+}
+
+export function getAcademy(
+  id: string,
+): Promise<{ academy: Record<string, unknown> }> {
+  return apiFetch(`/api/admin/academies/${id}`);
+}
+
+export function createAcademy(
+  input: CreateAcademyInput,
+): Promise<{ academyId: string; ownerId: string; reportFields: number }> {
+  return apiFetch("/api/admin/academies", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAcademy(
+  id: string,
+  patch: Partial<CreateAcademyInput>,
+): Promise<{ ok: boolean; changed: string[]; warning: string | null }> {
+  return apiFetch(`/api/admin/academies/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function suspendAcademy(
+  id: string,
+  reason?: string,
+): Promise<{ ok: boolean; status: string }> {
+  return apiFetch(`/api/admin/academies/${id}/suspend`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function reactivateAcademy(
+  id: string,
+): Promise<{ ok: boolean; status: string }> {
+  return apiFetch(`/api/admin/academies/${id}/reactivate`, { method: "POST" });
+}
+
+export function listReportFields(
+  academyId: string,
+): Promise<{ reportFields: ReportField[] }> {
+  return apiFetch(`/api/academies/${academyId}/report-fields`);
+}
+
+export interface ReportFieldInput {
+  key?: string;
+  label_ar?: string;
+  label_en?: string;
+  field_type?: ReportFieldType;
+  options?: string[] | null;
+  sort_order?: number;
+  is_required?: boolean;
+  is_active?: boolean;
+}
+
+export function addReportField(
+  academyId: string,
+  input: ReportFieldInput,
+): Promise<{ reportFieldId: string }> {
+  return apiFetch(`/api/academies/${academyId}/report-fields`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateReportField(
+  academyId: string,
+  fieldId: string,
+  patch: ReportFieldInput,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/academies/${academyId}/report-fields/${fieldId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteReportField(
+  academyId: string,
+  fieldId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/academies/${academyId}/report-fields/${fieldId}`, {
+    method: "DELETE",
+  });
+}
+
+export function listPlans(): Promise<{ plans: Plan[]; addOns: unknown[] }> {
+  return apiFetch("/api/admin/plans");
 }

@@ -39,15 +39,36 @@ const NAV: ReadonlyArray<{
   key: NavKey;
   icon: ComponentType<{ className?: string }>;
   permission: string | null;
+  href: string;
 }> = [
-  { key: "dashboard", icon: GraduationCap, permission: null },
-  { key: "academies", icon: Building2, permission: "academy.read" },
-  { key: "students", icon: GraduationCap, permission: "student.read" },
-  { key: "teachers", icon: Users, permission: "teacher.read" },
-  { key: "schedule", icon: CalendarDays, permission: "schedule.read" },
-  { key: "invoices", icon: ReceiptText, permission: "invoice.read" },
-  { key: "payroll", icon: Wallet, permission: "payout.read" },
-  { key: "settings", icon: Settings, permission: "academy.configure" },
+  { key: "dashboard", icon: GraduationCap, permission: null, href: "/" },
+  {
+    key: "academies",
+    icon: Building2,
+    permission: "academy.read",
+    href: "/academies",
+  },
+  {
+    key: "students",
+    icon: GraduationCap,
+    permission: "student.read",
+    href: "#",
+  },
+  { key: "teachers", icon: Users, permission: "teacher.read", href: "#" },
+  {
+    key: "schedule",
+    icon: CalendarDays,
+    permission: "schedule.read",
+    href: "#",
+  },
+  { key: "invoices", icon: ReceiptText, permission: "invoice.read", href: "#" },
+  { key: "payroll", icon: Wallet, permission: "payout.read", href: "#" },
+  {
+    key: "settings",
+    icon: Settings,
+    permission: "academy.configure",
+    href: "#",
+  },
 ];
 
 /**
@@ -113,10 +134,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="text-lg font-semibold">{t("app.name")}</span>
         </div>
         <nav className="flex flex-col gap-1" data-testid="nav">
-          {items.map(({ key, icon: Icon }) => (
+          {items.map(({ key, icon: Icon, href }) => (
             <a
               key={key}
-              href="#"
+              href={href}
               data-nav={key}
               className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-3 rounded-md px-3 py-2 text-sm"
             >
