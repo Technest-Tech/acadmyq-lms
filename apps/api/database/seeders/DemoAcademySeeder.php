@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Support\PermissionCatalog;
 use App\Support\TenantContext;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 /**
  * Demo Qur'an academy (§9). Repeatable: every row is keyed by a stable UUID/code so
@@ -38,6 +40,8 @@ class DemoAcademySeeder extends Seeder
     private const STUDENT1_ID = '0a000000-0000-7000-8000-000000000041';
 
     private const STUDENT2_ID = '0a000000-0000-7000-8000-000000000042';
+
+    private const SUPER_ADMIN_USER_ID = '0a000000-0000-7000-8000-000000000001';
 
     public function run(): void
     {
@@ -85,27 +89,21 @@ class DemoAcademySeeder extends Seeder
             );
         }
 
-        $permissions = [
-            'student.create', 'student.update', 'student.delete',
-            'invoice.create', 'invoice.close', 'invoice.mark_paid',
-            'session.report.fill', 'teacher.manage', 'payout.finalize',
-        ];
-        foreach ($permissions as $code) {
+        // Full §5.3 capability catalog + §5.4 role mapping, sourced from PermissionCatalog
+        // so the seed and any test that asserts the mapping share one definition.
+        foreach (PermissionCatalog::PERMISSIONS as $code) {
             DB::table('permissions')->updateOrInsert(['code' => $code], ['description' => $code]);
         }
 
-        // ACADEMY_OWNER gets everything; TEACHER gets session reporting only.
         $permIds = DB::table('permissions')->pluck('id', 'code');
-        foreach ($permIds as $code => $id) {
-            DB::table('role_permissions')->updateOrInsert(
-                ['role' => 'ACADEMY_OWNER', 'permission_id' => $id],
-                []
-            );
+        foreach (PermissionCatalog::roleMap() as $role => $codes) {
+            foreach ($codes as $code) {
+                DB::table('role_permissions')->updateOrInsert(
+                    ['role' => $role, 'permission_id' => $permIds[$code]],
+                    []
+                );
+            }
         }
-        DB::table('role_permissions')->updateOrInsert(
-            ['role' => 'TEACHER', 'permission_id' => $permIds['session.report.fill']],
-            []
-        );
     }
 
     private function seedAcademy(): void
@@ -133,6 +131,26 @@ class DemoAcademySeeder extends Seeder
     {
         $password = Hash::make('password');
 
+        // Platform Super Admin — no home academy (academy_id NULL, §3.5).
+        DB::table('users')->updateOrInsert(
+            ['id' => self::SUPER_ADMIN_USER_ID],
+            [
+                'academy_id' => null,
+                'full_name' => 'Platform Admin',
+                'email' => 'admin@academiq.test',
+                'password' => $password,
+                'is_active' => true,
+                'email_verified_at' => now(),
+            ]
+        );
+        DB::table('user_roles')->updateOrInsert(
+            ['user_id' => self::SUPER_ADMIN_USER_ID, 'academy_id' => null, 'role' => 'SUPER_ADMIN'],
+            []
+        );
+        // No audit row for the platform-level (academy_id NULL) assignment: such rows are
+        // unreadable under any tenant context (the select policy compares academy_id to a
+        // non-NULL current_academy_id()), so the idempotency guard could never see them.
+
         DB::table('users')->updateOrInsert(
             ['id' => self::OWNER_USER_ID],
             [
@@ -148,6 +166,7 @@ class DemoAcademySeeder extends Seeder
             ['user_id' => self::OWNER_USER_ID, 'academy_id' => self::ACADEMY_ID, 'role' => 'ACADEMY_OWNER'],
             []
         );
+        $this->auditRoleAssigned(self::OWNER_USER_ID, self::ACADEMY_ID, 'ACADEMY_OWNER');
 
         $teachers = [
             [self::TEACHER1_USER_ID, self::TEACHER1_ID, 'Ustadh Ali', 'ali@noor.test'],
@@ -169,6 +188,7 @@ class DemoAcademySeeder extends Seeder
                 ['user_id' => $userId, 'academy_id' => self::ACADEMY_ID, 'role' => 'TEACHER'],
                 []
             );
+            $this->auditRoleAssigned($userId, self::ACADEMY_ID, 'TEACHER');
             DB::table('teachers')->updateOrInsert(
                 ['id' => $teacherId],
                 [
@@ -220,6 +240,36 @@ class DemoAcademySeeder extends Seeder
             ['academy_id' => self::ACADEMY_ID, 'student_id' => self::STUDENT2_ID, 'ended_at' => null],
             ['teacher_id' => self::TEACHER2_ID]
         );
+    }
+
+    /**
+     * Append an idempotent `role.assigned` audit entry (R-AUD-1). Keyed on
+     * (action, entity_id, after->role) so re-running the seeder does not duplicate it.
+     */
+    private function auditRoleAssigned(string $userId, ?string $academyId, string $role): void
+    {
+        $exists = DB::table('audit_log')
+            ->where('action', 'role.assigned')
+            ->where('entity_type', 'user_role')
+            ->where('entity_id', $userId)
+            ->where('after->role', $role)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        DB::table('audit_log')->insert([
+            'id' => (string) Str::uuid(),
+            'academy_id' => $academyId,
+            'actor_user_id' => self::SUPER_ADMIN_USER_ID,
+            'actor_role' => 'SUPER_ADMIN',
+            'action' => 'role.assigned',
+            'entity_type' => 'user_role',
+            'entity_id' => $userId,
+            'after' => json_encode(['role' => $role, 'academy_id' => $academyId]),
+            'created_at' => now(),
+        ]);
     }
 
     private function seedReportFields(): void
