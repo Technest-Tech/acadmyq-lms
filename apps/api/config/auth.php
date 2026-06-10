@@ -65,7 +65,11 @@ return [
 
     'providers' => [
         'users' => [
-            'driver' => 'eloquent',
+            // Custom provider (App\Auth\RlsBypassUserProvider, registered in
+            // AuthServiceProvider): credential + session-id lookups run through the
+            // BYPASSRLS SECURITY DEFINER functions so auth works before any tenant
+            // context exists (Sprint 2 §4, the login-under-RLS problem).
+            'driver' => 'rls-eloquent',
             'model' => env('AUTH_MODEL', User::class),
         ],
 

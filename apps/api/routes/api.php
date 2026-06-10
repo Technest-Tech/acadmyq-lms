@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Admin\AcademyController;
+use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\SessionReportController;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
@@ -29,6 +32,30 @@ Route::get('/health', function (): JsonResponse {
     ]);
 });
 
-// Sanctum-authenticated user (wired in Sprint 2; present here per install:api scaffold).
-Route::get('/user', fn (Request $request) => $request->user())
-    ->middleware('auth:sanctum');
+/*
+| Public auth entry point. Login runs OUTSIDE the tenant context (the user is not yet
+| known); the RlsBypassUserProvider performs the credential lookup under RLS. The SPA
+| primes the CSRF cookie via GET /sanctum/csrf-cookie (registered by Sanctum) first.
+*/
+Route::post('/auth/login', [AuthController::class, 'login']);
+
+/*
+| Authenticated API. `auth:sanctum` establishes identity; `tenant.context`
+| (TenantContextMiddleware) then sets the three app.* GUCs transaction-locally for the
+| rest of the request, so RLS scopes every query. Capability checks (Gate::authorize) are
+| applied per endpoint on top of the RLS backstop.
+*/
+Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
+    Route::post('/auth/logout', [AuthController::class, 'logout']);
+    Route::get('/auth/me', [AuthController::class, 'me']);
+    Route::patch('/auth/locale', [AuthController::class, 'setLocale']);
+
+    // Super Admin platform actions (§4.4).
+    Route::get('/admin/academies', [AcademyController::class, 'index']);
+    Route::post('/admin/academies/{id}/enter', [AcademyController::class, 'enter']);
+    Route::post('/admin/academies/exit', [AcademyController::class, 'exit']);
+
+    // Minimal domain mutations exercising two-layer authorization (full CRUD: Sprints 3+).
+    Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
+    Route::post('/sessions/{id}/report', [SessionReportController::class, 'store']);
+});
