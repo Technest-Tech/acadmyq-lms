@@ -1,0 +1,11 @@
+{
+  "name": "@academiq/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared FE/BE API contract: canonical enums (Master Spec §9) and response types. The Laravel API is the source of truth; these types must mirror it so the apps cannot silently drift.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts"
+}

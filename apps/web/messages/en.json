@@ -1,0 +1,33 @@
+{
+  "app": {
+    "name": "Academiq",
+    "tagline": "Academy Management Platform"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "academies": "Academies",
+    "students": "Students",
+    "teachers": "Teachers",
+    "schedule": "Schedule",
+    "invoices": "Invoices",
+    "payroll": "Payroll",
+    "settings": "Settings"
+  },
+  "header": {
+    "menu": "Menu",
+    "language": "Language"
+  },
+  "locale": {
+    "ar": "العربية",
+    "en": "English"
+  },
+  "health": {
+    "title": "System status",
+    "checking": "Checking…",
+    "app": "App",
+    "db": "Database",
+    "ok": "ok",
+    "error": "error",
+    "version": "Version"
+  }
+}
