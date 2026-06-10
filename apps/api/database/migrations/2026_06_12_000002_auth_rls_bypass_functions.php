@@ -65,9 +65,9 @@ return new class extends Migration
             as $$
             begin
               return query
-                select u.id, u.academy_id, u.full_name, u.email, u.password,
-                       u.phone, u.is_active, u.preferred_locale,
-                       u.last_login_at, u.email_verified_at, u.remember_token
+                select u.id, u.academy_id, u.full_name::text, u.email::text, u.password::text,
+                       u.phone::text, u.is_active, u.preferred_locale::text,
+                       u.last_login_at, u.email_verified_at, u.remember_token::text
                 from users u
                 where lower(u.email) = lower(p_email)
                 limit 1;
@@ -85,9 +85,9 @@ return new class extends Migration
             as $$
             begin
               return query
-                select u.id, u.academy_id, u.full_name, u.email, u.password,
-                       u.phone, u.is_active, u.preferred_locale,
-                       u.last_login_at, u.email_verified_at, u.remember_token
+                select u.id, u.academy_id, u.full_name::text, u.email::text, u.password::text,
+                       u.phone::text, u.is_active, u.preferred_locale::text,
+                       u.last_login_at, u.email_verified_at, u.remember_token::text
                 from users u
                 where u.id = p_id
                 limit 1;
