@@ -3,8 +3,10 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Admin\AcademyController;
+use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\ReportFieldController;
 use App\Http\Controllers\SessionReportController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -50,12 +52,34 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::patch('/auth/locale', [AuthController::class, 'setLocale']);
 
-    // Super Admin platform actions (§4.4).
+    // Super Admin platform actions (§4.4) + academy onboarding/lifecycle (Sprint 3 §7).
+    // Capability Gates live in the controllers; RLS is the database backstop. There is
+    // deliberately NO academy hard-delete route (decision §3.1 — academies are SUSPENDED).
+    Route::get('/admin/academy-types', [AcademyController::class, 'types']);
     Route::get('/admin/academies', [AcademyController::class, 'index']);
+    Route::post('/admin/academies', [AcademyController::class, 'store']);
+    Route::get('/admin/academies/{id}', [AcademyController::class, 'show']);
+    Route::patch('/admin/academies/{id}', [AcademyController::class, 'update']);
+    Route::post('/admin/academies/{id}/suspend', [AcademyController::class, 'suspend']);
+    Route::post('/admin/academies/{id}/reactivate', [AcademyController::class, 'reactivate']);
+    Route::post('/admin/academies/{id}/owner', [AcademyController::class, 'provisionOwner']);
     Route::post('/admin/academies/{id}/enter', [AcademyController::class, 'enter']);
     Route::post('/admin/academies/exit', [AcademyController::class, 'exit']);
 
-    // Minimal domain mutations exercising two-layer authorization (full CRUD: Sprints 3+).
+    // Plan & add-on catalog CRUD (Super Admin, plan.manage).
+    Route::get('/admin/plans', [PlanController::class, 'index']);
+    Route::post('/admin/plans', [PlanController::class, 'store']);
+    Route::patch('/admin/plans/{id}', [PlanController::class, 'update']);
+    Route::post('/admin/add-ons', [PlanController::class, 'storeAddOn']);
+    Route::patch('/admin/add-ons/{id}', [PlanController::class, 'updateAddOn']);
+
+    // Per-academy report-field configuration (report_field.manage; Owner or Super Admin).
+    Route::get('/academies/{id}/report-fields', [ReportFieldController::class, 'index']);
+    Route::post('/academies/{id}/report-fields', [ReportFieldController::class, 'store']);
+    Route::patch('/academies/{id}/report-fields/{fieldId}', [ReportFieldController::class, 'update']);
+    Route::delete('/academies/{id}/report-fields/{fieldId}', [ReportFieldController::class, 'destroy']);
+
+    // Minimal domain mutations exercising two-layer authorization (full CRUD: Sprints 4+).
     Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
     Route::post('/sessions/{id}/report', [SessionReportController::class, 'store']);
 });

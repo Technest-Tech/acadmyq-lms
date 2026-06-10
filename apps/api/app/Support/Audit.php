@@ -14,7 +14,11 @@ use Illuminate\Support\Facades\DB;
  */
 final class Audit
 {
-    /** @param  array<string,mixed>|null  $after */
+    /**
+     * @param  array<string,mixed>|null  $after
+     * @param  array<string,mixed>|null  $before  prior state of the changed fields
+     *                                            (AC-3.10/TC-3.30: configure records before/after)
+     */
     public static function log(
         string $action,
         string $entityType,
@@ -23,6 +27,7 @@ final class Audit
         ?string $actorUserId,
         ?string $actorRole,
         ?array $after = null,
+        ?array $before = null,
     ): void {
         DB::table('audit_log')->insert([
             'academy_id' => $academyId,
@@ -31,6 +36,7 @@ final class Audit
             'action' => $action,
             'entity_type' => $entityType,
             'entity_id' => $entityId,
+            'before' => $before !== null ? json_encode($before) : null,
             'after' => $after !== null ? json_encode($after) : null,
             'created_at' => now(),
         ]);

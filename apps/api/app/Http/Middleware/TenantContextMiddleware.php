@@ -50,6 +50,16 @@ final class TenantContextMiddleware
             abort(401, 'No role assigned.'); // fail closed — never default to an academy
         }
 
+        // A SUSPENDED academy blocks its owner/teacher access (AC-3.6) — not just at login
+        // but on every request, so an already-open session dies the moment it is suspended.
+        // SUPER_ADMIN is exempt (no home academy; may still administer a suspended tenant).
+        if ($role !== 'SUPER_ADMIN' && $academyId !== null) {
+            $status = DB::selectOne('select app.auth_academy_status(?::uuid) as s', [$academyId])->s;
+            if ($status === 'SUSPENDED') {
+                abort(403, 'This academy is suspended.');
+            }
+        }
+
         $ctx = new AuthContext(
             userId: (string) $user->getKey(),
             academyId: $academyId,

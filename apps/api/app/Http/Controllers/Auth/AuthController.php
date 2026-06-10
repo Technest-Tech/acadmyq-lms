@@ -48,13 +48,25 @@ final class AuthController extends Controller
             return response()->json(['message' => 'These credentials do not match our records.'], 403);
         }
 
+        [$role, $academyId] = $this->primaryRole($user->getKey());
+
+        // A SUSPENDED academy blocks its owner/teacher logins; data is retained (AC-3.6,
+        // TC-3.15). Read the status via the BYPASSRLS reader since no context is set yet.
+        // SUPER_ADMIN has no home academy, so this never gates a platform admin.
+        if ($role !== 'SUPER_ADMIN' && $academyId !== null && $this->academyIsSuspended($academyId)) {
+            Auth::guard('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return response()->json(['message' => 'This academy is suspended.'], 403);
+        }
+
         $request->session()->regenerate();
 
         // Stamp + audit the login. Both touch the RLS users/audit tables with no tenant
         // context, so the last-login write goes through the BYPASSRLS function.
         DB::statement('select app.auth_touch_last_login(?::uuid)', [$user->getKey()]);
 
-        [$role, $academyId] = $this->primaryRole($user->getKey());
         Audit::log('auth.login', 'user', (string) $user->getKey(), $academyId, (string) $user->getKey(), $role);
 
         return response()->json(['role' => $role, 'academyId' => $academyId]);
@@ -131,5 +143,13 @@ final class AuthController extends Controller
             $first->role ?? 'TEACHER',
             isset($first->academy_id) && $first->academy_id !== null ? (string) $first->academy_id : null,
         ];
+    }
+
+    /** Is the academy SUSPENDED? Read with no context via the BYPASSRLS status reader. */
+    private function academyIsSuspended(string $academyId): bool
+    {
+        $status = DB::selectOne('select app.auth_academy_status(?::uuid) as s', [$academyId])->s;
+
+        return $status === 'SUSPENDED';
     }
 }

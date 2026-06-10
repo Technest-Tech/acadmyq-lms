@@ -127,6 +127,21 @@ return new class extends Migration
             DB::unprepared("revoke all on function {$sig} from public;");
             DB::unprepared("grant execute on function {$sig} to {$app};");
         }
+
+        // --- audit_log: let a Super Admin read platform-level (NULL-academy) entries -------
+        // Sprint 1's select policy was tenant-scoped only (`academy_id = current_academy_id()`),
+        // so platform actions logged with academy_id IS NULL (e.g. plan.manage) were readable
+        // by no one. The Super Admin owns the platform audit trail (audit.read), so widen the
+        // policy exactly as Sprint 2 did for `users`. Append-only is untouched: there is still
+        // no update/delete policy.
+        DB::unprepared(<<<'SQL'
+            drop policy if exists audit_select on audit_log;
+            create policy audit_select on audit_log for select
+              using (
+                academy_id = app.current_academy_id()
+                or (academy_id is null and app.is_super_admin())
+              );
+        SQL);
     }
 
     public function down(): void
@@ -135,6 +150,13 @@ return new class extends Migration
         $app = $this->role('app_role');
 
         DB::unprepared('drop function if exists app.auth_academy_status(uuid);');
+
+        // Restore the Sprint 1 tenant-only audit select policy.
+        DB::unprepared(<<<'SQL'
+            drop policy if exists audit_select on audit_log;
+            create policy audit_select on audit_log for select
+              using (academy_id = app.current_academy_id());
+        SQL);
 
         // Restore the Sprint 1 (narrow) academy-list function definition.
         DB::unprepared(<<<'SQL'
