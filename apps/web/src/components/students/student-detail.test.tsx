@@ -14,6 +14,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   listTeachers: vi.fn(),
   reassignTeacher: vi.fn(),
   changeSubscriptionPrice: vi.fn(),
+  getStudentSchedule: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -80,6 +81,10 @@ function setup() {
   });
   vi.mocked(api.reassignTeacher).mockResolvedValue({ ok: true });
   vi.mocked(api.changeSubscriptionPrice).mockResolvedValue({ ok: true });
+  vi.mocked(api.getStudentSchedule).mockResolvedValue({
+    schedule: null,
+    slots: [],
+  });
 }
 
 function renderDetail() {

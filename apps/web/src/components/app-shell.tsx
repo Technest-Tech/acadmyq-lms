@@ -71,7 +71,7 @@ const NAV: ReadonlyArray<{
     key: "schedule",
     icon: CalendarDays,
     permission: "schedule.read",
-    href: "#",
+    href: "/calendar",
   },
   { key: "invoices", icon: ReceiptText, permission: "invoice.read", href: "#" },
   { key: "payroll", icon: Wallet, permission: "payout.read", href: "#" },

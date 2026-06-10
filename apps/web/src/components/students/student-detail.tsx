@@ -4,6 +4,7 @@ import { PRICE_BASIS } from "@academiq/contracts";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { ScheduleSection } from "@/components/scheduling/schedule-editor";
 import { Button } from "@/components/ui/button";
 import {
   ApiError,
@@ -152,6 +153,14 @@ export function StudentDetail({
         onChanged={() => void refresh()}
         onError={setError}
       />
+
+      {can("schedule.read") && (
+        <ScheduleSection
+          studentId={studentId}
+          canManage={can("schedule.manage")}
+          onError={setError}
+        />
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import type {
   HealthResponse,
   InvoiceGrouping,
   ReportFieldType,
+  SessionStatus,
 } from "@academiq/contracts";
 
 /**
@@ -663,4 +664,154 @@ export function getTeacherHistory(
   studentId: string,
 ): Promise<{ history: TeacherAssignmentHistoryItem[] }> {
   return apiFetch(`/api/students/${studentId}/teacher-history`);
+}
+
+// ── Scheduling & sessions (Sprint 5 §8) ──────────────────────────────────────
+
+/** A per-weekday slot of a recurring schedule (local wall-clock + duration). */
+export interface ScheduleSlot {
+  id?: string;
+  weekday: number; // 0=Sun … 6=Sat
+  start_time_local: string; // "17:00" or "17:00:00"
+  duration_minutes: number;
+}
+
+export interface Schedule {
+  id: string;
+  student_id: string;
+  teacher_id: string;
+  timezone: string;
+  is_active: boolean;
+  version: number;
+}
+
+export interface ScheduleInput {
+  timezone?: string;
+  teacher_id?: string | null;
+  slots: ScheduleSlot[];
+}
+
+/** Counts returned by every generation run (idempotent: re-running yields 0/0). */
+export interface GenerateCounts {
+  created: number;
+  removed: number;
+}
+
+/** A soft, non-blocking guidance warning surfaced on create/reschedule (§3.7). */
+export interface SchedulingWarning {
+  type: "conflict" | "availability";
+  message: string;
+  detail?: unknown;
+}
+
+/** One materialised occurrence as the calendar feed returns it (UTC instant). */
+export interface CalendarSession {
+  id: string;
+  student_id: string;
+  teacher_id: string;
+  schedule_id: string | null;
+  scheduled_at_utc: string;
+  duration_minutes: number;
+  status: SessionStatus;
+  status_reason: string | null;
+  original_session_id: string | null;
+  student_name: string | null;
+  teacher_name: string | null;
+}
+
+export function getStudentSchedule(
+  studentId: string,
+): Promise<{ schedule: Schedule | null; slots: ScheduleSlot[] }> {
+  return apiFetch(`/api/students/${studentId}/schedule`);
+}
+
+export function putStudentSchedule(
+  studentId: string,
+  input: ScheduleInput,
+): Promise<{ scheduleId: string; generated: GenerateCounts }> {
+  return apiFetch(`/api/students/${studentId}/schedule`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteStudentSchedule(
+  studentId: string,
+): Promise<{ ok: boolean; generated: GenerateCounts }> {
+  return apiFetch(`/api/students/${studentId}/schedule`, { method: "DELETE" });
+}
+
+export interface CalendarQuery {
+  from: string; // Y-m-d
+  to: string; // Y-m-d
+  teacherId?: string;
+  studentId?: string;
+}
+
+export function getCalendar(
+  q: CalendarQuery,
+): Promise<{ sessions: CalendarSession[]; from: string; to: string }> {
+  const params = new URLSearchParams({ from: q.from, to: q.to });
+  if (q.teacherId) params.set("teacherId", q.teacherId);
+  if (q.studentId) params.set("studentId", q.studentId);
+  return apiFetch(`/api/calendar?${params.toString()}`);
+}
+
+export interface SessionInput {
+  student_id: string;
+  teacher_id?: string | null;
+  scheduled_at_utc?: string;
+  local_datetime?: string;
+  timezone?: string;
+  duration_minutes: number;
+}
+
+export function createSession(
+  input: SessionInput,
+): Promise<{ sessionId: string; warnings: SchedulingWarning[] }> {
+  return apiFetch("/api/sessions", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export interface RescheduleInput {
+  scheduled_at_utc?: string;
+  local_datetime?: string;
+  timezone?: string;
+  duration_minutes?: number;
+  reason?: string;
+}
+
+export function rescheduleSession(
+  sessionId: string,
+  input: RescheduleInput,
+): Promise<{
+  sessionId: string;
+  originalSessionId: string;
+  warnings: SchedulingWarning[];
+}> {
+  return apiFetch(`/api/sessions/${sessionId}/reschedule`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function cancelSession(
+  sessionId: string,
+  input: { cancelled_by: "teacher" | "student"; reason?: string },
+): Promise<{ ok: boolean; status: string }> {
+  return apiFetch(`/api/sessions/${sessionId}/cancel`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function generateSessions(
+  input: { from?: string; to?: string } = {},
+): Promise<{ generated: GenerateCounts }> {
+  return apiFetch("/api/admin/generate-sessions", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }

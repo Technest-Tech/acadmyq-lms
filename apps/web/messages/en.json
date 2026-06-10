@@ -303,5 +303,57 @@
       "profile": "Profile",
       "deactivate": "Deactivate student"
     }
+  },
+  "scheduling": {
+    "title": "Weekly schedule",
+    "active": "Active",
+    "none": "No schedule set.",
+    "weekdayLabel": "Day",
+    "startTime": "Start time",
+    "duration": "Minutes",
+    "removeSlot": "Remove slot",
+    "addSlot": "Add slot",
+    "timezone": "Timezone",
+    "timezonePlaceholder": "Academy default",
+    "save": "Save schedule",
+    "saving": "Saving…",
+    "delete": "Delete schedule",
+    "saved": "Saved · {created} created, {removed} removed.",
+    "deleted": "Schedule deleted · {removed} future sessions removed.",
+    "weekday": {
+      "0": "Sunday",
+      "1": "Monday",
+      "2": "Tuesday",
+      "3": "Wednesday",
+      "4": "Thursday",
+      "5": "Friday",
+      "6": "Saturday"
+    },
+    "calendar": {
+      "title": "Calendar",
+      "teacher": "Teacher",
+      "allTeachers": "All teachers",
+      "prev": "Prev",
+      "next": "Next",
+      "empty": "You do not have access to the calendar."
+    },
+    "status": {
+      "SCHEDULED": "Scheduled",
+      "ATTENDED": "Attended",
+      "ABSENT_UNEXCUSED": "Absent (unexcused)",
+      "ABSENT_EXCUSED": "Absent (excused)",
+      "CANCELLED_BY_TEACHER": "Cancelled (teacher)",
+      "CANCELLED_BY_STUDENT": "Cancelled (student)",
+      "RESCHEDULED": "Rescheduled"
+    },
+    "actions": {
+      "title": "Session · {name}",
+      "acknowledge": "Done",
+      "reason": "Reason (optional)",
+      "newTime": "New time",
+      "reschedule": "Reschedule",
+      "cancelByTeacher": "Cancel (by teacher)",
+      "cancelByStudent": "Cancel (by student)"
+    }
   }
 }

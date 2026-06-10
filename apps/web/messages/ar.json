@@ -303,5 +303,57 @@
       "profile": "الملف",
       "deactivate": "تعطيل الطالب"
     }
+  },
+  "scheduling": {
+    "title": "الجدول الأسبوعي",
+    "active": "مُفعّل",
+    "none": "لا يوجد جدول.",
+    "weekdayLabel": "اليوم",
+    "startTime": "وقت البدء",
+    "duration": "دقائق",
+    "removeSlot": "حذف الموعد",
+    "addSlot": "إضافة موعد",
+    "timezone": "المنطقة الزمنية",
+    "timezonePlaceholder": "افتراضي الأكاديمية",
+    "save": "حفظ الجدول",
+    "saving": "جارٍ الحفظ…",
+    "delete": "حذف الجدول",
+    "saved": "تم الحفظ · {created} مُنشأ، {removed} مُزال.",
+    "deleted": "تم حذف الجدول · {removed} حصة مستقبلية مُزالة.",
+    "weekday": {
+      "0": "الأحد",
+      "1": "الاثنين",
+      "2": "الثلاثاء",
+      "3": "الأربعاء",
+      "4": "الخميس",
+      "5": "الجمعة",
+      "6": "السبت"
+    },
+    "calendar": {
+      "title": "التقويم",
+      "teacher": "المعلّم",
+      "allTeachers": "كل المعلّمين",
+      "prev": "السابق",
+      "next": "التالي",
+      "empty": "لا تملك صلاحية الوصول إلى التقويم."
+    },
+    "status": {
+      "SCHEDULED": "مجدولة",
+      "ATTENDED": "حضَر",
+      "ABSENT_UNEXCUSED": "غياب بدون عذر",
+      "ABSENT_EXCUSED": "غياب بعذر",
+      "CANCELLED_BY_TEACHER": "ملغاة (المعلّم)",
+      "CANCELLED_BY_STUDENT": "ملغاة (الطالب)",
+      "RESCHEDULED": "أُعيد جدولتها"
+    },
+    "actions": {
+      "title": "حصة · {name}",
+      "acknowledge": "تم",
+      "reason": "السبب (اختياري)",
+      "newTime": "الوقت الجديد",
+      "reschedule": "إعادة جدولة",
+      "cancelByTeacher": "إلغاء (المعلّم)",
+      "cancelByStudent": "إلغاء (الطالب)"
+    }
   }
 }
