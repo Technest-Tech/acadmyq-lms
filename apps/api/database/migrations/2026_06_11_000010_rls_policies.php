@@ -54,7 +54,7 @@ return new class extends Migration
         $app = $this->role('app_role');
 
         // --- Standard tenant policy on every tenant-scoped table -------------
-        $tenant = "array['" . implode("','", self::TENANT_TABLES) . "']";
+        $tenant = "array['".implode("','", self::TENANT_TABLES)."']";
         DB::unprepared(<<<SQL
             do \$\$
             declare t text;
@@ -71,7 +71,7 @@ return new class extends Migration
         SQL);
 
         // --- Platform catalog: read-all, write-super-admin ------------------
-        $platform = "array['" . implode("','", self::PLATFORM_TABLES) . "']";
+        $platform = "array['".implode("','", self::PLATFORM_TABLES)."']";
         DB::unprepared(<<<SQL
             do \$\$
             declare t text;
@@ -199,7 +199,7 @@ return new class extends Migration
         SQL);
 
         $all = array_merge(self::TENANT_TABLES, ['audit_log']);
-        $tenant = "array['" . implode("','", $all) . "']";
+        $tenant = "array['".implode("','", $all)."']";
         DB::unprepared(<<<SQL
             do \$\$
             declare t text;
@@ -221,7 +221,7 @@ return new class extends Migration
             alter table academies disable row level security;
         SQL);
 
-        $platform = "array['" . implode("','", self::PLATFORM_TABLES) . "']";
+        $platform = "array['".implode("','", self::PLATFORM_TABLES)."']";
         DB::unprepared(<<<SQL
             do \$\$
             declare t text;

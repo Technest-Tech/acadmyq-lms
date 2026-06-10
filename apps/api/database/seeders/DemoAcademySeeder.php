@@ -22,13 +22,21 @@ class DemoAcademySeeder extends Seeder
 {
     // Stable identifiers (idempotency keys).
     private const ACADEMY_ID = '0a000000-0000-7000-8000-000000000001';
+
     private const OWNER_USER_ID = '0a000000-0000-7000-8000-000000000010';
+
     private const TEACHER1_USER_ID = '0a000000-0000-7000-8000-000000000011';
+
     private const TEACHER2_USER_ID = '0a000000-0000-7000-8000-000000000012';
+
     private const TEACHER1_ID = '0a000000-0000-7000-8000-000000000021';
+
     private const TEACHER2_ID = '0a000000-0000-7000-8000-000000000022';
+
     private const GUARDIAN_ID = '0a000000-0000-7000-8000-000000000031';
+
     private const STUDENT1_ID = '0a000000-0000-7000-8000-000000000041';
+
     private const STUDENT2_ID = '0a000000-0000-7000-8000-000000000042';
 
     public function run(): void
