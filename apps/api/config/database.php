@@ -22,6 +22,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Row-Level Security roles (Sprint 1)
+    |--------------------------------------------------------------------------
+    |
+    | RLS isolation depends on the app connecting as a NON-superuser, NON-BYPASSRLS
+    | role that OWNS the tenant tables (so FORCE ROW LEVEL SECURITY applies to it).
+    | A separate NOLOGIN, BYPASSRLS role owns the few SECURITY DEFINER "escape hatch"
+    | functions (public invoice by token, super-admin academy list) so they can cross
+    | tenants in one audited, allow-listed path. See database/bootstrap/.
+    |
+    */
+
+    'rls' => [
+        'app_role' => env('DB_USERNAME', 'academiq_app'),
+        'bypass_role' => env('DB_RLS_BYPASS_ROLE', 'academiq_rls_bypass'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Database Connections
     |--------------------------------------------------------------------------
     |

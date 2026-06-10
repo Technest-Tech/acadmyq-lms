@@ -22,12 +22,20 @@
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="CACHE_STORE" value="array"/>
-        <!-- Default test DB is SQLite in-memory so the suite runs anywhere.
-             CI sets real DB_CONNECTION=pgsql + DB_* env vars (force defaults off,
-             so PHPUnit does not override an already-present env var) to exercise
-             the PostgreSQL path for the health integration tests (TC-0.10). -->
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <!-- Sprint 1 requires PostgreSQL: Row-Level Security and the tenant GUC
+             harness do not exist in SQLite. Tests run against a dedicated
+             `academiq_test` database as the NON-superuser `academiq_app` role so
+             FORCE ROW LEVEL SECURITY is actually exercised (a superuser or a
+             BYPASSRLS role would silently defeat isolation). Provision once with
+             database/bootstrap/roles_and_databases.sql. CI may override any of
+             these via real env vars (force defaults off → a present env var wins). -->
+        <env name="DB_CONNECTION" value="pgsql"/>
+        <env name="DB_HOST" value="127.0.0.1"/>
+        <env name="DB_PORT" value="5432"/>
+        <env name="DB_DATABASE" value="academiq_test"/>
+        <env name="DB_USERNAME" value="academiq_app"/>
+        <env name="DB_PASSWORD" value="academiq"/>
+        <env name="SESSION_TABLE" value="user_sessions"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>

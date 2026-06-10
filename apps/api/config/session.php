@@ -88,7 +88,8 @@ return [
     |
     */
 
-    'table' => env('SESSION_TABLE', 'sessions'),
+    // Default renamed away from 'sessions': the domain owns a `sessions` table (§6.5).
+    'table' => env('SESSION_TABLE', 'user_sessions'),
 
     /*
     |--------------------------------------------------------------------------
