@@ -15,7 +15,24 @@
   },
   "header": {
     "menu": "Menu",
-    "language": "Language"
+    "language": "Language",
+    "enteredAcademy": "Inside academy",
+    "exit": "Exit"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "signingIn": "Signing in…",
+    "signOut": "Sign out",
+    "email": "Email",
+    "password": "Password",
+    "loading": "Loading…",
+    "invalidCredentials": "These credentials do not match our records.",
+    "serverError": "Something went wrong. Please try again."
+  },
+  "roles": {
+    "SUPER_ADMIN": "Platform Admin",
+    "ACADEMY_OWNER": "Academy Owner",
+    "TEACHER": "Teacher"
   },
   "locale": {
     "ar": "العربية",

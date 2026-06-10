@@ -15,7 +15,24 @@
   },
   "header": {
     "menu": "القائمة",
-    "language": "اللغة"
+    "language": "اللغة",
+    "enteredAcademy": "داخل أكاديمية",
+    "exit": "خروج"
+  },
+  "auth": {
+    "signIn": "تسجيل الدخول",
+    "signingIn": "جارٍ تسجيل الدخول…",
+    "signOut": "تسجيل الخروج",
+    "email": "البريد الإلكتروني",
+    "password": "كلمة المرور",
+    "loading": "جارٍ التحميل…",
+    "invalidCredentials": "بيانات الاعتماد هذه غير مطابقة لسجلاتنا.",
+    "serverError": "حدث خطأ ما. يُرجى المحاولة مرة أخرى."
+  },
+  "roles": {
+    "SUPER_ADMIN": "مدير المنصة",
+    "ACADEMY_OWNER": "مالك الأكاديمية",
+    "TEACHER": "معلم"
   },
   "locale": {
     "ar": "العربية",
