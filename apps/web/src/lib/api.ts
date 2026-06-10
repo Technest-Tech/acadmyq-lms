@@ -815,3 +815,135 @@ export function generateSessions(
     body: JSON.stringify(input),
   });
 }
+
+/*
+| Attendance & custom reports (Sprint 6 §8). The attendance outcome fires the billing hook
+| server-side; the report engine renders the academy's report_field_definitions and stores
+| values keyed by field key. Transport only — all rules live in the API.
+*/
+
+/** The billing/payout verdict the API derives from a status via the single classify() (§4). */
+export interface SessionClassification {
+  billableToStudent: boolean;
+  countsForTeacher: boolean;
+}
+
+/** One session with its billing-relevant fields (GET /api/sessions/{id}). */
+export interface SessionDetail {
+  id: string;
+  student_id: string;
+  teacher_id: string;
+  student_name: string | null;
+  teacher_name: string | null;
+  scheduled_at_utc: string;
+  duration_minutes: number;
+  status: SessionStatus;
+  status_reason: string | null;
+  billed: boolean;
+  outcome_set_at: string | null;
+  classification: SessionClassification;
+}
+
+export interface SessionReportData {
+  values: Record<string, unknown>;
+  filled_by_user_id: string | null;
+  filled_at: string | null;
+  whatsapp_sent_at: string | null;
+  whatsapp_channel: string | null;
+}
+
+/** GET /api/sessions/{id} — session + its report + the active/inactive report-field defs. */
+export interface SessionDetailResponse {
+  session: SessionDetail;
+  report: SessionReportData | null;
+  reportFields: ReportField[];
+  inactiveReportFields: ReportField[];
+}
+
+export function getSession(sessionId: string): Promise<SessionDetailResponse> {
+  return apiFetch(`/api/sessions/${sessionId}`);
+}
+
+/** The five outcomes a human records after a lesson (Sprint 6 §2). */
+export type AttendanceOutcome =
+  | "ATTENDED"
+  | "ABSENT_UNEXCUSED"
+  | "ABSENT_EXCUSED"
+  | "CANCELLED_BY_TEACHER"
+  | "CANCELLED_BY_STUDENT";
+
+export function markAttendance(
+  sessionId: string,
+  input: { status: AttendanceOutcome; reason?: string; override_timing?: boolean },
+): Promise<{ status: string; billed: boolean; classification: SessionClassification }> {
+  return apiFetch(`/api/sessions/${sessionId}/attendance`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function putSessionReport(
+  sessionId: string,
+  values: Record<string, unknown>,
+): Promise<{ ok: boolean; values: Record<string, unknown> }> {
+  return apiFetch(`/api/sessions/${sessionId}/report`, {
+    method: "PUT",
+    body: JSON.stringify({ values }),
+  });
+}
+
+export interface WhatsAppMessage {
+  text: string;
+  phone: string;
+  deeplink: string;
+}
+
+export function markWhatsappSent(
+  sessionId: string,
+): Promise<{ ok: boolean; sentAt: string; channel: string; message: WhatsAppMessage }> {
+  return apiFetch(`/api/sessions/${sessionId}/report/whatsapp-sent`, {
+    method: "POST",
+  });
+}
+
+/** One pending occurrence awaiting an outcome (GET /api/sessions/pending-attendance). */
+export interface PendingSession {
+  id: string;
+  student_id: string;
+  teacher_id: string;
+  scheduled_at_utc: string;
+  duration_minutes: number;
+  status: SessionStatus;
+  student_name: string | null;
+  teacher_name: string | null;
+}
+
+export function getPendingAttendance(): Promise<{ sessions: PendingSession[] }> {
+  return apiFetch("/api/sessions/pending-attendance");
+}
+
+/** One row of the per-student report archive (GET /api/students/{id}/reports). */
+export interface ArchiveReportRow {
+  id: string;
+  scheduled_at_utc: string;
+  duration_minutes: number;
+  status: SessionStatus;
+  teacher_name: string | null;
+  report_values: Record<string, unknown> | null;
+  filled_at: string | null;
+  whatsapp_sent_at: string | null;
+}
+
+export interface ArchiveResult {
+  reports: ArchiveReportRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export function getStudentReports(
+  studentId: string,
+  q: DataTableQuery = {},
+): Promise<ArchiveResult> {
+  return apiFetch(`/api/students/${studentId}/reports${toQueryString(q)}`);
+}

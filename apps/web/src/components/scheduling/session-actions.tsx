@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -109,6 +110,13 @@ export function SessionActions({
           ✕
         </Button>
       </div>
+
+      {/* Entry to the Sprint 6 attendance/report screen for this occurrence. */}
+      <Link href={`/sessions/${session.id}`} data-testid="open-attendance">
+        <Button type="button" variant="outline" size="sm">
+          {t("actions.attendance")}
+        </Button>
+      </Link>
 
       {warnings.length > 0 && (
         <ul className="space-y-1" data-testid="action-warnings">

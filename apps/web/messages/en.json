@@ -353,7 +353,32 @@
       "newTime": "New time",
       "reschedule": "Reschedule",
       "cancelByTeacher": "Cancel (by teacher)",
-      "cancelByStudent": "Cancel (by student)"
+      "cancelByStudent": "Cancel (by student)",
+      "attendance": "Attendance & report"
     }
+  },
+  "attendance": {
+    "title": "Attendance & report",
+    "loading": "Loading…",
+    "outcome": "Outcome",
+    "reportTitle": "Session report",
+    "billsStudent": "Bills student",
+    "paysTeacher": "Counts for teacher",
+    "overrideTiming": "Session hasn’t started — override and mark attended",
+    "noPermission": "You don’t have permission to record attendance.",
+    "save": "Save report",
+    "saving": "Saving…",
+    "whatsappTitle": "WhatsApp report",
+    "compose": "Compose & mark sent",
+    "openWhatsApp": "Open WhatsApp",
+    "copy": "Copy text",
+    "copied": "Copied",
+    "sentAt": "Sent {at}",
+    "archiveTitle": "Report archive",
+    "pendingTitle": "Awaiting attendance",
+    "empty": "Nothing here yet.",
+    "date": "Date",
+    "teacher": "Teacher",
+    "status": "Status"
   }
 }

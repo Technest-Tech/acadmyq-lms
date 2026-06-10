@@ -353,7 +353,32 @@
       "newTime": "الوقت الجديد",
       "reschedule": "إعادة جدولة",
       "cancelByTeacher": "إلغاء (المعلّم)",
-      "cancelByStudent": "إلغاء (الطالب)"
+      "cancelByStudent": "إلغاء (الطالب)",
+      "attendance": "الحضور والتقرير"
     }
+  },
+  "attendance": {
+    "title": "الحضور والتقرير",
+    "loading": "جارٍ التحميل…",
+    "outcome": "النتيجة",
+    "reportTitle": "تقرير الحصة",
+    "billsStudent": "تُحتسب على الطالب",
+    "paysTeacher": "تُحتسب للمعلّم",
+    "overrideTiming": "لم تبدأ الحصة — تجاوُز وتسجيل الحضور",
+    "noPermission": "لا تملك صلاحية تسجيل الحضور.",
+    "save": "حفظ التقرير",
+    "saving": "جارٍ الحفظ…",
+    "whatsappTitle": "تقرير واتساب",
+    "compose": "إنشاء وتعليم كمُرسَل",
+    "openWhatsApp": "فتح واتساب",
+    "copy": "نسخ النص",
+    "copied": "تم النسخ",
+    "sentAt": "أُرسل {at}",
+    "archiveTitle": "أرشيف التقارير",
+    "pendingTitle": "بانتظار تسجيل الحضور",
+    "empty": "لا يوجد شيء بعد.",
+    "date": "التاريخ",
+    "teacher": "المعلّم",
+    "status": "الحالة"
   }
 }
