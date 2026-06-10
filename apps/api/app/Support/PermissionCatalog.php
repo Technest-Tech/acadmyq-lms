@@ -17,7 +17,7 @@ final class PermissionCatalog
         'academy.create', 'academy.suspend', 'academy.configure', 'academy.enter', 'academy.read',
         'plan.manage',
         'user.invite', 'role.assign',
-        'teacher.read', 'teacher.create', 'teacher.update', 'teacher.deactivate',
+        'teacher.read', 'teacher.read_own', 'teacher.create', 'teacher.update', 'teacher.deactivate',
         'guardian.read', 'guardian.create', 'guardian.update',
         'student.read', 'student.create', 'student.update', 'student.deactivate',
         'schedule.read', 'schedule.manage',
@@ -62,12 +62,15 @@ final class PermissionCatalog
             ],
             // All academy-scoped capabilities, never the platform ones.
             'ACADEMY_OWNER' => $academyScoped,
-            // Own schedule / sessions / students, and their own payout only.
+            // Own schedule / sessions / students, their own teacher record, and their own
+            // payout only. `student.read` is row-filtered to assigned students and
+            // `teacher.read_own` to their own teacher row at the controller layer (§3.6).
             'TEACHER' => [
                 'schedule.read',
                 'session.read', 'session.mark_attendance', 'session.write_report',
                 'session.reschedule', 'session.cancel',
                 'student.read',
+                'teacher.read_own',
                 'payout.read_own',
             ],
         ];

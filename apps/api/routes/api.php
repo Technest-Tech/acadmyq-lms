@@ -6,6 +6,9 @@ use App\Http\Controllers\Admin\AcademyController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\People\GuardianController;
+use App\Http\Controllers\People\StudentController;
+use App\Http\Controllers\People\TeacherController;
 use App\Http\Controllers\ReportFieldController;
 use App\Http\Controllers\SessionReportController;
 use Illuminate\Http\JsonResponse;
@@ -79,7 +82,31 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::patch('/academies/{id}/report-fields/{fieldId}', [ReportFieldController::class, 'update']);
     Route::delete('/academies/{id}/report-fields/{fieldId}', [ReportFieldController::class, 'destroy']);
 
-    // Minimal domain mutations exercising two-layer authorization (full CRUD: Sprints 4+).
+    // People: Guardians, Students & Teachers (Sprint 4 §8). Every route is capability-gated
+    // (Gate::authorize) and tenant-scoped by RLS; lists are server-driven via App\Support\DataTable.
+    Route::get('/guardians', [GuardianController::class, 'index']);
+    Route::post('/guardians', [GuardianController::class, 'store']);
+    Route::get('/guardians/{id}', [GuardianController::class, 'show']);
+    Route::patch('/guardians/{id}', [GuardianController::class, 'update']);
+    Route::post('/guardians/{id}/deactivate', [GuardianController::class, 'deactivate']);
+
+    Route::get('/students', [StudentController::class, 'index']);
+    Route::post('/students', [StudentController::class, 'store']);
+    Route::get('/students/{id}', [StudentController::class, 'show']);
+    Route::patch('/students/{id}', [StudentController::class, 'update']);
+    Route::post('/students/{id}/deactivate', [StudentController::class, 'deactivate']);
+    Route::put('/students/{id}/subscription', [StudentController::class, 'setSubscription']);
+    Route::patch('/students/{id}/subscription/price', [StudentController::class, 'changePrice']);
+    Route::post('/students/{id}/teacher', [StudentController::class, 'reassignTeacher']);
+    Route::get('/students/{id}/teacher-history', [StudentController::class, 'teacherHistory']);
+
+    Route::get('/teachers', [TeacherController::class, 'index']);
+    Route::post('/teachers', [TeacherController::class, 'store']);
+    Route::get('/teachers/{id}', [TeacherController::class, 'show']);
+    Route::patch('/teachers/{id}', [TeacherController::class, 'update']);
+    Route::post('/teachers/{id}/deactivate', [TeacherController::class, 'deactivate']);
+
+    // Minimal domain mutations exercising two-layer authorization (full invoicing: Sprint 7).
     Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
     Route::post('/sessions/{id}/report', [SessionReportController::class, 'store']);
 });
