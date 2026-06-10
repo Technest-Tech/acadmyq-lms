@@ -10,7 +10,6 @@ use App\Support\TimeHelper;
  * unit-tested module first"). No DB — every assertion is on the enumerated occurrence set and
  * its per-date UTC conversion, the part where the DST bugs live.
  */
-
 function slot(string $id, int $weekday, string $start = '17:00:00', int $duration = 30): array
 {
     return ['id' => $id, 'weekday' => $weekday, 'start_time_local' => $start, 'duration_minutes' => $duration];
