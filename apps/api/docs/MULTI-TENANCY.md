@@ -65,6 +65,39 @@ that RLS is forced. A new tenant table added without the policy fails the suite.
 Both are `SECURITY DEFINER`, owned by `academiq_rls_bypass`, `EXECUTE` granted only to the
 app role. There is **no** blanket "see all rows" policy.
 
+## Sprint 2: the bridge is real (auth → GUCs)
+
+`TenantContextMiddleware` is now registered (`tenant.context`) on the authenticated API
+group, after `auth:sanctum`. It resolves the role + academy, loads the role's capability
+set, and runs the request inside one `Tenancy::withContext()` transaction that `SET LOCAL`s
+the three GUCs. `Tenancy::withContext()` is the equivalent entry point for jobs/commands.
+
+**Login-under-RLS.** Auth runs *before* any context exists, so a plain `select` on the
+RLS-protected `users` / `user_roles` would match zero rows and every login would fail. Four
+more `SECURITY DEFINER` / BYPASSRLS-owned escape hatches (migration
+`..._auth_rls_bypass_functions`) are the only sanctioned context-free path into the identity
+tables:
+
+- `app.auth_find_by_email(text)` — credential lookup for `Auth::attempt`.
+- `app.auth_find_by_id(uuid)` — session resumption (the guard's `retrieveById`).
+- `app.auth_user_roles(uuid)` — resolve a user's `(role, academy_id)` assignments.
+- `app.auth_touch_last_login(uuid)` — stamp `last_login_at` at login.
+
+They are consumed by `App\Auth\RlsBypassUserProvider` (the `rls-eloquent` provider) and the
+middleware. Everything else still flows through the context.
+
+**Super-Admin rows.** A `SUPER_ADMIN` user/role has `academy_id NULL`, which the standard
+`= app.current_academy_id()` policy can never admit. `users` and `user_roles` therefore
+carry an augmented policy: `academy_id = app.current_academy_id() OR (academy_id is null and
+app.is_super_admin())`. Still fail-closed (no role ⇒ both branches false), and an Owner never
+sees platform-admin rows. All other tenant tables keep the plain Sprint-1 policy.
+
+**Authorization is data.** `$user->can(code)` / `Gate::authorize(code)` are answered by a
+single `Gate::before` (in `AuthServiceProvider`) consulting the request's `AuthContext`,
+whose permission set comes from `role_permissions ⋈ permissions`. No `if ($role === …)`
+anywhere — a new capability or role is a row change. RLS remains the backstop under any
+app-layer gap.
+
 ## Local setup
 
 ```bash
