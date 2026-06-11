@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Jobs\CloseMonthlyInvoicesJob;
 use App\Jobs\RollSessionWindowJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -18,3 +19,11 @@ Artisan::command('inspire', function () {
 | work runs in its own tenant context (Tenancy::withContext) inside the job.
 */
 Schedule::job(new RollSessionWindowJob)->monthlyOn(1, '00:30')->name('roll-session-window')->withoutOverlapping();
+
+/*
+| Monthly invoice close (Sprint 7). On the 2nd of each month (after the session window has
+| been rolled on the 1st) close all OPEN invoices for the previous calendar month across
+| every active academy. The job sets its own per-academy tenant context and is idempotent,
+| so re-runs for the same period are safe.
+*/
+Schedule::job(new CloseMonthlyInvoicesJob)->monthlyOn(2, '01:00')->name('close-monthly-invoices')->withoutOverlapping();
