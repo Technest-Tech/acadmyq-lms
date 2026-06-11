@@ -12,7 +12,14 @@
     "schedule": "Schedule",
     "invoices": "Invoices",
     "payroll": "Payroll",
-    "settings": "Settings"
+    "settings": "Settings",
+    "attendance": "Attendance"
+  },
+  "navGroup": {
+    "general": "General",
+    "management": "Management",
+    "financial": "Financial",
+    "system": "System"
   },
   "header": {
     "menu": "Menu",
@@ -379,6 +386,27 @@
     "empty": "Nothing here yet.",
     "date": "Date",
     "teacher": "Teacher",
-    "status": "Status"
+    "status": "Status",
+    "managerTitle": "Attendance",
+    "managerSubtitle": "Record outcomes and write session reports.",
+    "pendingSubtitle": "Past sessions still needing an outcome.",
+    "pendingNone": "All caught up — no sessions awaiting attendance.",
+    "pendingCount": "Pending",
+    "recordedToday": "Recorded today",
+    "open": "Open",
+    "record": "Record",
+    "attendanceRecorded": "Attendance recorded.",
+    "saved": "Report saved.",
+    "markedSent": "Marked as sent on WhatsApp.",
+    "history": "Report history",
+    "viewHistory": "History",
+    "archiveEmpty": "No past sessions yet.",
+    "reportCol": "Report",
+    "filledBadge": "Filled",
+    "sentBadge": "Sent",
+    "notFilled": "No report",
+    "billed": "Billed",
+    "noFields": "This academy has no report fields configured yet.",
+    "close": "Close"
   }
 }

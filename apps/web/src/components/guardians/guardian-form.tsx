@@ -1,14 +1,39 @@
 "use client";
 
+import { Coins, FileText, Globe, MessageCircle, User } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ApiError, createGuardian, type GuardianInput } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
-const inputClass =
-  "border-input bg-background w-full rounded-md border px-3 py-2 text-sm";
+const inputBase =
+  "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
 
-/** Create a guardian — the billing anchor; currency defaults to the academy default. */
+function Field({
+  label,
+  required,
+  hint,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-sm font-medium">
+        {label}
+        {required && <span className="text-destructive ms-0.5">*</span>}
+      </label>
+      {children}
+      {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
+    </div>
+  );
+}
+
 export function GuardianForm({
   onCreated,
   onCancel,
@@ -48,77 +73,110 @@ export function GuardianForm({
   }
 
   return (
-    <form
-      className="max-w-xl space-y-4"
-      onSubmit={submit}
-      data-testid="guardian-form"
-    >
-      <h2 className="text-lg font-medium">{t("new")}</h2>
+    <form className="space-y-5" onSubmit={submit} data-testid="guardian-form">
       {error && (
-        <p role="alert" className="text-destructive text-sm">
-          {error}
-        </p>
+        <AlertBanner
+          variant="error"
+          message={error}
+          onDismiss={() => setError(null)}
+        />
       )}
 
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">{t("form.fullName")}</span>
-        <input
-          aria-label={t("form.fullName")}
-          className={inputClass}
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          required
-        />
-      </label>
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">{t("form.phone")}</span>
-        <input
-          aria-label={t("form.phone")}
-          className={inputClass}
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          required
-        />
-      </label>
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block space-y-1">
-          <span className="text-sm font-medium">{t("form.country")}</span>
+      <Field label={t("form.fullName")} required>
+        <div className="relative">
+          <User className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
-            aria-label={t("form.country")}
-            className={inputClass}
-            maxLength={2}
-            value={country}
-            onChange={(e) => setCountry(e.target.value.toUpperCase())}
+            id="gf-name"
+            aria-label={t("form.fullName")}
+            className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+            placeholder="e.g. Ahmed Family"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            required
           />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-sm font-medium">{t("form.currency")}</span>
-          <input
-            aria-label={t("form.currency")}
-            className={inputClass}
-            maxLength={3}
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-          />
-        </label>
-      </div>
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">{t("form.notes")}</span>
-        <textarea
-          aria-label={t("form.notes")}
-          className={inputClass}
-          rows={2}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-      </label>
+        </div>
+      </Field>
 
-      <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={busy}>
-          {busy ? t("form.creating") : t("form.create")}
-        </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+      <Field
+        label={t("form.phone")}
+        required
+        hint="E.164 format — e.g. +966512345678"
+      >
+        <div className="relative">
+          <MessageCircle className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-emerald-500" />
+          <input
+            id="gf-phone"
+            aria-label={t("form.phone")}
+            className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+            placeholder="+966512345678"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            required
+          />
+        </div>
+      </Field>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={t("form.country")}>
+          <div className="relative">
+            <Globe className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              id="gf-country"
+              aria-label={t("form.country")}
+              className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+              placeholder="SA"
+              maxLength={2}
+              value={country}
+              onChange={(e) => setCountry(e.target.value.toUpperCase())}
+            />
+          </div>
+        </Field>
+        <Field label={t("form.currency")}>
+          <div className="relative">
+            <Coins className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              id="gf-currency"
+              aria-label={t("form.currency")}
+              className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+              placeholder="SAR"
+              maxLength={3}
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+            />
+          </div>
+        </Field>
+      </div>
+
+      <Field label={t("form.notes")}>
+        <div className="relative">
+          <FileText className="pointer-events-none absolute start-3.5 top-3 size-4 text-muted-foreground" />
+          <textarea
+            id="gf-notes"
+            aria-label={t("form.notes")}
+            className={cn(inputBase, "resize-none py-2.5 ps-10 pe-3.5")}
+            rows={3}
+            placeholder="Optional notes…"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+        </div>
+      </Field>
+
+      <div className="flex justify-end gap-2 pt-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onCancel}
+          disabled={busy}
+        >
           {t("back")}
+        </Button>
+        <Button type="submit" disabled={busy} className="gap-1.5">
+          {busy && (
+            <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+          )}
+          {busy ? t("form.creating") : t("form.create")}
         </Button>
       </div>
     </form>

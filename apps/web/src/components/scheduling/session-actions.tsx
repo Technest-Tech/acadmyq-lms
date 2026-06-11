@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { AttendanceReportModal } from "@/components/attendance/attendance-report-modal";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -58,6 +58,7 @@ export function SessionActions({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [warnings, setWarnings] = useState<SchedulingWarning[]>([]);
+  const [attendanceOpen, setAttendanceOpen] = useState(false);
 
   async function doReschedule() {
     setBusy(true);
@@ -111,12 +112,26 @@ export function SessionActions({
         </Button>
       </div>
 
-      {/* Entry to the Sprint 6 attendance/report screen for this occurrence. */}
-      <Link href={`/sessions/${session.id}`} data-testid="open-attendance">
-        <Button type="button" variant="outline" size="sm">
-          {t("actions.attendance")}
-        </Button>
-      </Link>
+      {/* Entry to the Sprint 6 attendance/report popup for this occurrence. */}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => setAttendanceOpen(true)}
+        data-testid="open-attendance"
+      >
+        {t("actions.attendance")}
+      </Button>
+
+      <AttendanceReportModal
+        sessionId={session.id}
+        studentName={session.student_name}
+        open={attendanceOpen}
+        onClose={() => {
+          setAttendanceOpen(false);
+          onDone(); // refresh the calendar (and close this panel) once recording is done
+        }}
+      />
 
       {warnings.length > 0 && (
         <ul className="space-y-1" data-testid="action-warnings">

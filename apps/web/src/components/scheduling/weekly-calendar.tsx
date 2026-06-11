@@ -16,13 +16,13 @@ import {
 
 /** Tailwind classes per status — the prototype's colour language (§5.5). */
 const STATUS_COLOR: Record<SessionStatus, string> = {
-  SCHEDULED: "border-blue-300 bg-blue-50 text-blue-900",
-  ATTENDED: "border-emerald-300 bg-emerald-50 text-emerald-900",
-  ABSENT_UNEXCUSED: "border-amber-300 bg-amber-50 text-amber-900",
-  ABSENT_EXCUSED: "border-slate-300 bg-slate-50 text-slate-900",
-  CANCELLED_BY_TEACHER: "border-red-300 bg-red-50 text-red-900",
-  CANCELLED_BY_STUDENT: "border-red-300 bg-red-50 text-red-900",
-  RESCHEDULED: "border-purple-300 bg-purple-50 text-purple-900",
+  SCHEDULED: "border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800/50 dark:bg-blue-950/50 dark:text-blue-200",
+  ATTENDED: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-950/50 dark:text-emerald-200",
+  ABSENT_UNEXCUSED: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/50 dark:text-amber-200",
+  ABSENT_EXCUSED: "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700/50 dark:bg-slate-800/50 dark:text-slate-300",
+  CANCELLED_BY_TEACHER: "border-red-200 bg-red-50 text-red-800 dark:border-red-800/50 dark:bg-red-950/50 dark:text-red-200",
+  CANCELLED_BY_STUDENT: "border-red-200 bg-red-50 text-red-800 dark:border-red-800/50 dark:bg-red-950/50 dark:text-red-200",
+  RESCHEDULED: "border-purple-200 bg-purple-50 text-purple-800 dark:border-purple-800/50 dark:bg-purple-950/50 dark:text-purple-200",
 };
 
 // Date math on calendar-date strings, anchored at noon UTC so a ±day shift never slips a DST
@@ -133,13 +133,13 @@ export function WeeklyCalendar({
   return (
     <div className="space-y-4" data-testid="weekly-calendar">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">{t("calendar.title")}</h1>
+        <h1 className="text-2xl font-bold tracking-tight">{t("calendar.title")}</h1>
         <div className="flex items-center gap-2">
           {canPickTeacher && (
             <select
               aria-label={t("calendar.teacher")}
               data-testid="calendar-teacher"
-              className="border-input bg-background rounded-md border px-2 py-1.5 text-sm"
+              className="border-input bg-background focus:border-primary focus:ring-primary/15 rounded-lg border px-3 py-2 text-sm outline-none transition-colors focus:ring-3"
               value={teacherId}
               onChange={(e) => {
                 setTeacherId(e.target.value);
@@ -166,7 +166,7 @@ export function WeeklyCalendar({
           >
             ← {t("calendar.prev")}
           </Button>
-          <span className="text-sm" data-testid="week-range">
+          <span className="text-muted-foreground rounded-lg border px-3 py-1.5 text-sm font-medium" data-testid="week-range">
             {weekStart} → {addDays(weekStart, 6)}
           </span>
           <Button
@@ -185,9 +185,9 @@ export function WeeklyCalendar({
       </div>
 
       {error && (
-        <p role="alert" className="text-destructive text-sm">
-          {error}
-        </p>
+        <div role="alert" className="border-destructive/20 bg-destructive/5 rounded-xl border px-4 py-3">
+          <p className="text-destructive text-sm">{error}</p>
+        </div>
       )}
 
       <div
@@ -197,13 +197,13 @@ export function WeeklyCalendar({
         {days.map((day) => (
           <div
             key={day}
-            className="min-h-24 rounded-md border p-2"
+            className="bg-card min-h-28 rounded-xl border p-2.5 shadow-sm"
             data-day={day}
             data-weekday={weekdayOf(day)}
           >
-            <div className="mb-1 text-xs font-medium">
+            <div className="mb-2 text-xs font-semibold">
               {t(`weekday.${weekdayOf(day)}`)}
-              <span className="text-muted-foreground"> · {day.slice(5)}</span>
+              <span className="text-muted-foreground font-normal"> · {day.slice(5)}</span>
             </div>
             <div className="space-y-1">
               {(byDay[day] ?? []).map((s) => (
@@ -214,19 +214,19 @@ export function WeeklyCalendar({
                   data-status={s.status}
                   disabled={!canAct}
                   onClick={() => setSelected(s)}
-                  className={`block w-full rounded border px-1.5 py-1 text-start text-xs ${STATUS_COLOR[s.status]} ${canAct ? "cursor-pointer" : "cursor-default"}`}
+                  className={`block w-full rounded-lg border px-2 py-1.5 text-start text-xs transition-opacity ${STATUS_COLOR[s.status]} ${canAct ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
                 >
-                  <span className="font-medium">
+                  <span className="font-semibold">
                     {timeInTz(s.scheduled_at_utc, tz, locale)}
                   </span>{" "}
                   {s.student_name ?? ""}
-                  <span className="block opacity-75">
+                  <span className="mt-0.5 block opacity-70">
                     {t(`status.${s.status}`)}
                   </span>
                 </button>
               ))}
               {loading && (byDay[day] ?? []).length === 0 && (
-                <span className="text-muted-foreground text-xs">…</span>
+                <div className="bg-muted h-8 animate-pulse rounded-lg" aria-hidden />
               )}
             </div>
           </div>

@@ -12,7 +12,14 @@
     "schedule": "الجدول",
     "invoices": "الفواتير",
     "payroll": "الرواتب",
-    "settings": "الإعدادات"
+    "settings": "الإعدادات",
+    "attendance": "الحضور"
+  },
+  "navGroup": {
+    "general": "عام",
+    "management": "الإدارة",
+    "financial": "المالية",
+    "system": "النظام"
   },
   "header": {
     "menu": "القائمة",
@@ -379,6 +386,27 @@
     "empty": "لا يوجد شيء بعد.",
     "date": "التاريخ",
     "teacher": "المعلّم",
-    "status": "الحالة"
+    "status": "الحالة",
+    "managerTitle": "الحضور",
+    "managerSubtitle": "سجّل النتائج واكتب تقارير الحصص.",
+    "pendingSubtitle": "حصص سابقة ما زالت بحاجة إلى نتيجة.",
+    "pendingNone": "كل شيء مكتمل — لا توجد حصص بانتظار الحضور.",
+    "pendingCount": "قيد الانتظار",
+    "recordedToday": "سُجّلت اليوم",
+    "open": "فتح",
+    "record": "تسجيل",
+    "attendanceRecorded": "تم تسجيل الحضور.",
+    "saved": "تم حفظ التقرير.",
+    "markedSent": "تم التعليم كمُرسَل على واتساب.",
+    "history": "سجل التقارير",
+    "viewHistory": "السجل",
+    "archiveEmpty": "لا توجد حصص سابقة بعد.",
+    "reportCol": "التقرير",
+    "filledBadge": "مكتمل",
+    "sentBadge": "مُرسَل",
+    "notFilled": "لا تقرير",
+    "billed": "محتسبة",
+    "noFields": "لا توجد حقول تقرير مُعدّة لهذه الأكاديمية بعد.",
+    "close": "إغلاق"
   }
 }

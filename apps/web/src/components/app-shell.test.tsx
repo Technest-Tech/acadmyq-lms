@@ -8,6 +8,7 @@ import { AppShell } from "./app-shell";
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), replace }),
+  usePathname: () => "/",
 }));
 
 function renderShell(

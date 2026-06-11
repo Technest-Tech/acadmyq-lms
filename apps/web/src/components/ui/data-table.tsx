@@ -1,5 +1,15 @@
 "use client";
 
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronsUpDown,
+  Inbox,
+  Search,
+} from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -54,7 +64,7 @@ export interface DataTableProps<T> {
 }
 
 const inputClass =
-  "border-input bg-background rounded-md border px-3 py-2 text-sm";
+  "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 h-8 rounded-lg border px-3 text-sm outline-none transition-colors focus:ring-3";
 
 export function DataTable<T>({
   fetcher,
@@ -141,56 +151,85 @@ export function DataTable<T>({
   const rows = data?.rows ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / size));
-  const sortArrow = (sortKey: string) =>
-    sort === sortKey ? " ↑" : sort === `-${sortKey}` ? " ↓" : "";
+
+  function SortIndicator({ sortKey }: { sortKey: string }) {
+    if (sort === sortKey)
+      return <ChevronUp className="ms-1 inline size-3 shrink-0" />;
+    if (sort === `-${sortKey}`)
+      return <ChevronDown className="ms-1 inline size-3 shrink-0" />;
+    return (
+      <ChevronsUpDown className="ms-1 inline size-3 shrink-0 opacity-35" />
+    );
+  }
 
   return (
     <div className="space-y-3" data-testid={testId}>
       {/* Toolbar: search + filters on the start side, actions on the end. */}
       <div className="flex flex-wrap items-center gap-2">
         {searchable && (
-          <input
-            type="search"
-            aria-label={t("search")}
-            placeholder={t("search")}
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className={cn(inputClass, "min-w-48 flex-1")}
-            data-testid="dt-search"
-          />
+          <div className="relative min-w-48 flex-1">
+            <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" />
+            <input
+              type="search"
+              aria-label={t("search")}
+              placeholder={t("search")}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className={cn(inputClass, "ps-9")}
+              data-testid="dt-search"
+            />
+          </div>
         )}
-        {filters.map((f) => (
-          <select
-            key={f.key}
-            aria-label={f.label}
-            value={filterValues[f.key] ?? ""}
-            onChange={(e) => setFilter(f.key, e.target.value)}
-            className={inputClass}
-            data-testid={`dt-filter-${f.key}`}
-          >
-            <option value="">{f.label}</option>
-            {f.options.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        ))}
+        {filters.map((f) => {
+          const isActive = !!filterValues[f.key];
+          return (
+            <div key={f.key} className="relative">
+              <select
+                aria-label={f.label}
+                value={filterValues[f.key] ?? ""}
+                onChange={(e) => setFilter(f.key, e.target.value)}
+                className={cn(
+                  "h-8 cursor-pointer appearance-none rounded-lg border pe-8 ps-3 text-sm font-medium shadow-sm outline-none transition-all",
+                  "focus:ring-2 focus:ring-primary/20 focus:outline-none",
+                  isActive
+                    ? "border-primary/40 bg-primary/8 text-primary hover:bg-primary/12"
+                    : "border-input bg-background text-foreground hover:bg-muted/50 focus:border-primary",
+                )}
+                data-testid={`dt-filter-${f.key}`}
+              >
+                <option value="">{f.label}</option>
+                {f.options.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className={cn(
+                  "pointer-events-none absolute end-2.5 top-1/2 size-3.5 -translate-y-1/2 transition-colors",
+                  isActive ? "text-primary" : "text-muted-foreground",
+                )}
+                aria-hidden
+              />
+            </div>
+          );
+        })}
         {toolbar && <div className="ms-auto">{toolbar}</div>}
       </div>
 
       {error ? (
         <div
-          className="rounded-md border p-6 text-center"
+          className="border-destructive/20 bg-destructive/5 flex flex-col items-center rounded-xl border p-10 text-center"
           role="alert"
           data-testid="dt-error"
         >
-          <p className="text-destructive text-sm">{error}</p>
+          <AlertCircle className="text-destructive/60 mb-3 size-8" />
+          <p className="text-destructive text-sm font-medium">{error}</p>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="mt-2"
+            className="mt-4"
             onClick={() => void load()}
           >
             {t("retry")}
@@ -198,58 +237,79 @@ export function DataTable<T>({
         </div>
       ) : loading && data === null ? (
         <div
-          className="space-y-2 rounded-md border p-3"
+          className="overflow-hidden rounded-xl border"
           data-testid="dt-loading"
         >
+          <div className="bg-muted/30 border-b px-4 py-3">
+            <div
+              className="bg-muted-foreground/15 h-3 w-36 rounded"
+              aria-hidden
+            />
+          </div>
           {Array.from({ length: 5 }).map((_, i) => (
             <div
               key={i}
-              className="bg-muted/60 h-8 animate-pulse rounded"
-              aria-hidden
-            />
+              className="flex gap-4 border-b px-4 py-3.5 last:border-0"
+            >
+              {Array.from({ length: Math.min(columns.length, 4) }).map(
+                (_, j) => (
+                  <div
+                    key={j}
+                    className="bg-muted h-4 flex-1 animate-pulse rounded"
+                    aria-hidden
+                  />
+                ),
+              )}
+            </div>
           ))}
         </div>
       ) : rows.length === 0 ? (
         <div
-          className="rounded-md border p-8 text-center"
+          className="border-border/60 bg-muted/20 flex flex-col items-center rounded-xl border border-dashed p-12 text-center"
           data-testid="dt-empty"
         >
-          <p className="text-muted-foreground text-sm">
+          <div className="bg-muted mb-3 flex size-12 items-center justify-center rounded-full">
+            <Inbox className="text-muted-foreground size-5" />
+          </div>
+          <p className="text-sm font-medium">
             {emptyMessage ?? t("empty")}
           </p>
-          {emptyAction && <div className="mt-3">{emptyAction}</div>}
+          {emptyAction && <div className="mt-4">{emptyAction}</div>}
         </div>
       ) : (
         <>
-          {/* Table for >= sm; stacked cards below. */}
+          {/* Table for >= sm */}
           <div
-            className="hidden overflow-x-auto rounded-md border sm:block"
+            className="hidden overflow-hidden rounded-xl border sm:block"
             data-testid="dt-table-wrap"
           >
             <table className="w-full text-sm" data-testid="dt-table">
-              <thead className="bg-muted/50 text-muted-foreground">
-                <tr>
+              <thead>
+                <tr className="bg-muted/30 border-b">
                   {columns.map((c) => (
                     <th
                       key={c.key}
-                      className={cn("px-3 py-2 text-start", c.className)}
+                      className={cn(
+                        "text-muted-foreground px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide",
+                        c.className,
+                      )}
                     >
                       {c.sortKey ? (
                         <button
                           type="button"
-                          className="font-medium hover:underline"
+                          className="inline-flex items-center hover:text-foreground transition-colors"
                           onClick={() => toggleSort(c.sortKey!)}
                           data-testid={`dt-sort-${c.key}`}
                         >
                           {c.header}
-                          {sortArrow(c.sortKey)}
+                          <SortIndicator sortKey={c.sortKey} />
                         </button>
                       ) : (
                         c.header
                       )}
                     </th>
                   ))}
-                  {rowActions && <th className="px-3 py-2" />}
+                  {rowActions && <th className="px-4 py-3" />}
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -257,19 +317,26 @@ export function DataTable<T>({
                   <tr
                     key={getRowId(row)}
                     data-row={getRowId(row)}
-                    className={cn(onRowClick && "hover:bg-muted/40")}
+                    className={cn(
+                      "transition-colors",
+                      onRowClick && "hover:bg-muted/30 cursor-pointer",
+                    )}
                   >
                     {columns.map((c) => (
                       <td
                         key={c.key}
-                        className={cn("px-3 py-2", c.className)}
-                        onClick={onRowClick ? () => onRowClick(row) : undefined}
+                        className={cn("px-4 py-3", c.className)}
+                        onClick={
+                          onRowClick ? () => onRowClick(row) : undefined
+                        }
                       >
                         {c.render(row)}
                       </td>
                     ))}
                     {rowActions && (
-                      <td className="px-3 py-2 text-end">{rowActions(row)}</td>
+                      <td className="px-4 py-3 text-end">
+                        {rowActions(row)}
+                      </td>
                     )}
                   </tr>
                 ))}
@@ -277,21 +344,29 @@ export function DataTable<T>({
             </table>
           </div>
 
+          {/* Stacked cards for mobile */}
           <ul className="space-y-2 sm:hidden" data-testid="dt-cards">
             {rows.map((row) => (
               <li
                 key={getRowId(row)}
                 data-card={getRowId(row)}
-                className="space-y-1 rounded-md border p-3 text-sm"
+                className="bg-card rounded-xl border p-4 text-sm shadow-sm"
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
               >
                 {columns.map((c) => (
-                  <div key={c.key} className="flex justify-between gap-3">
-                    <span className="text-muted-foreground">{c.header}</span>
-                    <span className="text-end">{c.render(row)}</span>
+                  <div key={c.key} className="flex justify-between gap-3 py-1">
+                    <span className="text-muted-foreground text-xs">
+                      {c.header}
+                    </span>
+                    <span className="text-end text-xs font-medium">
+                      {c.render(row)}
+                    </span>
                   </div>
                 ))}
                 {rowActions && (
-                  <div className="flex justify-end pt-1">{rowActions(row)}</div>
+                  <div className="mt-2 flex justify-end border-t pt-2">
+                    {rowActions(row)}
+                  </div>
                 )}
               </li>
             ))}
@@ -299,7 +374,7 @@ export function DataTable<T>({
         </>
       )}
 
-      {/* Pagination footer (hidden when empty/error/initial-loading). */}
+      {/* Pagination footer */}
       {data !== null && rows.length > 0 && (
         <div
           className="text-muted-foreground flex flex-wrap items-center justify-between gap-2 text-xs"
@@ -308,45 +383,50 @@ export function DataTable<T>({
           <span data-testid="dt-total">
             {t("total", { count: fmt.format(total) })}
           </span>
-          <div className="flex items-center gap-2">
-            <select
-              aria-label={t("pageSize")}
-              value={size}
-              onChange={(e) => {
-                setSize(Number(e.target.value));
-                setPage(1);
-              }}
-              className={cn(inputClass, "py-1")}
-              data-testid="dt-page-size"
-            >
-              {[10, 25, 50].map((n) => (
-                <option key={n} value={n}>
-                  {fmt.format(n)}
-                </option>
-              ))}
-            </select>
+          <div className="flex items-center gap-1.5">
+            <div className="relative">
+              <select
+                aria-label={t("pageSize")}
+                value={size}
+                onChange={(e) => {
+                  setSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="border-input bg-background focus:border-primary h-6 cursor-pointer appearance-none rounded-md border pe-6 ps-2 text-xs outline-none transition-colors"
+                data-testid="dt-page-size"
+              >
+                {[10, 25, 50].map((n) => (
+                  <option key={n} value={n}>
+                    {fmt.format(n)}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="text-muted-foreground pointer-events-none absolute end-1.5 top-1/2 size-3 -translate-y-1/2" aria-hidden />
+            </div>
             <Button
               type="button"
               variant="outline"
-              size="xs"
+              size="icon-xs"
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               data-testid="dt-prev"
+              aria-label={t("prev")}
             >
-              {t("prev")}
+              <ChevronLeft className="size-3.5" />
             </Button>
-            <span data-testid="dt-page">
+            <span className="px-1 font-medium" data-testid="dt-page">
               {fmt.format(page)} / {fmt.format(totalPages)}
             </span>
             <Button
               type="button"
               variant="outline"
-              size="xs"
+              size="icon-xs"
               disabled={page >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               data-testid="dt-next"
+              aria-label={t("next")}
             >
-              {t("next")}
+              <ChevronRight className="size-3.5" />
             </Button>
           </div>
         </div>

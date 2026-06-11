@@ -14,6 +14,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   markAttendance: vi.fn(),
   putSessionReport: vi.fn(),
   markWhatsappSent: vi.fn(),
+  getStudentReports: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -68,6 +69,12 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
     vi.mocked(api.getSession).mockResolvedValue(detail());
     vi.mocked(api.markAttendance).mockResolvedValue({ status: "ATTENDED", billed: true, classification: { billableToStudent: true, countsForTeacher: true } });
     vi.mocked(api.putSessionReport).mockResolvedValue({ ok: true, values: {} });
+    vi.mocked(api.getStudentReports).mockResolvedValue({
+      reports: [],
+      total: 0,
+      page: 1,
+      pageSize: 25,
+    });
   });
 
   it("renders the academy report fields by type, in order (AC-6.4)", async () => {
@@ -155,6 +162,27 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
       "href",
       "https://wa.me/201001234567?text=...",
     );
+  });
+
+  it("shows a success alert after recording an outcome", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByTestId("outcome-ATTENDED"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Attendance recorded.",
+    );
+  });
+
+  it("opens the report-history popup (AC-6.11)", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByTestId("open-history"));
+
+    // The history modal mounts the archive DataTable.
+    expect(await screen.findByTestId("report-archive-table")).toBeInTheDocument();
   });
 
   it("hides attendance controls when the user lacks the capability (AC-6.8)", async () => {

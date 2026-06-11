@@ -8,6 +8,7 @@ import { AuthProvider } from "@/components/auth-provider";
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), replace }),
+  usePathname: () => "/",
 }));
 
 const getMe = vi.fn();
