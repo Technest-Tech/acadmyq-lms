@@ -50,6 +50,15 @@ Route::get('/health', function (): JsonResponse {
 Route::post('/auth/login', [AuthController::class, 'login']);
 
 /*
+| Public invoice view (Sprint 7 §6). Token-authenticated — no Sanctum session required.
+| Rate-limited to 60 req/min per IP to prevent enumeration of invoice tokens.
+| Registered BEFORE the authenticated group to avoid the auth:sanctum middleware.
+*/
+Route::middleware(['throttle:60,1'])->group(function () {
+    Route::get('/i/{token}', [InvoiceController::class, 'publicShow']);
+});
+
+/*
 | Authenticated API. `auth:sanctum` establishes identity; `tenant.context`
 | (TenantContextMiddleware) then sets the three app.* GUCs transaction-locally for the
 | rest of the request, so RLS scopes every query. Capability checks (Gate::authorize) are
@@ -137,6 +146,12 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/sessions/{id}/report/whatsapp-sent', [SessionReportController::class, 'whatsappSent']);
     Route::get('/students/{id}/reports', [SessionReportController::class, 'archive']);
 
-    // Minimal domain mutations exercising two-layer authorization (full invoicing: Sprint 7).
+    // Invoicing (Sprint 7 §8). `close` is declared before `{id}` to prevent Laravel treating
+    // the literal string "close" as an invoice ID. Capability-gated (invoice.view / invoice.manage)
+    // and RLS-scoped; sendLink delivers the public token URL to the guardian via WhatsApp.
+    Route::get('/invoices', [InvoiceController::class, 'index']);
+    Route::post('/invoices/close', [InvoiceController::class, 'close']);
+    Route::get('/invoices/{id}', [InvoiceController::class, 'show']);
     Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
+    Route::post('/invoices/{id}/send-link', [InvoiceController::class, 'sendLink']);
 });
