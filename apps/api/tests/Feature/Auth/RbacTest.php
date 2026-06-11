@@ -41,7 +41,7 @@ it('blocks a Teacher from invoice.mark_paid and performs no write', function () 
 it('permits an Owner to invoice.mark_paid', function () {
     Sanctum::actingAs($this->owner);
 
-    $this->postJson("/api/invoices/{$this->invoiceId}/mark-paid")->assertOk();
+    $this->postJson("/api/invoices/{$this->invoiceId}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
 
     $this->asAcademy($this->A);
     expect(DB::table('invoices')->where('id', $this->invoiceId)->value('status'))->toBe('PAID');
@@ -65,7 +65,7 @@ it('lets a Teacher report on their own session but not another teacher\'s', func
 // ── TC-2.17 / AC-2.8: revoking a capability takes effect on the next request ─
 it('revokes a capability immediately, without re-login', function () {
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/invoices/{$this->invoiceId}/mark-paid")->assertOk();
+    $this->postJson("/api/invoices/{$this->invoiceId}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
 
     // Revoke ACADEMY_OWNER → invoice.mark_paid (a pure data change, super-admin context).
     $this->asSuperAdmin();
