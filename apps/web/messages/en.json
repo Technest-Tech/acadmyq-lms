@@ -109,7 +109,11 @@
       "suspend": "Suspend",
       "reactivate": "Reactivate",
       "suspendReason": "Reason (optional)",
-      "currencyWarning": "Changing the default currency does not affect existing subscriptions or closed invoices."
+      "currencyWarning": "Changing the default currency does not affect existing subscriptions or closed invoices.",
+      "quickLinks": "Quick links",
+      "goToInvoices": "View invoices",
+      "goToStudents": "View students",
+      "goToAttendance": "View attendance"
     },
     "fields": {
       "add": "Add field",

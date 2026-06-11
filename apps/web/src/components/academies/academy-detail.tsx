@@ -1,6 +1,8 @@
 "use client";
 
 import { INVOICE_GROUPING } from "@academiq/contracts";
+import { ClipboardCheck, GraduationCap, ReceiptText } from "lucide-react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { ReportFieldsEditor } from "@/components/academies/report-fields-editor";
@@ -198,6 +200,34 @@ export function AcademyDetail({
         >
           {saving ? t("detail.saving") : t("detail.save")}
         </Button>
+      </section>
+
+      {/* Quick navigation — jump directly to key sections of this academy */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-medium">{t("detail.quickLinks")}</h2>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/invoices"
+            className="inline-flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-950/60"
+          >
+            <ReceiptText className="size-4" aria-hidden />
+            {t("detail.goToInvoices")}
+          </Link>
+          <Link
+            href="/students"
+            className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
+          >
+            <GraduationCap className="size-4" aria-hidden />
+            {t("detail.goToStudents")}
+          </Link>
+          <Link
+            href="/attendance"
+            className="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300 dark:hover:bg-sky-950/60"
+          >
+            <ClipboardCheck className="size-4" aria-hidden />
+            {t("detail.goToAttendance")}
+          </Link>
+        </div>
       </section>
 
       <section className="space-y-3">

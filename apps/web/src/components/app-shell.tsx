@@ -101,7 +101,7 @@ const NAV: ReadonlyArray<{
     key: "invoices",
     icon: ReceiptText,
     permission: "invoice.read",
-    href: "#",
+    href: "/invoices",
     group: "financial",
   },
   {
