@@ -137,6 +137,9 @@ return new class extends Migration
         // SECURITY DEFINER bypasses RLS, but the whole body is the allow-list: a single
         // equality on public_token, returning only a curated display payload (never raw
         // tenant rows, never a list). Returns NULL on no match → 404 with no enumeration.
+        // DROP first so that migrate:fresh (which drops tables but not functions) never
+        // hits a return-type mismatch when Sprint 7 migration 12 upgrades the function.
+        DB::unprepared('drop function if exists app.public_invoice_by_token(text);');
         DB::unprepared(<<<'SQL'
             create or replace function app.public_invoice_by_token(p_token text)
             returns jsonb
