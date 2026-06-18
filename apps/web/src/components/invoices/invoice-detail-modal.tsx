@@ -9,7 +9,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { AlertBanner } from "@/components/ui/alert";
@@ -166,6 +166,102 @@ function groupByStudent(items: InvoiceLineItem[]): LessonGroup[] {
     }
   }
   return Array.from(map.values());
+}
+
+/** Two-letter initials for a child avatar (first + last word, single-word fallback). */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0];
+  if (!first) return "—";
+  const last = parts[parts.length - 1] ?? first;
+  if (parts.length === 1) return first.slice(0, 2).toUpperCase();
+  return ((first[0] ?? "") + (last[0] ?? "")).toUpperCase();
+}
+
+/** Subtle, distinct avatar tints cycled per child so each section reads as its own. */
+const CHILD_ACCENTS = [
+  "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300",
+  "bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300",
+  "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
+  "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300",
+  "bg-cyan-100 text-cyan-700 dark:bg-cyan-950/50 dark:text-cyan-300",
+] as const;
+
+/**
+ * One child's lessons rendered as a self-contained card: an avatar + name + lesson
+ * count header with the child's subtotal, over a compact lessons table. Used for
+ * guardian invoices spanning more than one child so each child reads cleanly
+ * instead of being buried in section-header rows of a single flat table (#7).
+ */
+function ChildLessonsCard({
+  group,
+  currency,
+  accentIndex,
+}: {
+  group: LessonGroup;
+  currency: string;
+  accentIndex: number;
+}) {
+  const t = useTranslations("invoices");
+  const locale = useLocale();
+  return (
+    <div className="bg-card overflow-hidden rounded-xl border shadow-sm">
+      {/* Child header */}
+      <div className="bg-muted/30 flex items-center gap-3 border-b px-4 py-3">
+        <span
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+            CHILD_ACCENTS[accentIndex % CHILD_ACCENTS.length],
+          )}
+          aria-hidden
+        >
+          {initials(group.student)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{group.student}</p>
+          <p className="text-muted-foreground text-xs">
+            {t("liLessonsCount", { count: group.lines.length })}
+          </p>
+        </div>
+        <div className="text-end">
+          <p className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+            {t("liGroupSubtotal")}
+          </p>
+          <p className="text-sm font-bold tabular-nums">
+            {formatMoney({ amount: group.subtotal, currency }, locale)}
+          </p>
+        </div>
+      </div>
+      {/* Lessons */}
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-muted-foreground bg-muted/10 border-b">
+            <th className="px-4 py-2 text-start text-[11px] font-semibold uppercase tracking-wide">
+              {t("liDate")}
+            </th>
+            <th className="px-4 py-2 text-start text-[11px] font-semibold uppercase tracking-wide">
+              {t("liTeacher")}
+            </th>
+            <th className="px-4 py-2 text-start text-[11px] font-semibold uppercase tracking-wide">
+              {t("liStatus")}
+            </th>
+            <th className="px-4 py-2 text-end text-[11px] font-semibold uppercase tracking-wide">
+              {t("liDuration")}
+            </th>
+            <th className="px-4 py-2 text-end text-[11px] font-semibold uppercase tracking-wide">
+              {t("liAmount")}
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {group.lines.map((li) => (
+            <LessonRow key={li.id} li={li} showStudent={false} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 /** A single lesson row in the line-items table. */
@@ -479,111 +575,111 @@ export function InvoiceDetailModal({
               />
             )}
 
-            {/* Line items table */}
-            <div>
-              <h3 className="mb-2 text-sm font-semibold">{t("lessons")}</h3>
-              <div className="overflow-hidden rounded-xl border">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-muted/30 border-b">
-                      <th className="text-muted-foreground px-4 py-2.5 text-start text-xs font-semibold uppercase tracking-wide">
-                        {t("liDate")}
-                      </th>
-                      {showStudentCol && (
+            {/* Line items — guardian invoices with several children get one card
+                per child; everything else stays a single flat table. */}
+            {grouped ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">{t("childInvoices")}</h3>
+                  <span className="text-muted-foreground text-xs font-medium">
+                    {t("childCountSummary", { count: lessonGroups.length })}
+                  </span>
+                </div>
+                {lessonGroups.map((g, i) => (
+                  <ChildLessonsCard
+                    key={g.student}
+                    group={g}
+                    currency={invoice.currency}
+                    accentIndex={i}
+                  />
+                ))}
+                {/* Grand total across all children */}
+                <div className="from-primary/10 flex items-center justify-between rounded-xl border bg-gradient-to-r to-transparent px-4 py-3.5">
+                  <span className="text-xs font-semibold uppercase tracking-wide">
+                    {t("grandTotal")}
+                  </span>
+                  <span className="text-lg font-bold tabular-nums">
+                    {formatMoney(
+                      {
+                        amount: invoice.total_minor,
+                        currency: invoice.currency,
+                      },
+                      locale,
+                    )}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">{t("lessons")}</h3>
+                <div className="overflow-hidden rounded-xl border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/30 border-b">
                         <th className="text-muted-foreground px-4 py-2.5 text-start text-xs font-semibold uppercase tracking-wide">
-                          {t("liStudent")}
+                          {t("liDate")}
                         </th>
+                        {showStudentCol && (
+                          <th className="text-muted-foreground px-4 py-2.5 text-start text-xs font-semibold uppercase tracking-wide">
+                            {t("liStudent")}
+                          </th>
+                        )}
+                        <th className="text-muted-foreground px-4 py-2.5 text-start text-xs font-semibold uppercase tracking-wide">
+                          {t("liTeacher")}
+                        </th>
+                        <th className="text-muted-foreground px-4 py-2.5 text-start text-xs font-semibold uppercase tracking-wide">
+                          {t("liStatus")}
+                        </th>
+                        <th className="text-muted-foreground px-4 py-2.5 text-end text-xs font-semibold uppercase tracking-wide">
+                          {t("liDuration")}
+                        </th>
+                        <th className="text-muted-foreground px-4 py-2.5 text-end text-xs font-semibold uppercase tracking-wide">
+                          {t("liAmount")}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {lineItems.length === 0 && (
+                        <tr>
+                          <td
+                            colSpan={colCount}
+                            className="text-muted-foreground px-4 py-6 text-center text-sm"
+                          >
+                            {t("empty")}
+                          </td>
+                        </tr>
                       )}
-                      <th className="text-muted-foreground px-4 py-2.5 text-start text-xs font-semibold uppercase tracking-wide">
-                        {t("liTeacher")}
-                      </th>
-                      <th className="text-muted-foreground px-4 py-2.5 text-start text-xs font-semibold uppercase tracking-wide">
-                        {t("liStatus")}
-                      </th>
-                      <th className="text-muted-foreground px-4 py-2.5 text-end text-xs font-semibold uppercase tracking-wide">
-                        {t("liDuration")}
-                      </th>
-                      <th className="text-muted-foreground px-4 py-2.5 text-end text-xs font-semibold uppercase tracking-wide">
-                        {t("liAmount")}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {lineItems.length === 0 && (
-                      <tr>
+                      {lineItems.map((li) => (
+                        <LessonRow
+                          key={li.id}
+                          li={li}
+                          showStudent={showStudentCol}
+                        />
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-muted/20 border-t font-semibold">
                         <td
-                          colSpan={colCount}
-                          className="text-muted-foreground px-4 py-6 text-center text-sm"
+                          colSpan={colCount - 1}
+                          className="px-4 py-2.5 text-end text-xs uppercase tracking-wide"
                         >
-                          {t("empty")}
+                          {t("total")}
+                        </td>
+                        <td className="px-4 py-2.5 text-end tabular-nums">
+                          {formatMoney(
+                            {
+                              amount: invoice.total_minor,
+                              currency: invoice.currency,
+                            },
+                            locale,
+                          )}
                         </td>
                       </tr>
-                    )}
-                    {grouped
-                      ? lessonGroups.map((g) => (
-                          <Fragment key={g.student}>
-                            {/* Per-child section header + subtotal */}
-                            <tr className="bg-muted/40">
-                              <td
-                                colSpan={colCount - 1}
-                                className="px-4 py-2 text-xs font-semibold"
-                              >
-                                {g.student}
-                                <span className="text-muted-foreground ms-2 font-normal">
-                                  {t("liLessonsCount", {
-                                    count: g.lines.length,
-                                  })}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2 text-end text-xs font-semibold tabular-nums">
-                                {formatMoney(
-                                  {
-                                    amount: g.subtotal,
-                                    currency: invoice.currency,
-                                  },
-                                  locale,
-                                )}
-                              </td>
-                            </tr>
-                            {g.lines.map((li) => (
-                              <LessonRow
-                                key={li.id}
-                                li={li}
-                                showStudent={false}
-                              />
-                            ))}
-                          </Fragment>
-                        ))
-                      : lineItems.map((li) => (
-                          <LessonRow
-                            key={li.id}
-                            li={li}
-                            showStudent={showStudentCol}
-                          />
-                        ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-muted/20 border-t font-semibold">
-                      <td
-                        colSpan={colCount - 1}
-                        className="px-4 py-2.5 text-end text-xs uppercase tracking-wide"
-                      >
-                        {t("total")}
-                      </td>
-                      <td className="px-4 py-2.5 text-end tabular-nums">
-                        {formatMoney(
-                          {
-                            amount: invoice.total_minor,
-                            currency: invoice.currency,
-                          },
-                          locale,
-                        )}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
+                    </tfoot>
+                  </table>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Public link row */}
             <div className="flex flex-wrap items-center gap-2 rounded-xl border p-3">

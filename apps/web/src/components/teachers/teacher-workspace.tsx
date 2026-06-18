@@ -175,10 +175,7 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
       )}
 
       {tab === "reports" && (
-        <TeacherReports
-          teacherId={teacherId}
-          timeZone={teacher?.timezone ?? undefined}
-        />
+        <TeacherReports teacherId={teacherId} />
       )}
     </div>
   );

@@ -9,6 +9,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   CreditCard,
+  FileCheck2,
   GraduationCap,
   History,
   LayoutDashboard,
@@ -54,6 +55,7 @@ type NavKey =
   | "schedule"
   | "attendance"
   | "studentReports"
+  | "studentReportReviews"
   | "certificates"
   | "billing"
   | "invoices"
@@ -185,6 +187,13 @@ const NAV: ReadonlyArray<{
     group: "management",
   },
   {
+    key: "studentReportReviews",
+    icon: FileCheck2,
+    permission: "student_report.review",
+    href: "/student-report-reviews",
+    group: "management",
+  },
+  {
     key: "certificates",
     icon: Award,
     permission: "certificate.read",
@@ -273,6 +282,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [notifCount, setNotifCount] = useState(0);
+  const [srCount, setSrCount] = useState(0);
   const [attnCount, setAttnCount] = useState(0);
 
   useEffect(() => {
@@ -284,12 +294,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (session === null || !can("notification.read")) {
       setNotifCount(0);
+      setSrCount(0);
       return;
     }
     let alive = true;
     const refresh = () =>
       getNotificationsSummary()
-        .then((s) => alive && setNotifCount(s.total))
+        .then((s) => {
+          if (!alive) return;
+          setNotifCount(s.total);
+          setSrCount(s.studentReports);
+        })
         .catch(() => {});
     void refresh();
     const id = setInterval(refresh, 60_000);
@@ -493,9 +508,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                               {attnCount > 99 ? "99+" : attnCount}
                             </span>
                           )}
+                          {key === "studentReportReviews" && srCount > 0 && (
+                            <span
+                              data-testid="nav-student-reports-badge"
+                              aria-label={`${srCount} student reports awaiting review`}
+                              className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+                            >
+                              {srCount > 99 ? "99+" : srCount}
+                            </span>
+                          )}
                           {isActive &&
                             key !== "notifications" &&
-                            !(key === "attendance" && attnCount > 0) && (
+                            !(key === "attendance" && attnCount > 0) &&
+                            !(key === "studentReportReviews" && srCount > 0) && (
                               <span className="bg-primary ms-auto size-1.5 rounded-full" />
                             )}
                         </Link>

@@ -1494,8 +1494,13 @@ export function rescheduleSession(
 
 export function cancelSession(
   sessionId: string,
-  input: { cancelled_by: "teacher" | "student"; reason?: string },
-): Promise<{ ok: boolean; status: string }> {
+  input: {
+    cancelled_by: "teacher" | "student";
+    reason?: string;
+    charge_student?: boolean;
+    pay_teacher?: boolean;
+  },
+): Promise<{ ok: boolean; status: string; billed?: boolean }> {
   return apiFetch(`/api/sessions/${sessionId}/cancel`, {
     method: "POST",
     body: JSON.stringify(input),
@@ -1552,6 +1557,14 @@ export interface SessionDetail {
   billed: boolean;
   outcome_set_at: string | null;
   classification: SessionClassification;
+  /** A teacher-raised cancellation awaiting owner approval. The session stays SCHEDULED while
+   *  this is present; null once there is no PENDING request (approved, rejected, or never raised). */
+  pending_cancellation: {
+    id: string;
+    cancel_type: "teacher" | "student";
+    reason: string | null;
+    requested_at: string;
+  } | null;
 }
 
 export interface SessionReportData {
@@ -1574,12 +1587,14 @@ export function getSession(sessionId: string): Promise<SessionDetailResponse> {
   return apiFetch(`/api/sessions/${sessionId}`);
 }
 
-/** The outcomes a human records after a lesson (Sprint 6 §2). FREE = delivered but on the house. */
+/**
+ * The outcomes a human records after a lesson. FREE = delivered but on the house. The former
+ * ABSENT_* outcomes were retired: "charge despite no-show" is now a cancellation with a billing
+ * override (charge_student / pay_teacher), set by the owner in the cancellation popup.
+ */
 export type AttendanceOutcome =
   | "ATTENDED"
   | "FREE"
-  | "ABSENT_UNEXCUSED"
-  | "ABSENT_EXCUSED"
   | "CANCELLED_BY_TEACHER"
   | "CANCELLED_BY_STUDENT";
 
@@ -1589,6 +1604,9 @@ export function markAttendance(
     status: AttendanceOutcome;
     reason?: string;
     override_timing?: boolean;
+    /** Cancellation-only billing override (owner decision). Ignored for ATTENDED/FREE. */
+    charge_student?: boolean;
+    pay_teacher?: boolean;
   },
 ): Promise<{
   status: string;
@@ -1649,6 +1667,9 @@ export function getPendingAttendance(): Promise<{
 /** A session row for the attendance day view — carries the student's lifecycle status too. */
 export interface DaySession extends PendingSession {
   student_status: string | null;
+  /** Set when a teacher-raised cancellation is awaiting owner approval — the session is still
+   *  SCHEDULED, so the row shows an "awaiting approval" marker. null when there's no pending request. */
+  pending_cancel_type: "teacher" | "student" | null;
 }
 
 /**
@@ -2491,11 +2512,18 @@ export function listCancellationRequests(
 
 export function approveCancellation(
   requestId: string,
-  note?: string,
+  input: {
+    note?: string;
+    /** Owner's per-cancellation billing decision applied on approval. */
+    charge_student?: boolean;
+    pay_teacher?: boolean;
+    /** Reason shown to the parent on the invoice line; defaults to the teacher's request reason. */
+    reason?: string;
+  } = {},
 ): Promise<{ ok: boolean; status: CancellationStatus; sessionStatus: string | null }> {
   return apiFetch(`/api/cancellation-requests/${requestId}/approve`, {
     method: "POST",
-    body: JSON.stringify({ note }),
+    body: JSON.stringify(input),
   });
 }
 

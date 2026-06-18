@@ -61,24 +61,28 @@ it('marks ATTENDED: billable + counts for teacher, outcome provenance set', func
         ->and($row->outcome_set_by)->toBe($this->owner->id);
 });
 
-it('marks ABSENT_UNEXCUSED: billable but not counting for teacher', function () {
-    // TC-6.2 / TC-6.9 — §4 row ABSENT_UNEXCUSED (charged, no notice)
+it('charges a cancellation when charge_student=true: billable but not counting for teacher', function () {
+    // TC-6.2 / TC-6.9 — a late-cancel billed to the parent (charge_student) but not paid to the teacher
     $session = ($this->pendingSession)();
     Sanctum::actingAs($this->owner);
 
-    $res = $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ABSENT_UNEXCUSED'])->assertOk();
+    $res = $this->postJson("/api/sessions/{$session}/attendance", [
+        'status' => 'CANCELLED_BY_STUDENT', 'charge_student' => true, 'pay_teacher' => false, 'reason' => 'no-show',
+    ])->assertOk();
     expect($res->json('classification'))->toBe(['billableToStudent' => true, 'countsForTeacher' => false]);
 
     expect((bool) ($this->row)($session)->billed)->toBeTrue()
         ->and(($this->lineItems)($session))->toBe(1);
 });
 
-it('marks ABSENT_EXCUSED: neither billable nor counting, no line item', function () {
-    // TC-6.3 / TC-6.13 — §4 row ABSENT_EXCUSED
+it('a plain cancellation (no overrides): neither billable nor counting, no line item', function () {
+    // TC-6.3 / TC-6.13 — a cancellation defaults to non-billable for both sides
     $session = ($this->pendingSession)();
     Sanctum::actingAs($this->owner);
 
-    $res = $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ABSENT_EXCUSED', 'reason' => 'gave notice'])->assertOk();
+    $res = $this->postJson("/api/sessions/{$session}/attendance", [
+        'status' => 'CANCELLED_BY_STUDENT', 'reason' => 'gave notice',
+    ])->assertOk();
     expect($res->json('classification'))->toBe(['billableToStudent' => false, 'countsForTeacher' => false]);
 
     expect((bool) ($this->row)($session)->billed)->toBeFalse()
@@ -169,12 +173,12 @@ it('is idempotent on re-submitting the same ATTENDED outcome', function () {
     expect(($this->lineItems)($session))->toBe(1);
 });
 
-it('reconciles ABSENT_UNEXCUSED → ATTENDED while OPEN without duplicating the line', function () {
+it('reconciles charged-cancellation → ATTENDED while OPEN without duplicating the line', function () {
     // TC-6.10 — both billable; the guard means no second hook, still one line
     $session = ($this->pendingSession)();
     Sanctum::actingAs($this->owner);
 
-    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ABSENT_UNEXCUSED'])->assertOk();
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'CANCELLED_BY_STUDENT', 'charge_student' => true])->assertOk();
     expect(($this->lineItems)($session))->toBe(1);
 
     $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
@@ -182,7 +186,7 @@ it('reconciles ABSENT_UNEXCUSED → ATTENDED while OPEN without duplicating the 
         ->and((bool) ($this->row)($session)->billed)->toBeTrue();
 });
 
-it('reverses the line item when ATTENDED → ABSENT_EXCUSED while OPEN', function () {
+it('reverses the line item when ATTENDED → plain cancellation while OPEN', function () {
     // TC-6.11 — onSessionUnbilled removes the line; billed=false
     $session = ($this->pendingSession)();
     Sanctum::actingAs($this->owner);
@@ -190,7 +194,7 @@ it('reverses the line item when ATTENDED → ABSENT_EXCUSED while OPEN', functio
     $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
     expect(($this->lineItems)($session))->toBe(1);
 
-    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ABSENT_EXCUSED', 'reason' => 'notice after all'])->assertOk();
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'CANCELLED_BY_STUDENT', 'reason' => 'notice after all'])->assertOk();
     expect(($this->lineItems)($session))->toBe(0)
         ->and((bool) ($this->row)($session)->billed)->toBeFalse();
 });
@@ -208,7 +212,7 @@ it('blocks un-billing once the invoice is CLOSED and rolls the change back', fun
     DB::table('invoices')->where('id', $invoiceId)->update(['status' => 'CLOSED', 'closed_at' => now()]);
 
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ABSENT_EXCUSED'])
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'CANCELLED_BY_STUDENT'])
         ->assertStatus(422)
         ->assertJsonValidationErrors('status');
 

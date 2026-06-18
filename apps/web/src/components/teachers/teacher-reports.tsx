@@ -13,21 +13,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
-import {
-  addDays,
-  todayInTz,
-} from "@/components/scheduling/calendar/utils";
 import {
   ApiError,
-  type CalendarSession,
   createTeacherReport,
   deleteTeacherReport,
-  getCalendar,
-  getSession,
   listTeacherReports,
-  type ReportField,
-  type SessionReportData,
   type TeacherReport,
   type TeacherReportKind,
 } from "@/lib/api";
@@ -57,25 +47,14 @@ const KIND_META: Record<
 const inputBase =
   "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
 
-/** The teacher's Reports tab: internal performance notes written ABOUT the teacher (owner/support)
- *  plus the lesson reports the teacher filled in for their own attended sessions. */
-export function TeacherReports({
-  teacherId,
-  timeZone,
-}: {
-  teacherId: string;
-  timeZone?: string;
-}) {
+/** The teacher's Reports tab: internal performance notes written ABOUT the teacher (owner/support). */
+export function TeacherReports({ teacherId }: { teacherId: string }) {
   const { can } = useAuth();
   const canManage = can("teacher_report.manage");
-  const canSeeLessons = can("session.read");
 
   return (
     <div className="space-y-8">
       {canManage && <PerformanceNotes teacherId={teacherId} />}
-      {canSeeLessons && (
-        <LessonReports teacherId={teacherId} timeZone={timeZone} />
-      )}
     </div>
   );
 }
@@ -289,155 +268,5 @@ function PerformanceNotes({ teacherId }: { teacherId: string }) {
         </ul>
       )}
     </section>
-  );
-}
-
-// ── Lesson reports (existing per-session reports the teacher wrote) ───────────
-
-function LessonReports({
-  teacherId,
-  timeZone,
-}: {
-  teacherId: string;
-  timeZone?: string;
-}) {
-  const t = useTranslations("teachers");
-  const locale = useLocale();
-  const tz =
-    timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
-
-  const [sessions, setSessions] = useState<CalendarSession[] | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const to = todayInTz(tz);
-    const from = addDays(to, -90);
-    void getCalendar({ from, to, teacherId })
-      .then((res) =>
-        setSessions(res.sessions.filter((s) => s.status === "ATTENDED")),
-      )
-      .catch(() => setSessions([]));
-  }, [teacherId, tz]);
-
-  const dateFmt = useMemo(
-    () => new Intl.DateTimeFormat(locale, { dateStyle: "medium" }),
-    [locale],
-  );
-
-  return (
-    <section className="space-y-4">
-      <div className="flex items-center gap-2">
-        <StickyNote className="size-4 text-violet-500" aria-hidden />
-        <h3 className="text-sm font-semibold">{t("reports.lessonsTitle")}</h3>
-      </div>
-
-      {sessions === null ? (
-        <div className="flex items-center justify-center py-8">
-          <div className="border-primary size-6 animate-spin rounded-full border-2 border-t-transparent" />
-        </div>
-      ) : sessions.length === 0 ? (
-        <p className="py-4 text-center text-sm text-muted-foreground">
-          {t("reports.lessonsEmpty")}
-        </p>
-      ) : (
-        <ul className="divide-y overflow-hidden rounded-2xl border bg-card shadow-sm">
-          {sessions.map((s) => (
-            <li
-              key={s.id}
-              className="flex items-center gap-3 px-4 py-3"
-              data-lesson={s.id}
-            >
-              <StickyNote
-                className="size-4 shrink-0 text-muted-foreground"
-                aria-hidden
-              />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">
-                  {s.student_name ?? "—"}
-                </div>
-                <div className="text-xs text-muted-foreground tabular-nums">
-                  {dateFmt.format(new Date(s.scheduled_at_utc))}
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                onClick={() => setOpenId(s.id)}
-              >
-                {t("reports.viewReport")}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <LessonReportModal sessionId={openId} onClose={() => setOpenId(null)} />
-    </section>
-  );
-}
-
-function LessonReportModal({
-  sessionId,
-  onClose,
-}: {
-  sessionId: string | null;
-  onClose: () => void;
-}) {
-  const t = useTranslations("teachers");
-  const locale = useLocale();
-  const [report, setReport] = useState<SessionReportData | null>(null);
-  const [fields, setFields] = useState<ReportField[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!sessionId) return;
-    setLoading(true);
-    setReport(null);
-    void getSession(sessionId)
-      .then((res) => {
-        setReport(res.report);
-        setFields(res.reportFields);
-      })
-      .finally(() => setLoading(false));
-  }, [sessionId]);
-
-  const values = report?.values ?? {};
-
-  return (
-    <Modal
-      open={sessionId !== null}
-      onClose={onClose}
-      title={t("reports.lessonReport")}
-      size="md"
-    >
-      {loading ? (
-        <div className="flex items-center justify-center py-10">
-          <div className="border-primary size-6 animate-spin rounded-full border-2 border-t-transparent" />
-        </div>
-      ) : report === null ? (
-        <p className="py-6 text-center text-sm text-muted-foreground">
-          {t("reports.noReport")}
-        </p>
-      ) : (
-        <dl className="space-y-3">
-          {fields.map((f) => {
-            const v = values[f.key];
-            return (
-              <div key={f.id} className="rounded-xl border bg-muted/20 p-3">
-                <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {locale === "ar" ? f.label_ar : f.label_en}
-                </dt>
-                <dd className="mt-0.5 whitespace-pre-wrap text-sm">
-                  {v === null || v === undefined || v === ""
-                    ? "—"
-                    : String(v)}
-                </dd>
-              </div>
-            );
-          })}
-        </dl>
-      )}
-    </Modal>
   );
 }

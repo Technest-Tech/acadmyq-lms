@@ -32,6 +32,32 @@ beforeEach(function () {
 
 afterEach(fn () => Carbon::setTestNow());
 
+it('charges the parent when the owner approves with charge_student + reason', function () {
+    // Teacher raises the request; the owner decides the billing at approval time.
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson("/api/sessions/{$this->session}/cancellation-request", ['cancelled_by' => 'teacher', 'reason' => 'Sick'])
+        ->assertStatus(201);
+    $reqId = DB::table('session_cancellation_requests')->where('session_id', $this->session)->value('id');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/cancellation-requests/{$reqId}/approve", [
+        'charge_student' => true,
+        'pay_teacher' => false,
+        'reason' => 'Late cancellation — within 24h',
+    ])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $row = DB::table('sessions')->where('id', $this->session)->first();
+    expect($row->status)->toBe('CANCELLED_BY_TEACHER')
+        ->and((bool) $row->bill_override)->toBeTrue()
+        ->and((bool) $row->billed)->toBeTrue();
+
+    // A billed line exists for the parent, captioned with the owner's reason.
+    $line = DB::table('invoice_line_items')->where('session_id', $this->session)->first();
+    expect($line)->not->toBeNull()
+        ->and($line->description)->toContain('Late cancellation — within 24h');
+});
+
 it('lets a teacher raise a cancellation request without changing the session', function () {
     Sanctum::actingAs($this->teacherUser);
 
@@ -47,6 +73,46 @@ it('lets a teacher raise a cancellation request without changing the session', f
     expect($req->status)->toBe('PENDING')
         ->and($req->cancel_type)->toBe('teacher')
         ->and((string) $req->teacher_id)->toBe($this->teacher);
+});
+
+it('surfaces a pending cancellation request on the session detail', function () {
+    Sanctum::actingAs($this->teacherUser);
+
+    // Before requesting: no pending cancellation on the session detail.
+    expect($this->getJson("/api/sessions/{$this->session}")->assertOk()->json('session.pending_cancellation'))->toBeNull();
+
+    $this->postJson("/api/sessions/{$this->session}/cancellation-request", ['cancelled_by' => 'teacher', 'reason' => 'Sick'])
+        ->assertStatus(201);
+
+    // After requesting: the detail carries the PENDING request so the UI can show "awaiting approval".
+    $res = $this->getJson("/api/sessions/{$this->session}")->assertOk();
+    expect($res->json('session.status'))->toBe('SCHEDULED')
+        ->and($res->json('session.pending_cancellation.cancel_type'))->toBe('teacher')
+        ->and($res->json('session.pending_cancellation.reason'))->toBe('Sick');
+
+    // Once the owner approves, the pending indicator clears.
+    $reqId = DB::table('session_cancellation_requests')->where('session_id', $this->session)->value('id');
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/cancellation-requests/{$reqId}/approve")->assertOk();
+    Sanctum::actingAs($this->teacherUser);
+    expect($this->getJson("/api/sessions/{$this->session}")->assertOk()->json('session.pending_cancellation'))->toBeNull();
+});
+
+it('flags the day-view row as awaiting approval while a request is pending', function () {
+    $params = ['from' => '2026-06-20T00:00:00Z', 'to' => '2026-06-21T00:00:00Z'];
+    Sanctum::actingAs($this->teacherUser);
+
+    // Before requesting: the row carries no pending cancel marker.
+    $before = $this->getJson('/api/sessions/day?'.http_build_query($params))->assertOk()->json('sessions');
+    expect(collect($before)->firstWhere('id', $this->session)['pending_cancel_type'])->toBeNull();
+
+    $this->postJson("/api/sessions/{$this->session}/cancellation-request", ['cancelled_by' => 'teacher'])->assertStatus(201);
+
+    // After requesting: the row is flagged, but the session is still SCHEDULED.
+    $row = collect($this->getJson('/api/sessions/day?'.http_build_query($params))->assertOk()->json('sessions'))
+        ->firstWhere('id', $this->session);
+    expect($row['status'])->toBe('SCHEDULED')
+        ->and($row['pending_cancel_type'])->toBe('teacher');
 });
 
 it('blocks a teacher from cancelling a class directly (must request)', function () {
@@ -93,15 +159,24 @@ it('blocks a teacher from marking a student absent (academy-only outcome)', func
     expect(DB::table('sessions')->where('id', $this->session)->value('status'))->toBe('SCHEDULED');
 });
 
-it('still lets an owner mark a student absent via the attendance endpoint', function () {
+it('lets an owner cancel with a billing override via the attendance endpoint', function () {
     Sanctum::actingAs($this->owner);
 
     $this->postJson("/api/sessions/{$this->session}/attendance", [
-        'status' => 'ABSENT_UNEXCUSED', 'override_timing' => true,
+        'status' => 'CANCELLED_BY_STUDENT',
+        'charge_student' => true,
+        'pay_teacher' => false,
+        'reason' => 'Late cancellation fee',
+        'override_timing' => true,
     ])->assertOk();
 
     $this->asAcademy($this->academy);
-    expect(DB::table('sessions')->where('id', $this->session)->value('status'))->toBe('ABSENT_UNEXCUSED');
+    $row = DB::table('sessions')->where('id', $this->session)->first();
+    expect($row->status)->toBe('CANCELLED_BY_STUDENT')
+        ->and((bool) $row->bill_override)->toBeTrue()
+        ->and((bool) $row->billed)->toBeTrue();
+    // The charged cancellation produced a billed line for the parent.
+    expect(DB::table('invoice_line_items')->where('session_id', $this->session)->count())->toBe(1);
 });
 
 it('rejects a second pending request for the same session', function () {

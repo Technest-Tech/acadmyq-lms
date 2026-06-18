@@ -114,11 +114,11 @@ it('TC-7.1: ATTENDED → one line item on OPEN invoice; amount = subscription pr
 
 // ─── TC-7.2 ──────────────────────────────────────────────────────────────────
 
-it('TC-7.2: ABSENT_UNEXCUSED → also billed; one line item created', function () {
+it('TC-7.2: charged cancellation (charge_student) → also billed; one line item created', function () {
     $session = ($this->juneSession)();
     Sanctum::actingAs($this->owner);
 
-    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ABSENT_UNEXCUSED'])->assertOk();
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'CANCELLED_BY_STUDENT', 'charge_student' => true])->assertOk();
 
     expect(($this->lineCount)($session))->toBe(1);
 
@@ -346,7 +346,7 @@ it('TC-7.9: Open invoice total always equals sum of line items after each add/re
 
     // Remove a line item by excusing sessionA.
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/sessions/{$sessionA}/attendance", ['status' => 'ABSENT_EXCUSED', 'reason' => 'sick'])->assertOk();
+    $this->postJson("/api/sessions/{$sessionA}/attendance", ['status' => 'CANCELLED_BY_STUDENT', 'reason' => 'sick'])->assertOk();
 
     $this->asAcademy($this->academy);
     $lineSum = (int) DB::table('invoice_line_items')->where('invoice_id', $invoice->id)->sum('amount_minor');
@@ -463,14 +463,14 @@ it('TC-7.11b: PER_HOUR basis — each line = hourly rate × session hours', func
 
 // ─── TC-7.12 ─────────────────────────────────────────────────────────────────
 
-it('TC-7.12: ATTENDED → ABSENT_EXCUSED before close → line removed and total reduced', function () {
+it('TC-7.12: ATTENDED → cancellation before close → line removed and total reduced', function () {
     $session = ($this->juneSession)();
     Sanctum::actingAs($this->owner);
 
     $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
     expect(($this->lineCount)($session))->toBe(1);
 
-    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ABSENT_EXCUSED', 'reason' => 'sick'])->assertOk();
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'CANCELLED_BY_STUDENT', 'reason' => 'sick'])->assertOk();
     expect(($this->lineCount)($session))->toBe(0);
 
     $this->asAcademy($this->academy);
@@ -496,7 +496,7 @@ it('TC-7.13: Un-billing after invoice is CLOSED is rejected with 422', function 
     DB::table('invoices')->where('id', $invoiceId)->update(['status' => 'CLOSED', 'closed_at' => now()]);
 
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ABSENT_EXCUSED'])
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'CANCELLED_BY_STUDENT'])
         ->assertStatus(422);
 
     expect(($this->lineCount)($session))->toBe(1);
@@ -1129,7 +1129,7 @@ it('TC-7.33: Line add, line remove, close, mark-paid, and send-link each write a
 
     // Line remove.
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/sessions/{$sessionB}/attendance", ['status' => 'ABSENT_EXCUSED', 'reason' => 'sick'])->assertOk();
+    $this->postJson("/api/sessions/{$sessionB}/attendance", ['status' => 'CANCELLED_BY_STUDENT', 'reason' => 'sick'])->assertOk();
 
     $this->asAcademy($this->academy);
     $lineRemoveCount = DB::table('audit_log')

@@ -36,6 +36,7 @@ function detail(overrides: Partial<api.SessionDetailResponse> = {}): api.Session
       billed: false,
       outcome_set_at: null,
       classification: { billableToStudent: false, countsForTeacher: false },
+      pending_cancellation: null,
     },
     report: null,
     reportFields: [

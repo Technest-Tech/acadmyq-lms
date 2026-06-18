@@ -18,20 +18,26 @@ use App\Enums\SessionStatus;
  *   ATTENDED               → bill: true,  teacher: true
  *   FREE                   → bill: false, teacher: false   (lesson delivered but on the house —
  *                                                           free for student, teacher AND academy)
- *   ABSENT_UNEXCUSED       → bill: true,  teacher: false   (no-show, no notice → charged)
- *   ABSENT_EXCUSED         → bill: false, teacher: false   (absent but gave notice)
- *   CANCELLED_BY_TEACHER   → bill: false, teacher: false
- *   CANCELLED_BY_STUDENT   → bill: false, teacher: false
+ *   ABSENT_UNEXCUSED       → bill: true,  teacher: false   (legacy — no longer selectable)
+ *   ABSENT_EXCUSED         → bill: false, teacher: false   (legacy — no longer selectable)
+ *   CANCELLED_BY_TEACHER   → bill: false, teacher: false   (default — overridable per cancellation)
+ *   CANCELLED_BY_STUDENT   → bill: false, teacher: false   (default — overridable per cancellation)
  *   SCHEDULED | RESCHEDULED→ bill: false, teacher: false   (no outcome yet)
+ *
+ * Per-cancellation override: the academy may decide, when cancelling, to still charge the student
+ * and/or pay the teacher (a late-cancel fee). `$billOverride` / `$teacherOverride` carry that
+ * decision (from `sessions.bill_override` / `teacher_override`). NULL = no override → the status
+ * default above stands. ATTENDED/FREE are never passed an override, so the matrix is unchanged for
+ * them: this stays a single source of truth, now parameterised for the cancellation case only.
  */
 final class SessionClassifier
 {
     /**
      * @return array{billableToStudent: bool, countsForTeacher: bool}
      */
-    public static function classify(SessionStatus $status): array
+    public static function classify(SessionStatus $status, ?bool $billOverride = null, ?bool $teacherOverride = null): array
     {
-        return match ($status) {
+        $base = match ($status) {
             SessionStatus::Attended => ['billableToStudent' => true, 'countsForTeacher' => true],
             SessionStatus::AbsentUnexcused => ['billableToStudent' => true, 'countsForTeacher' => false],
             SessionStatus::Free,
@@ -41,21 +47,26 @@ final class SessionClassifier
             SessionStatus::Scheduled,
             SessionStatus::Rescheduled => ['billableToStudent' => false, 'countsForTeacher' => false],
         };
+
+        return [
+            'billableToStudent' => $billOverride ?? $base['billableToStudent'],
+            'countsForTeacher' => $teacherOverride ?? $base['countsForTeacher'],
+        ];
     }
 
-    /** Convenience: classify from the raw enum string stored in `sessions.status`. */
-    public static function classifyValue(string $status): array
+    /** Convenience: classify from the raw enum string stored in `sessions.status` (+ overrides). */
+    public static function classifyValue(string $status, ?bool $billOverride = null, ?bool $teacherOverride = null): array
     {
-        return self::classify(SessionStatus::from($status));
+        return self::classify(SessionStatus::from($status), $billOverride, $teacherOverride);
     }
 
-    public static function billableToStudent(SessionStatus $status): bool
+    public static function billableToStudent(SessionStatus $status, ?bool $billOverride = null): bool
     {
-        return self::classify($status)['billableToStudent'];
+        return self::classify($status, $billOverride)['billableToStudent'];
     }
 
-    public static function countsForTeacher(SessionStatus $status): bool
+    public static function countsForTeacher(SessionStatus $status, ?bool $teacherOverride = null): bool
     {
-        return self::classify($status)['countsForTeacher'];
+        return self::classify($status, null, $teacherOverride)['countsForTeacher'];
     }
 }

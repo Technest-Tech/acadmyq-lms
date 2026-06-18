@@ -110,6 +110,7 @@
     "settings": "الإعدادات",
     "attendance": "الحضور",
     "studentReports": "تقارير الطلاب",
+    "studentReportReviews": "مراجعة تقارير الطلاب",
     "myPayroll": "رواتبي",
     "trials": "التجارب",
     "billing": "الفوترة والاشتراكات",
@@ -1076,6 +1077,9 @@
     "liStudent": "الطالب",
     "liLessonsCount": "{count, plural, one {# حصة} other {# حصص}}",
     "liGroupSubtotal": "المجموع الفرعي",
+    "childInvoices": "الطلاب المفوترون",
+    "childCountSummary": "{count, plural, one {# طالب} other {# طلاب}}",
+    "grandTotal": "الإجمالي الكلي",
     "liDescription": "الوصف",
     "liAmount": "المبلغ",
     "liNotCharged": "بدون رسوم",
@@ -1174,6 +1178,8 @@
     "save": "حفظ",
     "sendWhatsapp": "إرسال واتساب",
     "whatsappSoon": "إرسال واتساب قادم قريبًا",
+    "awaitingApproval": "بانتظار الموافقة",
+    "awaitingApprovalHint": "تم طلب إلغاء وهو بانتظار موافقة المالك.",
     "freeStatusLabel": "مجاني (تجريبي)",
     "magicFormat": "✦ صياغة",
     "magicFormatTitle": "صياغة تقرير احترافي منظّم",
@@ -1217,6 +1223,27 @@
     "saved": "تم حفظ التقرير.",
     "savedNoOutcome": "تم حفظ التقرير — لا تنسَ تسجيل نتيجة الحضور.",
     "cancelRequestSent": "تم إرسال طلب الإلغاء — بانتظار موافقة المالك. تبقى الحصة مجدولة حتى ذلك الحين.",
+    "pendingCancellationTitle": "طلب إلغاء بانتظار الموافقة",
+    "pendingCancellationHint": "طلبت إلغاء هذه الحصة ({by}). تبقى مجدولة حتى يوافق المالك.",
+    "cancelBilling": {
+      "title": "فوترة الإلغاء",
+      "subtitle": {
+        "teacher": "أُلغيت من قبل المعلّم — حدّد أثرها على الفوترة.",
+        "student": "أُلغيت من قبل الطالب — حدّد أثرها على الفوترة."
+      },
+      "chargeStudent": "محاسبة الطالب",
+      "chargeStudentHint": "فوترة وليّ الأمر بكامل سعر الحصة (مثل رسوم الإلغاء المتأخر).",
+      "payTeacher": "محاسبة المعلّم",
+      "payTeacherHint": "احتساب هذه الحصة ضمن مستحقات المعلّم.",
+      "reason": "السبب",
+      "reasonPlaceholder": "ما سبب إلغاء هذه الحصة؟",
+      "reasonParentNote": "سيظهر هذا السبب في بند فاتورة وليّ الأمر.",
+      "reasonRequired": "أضف سبباً للمحاسبة.",
+      "yes": "نعم",
+      "no": "لا",
+      "confirm": "تطبيق",
+      "cancel": "إلغاء"
+    },
     "markedSent": "تم التعليم كمُرسَل على واتساب.",
     "history": "سجل التقارير",
     "viewHistory": "السجل",
@@ -1983,5 +2010,24 @@
     "hasToken": "الرمز مُعيَّن",
     "noToken": "لا يوجد رمز",
     "tokenHint": "عيّن أو استبدل رمز Wasender للأكاديمية من صفحة تفاصيلها (الأكاديميات ← افتح أكاديمية)."
+  },
+  "studentReportReviews": {
+    "title": "مراجعة تقارير الطلاب",
+    "subtitle": "الموافقة على تقارير التقدّم الشهرية التي يقدّمها المعلّمون أو رفضها.",
+    "noPermission": "ليست لديك صلاحية لمراجعة تقارير الطلاب.",
+    "loading": "جارٍ التحميل…",
+    "empty": "لا توجد تقارير طلاب للمراجعة.",
+    "status": {
+      "PENDING": "قيد الانتظار",
+      "APPROVED": "تمت الموافقة",
+      "REJECTED": "مرفوض"
+    },
+    "decisionNote": "{who}: {note}",
+    "notePlaceholder": "أضف ملاحظة (اختياري)",
+    "actions": {
+      "refresh": "تحديث",
+      "approve": "موافقة",
+      "reject": "رفض"
+    }
   }
 }

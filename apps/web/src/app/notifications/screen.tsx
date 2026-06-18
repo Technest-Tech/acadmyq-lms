@@ -9,13 +9,15 @@ import {
   ClipboardX,
   GraduationCap,
   Inbox,
-  NotebookPen,
   RefreshCw,
-  User,
   X,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState, type ComponentType } from "react";
+import {
+  CancellationBillingModal,
+  type CancellationBillingValues,
+} from "@/components/attendance/cancellation-billing-modal";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { AlertBanner } from "@/components/ui/alert";
@@ -27,18 +29,14 @@ import {
   getNotificationsSummary,
   listCancellationRequests,
   listNotifications,
-  listStudentReportsForReview,
   markAllNotificationsRead,
   markNotificationRead,
   type NotificationRow,
   rejectCancellation,
-  approveStudentReport,
-  rejectStudentReport,
-  type StudentReportRow,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type TabKey = "classes" | "reports" | "studentReports";
+type TabKey = "classes" | "reports";
 
 const STATUS_CHIP: Record<CancellationStatus, string> = {
   PENDING:
@@ -57,8 +55,7 @@ export function NotificationsScreen() {
   const [tab, setTab] = useState<TabKey>("classes");
   const [requests, setRequests] = useState<CancellationRequestRow[]>([]);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
-  const [studentReports, setStudentReports] = useState<StudentReportRow[]>([]);
-  const [counts, setCounts] = useState({ classes: 0, reports: 0, studentReports: 0 });
+  const [counts, setCounts] = useState({ classes: 0, reports: 0 });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -74,24 +71,17 @@ export function NotificationsScreen() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [
-        { requests: reqs },
-        { notifications: notifs },
-        { reports: studentReps },
-        summary,
-      ] = await Promise.all([
-        listCancellationRequests(),
-        listNotifications(),
-        listStudentReportsForReview(),
-        getNotificationsSummary(),
-      ]);
+      const [{ requests: reqs }, { notifications: notifs }, summary] =
+        await Promise.all([
+          listCancellationRequests(),
+          listNotifications(),
+          getNotificationsSummary(),
+        ]);
       setRequests(reqs);
       setNotifications(notifs);
-      setStudentReports(studentReps);
       setCounts({
         classes: summary.classes,
         reports: summary.reports,
-        studentReports: summary.studentReports,
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -113,7 +103,6 @@ export function NotificationsScreen() {
   const TABS: { key: TabKey; icon: ComponentType<{ className?: string }>; count: number }[] = [
     { key: "classes", icon: Ban, count: counts.classes },
     { key: "reports", icon: ClipboardX, count: counts.reports },
-    { key: "studentReports", icon: NotebookPen, count: counts.studentReports },
   ];
 
   return (
@@ -191,18 +180,10 @@ export function NotificationsScreen() {
           onChanged={load}
           onError={setError}
         />
-      ) : tab === "reports" ? (
+      ) : (
         <ReportsTab
           notifications={notifications}
           fmt={fmt}
-          onChanged={load}
-          onError={setError}
-        />
-      ) : (
-        <StudentReportsTab
-          reports={studentReports}
-          canReview={can("student_report.review")}
-          locale={locale}
           onChanged={load}
           onError={setError}
         />
@@ -264,12 +245,31 @@ function RequestCard({
   const t = useTranslations("notifications");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  // Approving opens the billing decision popup; rejecting is immediate.
+  const [billingOpen, setBillingOpen] = useState(false);
 
-  async function decide(approve: boolean) {
+  async function reject() {
     setBusy(true);
     try {
-      if (approve) await approveCancellation(r.id, note || undefined);
-      else await rejectCancellation(r.id, note || undefined);
+      await rejectCancellation(r.id, note || undefined);
+      await onChanged();
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmApprove(values: CancellationBillingValues) {
+    setBusy(true);
+    try {
+      await approveCancellation(r.id, {
+        note: note || undefined,
+        charge_student: values.charge_student,
+        pay_teacher: values.pay_teacher,
+        reason: values.reason || undefined,
+      });
+      setBillingOpen(false);
       await onChanged();
     } catch (err) {
       onError(err instanceof ApiError ? err.message : String(err));
@@ -351,7 +351,7 @@ function RequestCard({
               type="button"
               size="sm"
               disabled={busy}
-              onClick={() => void decide(true)}
+              onClick={() => setBillingOpen(true)}
               data-testid="approve"
               className="gap-1.5"
             >
@@ -363,7 +363,7 @@ function RequestCard({
               variant="outline"
               size="sm"
               disabled={busy}
-              onClick={() => void decide(false)}
+              onClick={() => void reject()}
               data-testid="reject"
               className="border-destructive/30 text-destructive hover:bg-destructive/10 gap-1.5"
             >
@@ -379,6 +379,16 @@ function RequestCard({
           {t("teacherPendingHint")}
         </p>
       )}
+
+      {/* Approval → billing decision (charge student / pay teacher + reason for the parent). */}
+      <CancellationBillingModal
+        open={billingOpen}
+        onClose={() => setBillingOpen(false)}
+        cancelType={r.cancel_type}
+        defaultReason={r.reason ?? ""}
+        busy={busy}
+        onConfirm={confirmApprove}
+      />
     </li>
   );
 }
@@ -500,173 +510,6 @@ function ReportsTab({
         })}
       </ul>
     </div>
-  );
-}
-
-// ── Student reports (teacher submissions awaiting review) ─────────────────────
-
-function StudentReportsTab({
-  reports,
-  canReview,
-  locale,
-  onChanged,
-  onError,
-}: {
-  reports: StudentReportRow[];
-  canReview: boolean;
-  locale: string;
-  onChanged: () => Promise<void>;
-  onError: (msg: string) => void;
-}) {
-  const t = useTranslations("notifications");
-
-  if (reports.length === 0) {
-    return <EmptyState message={t("empty.studentReports")} />;
-  }
-
-  return (
-    <ul className="space-y-3" data-testid="student-reports-list">
-      {reports.map((r) => (
-        <StudentReportCard
-          key={r.id}
-          report={r}
-          canReview={canReview}
-          locale={locale}
-          onChanged={onChanged}
-          onError={onError}
-        />
-      ))}
-    </ul>
-  );
-}
-
-function StudentReportCard({
-  report: r,
-  canReview,
-  locale,
-  onChanged,
-  onError,
-}: {
-  report: StudentReportRow;
-  canReview: boolean;
-  locale: string;
-  onChanged: () => Promise<void>;
-  onError: (msg: string) => void;
-}) {
-  const t = useTranslations("notifications");
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function decide(approve: boolean) {
-    setBusy(true);
-    try {
-      if (approve) await approveStudentReport(r.id, note || undefined);
-      else await rejectStudentReport(r.id, note || undefined);
-      await onChanged();
-    } catch (err) {
-      onError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const pending = r.status === "PENDING";
-  const month = new Intl.DateTimeFormat(locale === "ar" ? "ar" : "en", {
-    year: "numeric",
-    month: "long",
-  }).format(new Date(r.period_month));
-
-  return (
-    <li
-      className="bg-card space-y-3 rounded-2xl border p-4"
-      data-testid="student-report-card"
-      data-status={r.status}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="bg-primary/10 ring-primary/15 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1">
-            <NotebookPen className="text-primary size-5" aria-hidden />
-          </div>
-          <div className="min-w-0">
-            <p className="font-semibold leading-tight">{r.title}</p>
-            <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-              <span className="inline-flex items-center gap-1.5">
-                <User className="size-3.5" aria-hidden />
-                {r.student_name ?? "—"}
-              </span>
-              {r.teacher_name && (
-                <span className="inline-flex items-center gap-1.5">
-                  <GraduationCap className="size-3.5" aria-hidden />
-                  {r.teacher_name}
-                </span>
-              )}
-              <span className="inline-flex items-center gap-1.5">
-                <CalendarClock className="size-3.5" aria-hidden />
-                {month}
-              </span>
-            </div>
-          </div>
-        </div>
-        <span
-          className={cn(
-            "shrink-0 rounded-full px-2.5 py-0.5 text-[0.7rem] font-semibold",
-            STATUS_CHIP[r.status],
-          )}
-        >
-          {t(`status.${r.status}`)}
-        </span>
-      </div>
-
-      <p className="text-foreground/90 bg-muted/40 whitespace-pre-wrap rounded-xl px-3 py-2 text-sm">
-        {r.body}
-      </p>
-
-      {!pending && r.review_note && (
-        <p className="text-muted-foreground text-xs">
-          {t("decisionNote", {
-            who: r.reviewed_by_name ?? "—",
-            note: r.review_note,
-          })}
-        </p>
-      )}
-
-      {canReview && pending && (
-        <div className="space-y-2 border-t pt-3">
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder={t("notePlaceholder")}
-            aria-label={t("notePlaceholder")}
-            className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3.5 py-2 text-sm outline-none transition-colors focus:ring-3"
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              disabled={busy}
-              onClick={() => void decide(true)}
-              data-testid="sr-approve"
-              className="gap-1.5"
-            >
-              <Check className="size-3.5" />
-              {t("actions.approve")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => void decide(false)}
-              data-testid="sr-reject"
-              className="border-destructive/30 text-destructive hover:bg-destructive/10 gap-1.5"
-            >
-              <X className="size-3.5" />
-              {t("actions.reject")}
-            </Button>
-          </div>
-        </div>
-      )}
-    </li>
   );
 }
 

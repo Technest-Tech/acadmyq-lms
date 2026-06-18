@@ -111,6 +111,7 @@
     "settings": "Settings",
     "attendance": "Attendance",
     "studentReports": "Student Reports",
+    "studentReportReviews": "Student Report Reviews",
     "myPayroll": "My Payroll",
     "billing": "Billing & Subscriptions",
     "plans": "Plans",
@@ -1076,6 +1077,9 @@
     "liStudent": "Student",
     "liLessonsCount": "{count, plural, one {# lesson} other {# lessons}}",
     "liGroupSubtotal": "Subtotal",
+    "childInvoices": "Students billed",
+    "childCountSummary": "{count, plural, one {# student} other {# students}}",
+    "grandTotal": "Grand total",
     "liDescription": "Description",
     "liAmount": "Amount",
     "liNotCharged": "Not charged",
@@ -1174,6 +1178,8 @@
     "save": "Save",
     "sendWhatsapp": "Send WhatsApp",
     "whatsappSoon": "WhatsApp sending is coming soon",
+    "awaitingApproval": "Awaiting approval",
+    "awaitingApprovalHint": "A cancellation was requested and is awaiting the owner’s approval.",
     "freeStatusLabel": "Free (Trial)",
     "magicFormat": "✦ Format",
     "magicFormatTitle": "Format as a structured professional report",
@@ -1217,6 +1223,27 @@
     "saved": "Report saved.",
     "savedNoOutcome": "Report saved — remember to record the attendance outcome.",
     "cancelRequestSent": "Cancellation request sent — awaiting the owner’s approval. The class stays scheduled until then.",
+    "pendingCancellationTitle": "Cancellation awaiting approval",
+    "pendingCancellationHint": "You requested to cancel this class ({by}). It stays scheduled until the owner approves.",
+    "cancelBilling": {
+      "title": "Cancellation billing",
+      "subtitle": {
+        "teacher": "Cancelled by the teacher — decide how it affects billing.",
+        "student": "Cancelled by the student — decide how it affects billing."
+      },
+      "chargeStudent": "Charge the student",
+      "chargeStudentHint": "Bill the parent the full session price (e.g. a late-cancel fee).",
+      "payTeacher": "Pay the teacher",
+      "payTeacherHint": "Still count this session toward the teacher's payout.",
+      "reason": "Reason",
+      "reasonPlaceholder": "Why is this class cancelled?",
+      "reasonParentNote": "This reason will appear on the parent's invoice line.",
+      "reasonRequired": "Add a reason for the charge.",
+      "yes": "Yes",
+      "no": "No",
+      "confirm": "Apply",
+      "cancel": "Cancel"
+    },
     "markedSent": "Marked as sent on WhatsApp.",
     "history": "Report history",
     "viewHistory": "History",
@@ -1983,5 +2010,24 @@
     "hasToken": "Token set",
     "noToken": "No token",
     "tokenHint": "Set or replace an academy's Wasender token from its detail page (Academies → open an academy)."
+  },
+  "studentReportReviews": {
+    "title": "Student Report Reviews",
+    "subtitle": "Approve or reject the monthly progress reports teachers submit.",
+    "noPermission": "You don't have permission to review student reports.",
+    "loading": "Loading…",
+    "empty": "No student reports to review.",
+    "status": {
+      "PENDING": "Pending",
+      "APPROVED": "Approved",
+      "REJECTED": "Rejected"
+    },
+    "decisionNote": "{who}: {note}",
+    "notePlaceholder": "Add a note (optional)",
+    "actions": {
+      "refresh": "Refresh",
+      "approve": "Approve",
+      "reject": "Reject"
+    }
   }
 }

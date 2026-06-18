@@ -30,6 +30,7 @@ const daySession = {
   student_name: "Abdullah",
   student_status: "TRIAL_BOOKED",
   teacher_name: "Ustadh",
+  pending_cancel_type: null,
 };
 
 function ownerSession(): Session {
@@ -72,6 +73,7 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
         billed: false,
         outcome_set_at: null,
         classification: { billableToStudent: false, countsForTeacher: false },
+        pending_cancellation: null,
       },
       report: null,
       reportFields: [],

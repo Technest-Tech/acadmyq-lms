@@ -39,14 +39,26 @@ final class AttendanceService
      * Apply $next to $session, firing/reversing the billing hook idempotently and auditing the
      * before/after (R-AUD-1). $session is the row as loaded BEFORE the change.
      *
+     * Cancellations (CANCELLED_BY_*) may carry a per-session billing override: $billOverride /
+     * $teacherOverride (null = use the status default). When the academy chooses to still charge a
+     * cancellation, $reason is what the parent sees on the resulting invoice line — so we stamp the
+     * new status + reason onto the in-memory $session BEFORE firing the billing hook, which reads
+     * them to label the line "Cancelled session … — <reason>".
+     *
      * @return array{status: string, billed: bool, billingAction: ?string}
      */
-    public function record(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole): array
+    public function record(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride = null, ?bool $teacherOverride = null): array
     {
         $prev = (string) $session->status;
         $wasBilled = (bool) $session->billed;
         $wasPaidToTeacher = (bool) $session->paid_to_teacher;
-        $verdict = SessionClassifier::classify($next);
+        $verdict = SessionClassifier::classify($next, $billOverride, $teacherOverride);
+
+        // The billing/payout hooks read the session row for date, amount and (now) the line
+        // description. Stamp the outcome we're applying so a charged cancellation's line shows the
+        // right status + reason to the parent rather than the pre-change values.
+        $session->status = $next->value;
+        $session->status_reason = $reason;
 
         $billed = $wasBilled;
         $billingAction = null;
@@ -92,6 +104,8 @@ final class AttendanceService
         DB::table('sessions')->where('id', $session->id)->update([
             'status' => $next->value,
             'status_reason' => $reason,
+            'bill_override' => $billOverride,
+            'teacher_override' => $teacherOverride,
             'billed' => $billed,
             'paid_to_teacher' => $paidToTeacher,
             'outcome_set_at' => now(),
@@ -106,7 +120,7 @@ final class AttendanceService
             (string) $session->academy_id,
             $actorUserId,
             $actorRole,
-            after: ['status' => $next->value, 'billed' => $billed, 'billing_action' => $billingAction, 'paid_to_teacher' => $paidToTeacher, 'payroll_action' => $payrollAction, 'reason' => $reason],
+            after: ['status' => $next->value, 'billed' => $billed, 'billing_action' => $billingAction, 'paid_to_teacher' => $paidToTeacher, 'payroll_action' => $payrollAction, 'reason' => $reason, 'bill_override' => $billOverride, 'teacher_override' => $teacherOverride],
             before: ['status' => $prev, 'billed' => $wasBilled, 'paid_to_teacher' => $wasPaidToTeacher],
         );
 

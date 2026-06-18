@@ -118,7 +118,7 @@ it('audits status set/change with before/after, including the billing action', f
     Sanctum::actingAs($this->owner);
 
     $this->postJson("/api/sessions/{$pending}/attendance", ['status' => 'ATTENDED'])->assertOk();
-    $this->postJson("/api/sessions/{$pending}/attendance", ['status' => 'ABSENT_EXCUSED'])->assertOk();
+    $this->postJson("/api/sessions/{$pending}/attendance", ['status' => 'CANCELLED_BY_STUDENT'])->assertOk();
 
     $this->asAcademy($this->academy);
     $entries = DB::table('audit_log')
@@ -134,7 +134,7 @@ it('audits status set/change with before/after, including the billing action', f
         ->and($firstAfter['billing_action'])->toBe('billed');   // hook fire recorded
 
     $secondAfter = json_decode($entries[1]->after, true);
-    expect($secondAfter['status'])->toBe('ABSENT_EXCUSED')
+    expect($secondAfter['status'])->toBe('CANCELLED_BY_STUDENT')
         ->and($secondAfter['billing_action'])->toBe('unbilled'); // hook reverse recorded
 });
 

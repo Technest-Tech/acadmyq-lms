@@ -77,10 +77,10 @@ beforeEach(function () {
     };
 
     // Helper: drive a session outcome through the attendance API as the owner.
-    $this->attend = function (string $sessionId, string $status = 'ATTENDED') {
+    $this->attend = function (string $sessionId, string $status = 'ATTENDED', array $extra = []) {
         Sanctum::actingAs($this->owner);
 
-        return $this->postJson("/api/sessions/{$sessionId}/attendance", ['status' => $status]);
+        return $this->postJson("/api/sessions/{$sessionId}/attendance", ['status' => $status] + $extra);
     };
 
     // Helper: the open/finalized payout row for a teacher in a period.
@@ -169,9 +169,9 @@ it('TC-8.4: re-marking the same session ATTENDED does not create a duplicate lin
 
 // ─── Classification consistency (the core rule) ───────────────────────────────
 
-it('TC-8.5: ABSENT_UNEXCUSED bills the student but pays the teacher nothing', function () {
+it('TC-8.5: a charged cancellation (charge_student) bills the student but pays the teacher nothing', function () {
     $session = ($this->juneSession)();
-    ($this->attend)($session, 'ABSENT_UNEXCUSED')->assertOk();
+    ($this->attend)($session, 'CANCELLED_BY_STUDENT', ['charge_student' => true, 'pay_teacher' => false])->assertOk();
 
     // Sprint 7: student IS billed.
     $this->asAcademy($this->academy);
@@ -183,14 +183,23 @@ it('TC-8.5: ABSENT_UNEXCUSED bills the student but pays the teacher nothing', fu
     expect((bool) DB::table('sessions')->where('id', $session)->value('paid_to_teacher'))->toBeFalse();
 });
 
-it('TC-8.6: ABSENT_EXCUSED, CANCELLED_BY_TEACHER, CANCELLED_BY_STUDENT → no payout line for any', function () {
-    foreach (['ABSENT_EXCUSED', 'CANCELLED_BY_TEACHER', 'CANCELLED_BY_STUDENT'] as $i => $status) {
+it('TC-8.6: plain CANCELLED_BY_TEACHER / CANCELLED_BY_STUDENT → no payout line for either', function () {
+    foreach (['CANCELLED_BY_TEACHER', 'CANCELLED_BY_STUDENT'] as $i => $status) {
         $session = ($this->juneSession)(['scheduled_at_utc' => sprintf('2026-06-0%d 10:00:00+00', $i + 2)]);
         ($this->attend)($session, $status)->assertOk();
         expect(($this->linesForSession)($session))->toHaveCount(0);
     }
 
     expect(($this->payoutFor)())->toBeNull();
+});
+
+it('TC-8.6b: a cancellation with pay_teacher=true accrues the payout', function () {
+    $session = ($this->juneSession)();
+    ($this->attend)($session, 'CANCELLED_BY_TEACHER', ['pay_teacher' => true])->assertOk();
+
+    expect(($this->linesForSession)($session))->toHaveCount(1)
+        ->and((int) ($this->payoutFor)()->total_minor)->toBe(5000);
+    expect((bool) DB::table('sessions')->where('id', $session)->value('paid_to_teacher'))->toBeTrue();
 });
 
 it('TC-8.7: property — only ATTENDED counts for the teacher, and the engine honors exactly that', function () {
@@ -200,8 +209,8 @@ it('TC-8.7: property — only ATTENDED counts for the teacher, and the engine ho
         expect(SessionClassifier::countsForTeacher($status))->toBe($expected);
     }
 
-    // The engine honors it for every human-settable outcome status.
-    $outcomes = ['ATTENDED', 'ABSENT_UNEXCUSED', 'ABSENT_EXCUSED', 'CANCELLED_BY_TEACHER', 'CANCELLED_BY_STUDENT'];
+    // The engine honors it for every human-settable outcome status (default, no overrides).
+    $outcomes = ['ATTENDED', 'FREE', 'CANCELLED_BY_TEACHER', 'CANCELLED_BY_STUDENT'];
     foreach ($outcomes as $i => $status) {
         $session = ($this->juneSession)(['scheduled_at_utc' => sprintf('2026-06-%02d 10:00:00+00', $i + 1)]);
         ($this->attend)($session, $status)->assertOk();
@@ -213,26 +222,26 @@ it('TC-8.7: property — only ATTENDED counts for the teacher, and the engine ho
 
 // ─── Reversal & immutability ──────────────────────────────────────────────────
 
-it('TC-8.8: ATTENDED → ABSENT_EXCUSED before finalize → line removed, total reduced, guard cleared', function () {
+it('TC-8.8: ATTENDED → cancellation before finalize → line removed, total reduced, guard cleared', function () {
     $session = ($this->juneSession)();
     ($this->attend)($session)->assertOk();
     expect((int) ($this->payoutFor)()->total_minor)->toBe(5000);
 
-    ($this->attend)($session, 'ABSENT_EXCUSED')->assertOk();
+    ($this->attend)($session, 'CANCELLED_BY_STUDENT')->assertOk();
 
     expect(($this->linesForSession)($session))->toHaveCount(0)
         ->and((int) ($this->payoutFor)()->total_minor)->toBe(0);
     expect((bool) DB::table('sessions')->where('id', $session)->value('paid_to_teacher'))->toBeFalse();
 });
 
-it('TC-8.9: ATTENDED → ABSENT_EXCUSED after finalize → rejected (payout immutable)', function () {
+it('TC-8.9: ATTENDED → cancellation after finalize → rejected (payout immutable)', function () {
     $session = ($this->juneSession)();
     ($this->attend)($session)->assertOk();
 
     app(Payroll::class)->finalizePeriodPayouts($this->academy, 2026, 6, $this->owner->id, 'ACADEMY_OWNER');
 
     // The reversal attempt is rejected; the response is a 422 and the line survives.
-    ($this->attend)($session, 'ABSENT_EXCUSED')->assertStatus(422);
+    ($this->attend)($session, 'CANCELLED_BY_STUDENT')->assertStatus(422);
 
     expect(($this->linesForSession)($session))->toHaveCount(1)
         ->and((int) ($this->payoutFor)()->total_minor)->toBe(5000);
@@ -505,7 +514,7 @@ it('TC-8.21: accrue, reverse, and finalize each write audit entries with the rel
         ->and(json_decode($accrued->after, true)['amount_minor'])->toBe(5000);
 
     // Reverse.
-    ($this->attend)($session, 'ABSENT_EXCUSED')->assertOk();
+    ($this->attend)($session, 'CANCELLED_BY_STUDENT')->assertOk();
     $this->asAcademy($this->academy);
     $reversed = DB::table('audit_log')->where('action', 'payout.line_reversed')->where('entity_id', $payoutId)->first();
     expect($reversed)->not->toBeNull()

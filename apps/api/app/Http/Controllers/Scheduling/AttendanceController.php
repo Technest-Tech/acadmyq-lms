@@ -33,35 +33,26 @@ final class AttendanceController extends Controller
 {
     use InteractsWithScheduling;
 
-    /** The outcomes a human records post-session. SCHEDULED/RESCHEDULED are never set here. */
+    /** The outcomes a human records post-session. SCHEDULED/RESCHEDULED are never set here. The
+     *  former ABSENT_* outcomes were retired: the academy now expresses "no-show but still charge"
+     *  via a cancellation with a billing override instead. */
     private const OUTCOME_STATUSES = [
         'ATTENDED',
         'FREE',
-        'ABSENT_UNEXCUSED',
-        'ABSENT_EXCUSED',
         'CANCELLED_BY_TEACHER',
         'CANCELLED_BY_STUDENT',
     ];
 
     /**
-     * Non-billable cancel outcomes. These are a CANCELLATION, not an attendance outcome: an actor
-     * who cannot cancel directly (a Teacher, who holds session.cancel_request not session.cancel)
-     * must route them through the approval flow (CancellationRequestController), never set them
-     * here — otherwise the attendance page becomes a back door around owner approval.
+     * Cancel outcomes. These are a CANCELLATION, not an attendance outcome: an actor who cannot
+     * cancel directly (a Teacher, who holds session.cancel_request not session.cancel) must route
+     * them through the approval flow (CancellationRequestController), never set them here —
+     * otherwise the attendance page becomes a back door around owner approval. When an owner DOES
+     * cancel here, they may attach a per-session billing override (charge_student / pay_teacher).
      */
     private const CANCEL_STATUSES = [
         'CANCELLED_BY_TEACHER',
         'CANCELLED_BY_STUDENT',
-    ];
-
-    /**
-     * Absence outcomes. Judging a student absent (excused or not) is the academy's call, not the
-     * Teacher's — their attendance surface only offers attended/free and a cancellation request.
-     * Like the cancel guard below, this blocks the back door regardless of what the UI sends.
-     */
-    private const ABSENT_STATUSES = [
-        'ABSENT_UNEXCUSED',
-        'ABSENT_EXCUSED',
     ];
 
     /** POST /api/sessions/{id}/attendance — gated by session.mark_attendance (+ teacher filter). */
@@ -76,34 +67,36 @@ final class AttendanceController extends Controller
             'status' => ['required', Rule::in(self::OUTCOME_STATUSES)],
             'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
             'override_timing' => ['sometimes', 'boolean'],
+            // Per-cancellation billing decision (owner-only; ignored for non-cancel outcomes).
+            'charge_student' => ['sometimes', 'boolean'],
+            'pay_teacher' => ['sometimes', 'boolean'],
         ]);
+
+        $isCancel = in_array($data['status'], self::CANCEL_STATUSES, true);
 
         // A cancel is not an attendance outcome: an actor without session.cancel (a Teacher) may
         // not cancel directly here — they must raise a cancellation request for the owner to
         // approve (Sprint 9). Block the back door regardless of what the UI sends.
-        if (in_array($data['status'], self::CANCEL_STATUSES, true) && ! Gate::allows('session.cancel')) {
+        if ($isCancel && ! Gate::allows('session.cancel')) {
             throw ValidationException::withMessages([
                 'status' => ['You can’t cancel a class directly — send a cancellation request for the owner to approve. / لا يمكنك إلغاء الحصة مباشرة — أرسل طلب إلغاء ليوافق عليه المالك.'],
-            ]);
-        }
-
-        // Marking a student absent is an academy judgement, not the Teacher's — they only record
-        // attended/free or raise a cancellation request. Block the back door regardless of the UI.
-        if (in_array($data['status'], self::ABSENT_STATUSES, true) && $this->ctx()->role === 'TEACHER') {
-            throw ValidationException::withMessages([
-                'status' => ['Only the academy can mark a student absent. / لا يمكن سوى للأكاديمية تسجيل غياب الطالب.'],
             ]);
         }
 
         $next = SessionStatus::from($data['status']);
         $this->assertTimingAllowed($session, (bool) ($data['override_timing'] ?? false), $academyId);
 
-        $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role);
+        // The billing override only applies to a cancellation; a normal attended/free outcome keeps
+        // the status-derived verdict (null overrides).
+        $billOverride = $isCancel ? (bool) ($data['charge_student'] ?? false) : null;
+        $teacherOverride = $isCancel ? (bool) ($data['pay_teacher'] ?? false) : null;
+
+        $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride);
 
         return response()->json([
             'status' => $result['status'],
             'billed' => $result['billed'],
-            'classification' => SessionClassifier::classify($next),
+            'classification' => SessionClassifier::classify($next, $billOverride, $teacherOverride),
         ]);
     }
 

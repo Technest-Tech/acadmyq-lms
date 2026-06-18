@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Scheduling;
 
+use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Services\AttendanceService;
 use App\Support\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -134,16 +136,32 @@ final class CancellationRequestController extends Controller
 
     /**
      * POST /api/cancellation-requests/{id}/approve — the owner confirms the cancellation. This
-     * performs the actual non-billable cancel on the session (status untouched until now) and
-     * seals the request APPROVED. session.cancel_approve.
+     * performs the actual cancel on the session (status untouched until now) and seals the request
+     * APPROVED. The owner decides here, per cancellation, whether to still charge the student
+     * (`charge_student`, billed at the full session price) and/or pay the teacher (`pay_teacher`),
+     * with an optional `reason` shown to the parent on the invoice line (defaults to the teacher's
+     * original request reason). session.cancel_approve.
      */
-    public function approve(Request $request, string $requestId): JsonResponse
+    public function approve(Request $request, AttendanceService $service, string $requestId): JsonResponse
     {
         Gate::authorize('session.cancel_approve');
 
-        $data = $request->validate(['note' => ['sometimes', 'nullable', 'string', 'max:500']]);
+        $data = $request->validate([
+            'note' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'charge_student' => ['sometimes', 'boolean'],
+            'pay_teacher' => ['sometimes', 'boolean'],
+        ]);
 
-        return $this->decide($requestId, approve: true, note: $data['note'] ?? null);
+        return $this->decide(
+            $requestId,
+            approve: true,
+            note: $data['note'] ?? null,
+            service: $service,
+            billOverride: (bool) ($data['charge_student'] ?? false),
+            teacherOverride: (bool) ($data['pay_teacher'] ?? false),
+            reasonOverride: $data['reason'] ?? null,
+        );
     }
 
     /**
@@ -161,11 +179,18 @@ final class CancellationRequestController extends Controller
 
     // ── internals ────────────────────────────────────────────────────────────
 
-    private function decide(string $requestId, bool $approve, ?string $note): JsonResponse
-    {
+    private function decide(
+        string $requestId,
+        bool $approve,
+        ?string $note,
+        ?AttendanceService $service = null,
+        bool $billOverride = false,
+        bool $teacherOverride = false,
+        ?string $reasonOverride = null,
+    ): JsonResponse {
         $academyId = $this->currentAcademyId();
 
-        return DB::transaction(function () use ($requestId, $approve, $note, $academyId) {
+        return DB::transaction(function () use ($requestId, $approve, $note, $academyId, $service, $billOverride, $teacherOverride, $reasonOverride) {
             $req = DB::table('session_cancellation_requests')->where('id', $requestId)->lockForUpdate()->first();
             if ($req === null) {
                 abort(404, 'Request not found.');
@@ -188,20 +213,26 @@ final class CancellationRequestController extends Controller
 
             $sessionStatus = null;
             if ($approve) {
-                // Perform the actual non-billable cancel — identical effect to a direct cancel
-                // (SessionController::cancel), but only ever reached through owner approval.
+                // Perform the actual cancel through the billing engine — identical path to a direct
+                // cancel (SessionController::cancel), but only ever reached through owner approval.
+                // The owner's billing decision (charge_student / pay_teacher) and reason apply here.
                 $session = DB::table('sessions')->where('id', $req->session_id)->first();
                 $sessionStatus = self::CANCEL_STATUS[$req->cancel_type];
+                $reason = $reasonOverride ?? $req->reason;
 
-                DB::table('sessions')->where('id', $req->session_id)->update([
-                    'status' => $sessionStatus,
-                    'status_reason' => $req->reason,
-                    'updated_at' => now(),
-                ]);
+                $service?->record(
+                    $session,
+                    SessionStatus::from($sessionStatus),
+                    $reason,
+                    $this->ctx()->userId,
+                    $this->ctx()->role,
+                    $billOverride,
+                    $teacherOverride,
+                );
 
                 Audit::log('session.cancelled', 'session', (string) $req->session_id, $academyId, $this->ctx()->userId, $this->ctx()->role,
                     before: ['status' => $session?->status],
-                    after: ['status' => $sessionStatus, 'cancelled_by' => $req->cancel_type, 'reason' => $req->reason, 'via' => 'approval']);
+                    after: ['status' => $sessionStatus, 'cancelled_by' => $req->cancel_type, 'reason' => $reason, 'charge_student' => $billOverride, 'pay_teacher' => $teacherOverride, 'via' => 'approval']);
             }
 
             Audit::log($approve ? 'session.cancellation_approved' : 'session.cancellation_rejected',

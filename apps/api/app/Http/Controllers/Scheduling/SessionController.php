@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Scheduling;
 
 use App\Domain\SessionClassifier;
+use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Services\AttendanceService;
 use App\Support\Audit;
 use App\Support\ReportFields;
 use Illuminate\Http\JsonResponse;
@@ -174,34 +176,37 @@ final class SessionController extends Controller
     }
 
     /**
-     * POST /api/sessions/{id}/cancel — set the correct NON-BILLABLE cancel status for one
-     * occurrence (§5.3, §5.4). Billable absent outcomes are attendance (Sprint 6), never set
-     * here (AC-5.12).
+     * POST /api/sessions/{id}/cancel — cancel one occurrence (§5.3, §5.4). A cancellation defaults
+     * to non-billable, but the academy may attach a per-session billing override: `charge_student`
+     * (bill a late-cancel fee, at the full session price) and/or `pay_teacher`, with `reason` shown
+     * to the parent on the resulting invoice line. Routed through {@see AttendanceService} so the
+     * billing + payout hooks fire exactly as they do for any other outcome (single source of truth).
      */
-    public function cancel(Request $request, string $sessionId): JsonResponse
+    public function cancel(Request $request, AttendanceService $service, string $sessionId): JsonResponse
     {
         Gate::authorize('session.cancel');
 
-        $academyId = $this->currentAcademyId();
         $session = $this->findOwnedSession($sessionId);
 
         $data = $request->validate([
             'cancelled_by' => ['required', Rule::in(array_keys(self::NON_BILLABLE_CANCELS))],
             'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'charge_student' => ['sometimes', 'boolean'],
+            'pay_teacher' => ['sometimes', 'boolean'],
         ]);
 
-        $status = self::NON_BILLABLE_CANCELS[$data['cancelled_by']];
-        DB::table('sessions')->where('id', $sessionId)->update([
-            'status' => $status,
-            'status_reason' => $data['reason'] ?? null,
-            'updated_at' => now(),
-        ]);
+        $next = SessionStatus::from(self::NON_BILLABLE_CANCELS[$data['cancelled_by']]);
+        $billOverride = (bool) ($data['charge_student'] ?? false);
+        $teacherOverride = (bool) ($data['pay_teacher'] ?? false);
+        $prevStatus = (string) $session->status;
 
-        Audit::log('session.cancelled', 'session', $sessionId, $academyId, $this->ctx()->userId, $this->ctx()->role,
-            before: ['status' => $session->status],
-            after: ['status' => $status, 'cancelled_by' => $data['cancelled_by'], 'reason' => $data['reason'] ?? null]);
+        $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride);
 
-        return response()->json(['ok' => true, 'status' => $status]);
+        Audit::log('session.cancelled', 'session', $sessionId, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role,
+            before: ['status' => $prevStatus],
+            after: ['status' => $result['status'], 'cancelled_by' => $data['cancelled_by'], 'reason' => $data['reason'] ?? null, 'charge_student' => $billOverride, 'pay_teacher' => $teacherOverride]);
+
+        return response()->json(['ok' => true, 'status' => $result['status'], 'billed' => $result['billed']]);
     }
 
     /**
@@ -222,6 +227,15 @@ final class SessionController extends Controller
         $report = DB::table('session_reports')->where('session_id', $sessionId)->first();
         $values = $report !== null ? (json_decode($report->values, true) ?: []) : [];
 
+        // A teacher's cancel goes through approval, not a direct status change — the session
+        // stays SCHEDULED while the request is PENDING. Surface that request so the UI can show
+        // an "awaiting approval" indicator instead of looking like nothing happened (§9).
+        $pendingCancellation = DB::table('session_cancellation_requests')
+            ->where('session_id', $sessionId)
+            ->where('status', 'PENDING')
+            ->orderByDesc('created_at')
+            ->first(['id', 'cancel_type', 'reason', 'created_at']);
+
         return response()->json([
             'session' => [
                 'id' => (string) $session->id,
@@ -236,7 +250,17 @@ final class SessionController extends Controller
                 'status_reason' => $session->status_reason,
                 'billed' => (bool) $session->billed,
                 'outcome_set_at' => $session->outcome_set_at !== null ? Carbon::parse($session->outcome_set_at)->utc()->toIso8601String() : null,
-                'classification' => SessionClassifier::classifyValue((string) $session->status),
+                'classification' => SessionClassifier::classifyValue(
+                    (string) $session->status,
+                    $session->bill_override !== null ? (bool) $session->bill_override : null,
+                    $session->teacher_override !== null ? (bool) $session->teacher_override : null,
+                ),
+                'pending_cancellation' => $pendingCancellation !== null ? [
+                    'id' => (string) $pendingCancellation->id,
+                    'cancel_type' => (string) $pendingCancellation->cancel_type,
+                    'reason' => $pendingCancellation->reason,
+                    'requested_at' => Carbon::parse($pendingCancellation->created_at)->utc()->toIso8601String(),
+                ] : null,
             ],
             'report' => $report !== null ? [
                 'values' => $values,
@@ -315,6 +339,12 @@ final class SessionController extends Controller
         $query = DB::table('sessions as se')
             ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
             ->leftJoin('teachers as te', 'te.id', '=', 'se.teacher_id')
+            // A teacher's cancel stays as a PENDING request while the session sits SCHEDULED — pull
+            // its cancel_type so the row can show "awaiting approval". Only one PENDING request can
+            // exist per session (unique index), so this join never fans rows out.
+            ->leftJoin('session_cancellation_requests as cr', function ($join) {
+                $join->on('cr.session_id', '=', 'se.id')->where('cr.status', '=', 'PENDING');
+            })
             ->where('se.scheduled_at_utc', '>=', $from)
             ->where('se.scheduled_at_utc', '<', $to)
             ->select([
@@ -322,6 +352,7 @@ final class SessionController extends Controller
                 'se.duration_minutes', 'se.status',
                 'st.full_name as student_name', 'st.status as student_status',
                 'te.full_name as teacher_name',
+                'cr.cancel_type as pending_cancel_type',
             ])
             ->orderBy('se.scheduled_at_utc')->orderBy('se.id');
 

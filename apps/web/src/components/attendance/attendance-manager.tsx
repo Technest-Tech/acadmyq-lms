@@ -70,8 +70,8 @@ const STATUS_ROW: Record<string, string> = {
   ABSENT_UNEXCUSED: "bg-amber-50/40 dark:bg-amber-950/10",
   RESCHEDULED: "bg-violet-50/40 dark:bg-violet-950/10",
   ABSENT_EXCUSED: "",
-  CANCELLED_BY_TEACHER: "bg-slate-50/30 dark:bg-slate-900/10",
-  CANCELLED_BY_STUDENT: "bg-slate-50/30 dark:bg-slate-900/10",
+  CANCELLED_BY_TEACHER: "bg-rose-50/60 dark:bg-rose-950/15",
+  CANCELLED_BY_STUDENT: "bg-rose-50/60 dark:bg-rose-950/15",
   SCHEDULED: "",
 };
 
@@ -81,8 +81,8 @@ const STATUS_DOT: Record<string, string> = {
   ATTENDED: "bg-emerald-500",
   ABSENT_UNEXCUSED: "bg-amber-500",
   ABSENT_EXCUSED: "bg-slate-400",
-  CANCELLED_BY_TEACHER: "bg-slate-400",
-  CANCELLED_BY_STUDENT: "bg-slate-400",
+  CANCELLED_BY_TEACHER: "bg-rose-500",
+  CANCELLED_BY_STUDENT: "bg-rose-500",
   RESCHEDULED: "bg-violet-500",
 };
 
@@ -401,7 +401,9 @@ export function AttendanceManager() {
             className="border-input bg-background h-9 rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15"
           >
             <option value="">{t("allStatuses")}</option>
-            {SESSION_STATUS.map((s) => (
+            {SESSION_STATUS.filter(
+              (s) => s !== "ABSENT_UNEXCUSED" && s !== "ABSENT_EXCUSED",
+            ).map((s) => (
               <option key={s} value={s}>
                 {tSched(`status.${s}`)}
               </option>
@@ -589,7 +591,19 @@ export function AttendanceManager() {
 
                         {/* Status badge */}
                         <td className="px-5 py-3.5">
-                          <StatusBadge status={displayStatus} />
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <StatusBadge status={displayStatus} />
+                            {s.pending_cancel_type && displayStatus === "SCHEDULED" && (
+                              <span
+                                data-testid="awaiting-approval"
+                                title={t("awaitingApprovalHint")}
+                                className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                              >
+                                <Clock className="size-2.5" />
+                                {t("awaitingApproval")}
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Action */}
@@ -671,7 +685,18 @@ export function AttendanceManager() {
                           {s.duration_minutes} {t("min")}
                         </p>
                       </div>
-                      <StatusBadge status={displayStatus} className="shrink-0" />
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <StatusBadge status={displayStatus} className="shrink-0" />
+                        {s.pending_cancel_type && displayStatus === "SCHEDULED" && (
+                          <span
+                            data-testid="awaiting-approval"
+                            className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                          >
+                            <Clock className="size-2.5" />
+                            {t("awaitingApproval")}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center justify-end gap-2">
                       {/* WhatsApp send — placeholder, disabled until the feature ships. */}

@@ -628,6 +628,7 @@ final class InvoiceController extends Controller
         $invoice = DB::table('invoices as inv')
             ->leftJoin('guardians as g', 'g.id', '=', 'inv.guardian_id')
             ->leftJoin('students as s', 's.id', '=', 'inv.student_id')
+            ->leftJoin('academies as a', 'a.id', '=', 'inv.academy_id')
             ->where('inv.id', $id)
             ->select([
                 'inv.id',
@@ -637,6 +638,12 @@ final class InvoiceController extends Controller
                 'inv.period_year',
                 'inv.period_month',
                 'inv.public_token',
+                'inv.status',
+                'inv.currency',
+                'inv.total_minor',
+                'inv.amount_paid_minor',
+                'a.name as academy_name',
+                DB::raw('coalesce(g.full_name, s.full_name) as payer_name'),
                 DB::raw('coalesce(g.whatsapp_phone, s.whatsapp_phone) as payer_phone'),
             ])
             ->first();
@@ -650,12 +657,7 @@ final class InvoiceController extends Controller
         $frontendUrl = config('app.frontend_url') ?: config('app.url');
         $url = rtrim((string) $frontendUrl, '/').'/i/'.$invoice->public_token;
 
-        $period = sprintf('%04d-%02d', (int) $invoice->period_year, (int) $invoice->period_month);
-
-        $message = implode("\n\n", [
-            "مرحباً، يمكنكم الاطلاع على فاتورتكم لشهر {$period} عبر الرابط التالي: {$url}",
-            "Hello, please view your invoice for {$period} at: {$url}",
-        ]);
+        $message = $this->buildInvoiceWhatsAppMessage($invoice, $url);
 
         // Route through the single WhatsApp seam: it sends via the academy's Wasender token when
         // configured, otherwise returns the wa.me deep link the operator opens manually (today's
@@ -703,6 +705,59 @@ final class InvoiceController extends Controller
             'transport' => $send['transport'],
             'sent' => $send['sent'],
         ]);
+    }
+
+    /**
+     * Compose the modern, bilingual WhatsApp invoice message: an academy header, the payer + period,
+     * the total and (for an unpaid bill) the outstanding balance, then a clear call-to-action with
+     * the public pay/view link. The link is the {@see $url} to /i/{token} — the public invoice page
+     * carries the payment methods, so "details + payment" both live behind one tap.
+     */
+    private function buildInvoiceWhatsAppMessage(object $invoice, string $url): string
+    {
+        $academy  = trim((string) ($invoice->academy_name ?? '')) ?: 'Academy';
+        $payer    = trim((string) ($invoice->payer_name ?? ''));
+        $currency = (string) ($invoice->currency ?? '');
+        $period   = sprintf('%04d-%02d', (int) $invoice->period_year, (int) $invoice->period_month);
+
+        $totalMinor   = (int) $invoice->total_minor;
+        $balanceMinor = max(0, $totalMinor - (int) $invoice->amount_paid_minor);
+        $isPaid       = (string) $invoice->status === 'PAID' || $balanceMinor === 0;
+
+        $total   = $this->formatMoney($totalMinor, $currency);
+        $balance = $this->formatMoney($balanceMinor, $currency);
+
+        // Arabic block.
+        $ar = ["🧾 *فاتورة {$academy}*"];
+        if ($payer !== '') {
+            $ar[] = "👤 {$payer}";
+        }
+        $ar[] = "📅 الفترة: {$period}";
+        $ar[] = "💰 الإجمالي: {$total}";
+        $ar[] = $isPaid ? '✅ مدفوعة بالكامل — شكراً لكم' : "⏳ المبلغ المستحق: {$balance}";
+        $ar[] = '';
+        $ar[] = $isPaid ? "📄 لمراجعة الفاتورة: {$url}" : "💳 لعرض التفاصيل والدفع عبر الرابط: {$url}";
+
+        // English block.
+        $en = ["🧾 *{$academy} Invoice*"];
+        if ($payer !== '') {
+            $en[] = "👤 {$payer}";
+        }
+        $en[] = "📅 Period: {$period}";
+        $en[] = "💰 Total: {$total}";
+        $en[] = $isPaid ? '✅ Paid in full — thank you' : "⏳ Balance due: {$balance}";
+        $en[] = '';
+        $en[] = $isPaid ? "📄 View your invoice: {$url}" : "💳 View details & pay here: {$url}";
+
+        return implode("\n", $ar)."\n\n———\n\n".implode("\n", $en);
+    }
+
+    /** Minor units → "1,234.50 EGP" (2-decimal currencies). */
+    private function formatMoney(int $minor, string $currency): string
+    {
+        $amount = number_format($minor / 100, 2);
+
+        return trim($amount.' '.$currency);
     }
 
     // -------------------------------------------------------------------------

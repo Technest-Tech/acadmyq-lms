@@ -1,13 +1,14 @@
 "use client";
 
 import {
-  AlertCircle,
   Check,
   CheckCircle2,
+  Clock,
+  Copy,
   Gift,
   History,
+  Loader2,
   MessageCircle,
-  MinusCircle,
   Pencil,
   Sparkles,
   UserX,
@@ -17,18 +18,24 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
   ApiError,
   type AttendanceOutcome,
   getSession,
   markAttendance,
+  markWhatsappSent,
   putSessionReport,
   requestCancellation,
   type SessionDetailResponse,
+  type WhatsAppMessage,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  CancellationBillingModal,
+  type CancellationBillingValues,
+} from "./cancellation-billing-modal";
 import { ReportArchive } from "./report-archive";
 import { ReportEditor } from "./report-editor";
 import { StatusBadge } from "./status-badge";
@@ -39,8 +46,6 @@ type LocalOutcome = AttendanceOutcome;
 const OUTCOMES: LocalOutcome[] = [
   "ATTENDED",
   "FREE",
-  "ABSENT_UNEXCUSED",
-  "ABSENT_EXCUSED",
   "CANCELLED_BY_TEACHER",
   "CANCELLED_BY_STUDENT",
 ];
@@ -68,20 +73,6 @@ const OUTCOME_CONFIG: Record<LocalOutcome, OutcomeConfig> = {
     idleIconClass: "text-teal-500",
     hoverClass:
       "hover:border-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/20",
-  },
-  ABSENT_UNEXCUSED: {
-    icon: AlertCircle,
-    activeClass:
-      "border-amber-500 bg-amber-500 text-white shadow-md shadow-amber-200/60 dark:shadow-amber-900/40",
-    idleIconClass: "text-amber-500",
-    hoverClass:
-      "hover:border-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20",
-  },
-  ABSENT_EXCUSED: {
-    icon: MinusCircle,
-    activeClass: "border-slate-600 bg-slate-600 text-white",
-    idleIconClass: "text-slate-500",
-    hoverClass: "hover:border-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/30",
   },
   CANCELLED_BY_TEACHER: {
     icon: XCircle,
@@ -128,16 +119,12 @@ export function AttendanceReport({
   const locale = useLocale();
   const { can, session: auth } = useAuth();
 
-  // Deciding a student is absent is an academy call, not the teacher's — their attendance
-  // surface only offers attended / free / a cancellation request. Hide both ABSENT_* outcomes
-  // for teachers (the server enforces the same restriction).
+  // The four selectable outcomes are the same for everyone now (attended / free / the two
+  // cancellations). A teacher's cancel still routes through approval; an owner's opens the
+  // billing popup. Absence outcomes were retired in favour of a cancellation billing override.
   const isTeacher = auth?.role === "TEACHER";
-  const visibleOutcomes = isTeacher
-    ? OUTCOMES.filter((o) => o !== "ABSENT_UNEXCUSED" && o !== "ABSENT_EXCUSED")
-    : OUTCOMES;
-  const outcomeGridClass = isTeacher
-    ? "grid grid-cols-2 gap-2 sm:grid-cols-4"
-    : "grid grid-cols-3 gap-2 sm:grid-cols-6";
+  const visibleOutcomes = OUTCOMES;
+  const outcomeGridClass = "grid grid-cols-2 gap-2 sm:grid-cols-4";
 
   const [data, setData] = useState<SessionDetailResponse | null>(null);
   const [reportText, setReportText] = useState("");
@@ -150,6 +137,15 @@ export function AttendanceReport({
   const [historyOpen, setHistoryOpen] = useState(false);
   // Editor visibility: collapsed to read-only text once a report has been saved.
   const [editing, setEditing] = useState(false);
+  // An owner-initiated cancellation awaiting the billing decision (charge student / pay teacher).
+  const [cancelModal, setCancelModal] = useState<{
+    status: LocalOutcome;
+    type: "teacher" | "student";
+  } | null>(null);
+  // The composed WhatsApp report (deep link + text) after the admin taps Send WhatsApp.
+  const [waResult, setWaResult] = useState<WhatsAppMessage | null>(null);
+  const [waBusy, setWaBusy] = useState(false);
+  const [waCopied, setWaCopied] = useState(false);
 
   function flash(variant: "success" | "error", message: string) {
     setFeedback({ variant, message });
@@ -210,11 +206,50 @@ export function AttendanceReport({
   // ATTENDED and FREE are both "attended" outcomes
   const isAttended = effectiveStatus === "ATTENDED" || effectiveStatus === "FREE";
 
-  /** Select a status card — no API call, just local state. */
+  /** Select a status card. Owner-cancels open the billing popup; everything else is local state. */
   function selectOutcome(status: LocalOutcome) {
+    const isCancel =
+      status === "CANCELLED_BY_TEACHER" || status === "CANCELLED_BY_STUDENT";
+    // An owner cancelling here must decide the billing (charge student / pay teacher) in a popup
+    // before it's applied. A teacher's pick stays a staged approval request handled in save().
+    if (isCancel && !requestMode && canMark) {
+      setCancelModal({
+        status,
+        type: status === "CANCELLED_BY_TEACHER" ? "teacher" : "student",
+      });
+      return;
+    }
     setSelectedStatus(status);
     // Changing the outcome is an edit — reopen the editor so the change can be saved.
     setEditing(true);
+  }
+
+  /** Apply an owner cancellation with its billing decision, then persist any report text. */
+  async function confirmCancelBilling(values: CancellationBillingValues) {
+    if (!cancelModal) return;
+    setBusy(true);
+    try {
+      await markAttendance(sessionId, {
+        status: cancelModal.status,
+        override_timing: true,
+        charge_student: values.charge_student,
+        pay_teacher: values.pay_teacher,
+        reason: values.reason || undefined,
+      });
+      await putSessionReport(sessionId, {
+        report_text: reportText,
+        is_free_trial: false,
+      });
+      const applied = cancelModal.status;
+      setCancelModal(null);
+      await load();
+      flash("success", t("saved"));
+      onChange?.(applied);
+    } catch (error) {
+      flash("error", error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   /** Applies the selected outcome + report in one round-trip. */
@@ -268,6 +303,32 @@ export function AttendanceReport({
       flash("error", error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** Compose the WhatsApp report, record it as sent, and surface the deep link to open/copy. */
+  async function handleSendWhatsapp() {
+    setWaBusy(true);
+    setWaCopied(false);
+    try {
+      const res = await markWhatsappSent(sessionId);
+      setWaResult(res.message);
+      await load(); // refresh the report so the "Sent" badge reflects whatsapp_sent_at
+    } catch (error) {
+      flash("error", error instanceof Error ? error.message : String(error));
+    } finally {
+      setWaBusy(false);
+    }
+  }
+
+  async function copyWaMessage() {
+    if (!waResult) return;
+    try {
+      await navigator.clipboard.writeText(waResult.text);
+      setWaCopied(true);
+      window.setTimeout(() => setWaCopied(false), 1800);
+    } catch {
+      /* clipboard blocked — no-op */
     }
   }
 
@@ -398,6 +459,30 @@ export function AttendanceReport({
         />
       )}
 
+      {/* A teacher's cancel is a request, not an action — surface the PENDING state persistently
+          (survives reload, unlike the transient toast) so it's clear the owner must still approve. */}
+      {session.pending_cancellation && (
+        <div
+          role="status"
+          data-testid="pending-cancellation"
+          className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-200"
+        >
+          <Clock className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+          <div className="space-y-0.5">
+            <p className="font-medium">{t("pendingCancellationTitle")}</p>
+            <p className="text-xs text-amber-800 dark:text-amber-300">
+              {t("pendingCancellationHint", {
+                by: ts(
+                  session.pending_cancellation.cancel_type === "teacher"
+                    ? "status.CANCELLED_BY_TEACHER"
+                    : "status.CANCELLED_BY_STUDENT",
+                ),
+              })}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Outcome picker ────────────────────────────────────────────── */}
       <section>
         <h3 className="mb-3 text-sm font-semibold">{t("outcome")}</h3>
@@ -406,11 +491,17 @@ export function AttendanceReport({
             const cfg = OUTCOME_CONFIG[status];
             const Icon = cfg.icon;
             const isActive = effectiveStatus === status;
+            // Block re-raising a cancel while one is already awaiting approval (the server rejects
+            // a duplicate PENDING request anyway).
+            const isCancelOutcome =
+              status === "CANCELLED_BY_TEACHER" || status === "CANCELLED_BY_STUDENT";
+            const blockedByPending =
+              requestMode && isCancelOutcome && session.pending_cancellation !== null;
             return (
               <button
                 key={status}
                 type="button"
-                disabled={!canMark || busy || readOnly}
+                disabled={!canMark || busy || readOnly || blockedByPending}
                 onClick={() => selectOutcome(status)}
                 data-testid={`outcome-${status}`}
                 className={cn(
@@ -596,6 +687,15 @@ export function AttendanceReport({
       >
         <ReportArchive studentId={session.student_id} />
       </Modal>
+
+      {/* Owner cancellation → billing decision (charge student / pay teacher + reason). */}
+      <CancellationBillingModal
+        open={cancelModal !== null}
+        onClose={() => setCancelModal(null)}
+        cancelType={cancelModal?.type ?? "teacher"}
+        busy={busy}
+        onConfirm={confirmCancelBilling}
+      />
     </div>
   );
 }

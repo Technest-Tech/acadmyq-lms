@@ -32,8 +32,14 @@ final class WhatsAppReportBuilder
             ? DB::table('guardians')->where('id', $student->guardian_id)->first(['full_name', 'whatsapp_phone'])
             : null;
 
-        $tz = (string) (DB::table('academies')->where('id', $session->academy_id)->value('timezone') ?? 'UTC');
+        $academy = DB::table('academies')->where('id', $session->academy_id)->first(['name', 'timezone']);
+        $tz = (string) ($academy->timezone ?? 'UTC');
         $localDate = Carbon::parse($session->scheduled_at_utc)->setTimezone($tz)->format('Y-m-d');
+
+        $academyName = trim((string) ($academy->name ?? ''));
+        $teacherName = (string) (DB::table('teachers')->where('id', $session->teacher_id)->value('full_name') ?? '');
+        $duration = (int) ($session->duration_minutes ?? 0);
+        $studentName = $student?->full_name ?? '';
 
         // Active fields first (form order), then any deactivated field that still has a value.
         $fields = array_merge(
@@ -55,10 +61,37 @@ final class WhatsAppReportBuilder
             $linesEn[] = "• {$field->label_en}: {$rendered}";
         }
 
-        $studentName = $student?->full_name ?? '';
-        $text = "تقرير حصة {$studentName} — {$localDate}\n".implode("\n", $linesAr)
-            ."\n\n"
-            ."Session report for {$studentName} — {$localDate}\n".implode("\n", $linesEn);
+        // Modern bilingual card: academy header, the session facts, then the report fields.
+        $headerAr = ['📋 *تقرير الحصة*'];
+        if ($academyName !== '') {
+            $headerAr[] = "🏫 {$academyName}";
+        }
+        $headerAr[] = "👤 الطالب: {$studentName}";
+        if ($teacherName !== '') {
+            $headerAr[] = "👨‍🏫 المعلّم: {$teacherName}";
+        }
+        $headerAr[] = "📅 التاريخ: {$localDate}";
+        if ($duration > 0) {
+            $headerAr[] = "⏱ المدة: {$duration} دقيقة";
+        }
+
+        $headerEn = ['📋 *Session Report*'];
+        if ($academyName !== '') {
+            $headerEn[] = "🏫 {$academyName}";
+        }
+        $headerEn[] = "👤 Student: {$studentName}";
+        if ($teacherName !== '') {
+            $headerEn[] = "👨‍🏫 Teacher: {$teacherName}";
+        }
+        $headerEn[] = "📅 Date: {$localDate}";
+        if ($duration > 0) {
+            $headerEn[] = "⏱ Duration: {$duration} min";
+        }
+
+        $blockAr = implode("\n", $headerAr).($linesAr !== [] ? "\n\n📝 ملاحظات:\n".implode("\n", $linesAr) : '');
+        $blockEn = implode("\n", $headerEn).($linesEn !== [] ? "\n\n📝 Notes:\n".implode("\n", $linesEn) : '');
+
+        $text = $blockAr."\n\n———\n\n".$blockEn;
 
         $phone = (string) ($guardian?->whatsapp_phone ?? '');
         $digits = preg_replace('/\D+/', '', $phone) ?? '';

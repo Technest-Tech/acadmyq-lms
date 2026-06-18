@@ -704,7 +704,19 @@ final class Invoicing implements BillingHook
     {
         $tz        = $academy->timezone ?: 'UTC';
         $localDate = Carbon::parse($session->scheduled_at_utc)->setTimezone($tz)->format('Y-m-d');
-        $base      = "Session {$localDate}";
+
+        // A charged cancellation (the academy chose to bill a late-cancel fee) reads as a cancelled
+        // lesson on the parent's bill, with the cancellation reason as the line's explanation —
+        // never the session report (a cancelled lesson has none).
+        $status = (string) ($session->status ?? '');
+        if (in_array($status, ['CANCELLED_BY_TEACHER', 'CANCELLED_BY_STUDENT'], true)) {
+            $base   = "Cancelled lesson {$localDate}";
+            $reason = isset($session->status_reason) ? trim((string) $session->status_reason) : '';
+
+            return $reason !== '' ? $base . ' — ' . $reason : $base;
+        }
+
+        $base = "Session {$localDate}";
 
         // Look up the session report and fetch the first text field value.
         $report = DB::table('session_reports')
