@@ -48,6 +48,11 @@ final class CalendarController extends Controller
                 $fromUtc->format('Y-m-d H:i:sP'),
                 $toUtc->format('Y-m-d H:i:sP'),
             ])
+            // A RESCHEDULED row is the old occurrence, kept at its ORIGINAL time as a non-billable
+            // audit marker (its SCHEDULED successor lives at the new time). Showing both made a
+            // reschedule look like a duplicate, so hide the marker — the calendar shows only the
+            // moved (successor) occurrence, i.e. a clean in-place move.
+            ->where('se.status', '!=', 'RESCHEDULED')
             ->select([
                 'se.id', 'se.student_id', 'se.teacher_id', 'se.schedule_id',
                 'se.scheduled_at_utc', 'se.duration_minutes', 'se.status', 'se.status_reason',

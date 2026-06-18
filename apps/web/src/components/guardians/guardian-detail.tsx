@@ -13,16 +13,18 @@ import {
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { StudentForm } from "@/components/students/student-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
   ApiError,
   deactivateGuardian,
   getGuardian,
+  listStudents,
   type GuardianChild,
   type GuardianRow,
   updateGuardian,
+  updateStudent,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -104,6 +106,10 @@ export function GuardianDetail({
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [addingChild, setAddingChild] = useState(false);
+  const [studentOptions, setStudentOptions] = useState<ComboboxOption[]>([]);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [linking, setLinking] = useState(false);
   const [confirmDeactivate, setConfirmDeactivate] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -115,6 +121,28 @@ export function GuardianDetail({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Must be above the guardian === null guard (Rules of Hooks)
+  useEffect(() => {
+    if (!addingChild) return;
+    setSelectedStudentId("");
+    setLoadingStudents(true);
+    const linked = new Set(children.map((c) => c.id));
+    void listStudents({ pageSize: 200 })
+      .then(({ rows }) =>
+        setStudentOptions(
+          rows
+            .filter((s) => s.deleted_at == null && !linked.has(s.id))
+            .map((s) => ({
+              value: s.id,
+              label: s.full_name,
+              sublabel: s.guardian_name ?? undefined,
+            })),
+        ),
+      )
+      .catch((err) => setError(err instanceof ApiError ? err.message : String(err)))
+      .finally(() => setLoadingStudents(false));
+  }, [addingChild, children]);
 
   if (guardian === null) {
     return (
@@ -155,26 +183,20 @@ export function GuardianDetail({
     }
   }
 
-  if (addingChild) {
-    return (
-      <div className="space-y-5">
-        <button
-          type="button"
-          onClick={() => setAddingChild(false)}
-          className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-sm transition-colors"
-        >
-          ← {t("back")}
-        </button>
-        <StudentForm
-          fixedGuardianId={guardianId}
-          onCancel={() => setAddingChild(false)}
-          onCreated={() => {
-            setAddingChild(false);
-            void refresh();
-          }}
-        />
-      </div>
-    );
+  async function linkStudent() {
+    if (!selectedStudentId) return;
+    setLinking(true);
+    setError(null);
+    try {
+      await updateStudent(selectedStudentId, { guardian_id: guardianId });
+      setAddingChild(false);
+      setSelectedStudentId("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setLinking(false);
+    }
   }
 
   return (
@@ -349,7 +371,47 @@ export function GuardianDetail({
           )}
         </div>
 
-        {children.length === 0 ? (
+        {/* Inline link-student picker */}
+        {addingChild && (
+          <div className="rounded-xl border bg-background p-3 space-y-3">
+            <p className="text-xs font-medium text-muted-foreground">
+              {t("detail.linkStudent")}
+            </p>
+            <Combobox
+              options={studentOptions}
+              value={selectedStudentId}
+              onChange={setSelectedStudentId}
+              placeholder={loadingStudents ? t("detail.linking") : t("detail.searchStudents")}
+              searchPlaceholder={t("detail.searchStudents")}
+              disabled={loadingStudents}
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => setAddingChild(false)}
+                disabled={linking}
+              >
+                {t("back")}
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                disabled={!selectedStudentId || linking}
+                onClick={() => void linkStudent()}
+                className="gap-1"
+              >
+                {linking && (
+                  <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
+                )}
+                {linking ? t("detail.linking") : t("detail.addChild")}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {children.length === 0 && !addingChild ? (
           <div className="flex flex-col items-center rounded-xl border border-dashed py-8 text-center">
             <GraduationCap className="mb-2 size-8 text-muted-foreground/30" aria-hidden />
             <p className="text-sm text-muted-foreground">{t("detail.noChildren")}</p>

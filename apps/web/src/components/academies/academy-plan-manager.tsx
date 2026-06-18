@@ -1,0 +1,164 @@
+"use client";
+
+import { Package } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
+import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
+import {
+  ApiError,
+  getAcademyAddOns,
+  getPlanCatalog,
+  setAcademyAddOn,
+  setAcademyPlan,
+  type AcademyAddOnGrant,
+  type AddOnCatalogItem,
+  type PlanCatalogItem,
+} from "@/lib/api";
+import { formatMoney } from "@/lib/money";
+
+const inputClass =
+  "border-input bg-background w-full rounded-md border px-3 py-2 text-sm";
+
+/**
+ * Per-academy plan & add-on assignment (admin panel — Phase 2). Surfaces the already-built
+ * `setAcademyPlan` / `setAcademyAddOn` APIs: pick the academy's plan and toggle add-ons on or
+ * off. Gated by plan.manage (server Gate is the real control; this is UX only).
+ */
+export function AcademyPlanManager({
+  academyId,
+  currentPlanId,
+  onPlanChanged,
+}: {
+  academyId: string;
+  currentPlanId: string | null;
+  onPlanChanged: () => void;
+}) {
+  const t = useTranslations("academies.detail");
+  const locale = useLocale();
+  const { can } = useAuth();
+  const toast = useToast();
+
+  const [plans, setPlans] = useState<PlanCatalogItem[] | null>(null);
+  const [addOns, setAddOns] = useState<AddOnCatalogItem[]>([]);
+  const [grants, setGrants] = useState<AcademyAddOnGrant[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const [catalog, granted] = await Promise.all([
+      getPlanCatalog(),
+      getAcademyAddOns(academyId),
+    ]);
+    setPlans(catalog.plans);
+    setAddOns(catalog.addOns);
+    setGrants(granted.addOns);
+  }, [academyId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!can("plan.manage")) return null;
+
+  async function changePlan(planId: string) {
+    setBusy(true);
+    try {
+      await setAcademyPlan(academyId, planId);
+      toast.success(t("planChanged"));
+      onPlanChanged();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleAddOn(addOnId: string, nextActive: boolean) {
+    setBusy(true);
+    try {
+      await setAcademyAddOn(academyId, addOnId, nextActive);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const isGranted = (addOnId: string) =>
+    grants.some((g) => g.add_on_id === addOnId && g.is_active);
+
+  return (
+    <section className="space-y-3" data-testid="academy-plan-manager">
+      <h2 className="flex items-center gap-2 text-sm font-semibold">
+        <Package className="text-muted-foreground size-4" aria-hidden />
+        {t("planSection")}
+      </h2>
+
+      <label className="block space-y-1">
+        <span className="text-sm font-medium">{t("changePlan")}</span>
+        <select
+          aria-label={t("changePlan")}
+          className={inputClass}
+          value={currentPlanId ?? ""}
+          disabled={busy || plans === null}
+          onChange={(e) => void changePlan(e.target.value)}
+          data-testid="plan-select"
+        >
+          {plans?.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} —{" "}
+              {formatMoney(
+                { amount: p.price_minor, currency: p.currency },
+                locale,
+              )}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="space-y-2">
+        <span className="text-sm font-medium">{t("addOns")}</span>
+        {plans === null ? (
+          <div className="bg-muted h-12 animate-pulse rounded-lg" aria-hidden />
+        ) : addOns.length === 0 ? (
+          <p className="text-muted-foreground text-sm">{t("noAddOns")}</p>
+        ) : (
+          <div className="space-y-2">
+            {addOns.map((a) => {
+              const granted = isGranted(a.id);
+              return (
+                <div
+                  key={a.id}
+                  className="bg-muted/30 flex items-center justify-between gap-3 rounded-lg px-3 py-2.5"
+                  data-addon={a.id}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{a.name}</p>
+                    <p
+                      className="text-muted-foreground truncate font-mono text-xs"
+                      dir="ltr"
+                    >
+                      {a.feature_key}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant={granted ? "destructive" : "outline"}
+                    disabled={busy}
+                    onClick={() => void toggleAddOn(a.id, !granted)}
+                    data-testid={`addon-toggle-${a.code}`}
+                  >
+                    {granted ? t("addOnRevoke") : t("addOnGrant")}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}

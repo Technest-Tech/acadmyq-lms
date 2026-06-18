@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\FeatureCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -33,6 +34,14 @@ final class PlanController extends Controller
             'plans' => DB::table('plans')->orderBy('price_minor')->get(),
             'addOns' => DB::table('add_ons')->orderBy('code')->get(),
         ]);
+    }
+
+    /** GET /api/admin/capabilities — the gated-feature catalog the plan/add-on forms offer. */
+    public function capabilities(): JsonResponse
+    {
+        Gate::authorize('plan.manage');
+
+        return response()->json(FeatureCatalog::all());
     }
 
     /** POST /api/admin/plans — create a plan. */

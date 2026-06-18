@@ -1,32 +1,72 @@
 "use client";
 
-import { PRICE_BASIS } from "@academiq/contracts";
+import { User, UserCheck, Zap } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
+import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Combobox, DialCodePicker, type ComboboxOption } from "@/components/ui/combobox";
 import {
   ApiError,
   createStudent,
   type GuardianRow,
   listGuardians,
-  listTeachers,
-  type StudentInput,
-  type TeacherRow,
 } from "@/lib/api";
+import { COUNTRIES } from "@/lib/countries";
+import { cn } from "@/lib/utils";
 
-const inputClass =
-  "border-input bg-background w-full rounded-md border px-3 py-2 text-sm";
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
-/** Major→minor units for the wire (the API stores integer minor units only). */
-function toMinor(major: string): number {
-  return Math.round(parseFloat(major || "0") * 100);
+const inputBase =
+  "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
+
+function Field({
+  label,
+  required,
+  hint,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-sm font-medium">
+        {label}
+        {required && <span className="text-destructive ms-0.5">*</span>}
+      </label>
+      {children}
+      {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
+    </div>
+  );
 }
 
+const dialOptions: ComboboxOption[] = COUNTRIES.map((c) => ({
+  value: c.code,
+  label: c.name,
+  sublabel: c.dialCode,
+  pre: c.flag,
+}));
+
+const countryOptions: ComboboxOption[] = [
+  { value: "", label: "—" },
+  ...COUNTRIES.map((c) => ({
+    value: c.code,
+    label: c.code,
+    sublabel: c.name,
+    pre: c.flag,
+  })),
+];
+
+// ── Component ──────────────────────────────────────────────────────────────────
+
 /**
- * Create a student. Reused both on the Students screen and inside a guardian's detail (with
- * `fixedGuardianId`) so the canonical "add a guardian, then add their children" flow (§5.1)
- * works from either entry point. Supports the adult-solo case (self-guardian) and optional
- * inline subscription + first teacher assignment.
+ * A single, general "create student" form. It captures only the student's own details and
+ * always saves them as a TRIAL — scheduling a trial session, assigning a teacher, and pricing
+ * are completed afterwards from the student's profile (see the trial banner there). This keeps
+ * intake fast: get the person into the system, then act on them from the details page.
  */
 export function StudentForm({
   fixedGuardianId,
@@ -38,60 +78,94 @@ export function StudentForm({
   onCancel: () => void;
 }) {
   const t = useTranslations("students");
-  const [teachers, setTeachers] = useState<TeacherRow[]>([]);
   const [guardians, setGuardians] = useState<GuardianRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [dialCountry, setDialCountry] = useState("SA");
+  const [localNumber, setLocalNumber] = useState("");
   const [country, setCountry] = useState("");
   const [selfGuardian, setSelfGuardian] = useState(false);
   const [guardianId, setGuardianId] = useState(fixedGuardianId ?? "");
-  const [teacherId, setTeacherId] = useState("");
-
-  const [addSub, setAddSub] = useState(false);
-  const [planLabel, setPlanLabel] = useState("");
-  const [sessions, setSessions] = useState("");
-  const [price, setPrice] = useState("");
-  const [currency, setCurrency] = useState("");
-  const [basis, setBasis] =
-    useState<(typeof PRICE_BASIS)[number]>("PER_SESSION");
-  const [startDate, setStartDate] = useState("");
 
   useEffect(() => {
-    void listTeachers({ pageSize: 50, filter: { status: "active" } }).then(
-      (r) => setTeachers(r.rows),
-    );
     if (!fixedGuardianId) {
       void listGuardians({ pageSize: 50 }).then((r) => setGuardians(r.rows));
     }
   }, [fixedGuardianId]);
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
+  function handleCountryChange(code: string) {
+    setCountry(code);
+    if (!code || localNumber) return;
+    const found = COUNTRIES.find((c) => c.code === code);
+    if (found) setDialCountry(found.code);
+  }
+
+  // Selecting a guardian copies their country + WhatsApp onto the student, since
+  // children almost always share the parent's contact details. The stored phone is
+  // a full E.164 string, so split it back into dial-code + local parts for the inputs.
+  function handleGuardianChange(id: string) {
+    setGuardianId(id);
+    const g = guardians.find((row) => row.id === id);
+    if (!g) return;
+    if (g.country) {
+      setCountry(g.country);
+      const c = COUNTRIES.find((x) => x.code === g.country);
+      if (c) setDialCountry(c.code);
+    }
+    if (g.whatsapp_phone) {
+      const phone = g.whatsapp_phone;
+      // Several countries share a dial code (e.g. +1), so prefer the guardian's own
+      // country when its prefix matches; otherwise fall back to the longest match.
+      const ownCountry = COUNTRIES.find((c) => c.code === g.country);
+      const match =
+        ownCountry && phone.startsWith(ownCountry.dialCode)
+          ? ownCountry
+          : [...COUNTRIES]
+              .sort((a, b) => b.dialCode.length - a.dialCode.length)
+              .find((c) => phone.startsWith(c.dialCode));
+      if (match) {
+        setDialCountry(match.code);
+        setLocalNumber(phone.slice(match.dialCode.length));
+      } else {
+        setLocalNumber(phone.replace(/[^\d]/g, ""));
+      }
+    }
+  }
+
+  function buildPhone(): string | null {
+    if (!localNumber) return null;
+    const dialEntry = COUNTRIES.find((c) => c.code === dialCountry);
+    return dialEntry ? dialEntry.dialCode + localNumber : localNumber;
+  }
+
+  function validate(): boolean {
+    if (!fullName.trim()) {
+      setError(t("form.fullNameRequired"));
+      return false;
+    }
+    if (!selfGuardian && !guardianId && !fixedGuardianId) {
+      setError(t("form.guardianRequired"));
+      return false;
+    }
     setError(null);
+    return true;
+  }
+
+  async function save() {
+    if (!validate()) return;
     setBusy(true);
+    setError(null);
     try {
-      const input: StudentInput = {
+      const res = await createStudent({
         full_name: fullName,
-        whatsapp_phone: phone || null,
+        whatsapp_phone: buildPhone(),
         country: country || null,
         is_self_guardian: selfGuardian,
-      };
-      if (!selfGuardian) input.guardian_id = fixedGuardianId ?? guardianId;
-      if (teacherId) input.teacher_id = teacherId;
-      if (addSub) {
-        input.subscription = {
-          plan_label: planLabel,
-          sessions_per_month: sessions ? Number(sessions) : null,
-          price_minor: toMinor(price),
-          currency: currency || undefined,
-          price_basis: basis,
-          start_date: startDate,
-        };
-      }
-      const res = await createStudent(input);
+        guardian_id: selfGuardian ? undefined : ((fixedGuardianId ?? guardianId) || undefined),
+        status: "TRIAL",
+      });
       onCreated(res.studentId);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -101,209 +175,128 @@ export function StudentForm({
   }
 
   return (
-    <form
-      className="max-w-xl space-y-4"
-      onSubmit={submit}
-      data-testid="student-form"
-    >
-      <h2 className="text-lg font-medium">{t("new")}</h2>
+    <div className="space-y-5" data-testid="student-form">
       {error && (
-        <p role="alert" className="text-destructive text-sm">
-          {error}
-        </p>
+        <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
       )}
 
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">{t("form.fullName")}</span>
-        <input
-          aria-label={t("form.fullName")}
-          className={inputClass}
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          required
-        />
-      </label>
+      {/* Trial intake banner — the student is saved as a trial; setup happens in their profile. */}
+      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-950/20">
+        <Zap className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <div>
+          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+            {t("form.trialBannerTitle")}
+          </p>
+          <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-400/70">
+            {t("form.trialBannerBody")}
+          </p>
+        </div>
+      </div>
 
-      <label className="flex items-center gap-2 text-sm">
+      <Field label={t("form.fullName")} required>
+        <div className="relative">
+          <User className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            aria-label={t("form.fullName")}
+            className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+            placeholder={t("form.fullNamePlaceholder")}
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            required
+          />
+        </div>
+      </Field>
+
+      <label className="flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors hover:bg-muted/30">
         <input
           type="checkbox"
           checked={selfGuardian}
           onChange={(e) => setSelfGuardian(e.target.checked)}
           data-testid="self-guardian"
+          className="size-4 rounded accent-primary"
         />
-        <span>{t("form.selfGuardian")}</span>
+        <div className="flex items-center gap-2">
+          <UserCheck className="size-4 text-muted-foreground" aria-hidden />
+          <span className="text-sm font-medium">{t("form.selfGuardian")}</span>
+        </div>
       </label>
 
       {selfGuardian ? (
-        <p className="text-muted-foreground text-xs">
+        <p className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-xs text-muted-foreground">
           {t("form.selfGuardianHint")}
         </p>
       ) : (
         !fixedGuardianId && (
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">{t("form.guardian")}</span>
-            <select
-              aria-label={t("form.guardian")}
-              className={inputClass}
+          <Field label={t("form.guardian")} required>
+            <Combobox
+              options={guardians.map((g) => ({ value: g.id, label: g.full_name }))}
               value={guardianId}
-              onChange={(e) => setGuardianId(e.target.value)}
-              required
-            >
-              <option value="">{t("form.none")}</option>
-              {guardians.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.full_name}
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange={handleGuardianChange}
+              placeholder={t("form.none")}
+              searchPlaceholder={t("form.searchGuardian")}
+              data-testid="guardian-select"
+            />
+          </Field>
         )
       )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <label className="block space-y-1">
-          <span className="text-sm font-medium">{t("form.phone")}</span>
-          <input
-            aria-label={t("form.phone")}
-            className={inputClass}
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-sm font-medium">{t("form.country")}</span>
-          <input
-            aria-label={t("form.country")}
-            className={inputClass}
-            maxLength={2}
-            value={country}
-            onChange={(e) => setCountry(e.target.value.toUpperCase())}
-          />
-        </label>
-      </div>
-
-      <label className="block space-y-1">
-        <span className="text-sm font-medium">{t("form.teacher")}</span>
-        <select
-          aria-label={t("form.teacher")}
-          className={inputClass}
-          value={teacherId}
-          onChange={(e) => setTeacherId(e.target.value)}
+      <Field label={t("form.phone")} hint={t("form.phoneHint")}>
+        <div
+          dir="ltr"
+          className={cn(
+            "border-input flex h-10 overflow-hidden rounded-xl border transition-all",
+            "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
+          )}
         >
-          <option value="">{t("form.none")}</option>
-          {teachers.map((tch) => (
-            <option key={tch.id} value={tch.id}>
-              {tch.full_name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={addSub}
-          onChange={(e) => setAddSub(e.target.checked)}
-          data-testid="add-subscription"
-        />
-        <span>{t("subscription.title")}</span>
-      </label>
-
-      {addSub && (
-        <div className="grid grid-cols-2 gap-3 rounded-md border p-3">
-          <label className="col-span-2 block space-y-1">
-            <span className="text-sm font-medium">
-              {t("subscription.planLabel")}
-            </span>
-            <input
-              aria-label={t("subscription.planLabel")}
-              className={inputClass}
-              value={planLabel}
-              onChange={(e) => setPlanLabel(e.target.value)}
-              required={addSub}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">
-              {t("subscription.sessionsPerMonth")}
-            </span>
-            <input
-              type="number"
-              aria-label={t("subscription.sessionsPerMonth")}
-              className={inputClass}
-              value={sessions}
-              onChange={(e) => setSessions(e.target.value)}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">
-              {t("subscription.price")}
-            </span>
-            <input
-              type="number"
-              step="0.01"
-              aria-label={t("subscription.price")}
-              className={inputClass}
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              required={addSub}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">
-              {t("subscription.currency")}
-            </span>
-            <input
-              aria-label={t("subscription.currency")}
-              className={inputClass}
-              maxLength={3}
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-            />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">
-              {t("subscription.basis")}
-            </span>
-            <select
-              aria-label={t("subscription.basis")}
-              className={inputClass}
-              value={basis}
-              onChange={(e) =>
-                setBasis(e.target.value as (typeof PRICE_BASIS)[number])
-              }
-            >
-              {PRICE_BASIS.map((b) => (
-                <option key={b} value={b}>
-                  {t(`basis.${b}`)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">
-              {t("subscription.startDate")}
-            </span>
-            <input
-              type="date"
-              aria-label={t("subscription.startDate")}
-              className={inputClass}
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              required={addSub}
-            />
-          </label>
+          <DialCodePicker
+            options={dialOptions}
+            value={dialCountry}
+            onChange={setDialCountry}
+            searchPlaceholder="Country or code…"
+          />
+          <input
+            dir="ltr"
+            type="tel"
+            inputMode="numeric"
+            aria-label={t("form.phone")}
+            placeholder="512345678"
+            value={localNumber}
+            onChange={(e) => setLocalNumber(e.target.value.replace(/[^\d]/g, ""))}
+            className="flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
+          />
         </div>
-      )}
+      </Field>
 
-      <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={busy}>
-          {busy ? t("form.creating") : t("form.create")}
-        </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+      <Field label={t("form.country")}>
+        <Combobox
+          options={countryOptions}
+          value={country}
+          onChange={handleCountryChange}
+          placeholder={t("form.countryPlaceholder")}
+          searchPlaceholder={t("form.searchCountry")}
+        />
+      </Field>
+
+      {/* ── Footer ─────────────────────────────────────────────────────── */}
+      <div className="mt-2 flex items-center justify-between gap-2 border-t pt-4">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
           {t("back")}
         </Button>
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => void save()}
+          disabled={busy}
+          className="gap-1.5"
+        >
+          {busy ? (
+            <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+          ) : (
+            <Zap className="size-3.5" />
+          )}
+          {t("form.create")}
+        </Button>
       </div>
-    </form>
+    </div>
   );
 }

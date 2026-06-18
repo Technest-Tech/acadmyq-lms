@@ -65,6 +65,23 @@ it('marks the report sent (timestamp + channel) without any automated send', fun
         ->and($report->whatsapp_channel)->toBe('MANUAL_WHATSAPP');
 });
 
+it('blocks a teacher from sending the report to the guardian (academy-admin only)', function () {
+    // The Teacher writes the report; dispatching it to the guardian is an academy-admin action.
+    $teacherUser = $this->makeUser($this->academy, 'TEACHER', ['email' => 'teacher-wa@test.local']);
+    $teacher = $this->createTeacher($this->academy, ['full_name' => 'Own Teacher', 'user_id' => $teacherUser->id]);
+    $session = $this->createSession($this->academy, $this->student, $teacher, [
+        'scheduled_at_utc' => '2026-06-01 15:00:00+00', 'status' => 'ATTENDED',
+    ]);
+
+    Sanctum::actingAs($teacherUser);
+    $this->putJson("/api/sessions/{$session}/report", ['values' => ['surah_from' => 'A', 'surah_to' => 'B']])->assertOk();
+    $this->postJson("/api/sessions/{$session}/report/whatsapp-sent")
+        ->assertStatus(422)->assertJsonValidationErrors('report');
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('session_reports')->where('session_id', $session)->value('whatsapp_sent_at'))->toBeNull();
+});
+
 it('refuses to mark sent before a report exists', function () {
     Sanctum::actingAs($this->owner);
     $this->postJson("/api/sessions/{$this->session}/report/whatsapp-sent")
@@ -88,8 +105,9 @@ it('computes no invoice totals or payout amounts (boundary with Sprints 7/8)', f
         ->and((int) $invoice->subtotal_minor)->toBe(0)
         ->and((int) $invoice->total_minor)->toBe(0);
 
-    // Payout guard untouched (Sprint 8 owns it).
-    expect((bool) DB::table('sessions')->where('id', $pending)->value('paid_to_teacher'))->toBeFalse();
+    // Sprint 8 now coordinates the teacher payout off the SAME status change: ATTENDED sets
+    // the paid_to_teacher guard and accrues a payout line (the payroll engine owns the amount).
+    expect((bool) DB::table('sessions')->where('id', $pending)->value('paid_to_teacher'))->toBeTrue();
 });
 
 it('audits status set/change with before/after, including the billing action', function () {

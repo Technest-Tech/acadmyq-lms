@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\People\Concerns;
 
 use App\Support\AuthContext;
+use App\Support\Entitlement;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Shared helpers for the Sprint 4 people controllers (guardians/students/teachers). They all
@@ -59,5 +61,40 @@ trait InteractsWithPeople
             'all' => null,
             default => $query->whereNull($column),
         };
+    }
+
+    /**
+     * Enforce a plan-defined numeric cap at create time (Sprint 9 §4.3, AC-9.2). Counts the
+     * academy's current active rows of $table and, if the plan caps it and the cap is reached,
+     * throws a 422 carrying an `upgrade` payload + bilingual at-limit messaging — distinct from
+     * a 403 (permission) and consistent with the create-flow's other validation failures.
+     * A plan with no cap for $limitKey is unlimited (fail open), so uncapped academies are
+     * never blocked (TC-9.2 PRO branch).
+     *
+     * @return never|void
+     */
+    protected function enforceLimit(string $academyId, string $table, string $limitKey, string $resource): void
+    {
+        $ctx = $this->ctx();
+        $current = (int) DB::table($table)->where('academy_id', $academyId)->whereNull('deleted_at')->count();
+
+        if (Entitlement::withinLimit($ctx, $limitKey, $current)) {
+            return;
+        }
+
+        $cap = Entitlement::limit($ctx, $limitKey);
+        $plan = Entitlement::resolve($academyId)['plan'];
+
+        throw ValidationException::withMessages([
+            $resource => [json_encode([
+                'error' => 'plan_limit_reached',
+                'resource' => $resource,
+                'limit' => $cap,
+                'current' => $current,
+                'plan' => $plan,
+                'message_en' => "You've reached your plan's limit of {$cap} {$resource}. Upgrade your plan to add more.",
+                'message_ar' => "لقد وصلت إلى الحد الأقصى لباقتك وهو {$cap} {$resource}. قم بترقية باقتك لإضافة المزيد.",
+            ])],
+        ]);
     }
 }

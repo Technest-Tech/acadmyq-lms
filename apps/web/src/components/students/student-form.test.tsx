@@ -76,10 +76,10 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     renderForm();
 
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
-    expect(screen.getByLabelText("Guardian")).toBeInTheDocument();
+    expect(screen.getByTestId("guardian-select")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("self-guardian"));
-    expect(screen.queryByLabelText("Guardian")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("guardian-select")).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Full name"), "Adult Learner");
     await user.click(screen.getByRole("button", { name: "Create student" }));
@@ -94,29 +94,24 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     );
   });
 
-  // AC-4.1: a guardian-linked student with an inline subscription.
-  it("creates a guardian-linked student with an inline subscription", async () => {
+  // AC-4.1: a guardian-linked student is created as a TRIAL — pricing/teacher/schedule are
+  // completed later from the student's profile (the form no longer has those steps).
+  it("creates a guardian-linked student as a trial", async () => {
     const user = userEvent.setup();
     const { onCreated } = renderForm();
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
 
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
-    await user.selectOptions(screen.getByLabelText("Guardian"), "g1");
-    await user.click(screen.getByTestId("add-subscription"));
-    await user.type(screen.getByLabelText("Plan label"), "8/month");
-    await user.type(screen.getByLabelText("Price"), "100");
-    await user.type(screen.getByLabelText("Start date"), "2026-06-01");
+    // Open the guardian combobox and pick "Guardian One"
+    await user.click(screen.getByTestId("guardian-select"));
+    await user.click(await screen.findByRole("option", { name: "Guardian One" }));
     await user.click(screen.getByRole("button", { name: "Create student" }));
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("s1"));
     expect(api.createStudent).toHaveBeenCalledWith(
       expect.objectContaining({
         guardian_id: "g1",
-        subscription: expect.objectContaining({
-          plan_label: "8/month",
-          price_minor: 10000, // 100.00 → minor units
-          start_date: "2026-06-01",
-        }),
+        status: "TRIAL",
       }),
     );
   });

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Billing;
 
+use App\Support\PublicInvoiceToken;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -104,7 +105,7 @@ final class InvoiceBillingHook implements BillingHook
             'currency' => $academy->default_currency,
             'subtotal_minor' => 0,
             'total_minor' => 0,
-            'public_token' => Str::random(48),
+            'public_token' => PublicInvoiceToken::forName($academy->name ?? null),
         ]);
 
         return $id;

@@ -42,11 +42,25 @@ final class SessionReportController extends Controller
         $this->assertPeriodOpen($session);
 
         $input = $request->validate(['values' => ['sometimes', 'array']]);
-        $clean = ReportValidator::validate((string) $session->academy_id, $input['values'] ?? []);
 
         $existing = DB::table('session_reports')->where('session_id', $sessionId)->first();
         $before = $existing !== null ? (json_decode($existing->values, true) ?: []) : [];
+        $submitted = $input['values'] ?? [];
+
+        // Merge existing values so previously-filled required fields stay satisfied on edits.
+        // The validator also skips required-field checks when report_text is present (free-text mode).
+        $clean = ReportValidator::validate((string) $session->academy_id, array_merge($before, $submitted));
         $merged = array_merge($before, $clean);
+
+        // Reserved free-text keys aren't academy field definitions, so the validator strips them.
+        // Persist them explicitly: report_text holds the free-text report body and is_free_trial
+        // flags a trial lesson (stored as ATTENDED on the session, surfaced as "Free" in the UI).
+        if (array_key_exists('report_text', $submitted)) {
+            $merged['report_text'] = (string) $submitted['report_text'];
+        }
+        if (array_key_exists('is_free_trial', $submitted)) {
+            $merged['is_free_trial'] = (bool) $submitted['is_free_trial'];
+        }
 
         DB::table('session_reports')->updateOrInsert(
             ['session_id' => $sessionId],
@@ -58,6 +72,25 @@ final class SessionReportController extends Controller
                 'updated_at' => now(),
             ]
         );
+
+        // A free-trial lesson is free for the student, the teacher, AND the academy. The UI
+        // records attendance BEFORE saving this report, so by now any invoice/payout line was
+        // already priced at the full rate. When the trial flag flips, re-derive both money
+        // documents from this new truth (zero them, or restore the real price if un-flagged).
+        $wasFreeTrial = (bool) ($before['is_free_trial'] ?? false);
+        $nowFreeTrial = (bool) ($merged['is_free_trial'] ?? false);
+        if ($wasFreeTrial !== $nowFreeTrial) {
+            app(\App\Services\Invoicing::class)->repriceFreeTrial($session);
+            app(\App\Services\Payroll::class)->repriceFreeTrial($session);
+        }
+
+        // The report now exists, so any "report overdue / reminder" alert for this session is
+        // resolved — clear it from the Notifications feed (idempotent; no-op when none exist).
+        DB::table('notifications')
+            ->where('session_id', $sessionId)
+            ->whereIn('type', ['REPORT_OVERDUE', 'REPORT_REMINDER'])
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
 
         Audit::log('session.report_filled', 'session_report', $sessionId, (string) $session->academy_id, $this->ctx()->userId, $this->ctx()->role,
             after: ['values' => $merged],
@@ -74,6 +107,14 @@ final class SessionReportController extends Controller
     public function whatsappSent(Request $request, WhatsAppReportBuilder $builder, string $sessionId): JsonResponse
     {
         Gate::authorize('session.write_report');
+
+        // Dispatching the report to the guardian is an academy-admin action — the Teacher writes
+        // the report but doesn't send it. Block the back door regardless of what the UI sends.
+        if ($this->ctx()->role === 'TEACHER') {
+            throw ValidationException::withMessages([
+                'report' => ['Only the academy can send the report to the guardian. / لا يمكن سوى للأكاديمية إرسال التقرير لولي الأمر.'],
+            ]);
+        }
 
         $session = $this->findOwnedSession($sessionId);
         $report = DB::table('session_reports')->where('session_id', $sessionId)->first();

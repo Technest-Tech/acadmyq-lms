@@ -10,7 +10,8 @@ import { AttendanceManager } from "./attendance-manager";
 
 vi.mock("@/lib/api", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/api")>()),
-  getPendingAttendance: vi.fn(),
+  getSessionsByDay: vi.fn(),
+  listTeachers: vi.fn(),
   getSession: vi.fn(),
   markAttendance: vi.fn(),
   putSessionReport: vi.fn(),
@@ -18,6 +19,18 @@ vi.mock("@/lib/api", async (importActual) => ({
 }));
 
 import * as api from "@/lib/api";
+
+const daySession = {
+  id: "se1",
+  student_id: "st1",
+  teacher_id: "t1",
+  scheduled_at_utc: "2026-06-01T15:00:00Z",
+  duration_minutes: 30,
+  status: "SCHEDULED" as const,
+  student_name: "Abdullah",
+  student_status: "TRIAL_BOOKED",
+  teacher_name: "Ustadh",
+};
 
 function ownerSession(): Session {
   return makeSession("ACADEMY_OWNER", {
@@ -38,6 +51,12 @@ function renderManager(session: Session = ownerSession()) {
 describe("AttendanceManager (Sprint 6 premium worklist)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(api.listTeachers).mockResolvedValue({
+      rows: [],
+      total: 0,
+      page: 1,
+      pageSize: 50,
+    });
     vi.mocked(api.getSession).mockResolvedValue({
       session: {
         id: "se1",
@@ -45,6 +64,7 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
         teacher_id: "t1",
         student_name: "Abdullah",
         teacher_name: "Ustadh",
+        academy_name: "Test Academy",
         scheduled_at_utc: "2026-06-01T15:00:00Z",
         duration_minutes: 30,
         status: "SCHEDULED",
@@ -59,50 +79,24 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     });
   });
 
-  it("lists pending sessions awaiting an outcome", async () => {
-    vi.mocked(api.getPendingAttendance).mockResolvedValue({
-      sessions: [
-        {
-          id: "se1",
-          student_id: "st1",
-          teacher_id: "t1",
-          scheduled_at_utc: "2026-06-01T15:00:00Z",
-          duration_minutes: 30,
-          status: "SCHEDULED",
-          student_name: "Abdullah",
-          teacher_name: "Ustadh",
-        },
-      ],
-    });
+  it("lists the day's sessions awaiting an outcome", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
     renderManager();
 
-    expect(await screen.findByTestId("pending-list")).toBeInTheDocument();
+    expect(await screen.findByTestId("day-list")).toBeInTheDocument();
     expect(screen.getByText("Abdullah")).toBeInTheDocument();
   });
 
-  it("shows the empty state when nothing is pending", async () => {
-    vi.mocked(api.getPendingAttendance).mockResolvedValue({ sessions: [] });
+  it("shows the empty state when nothing matches the day's filters", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [] });
     renderManager();
 
-    expect(await screen.findByTestId("pending-empty")).toBeInTheDocument();
+    expect(await screen.findByTestId("day-empty")).toBeInTheDocument();
   });
 
   it("opens the attendance/report popup when a row is clicked", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.getPendingAttendance).mockResolvedValue({
-      sessions: [
-        {
-          id: "se1",
-          student_id: "st1",
-          teacher_id: "t1",
-          scheduled_at_utc: "2026-06-01T15:00:00Z",
-          duration_minutes: 30,
-          status: "SCHEDULED",
-          student_name: "Abdullah",
-          teacher_name: "Ustadh",
-        },
-      ],
-    });
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
     renderManager();
 
     await user.click(await screen.findByText("Abdullah"));

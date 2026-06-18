@@ -16,6 +16,8 @@ use App\Enums\SessionStatus;
  * pure function, so the rule can never disagree across the codebase (decision §3.1, risk §11).
  *
  *   ATTENDED               → bill: true,  teacher: true
+ *   FREE                   → bill: false, teacher: false   (lesson delivered but on the house —
+ *                                                           free for student, teacher AND academy)
  *   ABSENT_UNEXCUSED       → bill: true,  teacher: false   (no-show, no notice → charged)
  *   ABSENT_EXCUSED         → bill: false, teacher: false   (absent but gave notice)
  *   CANCELLED_BY_TEACHER   → bill: false, teacher: false
@@ -32,6 +34,7 @@ final class SessionClassifier
         return match ($status) {
             SessionStatus::Attended => ['billableToStudent' => true, 'countsForTeacher' => true],
             SessionStatus::AbsentUnexcused => ['billableToStudent' => true, 'countsForTeacher' => false],
+            SessionStatus::Free,
             SessionStatus::AbsentExcused,
             SessionStatus::CancelledByTeacher,
             SessionStatus::CancelledByStudent,

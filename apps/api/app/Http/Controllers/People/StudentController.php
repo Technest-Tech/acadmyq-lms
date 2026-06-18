@@ -6,9 +6,11 @@ namespace App\Http\Controllers\People;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
+use App\Services\SessionGenerator;
 use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\Phone;
+use App\Support\StudentStatus;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -31,9 +33,11 @@ final class StudentController extends Controller
 {
     use InteractsWithPeople;
 
-    private const PRICE_BASES = ['PER_SESSION', 'PER_MONTH'];
+    private const PRICE_BASES = ['PER_SESSION', 'PER_MONTH', 'PER_HOUR'];
 
     private const SUB_STATUSES = ['ACTIVE', 'PAUSED', 'ENDED'];
+
+    public function __construct(private readonly SessionGenerator $generator) {}
 
     /** GET /api/students — server-driven DataTable joined to guardian, active sub & teacher. */
     public function index(Request $request): JsonResponse
@@ -56,6 +60,8 @@ final class StudentController extends Controller
             'filters' => [
                 'teacher_id' => fn (Builder $q, $value) => $q->where('sta.teacher_id', (string) $value),
                 'subscription_status' => fn (Builder $q, $value) => $q->where('sub.status', (string) $value),
+                'student_status' => fn (Builder $q, $value) => $q->where('s.status', (string) $value),
+                'trial_any' => fn (Builder $q, $value) => $value === '1' ? $q->whereIn('s.status', [StudentStatus::TRIAL, StudentStatus::TRIAL_BOOKED]) : null,
             ],
             'defaultSort' => 'name',
         ]);
@@ -69,6 +75,11 @@ final class StudentController extends Controller
         Gate::authorize('student.create');
 
         $academyId = $this->currentAcademyId();
+
+        // Plan limit: BASIC caps students (AC-9.2). Checked before any write so the 31st
+        // student on a 30-cap plan is rejected with an at-limit/upgrade message, not created.
+        $this->enforceLimit($academyId, 'students', 'maxStudents', 'students');
+
         $data = $this->validateStudent($request, creating: true);
 
         $selfGuardian = (bool) ($data['is_self_guardian'] ?? false);
@@ -93,7 +104,7 @@ final class StudentController extends Controller
             'full_name' => $data['full_name'],
             'whatsapp_phone' => Phone::normalize($data['whatsapp_phone'] ?? null, 'whatsapp_phone'),
             'country' => $data['country'] ?? null,
-            'status' => $data['status'] ?? 'REGULAR',
+            'status' => $data['status'] ?? StudentStatus::REGULAR,
             'is_self_guardian' => $selfGuardian,
             'notes' => $data['notes'] ?? null,
         ]);
@@ -114,6 +125,7 @@ final class StudentController extends Controller
             Audit::log('student.teacher_reassigned', 'student', $studentId, $academyId, $this->ctx()->userId, $this->ctx()->role,
                 after: ['teacher_id' => $data['teacher_id'], 'effective_date' => now()->toDateString()],
                 before: ['teacher_id' => null]);
+            $this->regenerateStudentSessions($studentId);
         }
 
         return response()->json(['studentId' => $studentId, 'guardianId' => $guardianId], 201);
@@ -138,11 +150,21 @@ final class StudentController extends Controller
             ->whereNull('a.ended_at')
             ->first(['a.teacher_id', 't.full_name as teacher_name', 'a.started_at']);
 
+        // For a booked trial, has the trial session already been recorded (attended/cancelled/…)?
+        // Drives the profile's "next step" call-to-action: once the trial is done the only path
+        // left is to activate the student with pricing.
+        $trialResolved = (string) $student->status === StudentStatus::TRIAL_BOOKED
+            && DB::table('sessions')
+                ->where('student_id', $id)
+                ->whereNotIn('status', ['SCHEDULED', 'RESCHEDULED'])
+                ->exists();
+
         return response()->json([
             'student' => $student,
             'guardian' => $guardian,
             'subscription' => $subscription,
             'currentTeacher' => $current,
+            'trialResolved' => $trialResolved,
         ]);
     }
 
@@ -159,6 +181,21 @@ final class StudentController extends Controller
         $data = $this->validateStudent($request, creating: false);
         if (array_key_exists('whatsapp_phone', $data)) {
             $data['whatsapp_phone'] = Phone::normalize($data['whatsapp_phone'], 'whatsapp_phone');
+        }
+
+        // Guard status transitions (R-STU). A plain edit may move between ACTIVE states only:
+        //   - terminal states are reached solely via deactivate(), which preserves history and
+        //     ends the active subscription + teacher assignment in one step;
+        //   - a student cannot become REGULAR (the billable state) without an active
+        //     subscription, or they would silently never be invoiced.
+        if (array_key_exists('status', $data) && $data['status'] !== null && (string) $data['status'] !== (string) $existing->status) {
+            $target = (string) $data['status'];
+            if (StudentStatus::isTerminal($target)) {
+                throw ValidationException::withMessages(['status' => ['Graduate or withdraw a student via deactivate, which preserves their history.']]);
+            }
+            if ($target === StudentStatus::REGULAR && $this->activeSubscription($id) === null) {
+                throw ValidationException::withMessages(['status' => ['Set an active subscription before making this student REGULAR.']]);
+            }
         }
 
         $before = [];
@@ -179,18 +216,117 @@ final class StudentController extends Controller
         return response()->json(['ok' => true, 'changed' => array_keys($after)]);
     }
 
-    /** POST /api/students/{id}/deactivate — soft-delete; history preserved (AC-4.7). */
-    public function deactivate(string $id): JsonResponse
+    /**
+     * POST /api/students/{id}/deactivate — soft-delete; history preserved (AC-4.7). Records the
+     * reason as the terminal status (default WITHDRAWN) and, atomically, ends the single active
+     * subscription and closes the open teacher assignment so no dangling ACTIVE billing row or
+     * open roster entry survives the learner leaving (R-STU-3/4).
+     */
+    public function deactivate(Request $request, string $id): JsonResponse
     {
         Gate::authorize('student.deactivate');
 
+        $academyId = $this->currentAcademyId();
         $student = DB::table('students')->where('id', $id)->whereNull('deleted_at')->first();
         if ($student === null) {
             abort(404, 'Student not found.');
         }
 
-        DB::table('students')->where('id', $id)->update(['deleted_at' => now(), 'updated_at' => now()]);
-        Audit::log('student.deactivate', 'student', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['deleted_at' => now()->toIso8601String()]);
+        $reason = $request->validate([
+            'reason' => ['sometimes', Rule::in(StudentStatus::TERMINAL)],
+        ])['reason'] ?? StudentStatus::WITHDRAWN;
+
+        $now = now();
+        DB::transaction(function () use ($id, $academyId, $reason, $now, $student): void {
+            ['subscription' => $endedSubscription, 'assignment' => $closedAssignment] = $this->endActiveBilling($id, $now);
+
+            DB::table('students')->where('id', $id)->update([
+                'status' => $reason,
+                'deleted_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            Audit::log('student.deactivate', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: [
+                    'status' => $reason,
+                    'deleted_at' => $now->toIso8601String(),
+                    'ended_subscription' => $endedSubscription,
+                    'closed_teacher_assignment' => $closedAssignment,
+                ],
+                before: ['status' => $student->status]);
+        });
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * DELETE /api/students/{id} — the owner-facing "remove from the system". Despite the verb
+     * this is a RECOVERABLE soft-delete: physical deletion stays prohibited (design §3.7), so the
+     * student row and every related record (subscriptions, sessions, invoices, …) remain in the
+     * database and can be brought back via reactivate(). It hides the student from the roster and,
+     * like deactivate, ends the active subscription and closes the open teacher assignment so
+     * nothing dangles. The response tells the caller the removal is reversible.
+     */
+    public function destroy(string $id): JsonResponse
+    {
+        Gate::authorize('student.deactivate');
+
+        $academyId = $this->currentAcademyId();
+        $student = DB::table('students')->where('id', $id)->whereNull('deleted_at')->first();
+        if ($student === null) {
+            abort(404, 'Student not found.');
+        }
+
+        $now = now();
+        DB::transaction(function () use ($id, $academyId, $now, $student): void {
+            ['subscription' => $endedSubscription, 'assignment' => $closedAssignment] = $this->endActiveBilling($id, $now);
+
+            DB::table('students')->where('id', $id)->update([
+                'deleted_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            Audit::log('student.delete', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: [
+                    'deleted_at' => $now->toIso8601String(),
+                    'recoverable' => true,
+                    'ended_subscription' => $endedSubscription,
+                    'closed_teacher_assignment' => $closedAssignment,
+                ],
+                before: ['status' => $student->status]);
+        });
+
+        return response()->json([
+            'ok' => true,
+            'recoverable' => true,
+            'message' => 'Student removed from your academy. The record and its history are retained and can be restored.',
+        ]);
+    }
+
+    /**
+     * POST /api/students/{id}/reactivate — undo a soft-delete, returning the learner to active
+     * rosters as a plain REGULAR student. The subscription and teacher assignment ended at
+     * deactivation are NOT auto-restored (their prices/teacher may have moved on) — re-add them
+     * explicitly via the subscription/teacher endpoints.
+     */
+    public function reactivate(string $id): JsonResponse
+    {
+        Gate::authorize('student.deactivate');
+
+        $academyId = $this->currentAcademyId();
+        $student = DB::table('students')->where('id', $id)->whereNotNull('deleted_at')->first();
+        if ($student === null) {
+            abort(404, 'Student not found or already active.');
+        }
+
+        DB::table('students')->where('id', $id)->update([
+            'status' => StudentStatus::REGULAR,
+            'deleted_at' => null,
+            'updated_at' => now(),
+        ]);
+        Audit::log('student.reactivate', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+            after: ['status' => StudentStatus::REGULAR, 'deleted_at' => null],
+            before: ['status' => $student->status]);
 
         return response()->json(['ok' => true]);
     }
@@ -270,6 +406,11 @@ final class StudentController extends Controller
             after: ['teacher_id' => $data['teacher_id'], 'effective_date' => (string) $effective],
             before: ['teacher_id' => $previous]);
 
+        // Re-point this student's FUTURE untouched sessions to the newly assigned teacher, so the
+        // teacher sees them immediately instead of waiting for the next schedule edit / monthly
+        // roll (the generator reads the student's now-current assignment, TC-5.25).
+        $this->regenerateStudentSessions($id);
+
         return response()->json(['ok' => true]);
     }
 
@@ -309,7 +450,7 @@ final class StudentController extends Controller
             })
             ->leftJoin('teachers as t', 't.id', '=', 'sta.teacher_id')
             ->select([
-                's.id', 's.full_name', 's.whatsapp_phone', 's.status', 's.is_self_guardian',
+                's.id', 's.full_name', 's.whatsapp_phone', 's.country', 's.status', 's.is_self_guardian',
                 's.guardian_id', 's.deleted_at', 's.created_at',
                 'g.full_name as guardian_name',
                 'sub.id as subscription_id', 'sub.price_minor', 'sub.currency as price_currency',
@@ -445,6 +586,51 @@ final class StudentController extends Controller
         return $previous;
     }
 
+    /**
+     * Reconcile the student's active schedule(s) over the rolling window so future untouched
+     * sessions re-point to the student's currently active teacher. Idempotent and future-only —
+     * past and touched sessions are never rewritten (§4.5). A student with no active schedule is
+     * a no-op. Runs inside the request's tenant context; RLS is the backstop.
+     */
+    private function regenerateStudentSessions(string $studentId): void
+    {
+        $scheduleIds = DB::table('schedules')
+            ->where('student_id', $studentId)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->pluck('id');
+
+        if ($scheduleIds->isEmpty()) {
+            return;
+        }
+
+        [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
+        foreach ($scheduleIds as $scheduleId) {
+            $this->generator->generateForSchedule((string) $scheduleId, $windowStart, $windowEnd);
+        }
+    }
+
+    /**
+     * End the student's single ACTIVE subscription and close their open teacher assignment so
+     * neither dangles past an off-board (shared by deactivate and the recoverable delete). Rows
+     * are updated, never removed, so the action is fully reversible. Returns whether each side
+     * was affected.
+     *
+     * @return array{subscription: bool, assignment: bool}
+     */
+    private function endActiveBilling(string $studentId, $now): array
+    {
+        $endedSubscription = DB::table('subscriptions')
+            ->where('student_id', $studentId)->where('status', 'ACTIVE')->whereNull('deleted_at')
+            ->update(['status' => 'ENDED', 'updated_at' => $now]);
+
+        $closedAssignment = DB::table('student_teacher_assignments')
+            ->where('student_id', $studentId)->whereNull('ended_at')
+            ->update(['ended_at' => $now, 'updated_at' => $now]);
+
+        return ['subscription' => $endedSubscription > 0, 'assignment' => $closedAssignment > 0];
+    }
+
     private function activeSubscription(string $studentId): ?object
     {
         return DB::table('subscriptions')
@@ -468,11 +654,16 @@ final class StudentController extends Controller
     {
         $req = $creating ? 'required' : 'sometimes';
 
+        // A new student may only start in an ACTIVE state; the terminal states (GRADUATED/
+        // WITHDRAWN) are reachable only through deactivate(). On update the full vocabulary
+        // validates, with the terminal/REGULAR transitions further gated in update().
+        $statusVocab = $creating ? StudentStatus::ACTIVE : StudentStatus::ALL;
+
         $rules = [
             'full_name' => [$req, 'string', 'max:255'],
             'whatsapp_phone' => ['nullable', 'string', 'max:32'],
             'country' => ['nullable', 'string', 'max:2'],
-            'status' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'status' => ['sometimes', 'nullable', Rule::in($statusVocab)],
             'notes' => ['nullable', 'string', 'max:2000'],
         ];
 

@@ -115,7 +115,9 @@ describe("WeeklyCalendar (Sprint 5 §5.5)", () => {
     await screen.findByTestId("session-se1");
     const user = userEvent.setup();
 
-    await user.selectOptions(screen.getByTestId("calendar-teacher"), "t1");
+    // The teacher filter is now a searchable combobox: open it, then pick the teacher.
+    await user.click(screen.getByTestId("calendar-teacher"));
+    await user.click(await screen.findByRole("option", { name: "Teacher One" }));
 
     await waitFor(() =>
       expect(api.getCalendar).toHaveBeenLastCalledWith(

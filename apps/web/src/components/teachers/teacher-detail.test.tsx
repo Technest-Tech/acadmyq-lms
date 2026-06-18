@@ -12,6 +12,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   getTeacher: vi.fn(),
   updateTeacher: vi.fn(),
   deactivateTeacher: vi.fn(),
+  listSpecializations: vi.fn().mockResolvedValue({ specializations: [] }),
 }));
 
 import * as api from "@/lib/api";
@@ -64,7 +65,7 @@ describe("TeacherDetail (Sprint 4 §7)", () => {
     await screen.findByTestId("teacher-rate");
     const user = userEvent.setup();
 
-    const rate = screen.getByLabelText("Session rate");
+    const rate = screen.getByLabelText("Hourly rate");
     await user.clear(rate);
     await user.type(rate, "90");
     await user.click(screen.getByTestId("save-teacher"));

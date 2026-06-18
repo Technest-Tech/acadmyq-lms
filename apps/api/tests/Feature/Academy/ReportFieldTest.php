@@ -18,7 +18,10 @@ beforeEach(function () {
     $this->clearTenantContext();
 
     $this->admin = $this->makeUser(null, 'SUPER_ADMIN');
-    $this->A = $this->createAcademy();
+    // Customising report fields is the PRO `report_field.custom` capability (Sprint 9 gating),
+    // so A is provisioned on the PRO plan for these tests.
+    $proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
+    $this->A = $this->createAcademy(overrides: ['plan_id' => $proPlan]);
     $this->ownerA = $this->makeUser($this->A, 'ACADEMY_OWNER');
 });
 

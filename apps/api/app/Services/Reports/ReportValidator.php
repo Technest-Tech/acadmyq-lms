@@ -28,13 +28,17 @@ final class ReportValidator
         $errors = [];
         $clean = [];
 
+        // When the submission contains the report_text key (new free-text UI), structured
+        // required fields are no longer enforced — the academy uses free-text reporting.
+        $hasFreeText = array_key_exists('report_text', $input);
+
         foreach (ReportFields::active($academyId) as $field) {
             $key = $field->key;
             $value = $input[$key] ?? null;
             $present = $value !== null && $value !== '';
 
             if (! $present) {
-                if ($field->is_required) {
+                if ($field->is_required && ! $hasFreeText) {
                     $errors["values.{$key}"][] = "{$field->label_en} is required. / {$field->label_ar} مطلوب.";
                 }
 

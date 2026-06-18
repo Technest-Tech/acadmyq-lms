@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\EnsureEntitled;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\TenantContextMiddleware;
 use Illuminate\Foundation\Application;
@@ -26,8 +27,12 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
 
         // The auth → GUC bridge, applied to the authenticated route group in routes/api.php.
+        // `entitled:` is the plan-gate (Sprint 9 §4.3), used as `entitled:feature.key` on
+        // plan-gated routes — distinct from the RBAC Gate so a plan miss returns 402-upgrade,
+        // not 403-forbidden.
         $middleware->alias([
             'tenant.context' => TenantContextMiddleware::class,
+            'entitled' => EnsureEntitled::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

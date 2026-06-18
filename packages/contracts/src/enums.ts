@@ -9,6 +9,7 @@
 export const SESSION_STATUS = [
   "SCHEDULED",
   "ATTENDED",
+  "FREE",
   "ABSENT_UNEXCUSED",
   "ABSENT_EXCUSED",
   "CANCELLED_BY_TEACHER",
@@ -55,5 +56,5 @@ export type AppRole = (typeof APP_ROLE)[number];
 export const INVOICE_GROUPING = ["PER_GUARDIAN", "PER_STUDENT"] as const;
 export type InvoiceGrouping = (typeof INVOICE_GROUPING)[number];
 
-export const PRICE_BASIS = ["PER_SESSION", "PER_MONTH"] as const;
+export const PRICE_BASIS = ["PER_SESSION", "PER_MONTH", "PER_HOUR"] as const;
 export type PriceBasis = (typeof PRICE_BASIS)[number];

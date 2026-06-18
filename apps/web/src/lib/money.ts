@@ -25,3 +25,17 @@ export function formatMoney(money: Money, locale: string): string {
     currency,
   }).format(major);
 }
+
+/**
+ * Locale-aware plain-number formatting (counts, limits, usage). Mirrors formatMoney's
+ * numbering-system handling so Arabic renders Eastern Arabic (Arabic-Indic) digits (٠-٩)
+ * rather than the Latin digits modern CLDR defaults plain "ar" to (R-LOC / AC-9.12).
+ */
+export function formatNumber(value: number, locale: string): string {
+  const bcp47 =
+    locale.startsWith("ar") && !locale.includes("-nu-")
+      ? `${locale}-u-nu-arab`
+      : locale;
+
+  return new Intl.NumberFormat(bcp47).format(value);
+}

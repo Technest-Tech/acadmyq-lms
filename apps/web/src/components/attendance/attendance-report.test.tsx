@@ -28,6 +28,7 @@ function detail(overrides: Partial<api.SessionDetailResponse> = {}): api.Session
       teacher_id: "t1",
       student_name: "Abdullah",
       teacher_name: "Ustadh",
+      academy_name: "Test Academy",
       scheduled_at_utc: "2026-06-01T15:00:00Z",
       duration_minutes: 30,
       status: "SCHEDULED",
@@ -129,7 +130,7 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
     expect(await screen.findByTestId("override-timing")).toBeInTheDocument();
   });
 
-  it("composes the WhatsApp message and links to the guardian (AC-6.10)", async () => {
+  it("shows the WhatsApp button as a disabled placeholder for now", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getSession).mockResolvedValue(
       detail({
@@ -142,26 +143,14 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
         },
       }),
     );
-    vi.mocked(api.markWhatsappSent).mockResolvedValue({
-      ok: true,
-      sentAt: "2026-06-01T16:05:00Z",
-      channel: "MANUAL_WHATSAPP",
-      message: {
-        text: "تقرير حصة Abdullah",
-        phone: "+201001234567",
-        deeplink: "https://wa.me/201001234567?text=...",
-      },
-    });
     renderPanel();
 
-    await user.click(await screen.findByTestId("compose-whatsapp"));
-
-    expect(api.markWhatsappSent).toHaveBeenCalledWith("se1");
-    expect(await screen.findByTestId("wa-text")).toHaveValue("تقرير حصة Abdullah");
-    expect(screen.getByTestId("wa-link")).toHaveAttribute(
-      "href",
-      "https://wa.me/201001234567?text=...",
-    );
+    // The button is present (so staff can see the feature is coming) but disabled —
+    // clicking it must not dispatch anything.
+    const btn = await screen.findByTestId("compose-whatsapp");
+    expect(btn).toBeDisabled();
+    await user.click(btn);
+    expect(api.markWhatsappSent).not.toHaveBeenCalled();
   });
 
   it("shows a success alert after recording an outcome", async () => {

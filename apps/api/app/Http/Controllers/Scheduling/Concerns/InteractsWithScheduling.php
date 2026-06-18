@@ -104,7 +104,7 @@ trait InteractsWithScheduling
 
         $candidates = DB::table('sessions')
             ->where('teacher_id', $teacherId)
-            ->whereIn('status', ['SCHEDULED', 'ATTENDED', 'ABSENT_UNEXCUSED', 'ABSENT_EXCUSED'])
+            ->whereIn('status', ['SCHEDULED', 'ATTENDED', 'FREE', 'ABSENT_UNEXCUSED', 'ABSENT_EXCUSED'])
             ->when($excludeSessionId !== null, fn ($q) => $q->where('id', '!=', $excludeSessionId))
             // Cheap pre-filter window; exact overlap computed in PHP with per-row duration.
             ->whereBetween('scheduled_at_utc', [
@@ -150,13 +150,27 @@ trait InteractsWithScheduling
         $minutes = $local->hour * 60 + $local->minute;
 
         foreach ($windows as $w) {
-            if ((int) ($w['weekday'] ?? -1) !== $weekday) {
-                continue;
-            }
+            $wday = (int) ($w['weekday'] ?? -1);
             $start = $this->minutesOfDay((string) ($w['start_local'] ?? '00:00'));
             $end = $this->minutesOfDay((string) ($w['end_local'] ?? '24:00'));
-            if ($minutes >= $start && $minutes < $end) {
-                return false; // inside a window → no warning
+            if ($end === 0) {
+                $end = 1440; // an end of 00:00 (12am) means midnight — the end of the start day.
+            }
+
+            if ($end > $start) {
+                // Same-day window.
+                if ($wday === $weekday && $minutes >= $start && $minutes < $end) {
+                    return false; // inside a window → no warning
+                }
+            } else {
+                // Crosses midnight (e.g. 22:00 → 01:00): the evening portion [start, 24:00) sits
+                // on `weekday`, while the early-morning tail [00:00, end) lands on the NEXT weekday.
+                if ($wday === $weekday && $minutes >= $start) {
+                    return false;
+                }
+                if ((($wday + 1) % 7) === $weekday && $minutes < $end) {
+                    return false;
+                }
             }
         }
 

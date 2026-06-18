@@ -4,23 +4,22 @@ import { useTranslations } from "next-intl";
 import { Modal } from "@/components/ui/modal";
 import { AttendanceReport } from "./attendance-report";
 
-/**
- * The attendance/report surface as a popup form (Sprint 6). Launched from the weekly calendar's
- * session actions and the pending-attendance list, so an outcome can be recorded without leaving
- * the current screen. A direct `/sessions/[id]` page hosts the same component for deep links.
- */
 export function AttendanceReportModal({
   sessionId,
   studentName,
   open,
   onClose,
   onChange,
+  readOnly = false,
 }: {
   sessionId: string;
   studentName?: string | null;
   open: boolean;
   onClose: () => void;
-  onChange?: () => void;
+  /** Called whenever the session status or report changes; receives the session ID and its new status. */
+  onChange?: (sessionId: string, newStatus: string) => void;
+  /** Display-only view of an already-recorded session (outcome + report, no actions). */
+  readOnly?: boolean;
 }) {
   const t = useTranslations("attendance");
 
@@ -32,7 +31,11 @@ export function AttendanceReportModal({
       description={studentName ?? undefined}
       size="lg"
     >
-      <AttendanceReport sessionId={sessionId} onChange={onChange} />
+      <AttendanceReport
+        sessionId={sessionId}
+        readOnly={readOnly}
+        onChange={(newStatus) => onChange?.(sessionId, newStatus)}
+      />
     </Modal>
   );
 }

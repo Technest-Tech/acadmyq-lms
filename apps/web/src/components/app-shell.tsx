@@ -1,15 +1,28 @@
 "use client";
 
 import {
+  Award,
+  BarChart3,
+  BellRing,
+  Briefcase,
   Building2,
   CalendarDays,
   ClipboardCheck,
+  CreditCard,
   GraduationCap,
+  History,
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageCircle,
+  NotebookPen,
+  Package,
   ReceiptText,
   Settings,
+  ShieldCheck,
+  Sparkles,
+  ToggleLeft,
+  Users,
   UserCheck,
   UserCog,
   Wallet,
@@ -21,19 +34,37 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { LocaleSwitcher } from "@/components/locale-switcher";
+import { getDaySessionCount, getNotificationsSummary } from "@/lib/api";
+import { applyBranding, loadBranding } from "@/lib/branding";
 import { cn } from "@/lib/utils";
 
 type NavKey =
   | "dashboard"
+  | "notifications"
+  | "adminHome"
   | "academies"
+  | "users"
+  | "plans"
+  | "staffDepartments"
+  | "adminAutomation"
   | "guardians"
   | "students"
   | "teachers"
+  | "staff"
   | "schedule"
   | "attendance"
+  | "studentReports"
+  | "certificates"
+  | "billing"
   | "invoices"
   | "payroll"
-  | "settings";
+  | "myPayroll"
+  | "plan"
+  | "financialStats"
+  | "audit"
+  | "settings"
+  | "platformSettings"
+  | "roles";
 
 /**
  * Nav items gated by capability code (Sprint 2 §6.3). `dashboard` is always shown;
@@ -52,14 +83,56 @@ const NAV: ReadonlyArray<{
     key: "dashboard",
     icon: LayoutDashboard,
     permission: null,
-    href: "/",
+    href: "/dashboard",
     group: "general",
+  },
+  {
+    key: "notifications",
+    icon: BellRing,
+    permission: "notification.read",
+    href: "/notifications",
+    group: "general",
+  },
+  {
+    key: "adminHome",
+    icon: LayoutDashboard,
+    permission: "academy.read",
+    href: "/admin",
+    group: "management",
   },
   {
     key: "academies",
     icon: Building2,
     permission: "academy.read",
     href: "/academies",
+    group: "management",
+  },
+  {
+    key: "users",
+    icon: Users,
+    permission: "user.read_platform",
+    href: "/admin/users",
+    group: "management",
+  },
+  {
+    key: "plans",
+    icon: Package,
+    permission: "plan.manage",
+    href: "/admin/plans",
+    group: "management",
+  },
+  {
+    key: "staffDepartments",
+    icon: Briefcase,
+    permission: "staff_department.manage",
+    href: "/admin/staff-departments",
+    group: "management",
+  },
+  {
+    key: "adminAutomation",
+    icon: MessageCircle,
+    permission: "automation.manage",
+    href: "/admin/automation",
     group: "management",
   },
   {
@@ -84,6 +157,13 @@ const NAV: ReadonlyArray<{
     group: "management",
   },
   {
+    key: "staff",
+    icon: Users,
+    permission: "staff.read",
+    href: "/staff",
+    group: "management",
+  },
+  {
     key: "schedule",
     icon: CalendarDays,
     permission: "schedule.read",
@@ -98,6 +178,27 @@ const NAV: ReadonlyArray<{
     group: "management",
   },
   {
+    key: "studentReports",
+    icon: NotebookPen,
+    permission: "student_report.submit",
+    href: "/student-reports",
+    group: "management",
+  },
+  {
+    key: "certificates",
+    icon: Award,
+    permission: "certificate.read",
+    href: "/certificates",
+    group: "management",
+  },
+  {
+    key: "billing",
+    icon: CreditCard,
+    permission: "academy_billing.manage",
+    href: "/admin/billing",
+    group: "financial",
+  },
+  {
     key: "invoices",
     icon: ReceiptText,
     permission: "invoice.read",
@@ -108,26 +209,62 @@ const NAV: ReadonlyArray<{
     key: "payroll",
     icon: Wallet,
     permission: "payout.read",
-    href: "#",
+    href: "/payroll",
     group: "financial",
+  },
+  {
+    key: "myPayroll",
+    icon: Wallet,
+    permission: "payout.read_own",
+    href: "/payroll",
+    group: "financial",
+  },
+  {
+    key: "plan",
+    icon: Sparkles,
+    permission: "invoice.read",
+    href: "/plan",
+    group: "financial",
+  },
+  {
+    key: "financialStats",
+    icon: BarChart3,
+    permission: "invoice.read",
+    href: "/financial-statistics",
+    group: "financial",
+  },
+  {
+    key: "audit",
+    icon: History,
+    permission: "audit.read",
+    href: "/audit",
+    group: "system",
   },
   {
     key: "settings",
     icon: Settings,
-    permission: "academy.configure",
-    href: "#",
+    permission: "specialization.manage",
+    href: "/settings",
+    group: "system",
+  },
+  {
+    key: "platformSettings",
+    icon: ToggleLeft,
+    permission: "platform.manage",
+    href: "/admin/settings",
+    group: "system",
+  },
+  {
+    key: "roles",
+    icon: ShieldCheck,
+    permission: "platform.manage",
+    href: "/admin/roles",
     group: "system",
   },
 ];
 
 const NAV_GROUPS = ["general", "management", "financial", "system"] as const;
 
-/**
- * The authenticated app shell: light premium sidebar + header. Bilingual, RTL-aware
- * via CSS logical properties + the <html dir> set in the root layout. Uses Next.js
- * <Link> for client-side navigation (no full page reloads). Redirects to /login when
- * unauthenticated.
- */
 export function AppShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations();
   const { session, loading, can, signOut, exitAcademy, changeLocale } =
@@ -135,11 +272,65 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [notifCount, setNotifCount] = useState(0);
+  const [attnCount, setAttnCount] = useState(0);
 
   useEffect(() => {
-    // close mobile drawer on navigation
     setOpen(false);
   }, [pathname]);
+
+  // Keep the sidebar unread badge fresh: refetch whenever the route changes (so acting on the
+  // Notifications page clears it) and on a slow heartbeat. Best-effort — failures stay silent.
+  useEffect(() => {
+    if (session === null || !can("notification.read")) {
+      setNotifCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () =>
+      getNotificationsSummary()
+        .then((s) => alive && setNotifCount(s.total))
+        .catch(() => {});
+    void refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [session, can, pathname]);
+
+  // Attendance badge: count of today's still-SCHEDULED sessions (whole local day, so a trial
+  // booked for later today counts too). Refetch on navigation and on a slow heartbeat so it clears
+  // as outcomes are recorded. Best-effort — failures stay silent.
+  useEffect(() => {
+    if (session === null || !can("session.read")) {
+      setAttnCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () => {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      getDaySessionCount({
+        from: start.toISOString(),
+        to: end.toISOString(),
+      })
+        .then((r) => alive && setAttnCount(r.count))
+        .catch(() => {});
+    };
+    refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [session, can, pathname]);
+
+  useEffect(() => {
+    applyBranding(loadBranding());
+  }, []);
 
   useEffect(() => {
     if (!loading && session === null) {
@@ -163,9 +354,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const items = NAV.filter(
-    (item) => item.permission === null || can(item.permission),
-  );
+  // A platform Super Admin (not inside an entered academy) has no tenant dashboard — their
+  // home is the Platform Overview, so the generic "Dashboard" item would just be a redundant
+  // second link to the same place. Hide it for them.
+  const isPlatformAdmin =
+    session.role === "SUPER_ADMIN" && session.academyId === null;
+  const items = NAV.filter((item) => {
+    if (item.permission !== null && !can(item.permission)) return false;
+    if (item.key === "dashboard" && isPlatformAdmin) return false;
+    // The Audit Log link is Super-Admin-only in the sidebar. Academy owners retain
+    // audit.read (the page and API stay reachable) — this just keeps it out of the
+    // owner panel's navigation.
+    if (item.key === "audit" && session.role !== "SUPER_ADMIN") return false;
+    return true;
+  });
   const inEnteredAcademy =
     session.role === "SUPER_ADMIN" && session.academyId !== null;
 
@@ -176,46 +378,55 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .join("")
     .toUpperCase();
 
+  // `/dashboard` and `/admin` are exact-match only — otherwise `/admin` would greedily
+  // claim the `/admin/plans` and `/admin/staff-departments` routes via startsWith.
+  const isExactOnly = (href: string) => href === "/dashboard" || href === "/admin";
+  const activeItem = items.find(
+    (item) =>
+      pathname === item.href ||
+      (!isExactOnly(item.href) && pathname.startsWith(item.href)),
+  );
+
   return (
-    <div className="bg-background flex min-h-dvh w-full overflow-x-hidden">
+    <div className="bg-background flex h-dvh w-full overflow-hidden">
       {/* Mobile overlay */}
       {open && (
         <div
-          className="fixed inset-0 z-20 bg-black/40 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-20 bg-black/50 backdrop-blur-sm md:hidden"
           aria-hidden
           onClick={() => setOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
+      {/* ── Sidebar ─────────────────────────────────────────────────── */}
       <aside
         data-testid="sidebar"
         data-open={open}
         className={cn(
-          "bg-sidebar text-sidebar-foreground border-sidebar-border fixed inset-y-0 z-30 flex w-64 shrink-0 flex-col border-e shadow-sm transition-transform duration-200 md:static md:translate-x-0",
+          "bg-sidebar text-sidebar-foreground border-sidebar-border fixed inset-y-0 z-30 flex w-60 shrink-0 flex-col border-e transition-transform duration-200 md:static md:h-full md:translate-x-0",
           open
             ? "translate-x-0"
             : "max-md:-translate-x-full max-md:rtl:translate-x-full",
         )}
       >
-        {/* Brand */}
-        <div className="border-sidebar-border flex items-center justify-between border-b px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-primary flex size-8 items-center justify-center rounded-lg">
-              <GraduationCap className="size-4 text-white" aria-hidden />
+        {/* ── Brand ──────────────────────────────────────────── */}
+        <div className="border-sidebar-border flex h-14 shrink-0 items-center justify-between border-b px-4">
+          <div className="flex items-center gap-2.5">
+            <div className="from-primary to-primary/75 flex size-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br shadow-sm shadow-primary/20">
+              <GraduationCap className="size-[15px] text-white" aria-hidden />
             </div>
             <div>
-              <div className="text-sidebar-foreground text-sm font-bold">
+              <div className="text-sidebar-foreground text-[13px] font-semibold leading-tight">
                 {t("app.name")}
               </div>
-              <div className="text-sidebar-foreground/40 mt-0.5 text-[10px] uppercase tracking-wide leading-none">
+              <div className="text-sidebar-foreground/35 text-[10px] leading-tight tracking-wide">
                 Management
               </div>
             </div>
           </div>
           <button
             type="button"
-            className="text-sidebar-foreground/40 hover:text-sidebar-foreground rounded-md p-1 transition-colors md:hidden"
+            className="text-sidebar-foreground/40 hover:bg-sidebar-accent hover:text-sidebar-foreground rounded-lg p-1.5 transition-colors md:hidden"
             onClick={() => setOpen(false)}
             aria-label="Close"
           >
@@ -223,58 +434,85 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        {/* Navigation groups */}
+        {/* ── Nav ────────────────────────────────────────────── */}
         <nav
-          className="flex-1 space-y-4 overflow-y-auto px-3 py-4"
+          className="flex-1 overflow-y-auto px-3 py-3"
           data-testid="nav"
         >
-          {NAV_GROUPS.map((group) => {
-            const groupItems = items.filter((item) => item.group === group);
-            if (groupItems.length === 0) return null;
-            return (
-              <div key={group}>
-                <p className="text-sidebar-foreground/35 mb-1 select-none px-2 text-[10px] font-semibold uppercase tracking-widest">
-                  {t(`navGroup.${group}`)}
-                </p>
-                <div className="space-y-0.5">
-                  {groupItems.map(({ key, icon: Icon, href }) => {
-                    const isActive =
-                      pathname === href ||
-                      (href !== "/" && pathname.startsWith(href));
-                    return (
-                      <Link
-                        key={key}
-                        href={href}
-                        data-nav={key}
-                        className={cn(
-                          "group flex items-center gap-3 rounded-lg border-s-2 px-3 py-2 text-sm font-medium transition-all",
-                          isActive
-                            ? "border-primary bg-primary/8 text-primary"
-                            : "border-transparent text-sidebar-foreground/65 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                        )}
-                      >
-                        <Icon
+          <div className="space-y-5">
+            {NAV_GROUPS.map((group) => {
+              const groupItems = items.filter((item) => item.group === group);
+              if (groupItems.length === 0) return null;
+              return (
+                <div key={group}>
+                  <p className="text-sidebar-foreground/40 mb-1.5 select-none px-2.5 text-[10px] font-bold uppercase tracking-[0.1em]">
+                    {t(`navGroup.${group}`)}
+                  </p>
+                  <div className="space-y-0.5">
+                    {groupItems.map(({ key, icon: Icon, href }) => {
+                      const isActive =
+                        pathname === href ||
+                        (!isExactOnly(href) && pathname.startsWith(href));
+                      return (
+                        <Link
+                          key={key}
+                          href={href}
+                          data-nav={key}
                           className={cn(
-                            "size-4 shrink-0 transition-colors",
-                            isActive ? "text-primary" : "",
+                            "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-150",
+                            isActive
+                              ? "bg-primary/[0.12] font-semibold text-primary"
+                              : "font-medium text-sidebar-foreground hover:bg-sidebar-accent",
                           )}
-                          aria-hidden
-                        />
-                        <span>{t(`nav.${key}`)}</span>
-                      </Link>
-                    );
-                  })}
+                        >
+                          <Icon
+                            className={cn(
+                              "size-4 shrink-0 transition-colors",
+                              isActive
+                                ? "text-primary"
+                                : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
+                            )}
+                            aria-hidden
+                          />
+                          <span className="flex-1">{t(`nav.${key}`)}</span>
+                          {key === "notifications" && notifCount > 0 && (
+                            <span
+                              data-testid="nav-notif-badge"
+                              aria-label={`${notifCount} new notifications`}
+                              className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+                            >
+                              {notifCount > 99 ? "99+" : notifCount}
+                            </span>
+                          )}
+                          {key === "attendance" && attnCount > 0 && (
+                            <span
+                              data-testid="nav-attendance-badge"
+                              aria-label={`${attnCount} sessions awaiting attendance today`}
+                              className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+                            >
+                              {attnCount > 99 ? "99+" : attnCount}
+                            </span>
+                          )}
+                          {isActive &&
+                            key !== "notifications" &&
+                            !(key === "attendance" && attnCount > 0) && (
+                              <span className="bg-primary ms-auto size-1.5 rounded-full" />
+                            )}
+                        </Link>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </nav>
 
-        {/* User profile + actions */}
-        <div className="border-sidebar-border space-y-1.5 border-t p-3">
+        {/* ── User footer ────────────────────────────────────── */}
+        <div className="border-sidebar-border border-t p-3">
           {inEnteredAcademy && (
             <div
-              className="flex items-center justify-between rounded-lg border border-amber-400/30 bg-amber-50 px-3 py-2 text-xs dark:border-amber-700/30 dark:bg-amber-950/30"
+              className="mb-2 flex items-center justify-between rounded-lg border border-amber-300/40 bg-amber-50/80 px-3 py-2 text-xs dark:border-amber-700/30 dark:bg-amber-950/30"
               data-testid="entered-academy"
             >
               <span className="text-amber-700 dark:text-amber-400">
@@ -291,39 +529,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
 
           <div
-            className="flex items-center gap-3 rounded-lg px-2 py-2"
+            className="hover:bg-sidebar-accent group flex cursor-default items-center gap-2.5 rounded-lg px-2 py-2 transition-colors"
             data-testid="current-user"
           >
-            <div className="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-bold">
+            <div className="from-primary/20 to-primary/[0.08] ring-primary/20 flex size-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-[11px] font-bold text-primary ring-1">
               {initials}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-sidebar-foreground truncate text-xs font-semibold">
+              <div className="text-sidebar-foreground truncate text-[12px] font-semibold leading-tight">
                 {session.user.fullName}
               </div>
-              <div className="text-sidebar-foreground/45 truncate text-[11px]">
+              <div className="text-sidebar-foreground/40 truncate text-[11px] leading-tight">
                 {t(`roles.${session.role}`)}
               </div>
             </div>
             <button
               type="button"
-              className="text-sidebar-foreground/35 hover:text-sidebar-foreground shrink-0 transition-colors"
+              className="text-sidebar-foreground/30 hover:bg-sidebar-border hover:text-sidebar-foreground/70 shrink-0 rounded-md p-1 transition-colors"
               aria-label={t("auth.signOut")}
               onClick={() => void signOut()}
             >
-              <LogOut className="size-4" aria-hidden />
+              <LogOut className="size-3.5" aria-hidden />
             </button>
           </div>
         </div>
       </aside>
 
-      {/* Main content */}
+      {/* ── Main area ───────────────────────────────────────────────── */}
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Header */}
-        <header className="bg-card flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 shadow-sm">
+        {/* ── Header ─────────────────────────────────────────── */}
+        <header className="bg-background/80 supports-[backdrop-filter]:bg-background/60 border-border flex h-14 shrink-0 items-center gap-3 border-b px-5 backdrop-blur-xl">
+          {/* Mobile menu toggle */}
           <button
             type="button"
-            className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-md p-1.5 transition-colors md:hidden"
+            className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-lg p-1.5 transition-colors md:hidden"
             aria-label={t("header.menu")}
             aria-expanded={open}
             onClick={() => setOpen((v) => !v)}
@@ -331,8 +570,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Menu className="size-5" aria-hidden />
           </button>
 
-          <div className="ms-auto flex items-center gap-3">
+          {/* Page title */}
+          {activeItem && (
+            <div className="hidden items-center gap-1.5 md:flex">
+              <activeItem.icon
+                className="text-muted-foreground/50 size-3.5"
+                aria-hidden
+              />
+              <span className="text-muted-foreground/40 select-none text-sm">
+                /
+              </span>
+              <span className="text-foreground text-sm font-semibold">
+                {t(`nav.${activeItem.key}`)}
+              </span>
+            </div>
+          )}
+
+          {/* Right-side actions */}
+          <div className="ms-auto flex items-center gap-2">
             <LocaleSwitcher onSwitch={changeLocale} />
+
+            <div className="bg-border h-5 w-px" aria-hidden />
+
+            {/* User chip */}
+            <div
+              className="hover:bg-muted flex cursor-default items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors"
+              data-testid="header-user"
+            >
+              <div className="from-primary/20 to-primary/[0.08] ring-primary/20 flex size-6 shrink-0 items-center justify-center rounded-md bg-gradient-to-br text-[10px] font-bold text-primary ring-1">
+                {initials}
+              </div>
+              <span className="text-foreground hidden text-[13px] font-medium leading-none sm:block">
+                {session.user.fullName.split(" ")[0]}
+              </span>
+            </div>
           </div>
         </header>
 

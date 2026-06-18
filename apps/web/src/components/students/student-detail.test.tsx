@@ -13,7 +13,6 @@ vi.mock("@/lib/api", async (importActual) => ({
   getTeacherHistory: vi.fn(),
   listTeachers: vi.fn(),
   reassignTeacher: vi.fn(),
-  changeSubscriptionPrice: vi.fn(),
   getStudentSchedule: vi.fn(),
 }));
 
@@ -80,7 +79,6 @@ function setup() {
     ],
   });
   vi.mocked(api.reassignTeacher).mockResolvedValue({ ok: true });
-  vi.mocked(api.changeSubscriptionPrice).mockResolvedValue({ ok: true });
   vi.mocked(api.getStudentSchedule).mockResolvedValue({
     schedule: null,
     slots: [],
@@ -120,7 +118,9 @@ describe("StudentDetail (Sprint 4 §5.2/5.3)", () => {
     await screen.findByTestId("current-teacher");
     const user = userEvent.setup();
 
-    await user.selectOptions(screen.getByTestId("change-teacher-select"), "t2");
+    // Open the combobox, then pick "Teacher Two"
+    await user.click(screen.getByTestId("change-teacher-select"));
+    await user.click(await screen.findByRole("option", { name: "Teacher Two" }));
     await user.click(screen.getByTestId("assign-teacher"));
 
     await waitFor(() =>
@@ -128,22 +128,6 @@ describe("StudentDetail (Sprint 4 §5.2/5.3)", () => {
         "s1",
         expect.objectContaining({ teacher_id: "t2" }),
       ),
-    );
-  });
-
-  it("changes the subscription price", async () => {
-    renderDetail();
-    await screen.findByTestId("current-teacher");
-    const user = userEvent.setup();
-
-    await user.click(screen.getByTestId("edit-price"));
-    await user.type(screen.getByLabelText("New price"), "120");
-    await user.click(screen.getByTestId("save-price"));
-
-    await waitFor(() =>
-      expect(api.changeSubscriptionPrice).toHaveBeenCalledWith("s1", {
-        price_minor: 12000,
-      }),
     );
   });
 });

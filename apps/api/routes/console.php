@@ -3,7 +3,14 @@
 declare(strict_types=1);
 
 use App\Jobs\CloseMonthlyInvoicesJob;
+use App\Jobs\CloseMonthlyPayoutsJob;
+use App\Jobs\ExpireAcademyTrialsJob;
+use App\Jobs\FlagOverdueReportsJob;
+use App\Jobs\GenerateAcademyInvoicesJob;
+use App\Jobs\LessonReminderJob;
+use App\Jobs\MonthlyStudentBillingJob;
 use App\Jobs\RollSessionWindowJob;
+use App\Jobs\SendAcademyBillRemindersJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -27,3 +34,56 @@ Schedule::job(new RollSessionWindowJob)->monthlyOn(1, '00:30')->name('roll-sessi
 | so re-runs for the same period are safe.
 */
 Schedule::job(new CloseMonthlyInvoicesJob)->monthlyOn(2, '01:00')->name('close-monthly-invoices')->withoutOverlapping();
+
+/*
+| Monthly payout finalize (Sprint 8). On the 3rd of each month (after the session window has
+| been rolled on the 1st and invoices closed on the 2nd) finalize all OPEN teacher payouts for
+| the previous calendar month across every active academy, sealing each statement immutably.
+| The job sets its own per-academy tenant context and is idempotent, so re-runs are safe.
+*/
+Schedule::job(new CloseMonthlyPayoutsJob)->monthlyOn(3, '01:30')->name('close-monthly-payouts')->withoutOverlapping();
+
+/*
+| Hourly overdue-report sweep (Notifications "Reports" tab). For every active academy, flag
+| sessions that ended ≥2h ago with no report — an in-app alert to the owner(s) plus a reminder
+| to the teacher. Idempotent (unique session_id+type), so missed/duplicated runs are harmless;
+| each academy's work runs in its own tenant context inside the job.
+*/
+Schedule::job(new FlagOverdueReportsJob)->hourly()->name('flag-overdue-reports')->withoutOverlapping();
+
+/*
+| Daily free-trial expiry sweep (Platform↔Academy billing). Each morning, for every non-suspended
+| academy, ensure a subscription row exists and expire any trial whose window has lapsed — pausing
+| the subscription and (per config) suspending the academy until it converts. Idempotent and
+| per-academy tenant-isolated, so missed/duplicated runs are harmless.
+*/
+Schedule::job(new ExpireAcademyTrialsJob)->dailyAt('00:15')->name('expire-academy-trials')->withoutOverlapping();
+
+/*
+| Monthly academy-bill generation (Platform↔Academy billing). On the 1st of each month, for every
+| active paid subscription whose period has elapsed, issue the period's platform bill and roll the
+| window forward. Idempotent (one bill per academy per period); each academy runs in its own context.
+*/
+Schedule::job(new GenerateAcademyInvoicesJob)->monthlyOn(1, '02:00')->name('generate-academy-invoices')->withoutOverlapping();
+
+/*
+| Daily academy-bill reminders (Platform↔Academy billing). Flips lapsed bills to OVERDUE and nudges
+| the owner over WhatsApp (Wasender when a token is set, else a wa.me deep link logged for manual
+| follow-up). Idempotent per bill per day via the send-log dedupe key.
+*/
+Schedule::job(new SendAcademyBillRemindersJob)->dailyAt('09:00')->name('academy-bill-reminders')->withoutOverlapping();
+
+/*
+| Type 1 automation — monthly student billing over WhatsApp. On the 3rd of each month (after last
+| month's invoices are closed on the 2nd), for every academy with the toggle on, send last month's
+| unpaid student invoices to their WhatsApp via the academy's own Wasender token (deep-link fallback
+| when none). READ-ONLY over invoices; idempotent per (invoice, month).
+*/
+Schedule::job(new MonthlyStudentBillingJob)->monthlyOn(3, '08:00')->name('type1-student-billing')->withoutOverlapping();
+
+/*
+| Type 2 automation — lesson & trial reminders over WhatsApp. Hourly, for every academy with the
+| toggle on, remind students and teachers of sessions starting within the next two hours. Idempotent
+| per (session, recipient); each academy uses only its own Wasender token.
+*/
+Schedule::job(new LessonReminderJob)->hourly()->name('type2-lesson-reminders')->withoutOverlapping();

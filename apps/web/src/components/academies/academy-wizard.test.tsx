@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ToastProvider } from "@/components/ui/toast";
 import * as api from "@/lib/api";
 import enMessages from "../../../messages/en.json";
 import { AcademyWizard } from "./academy-wizard";
@@ -17,7 +18,9 @@ const W = enMessages.academies.wizard;
 function renderWizard(onCreated = vi.fn(), onCancel = vi.fn()) {
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <AcademyWizard onCreated={onCreated} onCancel={onCancel} />
+      <ToastProvider>
+        <AcademyWizard onCreated={onCreated} onCancel={onCancel} />
+      </ToastProvider>
     </NextIntlClientProvider>,
   );
   return { onCreated, onCancel };

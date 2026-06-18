@@ -113,17 +113,37 @@ final class SessionController extends Controller
             'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
         ]);
 
+        // A session may be rescheduled only ONCE, and only while it is still SCHEDULED. An origin
+        // that is already RESCHEDULED has spawned its successor; one that is cancelled/attended has
+        // reached a terminal outcome. Rescheduling it again would mint a second successor — a
+        // phantom SCHEDULED row that shows up on the attendance/day view — and that successor would
+        // then "overlap" the first, producing the misleading same-teacher conflict warning. Reject
+        // up front so the operation is idempotent (the atomic status guard below closes the race
+        // where two near-simultaneous submits both pass this check).
+        if ($session->status !== 'SCHEDULED') {
+            throw ValidationException::withMessages([
+                'session' => ['This session can no longer be rescheduled. / لم يعد بالإمكان إعادة جدولة هذه الحصة.'],
+            ]);
+        }
+
         $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
         $newStart = $this->resolveInstant($data, $timezone);
         $duration = (int) ($data['duration_minutes'] ?? $session->duration_minutes);
 
         // 1) The origin row becomes RESCHEDULED — a non-billable, "touched" marker the generator
-        //    will never resurrect or duplicate (§4.5, TC-5.9).
-        DB::table('sessions')->where('id', $sessionId)->update([
+        //    will never resurrect or duplicate (§4.5, TC-5.9). The status='SCHEDULED' guard makes
+        //    the transition atomic: only the first of two racing submits flips it and proceeds to
+        //    create the successor; the loser sees 0 rows and bails without minting a duplicate.
+        $claimed = DB::table('sessions')->where('id', $sessionId)->where('status', 'SCHEDULED')->update([
             'status' => 'RESCHEDULED',
             'status_reason' => $data['reason'] ?? null,
             'updated_at' => now(),
         ]);
+        if ($claimed === 0) {
+            throw ValidationException::withMessages([
+                'session' => ['This session can no longer be rescheduled. / لم يعد بالإمكان إعادة جدولة هذه الحصة.'],
+            ]);
+        }
 
         // 2) The successor is a normal standalone SCHEDULED row linked back to the origin. It is
         //    NOT tied to the schedule/slot (schedule_id null), so regeneration leaves it alone.
@@ -198,6 +218,7 @@ final class SessionController extends Controller
 
         $student = DB::table('students')->where('id', $session->student_id)->first(['id', 'full_name', 'guardian_id']);
         $teacherName = DB::table('teachers')->where('id', $session->teacher_id)->value('full_name');
+        $academyName = DB::table('academies')->where('id', $session->academy_id)->value('name');
         $report = DB::table('session_reports')->where('session_id', $sessionId)->first();
         $values = $report !== null ? (json_decode($report->values, true) ?: []) : [];
 
@@ -208,6 +229,7 @@ final class SessionController extends Controller
                 'teacher_id' => (string) $session->teacher_id,
                 'student_name' => $student?->full_name,
                 'teacher_name' => $teacherName,
+                'academy_name' => $academyName,
                 'scheduled_at_utc' => Carbon::parse($session->scheduled_at_utc)->utc()->toIso8601String(),
                 'duration_minutes' => (int) $session->duration_minutes,
                 'status' => (string) $session->status,
@@ -264,6 +286,111 @@ final class SessionController extends Controller
         });
 
         return response()->json(['sessions' => $rows]);
+    }
+
+    /**
+     * GET /api/sessions/day — every session within a local day window [from, to), for the
+     * attendance page's day view. Unlike pendingAttendance this is NOT restricted to past
+     * SCHEDULED rows, so a trial booked for later today shows up immediately. Supports teacher,
+     * status and trial-only filters; a TEACHER is still row-scoped to their own sessions (§3.6).
+     */
+    public function day(Request $request): JsonResponse
+    {
+        Gate::authorize('session.read');
+
+        $data = $request->validate([
+            'from' => ['required', 'date'],
+            'to' => ['required', 'date'],
+            'teacher_id' => ['sometimes', 'nullable', 'uuid'],
+            'status' => ['sometimes', 'nullable', Rule::in([
+                'SCHEDULED', 'ATTENDED', 'FREE', 'ABSENT_UNEXCUSED', 'ABSENT_EXCUSED',
+                'CANCELLED_BY_TEACHER', 'CANCELLED_BY_STUDENT', 'RESCHEDULED',
+            ])],
+            'trial_only' => ['sometimes'],
+        ]);
+
+        $from = Carbon::parse($data['from'])->utc()->format('Y-m-d H:i:sP');
+        $to = Carbon::parse($data['to'])->utc()->format('Y-m-d H:i:sP');
+
+        $query = DB::table('sessions as se')
+            ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
+            ->leftJoin('teachers as te', 'te.id', '=', 'se.teacher_id')
+            ->where('se.scheduled_at_utc', '>=', $from)
+            ->where('se.scheduled_at_utc', '<', $to)
+            ->select([
+                'se.id', 'se.student_id', 'se.teacher_id', 'se.scheduled_at_utc',
+                'se.duration_minutes', 'se.status',
+                'st.full_name as student_name', 'st.status as student_status',
+                'te.full_name as teacher_name',
+            ])
+            ->orderBy('se.scheduled_at_utc')->orderBy('se.id');
+
+        if (! empty($data['teacher_id'])) {
+            $query->where('se.teacher_id', $data['teacher_id']);
+        }
+        if (! empty($data['status'])) {
+            $query->where('se.status', $data['status']);
+        } else {
+            // A RESCHEDULED row is the old occurrence at its original time, kept only as a
+            // non-billable audit marker (its SCHEDULED successor sits at the new time). Hide it by
+            // default so a reschedule isn't shown as a duplicate; an explicit ?status=RESCHEDULED
+            // still surfaces it for a history view.
+            $query->where('se.status', '!=', 'RESCHEDULED');
+        }
+        if (filter_var($data['trial_only'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            $query->whereIn('st.status', ['TRIAL', 'TRIAL_BOOKED']);
+        }
+
+        if ($this->ctx()->role === 'TEACHER') {
+            $ownTeacherId = $this->callerTeacherId();
+            if ($ownTeacherId === null) {
+                abort(403, 'No teacher record for this user.');
+            }
+            $query->where('se.teacher_id', $ownTeacherId);
+        }
+
+        $rows = $query->limit(500)->get()->map(function ($r) {
+            $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
+
+            return $r;
+        });
+
+        return response()->json(['sessions' => $rows]);
+    }
+
+    /**
+     * GET /api/sessions/day/count — the number of SCHEDULED sessions (those still needing an
+     * outcome) inside a local-day window [from, to), for the sidebar's Attendance badge. Unlike
+     * pendingAttendance this counts the whole day, so a trial booked for later today is included
+     * immediately. A TEACHER is row-scoped to their own sessions (§3.6); RLS keeps every caller
+     * inside their academy. session.read.
+     */
+    public function dayCount(Request $request): JsonResponse
+    {
+        Gate::authorize('session.read');
+
+        $data = $request->validate([
+            'from' => ['required', 'date'],
+            'to' => ['required', 'date'],
+        ]);
+
+        $from = Carbon::parse($data['from'])->utc()->format('Y-m-d H:i:sP');
+        $to = Carbon::parse($data['to'])->utc()->format('Y-m-d H:i:sP');
+
+        $query = DB::table('sessions as se')
+            ->where('se.status', 'SCHEDULED')
+            ->where('se.scheduled_at_utc', '>=', $from)
+            ->where('se.scheduled_at_utc', '<', $to);
+
+        if ($this->ctx()->role === 'TEACHER') {
+            $ownTeacherId = $this->callerTeacherId();
+            if ($ownTeacherId === null) {
+                abort(403, 'No teacher record for this user.');
+            }
+            $query->where('se.teacher_id', $ownTeacherId);
+        }
+
+        return response()->json(['count' => (int) $query->count()]);
     }
 
     // ── internals ────────────────────────────────────────────────────────────

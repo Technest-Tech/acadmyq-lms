@@ -50,11 +50,13 @@ function readCookie(name: string): string | null {
 
 /**
  * Sanctum SPA writes must carry the XSRF-TOKEN cookie back as an X-XSRF-TOKEN
- * header. Prime the cookie once (GET /sanctum/csrf-cookie) if it isn't present.
+ * header. Prime the cookie (GET /sanctum/csrf-cookie) if it isn't present, or
+ * when `force` is set — used to recover from a stale token (419) by fetching a
+ * fresh one bound to the current session.
  */
-async function ensureCsrfCookie(): Promise<void> {
+async function ensureCsrfCookie(force = false): Promise<void> {
   if (AUTH_MODE !== "cookie") return;
-  if (readCookie("XSRF-TOKEN")) return;
+  if (!force && readCookie("XSRF-TOKEN")) return;
   await fetch(`${BASE_URL}/sanctum/csrf-cookie`, { credentials: "include" });
 }
 
@@ -63,28 +65,40 @@ export async function apiFetch<T>(
   init: RequestInit = {},
 ): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
-  const headers = new Headers(init.headers);
-  headers.set("Accept", "application/json");
-  if (init.body !== undefined) {
-    headers.set("Content-Type", "application/json");
+  const isCookieWrite = AUTH_MODE === "cookie" && MUTATING.has(method);
+
+  async function send(forceCsrf = false): Promise<Response> {
+    const headers = new Headers(init.headers);
+    headers.set("Accept", "application/json");
+    if (init.body !== undefined) {
+      headers.set("Content-Type", "application/json");
+    }
+
+    if (AUTH_MODE === "token") {
+      const token = getAuthToken();
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+    } else if (isCookieWrite) {
+      await ensureCsrfCookie(forceCsrf);
+      const xsrf = readCookie("XSRF-TOKEN");
+      if (xsrf) headers.set("X-XSRF-TOKEN", xsrf);
+    }
+
+    return fetch(`${BASE_URL}${path}`, {
+      ...init,
+      method,
+      headers,
+      // Cookie mode needs credentials for the Sanctum session cookie + CSRF.
+      credentials: AUTH_MODE === "cookie" ? "include" : "same-origin",
+    });
   }
 
-  if (AUTH_MODE === "token") {
-    const token = getAuthToken();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-  } else if (MUTATING.has(method)) {
-    await ensureCsrfCookie();
-    const xsrf = readCookie("XSRF-TOKEN");
-    if (xsrf) headers.set("X-XSRF-TOKEN", xsrf);
-  }
+  let response = await send();
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    method,
-    headers,
-    // Cookie mode needs credentials for the Sanctum session cookie + CSRF.
-    credentials: AUTH_MODE === "cookie" ? "include" : "same-origin",
-  });
+  // 419 = CSRF token mismatch. A token can go stale (e.g. the session was reset
+  // server-side); re-prime the cookie and retry the write once before failing.
+  if (response.status === 419 && isCookieWrite) {
+    response = await send(true);
+  }
 
   if (!response.ok) {
     let body: unknown;
@@ -162,6 +176,15 @@ export function setLocale(
 /** POST /api/admin/academies/exit — Super Admin returns to the platform view. */
 export function exitAcademy(): Promise<{ ok: boolean }> {
   return apiFetch("/api/admin/academies/exit", { method: "POST" });
+}
+
+/** POST /api/admin/academies/{id}/enter — Super Admin enters an academy's context. */
+export function enterAcademy(
+  academyId: string,
+): Promise<{ enteredAcademyId: string }> {
+  return apiFetch(`/api/admin/academies/${academyId}/enter`, {
+    method: "POST",
+  });
 }
 
 // ── Academy management surface (Sprint 3 §7) ─────────────────────────────────
@@ -285,6 +308,351 @@ export function reactivateAcademy(
   id: string,
 ): Promise<{ ok: boolean; status: string }> {
   return apiFetch(`/api/admin/academies/${id}/reactivate`, { method: "POST" });
+}
+
+// ── Platform↔Academy subscription billing (Super Admin) ──────────────────────
+
+/** The academy's SaaS subscription lifecycle + snapshot total cost. */
+export interface AcademySubscription {
+  id: string;
+  academy_id: string;
+  plan_id: string | null;
+  status: "ACTIVE" | "PAUSED" | "ENDED";
+  is_trial: boolean;
+  trial_start: string | null;
+  trial_end: string | null;
+  activated_at: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  billing_interval: "MONTHLY" | "YEARLY";
+  base_price_minor: number;
+  addons_price_minor: number;
+  total_cost_minor: number;
+  currency: string;
+}
+
+export interface SubscriptionAddOnLine {
+  code: string;
+  name: string;
+  price_minor: number;
+  currency: string;
+}
+
+export interface AcademySubscriptionView {
+  subscription: AcademySubscription;
+  plan: {
+    code: string;
+    name: string;
+    price_minor: number;
+    currency: string;
+  } | null;
+  addOns: SubscriptionAddOnLine[];
+}
+
+export function getAcademySubscription(
+  academyId: string,
+): Promise<AcademySubscriptionView> {
+  return apiFetch(`/api/admin/academies/${academyId}/subscription`);
+}
+
+export function updateAcademySubscription(
+  academyId: string,
+  patch: {
+    billing_interval?: "MONTHLY" | "YEARLY";
+    activated_at?: string | null;
+    current_period_start?: string | null;
+    current_period_end?: string | null;
+  },
+): Promise<{ subscription: AcademySubscription }> {
+  return apiFetch(`/api/admin/academies/${academyId}/subscription`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function extendAcademyTrial(
+  academyId: string,
+  days: number,
+): Promise<{ subscription: AcademySubscription }> {
+  return apiFetch(
+    `/api/admin/academies/${academyId}/subscription/trial/extend`,
+    { method: "POST", body: JSON.stringify({ days }) },
+  );
+}
+
+export function activateAcademySubscription(
+  academyId: string,
+): Promise<{ subscription: AcademySubscription }> {
+  return apiFetch(`/api/admin/academies/${academyId}/subscription/activate`, {
+    method: "POST",
+  });
+}
+
+/** The caller's OWN academy subscription (owner dashboard widget). */
+export function getMySubscription(): Promise<{
+  subscription: AcademySubscription | null;
+}> {
+  return apiFetch("/api/my-subscription");
+}
+
+/** A platform bill issued to an academy for its SaaS subscription. */
+export interface AcademyBill {
+  id: string;
+  academy_id: string;
+  period_start: string;
+  period_end: string;
+  status: "OPEN" | "PAID" | "OVERDUE" | "VOID";
+  currency: string;
+  total_minor: number;
+  amount_paid_minor: number;
+  due_date: string;
+  issued_at: string;
+  paid_at: string | null;
+  payment_method: string | null;
+  public_token: string;
+  sent_at: string | null;
+  reminder_count: number;
+}
+
+export function listAcademyBills(
+  academyId: string,
+): Promise<{ bills: AcademyBill[] }> {
+  return apiFetch(`/api/admin/academies/${academyId}/bills`);
+}
+
+export function generateAcademyBill(
+  academyId: string,
+): Promise<{ billId: string }> {
+  return apiFetch(`/api/admin/academies/${academyId}/bills/generate`, {
+    method: "POST",
+  });
+}
+
+export function markAcademyBillPaid(
+  academyId: string,
+  billId: string,
+  body: { method: string; reason?: string },
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/academies/${academyId}/bills/${billId}/mark-paid`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function setAcademyBillStatus(
+  academyId: string,
+  billId: string,
+  status: "OPEN" | "OVERDUE" | "VOID" | "PAID",
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/academies/${academyId}/bills/${billId}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function sendAcademyBill(
+  academyId: string,
+  billId: string,
+): Promise<{
+  phone: string;
+  message: string;
+  url: string;
+  transport: "WASENDER" | "DEEPLINK";
+  sent: boolean;
+  deeplink: string;
+}> {
+  return apiFetch(`/api/admin/academies/${academyId}/bills/${billId}/send`, {
+    method: "POST",
+  });
+}
+
+/** An academy's uploaded payment proof (transfer screenshot) awaiting review. */
+export interface AcademyPaymentSubmission {
+  id: string;
+  method: "INSTAPAY" | "VODAFONE_CASH";
+  amount_minor: number | null;
+  note: string | null;
+  review_status: "PENDING" | "APPROVED" | "REJECTED";
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+export function listBillSubmissions(
+  academyId: string,
+  billId: string,
+): Promise<{ submissions: AcademyPaymentSubmission[] }> {
+  return apiFetch(
+    `/api/admin/academies/${academyId}/bills/${billId}/submissions`,
+  );
+}
+
+export function reviewPaymentSubmission(
+  academyId: string,
+  subId: string,
+  decision: "approve" | "reject",
+): Promise<{ ok: boolean }> {
+  return apiFetch(
+    `/api/admin/academies/${academyId}/payment-submissions/${subId}/review`,
+    { method: "POST", body: JSON.stringify({ decision }) },
+  );
+}
+
+// ── Per-academy WhatsApp automation (Super Admin) ────────────────────────────
+
+export interface AcademyAutomation {
+  type1_billing_enabled: boolean;
+  type2_lessons_enabled: boolean;
+  type1_config: Record<string, unknown>;
+  type2_config: Record<string, unknown>;
+  wasender_session_status: string | null;
+  has_token: boolean;
+  token_tail: string | null;
+}
+
+export interface AutomationLogRow {
+  id: string;
+  automation_type: string;
+  transport: "WASENDER" | "DEEPLINK";
+  recipient_kind: string;
+  recipient_phone: string | null;
+  status: "QUEUED" | "SENT" | "FAILED" | "SKIPPED";
+  error: string | null;
+  ref_type: string | null;
+  created_at: string;
+}
+
+export function getAcademyAutomation(
+  academyId: string,
+): Promise<{ automation: AcademyAutomation }> {
+  return apiFetch(`/api/admin/academies/${academyId}/automation`);
+}
+
+export function updateAcademyAutomation(
+  academyId: string,
+  patch: {
+    type1_billing_enabled?: boolean;
+    type2_lessons_enabled?: boolean;
+    type1_config?: Record<string, unknown>;
+    type2_config?: Record<string, unknown>;
+  },
+): Promise<{ automation: AcademyAutomation }> {
+  return apiFetch(`/api/admin/academies/${academyId}/automation`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function setWasenderToken(
+  academyId: string,
+  token: string,
+): Promise<{ automation: AcademyAutomation }> {
+  return apiFetch(`/api/admin/academies/${academyId}/automation/token`, {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export function clearWasenderToken(
+  academyId: string,
+): Promise<{ automation: AcademyAutomation }> {
+  return apiFetch(`/api/admin/academies/${academyId}/automation/token`, {
+    method: "DELETE",
+  });
+}
+
+export function testWasender(
+  academyId: string,
+): Promise<{ status: string | null; ok: boolean }> {
+  return apiFetch(`/api/admin/academies/${academyId}/automation/test`, {
+    method: "POST",
+  });
+}
+
+export function getAutomationLog(
+  academyId: string,
+): Promise<{ log: AutomationLogRow[] }> {
+  return apiFetch(`/api/admin/academies/${academyId}/automation/log`);
+}
+
+// ── Cross-academy Super Admin overviews (sidebar pages) ──────────────────────
+
+export interface SubscriptionOverviewRow {
+  academy_id: string;
+  academy_name: string;
+  academy_status: string;
+  plan_name: string | null;
+  status: string | null;
+  is_trial: boolean;
+  trial_end: string | null;
+  activated_at: string | null;
+  current_period_end: string | null;
+  total_cost_minor: number;
+  currency: string;
+  outstanding_minor: number;
+  outstanding_count: number;
+  pending_proofs: number;
+}
+
+export interface PendingProof {
+  submission_id: string;
+  academy_id: string;
+  academy_name: string;
+  bill_id: string;
+  method: "INSTAPAY" | "VODAFONE_CASH";
+  amount_minor: number | null;
+  note: string | null;
+  created_at: string;
+  bill_total_minor: number;
+  currency: string;
+  period_start: string;
+  period_end: string;
+}
+
+export function getSubscriptionsOverview(): Promise<{
+  academies: SubscriptionOverviewRow[];
+  pending_proofs: PendingProof[];
+}> {
+  return apiFetch("/api/admin/subscriptions");
+}
+
+export interface AutomationOverviewRow {
+  academy_id: string;
+  academy_name: string;
+  academy_status: string;
+  type1_billing_enabled: boolean;
+  type2_lessons_enabled: boolean;
+  has_token: boolean;
+  wasender_session_status: string | null;
+  sent_count: number;
+  failed_count: number;
+  skipped_count: number;
+}
+
+export function getAutomationOverview(): Promise<{
+  academies: AutomationOverviewRow[];
+}> {
+  return apiFetch("/api/admin/automation");
+}
+
+/** Fetch a private payment-proof screenshot as an object URL (works in cookie + token modes). */
+export async function fetchPaymentScreenshot(
+  academyId: string,
+  subId: string,
+): Promise<string> {
+  const headers = new Headers({ Accept: "image/*" });
+  if (AUTH_MODE === "token") {
+    const token = getAuthToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
+  const res = await fetch(
+    `${BASE_URL}/api/admin/academies/${academyId}/payment-submissions/${subId}/screenshot`,
+    {
+      headers,
+      credentials: AUTH_MODE === "cookie" ? "include" : "same-origin",
+    },
+  );
+  if (!res.ok) throw new ApiError(res.status, "Screenshot fetch failed");
+  return URL.createObjectURL(await res.blob());
 }
 
 export function listReportFields(
@@ -475,6 +843,7 @@ export interface TeacherInput {
   availability?: AvailabilityWindow[];
   create_login?: boolean;
   email?: string | null;
+  password?: string | null;
 }
 
 export function listTeachers(
@@ -512,12 +881,298 @@ export function deactivateTeacher(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/teachers/${id}/deactivate`, { method: "POST" });
 }
 
+/** Permanently delete a teacher. Blocked (422) by the API if they carry any academy history. */
+export function deleteTeacher(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/teachers/${id}`, { method: "DELETE" });
+}
+
+// ── Staff departments (platform catalog) ─────────────────────────────────────
+
+export interface StaffDepartment {
+  id: string;
+  name: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export function listStaffDepartments(): Promise<{ departments: StaffDepartment[] }> {
+  return apiFetch("/api/staff-departments");
+}
+
+export function createStaffDepartment(input: {
+  name: string;
+  sort_order?: number;
+}): Promise<{ departmentId: string }> {
+  return apiFetch("/api/admin/staff-departments", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateStaffDepartment(
+  id: string,
+  patch: { name?: string; sort_order?: number; is_active?: boolean },
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/staff-departments/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteStaffDepartment(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/staff-departments/${id}`, { method: "DELETE" });
+}
+
+// ── Staff ────────────────────────────────────────────────────────────────────
+
+export interface StaffRow {
+  id: string;
+  user_id: string | null;
+  full_name: string;
+  department: string;
+  phone: string | null;
+  salary_minor: number;
+  currency: string;
+  notes: string | null;
+  is_active: boolean;
+  deleted_at: string | null;
+  created_at: string;
+}
+
+export interface StaffInput {
+  full_name?: string;
+  department?: string;
+  phone?: string | null;
+  salary_minor?: number;
+  currency?: string | null;
+  notes?: string | null;
+  create_login?: boolean;
+  email?: string | null;
+  password?: string | null;
+}
+
+export function listStaff(q: DataTableQuery = {}): Promise<ListResult<StaffRow>> {
+  return apiFetch(`/api/staff${toQueryString(q)}`);
+}
+
+export function getStaff(id: string): Promise<{ staff: StaffRow }> {
+  return apiFetch(`/api/staff/${id}`);
+}
+
+export function createStaff(
+  input: StaffInput,
+): Promise<{ staffId: string; userId: string | null }> {
+  return apiFetch("/api/staff", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateStaff(
+  id: string,
+  patch: StaffInput,
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/staff/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deactivateStaff(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/staff/${id}/deactivate`, { method: "POST" });
+}
+
+export function reactivateStaff(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/staff/${id}/reactivate`, { method: "POST" });
+}
+
+// ── Specializations (Settings) ───────────────────────────────────────────────
+
+export interface Specialization {
+  id: string;
+  name: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export function listSpecializations(): Promise<{
+  specializations: Specialization[];
+}> {
+  return apiFetch("/api/specializations");
+}
+
+export function createSpecialization(
+  name: string,
+): Promise<{ specializationId: string }> {
+  return apiFetch("/api/specializations", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function updateSpecialization(
+  id: string,
+  patch: { name?: string; is_active?: boolean; sort_order?: number },
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/specializations/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteSpecialization(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/specializations/${id}`, { method: "DELETE" });
+}
+
+// ── Certificate templates (Certificates) ─────────────────────────────────────
+
+/** Editable wording/branding of one certificate template (the design is client-side). */
+export interface CertificateContent {
+  academyNameEn: string;
+  academyNameAr: string;
+  titleEn: string;
+  titleAr: string;
+  presentationEn: string;
+  presentationAr: string;
+  bodyEn: string;
+  bodyAr: string;
+  signatoryNameEn: string;
+  signatoryNameAr: string;
+  signatoryTitleEn: string;
+  signatoryTitleAr: string;
+  accentColor: string;
+}
+
+export interface CertificateTemplate {
+  templateNumber: 1 | 2;
+  content: CertificateContent;
+}
+
+export function listCertificateTemplates(): Promise<{
+  templates: CertificateTemplate[];
+}> {
+  return apiFetch("/api/certificate-templates");
+}
+
+export function saveCertificateTemplate(
+  templateNumber: 1 | 2,
+  content: Partial<CertificateContent>,
+): Promise<{ ok: boolean; content: CertificateContent }> {
+  return apiFetch(`/api/certificate-templates/${templateNumber}`, {
+    method: "PUT",
+    body: JSON.stringify(content),
+  });
+}
+
+// ── Payment Settings (Settings → Payment) ────────────────────────────────────
+
+export type PaymentMethodKey = "BANK_TRANSFER" | "PAYPAL" | "XPAY";
+
+export interface BankTransferConfig {
+  account_number: string;
+  account_holder: string;
+  bank_name: string;
+  iban: string;
+}
+
+export interface PaypalConfig {
+  email: string;
+  mode: "sandbox" | "live";
+}
+
+export interface PaymentSetting {
+  method: PaymentMethodKey;
+  is_active: boolean;
+  config: BankTransferConfig | PaypalConfig | Record<string, never>;
+}
+
+// ── Academy profile (Settings → General) ─────────────────────────────────────
+
+export interface AcademyProfile {
+  id: string;
+  name: string;
+  timezone: string;
+  default_currency: string;
+  invoice_grouping: string;
+  billing_day: number;
+}
+
+export function getAcademyProfile(): Promise<{ academy: AcademyProfile }> {
+  return apiFetch("/api/academy");
+}
+
+export function updateAcademyProfile(
+  patch: { name: string; timezone?: string },
+): Promise<{ ok: boolean }> {
+  return apiFetch("/api/academy", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+// ── Payment Settings (Settings → Payment) ────────────────────────────────────
+
+export function listPaymentSettings(): Promise<{
+  payment_settings: PaymentSetting[];
+}> {
+  return apiFetch("/api/payment-settings");
+}
+
+export function savePaymentSetting(
+  method: PaymentMethodKey,
+  payload: { is_active: boolean; config?: object },
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/payment-settings/${method}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+// ── Teacher reports (internal performance notes ABOUT a teacher) ──────────────
+
+export type TeacherReportKind = "NOTE" | "INCIDENT" | "PRAISE";
+
+export interface TeacherReport {
+  id: string;
+  kind: TeacherReportKind;
+  body: string;
+  author_user_id: string | null;
+  author_name: string | null;
+  created_at: string;
+}
+
+export function listTeacherReports(
+  teacherId: string,
+): Promise<{ reports: TeacherReport[] }> {
+  return apiFetch(`/api/teachers/${teacherId}/reports`);
+}
+
+export function createTeacherReport(
+  teacherId: string,
+  input: { kind: TeacherReportKind; body: string },
+): Promise<{ reportId: string }> {
+  return apiFetch(`/api/teachers/${teacherId}/reports`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteTeacherReport(
+  teacherId: string,
+  reportId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/teachers/${teacherId}/reports/${reportId}`, {
+    method: "DELETE",
+  });
+}
+
 // ── Students, subscriptions & teacher assignment (Sprint 4 §8) ───────────────
 
 export interface StudentRow {
   id: string;
   full_name: string;
   whatsapp_phone: string | null;
+  country: string | null;
   status: string | null;
   is_self_guardian: boolean;
   guardian_id: string;
@@ -541,7 +1196,7 @@ export interface SubscriptionInput {
   sessions_per_month?: number | null;
   price_minor: number;
   currency?: string | null;
-  price_basis?: "PER_SESSION" | "PER_MONTH";
+  price_basis?: "PER_SESSION" | "PER_MONTH" | "PER_HOUR";
   start_date: string;
 }
 
@@ -583,6 +1238,9 @@ export interface StudentDetail {
     teacher_name: string | null;
     started_at: string;
   } | null;
+  /** TRIAL_BOOKED students only: true once the trial session has been recorded (attended/
+   *  cancelled/…), so the profile can advance its setup call-to-action to "activate". */
+  trialResolved?: boolean;
 }
 
 export interface TeacherAssignmentHistoryItem {
@@ -622,8 +1280,29 @@ export function updateStudent(
   });
 }
 
-export function deactivateStudent(id: string): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/students/${id}/deactivate`, { method: "POST" });
+export function deactivateStudent(
+  id: string,
+  reason?: "GRADUATED" | "WITHDRAWN",
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/students/${id}/deactivate`, {
+    method: "POST",
+    body: reason ? JSON.stringify({ reason }) : undefined,
+  });
+}
+
+export function reactivateStudent(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/students/${id}/reactivate`, { method: "POST" });
+}
+
+/**
+ * DELETE /api/students/{id} — "remove from the system". A recoverable soft-delete: the record
+ * and its history are retained server-side and can be restored (reactivate). Returns a message
+ * confirming the removal is reversible.
+ */
+export function deleteStudent(
+  id: string,
+): Promise<{ ok: boolean; recoverable: boolean; message: string }> {
+  return apiFetch(`/api/students/${id}`, { method: "DELETE" });
 }
 
 export function setSubscription(
@@ -641,7 +1320,7 @@ export function changeSubscriptionPrice(
   input: {
     price_minor: number;
     currency?: string;
-    price_basis?: "PER_SESSION" | "PER_MONTH";
+    price_basis?: "PER_SESSION" | "PER_MONTH" | "PER_HOUR";
   },
 ): Promise<{ ok: boolean }> {
   return apiFetch(`/api/students/${studentId}/subscription/price`, {
@@ -717,6 +1396,22 @@ export interface CalendarSession {
   original_session_id: string | null;
   student_name: string | null;
   teacher_name: string | null;
+}
+
+/** One student's active weekly timetable as the roster endpoint returns it (period-independent). */
+export interface TimetableSummary {
+  schedule_id: string;
+  student_id: string;
+  student_name: string | null;
+  teacher_id: string;
+  teacher_name: string | null;
+  timezone: string;
+  slots: ScheduleSlot[];
+}
+
+/** Every active timetable in the academy (Owner/Super-Admin: all; Teacher: own students). */
+export function listTimetables(): Promise<{ timetables: TimetableSummary[] }> {
+  return apiFetch(`/api/timetables`);
 }
 
 export function getStudentSchedule(
@@ -807,6 +1502,20 @@ export function cancelSession(
   });
 }
 
+/**
+ * POST /api/sessions/{id}/cancellation-request — a teacher (who no longer cancels directly)
+ * asks the owner to cancel a class; the session stays SCHEDULED until the owner decides.
+ */
+export function requestCancellation(
+  sessionId: string,
+  input: { cancelled_by: "teacher" | "student"; reason?: string },
+): Promise<{ requestId: string; status: "PENDING" }> {
+  return apiFetch(`/api/sessions/${sessionId}/cancellation-request`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function generateSessions(
   input: { from?: string; to?: string } = {},
 ): Promise<{ generated: GenerateCounts }> {
@@ -835,6 +1544,7 @@ export interface SessionDetail {
   teacher_id: string;
   student_name: string | null;
   teacher_name: string | null;
+  academy_name: string | null;
   scheduled_at_utc: string;
   duration_minutes: number;
   status: SessionStatus;
@@ -864,9 +1574,10 @@ export function getSession(sessionId: string): Promise<SessionDetailResponse> {
   return apiFetch(`/api/sessions/${sessionId}`);
 }
 
-/** The five outcomes a human records after a lesson (Sprint 6 §2). */
+/** The outcomes a human records after a lesson (Sprint 6 §2). FREE = delivered but on the house. */
 export type AttendanceOutcome =
   | "ATTENDED"
+  | "FREE"
   | "ABSENT_UNEXCUSED"
   | "ABSENT_EXCUSED"
   | "CANCELLED_BY_TEACHER"
@@ -874,8 +1585,16 @@ export type AttendanceOutcome =
 
 export function markAttendance(
   sessionId: string,
-  input: { status: AttendanceOutcome; reason?: string; override_timing?: boolean },
-): Promise<{ status: string; billed: boolean; classification: SessionClassification }> {
+  input: {
+    status: AttendanceOutcome;
+    reason?: string;
+    override_timing?: boolean;
+  },
+): Promise<{
+  status: string;
+  billed: boolean;
+  classification: SessionClassification;
+}> {
   return apiFetch(`/api/sessions/${sessionId}/attendance`, {
     method: "POST",
     body: JSON.stringify(input),
@@ -898,9 +1617,12 @@ export interface WhatsAppMessage {
   deeplink: string;
 }
 
-export function markWhatsappSent(
-  sessionId: string,
-): Promise<{ ok: boolean; sentAt: string; channel: string; message: WhatsAppMessage }> {
+export function markWhatsappSent(sessionId: string): Promise<{
+  ok: boolean;
+  sentAt: string;
+  channel: string;
+  message: WhatsAppMessage;
+}> {
   return apiFetch(`/api/sessions/${sessionId}/report/whatsapp-sent`, {
     method: "POST",
   });
@@ -918,8 +1640,45 @@ export interface PendingSession {
   teacher_name: string | null;
 }
 
-export function getPendingAttendance(): Promise<{ sessions: PendingSession[] }> {
+export function getPendingAttendance(): Promise<{
+  sessions: PendingSession[];
+}> {
   return apiFetch("/api/sessions/pending-attendance");
+}
+
+/** A session row for the attendance day view — carries the student's lifecycle status too. */
+export interface DaySession extends PendingSession {
+  student_status: string | null;
+}
+
+/**
+ * GET /api/sessions/day — every session inside a local-day window [from, to), for the
+ * attendance page. `from`/`to` are ISO instants (the browser computes the day's local bounds).
+ */
+export function getSessionsByDay(params: {
+  from: string;
+  to: string;
+  teacher_id?: string;
+  status?: string;
+  trial_only?: boolean;
+}): Promise<{ sessions: DaySession[] }> {
+  const qs = new URLSearchParams({ from: params.from, to: params.to });
+  if (params.teacher_id) qs.set("teacher_id", params.teacher_id);
+  if (params.status) qs.set("status", params.status);
+  if (params.trial_only) qs.set("trial_only", "1");
+  return apiFetch(`/api/sessions/day?${qs.toString()}`);
+}
+
+/**
+ * GET /api/sessions/day/count — number of SCHEDULED sessions (still needing an outcome) inside a
+ * local-day window [from, to). Powers the sidebar's Attendance badge. `from`/`to` are ISO instants.
+ */
+export function getDaySessionCount(params: {
+  from: string;
+  to: string;
+}): Promise<{ count: number }> {
+  const qs = new URLSearchParams({ from: params.from, to: params.to });
+  return apiFetch(`/api/sessions/day/count?${qs.toString()}`);
 }
 
 /** One row of the per-student report archive (GET /api/students/{id}/reports). */
@@ -946,4 +1705,927 @@ export function getStudentReports(
   q: DataTableQuery = {},
 ): Promise<ArchiveResult> {
   return apiFetch(`/api/students/${studentId}/reports${toQueryString(q)}`);
+}
+
+// ── Invoicing dashboard (Sprint 7 §8) ────────────────────────────────────────
+
+/** Per-currency money roll-up so multi-currency academies are never summed across units. */
+export interface InvoiceMoneyBucket {
+  currency: string;
+  billed_minor: number;
+  collected_minor: number;
+  /** Unpaid balance of CLOSED/PARTIALLY_PAID invoices only (finalized bills). */
+  outstanding_minor: number;
+  /** Unpaid balance of every non-VOID invoice, including OPEN ones — total owed. */
+  due_minor: number;
+}
+
+/** Aggregate counters behind the invoices dashboard cards (GET /api/invoices/summary). */
+export interface InvoiceSummary {
+  counts: {
+    all: number;
+    OPEN: number;
+    CLOSED: number;
+    PAID: number;
+    PARTIALLY_PAID: number;
+  };
+  money: InvoiceMoneyBucket[];
+}
+
+export function getInvoiceSummary(
+  q: { period_year?: string; period_month?: string; kind?: string } = {},
+): Promise<InvoiceSummary> {
+  const params = new URLSearchParams();
+  if (q.period_year) params.set("period_year", q.period_year);
+  if (q.period_month) params.set("period_month", q.period_month);
+  if (q.kind) params.set("kind", q.kind);
+  const s = params.toString();
+  return apiFetch(`/api/invoices/summary${s ? `?${s}` : ""}`);
+}
+
+/** Close every OPEN invoice for the caller's academy in the given period. */
+export function closeInvoicePeriod(
+  year: number,
+  month: number,
+): Promise<{ closed: number }> {
+  return apiFetch("/api/invoices/close", {
+    method: "POST",
+    body: JSON.stringify({ year, month }),
+  });
+}
+
+// ── Manual invoices (Sprint 9) ────────────────────────────────────────────────
+
+/** One free-form line on a manual itemized invoice. */
+export interface ManualLineInput {
+  description: string;
+  amount_minor: number;
+  student_id?: string | null;
+}
+
+/** Payload for POST /api/invoices (manual itemized bill). */
+export interface ManualInvoiceInput {
+  payer_type: "guardian" | "student";
+  payer_id: string;
+  period_year: number;
+  period_month: number;
+  currency?: string;
+  line_items: ManualLineInput[];
+}
+
+/** Create a MANUAL itemized invoice (OPEN draft). Returns the new invoice id. */
+export function createManualInvoice(
+  input: ManualInvoiceInput,
+): Promise<{ id: string }> {
+  return apiFetch("/api/invoices", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** One quoted advance-payment line (a single still-billable session). */
+export interface AdvanceQuoteLine {
+  session_id: string;
+  session_date: string;
+  description: string;
+  amount_minor: number;
+}
+
+/** Server-side preview of an advance-payment bill (GET /api/invoices/advance-quote). */
+export interface AdvanceQuote {
+  student_name: string;
+  currency: string;
+  total_minor: number;
+  count: number;
+  price_basis: string | null;
+  has_subscription: boolean;
+  lines: AdvanceQuoteLine[];
+}
+
+/** Preview the advance bill for a student from a start date through month end. */
+export function getAdvanceQuote(
+  studentId: string,
+  startDate: string,
+): Promise<AdvanceQuote> {
+  const params = new URLSearchParams({
+    student_id: studentId,
+    start_date: startDate,
+  });
+  return apiFetch(`/api/invoices/advance-quote?${params.toString()}`);
+}
+
+/** Create the advance-payment invoice (recomputed server-side). Returns the new invoice id. */
+export function createAdvanceInvoice(
+  studentId: string,
+  startDate: string,
+): Promise<{ id: string; count: number }> {
+  return apiFetch("/api/invoices/advance", {
+    method: "POST",
+    body: JSON.stringify({ student_id: studentId, start_date: startDate }),
+  });
+}
+
+// ── Payroll (Sprint 8 §8) ─────────────────────────────────────────────────────
+
+export type PayoutStatus = "OPEN" | "FINALIZED";
+
+/** One payout statement row as the list/detail endpoints return it. */
+export interface PayoutRow {
+  id: string;
+  teacher_id: string;
+  teacher_name?: string | null;
+  period_month: number;
+  period_year: number;
+  status: PayoutStatus;
+  total_minor: number;
+  currency: string;
+  finalized_at: string | null;
+  created_at: string;
+}
+
+/** Report state of a delivered session, derived from its session_reports row. */
+export type PayoutReportStatus = "SENT" | "FILLED" | "MISSING";
+
+/** One snapshotted payout line (a delivered session paid at the teacher's rate). */
+export interface PayoutLineItem {
+  id: string;
+  session_id: string | null;
+  session_date: string | null;
+  student_name: string | null;
+  amount_minor: number;
+  currency: string;
+  report_status: PayoutReportStatus;
+}
+
+export type AdjustmentType = "REWARD" | "DEDUCTION";
+
+/** A reward (bonus) or deduction on a payout statement, with reason + optional details. */
+export interface PayoutAdjustment {
+  id: string;
+  type: AdjustmentType;
+  amount_minor: number;
+  currency: string;
+  reason: string;
+  details: string | null;
+  created_at: string;
+}
+
+export interface PayoutDetail extends PayoutRow {
+  notes: string | null;
+  /** Per-session gross before adjustments. */
+  sessions_minor: number;
+  rewards_minor: number;
+  deductions_minor: number;
+}
+
+export interface PayoutDetailResponse {
+  payout: PayoutDetail;
+  lineItems: PayoutLineItem[];
+  adjustments: PayoutAdjustment[];
+}
+
+/** Add a reward or deduction to an OPEN payout (owner; payout.adjust). */
+export function addPayoutAdjustment(
+  payoutId: string,
+  input: {
+    type: AdjustmentType;
+    amount_minor: number;
+    reason: string;
+    details?: string;
+  },
+): Promise<{ ok: boolean; id: string }> {
+  return apiFetch(`/api/payouts/${payoutId}/adjustments`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Remove an adjustment from an OPEN payout. */
+export function removePayoutAdjustment(
+  payoutId: string,
+  adjustmentId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/payouts/${payoutId}/adjustments/${adjustmentId}`, {
+    method: "DELETE",
+  });
+}
+
+/** Owner: all teachers' payouts (DataTable). */
+export function listPayouts(
+  q: DataTableQuery = {},
+): Promise<ListResult<PayoutRow>> {
+  return apiFetch(`/api/payouts${toQueryString(q)}`);
+}
+
+/** Teacher: own payout statements (row-filtered to the caller's teacher_id). */
+export function listMyPayouts(
+  q: DataTableQuery = {},
+): Promise<ListResult<PayoutRow>> {
+  return apiFetch(`/api/me/payouts${toQueryString(q)}`);
+}
+
+export function getPayout(id: string): Promise<PayoutDetailResponse> {
+  return apiFetch(`/api/payouts/${id}`);
+}
+
+/** Finalize every OPEN payout for the caller's academy in the given period (idempotent). */
+export function finalizePayoutPeriod(
+  year: number,
+  month: number,
+): Promise<{ finalized: number }> {
+  return apiFetch("/api/payouts/finalize", {
+    method: "POST",
+    body: JSON.stringify({ year, month }),
+  });
+}
+
+/** Per-currency profit = revenue − payouts for a period (never summed across currencies). */
+export interface ProfitSummaryRow {
+  currency: string;
+  revenue_minor: number;
+  payouts_minor: number;
+  profit_minor: number;
+}
+
+export interface ProfitSummary {
+  year: number;
+  month: number;
+  rows: ProfitSummaryRow[];
+}
+
+export function getProfitSummary(
+  year: number,
+  month: number,
+): Promise<ProfitSummary> {
+  return apiFetch(`/api/reports/profit-summary?year=${year}&month=${month}`);
+}
+
+// ── Live FX rates (financial statistics) ─────────────────────────────────────
+
+/** One foreign currency and how many home-currency units one of its units buys. */
+export interface ExchangeRate {
+  currency: string;
+  /** Home-currency units per 1 unit of `currency` (e.g. EGP per 1 USD). */
+  to_home: number;
+}
+
+/** GET /api/reports/exchange-rates — live rates into the academy home currency (EGP). */
+export interface ExchangeRates {
+  home: string;
+  /** False when the upstream is unreachable and no cached copy exists. */
+  available: boolean;
+  /** True when served from a cached copy after an upstream failure. */
+  stale: boolean;
+  /** Unix seconds of the upstream's last update, or null when unavailable. */
+  as_of: number | null;
+  source: string | null;
+  rates: ExchangeRate[];
+}
+
+export function getExchangeRates(): Promise<ExchangeRates> {
+  return apiFetch("/api/reports/exchange-rates");
+}
+
+// ── Plan gating / entitlements (Sprint 9 §4, §8) ─────────────────────────────
+
+/** Resolved plan features + limits for the current academy (GET /api/entitlements). */
+export interface Entitlements {
+  plan: string | null;
+  capabilities: string[];
+  limits: Record<string, number | null>;
+  addOns: string[];
+  usage: { students?: number; teachers?: number };
+}
+
+export function getEntitlements(): Promise<Entitlements> {
+  return apiFetch("/api/entitlements");
+}
+
+/** The shape of an `upgrade_required` (402) body the `entitled:` middleware returns. */
+export interface UpgradePayload {
+  error: "upgrade_required";
+  message: string;
+  feature: string;
+  plan: string | null;
+}
+
+/** Narrow an ApiError to a 402 plan-gate response (for an upgrade prompt vs a 403). */
+export function asUpgradeRequired(err: unknown): UpgradePayload | null {
+  if (err instanceof ApiError && err.status === 402) {
+    const body = err.body as Partial<UpgradePayload> | undefined;
+    if (body?.error === "upgrade_required") {
+      return {
+        error: "upgrade_required",
+        message: body.message ?? "",
+        feature: body.feature ?? "",
+        plan: body.plan ?? null,
+      };
+    }
+  }
+  return null;
+}
+
+/** The at-limit payload a create endpoint returns inside a 422 validation error. */
+export interface PlanLimitPayload {
+  error: "plan_limit_reached";
+  resource: string;
+  limit: number | null;
+  current: number;
+  plan: string | null;
+  message_en: string;
+  message_ar: string;
+}
+
+/** Narrow an ApiError to a plan_limit_reached (422) body, if present on any field. */
+export function asPlanLimit(err: unknown): PlanLimitPayload | null {
+  if (!(err instanceof ApiError) || err.status !== 422) return null;
+  const errors = (err.body as { errors?: Record<string, string[]> } | undefined)
+    ?.errors;
+  for (const messages of Object.values(errors ?? {})) {
+    for (const raw of messages) {
+      try {
+        const parsed = JSON.parse(raw) as Partial<PlanLimitPayload>;
+        if (parsed?.error === "plan_limit_reached") {
+          return parsed as PlanLimitPayload;
+        }
+      } catch {
+        // not a JSON plan-limit payload — a normal validation message
+      }
+    }
+  }
+  return null;
+}
+
+// ── Audit log read UI (Sprint 9 §5) ──────────────────────────────────────────
+
+export interface AuditEntry {
+  id: string;
+  academy_id: string | null;
+  academy_name: string | null;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  actor_role: AppRole | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface AuditResult {
+  rows: AuditEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+  /** When set, the plan limited the read to this many trailing days (BASIC). */
+  depthLimitedDays: number | null;
+}
+
+export interface AuditQuery {
+  actor?: string;
+  action?: string;
+  entity?: string;
+  entityId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export function getAudit(q: AuditQuery = {}): Promise<AuditResult> {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(q)) {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  }
+  const s = params.toString();
+  return apiFetch(`/api/audit${s ? `?${s}` : ""}`);
+}
+
+// ── Plan & add-on management (Super Admin, Sprint 9 §8) ───────────────────────
+
+// ── Admin platform dashboard (Phase 1) ──────────────────────────────────────
+
+export interface AdminDashboardStats {
+  academies: {
+    total: number;
+    active: number;
+    trial: number;
+    suspended: number;
+    recent: number;
+  };
+  people: { students: number; teachers: number; guardians: number };
+  plan_distribution: Array<{
+    plan_id: string;
+    plan_code: string;
+    plan_name: string;
+    academy_count: number;
+  }>;
+}
+
+export interface AdminDashboard {
+  stats: AdminDashboardStats;
+  recentActivity: AuditEntry[];
+}
+
+export function getAdminDashboard(): Promise<AdminDashboard> {
+  return apiFetch("/api/admin/dashboard");
+}
+
+/** plans.features documented shape: capabilities ∪ numeric limits. */
+export interface PlanFeatures {
+  capabilities?: string[];
+  limits?: Record<string, number | null>;
+}
+
+export interface PlanCatalogItem extends Plan {
+  features: PlanFeatures | null;
+}
+
+export interface AddOnCatalogItem {
+  id: string;
+  code: string;
+  name: string;
+  price_minor: number;
+  currency: string;
+  feature_key: string;
+}
+
+export function getPlanCatalog(): Promise<{
+  plans: PlanCatalogItem[];
+  addOns: AddOnCatalogItem[];
+}> {
+  return apiFetch("/api/admin/plans");
+}
+
+// ── Role ⇄ capability editor (Phase 7) ──────────────────────────────────────
+
+export interface RolePermissions {
+  role: AppRole;
+  permissions: string[];
+}
+
+export interface RoleCatalog {
+  roles: RolePermissions[];
+  catalog: string[];
+  lockoutCritical: string[];
+}
+
+export function getRoles(): Promise<RoleCatalog> {
+  return apiFetch("/api/admin/roles");
+}
+
+export function setRolePermissions(
+  role: AppRole,
+  permissions: string[],
+): Promise<{ ok: boolean; permissions: string[] }> {
+  return apiFetch(`/api/admin/roles/${role}/permissions`, {
+    method: "PATCH",
+    body: JSON.stringify({ permissions }),
+  });
+}
+
+// ── Feature flags & platform settings (Phase 6) ─────────────────────────────
+
+export interface FeatureFlag {
+  id: string;
+  key: string;
+  description: string | null;
+  enabled: boolean;
+}
+
+export function getFeatureFlags(): Promise<{ flags: FeatureFlag[] }> {
+  return apiFetch("/api/admin/feature-flags");
+}
+
+export function updateFeatureFlag(
+  key: string,
+  patch: { enabled?: boolean; description?: string | null },
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/feature-flags/${encodeURIComponent(key)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export type PlatformSettings = Record<string, unknown>;
+
+export function getPlatformSettings(): Promise<{ settings: PlatformSettings }> {
+  return apiFetch("/api/admin/settings");
+}
+
+export function updatePlatformSettings(
+  settings: PlatformSettings,
+): Promise<{ ok: boolean }> {
+  return apiFetch("/api/admin/settings", {
+    method: "PATCH",
+    body: JSON.stringify({ settings }),
+  });
+}
+
+// ── Billing & revenue overview (Phase 5) ────────────────────────────────────
+
+export interface BillingMrr {
+  currency: string;
+  amount_minor: number;
+}
+
+export interface BillingAcademyRow {
+  id: string;
+  name: string;
+  status: AcademyStatus;
+  billing_day: number | null;
+  plan_code: string | null;
+  plan_name: string | null;
+  plan_price_minor: number | null;
+  currency: string;
+  active_addons: number;
+  addons_total_minor: number;
+  monthly_minor: number;
+}
+
+export interface BillingOverview {
+  counts: { total: number; active: number; trial: number; suspended: number };
+  mrr: BillingMrr[];
+  academies: BillingAcademyRow[];
+}
+
+export function getBillingOverview(): Promise<BillingOverview> {
+  return apiFetch("/api/admin/billing/overview");
+}
+
+// ── Cross-tenant user management (Phase 4) ──────────────────────────────────
+
+export interface PlatformUser {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  is_active: boolean;
+  academy_id: string | null;
+  academy_name: string | null;
+  roles: AppRole[];
+  invited_at: string | null;
+  created_at: string;
+}
+
+export interface PlatformUserRole {
+  academy_id: string | null;
+  academy_name: string | null;
+  role: AppRole;
+}
+
+export interface PlatformUserDetail extends Omit<PlatformUser, "roles"> {
+  roles: PlatformUserRole[];
+}
+
+export interface PlatformUserQuery {
+  academy?: string;
+  role?: AppRole;
+  active?: boolean;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PlatformUserResult {
+  rows: PlatformUser[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export function listPlatformUsers(
+  q: PlatformUserQuery = {},
+): Promise<PlatformUserResult> {
+  const s = new URLSearchParams();
+  if (q.academy) s.set("academy", q.academy);
+  if (q.role) s.set("role", q.role);
+  if (q.active !== undefined) s.set("active", String(q.active));
+  if (q.search) s.set("search", q.search);
+  if (q.page) s.set("page", String(q.page));
+  if (q.pageSize) s.set("pageSize", String(q.pageSize));
+  const qs = s.toString();
+  return apiFetch(`/api/admin/users${qs ? `?${qs}` : ""}`);
+}
+
+export function getPlatformUser(
+  id: string,
+): Promise<{ user: PlatformUserDetail }> {
+  return apiFetch(`/api/admin/users/${id}`);
+}
+
+export function deactivateUser(
+  id: string,
+): Promise<{ ok: boolean; isActive: boolean }> {
+  return apiFetch(`/api/admin/users/${id}/deactivate`, { method: "POST" });
+}
+
+export function reactivateUser(
+  id: string,
+): Promise<{ ok: boolean; isActive: boolean }> {
+  return apiFetch(`/api/admin/users/${id}/reactivate`, { method: "POST" });
+}
+
+export function resetUserPassword(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/users/${id}/reset-password`, { method: "POST" });
+}
+
+export function setUserRole(
+  id: string,
+  input: { academy_id: string; role: "ACADEMY_OWNER" | "TEACHER"; grant: boolean },
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/users/${id}/roles`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** The gated-feature catalog (FeatureCatalog) that drives the plan/add-on forms. */
+export interface CapabilityCatalog {
+  capabilities: Record<string, string>;
+  limits: Record<string, string>;
+}
+
+export function getCapabilityCatalog(): Promise<CapabilityCatalog> {
+  return apiFetch("/api/admin/capabilities");
+}
+
+export interface PlanInput {
+  name: string;
+  price_minor: number;
+  currency: string;
+  features: PlanFeatures;
+  is_active: boolean;
+}
+
+export function createPlan(
+  input: PlanInput & { code: string },
+): Promise<{ planId: string }> {
+  return apiFetch("/api/admin/plans", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updatePlan(
+  id: string,
+  patch: Partial<PlanInput>,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/plans/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export interface AddOnInput {
+  name: string;
+  price_minor: number;
+  currency: string;
+  feature_key: string;
+}
+
+export function createAddOn(
+  input: AddOnInput & { code: string },
+): Promise<{ addOnId: string }> {
+  return apiFetch("/api/admin/add-ons", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAddOn(
+  id: string,
+  patch: Partial<AddOnInput>,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/add-ons/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/** Grants (active + revoked) for one academy. */
+export interface AcademyAddOnGrant {
+  add_on_id: string;
+  is_active: boolean;
+  granted_at: string;
+  code: string;
+  name: string;
+  feature_key: string;
+}
+
+export function getAcademyAddOns(
+  academyId: string,
+): Promise<{ addOns: AcademyAddOnGrant[] }> {
+  return apiFetch(`/api/admin/academies/${academyId}/addons`);
+}
+
+export function setAcademyPlan(
+  academyId: string,
+  planId: string,
+): Promise<{ ok: boolean; changed?: boolean }> {
+  return apiFetch(`/api/admin/academies/${academyId}/plan`, {
+    method: "POST",
+    body: JSON.stringify({ plan_id: planId }),
+  });
+}
+
+export function setAcademyAddOn(
+  academyId: string,
+  addOnId: string,
+  isActive: boolean,
+): Promise<{ ok: boolean; isActive: boolean }> {
+  return apiFetch(`/api/admin/academies/${academyId}/addons`, {
+    method: "POST",
+    body: JSON.stringify({ add_on_id: addOnId, is_active: isActive }),
+  });
+}
+
+/**
+ * POST /api/admin/academies/{id}/owner — (re)provision the academy's first owner login.
+ * Idempotent: re-sends the set-password link if the owner already exists, else creates them.
+ */
+export function provisionAcademyOwner(
+  academyId: string,
+  input: { ownerFullName: string; ownerEmail: string },
+): Promise<{ ownerId: string }> {
+  return apiFetch(`/api/admin/academies/${academyId}/owner`, {
+    method: "POST",
+    body: JSON.stringify({
+      owner_full_name: input.ownerFullName,
+      owner_email: input.ownerEmail,
+    }),
+  });
+}
+
+// ── Notifications & cancellation approvals (Notifications page) ────────────────
+
+export type CancellationStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+/** One row of the cancellation-approval queue (Notifications "Classes" tab). */
+export interface CancellationRequestRow {
+  id: string;
+  session_id: string;
+  teacher_id: string;
+  cancel_type: "teacher" | "student";
+  reason: string | null;
+  status: CancellationStatus;
+  decided_at: string | null;
+  decision_note: string | null;
+  seen_by_teacher_at: string | null;
+  created_at: string;
+  scheduled_at_utc: string;
+  duration_minutes: number;
+  session_status: SessionStatus;
+  student_name: string | null;
+  teacher_name: string | null;
+  decided_by_name: string | null;
+}
+
+export function listCancellationRequests(
+  status?: CancellationStatus,
+): Promise<{ requests: CancellationRequestRow[] }> {
+  const qs = status ? `?status=${status}` : "";
+  return apiFetch(`/api/cancellation-requests${qs}`);
+}
+
+export function approveCancellation(
+  requestId: string,
+  note?: string,
+): Promise<{ ok: boolean; status: CancellationStatus; sessionStatus: string | null }> {
+  return apiFetch(`/api/cancellation-requests/${requestId}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+export function rejectCancellation(
+  requestId: string,
+  note?: string,
+): Promise<{ ok: boolean; status: CancellationStatus; sessionStatus: string | null }> {
+  return apiFetch(`/api/cancellation-requests/${requestId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+export type NotificationType = "REPORT_OVERDUE" | "REPORT_REMINDER";
+
+/** One report-overdue alert (Notifications "Reports" tab). */
+export interface NotificationRow {
+  id: string;
+  type: NotificationType;
+  category: "REPORTS";
+  session_id: string | null;
+  data: {
+    student_name?: string | null;
+    teacher_name?: string | null;
+    teacher_id?: string;
+    scheduled_at_utc?: string;
+    duration_minutes?: number;
+    session_status?: string;
+  };
+  read_at: string | null;
+  created_at: string;
+}
+
+export function listNotifications(): Promise<{ notifications: NotificationRow[] }> {
+  return apiFetch("/api/notifications");
+}
+
+/** Unread counts that drive the sidebar badge, split by the tabs. */
+export interface NotificationSummary {
+  classes: number;
+  reports: number;
+  /** Pending student progress reports awaiting review (drives the tab badge, not the bell). */
+  studentReports: number;
+  total: number;
+}
+
+export function getNotificationsSummary(): Promise<NotificationSummary> {
+  return apiFetch("/api/notifications/summary");
+}
+
+export function markNotificationRead(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/notifications/${id}/read`, { method: "POST" });
+}
+
+export function markAllNotificationsRead(): Promise<{ ok: boolean; marked: number }> {
+  return apiFetch("/api/notifications/read-all", { method: "POST" });
+}
+
+// ── Student progress reports (teacher writes → owner reviews) ──────────────────
+
+export type StudentReportStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+/** A student in the calling teacher's report-form picker. */
+export interface StudentReportStudent {
+  id: string;
+  full_name: string;
+}
+
+/** One monthly student progress report (teacher's own list, or the owner's review queue). */
+export interface StudentReportRow {
+  id: string;
+  student_id: string;
+  teacher_id: string;
+  period_month: string; // YYYY-MM-DD (the 1st of the covered month)
+  title: string;
+  body: string;
+  status: StudentReportStatus;
+  review_note: string | null;
+  reviewed_at: string | null;
+  seen_by_teacher_at: string | null;
+  created_at: string;
+  student_name: string | null;
+  reviewed_by_name: string | null;
+  /** Present only on the owner's review queue. */
+  teacher_name?: string | null;
+}
+
+export function listStudentReportStudents(): Promise<{ students: StudentReportStudent[] }> {
+  return apiFetch("/api/student-reports/students");
+}
+
+export function listMyStudentReports(): Promise<{ reports: StudentReportRow[] }> {
+  return apiFetch("/api/student-reports");
+}
+
+export function submitStudentReport(input: {
+  student_id: string;
+  period_month: string;
+  title: string;
+  body: string;
+}): Promise<{ reportId: string; status: StudentReportStatus }> {
+  return apiFetch("/api/student-reports", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function listStudentReportsForReview(
+  status?: StudentReportStatus,
+): Promise<{ reports: StudentReportRow[] }> {
+  const qs = status ? `?status=${status}` : "";
+  return apiFetch(`/api/student-reports/review${qs}`);
+}
+
+export function approveStudentReport(
+  id: string,
+  note?: string,
+): Promise<{ ok: boolean; status: StudentReportStatus }> {
+  return apiFetch(`/api/student-reports/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+export function rejectStudentReport(
+  id: string,
+  note?: string,
+): Promise<{ ok: boolean; status: StudentReportStatus }> {
+  return apiFetch(`/api/student-reports/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
 }

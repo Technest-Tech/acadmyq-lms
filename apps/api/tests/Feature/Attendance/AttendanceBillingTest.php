@@ -85,6 +85,35 @@ it('marks ABSENT_EXCUSED: neither billable nor counting, no line item', function
         ->and(($this->lineItems)($session))->toBe(0);
 });
 
+it('marks FREE: lesson delivered but on the house — non-billable, non-counting, no line item', function () {
+    // §4 row FREE — the lesson happened, but it's free for student, teacher AND academy.
+    $session = ($this->pendingSession)();
+    Sanctum::actingAs($this->owner);
+
+    $res = $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'FREE'])->assertOk();
+    expect($res->json('status'))->toBe('FREE')
+        ->and($res->json('classification'))->toBe(['billableToStudent' => false, 'countsForTeacher' => false]);
+
+    $row = ($this->row)($session);
+    expect($row->status)->toBe('FREE')
+        ->and((bool) $row->billed)->toBeFalse()
+        ->and((bool) $row->paid_to_teacher)->toBeFalse()
+        ->and(($this->lineItems)($session))->toBe(0);
+});
+
+it('reverses the line item when ATTENDED → FREE while OPEN (mark, then make it free)', function () {
+    // The realistic UI flow: attendance recorded first (billable), then changed to FREE.
+    $session = ($this->pendingSession)();
+    Sanctum::actingAs($this->owner);
+
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    expect(($this->lineItems)($session))->toBe(1);
+
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'FREE'])->assertOk();
+    expect(($this->lineItems)($session))->toBe(0)
+        ->and((bool) ($this->row)($session)->billed)->toBeFalse();
+});
+
 it('marks CANCELLED_BY_TEACHER and CANCELLED_BY_STUDENT: non-billable, no line item', function () {
     // TC-6.4 / TC-6.5 / TC-6.13 — §4 rows CANCELLED_BY_*
     Sanctum::actingAs($this->owner);

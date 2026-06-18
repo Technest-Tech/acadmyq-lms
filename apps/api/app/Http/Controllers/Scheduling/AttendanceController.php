@@ -36,10 +36,32 @@ final class AttendanceController extends Controller
     /** The outcomes a human records post-session. SCHEDULED/RESCHEDULED are never set here. */
     private const OUTCOME_STATUSES = [
         'ATTENDED',
+        'FREE',
         'ABSENT_UNEXCUSED',
         'ABSENT_EXCUSED',
         'CANCELLED_BY_TEACHER',
         'CANCELLED_BY_STUDENT',
+    ];
+
+    /**
+     * Non-billable cancel outcomes. These are a CANCELLATION, not an attendance outcome: an actor
+     * who cannot cancel directly (a Teacher, who holds session.cancel_request not session.cancel)
+     * must route them through the approval flow (CancellationRequestController), never set them
+     * here — otherwise the attendance page becomes a back door around owner approval.
+     */
+    private const CANCEL_STATUSES = [
+        'CANCELLED_BY_TEACHER',
+        'CANCELLED_BY_STUDENT',
+    ];
+
+    /**
+     * Absence outcomes. Judging a student absent (excused or not) is the academy's call, not the
+     * Teacher's — their attendance surface only offers attended/free and a cancellation request.
+     * Like the cancel guard below, this blocks the back door regardless of what the UI sends.
+     */
+    private const ABSENT_STATUSES = [
+        'ABSENT_UNEXCUSED',
+        'ABSENT_EXCUSED',
     ];
 
     /** POST /api/sessions/{id}/attendance — gated by session.mark_attendance (+ teacher filter). */
@@ -55,6 +77,23 @@ final class AttendanceController extends Controller
             'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
             'override_timing' => ['sometimes', 'boolean'],
         ]);
+
+        // A cancel is not an attendance outcome: an actor without session.cancel (a Teacher) may
+        // not cancel directly here — they must raise a cancellation request for the owner to
+        // approve (Sprint 9). Block the back door regardless of what the UI sends.
+        if (in_array($data['status'], self::CANCEL_STATUSES, true) && ! Gate::allows('session.cancel')) {
+            throw ValidationException::withMessages([
+                'status' => ['You can’t cancel a class directly — send a cancellation request for the owner to approve. / لا يمكنك إلغاء الحصة مباشرة — أرسل طلب إلغاء ليوافق عليه المالك.'],
+            ]);
+        }
+
+        // Marking a student absent is an academy judgement, not the Teacher's — they only record
+        // attended/free or raise a cancellation request. Block the back door regardless of the UI.
+        if (in_array($data['status'], self::ABSENT_STATUSES, true) && $this->ctx()->role === 'TEACHER') {
+            throw ValidationException::withMessages([
+                'status' => ['Only the academy can mark a student absent. / لا يمكن سوى للأكاديمية تسجيل غياب الطالب.'],
+            ]);
+        }
 
         $next = SessionStatus::from($data['status']);
         $this->assertTimingAllowed($session, (bool) ($data['override_timing'] ?? false), $academyId);

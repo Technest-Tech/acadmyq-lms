@@ -28,6 +28,8 @@ const PERMISSIONS_BY_ROLE: Record<AppRole, string[]> = {
     "invoice.read",
     "payout.read",
     "academy.configure",
+    "specialization.manage",
+    "teacher_report.manage",
     "audit.read",
   ],
   TEACHER: [

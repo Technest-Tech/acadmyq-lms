@@ -61,6 +61,7 @@ class DemoAcademySeeder extends Seeder
             $this->seedReportFields();
             $this->seedEnrollment();
             $this->seedScheduleAndSessions();
+            $this->seedPaymentSettings();
         } finally {
             TenantContext::clear();
         }
@@ -97,9 +98,28 @@ class DemoAcademySeeder extends Seeder
             ]
         );
 
+        // `plans.features` follows the Sprint-9 documented shape:
+        //   { capabilities: string[], limits: { maxStudents?, maxTeachers? } }
+        // BASIC includes core billing (invoicing) but caps student/teacher counts.
+        // PRO unlocks everything and has no numeric limits. Moving a feature between tiers
+        // is an edit here — not a code change (§3.1, TC-9.5).
         foreach ([
-            ['code' => 'BASIC', 'name' => 'Basic', 'price_minor' => 0, 'features' => '{"max_students":50}'],
-            ['code' => 'PRO', 'name' => 'Pro', 'price_minor' => 4900, 'features' => '{"max_students":1000,"payroll":true}'],
+            ['code' => 'BASIC', 'name' => 'Basic', 'price_minor' => 0, 'features' => json_encode([
+                'capabilities' => ['invoicing'],
+                'limits' => ['maxStudents' => 30, 'maxTeachers' => 3],
+            ])],
+            ['code' => 'PRO', 'name' => 'Pro', 'price_minor' => 4900, 'features' => json_encode([
+                'capabilities' => [
+                    'invoicing',
+                    'payroll',
+                    'certificates',
+                    'whatsapp.automation',
+                    'staff',
+                    'audit.full',
+                    'report_field.custom',
+                ],
+                'limits' => ['maxStudents' => null, 'maxTeachers' => null],
+            ])],
         ] as $plan) {
             DB::table('plans')->updateOrInsert(
                 ['code' => $plan['code']],
@@ -332,6 +352,42 @@ class DemoAcademySeeder extends Seeder
                     'status' => 'ACTIVE',
                     'start_date' => '2026-01-01',
                 ]
+            );
+        }
+    }
+
+    private function seedPaymentSettings(): void
+    {
+        $methods = [
+            [
+                'method'    => 'BANK_TRANSFER',
+                'is_active' => true,
+                'config'    => json_encode([
+                    'account_number' => '1234567890',
+                    'account_holder' => 'Demo Academy',
+                    'bank_name'      => 'Al Rajhi Bank',
+                    'iban'           => 'SA00 0000 0000 0000 0000 0000',
+                ]),
+            ],
+            [
+                'method'    => 'PAYPAL',
+                'is_active' => false,
+                'config'    => json_encode([
+                    'email' => 'payments@demo-academy.com',
+                    'mode'  => 'live',
+                ]),
+            ],
+            [
+                'method'    => 'XPAY',
+                'is_active' => false,
+                'config'    => json_encode([]),
+            ],
+        ];
+
+        foreach ($methods as $row) {
+            DB::table('academy_payment_settings')->updateOrInsert(
+                ['academy_id' => self::ACADEMY_ID, 'method' => $row['method']],
+                array_merge($row, ['academy_id' => self::ACADEMY_ID, 'id' => (string) Str::uuid()]),
             );
         }
     }

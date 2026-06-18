@@ -65,6 +65,10 @@ final class TeacherController extends Controller
         Gate::authorize('teacher.create');
 
         $academyId = $this->currentAcademyId();
+
+        // Plan limit: BASIC caps teachers (AC-9.2). Enforced before any write.
+        $this->enforceLimit($academyId, 'teachers', 'maxTeachers', 'teachers');
+
         $data = $this->validatePayload($request, creating: true);
 
         $teacherId = (string) Str::uuid();
@@ -75,7 +79,7 @@ final class TeacherController extends Controller
         if (($data['create_login'] ?? false) === true) {
             Gate::authorize('user.invite');
             Gate::authorize('role.assign');
-            $userId = $this->provisionLogin($academyId, $data['full_name'], strtolower((string) $data['email']));
+            $userId = $this->provisionLogin($academyId, $data['full_name'], strtolower((string) $data['email']), $data['password'] ?? null);
         }
 
         DB::table('teachers')->insert([
@@ -204,8 +208,99 @@ final class TeacherController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    /** Create a TEACHER login (users row + role) inside the current academy context. */
-    private function provisionLogin(string $academyId, string $fullName, string $email): string
+    /**
+     * DELETE /api/teachers/{id} — PERMANENT hard delete. Removes the teacher and ALL of their
+     * history in one cascade: schedule, sessions + lesson reports, payroll (payouts and their
+     * lines/adjustments), student assignments, and performance reports. This is irreversible
+     * and destroys financial/audit data — it is the explicit "remove from the system" action.
+     *
+     * Guardian invoices survive: line items that referenced a deleted session are detached
+     * (session_id nulled) rather than removed, so billing totals stay intact. The teacher's
+     * login is deleted too; if it ever wrote an append-only audit entry (which cannot be
+     * unlinked under RLS) the account is disabled instead so audit attribution is preserved.
+     */
+    public function destroy(string $id): JsonResponse
+    {
+        Gate::authorize('teacher.deactivate');
+
+        $teacher = DB::table('teachers')->where('id', $id)->first();
+        if ($teacher === null) {
+            abort(404, 'Teacher not found.');
+        }
+
+        $sessionIds = DB::table('sessions')->where('teacher_id', $id)->pluck('id')->all();
+        $scheduleIds = DB::table('schedules')->where('teacher_id', $id)->pluck('id')->all();
+
+        $removed = [
+            'sessions' => count($sessionIds),
+            'schedules' => count($scheduleIds),
+            'payouts' => DB::table('payouts')->where('teacher_id', $id)->count(),
+            'assignments' => DB::table('student_teacher_assignments')->where('teacher_id', $id)->count(),
+            'reports' => DB::table('teacher_reports')->where('teacher_id', $id)->count(),
+        ];
+
+        DB::transaction(function () use ($teacher, $id, $sessionIds, $scheduleIds) {
+            if ($sessionIds !== []) {
+                // Keep the guardian's invoice intact — just unlink the deleted session.
+                DB::table('invoice_line_items')->whereIn('session_id', $sessionIds)->update(['session_id' => null]);
+                DB::table('session_reports')->whereIn('session_id', $sessionIds)->delete();
+                DB::table('payout_line_items')->whereIn('session_id', $sessionIds)->delete();
+                // Break the self-reference from any reschedule that points at these sessions.
+                DB::table('sessions')->whereIn('original_session_id', $sessionIds)->update(['original_session_id' => null]);
+            }
+
+            // Payroll: cascades payout_line_items + payout_adjustments for this teacher.
+            DB::table('payouts')->where('teacher_id', $id)->delete();
+
+            DB::table('sessions')->where('teacher_id', $id)->delete();
+
+            if ($scheduleIds !== []) {
+                // Detach any stray (cross-teacher reschedule) session still pointing at this
+                // teacher's schedule/slots before the schedule cascade removes the slots.
+                $slotIds = DB::table('schedule_slots')->whereIn('schedule_id', $scheduleIds)->pluck('id')->all();
+                if ($slotIds !== []) {
+                    DB::table('sessions')->whereIn('slot_id', $slotIds)->update(['slot_id' => null]);
+                }
+                DB::table('sessions')->whereIn('schedule_id', $scheduleIds)->update(['schedule_id' => null]);
+            }
+            DB::table('schedules')->where('teacher_id', $id)->delete(); // cascades schedule_slots
+
+            DB::table('student_teacher_assignments')->where('teacher_id', $id)->delete();
+            DB::table('teacher_reports')->where('teacher_id', $id)->delete();
+            DB::table('teachers')->where('id', $id)->delete();
+
+            if ($teacher->user_id !== null) {
+                DB::table('user_roles')->where('user_id', $teacher->user_id)->delete();
+                try {
+                    // Savepoint: a login that authored audit entries can't be hard-deleted
+                    // (audit_log is append-only under RLS); fall back to disabling it.
+                    DB::transaction(function () use ($teacher) {
+                        DB::table('users')->where('id', $teacher->user_id)->delete();
+                    });
+                } catch (\Throwable) {
+                    DB::table('users')->where('id', $teacher->user_id)->update([
+                        'is_active' => false,
+                        'updated_at' => now(),
+                    ]);
+                }
+            }
+        });
+
+        Audit::log('teacher.delete', 'teacher', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, before: [
+            'full_name' => $teacher->full_name,
+            'had_login' => $teacher->user_id !== null,
+            'removed' => $removed,
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Create a TEACHER login (users row + role) inside the current academy context. When the
+     * owner supplies a password the teacher can sign in immediately with it; otherwise a random
+     * one is set and the account waits on a set-password flow (parallel to owner provisioning).
+     */
+    private function provisionLogin(string $academyId, string $fullName, string $email, ?string $password = null): string
     {
         $userId = (string) Str::uuid();
 
@@ -215,7 +310,7 @@ final class TeacherController extends Controller
                 'academy_id' => $academyId,
                 'full_name' => $fullName,
                 'email' => $email,
-                'password' => Hash::make(Str::random(40)),
+                'password' => Hash::make($password !== null && $password !== '' ? $password : Str::random(40)),
                 'is_active' => true,
                 'invited_at' => now(),
             ]);
@@ -260,6 +355,7 @@ final class TeacherController extends Controller
         if ($creating) {
             $rules['create_login'] = ['sometimes', 'boolean'];
             $rules['email'] = ['required_if:create_login,true', 'nullable', 'email', 'max:255'];
+            $rules['password'] = ['required_if:create_login,true', 'nullable', 'string', 'min:8', 'max:255'];
         }
 
         return $request->validate($rules);

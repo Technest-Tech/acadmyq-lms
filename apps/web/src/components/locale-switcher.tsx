@@ -1,9 +1,8 @@
 "use client";
 
-import { Languages } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { LOCALE_COOKIE, locales, type Locale } from "@/i18n/config";
 
 /**
@@ -31,20 +30,30 @@ export function LocaleSwitcher({
   }
 
   return (
-    <div className="flex items-center gap-1" role="group" aria-label="language">
-      <Languages className="text-muted-foreground size-4" aria-hidden />
-      {locales.map((locale) => (
-        <Button
-          key={locale}
-          type="button"
-          size="sm"
-          variant={locale === active ? "default" : "ghost"}
-          aria-pressed={locale === active}
-          onClick={() => switchTo(locale)}
-        >
-          {t(locale)}
-        </Button>
-      ))}
+    <div
+      className="bg-muted/70 flex items-center gap-0.5 rounded-lg p-0.5"
+      role="group"
+      aria-label="language"
+    >
+      {locales.map((locale) => {
+        const isActive = locale === active;
+        return (
+          <button
+            key={locale}
+            type="button"
+            aria-pressed={isActive}
+            onClick={() => switchTo(locale)}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-[11px] font-semibold tracking-wide transition-all duration-150 uppercase",
+              isActive
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t(locale)}
+          </button>
+        );
+      })}
     </div>
   );
 }

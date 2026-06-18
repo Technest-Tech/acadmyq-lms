@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\AcademyBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Tenancy;
@@ -326,6 +327,113 @@ final class AcademyController extends Controller
         $this->sendSetPasswordLink($email);
 
         return response()->json(['ownerId' => $ownerId], 201);
+    }
+
+    /**
+     * POST /api/admin/academies/{id}/plan — change an academy's plan (Sprint 9 §8, plan.manage).
+     * Audited (academy.plan_changed, before/after) so a tier move is traceable (AC-9.14). The
+     * write runs in the academy's context: academies.update requires is_super_admin (satisfied),
+     * and the audit row is academy-scoped so the owner can see "your plan changed".
+     */
+    public function setPlan(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('plan.manage');
+
+        $existing = DB::table('academies')->where('id', $id)->first();
+        if ($existing === null) {
+            abort(404, 'Academy not found.');
+        }
+
+        $data = $request->validate([
+            'plan_id' => ['required', 'uuid', Rule::exists('plans', 'id')],
+        ]);
+        $ctx = app(AuthContext::class);
+
+        if ((string) $existing->plan_id === $data['plan_id']) {
+            return response()->json(['ok' => true, 'changed' => false]);
+        }
+
+        $this->inAcademyContext($id, function () use ($id, $data, $existing, $ctx) {
+            DB::table('academies')->where('id', $id)->update([
+                'plan_id' => $data['plan_id'],
+                'updated_at' => now(),
+            ]);
+
+            Audit::log('academy.plan_changed', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN',
+                after: ['plan_id' => $data['plan_id']],
+                before: ['plan_id' => $existing->plan_id]);
+
+            // Keep the subscription's snapshot cost (base + add-ons) in sync with the new plan.
+            app(AcademyBilling::class)->recomputeTotals($id);
+        });
+
+        return response()->json(['ok' => true, 'changed' => true]);
+    }
+
+    /**
+     * POST /api/admin/academies/{id}/addons — grant or revoke an add-on (Sprint 9 §8, plan.manage).
+     * Idempotent on (academy_id, add_on_id): granting unlocks the add-on's feature_key on top of
+     * the plan; revoking (is_active=false) re-locks it (AC-9.3). Audited (academy.addon_changed,
+     * AC-9.14). The upsert runs in the academy's context so the tenant `with check` admits it.
+     */
+    public function setAddOn(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('plan.manage');
+
+        if (DB::table('academies')->where('id', $id)->doesntExist()) {
+            abort(404, 'Academy not found.');
+        }
+
+        $data = $request->validate([
+            'add_on_id' => ['required', 'uuid', Rule::exists('add_ons', 'id')],
+            'is_active' => ['sometimes', 'boolean'],
+        ]);
+        $isActive = $data['is_active'] ?? true;
+        $ctx = app(AuthContext::class);
+
+        $this->inAcademyContext($id, function () use ($id, $data, $isActive, $ctx) {
+            $existing = DB::table('academy_addons')
+                ->where('academy_id', $id)->where('add_on_id', $data['add_on_id'])->first();
+
+            if ($existing === null) {
+                DB::table('academy_addons')->insert([
+                    'id' => (string) Str::uuid(),
+                    'academy_id' => $id,
+                    'add_on_id' => $data['add_on_id'],
+                    'is_active' => $isActive,
+                    'granted_at' => now(),
+                ]);
+            } else {
+                DB::table('academy_addons')
+                    ->where('academy_id', $id)->where('add_on_id', $data['add_on_id'])
+                    ->update(['is_active' => $isActive, 'updated_at' => now()]);
+            }
+
+            Audit::log('academy.addon_changed', 'add_on', $data['add_on_id'], $id, $ctx->userId, 'SUPER_ADMIN',
+                after: ['add_on_id' => $data['add_on_id'], 'is_active' => $isActive]);
+
+            // Add-on grants/revocations change the subscription's total cost.
+            app(AcademyBilling::class)->recomputeTotals($id);
+        });
+
+        return response()->json(['ok' => true, 'isActive' => $isActive]);
+    }
+
+    /** GET /api/admin/academies/{id}/addons — the academy's add-on grants (plan.manage). */
+    public function addOns(string $id): JsonResponse
+    {
+        Gate::authorize('plan.manage');
+
+        if (DB::table('academies')->where('id', $id)->doesntExist()) {
+            abort(404, 'Academy not found.');
+        }
+
+        $grants = $this->inAcademyContext($id, fn () => DB::table('academy_addons as aa')
+            ->join('add_ons as ao', 'ao.id', '=', 'aa.add_on_id')
+            ->where('aa.academy_id', $id)
+            ->get(['aa.add_on_id', 'aa.is_active', 'aa.granted_at', 'ao.code', 'ao.name', 'ao.feature_key']));
+
+        return response()->json(['addOns' => $grants]);
     }
 
     /** POST /api/admin/academies/{id}/enter — set entered academy + audit admin.enter_academy. */

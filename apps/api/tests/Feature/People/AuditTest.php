@@ -52,7 +52,7 @@ it('writes a correctly-attributed audit entry for each people mutation', functio
     // Student: create, update, deactivate.
     Sanctum::actingAs($this->owner);
     $s = $this->postJson('/api/students', ['full_name' => 'S', 'guardian_id' => $g])->json('studentId');
-    $this->patchJson("/api/students/{$s}", ['status' => 'ADVANCED'])->assertOk();
+    $this->patchJson("/api/students/{$s}", ['status' => 'TRIAL_BOOKED'])->assertOk();
     $this->postJson("/api/students/{$s}/deactivate")->assertOk();
     expect(peopleAuditExists('student.create', $s, $this->owner->id))->toBeTrue();
     expect(peopleAuditExists('student.update', $s, $this->owner->id))->toBeTrue();

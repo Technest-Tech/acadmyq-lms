@@ -16,6 +16,12 @@ it('classifies ATTENDED as billable to student and counting for teacher', functi
         ->toBe(['billableToStudent' => true, 'countsForTeacher' => true]);
 });
 
+it('classifies FREE as neither billable nor counting (delivered but on the house)', function (): void {
+    // §4 row FREE — the lesson happened, but it's free for student, teacher AND academy.
+    expect(SessionClassifier::classify(SessionStatus::Free))
+        ->toBe(['billableToStudent' => false, 'countsForTeacher' => false]);
+});
+
 it('classifies ABSENT_UNEXCUSED as billable but not counting for teacher', function (): void {
     // TC-6.2 — §4 row ABSENT_UNEXCUSED (charged, no-show without notice)
     expect(SessionClassifier::classify(SessionStatus::AbsentUnexcused))

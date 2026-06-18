@@ -10,6 +10,8 @@ const STATUS_STYLES: Record<SessionStatus, string> = {
     "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
   ATTENDED:
     "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
+  FREE:
+    "bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300",
   ABSENT_UNEXCUSED:
     "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
   ABSENT_EXCUSED:

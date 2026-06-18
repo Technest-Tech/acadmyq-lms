@@ -106,6 +106,57 @@ it('saves a valid report keyed by field key, capturing filled_by and filled_at',
     expect($report->filled_by_user_id)->toBe($this->owner->id)->and($report->filled_at)->not->toBeNull();
 });
 
+it('persists the free-text report body and the trial flag (reserved keys)', function () {
+    // Free-text reporting UI: report_text + is_free_trial aren't academy field definitions,
+    // so they must survive the validator and round-trip through GET /sessions/{id}.
+    Sanctum::actingAs($this->owner);
+
+    $this->putJson("/api/sessions/{$this->session}/report", ['values' => [
+        'report_text' => '<p>Great session</p>', 'is_free_trial' => true,
+    ]])->assertOk();
+
+    expect(($this->reportValues)($this->session))->toMatchArray([
+        'report_text' => '<p>Great session</p>',
+        'is_free_trial' => true,
+    ]);
+
+    $values = $this->getJson("/api/sessions/{$this->session}")->assertOk()->json('report.values');
+    expect($values['report_text'])->toBe('<p>Great session</p>')
+        ->and($values['is_free_trial'])->toBeTrue();
+});
+
+it('clears the trial flag when a later save marks it not free', function () {
+    // Switching FREE → ATTENDED sends is_free_trial=false; the stored flag must flip, not linger.
+    Sanctum::actingAs($this->owner);
+
+    $this->putJson("/api/sessions/{$this->session}/report", ['values' => [
+        'report_text' => 'note', 'is_free_trial' => true,
+    ]])->assertOk();
+
+    $this->putJson("/api/sessions/{$this->session}/report", ['values' => [
+        'report_text' => 'note', 'is_free_trial' => false,
+    ]])->assertOk();
+
+    expect(($this->reportValues)($this->session)['is_free_trial'])->toBeFalse();
+});
+
+it('keeps the trial flag through a text-only edit that omits it', function () {
+    // Editing notes without re-choosing an outcome omits is_free_trial — the flag must persist.
+    Sanctum::actingAs($this->owner);
+
+    $this->putJson("/api/sessions/{$this->session}/report", ['values' => [
+        'report_text' => 'first', 'is_free_trial' => true,
+    ]])->assertOk();
+
+    $this->putJson("/api/sessions/{$this->session}/report", ['values' => [
+        'report_text' => 'second',
+    ]])->assertOk();
+
+    $values = ($this->reportValues)($this->session);
+    expect($values['report_text'])->toBe('second')
+        ->and($values['is_free_trial'])->toBeTrue();
+});
+
 it('hides a deactivated field for new entry but renders it read-only where a value exists', function () {
     // TC-6.18 — deactivate-not-delete (AC-6.6)
     Sanctum::actingAs($this->owner);

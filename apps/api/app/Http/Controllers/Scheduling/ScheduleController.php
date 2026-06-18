@@ -32,6 +32,70 @@ final class ScheduleController extends Controller
 
     public function __construct(private readonly SessionGenerator $generator) {}
 
+    /**
+     * GET /api/timetables — every ACTIVE weekly schedule in the academy, with its slots and the
+     * student/teacher names, independent of any calendar period (it's the recurring rule, not
+     * generated sessions). A TEACHER sees only their own students' timetables; Owners/Super
+     * Admins see all in the academy. RLS scopes the academy; the teacher filter is the row-scope.
+     */
+    public function index(): JsonResponse
+    {
+        Gate::authorize('schedule.read');
+
+        $query = DB::table('schedules as sch')
+            ->leftJoin('students as st', 'st.id', '=', 'sch.student_id')
+            ->leftJoin('teachers as te', 'te.id', '=', 'sch.teacher_id')
+            ->where('sch.is_active', true)
+            ->whereNull('sch.deleted_at')
+            ->whereNull('st.deleted_at')
+            ->select([
+                'sch.id as schedule_id', 'sch.student_id', 'sch.teacher_id',
+                'sch.timezone',
+                'st.full_name as student_name', 'te.full_name as teacher_name',
+            ])
+            ->orderBy('st.full_name');
+
+        if ($this->ctx()->role === 'TEACHER') {
+            $ownTeacherId = $this->callerTeacherId();
+            if ($ownTeacherId === null) {
+                abort(403, 'No teacher record for this user.');
+            }
+            $query->where('sch.teacher_id', $ownTeacherId);
+        }
+
+        $schedules = $query->get();
+
+        // One pass for every schedule's slots, grouped in PHP — avoids an N+1 per timetable.
+        $slotsBySchedule = [];
+        if ($schedules->isNotEmpty()) {
+            $ids = $schedules->pluck('schedule_id')->all();
+            foreach (
+                DB::table('schedule_slots')
+                    ->whereIn('schedule_id', $ids)
+                    ->orderBy('weekday')->orderBy('start_time_local')
+                    ->get(['schedule_id', 'weekday', 'start_time_local', 'duration_minutes']) as $slot
+            ) {
+                $slotsBySchedule[(string) $slot->schedule_id][] = [
+                    'weekday' => (int) $slot->weekday,
+                    'start_time_local' => (string) $slot->start_time_local,
+                    'duration_minutes' => (int) $slot->duration_minutes,
+                ];
+            }
+        }
+
+        $timetables = $schedules->map(fn ($s) => [
+            'schedule_id' => (string) $s->schedule_id,
+            'student_id' => (string) $s->student_id,
+            'student_name' => $s->student_name,
+            'teacher_id' => (string) $s->teacher_id,
+            'teacher_name' => $s->teacher_name,
+            'timezone' => (string) $s->timezone,
+            'slots' => $slotsBySchedule[(string) $s->schedule_id] ?? [],
+        ])->values();
+
+        return response()->json(['timetables' => $timetables]);
+    }
+
     /** GET /api/students/{id}/schedule — the active schedule + its slots (or null). */
     public function show(string $studentId): JsonResponse
     {

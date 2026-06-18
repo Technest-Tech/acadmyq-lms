@@ -86,6 +86,89 @@ it('emits no availability warning inside the declared window', function () {
     expect(collect($res->json('warnings'))->pluck('type'))->not->toContain('availability');
 });
 
+// ── Midnight-crossing availability: an end at/before the start spills into the next day ──
+it('treats a window ending after midnight as available into the next day', function () {
+    // Replace with a Tuesday 22:00 → 01:00 window (weekday 2, ending 1am Wednesday).
+    DB::table('teachers')->where('id', $this->teacher)->update([
+        'availability' => json_encode([['weekday' => 2, 'start_local' => '22:00', 'end_local' => '01:00']]),
+    ]);
+
+    Sanctum::actingAs($this->owner);
+    // Wednesday 00:30 Cairo is the early-morning tail of Tuesday's window → inside, no warning.
+    $res = $this->postJson('/api/sessions', [
+        'student_id' => $this->student,
+        'teacher_id' => $this->teacher,
+        'local_datetime' => '2026-06-17 00:30', // a Wednesday
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 30,
+    ])->assertCreated();
+
+    expect(collect($res->json('warnings'))->pluck('type'))->not->toContain('availability');
+});
+
+it('keeps the evening side of a midnight-crossing window available', function () {
+    DB::table('teachers')->where('id', $this->teacher)->update([
+        'availability' => json_encode([['weekday' => 2, 'start_local' => '22:00', 'end_local' => '01:00']]),
+    ]);
+
+    Sanctum::actingAs($this->owner);
+    // Tuesday 23:00 Cairo is the evening side of the same window → inside, no warning.
+    $res = $this->postJson('/api/sessions', [
+        'student_id' => $this->student,
+        'teacher_id' => $this->teacher,
+        'local_datetime' => '2026-06-16 23:00', // a Tuesday
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 30,
+    ])->assertCreated();
+
+    expect(collect($res->json('warnings'))->pluck('type'))->not->toContain('availability');
+});
+
+it('still warns outside a midnight-crossing window', function () {
+    DB::table('teachers')->where('id', $this->teacher)->update([
+        'availability' => json_encode([['weekday' => 2, 'start_local' => '22:00', 'end_local' => '01:00']]),
+    ]);
+
+    Sanctum::actingAs($this->owner);
+    // Wednesday 02:00 Cairo is past the 01:00 tail → outside, warns.
+    $res = $this->postJson('/api/sessions', [
+        'student_id' => $this->student,
+        'teacher_id' => $this->teacher,
+        'local_datetime' => '2026-06-17 02:00', // a Wednesday
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 30,
+    ])->assertCreated();
+
+    expect(collect($res->json('warnings'))->pluck('type'))->toContain('availability');
+});
+
+it('treats an end of midnight as the end of the same day', function () {
+    DB::table('teachers')->where('id', $this->teacher)->update([
+        'availability' => json_encode([['weekday' => 2, 'start_local' => '22:00', 'end_local' => '00:00']]),
+    ]);
+
+    Sanctum::actingAs($this->owner);
+    // Tuesday 23:30 Cairo is inside [22:00, 24:00) → no warning.
+    $inside = $this->postJson('/api/sessions', [
+        'student_id' => $this->student,
+        'teacher_id' => $this->teacher,
+        'local_datetime' => '2026-06-16 23:30',
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 20,
+    ])->assertCreated();
+    expect(collect($inside->json('warnings'))->pluck('type'))->not->toContain('availability');
+
+    // Wednesday 00:30 is NOT covered — the window ended at midnight, it does not spill over.
+    $after = $this->postJson('/api/sessions', [
+        'student_id' => $this->student,
+        'teacher_id' => $this->teacher,
+        'local_datetime' => '2026-06-17 00:30',
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 20,
+    ])->assertCreated();
+    expect(collect($after->json('warnings'))->pluck('type'))->toContain('availability');
+});
+
 // ── TC-5.24 / AC-5.10: ad-hoc session behaves like any session; never regenerated ─
 it('creates an ad-hoc session that the generator never touches', function () {
     Sanctum::actingAs($this->owner);

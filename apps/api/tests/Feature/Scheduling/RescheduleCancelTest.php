@@ -69,6 +69,29 @@ it('reschedules one occurrence and leaves every sibling unchanged', function () 
     expect($siblingsAfter)->toEqual($siblingsBefore);
 });
 
+// ── Idempotency: a session can only be rescheduled once; retries mint no duplicate ──
+it('rejects rescheduling an already-rescheduled occurrence and creates no second successor', function () {
+    $target = tuesdaySession($this->schedule, '2026-06-09');
+
+    Sanctum::actingAs($this->owner);
+    // First reschedule succeeds and spawns exactly one successor.
+    $first = $this->postJson("/api/sessions/{$target->id}/reschedule", [
+        'local_datetime' => '2026-06-10 18:00', 'timezone' => 'Africa/Cairo',
+    ])->assertCreated();
+    $successorId = $first->json('sessionId');
+
+    // A second reschedule of the SAME (now RESCHEDULED) origin is rejected — no new row appears.
+    $this->postJson("/api/sessions/{$target->id}/reschedule", [
+        'local_datetime' => '2026-06-11 18:00', 'timezone' => 'Africa/Cairo',
+    ])->assertStatus(422);
+
+    $this->asAcademy($this->academy);
+    // Only the single successor exists; the origin is still RESCHEDULED, not re-touched.
+    expect(DB::table('sessions')->where('original_session_id', $target->id)->count())->toBe(1);
+    expect(DB::table('sessions')->where('original_session_id', $target->id)->value('id'))->toBe($successorId);
+    expect(DB::table('sessions')->where('id', $target->id)->value('status'))->toBe('RESCHEDULED');
+});
+
 // ── TC-5.9 / AC-5.3 / §4.5: regeneration never resurrects a rescheduled row ───
 it('does not recreate or duplicate a rescheduled occurrence on regeneration', function () {
     $target = tuesdaySession($this->schedule, '2026-06-09');
@@ -84,6 +107,32 @@ it('does not recreate or duplicate a rescheduled occurrence on regeneration', fu
     expect($countAfter)->toBe($countBefore);
     expect(DB::table('sessions')->where('schedule_id', $this->schedule)->where('occurrence_local_date', '2026-06-09')->where('status', 'SCHEDULED')->exists())->toBeFalse();
     expect(DB::table('sessions')->where('id', $target->id)->value('status'))->toBe('RESCHEDULED');
+});
+
+// ── Calendar/day views hide the RESCHEDULED marker so a move isn't a duplicate ──
+it('does not show the rescheduled original on the calendar or day view, only the successor', function () {
+    $target = tuesdaySession($this->schedule, '2026-06-09'); // Tue 17:00 Cairo = 14:00 UTC
+    Sanctum::actingAs($this->owner);
+    $res = $this->postJson("/api/sessions/{$target->id}/reschedule", [
+        'local_datetime' => '2026-06-10 18:00', 'timezone' => 'Africa/Cairo',
+    ])->assertCreated();
+    $successorId = $res->json('sessionId');
+
+    // Calendar window spanning both the old (06-09) and new (06-10) days.
+    $calendar = $this->getJson('/api/calendar?from=2026-06-09&to=2026-06-10')->assertOk();
+    $ids = collect($calendar->json('sessions'))->pluck('id');
+    expect($ids)->toContain($successorId);          // the moved occurrence shows...
+    expect($ids)->not->toContain($target->id);      // ...the old RESCHEDULED marker does not.
+
+    // Same for the attendance day view (default, no status filter).
+    $day = $this->getJson('/api/sessions/day?from=2026-06-09T00:00:00Z&to=2026-06-11T00:00:00Z')->assertOk();
+    $dayIds = collect($day->json('sessions'))->pluck('id');
+    expect($dayIds)->toContain($successorId);
+    expect($dayIds)->not->toContain($target->id);
+
+    // An explicit ?status=RESCHEDULED still surfaces it for a history view.
+    $hist = $this->getJson('/api/sessions/day?from=2026-06-09T00:00:00Z&to=2026-06-11T00:00:00Z&status=RESCHEDULED')->assertOk();
+    expect(collect($hist->json('sessions'))->pluck('id'))->toContain($target->id);
 });
 
 // ── TC-5.10 / AC-5.4: cancels set the right non-billable status; others unchanged ─
