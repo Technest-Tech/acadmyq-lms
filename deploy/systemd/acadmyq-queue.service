@@ -1,0 +1,18 @@
+# Laravel queue worker (database queue). Install to /etc/systemd/system/acadmyq-queue.service
+[Unit]
+Description=Acadmyq Laravel queue worker
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=acadmyq
+Group=acadmyq
+WorkingDirectory=/var/www/acadmyq/apps/api
+ExecStart=/usr/bin/php8.2 artisan queue:work --sleep=3 --tries=3 --max-time=3600
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/acadmyq-queue.log
+StandardError=append:/var/log/acadmyq-queue.log
+
+[Install]
+WantedBy=multi-user.target

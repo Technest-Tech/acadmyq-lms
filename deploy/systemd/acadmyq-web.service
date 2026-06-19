@@ -1,0 +1,22 @@
+# Next.js production server (next start). Install to /etc/systemd/system/acadmyq-web.service
+[Unit]
+Description=Acadmyq Next.js web (next start)
+After=network.target
+
+[Service]
+Type=simple
+User=acadmyq
+Group=acadmyq
+WorkingDirectory=/var/www/acadmyq/apps/web
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+# Corepack-managed pnpm; `pnpm start` runs `next start`
+ExecStart=/usr/bin/pnpm start
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/acadmyq-web.log
+StandardError=append:/var/log/acadmyq-web.log
+
+[Install]
+WantedBy=multi-user.target
