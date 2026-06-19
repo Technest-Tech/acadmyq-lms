@@ -97,7 +97,7 @@ export function humanizeAction(action: string): string {
     .map((seg) =>
       seg
         .split("_")
-        .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+        .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w))
         .join(" "),
     )
     .join(" · ");
