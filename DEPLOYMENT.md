@@ -194,7 +194,7 @@ Everything lives under `.acadmyq.com`, so:
 
 - API `.env`: `SESSION_DOMAIN=.acadmyq.com`, `SESSION_SECURE_COOKIE=true`,
   `SANCTUM_STATEFUL_DOMAINS=acadmyq.com,app.acadmyq.com,*.acadmyq.com`,
-  `FRONTEND_URL=https://app.acadmyq.com`.
+  `FRONTEND_URL=https://acadmyq.com` (apex is the canonical app entry).
 - Web build: `NEXT_PUBLIC_API_URL=https://api.acadmyq.com`, `NEXT_PUBLIC_AUTH_MODE=cookie`.
 
 The session cookie is then first-party across the apex and every academy subdomain.
