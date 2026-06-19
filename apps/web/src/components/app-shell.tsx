@@ -13,6 +13,7 @@ import {
   GraduationCap,
   History,
   LayoutDashboard,
+  Lock,
   LogOut,
   Menu,
   MessageCircle,
@@ -35,7 +36,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { LocaleSwitcher } from "@/components/locale-switcher";
-import { getDaySessionCount, getNotificationsSummary } from "@/lib/api";
+import {
+  getDaySessionCount,
+  getEntitlements,
+  getNotificationsSummary,
+} from "@/lib/api";
 import { applyBranding, loadBranding } from "@/lib/branding";
 import { cn } from "@/lib/utils";
 
@@ -274,6 +279,23 @@ const NAV: ReadonlyArray<{
 
 const NAV_GROUPS = ["general", "management", "financial", "system"] as const;
 
+/**
+ * Plan-gated nav items → the entitlement capability that unlocks them (Sprint 9 §3). Unlike
+ * `permission` (which HIDES an item the role can't use), a missing capability keeps the item
+ * visible but renders it disabled with an "Upgrade" badge that links to /plan — so an academy
+ * owner can see what a higher tier offers. Items not listed here are never plan-locked. The
+ * server still enforces the gate (entitled: middleware → 402); this is UX only.
+ */
+const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
+  staff: "staff",
+  certificates: "certificates",
+  studentReports: "student_reports",
+  studentReportReviews: "student_reports",
+  invoices: "invoicing",
+  payroll: "payroll",
+  myPayroll: "payroll",
+};
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations();
   const { session, loading, can, signOut, exitAcademy, changeLocale } =
@@ -284,6 +306,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [notifCount, setNotifCount] = useState(0);
   const [srCount, setSrCount] = useState(0);
   const [attnCount, setAttnCount] = useState(0);
+  const [capabilities, setCapabilities] = useState<string[] | null>(null);
 
   useEffect(() => {
     setOpen(false);
@@ -342,6 +365,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       clearInterval(id);
     };
   }, [session, can, pathname]);
+
+  // Resolve the academy's plan entitlements so the sidebar can lock features the plan doesn't
+  // include (renders them disabled + "Upgrade" badge). Only meaningful inside an academy; a
+  // platform Super Admin (academyId null) has no plan, so leave capabilities unresolved.
+  useEffect(() => {
+    if (session === null || session.academyId === null) {
+      setCapabilities(null);
+      return;
+    }
+    let alive = true;
+    getEntitlements()
+      .then((e) => alive && setCapabilities(e.capabilities))
+      .catch(() => alive && setCapabilities(null));
+    return () => {
+      alive = false;
+    };
+  }, [session]);
 
   useEffect(() => {
     applyBranding(loadBranding());
@@ -465,19 +505,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </p>
                   <div className="space-y-0.5">
                     {groupItems.map(({ key, icon: Icon, href }) => {
+                      const requiredCap = NAV_CAPABILITY[key];
+                      const locked =
+                        requiredCap !== undefined &&
+                        capabilities !== null &&
+                        !capabilities.includes(requiredCap);
                       const isActive =
-                        pathname === href ||
-                        (!isExactOnly(href) && pathname.startsWith(href));
+                        !locked &&
+                        (pathname === href ||
+                          (!isExactOnly(href) && pathname.startsWith(href)));
                       return (
                         <Link
+                          // A locked item still renders, but routes to /plan (the upgrade page)
+                          // instead of the gated feature — the server would 402 it anyway.
                           key={key}
-                          href={href}
+                          href={locked ? "/plan" : href}
                           data-nav={key}
+                          data-locked={locked || undefined}
+                          title={locked ? t("nav.upgradeHint") : undefined}
                           className={cn(
                             "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-150",
                             isActive
                               ? "bg-primary/[0.12] font-semibold text-primary"
-                              : "font-medium text-sidebar-foreground hover:bg-sidebar-accent",
+                              : locked
+                                ? "font-medium text-sidebar-foreground/40 hover:bg-sidebar-accent/60"
+                                : "font-medium text-sidebar-foreground hover:bg-sidebar-accent",
                           )}
                         >
                           <Icon
@@ -485,44 +537,60 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                               "size-4 shrink-0 transition-colors",
                               isActive
                                 ? "text-primary"
-                                : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
+                                : locked
+                                  ? "text-sidebar-foreground/30"
+                                  : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
                             )}
                             aria-hidden
                           />
                           <span className="flex-1">{t(`nav.${key}`)}</span>
-                          {key === "notifications" && notifCount > 0 && (
+                          {locked ? (
                             <span
-                              data-testid="nav-notif-badge"
-                              aria-label={`${notifCount} new notifications`}
-                              className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+                              data-testid="nav-upgrade-badge"
+                              className="ms-auto inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
                             >
-                              {notifCount > 99 ? "99+" : notifCount}
+                              <Lock className="size-2.5" aria-hidden />
+                              {t("nav.upgradeBadge")}
                             </span>
+                          ) : (
+                            <>
+                              {key === "notifications" && notifCount > 0 && (
+                                <span
+                                  data-testid="nav-notif-badge"
+                                  aria-label={`${notifCount} new notifications`}
+                                  className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+                                >
+                                  {notifCount > 99 ? "99+" : notifCount}
+                                </span>
+                              )}
+                              {key === "attendance" && attnCount > 0 && (
+                                <span
+                                  data-testid="nav-attendance-badge"
+                                  aria-label={`${attnCount} sessions awaiting attendance today`}
+                                  className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+                                >
+                                  {attnCount > 99 ? "99+" : attnCount}
+                                </span>
+                              )}
+                              {key === "studentReportReviews" && srCount > 0 && (
+                                <span
+                                  data-testid="nav-student-reports-badge"
+                                  aria-label={`${srCount} student reports awaiting review`}
+                                  className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+                                >
+                                  {srCount > 99 ? "99+" : srCount}
+                                </span>
+                              )}
+                              {isActive &&
+                                key !== "notifications" &&
+                                !(key === "attendance" && attnCount > 0) &&
+                                !(
+                                  key === "studentReportReviews" && srCount > 0
+                                ) && (
+                                  <span className="bg-primary ms-auto size-1.5 rounded-full" />
+                                )}
+                            </>
                           )}
-                          {key === "attendance" && attnCount > 0 && (
-                            <span
-                              data-testid="nav-attendance-badge"
-                              aria-label={`${attnCount} sessions awaiting attendance today`}
-                              className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
-                            >
-                              {attnCount > 99 ? "99+" : attnCount}
-                            </span>
-                          )}
-                          {key === "studentReportReviews" && srCount > 0 && (
-                            <span
-                              data-testid="nav-student-reports-badge"
-                              aria-label={`${srCount} student reports awaiting review`}
-                              className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
-                            >
-                              {srCount > 99 ? "99+" : srCount}
-                            </span>
-                          )}
-                          {isActive &&
-                            key !== "notifications" &&
-                            !(key === "attendance" && attnCount > 0) &&
-                            !(key === "studentReportReviews" && srCount > 0) && (
-                              <span className="bg-primary ms-auto size-1.5 rounded-full" />
-                            )}
                         </Link>
                       );
                     })}

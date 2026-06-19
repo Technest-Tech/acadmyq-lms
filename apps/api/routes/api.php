@@ -344,13 +344,16 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
 
     // Student progress reports: a TEACHER submits a monthly report about one of their students
     // (student_report.submit); the OWNER reviews it on the Notifications "Student Reports" tab
-    // (student_report.review). Literal segments are declared before `{id}` so they aren't captured.
-    Route::get('/student-reports/students', [StudentProgressReportController::class, 'students']);
-    Route::get('/student-reports/review', [StudentProgressReportController::class, 'review']);
-    Route::get('/student-reports', [StudentProgressReportController::class, 'index']);
-    Route::post('/student-reports', [StudentProgressReportController::class, 'store']);
-    Route::post('/student-reports/{id}/approve', [StudentProgressReportController::class, 'approve']);
-    Route::post('/student-reports/{id}/reject', [StudentProgressReportController::class, 'reject']);
+    // (student_report.review). Plan-gated (entitled:student_reports — PRO feature); literal
+    // segments are declared before `{id}` so they aren't captured.
+    Route::middleware('entitled:student_reports')->group(function () {
+        Route::get('/student-reports/students', [StudentProgressReportController::class, 'students']);
+        Route::get('/student-reports/review', [StudentProgressReportController::class, 'review']);
+        Route::get('/student-reports', [StudentProgressReportController::class, 'index']);
+        Route::post('/student-reports', [StudentProgressReportController::class, 'store']);
+        Route::post('/student-reports/{id}/approve', [StudentProgressReportController::class, 'approve']);
+        Route::post('/student-reports/{id}/reject', [StudentProgressReportController::class, 'reject']);
+    });
 
     // Invoicing (Sprint 7 §8). `close` is declared before `{id}` to prevent Laravel treating
     // the literal string "close" as an invoice ID. Plan-gated (entitled:invoicing),

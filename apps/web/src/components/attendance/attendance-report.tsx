@@ -646,10 +646,8 @@ export function AttendanceReport({
                   type="button"
                   size="sm"
                   variant="outline"
-                  // WhatsApp sending is turned off for now — the button stays visible as a
-                  // placeholder but is disabled until the feature ships.
-                  disabled
-                  title={t("whatsappSoon")}
+                  disabled={waBusy}
+                  onClick={() => void handleSendWhatsapp()}
                   data-testid="compose-whatsapp"
                   className={cn(
                     "gap-1.5",
@@ -657,7 +655,11 @@ export function AttendanceReport({
                       "border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400",
                   )}
                 >
-                  <MessageCircle className="size-3.5" />
+                  {waBusy ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <MessageCircle className="size-3.5" />
+                  )}
                   {report.whatsapp_sent_at ? t("sentBadge") : t("sendWhatsapp")}
                 </Button>
               )}
@@ -673,6 +675,51 @@ export function AttendanceReport({
                 </Button>
               )}
             </div>
+
+            {/* WhatsApp deep-link result — preview the message, copy it, or open WhatsApp directly. */}
+            {waResult && (
+              <div
+                data-testid="whatsapp-result"
+                className="mt-3 space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-800/40 dark:bg-emerald-950/30"
+              >
+                <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+                  {t("whatsappReady")}
+                </p>
+                <pre className="bg-card/60 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border p-2.5 text-xs leading-relaxed">
+                  {waResult.text}
+                </pre>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void copyWaMessage()}
+                  >
+                    {waCopied ? (
+                      <Check className="size-3.5 text-emerald-600" aria-hidden />
+                    ) : (
+                      <Copy className="size-3.5" aria-hidden />
+                    )}
+                    {waCopied ? t("copied") : t("copyMessage")}
+                  </Button>
+                  {waResult.phone ? (
+                    <a
+                      href={waResult.deeplink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn(buttonVariants({ size: "sm" }))}
+                    >
+                      <MessageCircle className="size-3.5" aria-hidden />
+                      {t("openWhatsApp")}
+                    </a>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">
+                      {t("noPhone")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </section>
       )}

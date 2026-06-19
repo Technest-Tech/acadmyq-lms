@@ -32,7 +32,10 @@ beforeEach(function () {
     $this->seed(DemoAcademySeeder::class);
     $this->clearTenantContext();
 
-    $this->academy = $this->createAcademy(overrides: ['timezone' => 'Africa/Cairo']);
+    // Student progress reports are a PRO-gated feature (entitled:student_reports), so the
+    // academy must be on a plan that includes it.
+    $proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
+    $this->academy = $this->createAcademy(overrides: ['timezone' => 'Africa/Cairo', 'plan_id' => $proPlan]);
     $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-spr@test.local']);
 
     $this->teacherUser = $this->makeUser($this->academy, 'TEACHER', ['email' => 'teacher-spr@test.local']);
@@ -179,8 +182,9 @@ it('isolates reports across academies (RLS)', function () {
     Sanctum::actingAs($this->teacherUser);
     $this->postJson('/api/student-reports', submitReport($this->student))->assertStatus(201);
 
-    // A second academy's owner sees nothing.
-    $otherAcademy = $this->createAcademy(overrides: ['timezone' => 'Africa/Cairo']);
+    // A second academy's owner sees nothing (also on a PRO plan so the gate admits the read).
+    $proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
+    $otherAcademy = $this->createAcademy(overrides: ['timezone' => 'Africa/Cairo', 'plan_id' => $proPlan]);
     $otherOwner = $this->makeUser($otherAcademy, 'ACADEMY_OWNER', ['email' => 'owner2-spr@test.local']);
 
     Sanctum::actingAs($otherOwner);

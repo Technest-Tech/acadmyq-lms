@@ -210,9 +210,11 @@ it('returns the resolved plan capabilities, limits and current usage', function 
     Sanctum::actingAs($this->basicOwner);
     $res = $this->getJson('/api/entitlements')->assertOk();
     expect($res->json('plan'))->toBe('BASIC');
-    expect($res->json('limits.maxStudents'))->toBe(30);
+    expect($res->json('limits.maxStudents'))->toBe(25);
     expect($res->json('usage.students'))->toBe(1);
-    expect($res->json('capabilities'))->toBe([]);
+    // BASIC = core operations only (invoicing + payroll + WhatsApp automation); the PRO-only
+    // features (staff, certificates, student_reports, audit.full, report_field.custom) stay locked.
+    expect($res->json('capabilities'))->toBe(['invoicing', 'payroll', 'whatsapp.automation']);
 });
 
 // ── Plan/add-on management is Super-Admin-only (plan.manage) ──────────────────────

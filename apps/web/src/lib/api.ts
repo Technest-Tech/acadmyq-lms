@@ -2144,9 +2144,42 @@ export interface AdminDashboardStats {
   }>;
 }
 
+export interface AdminMrr {
+  currency: string;
+  amount_minor: number;
+}
+
+export interface AdminEndingSoon {
+  academy_id: string;
+  academy_name: string;
+  plan_name: string | null;
+  kind: "trial" | "renewal";
+  ends_at: string;
+  days_left: number;
+  total_cost_minor: number;
+  currency: string;
+}
+
+export interface AdminOutstanding {
+  academies: number;
+  totals: AdminMrr[];
+}
+
+export interface AdminDashboardSubscriptions {
+  endingSoon: AdminEndingSoon[];
+  endingSoonCount: number;
+  outstanding: AdminOutstanding;
+  pendingProofs: {
+    count: number;
+    items: PendingProof[];
+  };
+}
+
 export interface AdminDashboard {
   stats: AdminDashboardStats;
   recentActivity: AuditEntry[];
+  billing: { mrr: AdminMrr[] };
+  subscriptions: AdminDashboardSubscriptions;
 }
 
 export function getAdminDashboard(): Promise<AdminDashboard> {

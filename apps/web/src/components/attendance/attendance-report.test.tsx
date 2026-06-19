@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -131,27 +131,44 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
     expect(await screen.findByTestId("override-timing")).toBeInTheDocument();
   });
 
-  it("shows the WhatsApp button as a disabled placeholder for now", async () => {
+  it("composes the WhatsApp report and surfaces a deep link on click", async () => {
     const user = userEvent.setup();
-    vi.mocked(api.getSession).mockResolvedValue(
-      detail({
-        report: {
-          values: { surah_from: "Al-Imran 85" },
-          filled_by_user_id: "u1",
-          filled_at: "2026-06-01T16:00:00Z",
-          whatsapp_sent_at: null,
-          whatsapp_channel: null,
-        },
-      }),
-    );
+    const d = detail({
+      report: {
+        values: { surah_from: "Al-Imran 85" },
+        filled_by_user_id: "u1",
+        filled_at: "2026-06-01T16:00:00Z",
+        whatsapp_sent_at: null,
+        whatsapp_channel: null,
+      },
+    });
+    d.session.status = "ATTENDED"; // WhatsApp send is offered only once the lesson is attended
+    vi.mocked(api.getSession).mockResolvedValue(d);
+    vi.mocked(api.markWhatsappSent).mockResolvedValue({
+      ok: true,
+      sentAt: "2026-06-01T17:00:00Z",
+      channel: "MANUAL_WHATSAPP",
+      message: {
+        text: "📋 Session Report\n• Surah from: Al-Imran 85",
+        phone: "+201001234567",
+        deeplink: "https://wa.me/201001234567?text=hi",
+      },
+    });
     renderPanel();
 
-    // The button is present (so staff can see the feature is coming) but disabled —
-    // clicking it must not dispatch anything.
+    // The button is enabled; clicking it records the send and reveals the deep link.
     const btn = await screen.findByTestId("compose-whatsapp");
-    expect(btn).toBeDisabled();
+    expect(btn).toBeEnabled();
     await user.click(btn);
-    expect(api.markWhatsappSent).not.toHaveBeenCalled();
+
+    expect(api.markWhatsappSent).toHaveBeenCalledWith("se1");
+    const result = await screen.findByTestId("whatsapp-result");
+    expect(result).toHaveTextContent("Al-Imran 85");
+    const openLink = within(result).getByRole("link");
+    expect(openLink).toHaveAttribute(
+      "href",
+      "https://wa.me/201001234567?text=hi",
+    );
   });
 
   it("shows a success alert after recording an outcome", async () => {

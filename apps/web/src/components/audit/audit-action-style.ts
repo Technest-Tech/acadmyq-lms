@@ -1,3 +1,13 @@
+import {
+  ArrowRightLeft,
+  Banknote,
+  KeyRound,
+  Pencil,
+  Plus,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
+
 /**
  * Maps an audit `action` (e.g. "invoice.closed", "subscription.price_changed") to a tone for
  * the colour-coded status pill, and to an actor-avatar accent. The mapping is by intent
@@ -66,6 +76,32 @@ export const TONE_AVATAR: Record<AuditTone, string> = {
   auth: "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
   neutral: "bg-primary/10 text-primary",
 };
+
+export const TONE_ICON: Record<AuditTone, LucideIcon> = {
+  create: Plus,
+  update: Pencil,
+  destroy: Trash2,
+  money: Banknote,
+  auth: KeyRound,
+  neutral: ArrowRightLeft,
+};
+
+/**
+ * Turns a dotted/underscored audit action (e.g. "invoice.mark_paid") into a readable phrase
+ * ("Invoice · Mark paid"). Used by the dashboard activity feed where raw machine codes read
+ * poorly; the full audit log keeps the exact code for forensic precision.
+ */
+export function humanizeAction(action: string): string {
+  return action
+    .split(".")
+    .map((seg) =>
+      seg
+        .split("_")
+        .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+        .join(" "),
+    )
+    .join(" · ");
+}
 
 /** Two-letter initials for an actor avatar chip; falls back to a system glyph. */
 export function actorInitials(name?: string | null): string {

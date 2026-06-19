@@ -100,25 +100,27 @@ class DemoAcademySeeder extends Seeder
 
         // `plans.features` follows the Sprint-9 documented shape:
         //   { capabilities: string[], limits: { maxStudents?, maxTeachers? } }
-        // BASIC includes core billing (invoicing) but caps student/teacher counts.
-        // PRO unlocks everything and has no numeric limits. Moving a feature between tiers
-        // is an edit here — not a code change (§3.1, TC-9.5).
+        // The commercial catalog (EGP) sold in the Egyptian market:
+        //   FREE  — every feature, tiny caps (2 teachers / 5 students); time-boxed to a 5-day
+        //           trial via the subscription (config('billing.trial_days')), then it suspends.
+        //   BASIC — core operations only: invoicing + payroll + WhatsApp automation. Staff,
+        //           certificates, student reports, full audit and custom report fields are PRO.
+        //   PRO   — every feature, with generous caps (15 teachers / 60 students).
+        // Prices are in minor units (piastres): 699 EGP = 69900, 999 EGP = 99900. Moving a
+        // feature between tiers is an edit here — not a code change (§3.1, TC-9.5).
+        $allCapabilities = array_keys(\App\Support\FeatureCatalog::CAPABILITIES);
         foreach ([
-            ['code' => 'BASIC', 'name' => 'Basic', 'price_minor' => 0, 'features' => json_encode([
-                'capabilities' => ['invoicing'],
-                'limits' => ['maxStudents' => 30, 'maxTeachers' => 3],
+            ['code' => 'FREE', 'name' => 'Free', 'price_minor' => 0, 'features' => json_encode([
+                'capabilities' => $allCapabilities,
+                'limits' => ['maxStudents' => 5, 'maxTeachers' => 2],
             ])],
-            ['code' => 'PRO', 'name' => 'Pro', 'price_minor' => 4900, 'features' => json_encode([
-                'capabilities' => [
-                    'invoicing',
-                    'payroll',
-                    'certificates',
-                    'whatsapp.automation',
-                    'staff',
-                    'audit.full',
-                    'report_field.custom',
-                ],
-                'limits' => ['maxStudents' => null, 'maxTeachers' => null],
+            ['code' => 'BASIC', 'name' => 'Basic', 'price_minor' => 69900, 'features' => json_encode([
+                'capabilities' => ['invoicing', 'payroll', 'whatsapp.automation'],
+                'limits' => ['maxStudents' => 25, 'maxTeachers' => 5],
+            ])],
+            ['code' => 'PRO', 'name' => 'Pro', 'price_minor' => 99900, 'features' => json_encode([
+                'capabilities' => $allCapabilities,
+                'limits' => ['maxStudents' => 60, 'maxTeachers' => 15],
             ])],
         ] as $plan) {
             DB::table('plans')->updateOrInsert(
@@ -126,7 +128,7 @@ class DemoAcademySeeder extends Seeder
                 [
                     'name' => $plan['name'],
                     'price_minor' => $plan['price_minor'],
-                    'currency' => 'USD',
+                    'currency' => 'EGP',
                     'features' => $plan['features'],
                     'is_active' => true,
                 ]

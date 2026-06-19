@@ -43,6 +43,28 @@ it('returns platform stats and recent activity for a Super Admin', function () {
         ->toBe(DB::table('academies')->count());
 });
 
+// ── Revenue & subscription signals are bundled into the same single read ──────
+it('bundles revenue, subscription and payment-review signals', function () {
+    Sanctum::actingAs($this->admin);
+
+    $res = $this->getJson('/api/admin/dashboard')->assertOk();
+
+    $res->assertJsonStructure([
+        'billing' => ['mrr'],
+        'subscriptions' => [
+            'endingSoon',
+            'endingSoonCount',
+            'outstanding' => ['academies', 'totals'],
+            'pendingProofs' => ['count', 'items'],
+        ],
+    ]);
+
+    // The capped "ending soon" preview never exceeds its budget and is bounded by the full count.
+    expect(count($res->json('subscriptions.endingSoon')))->toBeLessThanOrEqual(8)
+        ->and($res->json('subscriptions.endingSoonCount'))
+        ->toBeGreaterThanOrEqual(count($res->json('subscriptions.endingSoon')));
+});
+
 // ── The aggregate matches the academy-status breakdown exactly ────────────────
 it('breaks academies down by status correctly', function () {
     $this->asSuperAdmin();

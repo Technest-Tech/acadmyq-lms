@@ -20,8 +20,15 @@ import { getEntitlements, type Entitlements } from "@/lib/api";
 import { formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-// PRO capabilities the platform sells; shown as "unlocked" or "locked" against the plan.
-const PRO_CAPABILITIES = ["audit.full", "report_field.custom"] as const;
+// PRO-only capabilities the platform sells; shown as "unlocked" or "locked" against the plan.
+// These are the features BASIC does not include (see DemoAcademySeeder plan catalog).
+const PRO_CAPABILITIES = [
+  "staff",
+  "certificates",
+  "student_reports",
+  "audit.full",
+  "report_field.custom",
+] as const;
 
 function UsageCard({
   icon: Icon,

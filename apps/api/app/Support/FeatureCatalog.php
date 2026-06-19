@@ -28,6 +28,7 @@ final class FeatureCatalog
         'certificates'        => 'Student certificates',
         'whatsapp.automation' => 'WhatsApp automation & notifications',
         'staff'               => 'Non-teaching staff management',
+        'student_reports'     => 'Student progress reports (teacher→owner review)',
         'audit.full'          => 'Full audit history (beyond 30 days)',
         'report_field.custom' => 'Custom report fields',
     ];

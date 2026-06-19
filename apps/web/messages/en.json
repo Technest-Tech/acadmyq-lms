@@ -29,7 +29,25 @@
       "teacherSalaries": "Teacher Salaries",
       "teacherSalariesSub": "Payroll this month",
       "netProfit": "Net Profit",
-      "netProfitSub": "After teacher salaries"
+      "netProfitSub": "After teacher salaries",
+      "slotsRemaining": "slots remaining",
+      "paidInvoices": "Paid Invoices",
+      "paidInvoicesSub": "Fully settled",
+      "avgInvoice": "Avg. Invoice",
+      "avgInvoiceSub": "Per invoice billed"
+    },
+    "hero": {
+      "subtitle": "Here's a live overview of your academy today.",
+      "live": "Live"
+    },
+    "sections": {
+      "metrics": "Key Metrics",
+      "metricsDesc": "Your academy at a glance",
+      "operations": "Operations",
+      "operationsDesc": "This week's lessons and what needs your attention"
+    },
+    "empty": {
+      "noData": "No data available yet"
     },
     "greeting": {
       "morning": "Good morning",
@@ -38,6 +56,7 @@
     },
     "finance": {
       "title": "Financial Overview",
+      "subtitle": "Revenue, collections and profitability",
       "revenueChart": "Revenue vs Payouts — 6 months",
       "viewAll": "View all",
       "billed": "Total Billed",
@@ -50,7 +69,10 @@
     },
     "week": {
       "title": "This Week's Lessons",
-      "viewCalendar": "Full calendar"
+      "viewCalendar": "Full calendar",
+      "total": "Total",
+      "done": "Done",
+      "scheduled": "Scheduled"
     },
     "trials": {
       "title": "This Week's Trials",
@@ -71,6 +93,7 @@
     },
     "actions": {
       "title": "Quick Actions",
+      "subtitle": "Jump straight to what you need",
       "addStudent": "Add Student",
       "addStudentDesc": "Enrol a new student",
       "markAttendance": "Mark Attendance",
@@ -124,7 +147,9 @@
     "adminSubscriptions": "Subscriptions",
     "adminAutomation": "Automation",
     "platformSettings": "Platform Settings",
-    "roles": "Roles & Permissions"
+    "roles": "Roles & Permissions",
+    "upgradeBadge": "Upgrade",
+    "upgradeHint": "Upgrade your plan to unlock this feature"
   },
   "navGroup": {
     "general": "General",
@@ -1192,6 +1217,9 @@
     "whatsappTitle": "WhatsApp report",
     "compose": "Compose & mark sent",
     "openWhatsApp": "Open WhatsApp",
+    "whatsappReady": "WhatsApp message ready — copy it or open WhatsApp directly.",
+    "copyMessage": "Copy message",
+    "noPhone": "No WhatsApp number on file for this guardian.",
     "copy": "Copy text",
     "copied": "Copied",
     "sentAt": "Sent {at}",
@@ -1404,6 +1432,9 @@
     "upgradeBody": "Your current plan does not include these features. Upgrade to unlock them for your academy.",
     "upgradeCta": "Upgrade plan",
     "feature": {
+      "staff": "Staff management",
+      "certificates": "Certificates",
+      "student_reports": "Student progress reports",
       "audit": {
         "full": "Full audit history"
       },
@@ -1411,7 +1442,8 @@
         "custom": "Custom report fields"
       },
       "whatsapp": {
-        "auto": "Automated WhatsApp"
+        "auto": "Automated WhatsApp",
+        "automation": "WhatsApp automation"
       },
       "payments": {
         "gateway": "Payment gateway"
@@ -1439,8 +1471,28 @@
     "recentActivity": "Recent activity",
     "viewAllActivity": "View full audit log",
     "noActivity": "No activity recorded yet.",
+    "systemActor": "System",
     "manageAcademies": "Manage academies",
-    "managePlans": "Manage plans"
+    "managePlans": "Manage plans",
+    "manageBilling": "Manage billing",
+    "mrr": "Monthly revenue",
+    "mrrSub": "Recurring across active academies",
+    "outstanding": "Outstanding",
+    "outstandingSub": "{count, plural, =0 {All bills settled} one {# academy owes} other {# academies owe}}",
+    "pendingReviews": "Payment reviews",
+    "pendingReviewsSub": "Proofs awaiting approval",
+    "endingSoon": "Ending soon",
+    "endingSoonSub": "Within the next {days} days",
+    "endingSoonTitle": "Subscriptions ending soon",
+    "noEndingSoon": "No subscriptions or trials ending soon.",
+    "kindTrial": "Trial",
+    "kindRenewal": "Renewal",
+    "overdueBy": "{count, plural, one {# day overdue} other {# days overdue}}",
+    "endsToday": "Ends today",
+    "inDays": "{count, plural, one {in # day} other {in # days}}",
+    "paymentsTitle": "Payments to review",
+    "reviewQueue": "Review queue",
+    "noPayments": "No payment proofs awaiting review."
   },
   "roleEditor": {
     "title": "Roles & Permissions",
@@ -1579,21 +1631,35 @@
     }
   },
   "planAdmin": {
-    "title": "Plans & Add-ons",
-    "subtitle": "The platform revenue model — plans, limits, and unlockable capabilities.",
+    "title": "Plans",
+    "subtitle": "Manage pricing tiers, limits, and feature entitlements — and see how academies are distributed across them.",
     "noPermission": "You don't have permission to manage plans.",
     "loadError": "Could not load the plan catalog. Please try again.",
-    "plansHeading": "Plans",
-    "addOnsHeading": "Add-ons",
+    "toggleError": "Could not update the plan. Please try again.",
     "perMonth": "/ month",
     "maxStudents": "Max students",
     "maxTeachers": "Max teachers",
     "capabilities": "Included features",
-    "coreOnly": "Core features only",
     "unlimited": "Unlimited",
+    "active": "Active",
     "inactive": "Inactive",
+    "activate": "Activate plan",
+    "deactivate": "Deactivate plan",
     "noPlans": "No plans defined yet.",
-    "noAddOns": "No add-ons defined yet.",
+    "planColumn": "Plan",
+    "comparison": "Plan comparison",
+    "limitsSection": "Limits",
+    "capabilitiesSection": "Features",
+    "academiesCount": "{count, plural, =0 {No academies} one {# academy} other {# academies}}",
+    "statPlans": "Plans",
+    "statActive": "{count} active",
+    "statAcademies": "Academies",
+    "statTrialActive": "{active} active · {trial} trial",
+    "statMrr": "Est. monthly revenue",
+    "statMrrHint": "From subscribed academies",
+    "statMrrMore": "+{count} more {count, plural, one {currency} other {currencies}}",
+    "statTopPlan": "Most popular",
+    "statNoAcademies": "No subscriptions yet",
     "form": {
       "newPlan": "New plan",
       "editPlan": "Edit plan",

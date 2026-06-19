@@ -9,8 +9,10 @@ declare(strict_types=1);
 */
 return [
 
-    // Default free-trial length for a new academy subscription (days).
-    'trial_days' => (int) env('BILLING_TRIAL_DAYS', 14),
+    // Default free-trial length for a new academy subscription (days). The FREE plan is sold as
+    // a 5-day, full-feature trial; on expiry the subscription pauses (and per
+    // 'trial_expiry_suspends' the academy is suspended) until it converts to BASIC/PRO.
+    'trial_days' => (int) env('BILLING_TRIAL_DAYS', 5),
 
     // On trial expiry, also SUSPEND the academy (blocks login until they convert/pay). When
     // false, the trial is only flagged (subscription PAUSED) and the academy keeps access.

@@ -29,7 +29,25 @@
       "teacherSalaries": "رواتب المعلمين",
       "teacherSalariesSub": "الرواتب هذا الشهر",
       "netProfit": "صافي الربح",
-      "netProfitSub": "بعد رواتب المعلمين"
+      "netProfitSub": "بعد رواتب المعلمين",
+      "slotsRemaining": "مقعد متبقٍّ",
+      "paidInvoices": "فواتير مدفوعة",
+      "paidInvoicesSub": "مسددة بالكامل",
+      "avgInvoice": "متوسط الفاتورة",
+      "avgInvoiceSub": "لكل فاتورة"
+    },
+    "hero": {
+      "subtitle": "نظرة حية على أكاديميتك اليوم.",
+      "live": "مباشر"
+    },
+    "sections": {
+      "metrics": "المؤشرات الرئيسية",
+      "metricsDesc": "أكاديميتك في لمحة",
+      "operations": "العمليات",
+      "operationsDesc": "دروس هذا الأسبوع وما يحتاج إلى انتباهك"
+    },
+    "empty": {
+      "noData": "لا توجد بيانات بعد"
     },
     "greeting": {
       "morning": "صباح الخير",
@@ -38,6 +56,7 @@
     },
     "finance": {
       "title": "النظرة المالية",
+      "subtitle": "الإيرادات والتحصيل والربحية",
       "revenueChart": "الإيرادات مقابل الرواتب — 6 أشهر",
       "viewAll": "عرض الكل",
       "billed": "إجمالي الفواتير",
@@ -50,7 +69,10 @@
     },
     "week": {
       "title": "دروس هذا الأسبوع",
-      "viewCalendar": "التقويم الكامل"
+      "viewCalendar": "التقويم الكامل",
+      "total": "الإجمالي",
+      "done": "مكتملة",
+      "scheduled": "مجدولة"
     },
     "trials": {
       "title": "تجارب هذا الأسبوع",
@@ -71,6 +93,7 @@
     },
     "actions": {
       "title": "الإجراءات السريعة",
+      "subtitle": "انتقل مباشرةً إلى ما تحتاجه",
       "addStudent": "إضافة طالب",
       "addStudentDesc": "تسجيل طالب جديد",
       "markAttendance": "تسجيل الحضور",
@@ -124,7 +147,9 @@
     "adminSubscriptions": "الاشتراكات",
     "adminAutomation": "الأتمتة",
     "platformSettings": "إعدادات المنصة",
-    "roles": "الأدوار والصلاحيات"
+    "roles": "الأدوار والصلاحيات",
+    "upgradeBadge": "ترقية",
+    "upgradeHint": "قم بترقية باقتك لفتح هذه الميزة"
   },
   "navGroup": {
     "general": "عام",
@@ -1192,6 +1217,9 @@
     "whatsappTitle": "تقرير واتساب",
     "compose": "إنشاء وتعليم كمُرسَل",
     "openWhatsApp": "فتح واتساب",
+    "whatsappReady": "رسالة واتساب جاهزة — انسخها أو افتح واتساب مباشرة.",
+    "copyMessage": "نسخ الرسالة",
+    "noPhone": "لا يوجد رقم واتساب مسجَّل لولي الأمر.",
     "copy": "نسخ النص",
     "copied": "تم النسخ",
     "sentAt": "أُرسل {at}",
@@ -1404,6 +1432,9 @@
     "upgradeBody": "باقتك الحالية لا تتضمّن هذه الميزات. قم بالترقية لفتحها لأكاديميتك.",
     "upgradeCta": "ترقية الباقة",
     "feature": {
+      "staff": "إدارة الموظفين",
+      "certificates": "الشهادات",
+      "student_reports": "تقارير تقدّم الطلاب",
       "audit": {
         "full": "السجل الكامل للتدقيق"
       },
@@ -1411,7 +1442,8 @@
         "custom": "حقول تقارير مخصّصة"
       },
       "whatsapp": {
-        "auto": "واتساب آلي"
+        "auto": "واتساب آلي",
+        "automation": "أتمتة واتساب"
       },
       "payments": {
         "gateway": "بوابة الدفع"
@@ -1439,8 +1471,28 @@
     "recentActivity": "النشاط الأخير",
     "viewAllActivity": "عرض سجل التدقيق كاملاً",
     "noActivity": "لا يوجد نشاط مسجَّل بعد.",
+    "systemActor": "النظام",
     "manageAcademies": "إدارة الأكاديميات",
-    "managePlans": "إدارة الباقات"
+    "managePlans": "إدارة الباقات",
+    "manageBilling": "إدارة الفوترة",
+    "mrr": "الإيراد الشهري",
+    "mrrSub": "متكرّر عبر الأكاديميات النشطة",
+    "outstanding": "مستحقات",
+    "outstandingSub": "{count, plural, =0 {كل الفواتير مسدَّدة} zero {لا مستحقات} one {أكاديمية واحدة مدينة} two {أكاديميتان مدينتان} few {# أكاديميات مدينة} many {# أكاديمية مدينة} other {# أكاديمية مدينة}}",
+    "pendingReviews": "مراجعات الدفع",
+    "pendingReviewsSub": "إثباتات بانتظار الموافقة",
+    "endingSoon": "تنتهي قريبًا",
+    "endingSoonSub": "خلال الـ {days} يومًا القادمة",
+    "endingSoonTitle": "اشتراكات تنتهي قريبًا",
+    "noEndingSoon": "لا اشتراكات أو فترات تجريبية تنتهي قريبًا.",
+    "kindTrial": "تجريبي",
+    "kindRenewal": "تجديد",
+    "overdueBy": "{count, plural, zero {متأخر} one {متأخر يومًا واحدًا} two {متأخر يومين} few {متأخر # أيام} many {متأخر # يومًا} other {متأخر # يومًا}}",
+    "endsToday": "تنتهي اليوم",
+    "inDays": "{count, plural, zero {اليوم} one {خلال يوم} two {خلال يومين} few {خلال # أيام} many {خلال # يومًا} other {خلال # يومًا}}",
+    "paymentsTitle": "مدفوعات للمراجعة",
+    "reviewQueue": "قائمة المراجعة",
+    "noPayments": "لا إثباتات دفع بانتظار المراجعة."
   },
   "roleEditor": {
     "title": "الأدوار والصلاحيات",
@@ -1579,21 +1631,35 @@
     }
   },
   "planAdmin": {
-    "title": "الباقات والإضافات",
-    "subtitle": "نموذج إيرادات المنصة — الباقات والحدود والقدرات القابلة للفتح.",
+    "title": "الباقات",
+    "subtitle": "إدارة الباقات والحدود وصلاحيات الميزات — ومتابعة توزيع الأكاديميات عليها.",
     "noPermission": "ليس لديك صلاحية لإدارة الباقات.",
     "loadError": "تعذّر تحميل كتالوج الباقات. يُرجى المحاولة مرة أخرى.",
-    "plansHeading": "الباقات",
-    "addOnsHeading": "الإضافات",
+    "toggleError": "تعذّر تحديث الباقة. يُرجى المحاولة مرة أخرى.",
     "perMonth": "/ شهرياً",
     "maxStudents": "أقصى عدد طلاب",
     "maxTeachers": "أقصى عدد معلمين",
     "capabilities": "الميزات المتضمّنة",
-    "coreOnly": "الميزات الأساسية فقط",
     "unlimited": "غير محدود",
+    "active": "مُفعّلة",
     "inactive": "غير مُفعّلة",
+    "activate": "تفعيل الباقة",
+    "deactivate": "إيقاف الباقة",
     "noPlans": "لا توجد باقات معرّفة بعد.",
-    "noAddOns": "لا توجد إضافات معرّفة بعد.",
+    "planColumn": "الباقة",
+    "comparison": "مقارنة الباقات",
+    "limitsSection": "الحدود",
+    "capabilitiesSection": "الميزات",
+    "academiesCount": "{count, plural, =0 {لا أكاديميات} one {أكاديمية واحدة} two {أكاديميتان} few {# أكاديميات} many {# أكاديمية} other {# أكاديمية}}",
+    "statPlans": "الباقات",
+    "statActive": "{count} مُفعّلة",
+    "statAcademies": "الأكاديميات",
+    "statTrialActive": "{active} نشطة · {trial} تجريبية",
+    "statMrr": "الإيراد الشهري التقديري",
+    "statMrrHint": "من الأكاديميات المشتركة",
+    "statMrrMore": "+{count} عملات أخرى",
+    "statTopPlan": "الأكثر شيوعاً",
+    "statNoAcademies": "لا اشتراكات بعد",
     "form": {
       "newPlan": "باقة جديدة",
       "editPlan": "تعديل الباقة",

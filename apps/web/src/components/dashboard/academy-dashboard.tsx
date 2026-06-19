@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  Activity,
   ArrowRight,
+  ArrowUpRight,
   BarChart3,
   BookOpen,
   CalendarDays,
@@ -11,13 +13,17 @@ import {
   FlaskConical,
   GraduationCap,
   LayoutDashboard,
+  Minus,
   ReceiptText,
   RefreshCw,
   Sparkles,
   Timer,
+  TrendingDown,
+  TrendingUp,
   Users,
   Wallet,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
@@ -212,13 +218,13 @@ function RevenueBarChart({ data, locale }: { data: MonthPoint[]; locale: string 
           );
         })}
       </svg>
-      <div className="mt-2 flex items-center gap-4">
-        <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-          <span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />
+      <div className="mt-2 flex items-center gap-5 text-xs font-medium text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
           Revenue
         </span>
-        <span className="flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
-          <span className="h-2.5 w-2.5 rounded-sm bg-rose-500" />
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-rose-500" />
           Payouts
         </span>
       </div>
@@ -392,7 +398,7 @@ function WeeklyBars({ sessions, locale }: { sessions: CalendarSession[]; locale:
               {d.pending > 0 && (() => { yOffset -= pendingH; return <rect key="p" x={cx - barW / 2} y={yOffset} width={barW} height={pendingH} rx={2} fill="#3b82f6" opacity={0.85} />; })()}
               {d.cancelled > 0 && (() => { yOffset -= cancelledH; return <rect key="x" x={cx - barW / 2} y={yOffset} width={barW} height={cancelledH} rx={2} fill="#94a3b8" opacity={0.6} />; })()}
               {d.total > 0 && (
-                <text x={cx} y={PT + chartH - totalH - 3} textAnchor="middle" fontSize={8} fontWeight="600" fill="currentColor" fillOpacity={0.7}>{d.total}</text>
+                <text x={cx} y={PT + chartH - totalH - 3} textAnchor="middle" fontSize={8} fontWeight="600" fill="currentColor" fillOpacity={0.7}>{formatNumber(d.total, locale)}</text>
               )}
               <text x={cx} y={H - 7} textAnchor="middle" fontSize={8} fill="currentColor" fillOpacity={d.isToday ? 0.9 : 0.38} fontWeight={d.isToday ? "700" : "400"}>
                 {d.label}
@@ -401,15 +407,15 @@ function WeeklyBars({ sessions, locale }: { sessions: CalendarSession[]; locale:
           );
         })}
       </svg>
-      <div className="mt-2 flex items-center gap-3">
-        <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-          <span className="h-2 w-2 rounded-sm bg-emerald-500" /> Done
+      <div className="mt-2 flex items-center gap-4 text-[11px] font-medium text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" /> Done
         </span>
-        <span className="flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
-          <span className="h-2 w-2 rounded-sm bg-blue-500" /> Scheduled
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-blue-500" /> Scheduled
         </span>
-        <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
-          <span className="h-2 w-2 rounded-sm bg-slate-400" /> Cancelled
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-slate-400" /> Cancelled
         </span>
       </div>
     </div>
@@ -469,20 +475,42 @@ function RingGauge({
   );
 }
 
-// ── KPI gradient card ──────────────────────────────────────────────────────────
+// ── Trend delta badge ──────────────────────────────────────────────────────────
 
-interface KpiCardProps {
-  icon: React.ReactNode;
+function TrendBadge({ delta }: { delta: number }) {
+  const flat = Math.abs(delta) < 0.05;
+  const up = delta >= 0;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+        flat
+          ? "bg-muted text-muted-foreground"
+          : up
+            ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400"
+            : "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400",
+      )}
+    >
+      {flat ? <Minus className="h-3 w-3" /> : up ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+      {Math.abs(delta).toFixed(1)}%
+    </span>
+  );
+}
+
+// ── Sleek SaaS stat card ─────────────────────────────────────────────────────────
+
+interface StatCardProps {
+  Icon: LucideIcon;
+  color: string;
   label: string;
   value: number | null;
   sub?: string;
   loading: boolean;
-  gradient: string;
-  iconBg: string;
   href?: string;
-  pulse?: boolean;
+  alert?: boolean;
+  trend?: number | null;
+  spark?: boolean;
   sparkData?: number[];
-  sparkColor?: string;
   progress?: number;
   progressLabel?: string;
   isMoney?: boolean;
@@ -491,74 +519,81 @@ interface KpiCardProps {
   locale: string;
 }
 
-function KpiCard({
-  icon, label, value, sub, loading, gradient, iconBg, href, pulse,
-  sparkData, sparkColor, progress, progressLabel, isMoney,
+function StatCard({
+  Icon, color, label, value, sub, loading, href, alert,
+  trend, spark, sparkData, progress, progressLabel, isMoney,
   moneyAmount, moneyCurrency, locale,
-}: KpiCardProps) {
+}: StatCardProps) {
+  const c = COLORS[color] ?? COLORS.slate!;
+  const showSpark = !loading && spark && sparkData && sparkData.length > 1;
   const inner = (
-    <div className={cn(
-      "group relative overflow-hidden rounded-2xl p-5 shadow-md transition-all duration-300",
-      gradient,
-      href && "cursor-pointer hover:-translate-y-0.5 hover:shadow-xl",
-    )}>
-      {/* Decorative blobs */}
-      <div className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full bg-white/10 blur-2xl" />
-      <div className="pointer-events-none absolute -bottom-8 -left-4 h-20 w-20 rounded-full bg-black/10 blur-xl" />
-
-      {/* Sparkline bg */}
-      {sparkData && sparkColor && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 opacity-40">
-          <Sparkline data={sparkData} color={sparkColor} className="h-full w-full" />
-        </div>
+    <div
+      className={cn(
+        "group relative flex h-full flex-col overflow-hidden rounded-xl border bg-card p-4 shadow-sm transition-all duration-200",
+        href && "hover:-translate-y-0.5 hover:shadow-lg",
+        alert && "ring-1 ring-amber-300/70 dark:ring-amber-600/50",
       )}
+    >
+      {/* accent stripe + colored glow + vector watermark */}
+      <div className={cn("absolute inset-x-0 top-0 h-1 bg-gradient-to-r", c.stripe)} />
+      <div className={cn("pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full blur-3xl transition-transform duration-500 group-hover:scale-125", c.glow)} />
+      <Icon
+        className="pointer-events-none absolute -bottom-4 -right-3 h-24 w-24 text-foreground/[0.03] dark:text-foreground/[0.05]"
+        strokeWidth={1.25}
+        aria-hidden
+      />
 
-      <div className="relative flex items-start justify-between">
-        <span className={cn("flex h-10 w-10 items-center justify-center rounded-xl shadow", iconBg)}>
-          {icon}
+      <div className="relative flex items-start justify-between pt-0.5">
+        <span className={cn("flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-md", c.chip)}>
+          <Icon className="h-5 w-5" />
         </span>
         <div className="flex items-center gap-2">
-          {pulse && (
-            <span className="relative flex h-2.5 w-2.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-60" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
-            </span>
-          )}
-          {href && <ArrowRight className="h-4 w-4 text-white/50 opacity-0 transition-opacity group-hover:opacity-100" />}
+          {!loading && trend != null && <TrendBadge delta={trend} />}
+          {href && <ArrowUpRight className="h-4 w-4 text-muted-foreground/40 transition-colors group-hover:text-foreground/70" />}
         </div>
       </div>
 
-      <div className="relative mt-4">
+      <div className="relative mt-3.5">
         {loading ? (
           <>
-            <Sk className="mb-2 h-9 w-24 bg-white/20" />
-            <Sk className="h-3.5 w-32 bg-white/15" />
+            <Sk className="mb-2 h-8 w-24" />
+            <Sk className="h-3.5 w-28" />
           </>
         ) : (
           <>
-            <p className="text-3xl font-bold tracking-tight text-white">
+            <p className="text-2xl font-bold tracking-tight tabular-nums">
               {isMoney && moneyAmount !== undefined && moneyCurrency
                 ? formatMoney({ amount: moneyAmount, currency: moneyCurrency }, locale)
                 : value !== null
                   ? <CountUp value={value} locale={locale} />
                   : "—"}
             </p>
-            <p className="mt-1 text-sm font-medium text-white/90">{label}</p>
-            {sub && <p className="mt-0.5 text-xs text-white/75">{sub}</p>}
-            {progress !== undefined && (
-              <div className="mt-3">
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
-                  <div className="h-full rounded-full bg-white/70 transition-all duration-700" style={{ width: `${progress}%` }} />
-                </div>
-                {progressLabel && <p className="mt-1 text-[10px] text-white/70">{progressLabel}</p>}
-              </div>
-            )}
+            <p className="mt-0.5 text-sm font-semibold text-foreground/80">{label}</p>
+            {sub && <p className={cn("mt-0.5 text-xs font-medium", c.text)}>{sub}</p>}
           </>
         )}
       </div>
+
+      {!loading && progress !== undefined && (
+        <div className="relative mt-3">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn("h-full rounded-full bg-gradient-to-r transition-all duration-700", progress >= 90 ? "from-rose-500 to-red-500" : c.stripe)}
+              style={{ width: `${Math.min(progress, 100)}%` }}
+            />
+          </div>
+          {progressLabel && <p className="mt-1.5 text-[11px] text-muted-foreground">{progressLabel}</p>}
+        </div>
+      )}
+
+      {showSpark && (
+        <div className="relative -mx-4 -mb-4 mt-3 h-10 opacity-90">
+          <Sparkline data={sparkData!} color={c.spark} className="h-full w-full" />
+        </div>
+      )}
     </div>
   );
-  return href ? <Link href={href}>{inner}</Link> : inner;
+  return href ? <Link href={href} className="block h-full">{inner}</Link> : inner;
 }
 
 // ── Pending session row ────────────────────────────────────────────────────────
@@ -597,49 +632,45 @@ function PendingRow({ session, locale }: { session: PendingSession; locale: stri
 
 function ActionCard({
   href,
-  icon,
+  Icon,
+  color,
   label,
   desc,
-  gradient,
   badge,
 }: {
   href: string;
-  icon: React.ReactNode;
+  Icon: LucideIcon;
+  color: string;
   label: string;
   desc: string;
-  gradient: string;
   badge?: number;
 }) {
+  const c = COLORS[color] ?? COLORS.slate!;
   return (
     <Link
       href={href}
-      className="group relative flex flex-col gap-4 overflow-hidden rounded-2xl border bg-card p-5 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg"
+      className="group relative flex items-center gap-3 overflow-hidden rounded-xl border bg-card p-3.5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
     >
-      {/* Top gradient stripe */}
-      <div className={cn("absolute inset-x-0 top-0 h-1 rounded-t-2xl", gradient)} />
-
-      <div className="flex items-start justify-between pt-1">
-        <span className={cn("flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-200 group-hover:scale-110", gradient, "shadow-sm")}>
-          {icon}
+      <div className={cn("pointer-events-none absolute -left-6 -top-6 h-16 w-16 rounded-full blur-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100", c.glow)} />
+      <span className={cn("relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-md transition-transform duration-200 group-hover:scale-110", c.chip)}>
+        <Icon className="h-5 w-5" />
+      </span>
+      <div className="relative min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold">{label}</p>
+        <p className="truncate text-xs text-muted-foreground">{desc}</p>
+      </div>
+      {badge !== undefined && badge > 0 ? (
+        <span className="relative flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white shadow-sm">
+          {badge > 99 ? "99+" : badge}
         </span>
-        {badge !== undefined && badge > 0 && (
-          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white">
-            {badge > 99 ? "99+" : badge}
-          </span>
-        )}
-      </div>
-      <div>
-        <p className="font-semibold">{label}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
-      </div>
-      <div className="flex items-center gap-1 text-xs font-medium text-primary">
-        Open <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-      </div>
+      ) : (
+        <ArrowRight className="relative h-4 w-4 shrink-0 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-foreground/70" />
+      )}
     </Link>
   );
 }
 
-// ── Section header ─────────────────────────────────────────────────────────────
+// ── Section header (inside cards) ────────────────────────────────────────────────
 
 function SectionHeader({
   icon,
@@ -652,14 +683,82 @@ function SectionHeader({
 }) {
   return (
     <div className="flex items-center justify-between">
-      <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">
+      <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {icon}
         {title}
-      </h2>
+      </h3>
       {action}
     </div>
   );
 }
+
+// ── Section title (page-level group heading) ─────────────────────────────────────
+
+function SectionTitle({
+  Icon,
+  color = "violet",
+  title,
+  desc,
+  action,
+}: {
+  Icon?: LucideIcon;
+  color?: string;
+  title: string;
+  desc?: string;
+  action?: React.ReactNode;
+}) {
+  const c = COLORS[color] ?? COLORS.violet!;
+  return (
+    <div className="flex items-end justify-between gap-4">
+      <div className="flex items-center gap-2.5">
+        {Icon && (
+          <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm", c.chip)}>
+            <Icon className="h-4 w-4" />
+          </span>
+        )}
+        <div>
+          <h2 className="text-base font-bold tracking-tight">{title}</h2>
+          {desc && <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>}
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function ViewAllLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link href={href} className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
+      {label} <ArrowRight className="h-3 w-3" />
+    </Link>
+  );
+}
+
+// ── Color system — vivid gradient chips, accent stripes, glows & sparkline hues ───
+
+interface ColorDef {
+  chip: string;   // gradient bg for the icon chip (white icon on top)
+  stripe: string; // gradient for the top accent stripe
+  glow: string;   // blurred decorative blob tint
+  text: string;   // accent text colour
+  spark: string;  // sparkline stroke/fill hex
+}
+
+const COLORS: Record<string, ColorDef> = {
+  emerald: { chip: "from-emerald-500 to-teal-500", stripe: "from-emerald-500 to-teal-500", glow: "bg-emerald-500/20", text: "text-emerald-600 dark:text-emerald-400", spark: "#10b981" },
+  green: { chip: "from-green-500 to-emerald-500", stripe: "from-green-500 to-emerald-500", glow: "bg-green-500/20", text: "text-green-600 dark:text-green-400", spark: "#22c55e" },
+  teal: { chip: "from-teal-500 to-cyan-500", stripe: "from-teal-500 to-cyan-500", glow: "bg-teal-500/20", text: "text-teal-600 dark:text-teal-400", spark: "#14b8a6" },
+  cyan: { chip: "from-cyan-500 to-sky-500", stripe: "from-cyan-500 to-sky-500", glow: "bg-cyan-500/20", text: "text-cyan-600 dark:text-cyan-400", spark: "#06b6d4" },
+  sky: { chip: "from-sky-500 to-blue-500", stripe: "from-sky-500 to-blue-500", glow: "bg-sky-500/20", text: "text-sky-600 dark:text-sky-400", spark: "#0ea5e9" },
+  blue: { chip: "from-blue-500 to-indigo-500", stripe: "from-blue-500 to-indigo-500", glow: "bg-blue-500/20", text: "text-blue-600 dark:text-blue-400", spark: "#3b82f6" },
+  indigo: { chip: "from-indigo-500 to-violet-500", stripe: "from-indigo-500 to-violet-500", glow: "bg-indigo-500/20", text: "text-indigo-600 dark:text-indigo-400", spark: "#6366f1" },
+  violet: { chip: "from-violet-500 to-purple-500", stripe: "from-violet-500 to-purple-500", glow: "bg-violet-500/20", text: "text-violet-600 dark:text-violet-400", spark: "#8b5cf6" },
+  fuchsia: { chip: "from-fuchsia-500 to-pink-500", stripe: "from-fuchsia-500 to-pink-500", glow: "bg-fuchsia-500/20", text: "text-fuchsia-600 dark:text-fuchsia-400", spark: "#d946ef" },
+  amber: { chip: "from-amber-500 to-orange-500", stripe: "from-amber-500 to-orange-500", glow: "bg-amber-500/20", text: "text-amber-600 dark:text-amber-400", spark: "#f59e0b" },
+  orange: { chip: "from-orange-500 to-red-500", stripe: "from-orange-500 to-red-500", glow: "bg-orange-500/20", text: "text-orange-600 dark:text-orange-400", spark: "#f97316" },
+  rose: { chip: "from-rose-500 to-pink-500", stripe: "from-rose-500 to-pink-500", glow: "bg-rose-500/20", text: "text-rose-600 dark:text-rose-400", spark: "#f43f5e" },
+  slate: { chip: "from-slate-500 to-slate-600", stripe: "from-slate-400 to-slate-500", glow: "bg-slate-500/20", text: "text-slate-600 dark:text-slate-300", spark: "#64748b" },
+};
 
 // ── Main dashboard ─────────────────────────────────────────────────────────────
 
@@ -823,6 +922,16 @@ export function AcademyDashboard() {
     : 0;
   const revSparkData = useMemo(() => profitMonths.map((p) => p.revenue), [profitMonths]);
 
+  // Month-over-month revenue change — drives the trend badge on the revenue analytics card.
+  // Null when there is no prior month with revenue to compare against (avoids divide-by-zero
+  // and misleading "+100%" deltas from an empty baseline).
+  const revenueTrend = useMemo<number | null>(() => {
+    const cur = profitMonths[profitMonths.length - 1];
+    const prev = profitMonths[profitMonths.length - 2];
+    if (!cur || !prev || prev.revenue <= 0) return null;
+    return ((cur.revenue - prev.revenue) / prev.revenue) * 100;
+  }, [profitMonths]);
+
   // Total hours this month. A teacher sees only the hours they have actually taught so
   // far (ATTENDED), not future scheduled lessons. Owners keep the planned-hours view
   // (every non-cancelled, non-rescheduled lesson in the month).
@@ -859,6 +968,16 @@ export function AcademyDashboard() {
     () => (monthProfit ?? []).filter((r) => r.revenue_minor > 0 || r.payouts_minor > 0),
     [monthProfit],
   );
+  // Money cards always render (per product choice) even before any invoice exists. When there is
+  // no invoice bucket to read a currency from, fall back to the academy's payout/earnings currency
+  // so the placeholder "0" still formats sensibly instead of guessing a hard-coded currency.
+  const fallbackCurrency =
+    bucket?.currency ??
+    monthProfit?.find((r) => r.currency)?.currency ??
+    myEarnings?.currency ??
+    "USD";
+  const canInvoice = can("invoice.view");
+  const invoiceCount = invoiceSummary?.counts.all ?? 0;
   const studentLimit = entitlements?.limits?.students ?? null;
   const teacherLimit = entitlements?.limits?.teachers ?? null;
   const studentUsage = entitlements?.usage?.students ?? studentsTotal ?? 0;
@@ -883,513 +1002,469 @@ export function AcademyDashboard() {
   if (onPlatform) return null;
 
   return (
-    <div className="space-y-8">
-      {/* ── Header ── */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <LayoutDashboard className="h-5 w-5 text-muted-foreground" />
-            <h1 className="text-2xl font-bold tracking-tight">
+    <div className="space-y-5 pb-4">
+      {/* ── Hero header ── */}
+      <header className="relative overflow-hidden rounded-2xl border border-transparent bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 p-6 text-white shadow-lg sm:p-7">
+        {/* Vector flourishes: dot grid + glowing orbs */}
+        <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.18]" aria-hidden>
+          <defs>
+            <pattern id="hero-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+              <circle cx="1.5" cy="1.5" r="1.5" fill="white" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#hero-dots)" />
+        </svg>
+        <div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full bg-white/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 left-1/4 h-48 w-48 rounded-full bg-fuchsia-400/30 blur-3xl" />
+        <div className="pointer-events-none absolute -right-6 bottom-0 opacity-10">
+          <GraduationCap className="h-40 w-40" strokeWidth={1} />
+        </div>
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-xs font-medium text-white/80">
+              <LayoutDashboard className="h-3.5 w-3.5" />
+              <span>{dateLabel}</span>
+            </div>
+            <h1 className="mt-1.5 truncate text-2xl font-bold tracking-tight drop-shadow-sm sm:text-[1.7rem]">
               {greeting}, {session?.user.fullName?.split(" ")[0] ?? "—"} 👋
             </h1>
+            <p className="mt-1 text-sm text-white/85">{t("hero.subtitle")}</p>
           </div>
-          <p className="mt-0.5 text-sm text-muted-foreground">{dateLabel}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {planName && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-500 to-purple-600 px-3 py-1 text-xs font-bold text-white shadow-sm">
-              <Sparkles className="h-3 w-3" />
-              {planName}
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/15 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300 opacity-70" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-300" />
+              </span>
+              {t("hero.live")}
             </span>
-          )}
-          <button
-            onClick={() => void refresh()}
-            disabled={refreshing}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border bg-card text-muted-foreground transition-colors hover:bg-muted"
-            title="Refresh"
-          >
-            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-          </button>
+            {planName && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/30 bg-white px-2.5 py-1 text-xs font-bold text-violet-700 shadow-sm">
+                <Sparkles className="h-3 w-3" />
+                {planName}
+              </span>
+            )}
+            <button
+              onClick={() => void refresh()}
+              disabled={refreshing}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/25 bg-white/15 text-white backdrop-blur-sm transition-colors hover:bg-white/25 disabled:opacity-60"
+              title="Refresh"
+            >
+              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
 
       <SubscriptionBanner />
 
-      {/* ── KPI Cards — up to 8, 4-per-row ── */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        {can("student.read") && (
-          <KpiCard
-            icon={<GraduationCap className="h-5 w-5 text-white" />}
-            label={t("kpi.students")}
-            value={studentsTotal}
-            sub={t("kpi.activeStudents")}
-            loading={ldPeople}
-            gradient="bg-gradient-to-br from-emerald-500 to-teal-600"
-            iconBg="bg-white/20"
-            href="/students"
-            locale={locale}
-            progress={studentLimit && studentsTotal !== null ? Math.round((studentsTotal / studentLimit) * 100) : undefined}
-            progressLabel={studentLimit ? `${studentLimit - (studentsTotal ?? 0)} slots remaining` : undefined}
-          />
-        )}
-        {can("teacher.read") && (
-          <KpiCard
-            icon={<Users className="h-5 w-5 text-white" />}
-            label={t("kpi.teachers")}
-            value={teachersTotal}
-            sub={t("kpi.totalTeachers")}
-            loading={ldPeople}
-            gradient="bg-gradient-to-br from-violet-500 to-purple-600"
-            iconBg="bg-white/20"
-            href="/teachers"
-            locale={locale}
-            progress={teacherLimit && teachersTotal !== null ? Math.round((teachersTotal / teacherLimit) * 100) : undefined}
-            progressLabel={teacherLimit ? `${teacherLimit - (teachersTotal ?? 0)} slots remaining` : undefined}
-          />
-        )}
-        {(can("schedule.read") || can("attendance.read")) && (
-          <KpiCard
-            icon={<CalendarDays className="h-5 w-5 text-white" />}
-            label={t("kpi.sessionsThisWeek")}
-            value={ldWeek ? null : (weekSessions?.length ?? 0)}
-            sub={t("kpi.sessionsThisWeekSub")}
-            loading={ldWeek}
-            gradient="bg-gradient-to-br from-cyan-500 to-sky-600"
-            iconBg="bg-white/20"
-            href="/calendar"
-            locale={locale}
-          />
-        )}
-        {(can("attendance.record") || can("attendance.read")) && (
-          <KpiCard
-            icon={<ClipboardCheck className="h-5 w-5 text-white" />}
-            label={t("kpi.pendingAttendance")}
-            value={ldAttend ? null : pendingCount}
-            sub={t("kpi.sessionsNeedAttendance")}
-            loading={ldAttend}
-            gradient={pendingCount > 0 ? "bg-gradient-to-br from-amber-500 to-orange-600" : "bg-gradient-to-br from-slate-500 to-slate-600"}
-            iconBg="bg-white/20"
-            href="/attendance"
-            pulse={pendingCount > 0}
-            locale={locale}
-          />
-        )}
-        {can("invoice.view") && (
-          <KpiCard
-            icon={<ReceiptText className="h-5 w-5 text-white" />}
-            label={t("kpi.openInvoices")}
-            value={ldInv ? null : openInvoices}
-            sub={t("kpi.awaitingPayment")}
-            loading={ldInv}
-            gradient={openInvoices > 0 ? "bg-gradient-to-br from-sky-500 to-blue-600" : "bg-gradient-to-br from-slate-500 to-slate-600"}
-            iconBg="bg-white/20"
-            href="/invoices"
-            pulse={openInvoices > 0}
-            locale={locale}
-          />
-        )}
-        {can("invoice.view") && bucket && (
-          <KpiCard
-            icon={<Wallet className="h-5 w-5 text-white" />}
-            label={t("finance.collected")}
-            value={null}
-            isMoney
-            moneyAmount={bucket.collected_minor}
-            moneyCurrency={bucket.currency}
-            sub={`${collectionRate}% ${t("kpi.collectionRate")}`}
-            loading={ldInv}
-            gradient="bg-gradient-to-br from-teal-500 to-emerald-600"
-            iconBg="bg-white/20"
-            href="/invoices"
-            sparkData={revSparkData.length > 0 ? revSparkData : undefined}
-            sparkColor="#ffffff"
-            locale={locale}
-          />
-        )}
-        {can("invoice.view") && bucket && (
-          <KpiCard
-            icon={<BarChart3 className="h-5 w-5 text-white" />}
-            label={t("finance.billed")}
-            value={null}
-            isMoney
-            moneyAmount={bucket.billed_minor}
-            moneyCurrency={bucket.currency}
-            sub={t("kpi.totalBilledSub")}
-            loading={ldInv}
-            gradient="bg-gradient-to-br from-indigo-500 to-violet-600"
-            iconBg="bg-white/20"
-            href="/financial-statistics"
-            locale={locale}
-          />
-        )}
-        {can("invoice.view") && bucket && bucket.outstanding_minor > 0 && (
-          <KpiCard
-            icon={<Clock className="h-5 w-5 text-white" />}
-            label={t("finance.outstanding")}
-            value={null}
-            isMoney
-            moneyAmount={bucket.outstanding_minor}
-            moneyCurrency={bucket.currency}
-            sub={t("kpi.outstandingSub")}
-            loading={ldInv}
-            gradient="bg-gradient-to-br from-rose-500 to-pink-600"
-            iconBg="bg-white/20"
-            href="/invoices"
-            pulse
-            locale={locale}
-          />
-        )}
-        {/* Total hours this month — for a teacher, only hours actually taught so far */}
-        {(can("schedule.read") || can("attendance.read")) && (
-          <KpiCard
-            icon={<Timer className="h-5 w-5 text-white" />}
-            label={t("kpi.hoursThisMonth")}
-            value={ldMonth ? null : hoursMonth}
-            sub={ldMonth ? "" : `${minsMonth}m · ${t(isTeacher ? "kpi.hoursThisMonthSubTaught" : "kpi.hoursThisMonthSub")}`}
-            loading={ldMonth}
-            gradient="bg-gradient-to-br from-orange-500 to-red-600"
-            iconBg="bg-white/20"
-            href="/calendar"
-            locale={locale}
-          />
-        )}
-        {/* Teacher earnings so far this month */}
-        {can("payout.read_own") && (
-          <KpiCard
-            icon={<Wallet className="h-5 w-5 text-white" />}
-            label={t("kpi.earningsThisMonth")}
-            value={!ldEarnings && myEarnings?.currency == null ? (myEarnings?.amount ?? 0) : null}
-            isMoney={!ldEarnings && myEarnings?.currency != null}
-            moneyAmount={myEarnings?.amount ?? 0}
-            moneyCurrency={myEarnings?.currency ?? undefined}
-            sub={t("kpi.earningsThisMonthSub")}
-            loading={ldEarnings}
-            gradient="bg-gradient-to-br from-emerald-500 to-green-600"
-            iconBg="bg-white/20"
-            href="/payroll"
-            locale={locale}
-          />
-        )}
-        {/* Total due per currency across all bills (all-time owed) */}
-        {can("invoice.view") && !ldInv && dueByCurrency.map((m) => (
-          <KpiCard
-            key={`due-${m.currency}`}
-            icon={<ReceiptText className="h-5 w-5 text-white" />}
-            label={`${t("kpi.totalDue")} · ${m.currency}`}
-            value={null}
-            isMoney
-            moneyAmount={m.due_minor}
-            moneyCurrency={m.currency}
-            sub={t("kpi.totalDueSub")}
-            loading={false}
-            gradient="bg-gradient-to-br from-fuchsia-500 to-purple-700"
-            iconBg="bg-white/20"
-            href="/invoices"
-            pulse
-            locale={locale}
-          />
-        ))}
-        {/* Total teacher salaries this month, per currency */}
-        {can("payout.read") && !ldProfit && salariesByCurrency.map((r) => (
-          <KpiCard
-            key={`salary-${r.currency}`}
-            icon={<Wallet className="h-5 w-5 text-white" />}
-            label={`${t("kpi.teacherSalaries")} · ${r.currency}`}
-            value={null}
-            isMoney
-            moneyAmount={r.payouts_minor}
-            moneyCurrency={r.currency}
-            sub={t("kpi.teacherSalariesSub")}
-            loading={false}
-            gradient="bg-gradient-to-br from-rose-500 to-pink-600"
-            iconBg="bg-white/20"
-            href="/payroll"
-            locale={locale}
-          />
-        ))}
-        {/* Net profit after teacher salaries this month, per currency */}
-        {can("payout.read") && !ldProfit && profitByCurrency.map((r) => (
-          <KpiCard
-            key={`profit-${r.currency}`}
-            icon={<BarChart3 className="h-5 w-5 text-white" />}
-            label={`${t("kpi.netProfit")} · ${r.currency}`}
-            value={null}
-            isMoney
-            moneyAmount={r.profit_minor}
-            moneyCurrency={r.currency}
-            sub={t("kpi.netProfitSub")}
-            loading={false}
-            gradient={r.profit_minor >= 0
-              ? "bg-gradient-to-br from-emerald-500 to-green-600"
-              : "bg-gradient-to-br from-rose-500 to-red-600"}
-            iconBg="bg-white/20"
-            href="/financial-statistics"
-            locale={locale}
-          />
-        ))}
-      </div>
-
-      {/* ── Quick Actions — directly below KPI cards ── */}
-      <div className="space-y-4">
-        <SectionHeader icon={<Sparkles className="h-4 w-4" />} title={t("actions.title")} />
-        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
-          {can("student.create") && (
-            <ActionCard
+      {/* ── Key metrics ── */}
+      <section className="space-y-3">
+        <SectionTitle
+          Icon={Activity}
+          color="violet"
+          title={t("sections.metrics")}
+          desc={t("sections.metricsDesc")}
+        />
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {can("student.read") && (
+            <StatCard
+              Icon={GraduationCap}
+              color="emerald"
+              label={t("kpi.students")}
+              value={studentsTotal}
+              sub={t("kpi.activeStudents")}
+              loading={ldPeople}
               href="/students"
-              icon={<GraduationCap className="h-6 w-6 text-white" />}
-              label={t("actions.addStudent")}
-              desc={t("actions.addStudentDesc")}
-              gradient="bg-gradient-to-br from-emerald-500 to-teal-600"
+              locale={locale}
+              progress={studentLimit && studentsTotal !== null ? Math.round((studentsTotal / studentLimit) * 100) : undefined}
+              progressLabel={studentLimit ? `${studentLimit - (studentsTotal ?? 0)} ${t("kpi.slotsRemaining")}` : undefined}
+            />
+          )}
+          {can("teacher.read") && (
+            <StatCard
+              Icon={Users}
+              color="violet"
+              label={t("kpi.teachers")}
+              value={teachersTotal}
+              sub={t("kpi.totalTeachers")}
+              loading={ldPeople}
+              href="/teachers"
+              locale={locale}
+              progress={teacherLimit && teachersTotal !== null ? Math.round((teachersTotal / teacherLimit) * 100) : undefined}
+              progressLabel={teacherLimit ? `${teacherLimit - (teachersTotal ?? 0)} ${t("kpi.slotsRemaining")}` : undefined}
+            />
+          )}
+          {(can("schedule.read") || can("attendance.read")) && (
+            <StatCard
+              Icon={CalendarDays}
+              color="cyan"
+              label={t("kpi.sessionsThisWeek")}
+              value={ldWeek ? null : weekSessions?.length ?? 0}
+              sub={t("kpi.sessionsThisWeekSub")}
+              loading={ldWeek}
+              href="/calendar"
+              locale={locale}
             />
           )}
           {(can("attendance.record") || can("attendance.read")) && (
-            <ActionCard
+            <StatCard
+              Icon={ClipboardCheck}
+              color={pendingCount > 0 ? "amber" : "slate"}
+              label={t("kpi.pendingAttendance")}
+              value={ldAttend ? null : pendingCount}
+              sub={t("kpi.sessionsNeedAttendance")}
+              loading={ldAttend}
               href="/attendance"
-              icon={<ClipboardCheck className="h-6 w-6 text-white" />}
-              label={t("actions.markAttendance")}
-              desc={t("actions.markAttendanceDesc")}
-              gradient="bg-gradient-to-br from-amber-500 to-orange-600"
-              badge={pendingCount}
+              alert={pendingCount > 0}
+              locale={locale}
             />
           )}
           {can("invoice.view") && (
-            <ActionCard
+            <StatCard
+              Icon={ReceiptText}
+              color={openInvoices > 0 ? "blue" : "slate"}
+              label={t("kpi.openInvoices")}
+              value={ldInv ? null : openInvoices}
+              sub={t("kpi.awaitingPayment")}
+              loading={ldInv}
               href="/invoices"
-              icon={<ReceiptText className="h-6 w-6 text-white" />}
-              label={t("actions.viewInvoices")}
-              desc={t("actions.viewInvoicesDesc")}
-              gradient="bg-gradient-to-br from-sky-500 to-blue-600"
-              badge={openInvoices}
+              alert={openInvoices > 0}
+              locale={locale}
             />
           )}
-          {can("schedule.read") && (
-            <ActionCard
-              href="/calendar"
-              icon={<CalendarDays className="h-6 w-6 text-white" />}
-              label={t("actions.viewCalendar")}
-              desc={t("actions.viewCalendarDesc")}
-              gradient="bg-gradient-to-br from-violet-500 to-purple-600"
-            />
-          )}
-          {can("payout.read") && (
-            <ActionCard
-              href="/payroll"
-              icon={<Wallet className="h-6 w-6 text-white" />}
-              label={t("actions.payroll")}
-              desc={t("actions.payrollDesc")}
-              gradient="bg-gradient-to-br from-rose-500 to-pink-600"
-            />
-          )}
-          {can("payout.read_own") && !can("payout.read") && (
-            <ActionCard
-              href="/payroll"
-              icon={<Wallet className="h-6 w-6 text-white" />}
-              label={t("actions.myPayroll")}
-              desc={t("actions.myPayrollDesc")}
-              gradient="bg-gradient-to-br from-rose-500 to-pink-600"
-            />
-          )}
-          {can("invoice.view") && (
-            <ActionCard
-              href="/financial-statistics"
-              icon={<BarChart3 className="h-6 w-6 text-white" />}
-              label={t("actions.financialStats")}
-              desc={t("actions.financialStatsDesc")}
-              gradient="bg-gradient-to-br from-indigo-500 to-blue-700"
-            />
-          )}
-          {can("student.read") && (
-            <ActionCard
-              href="/sessions"
-              icon={<BookOpen className="h-6 w-6 text-white" />}
-              label={t("actions.sessions")}
-              desc={t("actions.sessionsDesc")}
-              gradient="bg-gradient-to-br from-cyan-500 to-teal-600"
-            />
-          )}
-        </div>
-      </div>
-
-      {/* ── Charts row ── */}
-      {(can("invoice.view") || can("payout.read")) && (
-        <div className="grid gap-6 lg:grid-cols-5">
-          {/* Revenue vs Payouts bar chart */}
-          <div className="lg:col-span-3 rounded-2xl border bg-card p-5 shadow-sm">
-            <SectionHeader
-              icon={<BarChart3 className="h-4 w-4" />}
-              title={t("finance.revenueChart")}
-              action={
-                <Link href="/financial-statistics" className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                  {t("finance.viewAll")} <ArrowRight className="h-3 w-3" />
-                </Link>
-              }
-            />
-            <div className="mt-4">
-              {ldProfit ? (
-                <div className="flex h-44 items-center justify-center">
-                  <Spin className="h-6 w-6 text-muted-foreground" />
-                </div>
-              ) : profitMonths.length > 0 ? (
-                <RevenueBarChart data={profitMonths} locale={locale} />
-              ) : (
-                <div className="flex h-44 items-center justify-center text-xs text-muted-foreground">
-                  No data available
-                </div>
-              )}
-            </div>
-
-            {/* Summary strip */}
-            {bucket && !ldInv && (
-              <div className="mt-4 grid grid-cols-3 divide-x rounded-xl bg-muted/40 text-center">
-                {[
-                  { label: t("finance.billed"), val: bucket.billed_minor, color: "text-foreground" },
-                  { label: t("finance.collected"), val: bucket.collected_minor, color: "text-emerald-600 dark:text-emerald-400" },
-                  { label: t("finance.outstanding"), val: bucket.outstanding_minor, color: bucket.outstanding_minor > 0 ? "text-rose-500" : "text-muted-foreground" },
-                ].map(({ label, val, color }) => (
-                  <div key={label} className="px-4 py-3">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-                    <p className={cn("mt-0.5 text-sm font-bold tabular-nums", color)}>
-                      {formatMoney({ amount: val, currency: bucket.currency }, locale)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Donut + gauge */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="rounded-2xl border bg-card p-5 shadow-sm">
-              <SectionHeader
-                icon={<ReceiptText className="h-4 w-4" />}
-                title={t("finance.invoiceBreakdown")}
-              />
-              <div className="mt-4">
-                {ldInv ? (
-                  <div className="flex h-24 items-center justify-center">
-                    <Spin className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                ) : invoiceSummary ? (
-                  <InvoiceDonut counts={invoiceSummary.counts} locale={locale} />
-                ) : null}
-              </div>
-            </div>
-
-            {bucket && !ldInv && (
-              <div className="rounded-2xl border bg-card p-5 shadow-sm">
-                <SectionHeader icon={<Wallet className="h-4 w-4" />} title={t("finance.collectionRate")} />
-                <div className="mt-3 flex justify-center">
-                  <CollectionGauge rate={collectionRate} />
-                </div>
-                <p className="mt-1 text-center text-xs text-muted-foreground">
-                  {formatMoney({ amount: bucket.collected_minor, currency: bucket.currency }, locale)} {t("finance.ofBilled")}{" "}
-                  {formatMoney({ amount: bucket.billed_minor, currency: bucket.currency }, locale)}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Weekly sessions + Pending list ── */}
-      {(can("schedule.read") || can("attendance.read") || can("attendance.record")) && (
-        <div className="grid gap-6 lg:grid-cols-5">
-          {/* Weekly sessions chart */}
           {(can("schedule.read") || can("attendance.read")) && (
-            <div className="lg:col-span-2 rounded-2xl border bg-card p-5 shadow-sm">
+            <StatCard
+              Icon={Timer}
+              color="orange"
+              label={t("kpi.hoursThisMonth")}
+              value={ldMonth ? null : hoursMonth}
+              sub={ldMonth ? "" : `${minsMonth}m · ${t(isTeacher ? "kpi.hoursThisMonthSubTaught" : "kpi.hoursThisMonthSub")}`}
+              loading={ldMonth}
+              href="/calendar"
+              locale={locale}
+            />
+          )}
+          {can("payout.read_own") && (
+            <StatCard
+              Icon={Wallet}
+              color="green"
+              label={t("kpi.earningsThisMonth")}
+              value={!ldEarnings && myEarnings?.currency == null ? myEarnings?.amount ?? 0 : null}
+              isMoney={!ldEarnings && myEarnings?.currency != null}
+              moneyAmount={myEarnings?.amount ?? 0}
+              moneyCurrency={myEarnings?.currency ?? undefined}
+              sub={t("kpi.earningsThisMonthSub")}
+              loading={ldEarnings}
+              href="/payroll"
+              locale={locale}
+            />
+          )}
+        </div>
+      </section>
+
+      {/* ── Financial overview ── */}
+      {(can("invoice.view") || can("payout.read")) && (
+        <section className="space-y-3">
+          <SectionTitle
+            Icon={Wallet}
+            color="emerald"
+            title={t("finance.title")}
+            desc={t("finance.subtitle")}
+            action={<ViewAllLink href="/financial-statistics" label={t("finance.viewAll")} />}
+          />
+
+          {/* Money headline cards — always visible within the financial section */}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <StatCard
+                Icon={Wallet}
+                color="teal"
+                label={t("finance.collected")}
+                value={null}
+                isMoney
+                moneyAmount={bucket?.collected_minor ?? 0}
+                moneyCurrency={bucket?.currency ?? fallbackCurrency}
+                sub={`${collectionRate}% ${t("kpi.collectionRate")}`}
+                loading={ldInv}
+                href={canInvoice ? "/invoices" : undefined}
+                trend={revenueTrend}
+                sparkData={revSparkData.length > 1 ? revSparkData : undefined}
+                spark
+                locale={locale}
+              />
+              <StatCard
+                Icon={BarChart3}
+                color="indigo"
+                label={t("finance.billed")}
+                value={null}
+                isMoney
+                moneyAmount={bucket?.billed_minor ?? 0}
+                moneyCurrency={bucket?.currency ?? fallbackCurrency}
+                sub={t("kpi.totalBilledSub")}
+                loading={ldInv}
+                href={canInvoice ? "/financial-statistics" : undefined}
+                locale={locale}
+              />
+              <StatCard
+                Icon={Clock}
+                color="rose"
+                label={t("finance.outstanding")}
+                value={null}
+                isMoney
+                moneyAmount={bucket?.outstanding_minor ?? 0}
+                moneyCurrency={bucket?.currency ?? fallbackCurrency}
+                sub={t("kpi.outstandingSub")}
+                loading={ldInv}
+                href={canInvoice ? "/invoices" : undefined}
+                alert={(bucket?.outstanding_minor ?? 0) > 0}
+                locale={locale}
+              />
+              <StatCard
+                Icon={CheckCircle2}
+                color="green"
+                label={t("kpi.paidInvoices")}
+                value={ldInv ? null : invoiceSummary?.counts.PAID ?? 0}
+                sub={t("kpi.paidInvoicesSub")}
+                loading={ldInv}
+                href={canInvoice ? "/invoices" : undefined}
+                progress={invoiceCount > 0 ? Math.round(((invoiceSummary?.counts.PAID ?? 0) / invoiceCount) * 100) : undefined}
+                progressLabel={invoiceCount > 0 ? `${invoiceSummary?.counts.PAID ?? 0}/${invoiceCount}` : undefined}
+                locale={locale}
+              />
+              <StatCard
+                Icon={Activity}
+                color="sky"
+                label={t("kpi.avgInvoice")}
+                value={null}
+                isMoney
+                moneyAmount={invoiceCount > 0 ? Math.round((bucket?.billed_minor ?? 0) / invoiceCount) : 0}
+                moneyCurrency={bucket?.currency ?? fallbackCurrency}
+                sub={t("kpi.avgInvoiceSub")}
+                loading={ldInv}
+                href={canInvoice ? "/financial-statistics" : undefined}
+                locale={locale}
+              />
+              {can("invoice.view") && !ldInv && dueByCurrency.map((m) => (
+                <StatCard
+                  key={`due-${m.currency}`}
+                  Icon={ReceiptText}
+                  color="fuchsia"
+                  label={`${t("kpi.totalDue")} · ${m.currency}`}
+                  value={null}
+                  isMoney
+                  moneyAmount={m.due_minor}
+                  moneyCurrency={m.currency}
+                  sub={t("kpi.totalDueSub")}
+                  loading={false}
+                  href="/invoices"
+                  alert
+                  locale={locale}
+                />
+              ))}
+              {can("payout.read") && !ldProfit && salariesByCurrency.map((r) => (
+                <StatCard
+                  key={`salary-${r.currency}`}
+                  Icon={Wallet}
+                  color="rose"
+                  label={`${t("kpi.teacherSalaries")} · ${r.currency}`}
+                  value={null}
+                  isMoney
+                  moneyAmount={r.payouts_minor}
+                  moneyCurrency={r.currency}
+                  sub={t("kpi.teacherSalariesSub")}
+                  loading={false}
+                  href="/payroll"
+                  locale={locale}
+                />
+              ))}
+              {can("payout.read") && !ldProfit && profitByCurrency.map((r) => (
+                <StatCard
+                  key={`profit-${r.currency}`}
+                  Icon={BarChart3}
+                  color={r.profit_minor >= 0 ? "emerald" : "rose"}
+                  label={`${t("kpi.netProfit")} · ${r.currency}`}
+                  value={null}
+                  isMoney
+                  moneyAmount={r.profit_minor}
+                  moneyCurrency={r.currency}
+                  sub={t("kpi.netProfitSub")}
+                  loading={false}
+                  href="/financial-statistics"
+                  locale={locale}
+                />
+              ))}
+          </div>
+
+          {/* Analytics: revenue chart + invoice mix */}
+          <div className="grid gap-4 lg:grid-cols-5">
+            <div className="rounded-xl border bg-card p-5 lg:col-span-3">
               <SectionHeader
-                icon={<CalendarDays className="h-4 w-4" />}
-                title={t("week.title")}
+                icon={<BarChart3 className="h-4 w-4" />}
+                title={t("finance.revenueChart")}
                 action={
-                  <Link href="/calendar" className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                    {t("week.viewCalendar")} <ArrowRight className="h-3 w-3" />
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    {revenueTrend != null && <TrendBadge delta={revenueTrend} />}
+                    <ViewAllLink href="/financial-statistics" label={t("finance.viewAll")} />
+                  </div>
                 }
               />
               <div className="mt-4">
-                {ldWeek ? (
-                  <div className="flex h-24 items-center justify-center">
-                    <Spin className="h-5 w-5 text-muted-foreground" />
+                {ldProfit ? (
+                  <div className="flex h-44 items-center justify-center">
+                    <Spin className="h-6 w-6 text-muted-foreground" />
                   </div>
+                ) : profitMonths.length > 0 ? (
+                  <RevenueBarChart data={profitMonths} locale={locale} />
                 ) : (
-                  <WeeklyBars sessions={weekSessions ?? []} locale={locale} />
+                  <div className="flex h-44 items-center justify-center text-xs text-muted-foreground">
+                    {t("empty.noData")}
+                  </div>
                 )}
               </div>
-              {!ldWeek && weekSessions && weekSessions.length > 0 && (
-                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+
+              {bucket && !ldInv && (
+                <div className="mt-4 grid grid-cols-3 divide-x rounded-xl bg-muted/40 text-center">
                   {[
-                    { label: "Total", val: weekSessions.length, color: "text-foreground" },
-                    { label: "Done", val: weekSessions.filter(s => s.status === "ATTENDED" || s.status === "ABSENT_EXCUSED" || s.status === "ABSENT_UNEXCUSED").length, color: "text-emerald-600" },
-                    { label: "Pending", val: weekSessions.filter(s => s.status === "SCHEDULED").length, color: "text-blue-500" },
+                    { label: t("finance.billed"), val: bucket.billed_minor, color: "text-foreground" },
+                    { label: t("finance.collected"), val: bucket.collected_minor, color: "text-emerald-600 dark:text-emerald-400" },
+                    { label: t("finance.outstanding"), val: bucket.outstanding_minor, color: bucket.outstanding_minor > 0 ? "text-rose-500" : "text-muted-foreground" },
                   ].map(({ label, val, color }) => (
-                    <div key={label} className="rounded-lg bg-muted/50 py-2">
-                      <p className={cn("text-lg font-bold tabular-nums", color)}>{formatNumber(val, locale)}</p>
-                      <p className="text-[10px] text-muted-foreground">{label}</p>
+                    <div key={label} className="px-4 py-3">
+                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+                      <p className={cn("mt-0.5 text-sm font-bold tabular-nums", color)}>
+                        {formatMoney({ amount: val, currency: bucket.currency }, locale)}
+                      </p>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-          )}
 
-          {/* Pending attendance */}
-          {(can("attendance.record") || can("attendance.read")) && (
-            <div className={cn("space-y-4", can("schedule.read") || can("attendance.read") ? "lg:col-span-3" : "lg:col-span-5")}>
-              <SectionHeader
-                icon={<Clock className="h-4 w-4" />}
-                title={t("pending.title")}
-                action={
-                  <div className="flex items-center gap-2">
-                    {!ldAttend && pendingCount > 0 && (
-                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
-                        {pendingCount}
-                      </span>
-                    )}
-                    <Link href="/attendance" className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                      {t("pending.viewAll")} <ArrowRight className="h-3 w-3" />
-                    </Link>
-                  </div>
-                }
-              />
-
-              <div className="space-y-2">
-                {ldAttend ? (
-                  [1, 2, 3].map((k) => (
-                    <div key={k} className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3">
-                      <Sk className="h-9 w-9 rounded-xl" />
-                      <div className="flex-1 space-y-2">
-                        <Sk className="h-3.5 w-36" />
-                        <Sk className="h-3 w-24" />
-                      </div>
-                      <Sk className="h-6 w-14 rounded-lg" />
+            <div className="space-y-3 lg:col-span-2">
+              <div className="rounded-xl border bg-card p-5">
+                <SectionHeader icon={<ReceiptText className="h-4 w-4" />} title={t("finance.invoiceBreakdown")} />
+                <div className="mt-4">
+                  {ldInv ? (
+                    <div className="flex h-24 items-center justify-center">
+                      <Spin className="h-5 w-5 text-muted-foreground" />
                     </div>
-                  ))
-                ) : pending && pending.length > 0 ? (
-                  pending.slice(0, 5).map((s) => <PendingRow key={s.id} session={s} locale={locale} />)
-                ) : (
-                  <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed bg-muted/20 py-12 text-center">
-                    <CheckCircle2 className="h-10 w-10 text-emerald-400" />
-                    <p className="font-semibold">{t("pending.allClear")}</p>
-                    <p className="text-sm text-muted-foreground">{t("pending.noSessions")}</p>
+                  ) : invoiceSummary ? (
+                    <InvoiceDonut counts={invoiceSummary.counts} locale={locale} />
+                  ) : null}
+                </div>
+              </div>
+
+              {bucket && !ldInv && (
+                <div className="rounded-xl border bg-card p-5">
+                  <SectionHeader icon={<Wallet className="h-4 w-4" />} title={t("finance.collectionRate")} />
+                  <div className="mt-3 flex justify-center">
+                    <CollectionGauge rate={collectionRate} />
+                  </div>
+                  <p className="mt-1 text-center text-xs text-muted-foreground">
+                    {formatMoney({ amount: bucket.collected_minor, currency: bucket.currency }, locale)} {t("finance.ofBilled")}{" "}
+                    {formatMoney({ amount: bucket.billed_minor, currency: bucket.currency }, locale)}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Operations ── */}
+      {(can("schedule.read") || can("attendance.read") || can("attendance.record")) && (
+        <section className="space-y-3">
+          <SectionTitle
+            Icon={CalendarDays}
+            color="blue"
+            title={t("sections.operations")}
+            desc={t("sections.operationsDesc")}
+          />
+          <div className="grid gap-4 lg:grid-cols-5">
+            {(can("schedule.read") || can("attendance.read")) && (
+              <div className="rounded-xl border bg-card p-5 lg:col-span-2">
+                <SectionHeader
+                  icon={<CalendarDays className="h-4 w-4" />}
+                  title={t("week.title")}
+                  action={<ViewAllLink href="/calendar" label={t("week.viewCalendar")} />}
+                />
+                <div className="mt-4">
+                  {ldWeek ? (
+                    <div className="flex h-24 items-center justify-center">
+                      <Spin className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <WeeklyBars sessions={weekSessions ?? []} locale={locale} />
+                  )}
+                </div>
+                {!ldWeek && weekSessions && weekSessions.length > 0 && (
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    {[
+                      { label: t("week.total"), val: weekSessions.length, color: "text-foreground" },
+                      { label: t("week.done"), val: weekSessions.filter((s) => s.status === "ATTENDED" || s.status === "ABSENT_EXCUSED" || s.status === "ABSENT_UNEXCUSED").length, color: "text-emerald-600" },
+                      { label: t("week.scheduled"), val: weekSessions.filter((s) => s.status === "SCHEDULED").length, color: "text-blue-500" },
+                    ].map(({ label, val, color }) => (
+                      <div key={label} className="rounded-lg bg-muted/50 py-2">
+                        <p className={cn("text-lg font-bold tabular-nums", color)}>{formatNumber(val, locale)}</p>
+                        <p className="text-[10px] text-muted-foreground">{label}</p>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
-            </div>
-          )}
-        </div>
+            )}
+
+            {(can("attendance.record") || can("attendance.read")) && (
+              <div className={cn("rounded-xl border bg-card p-5", can("schedule.read") || can("attendance.read") ? "lg:col-span-3" : "lg:col-span-5")}>
+                <SectionHeader
+                  icon={<Clock className="h-4 w-4" />}
+                  title={t("pending.title")}
+                  action={
+                    <div className="flex items-center gap-2">
+                      {!ldAttend && pendingCount > 0 && (
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
+                          {pendingCount}
+                        </span>
+                      )}
+                      <ViewAllLink href="/attendance" label={t("pending.viewAll")} />
+                    </div>
+                  }
+                />
+                <div className="mt-4 space-y-2">
+                  {ldAttend ? (
+                    [1, 2, 3].map((k) => (
+                      <div key={k} className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3">
+                        <Sk className="h-9 w-9 rounded-xl" />
+                        <div className="flex-1 space-y-2">
+                          <Sk className="h-3.5 w-36" />
+                          <Sk className="h-3 w-24" />
+                        </div>
+                        <Sk className="h-6 w-14 rounded-lg" />
+                      </div>
+                    ))
+                  ) : pending && pending.length > 0 ? (
+                    pending.slice(0, 5).map((s) => <PendingRow key={s.id} session={s} locale={locale} />)
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed bg-muted/20 py-12 text-center">
+                      <CheckCircle2 className="h-10 w-10 text-emerald-400" />
+                      <p className="font-semibold">{t("pending.allClear")}</p>
+                      <p className="text-sm text-muted-foreground">{t("pending.noSessions")}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
-      {/* ── This Week's Trials ── */}
+      {/* ── This week's trials ── */}
       {can("student.read") && (can("schedule.read") || can("attendance.read")) && (
-        <div className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="rounded-xl border bg-card p-5">
           <SectionHeader
             icon={<FlaskConical className="h-4 w-4" />}
             title={t("trials.title")}
-            action={
-              <Link href="/students?tab=trials" className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-                {t("trials.viewAll")} <ArrowRight className="h-3 w-3" />
-              </Link>
-            }
+            action={<ViewAllLink href="/students?tab=trials" label={t("trials.viewAll")} />}
           />
           <div className="mt-4">
             {ldWeek ? (
@@ -1436,7 +1511,7 @@ export function AcademyDashboard() {
                 </span>
                 <span className="text-xs text-muted-foreground">{t("trials.title")}</span>
                 <span className="ms-auto text-xs font-medium text-violet-600 dark:text-violet-400">
-                  {formatNumber(trialLessonsThisWeek.filter(s => s.status === "ATTENDED").length, locale)} ✓
+                  {formatNumber(trialLessonsThisWeek.filter((s) => s.status === "ATTENDED").length, locale)} ✓
                 </span>
               </div>
             )}
@@ -1444,43 +1519,54 @@ export function AcademyDashboard() {
         </div>
       )}
 
-      {/* ── Plan usage with ring gauges ── */}
-      {!isTeacher && !isSuperAdmin && !ldPlan && entitlements && (
-        (studentLimit !== null || teacherLimit !== null) && (
-          <div className="rounded-2xl border bg-card p-6 shadow-sm">
-            <div className="flex items-center justify-between">
-              <SectionHeader icon={<Sparkles className="h-4 w-4" />} title={t("plan.usage")} />
-              <Link
-                href="/plan"
-                className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-              >
-                {t("plan.managePlan")} <ArrowRight className="h-3 w-3" />
-              </Link>
-            </div>
-
-            <div className="mt-6 flex flex-wrap justify-center gap-12">
-              {studentLimit !== null && (
-                <RingGauge
-                  value={studentUsage}
-                  max={studentLimit}
-                  color="#10b981"
-                  label={t("plan.students")}
-                  locale={locale}
-                />
-              )}
-              {teacherLimit !== null && (
-                <RingGauge
-                  value={teacherUsage}
-                  max={teacherLimit}
-                  color="#8b5cf6"
-                  label={t("plan.teachers")}
-                  locale={locale}
-                />
-              )}
-            </div>
+      {/* ── Plan usage ── */}
+      {!isTeacher && !isSuperAdmin && !ldPlan && entitlements && (studentLimit !== null || teacherLimit !== null) && (
+        <div className="rounded-xl border bg-card p-6">
+          <div className="flex items-center justify-between">
+            <SectionHeader icon={<Sparkles className="h-4 w-4" />} title={t("plan.usage")} />
+            <ViewAllLink href="/plan" label={t("plan.managePlan")} />
           </div>
-        )
+          <div className="mt-6 flex flex-wrap justify-center gap-12">
+            {studentLimit !== null && (
+              <RingGauge value={studentUsage} max={studentLimit} color="#10b981" label={t("plan.students")} locale={locale} />
+            )}
+            {teacherLimit !== null && (
+              <RingGauge value={teacherUsage} max={teacherLimit} color="#8b5cf6" label={t("plan.teachers")} locale={locale} />
+            )}
+          </div>
+        </div>
       )}
+
+      {/* ── Quick actions ── */}
+      <section className="space-y-3">
+        <SectionTitle Icon={Sparkles} color="fuchsia" title={t("actions.title")} desc={t("actions.subtitle")} />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {can("student.create") && (
+            <ActionCard href="/students" Icon={GraduationCap} color="emerald" label={t("actions.addStudent")} desc={t("actions.addStudentDesc")} />
+          )}
+          {(can("attendance.record") || can("attendance.read")) && (
+            <ActionCard href="/attendance" Icon={ClipboardCheck} color="amber" label={t("actions.markAttendance")} desc={t("actions.markAttendanceDesc")} badge={pendingCount} />
+          )}
+          {can("invoice.view") && (
+            <ActionCard href="/invoices" Icon={ReceiptText} color="blue" label={t("actions.viewInvoices")} desc={t("actions.viewInvoicesDesc")} badge={openInvoices} />
+          )}
+          {can("schedule.read") && (
+            <ActionCard href="/calendar" Icon={CalendarDays} color="violet" label={t("actions.viewCalendar")} desc={t("actions.viewCalendarDesc")} />
+          )}
+          {can("payout.read") && (
+            <ActionCard href="/payroll" Icon={Wallet} color="rose" label={t("actions.payroll")} desc={t("actions.payrollDesc")} />
+          )}
+          {can("payout.read_own") && !can("payout.read") && (
+            <ActionCard href="/payroll" Icon={Wallet} color="rose" label={t("actions.myPayroll")} desc={t("actions.myPayrollDesc")} />
+          )}
+          {can("invoice.view") && (
+            <ActionCard href="/financial-statistics" Icon={BarChart3} color="indigo" label={t("actions.financialStats")} desc={t("actions.financialStatsDesc")} />
+          )}
+          {can("student.read") && (
+            <ActionCard href="/sessions" Icon={BookOpen} color="cyan" label={t("actions.sessions")} desc={t("actions.sessionsDesc")} />
+          )}
+        </div>
+      </section>
     </div>
   );
 }
