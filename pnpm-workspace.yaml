@@ -1,3 +1,13 @@
 packages:
   - "apps/web"
   - "packages/*"
+
+# Allowed to run install/build scripts (pnpm 10+ blocks these by default and
+# exits non-zero in CI without an explicit allow-list). sharp powers Next.js
+# image optimization; @swc/core the build.
+onlyBuiltDependencies:
+  - "@parcel/watcher"
+  - "@swc/core"
+  - core-js
+  - sharp
+  - unrs-resolver
