@@ -3,7 +3,6 @@
 import {
   ArrowLeft,
   Banknote,
-  Briefcase,
   CalendarDays,
   FileText,
   Pencil,
@@ -12,8 +11,6 @@ import {
   ShieldCheck,
   ShieldOff,
   Trash2,
-  User,
-  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
@@ -32,12 +29,6 @@ import {
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
-
-// ── Hash-based department color ───────────────────────────────────────────────
-
-function deptHue(name: string): number {
-  return name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
-}
 
 // ── Avatar ───────────────────────────────────────────────────────────────────
 
@@ -287,24 +278,6 @@ export function StaffDetail({ id }: { id: string }) {
           <div className="mt-3">
             <h1 className="text-xl font-bold tracking-tight">{member.full_name}</h1>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
-              {/* Department badge */}
-              {(() => {
-                const hue = deptHue(member.department);
-                return (
-                  <span
-                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
-                    style={{
-                      backgroundColor: `hsl(${hue} 65% 94%)`,
-                      color: `hsl(${hue} 55% 35%)`,
-                      boxShadow: `0 0 0 1px hsl(${hue} 55% 50% / 0.25)`,
-                    }}
-                  >
-                    <Briefcase className="size-3 shrink-0" aria-hidden />
-                    {member.department}
-                  </span>
-                );
-              })()}
-
               {/* Login badge */}
               {member.user_id ? (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary ring-1 ring-primary/20">
@@ -392,7 +365,7 @@ export function StaffDetail({ id }: { id: string }) {
         open={editOpen}
         onClose={() => setEditOpen(false)}
         title={t("edit")}
-        size="md"
+        size="xl"
       >
         <StaffForm
           initial={member}

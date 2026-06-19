@@ -950,6 +950,8 @@ export interface StaffInput {
   create_login?: boolean;
   email?: string | null;
   password?: string | null;
+  /** Login role code: "STAFF" (default) or a custom academy role code. Create-only. */
+  role?: string | null;
 }
 
 export function listStaff(q: DataTableQuery = {}): Promise<ListResult<StaffRow>> {
@@ -985,6 +987,66 @@ export function deactivateStaff(id: string): Promise<{ ok: boolean }> {
 
 export function reactivateStaff(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/staff/${id}/reactivate`, { method: "POST" });
+}
+
+// ── Academy roles (custom RBAC) ──────────────────────────────────────────────
+// The platform owns the permission catalog; an academy composes its OWN named roles from the
+// subset of capabilities it holds and assigns them to staff. Listing is free (to assign STAFF);
+// creating/editing roles is plan-gated behind the `custom_roles` capability (402 on a miss).
+
+export interface AcademyRoleSummary {
+  /** Present only for custom roles (system roles are addressed by `code`). */
+  id?: string;
+  /** Stable code stored on the user (system code, or a generated CR_… token). */
+  code: string;
+  name: string;
+  description?: string | null;
+  isActive?: boolean;
+  /** True for the built-in, non-editable system roles (OWNER/TEACHER/STAFF). */
+  system: boolean;
+  permissions: string[];
+  assignedCount: number;
+}
+
+export interface AcademyRolesResponse {
+  system: AcademyRoleSummary[];
+  custom: AcademyRoleSummary[];
+  /** The capability codes the current user is allowed to grant to a custom role. */
+  grantable: string[];
+}
+
+export interface AcademyRoleInput {
+  name?: string;
+  description?: string | null;
+  permissions?: string[];
+  is_active?: boolean;
+}
+
+export function listAcademyRoles(): Promise<AcademyRolesResponse> {
+  return apiFetch("/api/roles");
+}
+
+export function createAcademyRole(
+  input: { name: string; description?: string | null; permissions: string[] },
+): Promise<{ roleId: string; code: string }> {
+  return apiFetch("/api/roles", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAcademyRole(
+  id: string,
+  patch: AcademyRoleInput,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/roles/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteAcademyRole(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/roles/${id}`, { method: "DELETE" });
 }
 
 // ── Specializations (Settings) ───────────────────────────────────────────────
@@ -2718,4 +2780,181 @@ export function rejectStudentReport(
     method: "POST",
     body: JSON.stringify({ note }),
   });
+}
+
+// ── Free Trials (Free-Trials module) ─────────────────────────────────────────
+
+export type TrialStatus =
+  | "SCHEDULED"
+  | "COMPLETED"
+  | "NO_SHOW"
+  | "CANCELLED"
+  | "CONVERTED";
+
+export interface TrialRow {
+  id: string;
+  teacher_id: string;
+  teacher_name: string | null;
+  student_id: string | null;
+  student_name: string | null;
+  lead_name: string | null;
+  lead_whatsapp: string | null;
+  lead_email: string | null;
+  display_name: string | null;
+  is_lead: boolean;
+  timezone: string;
+  scheduled_at_utc: string;
+  duration_minutes: number;
+  status: TrialStatus;
+  outcome_notes: string | null;
+  converted_student_id: string | null;
+  created_at: string;
+}
+
+export interface TrialSummary {
+  total: number;
+  scheduled: number;
+  upcoming: number;
+  completed: number;
+  no_show: number;
+  cancelled: number;
+  converted: number;
+  /** Percentage of resolved trials that became students (0–100). */
+  conversion_rate: number;
+}
+
+/** A teacher returned by the availability matcher for a requested slot. */
+export interface TrialAvailabilityTeacher {
+  id: string;
+  full_name: string;
+  specialization: string | null;
+  session_rate_minor: number;
+  currency: string;
+  /** False when the teacher hasn't declared any availability windows. */
+  availability_known: boolean;
+  /** True when their declared availability covers the requested slot. */
+  available: boolean;
+  /** True when they already have an overlapping session or trial. */
+  has_conflict: boolean;
+}
+
+export interface TrialAvailabilityResult {
+  slot: {
+    scheduled_at_utc: string;
+    timezone: string;
+    weekday: number;
+    duration_minutes: number;
+  };
+  teachers: TrialAvailabilityTeacher[];
+}
+
+/** A whole week of bookable slots for the calendar finder. */
+export interface TrialAvailabilityGrid {
+  week_start: string;
+  timezone: string;
+  duration_minutes: number;
+  /** Row labels — candidate local start times "HH:mm", sorted. */
+  times: string[];
+  /** Column headers — the 7 dates of the week. */
+  days: { date: string; weekday: number }[];
+  /** Keyed "YYYY-MM-DDTHH:mm" → teachers available for that slot (only non-empty cells). */
+  cells: Record<string, TrialAvailabilityTeacher[]>;
+}
+
+export interface TrialWarning {
+  type: string;
+  message: string;
+  detail?: unknown;
+}
+
+export interface TrialInput {
+  teacher_id: string;
+  student_id?: string | null;
+  lead_name?: string | null;
+  lead_whatsapp?: string | null;
+  lead_email?: string | null;
+  /** Local wall-clock "YYYY-MM-DD HH:mm" interpreted in `timezone`. */
+  local_datetime?: string;
+  scheduled_at_utc?: string;
+  timezone?: string | null;
+  duration_minutes: number;
+  outcome_notes?: string | null;
+}
+
+export function listTrials(
+  q: DataTableQuery = {},
+): Promise<ListResult<TrialRow>> {
+  return apiFetch(`/api/trials${toQueryString(q)}`);
+}
+
+export function getTrialSummary(): Promise<TrialSummary> {
+  return apiFetch("/api/trials/summary");
+}
+
+/** GET /api/trials/availability — who can take a trial at a given local date + time. */
+export function findAvailableTeachers(params: {
+  date: string;
+  time: string;
+  duration_minutes: number;
+  timezone?: string;
+  specialization?: string;
+}): Promise<TrialAvailabilityResult> {
+  const qs = new URLSearchParams({
+    date: params.date,
+    time: params.time,
+    duration_minutes: String(params.duration_minutes),
+  });
+  if (params.timezone) qs.set("timezone", params.timezone);
+  if (params.specialization) qs.set("specialization", params.specialization);
+  return apiFetch(`/api/trials/availability?${qs.toString()}`);
+}
+
+/** GET /api/trials/availability-grid — a week of bookable slots for the calendar finder. */
+export function getAvailabilityGrid(params: {
+  week_start: string;
+  duration_minutes: number;
+  timezone?: string;
+  specialization?: string;
+}): Promise<TrialAvailabilityGrid> {
+  const qs = new URLSearchParams({
+    week_start: params.week_start,
+    duration_minutes: String(params.duration_minutes),
+  });
+  if (params.timezone) qs.set("timezone", params.timezone);
+  if (params.specialization) qs.set("specialization", params.specialization);
+  return apiFetch(`/api/trials/availability-grid?${qs.toString()}`);
+}
+
+export function createTrial(
+  input: TrialInput,
+): Promise<{ trialId: string; warnings: TrialWarning[] }> {
+  return apiFetch("/api/trials", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateTrial(
+  id: string,
+  patch: Partial<TrialInput> & { status?: TrialStatus },
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/trials/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/** Link a completed lead trial to the real student it became (POST /students happens first). */
+export function convertTrial(
+  id: string,
+  studentId: string,
+): Promise<{ ok: boolean; studentId: string }> {
+  return apiFetch(`/api/trials/${id}/convert`, {
+    method: "POST",
+    body: JSON.stringify({ student_id: studentId }),
+  });
+}
+
+export function cancelTrial(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/trials/${id}`, { method: "DELETE" });
 }

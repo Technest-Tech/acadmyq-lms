@@ -28,6 +28,7 @@ import {
   type TeacherRow,
 } from "@/lib/api";
 import { COUNTRIES } from "@/lib/countries";
+import { type ExcelColumn } from "@/lib/export-excel";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -315,6 +316,43 @@ export function StudentsList({
     [t, teachers],
   );
 
+  const exportColumns = useMemo<ExcelColumn<StudentRow>[]>(() => {
+    const cols: ExcelColumn<StudentRow>[] = [
+      { header: t("colName"), value: (r) => r.full_name, width: 28 },
+    ];
+    if (!isTeacher) {
+      cols.push({ header: t("colGuardian"), value: (r) => r.guardian_name });
+    }
+    cols.push(
+      { header: t("colTeacher"), value: (r) => r.teacher_name },
+      {
+        header: t("colStatus"),
+        value: (r) =>
+          r.subscription_status ? t(`subStatus.${r.subscription_status}`) : "",
+      },
+      {
+        header: t("colCountry"),
+        value: (r) => countryCell(r.country)?.name ?? "",
+      },
+    );
+    if (!isTeacher) {
+      cols.push(
+        { header: t("colWhatsapp"), value: (r) => r.whatsapp_phone },
+        {
+          header: t("colHourly"),
+          value: (r) =>
+            r.price_minor != null && r.price_currency
+              ? formatMoney(
+                  { amount: r.price_minor, currency: r.price_currency },
+                  locale,
+                )
+              : "",
+        },
+      );
+    }
+    return cols;
+  }, [t, locale, isTeacher]);
+
   const newButton = can("student.create") ? (
     <Button
       type="button"
@@ -358,6 +396,11 @@ export function StudentsList({
           emptyMessage={t("empty")}
           emptyAction={newButton}
           toolbar={newButton}
+          exportConfig={{
+            fileName: "students",
+            sheetName: t("list.allStudents"),
+            columns: exportColumns,
+          }}
           refreshToken={refreshToken}
           onRowClick={(r) => onOpen(r.id, r.full_name)}
           rowActions={(r) => {

@@ -6,6 +6,7 @@ use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -17,6 +18,22 @@ beforeEach(function () {
     $this->seed(DemoAcademySeeder::class);
     $this->clearTenantContext();
     $this->academy = $this->createAcademy(overrides: ['default_currency' => 'EGP']);
+
+    // Staff endpoints are plan-gated (entitled:staff) — attach a plan that includes the
+    // capability so these tests exercise the controller, not the 402 upgrade gate.
+    $planId = (string) Str::uuid();
+    $this->asSuperAdmin();
+    DB::table('plans')->insert([
+        'id'          => $planId,
+        'code'        => 'TEST_'.substr($planId, 0, 8),
+        'name'        => 'Test Plan',
+        'price_minor' => 0,
+        'currency'    => 'EGP',
+        'features'    => json_encode(['capabilities' => ['staff'], 'limits' => []]),
+    ]);
+    DB::table('academies')->where('id', $this->academy)->update(['plan_id' => $planId]);
+    $this->clearTenantContext();
+
     $this->owner   = $this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-staff@test.local']);
 });
 

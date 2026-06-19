@@ -7,13 +7,20 @@ import {
   ChevronRight,
   ChevronUp,
   ChevronsUpDown,
+  FileSpreadsheet,
   Inbox,
+  Loader2,
   Search,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ApiError, type DataTableQuery, type ListResult } from "@/lib/api";
+import {
+  type ExcelColumn,
+  exportRowsToExcel,
+  fetchAllRows,
+} from "@/lib/export-excel";
 import { cn } from "@/lib/utils";
 
 /**
@@ -58,6 +65,17 @@ export interface DataTableProps<T> {
   emptyAction?: React.ReactNode;
   /** Right-aligned toolbar content, e.g. a "New" button. */
   toolbar?: React.ReactNode;
+  /**
+   * When set, renders an "Export Excel" button that downloads every row matching the
+   * current search/filter/sort (not just the visible page) as an .xlsx file. The
+   * export columns are declared explicitly so they can differ from the on-screen
+   * columns (e.g. raw values instead of badges).
+   */
+  exportConfig?: {
+    fileName: string;
+    sheetName?: string;
+    columns: ExcelColumn<T>[];
+  };
   testId?: string;
   /** Change this to force a refetch after a mutation elsewhere. */
   refreshToken?: number;
@@ -79,6 +97,7 @@ export function DataTable<T>({
   emptyMessage,
   emptyAction,
   toolbar,
+  exportConfig,
   testId = "data-table",
   refreshToken = 0,
 }: DataTableProps<T>) {
@@ -96,6 +115,8 @@ export function DataTable<T>({
   const [data, setData] = useState<ListResult<T> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   // Debounce the free-text search so we query on a pause, not every keystroke.
   useEffect(() => {
@@ -132,6 +153,32 @@ export function DataTable<T>({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Export every row matching the CURRENT query (search/sort/filter) — fetchAllRows
+  // walks the server pages, so this is the full result set, not just the visible page.
+  async function handleExport() {
+    if (!exportConfig || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const { rows: allRows } = await fetchAllRows(fetcher, {
+        search: search || undefined,
+        sort: sort || undefined,
+        filter: filterValues,
+      });
+      await exportRowsToExcel({
+        fileName: exportConfig.fileName,
+        sheetName: exportConfig.sheetName,
+        columns: exportConfig.columns,
+        rows: allRows,
+        rightToLeft: locale === "ar",
+      });
+    } catch (err) {
+      setExportError(err instanceof ApiError ? err.message : t("exportError"));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   function toggleSort(sortKey: string) {
     setPage(1);
@@ -214,8 +261,40 @@ export function DataTable<T>({
             </div>
           );
         })}
-        {toolbar && <div className="ms-auto">{toolbar}</div>}
+        {(exportConfig || toolbar) && (
+          <div className="ms-auto flex items-center gap-2">
+            {exportConfig && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void handleExport()}
+                disabled={exporting || (data?.total ?? 0) === 0}
+                className="gap-1.5"
+                data-testid="dt-export"
+              >
+                {exporting ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <FileSpreadsheet className="size-3.5" aria-hidden />
+                )}
+                {t("export")}
+              </Button>
+            )}
+            {toolbar}
+          </div>
+        )}
       </div>
+
+      {exportError && (
+        <p
+          className="text-destructive text-xs font-medium"
+          role="alert"
+          data-testid="dt-export-error"
+        >
+          {exportError}
+        </p>
+      )}
 
       {error ? (
         <div

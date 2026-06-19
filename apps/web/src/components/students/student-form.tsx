@@ -60,6 +60,20 @@ const countryOptions: ComboboxOption[] = [
   })),
 ];
 
+/** Split a stored E.164 phone back into a dial-code country + local number for the inputs. */
+function splitPhone(phone: string | null | undefined): {
+  dialCountry: string;
+  localNumber: string;
+} {
+  if (!phone) return { dialCountry: "SA", localNumber: "" };
+  const match = [...COUNTRIES]
+    .sort((a, b) => b.dialCode.length - a.dialCode.length)
+    .find((c) => phone.startsWith(c.dialCode));
+  return match
+    ? { dialCountry: match.code, localNumber: phone.slice(match.dialCode.length) }
+    : { dialCountry: "SA", localNumber: phone.replace(/[^\d]/g, "") };
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 /**
@@ -70,21 +84,28 @@ const countryOptions: ComboboxOption[] = [
  */
 export function StudentForm({
   fixedGuardianId,
+  initialFullName,
+  initialPhone,
   onCreated,
   onCancel,
 }: {
   fixedGuardianId?: string;
+  /** Prefill the name (e.g. converting a trial lead into a student). */
+  initialFullName?: string;
+  /** Prefill the phone from a stored E.164 number, split into dial-code + local. */
+  initialPhone?: string | null;
   onCreated: (studentId: string) => void;
   onCancel: () => void;
 }) {
   const t = useTranslations("students");
+  const initialSplit = splitPhone(initialPhone);
   const [guardians, setGuardians] = useState<GuardianRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [fullName, setFullName] = useState("");
-  const [dialCountry, setDialCountry] = useState("SA");
-  const [localNumber, setLocalNumber] = useState("");
+  const [fullName, setFullName] = useState(initialFullName ?? "");
+  const [dialCountry, setDialCountry] = useState(initialSplit.dialCountry);
+  const [localNumber, setLocalNumber] = useState(initialSplit.localNumber);
   const [country, setCountry] = useState("");
   const [selfGuardian, setSelfGuardian] = useState(false);
   const [guardianId, setGuardianId] = useState(fixedGuardianId ?? "");

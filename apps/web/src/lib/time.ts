@@ -14,6 +14,18 @@ export function formatDateTime(
   }).format(new Date(utcIso));
 }
 
+/** Render a wall-clock "HH:mm" (24h) as a locale-aware 12-hour time, e.g. "4:30 PM". */
+export function formatHm12(hm: string, locale: string): string {
+  const [h, m] = hm.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h ?? 0, m ?? 0, 0, 0);
+  return new Intl.DateTimeFormat(bcp47(locale), {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(d);
+}
+
 function bcp47(locale: string): string {
   // Arabic renders Arabic-Indic digits via the explicit numbering system (R-LOC / AC-9.12).
   return locale.startsWith("ar") && !locale.includes("-nu-")

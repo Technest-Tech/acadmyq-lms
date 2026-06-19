@@ -6,8 +6,9 @@ namespace App\Support;
 
 /**
  * The canonical RBAC capability catalog (Sprint 2 §5.3) and the default role → capability
- * mapping (§5.4). This is the *seed source* only — at runtime authorization is resolved
- * purely from the `permissions` / `role_permissions` tables (PermissionResolver), so a new
+ * mapping (§5.4). This is the *seed source* for the SYSTEM roles only — at runtime
+ * authorization is resolved from the tables via PermissionResolver (system roles from
+ * `role_permissions`, per-academy custom roles from `academy_role_permissions`), so a new
  * role or a re-mapping is a data change, never a code change (Master Spec §4 design note).
  */
 final class PermissionCatalog
@@ -19,6 +20,8 @@ final class PermissionCatalog
         // Platform↔Academy subscription billing + per-academy WhatsApp automation (Super-Admin only).
         'academy_billing.manage', 'automation.manage',
         'user.invite', 'role.assign', 'user.read_platform',
+        // Create/edit/delete an academy's own CUSTOM roles and assign them (academy_roles).
+        'role.manage',
         'platform.manage',
         'teacher.read', 'teacher.read_own', 'teacher.create', 'teacher.update', 'teacher.deactivate',
         'guardian.read', 'guardian.create', 'guardian.update',
@@ -27,6 +30,7 @@ final class PermissionCatalog
         'session.read', 'session.mark_attendance', 'session.write_report',
         'session.reschedule', 'session.cancel',
         'session.cancel_request', 'session.cancel_approve',
+        'trial.read', 'trial.manage',
         'notification.read',
         'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
         'payout.read', 'payout.read_own', 'payout.finalize', 'payout.adjust',
@@ -49,13 +53,14 @@ final class PermissionCatalog
     public static function roleMap(): array
     {
         $academyScoped = [
-            'user.invite', 'role.assign',
+            'user.invite', 'role.assign', 'role.manage',
             'teacher.read', 'teacher.create', 'teacher.update', 'teacher.deactivate',
             'guardian.read', 'guardian.create', 'guardian.update',
             'student.read', 'student.create', 'student.update', 'student.deactivate',
             'schedule.read', 'schedule.manage',
             'session.read', 'session.mark_attendance', 'session.write_report',
             'session.reschedule', 'session.cancel', 'session.cancel_approve',
+            'trial.read', 'trial.manage',
             'notification.read',
             'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
             'payout.read', 'payout.finalize', 'payout.adjust',
@@ -78,7 +83,7 @@ final class PermissionCatalog
             'SUPER_ADMIN' => [
                 'academy.create', 'academy.suspend', 'academy.configure', 'academy.enter', 'academy.read',
                 'plan.manage', 'academy_billing.manage', 'automation.manage',
-                'user.invite', 'role.assign', 'user.read_platform', 'platform.manage', 'report_field.manage', 'specialization.manage', 'teacher_report.manage', 'audit.read',
+                'user.invite', 'role.assign', 'role.manage', 'user.read_platform', 'platform.manage', 'report_field.manage', 'specialization.manage', 'teacher_report.manage', 'audit.read',
                 'staff_department.manage',
             ],
             // All academy-scoped capabilities, never the platform ones.
@@ -101,6 +106,16 @@ final class PermissionCatalog
                 // Write monthly progress reports about their own students and submit them for the
                 // Owner to review on the Notifications page (the Owner holds student_report.review).
                 'student_report.submit',
+            ],
+            // Non-teaching staff baseline (reception/admin desk). Deliberately MINIMAL and
+            // read-only: enough to see who's enrolled and the day's schedule. Anything beyond
+            // this is delegated through a CUSTOM role the academy builds (academy_roles),
+            // composed from the Owner's own capability set. Never includes platform caps.
+            'STAFF' => [
+                'student.read',
+                'guardian.read',
+                'schedule.read',
+                'session.read',
             ],
         ];
     }

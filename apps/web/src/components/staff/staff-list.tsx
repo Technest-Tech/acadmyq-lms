@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Briefcase,
   MessageCircle,
   Pencil,
   Plus,
@@ -10,7 +9,7 @@ import {
   Users,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,31 +17,9 @@ import {
   DataTable,
   type FilterDef,
 } from "@/components/ui/data-table";
-import { listStaff, listStaffDepartments, type StaffDepartment, type StaffRow } from "@/lib/api";
+import { listStaff, type StaffRow } from "@/lib/api";
+import { type ExcelColumn } from "@/lib/export-excel";
 import { formatMoney } from "@/lib/money";
-import { cn } from "@/lib/utils";
-
-// ── Department badge (hash-based color) ──────────────────────────────────────
-
-function deptHue(name: string): number {
-  return name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
-}
-
-function DepartmentBadge({ dept }: { dept: string }) {
-  const hue = deptHue(dept);
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium"
-      style={{
-        backgroundColor: `hsl(${hue} 65% 94%)`,
-        color: `hsl(${hue} 55% 35%)`,
-      }}
-    >
-      <Briefcase className="size-3 shrink-0" aria-hidden />
-      {dept}
-    </span>
-  );
-}
 
 // ── Avatar ───────────────────────────────────────────────────────────────────
 
@@ -101,13 +78,6 @@ export function StaffList({
   const t = useTranslations("staff");
   const locale = useLocale();
   const { can } = useAuth();
-  const [deptList, setDeptList] = useState<StaffDepartment[]>([]);
-
-  useEffect(() => {
-    listStaffDepartments()
-      .then((res) => setDeptList(res.departments))
-      .catch(() => {});
-  }, []);
 
   const columns = useMemo<ColumnDef<StaffRow>[]>(
     () => [
@@ -133,12 +103,6 @@ export function StaffList({
             </div>
           </div>
         ),
-      },
-      {
-        key: "department",
-        header: t("colDepartment"),
-        sortKey: "department",
-        render: (r) => <DepartmentBadge dept={r.department} />,
       },
       {
         key: "phone",
@@ -192,13 +156,27 @@ export function StaffList({
           { value: "all",      label: t("filter.all") },
         ],
       },
+    ],
+    [t],
+  );
+
+  const exportColumns = useMemo<ExcelColumn<StaffRow>[]>(
+    () => [
+      { header: t("colName"), value: (r) => r.full_name, width: 26 },
+      { header: t("colPhone"), value: (r) => r.phone },
       {
-        key: "department",
-        label: t("filter.department"),
-        options: deptList.map((d) => ({ value: d.name, label: d.name })),
+        header: t("colSalary"),
+        value: (r) =>
+          r.salary_minor > 0
+            ? formatMoney({ amount: r.salary_minor, currency: r.currency }, locale)
+            : "",
+      },
+      {
+        header: t("colStatus"),
+        value: (r) => (r.deleted_at == null ? t("stat.active") : t("stat.inactive")),
       },
     ],
-    [t, deptList],
+    [t, locale],
   );
 
   const newButton = can("staff.create") ? (
@@ -236,6 +214,11 @@ export function StaffList({
           emptyMessage={t("empty")}
           emptyAction={newButton}
           toolbar={newButton}
+          exportConfig={{
+            fileName: "staff",
+            sheetName: t("list.title"),
+            columns: exportColumns,
+          }}
           refreshToken={refreshToken}
           onRowClick={(r) => onOpen(r.id, r.full_name)}
           rowActions={(r) => (

@@ -15,4 +15,7 @@ enum AppRole: string
     case SuperAdmin = 'SUPER_ADMIN';
     case AcademyOwner = 'ACADEMY_OWNER';
     case Teacher = 'TEACHER';
+    // Non-teaching staff baseline login. A real, assignable system role with a minimal default
+    // capability set; academies layer finer-grained CUSTOM roles on top (academy_roles).
+    case Staff = 'STAFF';
 }

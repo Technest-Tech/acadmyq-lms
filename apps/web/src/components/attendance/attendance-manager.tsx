@@ -7,6 +7,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  FileSpreadsheet,
+  Loader2,
   MessageCircle,
   Search,
   Sparkles,
@@ -26,6 +28,7 @@ import {
   type DaySession,
   type TeacherRow,
 } from "@/lib/api";
+import { type ExcelColumn, exportRowsToExcel } from "@/lib/export-excel";
 import { cn } from "@/lib/utils";
 
 type Selected = { id: string; name: string | null } | null;
@@ -89,6 +92,7 @@ const STATUS_DOT: Record<string, string> = {
 export function AttendanceManager() {
   const t = useTranslations("attendance");
   const tSched = useTranslations("scheduling");
+  const tDt = useTranslations("datatable");
   const locale = useLocale();
   const { session: auth } = useAuth();
   const isTeacher = auth?.role === "TEACHER";
@@ -106,6 +110,8 @@ export function AttendanceManager() {
   // Optimistic status overrides: updated immediately when attendance is recorded so
   // the row reflects the new status before the next full reload.
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const timeFmt = useMemo(
     () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
@@ -222,6 +228,57 @@ export function AttendanceManager() {
 
   function openSession(s: DaySession) {
     setSelected({ id: s.id, name: s.student_name });
+  }
+
+  // Export the day's sessions as currently filtered. This view loads a whole day at
+  // once (no server pagination), so the visible rows ARE the full matching set.
+  async function handleExport() {
+    const rows = filteredSessions ?? [];
+    if (exporting || rows.length === 0) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const columns: ExcelColumn<DaySession>[] = [
+        { header: t("date"), value: () => dayLabel, width: 22 },
+        {
+          header: t("colTime"),
+          value: (s) => timeFmt.format(new Date(s.scheduled_at_utc)),
+        },
+        { header: t("colStudent"), value: (s) => s.student_name, width: 24 },
+        ...(!isTeacher
+          ? [
+              {
+                header: t("teacher"),
+                value: (s: DaySession) => s.teacher_name,
+                width: 24,
+              } satisfies ExcelColumn<DaySession>,
+            ]
+          : []),
+        {
+          header: t("colDuration"),
+          value: (s) => `${s.duration_minutes} ${t("min")}`,
+        },
+        { header: t("status"), value: (s) => tSched(`status.${s.status}`) },
+        {
+          header: t("trial"),
+          value: (s) =>
+            s.student_status === "TRIAL" || s.student_status === "TRIAL_BOOKED"
+              ? t("trial")
+              : "",
+        },
+      ];
+      await exportRowsToExcel({
+        fileName: `attendance-${date}`,
+        sheetName: t("managerTitle"),
+        columns,
+        rows,
+        rightToLeft: locale === "ar",
+      });
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : tDt("exportError"));
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -451,11 +508,37 @@ export function AttendanceManager() {
             <p className="text-muted-foreground text-xs">{t("daySubtitle")}</p>
           </div>
           {filteredSessions !== null && filteredSessions.length > 0 && (
-            <span className="text-muted-foreground bg-muted rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums">
-              {filteredSessions.length}
-            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void handleExport()}
+                disabled={exporting}
+                className="gap-1.5"
+                data-testid="attendance-export"
+              >
+                {exporting ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <FileSpreadsheet className="size-3.5" aria-hidden />
+                )}
+                {tDt("export")}
+              </Button>
+              <span className="text-muted-foreground bg-muted rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums">
+                {filteredSessions.length}
+              </span>
+            </div>
           )}
         </div>
+        {exportError && (
+          <p
+            className="text-destructive border-b px-5 py-2 text-xs font-medium"
+            role="alert"
+          >
+            {exportError}
+          </p>
+        )}
 
         {filteredSessions === null ? (
           // Loading state

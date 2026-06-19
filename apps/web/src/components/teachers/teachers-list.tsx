@@ -18,6 +18,7 @@ import {
   type FilterDef,
 } from "@/components/ui/data-table";
 import { listTeachers, type TeacherRow } from "@/lib/api";
+import { type ExcelColumn } from "@/lib/export-excel";
 import { formatMoney } from "@/lib/money";
 
 // ── Avatar ─────────────────────────────────────────────────────────────────────
@@ -161,6 +162,27 @@ export function TeachersList({
     [t],
   );
 
+  const exportColumns = useMemo<ExcelColumn<TeacherRow>[]>(
+    () => [
+      { header: t("colName"), value: (r) => r.full_name, width: 26 },
+      { header: t("colSpecialization"), value: (r) => r.specialization },
+      {
+        header: t("colRate"),
+        value: (r) =>
+          formatMoney(
+            { amount: r.session_rate_minor, currency: r.currency },
+            locale,
+          ),
+      },
+      { header: t("colWhatsapp"), value: (r) => r.phone },
+      {
+        header: t("filter.status"),
+        value: (r) => (r.deleted_at == null ? t("stat.active") : t("stat.inactive")),
+      },
+    ],
+    [t, locale],
+  );
+
   const newButton = can("teacher.create") ? (
     <Button
       type="button"
@@ -200,6 +222,11 @@ export function TeachersList({
           emptyMessage={t("empty")}
           emptyAction={newButton}
           toolbar={newButton}
+          exportConfig={{
+            fileName: "teachers",
+            sheetName: t("list.title"),
+            columns: exportColumns,
+          }}
           refreshToken={refreshToken}
           onRowClick={(r) => onOpen(r.id, r.full_name)}
           rowActions={(r) => (

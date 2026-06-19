@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\AcademyBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\FeatureCatalog;
+use App\Support\Tenancy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -115,7 +117,37 @@ final class PlanController extends Controller
         }
         $this->audit('plan', $id, ['updated' => array_keys($data)]);
 
+        // A price/currency/features change must propagate to the snapshot cost of every
+        // subscription sitting on this plan — otherwise those academies keep being billed (and
+        // shown) the old amount until something else touches their subscription.
+        $affectsCost = array_key_exists('price_minor', $data)
+            || array_key_exists('currency', $data)
+            || array_key_exists('features', $data);
+        if ($affectsCost) {
+            $this->resyncSubscriptionsForPlan($id);
+        }
+
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Recompute the snapshot cost of every academy currently on $planId, each inside its own
+     * tenant context (RLS `with check`). Keeps subscriptions in sync after a plan-catalog edit.
+     */
+    private function resyncSubscriptionsForPlan(string $planId): void
+    {
+        $billing = app(AcademyBilling::class);
+        $actorId = app(AuthContext::class)->userId;
+
+        foreach (DB::table('academies')->where('plan_id', $planId)->pluck('id') as $academyId) {
+            $ctx = new AuthContext(
+                userId: $actorId,
+                academyId: (string) $academyId,
+                role: 'SUPER_ADMIN',
+                permissions: [],
+            );
+            Tenancy::withContext($ctx, fn () => $billing->recomputeTotals((string) $academyId));
+        }
     }
 
     /** POST /api/admin/add-ons — create an add-on. */

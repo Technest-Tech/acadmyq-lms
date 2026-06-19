@@ -62,6 +62,9 @@ class DemoAcademySeeder extends Seeder
             $this->seedEnrollment();
             $this->seedScheduleAndSessions();
             $this->seedPaymentSettings();
+            // Sync the demo academy's subscription snapshot to its (PRO) plan price so a re-seed
+            // after a plan-price change never leaves a stale total.
+            app(\App\Services\AcademyBilling::class)->recomputeTotals(self::ACADEMY_ID);
         } finally {
             TenantContext::clear();
         }

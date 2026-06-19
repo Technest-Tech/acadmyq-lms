@@ -32,6 +32,8 @@ import { cn } from "@/lib/utils";
 // These are the features BASIC does not include (see DemoAcademySeeder plan catalog).
 const PRO_CAPABILITIES = [
   "staff",
+  "custom_roles",
+  "trials",
   "certificates",
   "student_reports",
   "audit.full",

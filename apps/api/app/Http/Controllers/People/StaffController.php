@@ -81,6 +81,7 @@ final class StaffController extends Controller
                 $data['full_name'],
                 strtolower((string) $data['email']),
                 $data['password'] ?? null,
+                $this->resolveStaffRole($data['role'] ?? 'STAFF'),
             );
         }
 
@@ -211,9 +212,34 @@ final class StaffController extends Controller
     }
 
     /**
-     * Provision a system login for the staff member — users row + STAFF role.
+     * Resolve the login role for a new staff member. Either the STAFF system baseline or one of
+     * the academy's own active CUSTOM roles (academy_roles, tenant-scoped by RLS). Any other
+     * value — including the privileged ACADEMY_OWNER/TEACHER/SUPER_ADMIN codes — is rejected, so
+     * the staff form can never escalate a hire into an owner/teacher.
      */
-    private function provisionLogin(string $academyId, string $fullName, string $email, ?string $password = null): string
+    private function resolveStaffRole(string $role): string
+    {
+        if ($role === 'STAFF') {
+            return 'STAFF';
+        }
+
+        $exists = DB::table('academy_roles')
+            ->where('code', $role)
+            ->where('is_active', true)
+            ->exists();
+
+        if (! $exists) {
+            throw ValidationException::withMessages(['role' => ['That role is not available for this academy.']]);
+        }
+
+        return $role;
+    }
+
+    /**
+     * Provision a system login for the staff member — users row + the chosen role
+     * ($roleCode: STAFF or a custom academy role).
+     */
+    private function provisionLogin(string $academyId, string $fullName, string $email, ?string $password = null, string $roleCode = 'STAFF'): string
     {
         $userId = (string) Str::uuid();
 
@@ -238,11 +264,11 @@ final class StaffController extends Controller
             'id'         => (string) Str::uuid(),
             'user_id'    => $userId,
             'academy_id' => $academyId,
-            'role'       => 'STAFF',
+            'role'       => $roleCode,
         ]);
 
         Audit::log('user.invite', 'user', $userId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: ['email' => $email]);
-        Audit::log('role.assign', 'user_role', $userId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: ['role' => 'STAFF']);
+        Audit::log('role.assign', 'user_role', $userId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: ['role' => $roleCode]);
 
         return $userId;
     }
@@ -254,7 +280,9 @@ final class StaffController extends Controller
 
         $rules = [
             'full_name'    => [$req, 'string', 'max:255'],
-            'department'   => [$req, 'string', 'max:120', Rule::exists('staff_departments', 'name')->where('is_active', true)],
+            // Department is deprecated in the UI (employees are classified by ROLE now) but the
+            // column is retained; still validated against the catalog when explicitly provided.
+            'department'   => ['sometimes', 'nullable', 'string', 'max:120', Rule::exists('staff_departments', 'name')->where('is_active', true)],
             'phone'        => ['nullable', 'string', 'max:32'],
             'salary_minor' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'currency'     => ['sometimes', 'nullable', 'string', 'size:3'],
@@ -265,6 +293,8 @@ final class StaffController extends Controller
             $rules['create_login'] = ['sometimes', 'boolean'];
             $rules['email']        = ['required_if:create_login,true', 'nullable', 'email', 'max:255'];
             $rules['password']     = ['required_if:create_login,true', 'nullable', 'string', 'min:8', 'max:255'];
+            // Login role: STAFF baseline or a custom academy role code (validated in resolveStaffRole).
+            $rules['role']         = ['sometimes', 'nullable', 'string', 'max:64'];
         }
 
         return $request->validate($rules);

@@ -31,6 +31,7 @@ import {
   type PayoutRow,
   type ProfitSummary,
 } from "@/lib/api";
+import { type ExcelColumn } from "@/lib/export-excel";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -397,6 +398,29 @@ export function PayrollScreen() {
     },
   ];
 
+  const exportColumns: ExcelColumn<PayoutRow>[] = [
+    ...(isOwner
+      ? [
+          {
+            header: t("colTeacher"),
+            value: (row: PayoutRow) => row.teacher_name ?? "",
+            width: 24,
+          } satisfies ExcelColumn<PayoutRow>,
+        ]
+      : []),
+    {
+      header: t("colPeriod"),
+      value: (row) =>
+        `${String(row.period_month).padStart(2, "0")}/${row.period_year}`,
+    },
+    { header: t("colStatus"), value: (row) => t(`status.${row.status}`) },
+    {
+      header: t("colTotal"),
+      value: (row) =>
+        formatMoney({ amount: row.total_minor, currency: row.currency }, locale),
+    },
+  ];
+
   const statusFilter: FilterDef = {
     key: "status",
     label: t("filterStatus"),
@@ -498,6 +522,11 @@ export function PayrollScreen() {
         onRowClick={(row) => setSelectedId(row.id)}
         emptyMessage={t("empty")}
         testId="payouts-table"
+        exportConfig={{
+          fileName: "payroll",
+          sheetName: t("title"),
+          columns: exportColumns,
+        }}
         refreshToken={refreshToken}
       />
 

@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\AcademyProfileController;
+use App\Http\Controllers\AcademyRoleController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CertificateTemplateController;
@@ -35,6 +36,7 @@ use App\Http\Controllers\Scheduling\ScheduleController;
 use App\Http\Controllers\Scheduling\SessionController;
 use App\Http\Controllers\SessionReportController;
 use App\Http\Controllers\StudentProgressReportController;
+use App\Http\Controllers\Trials\TrialController;
 use App\Http\Controllers\PaymentSettingsController;
 use App\Http\Controllers\PaypalOrderController;
 use App\Http\Controllers\SpecializationController;
@@ -249,6 +251,19 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::patch('/admin/staff-departments/{id}', [StaffDepartmentController::class, 'update']);
     Route::delete('/admin/staff-departments/{id}', [StaffDepartmentController::class, 'destroy']);
 
+    // Academy custom roles — the academy composes its own roles from the capability catalog
+    // and assigns them to staff. role.manage (RBAC) gates everything; tenant-scoped by RLS
+    // (academy_roles / academy_role_permissions).
+    //
+    // Plan-gated (entitled:custom_roles — a FREE-trial & PRO feature, not BASIC); role.manage
+    // (RBAC) still guards each operation.
+    Route::middleware('entitled:custom_roles')->group(function () {
+        Route::get('/roles', [AcademyRoleController::class, 'index']);
+        Route::post('/roles', [AcademyRoleController::class, 'store']);
+        Route::patch('/roles/{id}', [AcademyRoleController::class, 'update']);
+        Route::delete('/roles/{id}', [AcademyRoleController::class, 'destroy']);
+    });
+
     // Staff — non-teaching academy staff (support, accounting, reception, HR, IT, etc.).
     // Capability-gated (staff.read / staff.create / staff.update / staff.deactivate),
     // plan-gated (entitled:staff), and tenant-scoped by RLS.
@@ -312,6 +327,23 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/sessions/{id}/cancel', [SessionController::class, 'cancel']);
 
     Route::get('/calendar', [CalendarController::class, 'index']);
+
+    // Free Trials (Free-Trials module). The owner finds an available teacher for a requested
+    // slot (availability matcher), books a one-off trial for an existing student or a captured
+    // lead, tracks the pipeline, and converts a successful lead into a real student. Owner-only:
+    // `trial.read` (list/stats/availability) and `trial.manage` (book/update/cancel/convert).
+    // Plan-gated (entitled:trials — a FREE-trial & PRO feature, not BASIC). Literal segments
+    // (`summary`, `availability`) are declared before `{id}` so they aren't captured as an id.
+    Route::middleware('entitled:trials')->group(function () {
+        Route::get('/trials', [TrialController::class, 'index']);
+        Route::get('/trials/summary', [TrialController::class, 'summary']);
+        Route::get('/trials/availability', [TrialController::class, 'availability']);
+        Route::get('/trials/availability-grid', [TrialController::class, 'availabilityGrid']);
+        Route::post('/trials', [TrialController::class, 'store']);
+        Route::patch('/trials/{id}', [TrialController::class, 'update']);
+        Route::post('/trials/{id}/convert', [TrialController::class, 'convert']);
+        Route::delete('/trials/{id}', [TrialController::class, 'destroy']);
+    });
 
     Route::post('/admin/generate-sessions', GenerateSessionsController::class);
 

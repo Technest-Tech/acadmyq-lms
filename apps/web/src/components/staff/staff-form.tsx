@@ -3,24 +3,25 @@
 import {
   AtSign,
   Banknote,
-  Briefcase,
   Eye,
   EyeOff,
   FileText,
   KeyRound,
-  Phone,
+  ShieldCheck,
   User,
+  Wallet,
 } from "lucide-react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { type ComponentType, useEffect, useState } from "react";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption, DialCodePicker } from "@/components/ui/combobox";
 import {
+  type AcademyRoleSummary,
   ApiError,
   createStaff,
-  listStaffDepartments,
-  type StaffDepartment,
+  listAcademyRoles,
   type StaffInput,
   updateStaff,
   type StaffRow,
@@ -50,15 +51,48 @@ function toMinor(major: string): number {
   return Math.round(parseFloat(major || "0") * 100);
 }
 
+// ── Section card ───────────────────────────────────────────────────────────────
+
+function Section({
+  icon: Icon,
+  title,
+  description,
+  children,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-2xl border bg-card/40 p-4 sm:p-5">
+      <div className="mb-4 flex items-start gap-3">
+        <div className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl">
+          <Icon className="size-4.5" aria-hidden />
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold leading-tight">{title}</h3>
+          {description && (
+            <p className="text-muted-foreground mt-0.5 text-xs leading-snug">{description}</p>
+          )}
+        </div>
+      </div>
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
+
 // ── Field wrapper ────────────────────────────────────────────────────────────
 
 function Field({
   label,
   required,
+  hint,
   children,
 }: {
   label: string;
   required?: boolean;
+  hint?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -67,6 +101,7 @@ function Field({
         {label}
         {required && <span className="text-destructive ms-0.5">*</span>}
       </label>
+      {hint && <p className="text-muted-foreground -mt-1 text-xs leading-snug">{hint}</p>}
       {children}
     </div>
   );
@@ -84,42 +119,54 @@ export function StaffForm({
   onCancel: () => void;
 }) {
   const t = useTranslations("staff");
+  const tp = useTranslations("permissions");
+  // Friendly, localized label for a raw capability code (falls back to the code).
+  const permLabel = (code: string) => {
+    const k = `items.${code.replace(/\./g, "_")}.label`;
+    return tp.has(k) ? tp(k) : code;
+  };
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [departments, setDepartments] = useState<StaffDepartment[]>([]);
 
   const [fullName, setFullName]       = useState(initial?.full_name ?? "");
-  const [department, setDepartment]   = useState<string>(initial?.department ?? "");
   const [dialCountry, setDialCountry] = useState("EG");
-
-  useEffect(() => {
-    listStaffDepartments()
-      .then((res) => {
-        const active = res.departments.filter((d) => d.is_active);
-        setDepartments(active);
-        if (!initial?.department && active.length > 0) {
-          setDepartment(active[0]!.name);
-        }
-      })
-      .catch(() => {});
-  }, [initial?.department]);
   const [localNumber, setLocalNumber] = useState(initial?.phone ?? "");
   const [salary, setSalary]           = useState(
     initial?.salary_minor ? String(initial.salary_minor / 100) : "",
   );
   const [currency, setCurrency]       = useState(initial?.currency ?? "EGP");
   const [notes, setNotes]             = useState(initial?.notes ?? "");
-  const [createLogin, setCreateLogin] = useState(false);
+  // An employee gets a login + role by default (uncheck to record a login-less staff member).
+  const [createLogin, setCreateLogin] = useState(!initial);
   const [email, setEmail]             = useState("");
   const [password, setPassword]       = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [role, setRole]               = useState("STAFF");
+  const [roles, setRoles]             = useState<AcademyRoleSummary[]>([]);
 
   const isEditing = !!initial;
 
-  const deptOptions = departments.map<ComboboxOption>((d) => ({
-    value: d.name,
-    label: d.name,
-  }));
+  // The roles an employee can be given: the STAFF baseline plus the academy's OWN active custom
+  // roles (built on the Roles page). Fetched on mount in create mode; listing needs role.manage,
+  // which the owner holds — a failure just leaves the STAFF baseline.
+  useEffect(() => {
+    if (isEditing) return;
+    listAcademyRoles()
+      .then((res) => {
+        const staff = res.system.find((r) => r.code === "STAFF");
+        setRoles([
+          ...(staff ? [staff] : []),
+          ...res.custom.filter((r) => r.isActive !== false),
+        ]);
+      })
+      .catch(() => {});
+  }, [isEditing]);
+
+  // Always offer at least the STAFF baseline (until the fetch resolves / if it fails).
+  const roleList: AcademyRoleSummary[] = roles.length > 0
+    ? roles
+    : [{ code: "STAFF", name: "STAFF", system: true, permissions: [], assignedCount: 0 }];
+  const selectedRole = roleList.find((r) => r.code === role) ?? null;
 
   function buildPhone(): string | null {
     if (!localNumber) return null;
@@ -134,7 +181,6 @@ export function StaffForm({
     try {
       const input: StaffInput = {
         full_name:    fullName,
-        department,
         phone:        buildPhone(),
         salary_minor: toMinor(salary),
         currency:     currency || undefined,
@@ -143,6 +189,7 @@ export function StaffForm({
           create_login: createLogin,
           email:        createLogin ? email : null,
           password:     createLogin ? password : null,
+          role:         createLogin ? role : null,
         }),
       };
 
@@ -164,166 +211,221 @@ export function StaffForm({
     <form className="space-y-5" onSubmit={submit} data-testid="staff-form">
       {error && <AlertBanner variant="error" message={error} />}
 
-      {/* Full name */}
-      <Field label={t("form.fullName")} required>
-        <div className="relative">
-          <User className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            aria-label={t("form.fullName")}
-            className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            required
-          />
-        </div>
-      </Field>
+      {/* ── Profile ───────────────────────────────────────────────────────── */}
+      <Section icon={User} title={t("form.sectionProfile")} description={t("form.sectionProfileDesc")}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* Full name */}
+          <Field label={t("form.fullName")} required>
+            <div className="relative">
+              <User className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+              <input
+                aria-label={t("form.fullName")}
+                className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+              />
+            </div>
+          </Field>
 
-      {/* Department */}
-      <Field label={t("form.department")} required>
-        <div className="relative">
-          <Briefcase className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground z-10" />
-          <Combobox
-            options={deptOptions}
-            value={department}
-            onChange={setDepartment}
-            placeholder={t("form.departmentPlaceholder")}
-            searchPlaceholder={t("form.searchDepartment")}
-            data-testid="department-select"
-          />
-        </div>
-      </Field>
-
-      <div className="grid grid-cols-2 gap-3">
-        {/* Phone */}
-        <Field label={t("form.phone")}>
-          <div
-            dir="ltr"
-            className={cn(
-              "border-input flex h-10 overflow-hidden rounded-xl border transition-all",
-              "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
-            )}
-          >
-            <DialCodePicker
-              options={dialOptions}
-              value={dialCountry}
-              onChange={setDialCountry}
-              searchPlaceholder={t("form.dialSearch")}
-            />
-            <input
+          {/* Phone */}
+          <Field label={t("form.phone")}>
+            <div
               dir="ltr"
-              type="tel"
-              inputMode="numeric"
-              aria-label={t("form.phone")}
-              placeholder="1001234567"
-              value={localNumber}
-              onChange={(e) => setLocalNumber(e.target.value.replace(/[^\d]/g, ""))}
-              className="flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground tabular-nums"
-            />
-          </div>
-        </Field>
-
-        {/* Monthly salary */}
-        <Field label={t("form.salary")}>
-          <div className="relative">
-            <Banknote className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              aria-label={t("form.salary")}
-              className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
-              value={salary}
-              onChange={(e) => setSalary(e.target.value)}
-            />
-          </div>
-        </Field>
-
-        {/* Currency */}
-        <Field label={t("form.currency")}>
-          <Combobox
-            options={currencyOptions}
-            value={currency}
-            onChange={setCurrency}
-            placeholder={t("form.currency")}
-            searchPlaceholder={t("form.searchCurrency")}
-            data-testid="currency-select"
-          />
-        </Field>
-      </div>
-
-      {/* Notes */}
-      <Field label={t("form.notes")}>
-        <div className="relative">
-          <FileText className="pointer-events-none absolute start-3.5 top-3.5 size-4 text-muted-foreground" />
-          <textarea
-            aria-label={t("form.notes")}
-            rows={3}
-            placeholder={t("form.notesPlaceholder")}
-            className={cn(inputBase, "resize-none py-2.5 ps-10 pe-3.5")}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
+              className={cn(
+                "border-input flex h-10 overflow-hidden rounded-xl border transition-all",
+                "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
+              )}
+            >
+              <DialCodePicker
+                options={dialOptions}
+                value={dialCountry}
+                onChange={setDialCountry}
+                searchPlaceholder={t("form.dialSearch")}
+              />
+              <input
+                dir="ltr"
+                type="tel"
+                inputMode="numeric"
+                aria-label={t("form.phone")}
+                placeholder="1001234567"
+                value={localNumber}
+                onChange={(e) => setLocalNumber(e.target.value.replace(/[^\d]/g, ""))}
+                className="placeholder:text-muted-foreground flex-1 bg-transparent px-3 text-sm tabular-nums outline-none"
+              />
+            </div>
+          </Field>
         </div>
-      </Field>
 
-      {/* Optional login — only on create */}
+        {/* Notes */}
+        <Field label={t("form.notes")}>
+          <div className="relative">
+            <FileText className="text-muted-foreground pointer-events-none absolute start-3.5 top-3.5 size-4" />
+            <textarea
+              aria-label={t("form.notes")}
+              rows={2}
+              placeholder={t("form.notesPlaceholder")}
+              className={cn(inputBase, "resize-none py-2.5 ps-10 pe-3.5")}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+        </Field>
+      </Section>
+
+      {/* ── Compensation ──────────────────────────────────────────────────── */}
+      <Section icon={Wallet} title={t("form.sectionPay")} description={t("form.sectionPayDesc")}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* Monthly salary */}
+          <Field label={t("form.salary")}>
+            <div className="relative">
+              <Banknote className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                aria-label={t("form.salary")}
+                className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
+                value={salary}
+                onChange={(e) => setSalary(e.target.value)}
+              />
+            </div>
+          </Field>
+
+          {/* Currency */}
+          <Field label={t("form.currency")}>
+            <Combobox
+              options={currencyOptions}
+              value={currency}
+              onChange={setCurrency}
+              placeholder={t("form.currency")}
+              searchPlaceholder={t("form.searchCurrency")}
+              data-testid="currency-select"
+            />
+          </Field>
+        </div>
+      </Section>
+
+      {/* ── Account & access (create only) ────────────────────────────────── */}
       {!isEditing && (
-        <div className="rounded-xl border bg-muted/20 p-3">
-          <label className="flex items-center gap-2.5 text-sm">
+        <Section
+          icon={ShieldCheck}
+          title={t("form.sectionAccount")}
+          description={t("form.sectionAccountDesc")}
+        >
+          {/* Toggle: create a login */}
+          <label className="hover:bg-muted/30 flex cursor-pointer items-center justify-between gap-4 rounded-xl border bg-background p-3.5 transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-lg">
+                <KeyRound className="size-4" aria-hidden />
+              </div>
+              <div>
+                <p className="text-sm font-medium">{t("form.createLogin")}</p>
+                <p className="text-muted-foreground text-xs">{t("form.createLoginDesc")}</p>
+              </div>
+            </div>
             <input
               type="checkbox"
               checked={createLogin}
               onChange={(e) => setCreateLogin(e.target.checked)}
               data-testid="create-login"
-              className="size-4 rounded border-input accent-primary"
+              className="border-input accent-primary size-4 shrink-0 rounded"
             />
-            <span className="font-medium">{t("form.createLogin")}</span>
           </label>
+
           {createLogin && (
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <Field label={t("form.email")} required>
-                <div className="relative">
-                  <AtSign className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    type="email"
-                    aria-label={t("form.email")}
-                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required={createLogin}
-                  />
-                </div>
+            <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={t("form.email")} required>
+                  <div className="relative">
+                    <AtSign className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                    <input
+                      type="email"
+                      aria-label={t("form.email")}
+                      className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required={createLogin}
+                    />
+                  </div>
+                </Field>
+                <Field label={t("form.password")} required>
+                  <div className="relative">
+                    <KeyRound className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      aria-label={t("form.password")}
+                      className={cn(inputBase, "py-2.5 ps-10 pe-10")}
+                      placeholder={t("form.passwordHint")}
+                      value={password}
+                      minLength={8}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required={createLogin}
+                      data-testid="staff-password"
+                    />
+                    <button
+                      type="button"
+                      aria-label={showPassword ? t("form.hidePassword") : t("form.showPassword")}
+                      className="text-muted-foreground hover:text-foreground absolute end-3 top-1/2 -translate-y-1/2"
+                      onClick={() => setShowPassword((v) => !v)}
+                    >
+                      {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    </button>
+                  </div>
+                </Field>
+              </div>
+
+              {/* Login role — the STAFF baseline + the academy's OWN custom roles. */}
+              <Field label={t("form.role")} hint={t("form.roleHint")}>
+                <Combobox
+                  options={roleList.map<ComboboxOption>((r) => ({
+                    value: r.code,
+                    label: r.code === "STAFF" ? t("form.roleStaff") : r.name,
+                    sublabel: r.description ?? undefined,
+                  }))}
+                  value={role}
+                  onChange={setRole}
+                  placeholder={t("form.roleStaff")}
+                  searchPlaceholder={t("form.searchRole")}
+                  data-testid="role-select"
+                />
               </Field>
-              <Field label={t("form.password")} required>
-                <div className="relative">
-                  <KeyRound className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    aria-label={t("form.password")}
-                    className={cn(inputBase, "py-2.5 ps-10 pe-10")}
-                    placeholder={t("form.passwordHint")}
-                    value={password}
-                    minLength={8}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required={createLogin}
-                    data-testid="staff-password"
-                  />
-                  <button
-                    type="button"
-                    aria-label={showPassword ? t("form.hidePassword") : t("form.showPassword")}
-                    className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowPassword((v) => !v)}
-                  >
-                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
+
+              {/* What the chosen role lets this employee do. */}
+              {selectedRole && (
+                <div className="bg-background rounded-xl border p-3">
+                  <p className="mb-2 text-xs font-semibold">{t("form.roleCan")}</p>
+                  {selectedRole.permissions.length === 0 ? (
+                    <p className="text-muted-foreground text-xs">{t("form.roleNoPerms")}</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedRole.permissions.map((code) => (
+                        <span
+                          key={code}
+                          className="bg-primary/8 text-primary rounded-md px-2 py-0.5 text-xs font-medium"
+                          title={code}
+                        >
+                          {permLabel(code)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </Field>
-            </div>
+              )}
+
+              <p className="text-muted-foreground text-xs">
+                {t("form.manageRolesHint")}{" "}
+                <Link href="/roles" className="text-primary font-medium underline">
+                  {t("form.manageRolesLink")}
+                </Link>
+              </p>
+            </>
           )}
-        </div>
+        </Section>
       )}
 
-      <div className="flex justify-end gap-2 border-t pt-4">
+      {/* ── Footer ────────────────────────────────────────────────────────── */}
+      <div className="bg-card sticky bottom-0 -mx-1 flex justify-end gap-2 border-t px-1 pt-4">
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           {t("back")}
         </Button>

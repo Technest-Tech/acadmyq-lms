@@ -11,6 +11,7 @@ import {
   type FilterDef,
 } from "@/components/ui/data-table";
 import { type GuardianRow, listGuardians } from "@/lib/api";
+import { type ExcelColumn } from "@/lib/export-excel";
 
 // Deterministic hue from a string so each guardian gets a consistent colour.
 function nameHue(name: string) {
@@ -128,6 +129,21 @@ export function GuardiansList({
     [t],
   );
 
+  const exportColumns = useMemo<ExcelColumn<GuardianRow>[]>(
+    () => [
+      { header: t("colName"), value: (r) => r.full_name, width: 26 },
+      { header: t("colPhone"), value: (r) => r.whatsapp_phone },
+      { header: t("colCountry"), value: (r) => r.country },
+      { header: t("colCurrency"), value: (r) => r.currency },
+      {
+        header: t("filter.status"),
+        value: (r) =>
+          r.deleted_at == null ? t("filter.active") : t("filter.inactive"),
+      },
+    ],
+    [t],
+  );
+
   const newButton = can("guardian.create") ? (
     <Button
       type="button"
@@ -166,6 +182,11 @@ export function GuardiansList({
           emptyMessage={t("empty")}
           emptyAction={newButton}
           toolbar={newButton}
+          exportConfig={{
+            fileName: "guardians",
+            sheetName: "Guardians",
+            columns: exportColumns,
+          }}
           refreshToken={refreshToken}
           onRowClick={(r) => onOpen(r.id, r.full_name)}
           rowActions={(r) => (

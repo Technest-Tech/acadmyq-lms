@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  Briefcase,
   Building2,
   Plus,
   UserCheck,
@@ -9,7 +8,7 @@ import {
   UserX,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { type ComponentType, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { StaffForm } from "@/components/staff/staff-form";
@@ -31,7 +30,6 @@ interface Stats {
   total: number;
   active: number;
   inactive: number;
-  departments: number;
 }
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
@@ -86,38 +84,6 @@ function StatCard({
   );
 }
 
-// ── Department overview strip ─────────────────────────────────────────────────
-
-function deptHue(name: string): number {
-  return name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
-}
-
-function DepartmentStrip({ counts }: { counts: Record<string, number> }) {
-  const entries = Object.entries(counts);
-  if (entries.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      {entries.map(([dept, count]) => {
-        const hue = deptHue(dept);
-        return (
-          <div
-            key={dept}
-            className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm shadow-sm"
-          >
-            <span
-              className="size-2 rounded-full shrink-0"
-              style={{ backgroundColor: `hsl(${hue} 55% 50%)` }}
-            />
-            <span className="font-medium">{dept}</span>
-            <span className="text-muted-foreground text-xs font-bold tabular-nums">{count}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── StaffManager ──────────────────────────────────────────────────────────────
 
 export function StaffManager() {
@@ -128,7 +94,6 @@ export function StaffManager() {
   const [modal, setModal] = useState<ModalState>({ kind: "closed" });
   const [refreshToken, setRefreshToken] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [deptCounts, setDeptCounts] = useState<Record<string, number>>({});
   const [alert, setAlert] = useState<{
     variant: "success" | "error";
     message: string;
@@ -163,19 +128,13 @@ export function StaffManager() {
     void Promise.all([
       listStaff({ pageSize: 1 }),
       listStaff({ pageSize: 1, filter: { status: "inactive" } }),
-      listStaff({ pageSize: 200, filter: { status: "active" } }),
+      listStaff({ pageSize: 1, filter: { status: "active" } }),
     ])
       .then(([all, inactive, active]) => {
-        const counts: Record<string, number> = {};
-        for (const row of active.rows) {
-          counts[row.department] = (counts[row.department] ?? 0) + 1;
-        }
-        setDeptCounts(counts);
         setStats({
-          total:       all.total,
-          active:      active.total,
-          inactive:    inactive.total,
-          departments: Object.keys(counts).length,
+          total:    all.total,
+          active:   active.total,
+          inactive: inactive.total,
         });
       })
       .catch(() => {});
@@ -212,7 +171,7 @@ export function StaffManager() {
       </div>
 
       {/* ── Stat cards ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard
           icon={Users}
           label={t("stat.total")}
@@ -240,21 +199,7 @@ export function StaffManager() {
           ringClass="ring-slate-400/20"
           gradientFrom="from-slate-400/8"
         />
-        <StatCard
-          icon={Briefcase}
-          label={t("stat.departments")}
-          value={stats ? stats.departments.toLocaleString() : null}
-          colorClass="text-violet-600 dark:text-violet-400"
-          bgClass="bg-violet-500/10"
-          ringClass="ring-violet-500/20"
-          gradientFrom="from-violet-500/8"
-        />
       </div>
-
-      {/* ── Department overview ───────────────────────────────────────────── */}
-      {Object.keys(deptCounts).length > 0 && (
-        <DepartmentStrip counts={deptCounts} />
-      )}
 
       {/* ── Alert ─────────────────────────────────────────────────────────── */}
       {alert && (
@@ -278,7 +223,7 @@ export function StaffManager() {
         open={modal.kind === "new"}
         onClose={() => setModal({ kind: "closed" })}
         title={t("new")}
-        size="md"
+        size="xl"
       >
         <StaffForm
           onCancel={() => setModal({ kind: "closed" })}

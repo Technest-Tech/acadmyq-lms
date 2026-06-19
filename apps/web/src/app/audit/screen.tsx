@@ -20,6 +20,7 @@ import {
   type AuditResult,
   type DataTableQuery,
 } from "@/lib/api";
+import { type ExcelColumn } from "@/lib/export-excel";
 import { formatNumber } from "@/lib/money";
 import { formatRelativeTime } from "@/lib/time";
 
@@ -157,6 +158,27 @@ export function AuditLogScreen() {
     [t, locale],
   );
 
+  const exportColumns = useMemo<ExcelColumn<AuditEntry>[]>(() => {
+    const dateFmt = new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    return [
+      {
+        header: t("colTime"),
+        value: (row) => dateFmt.format(new Date(row.created_at)),
+        width: 22,
+      },
+      {
+        header: t("colActor"),
+        value: (row) => row.actor_name ?? t("systemActor"),
+        width: 22,
+      },
+      { header: t("colAction"), value: (row) => row.action, width: 24 },
+      { header: t("colEntity"), value: (row) => row.entity_type },
+    ];
+  }, [t, locale]);
+
   if (!can("audit.read")) {
     return <p className="text-muted-foreground text-sm">{t("noPermission")}</p>;
   }
@@ -261,6 +283,11 @@ export function AuditLogScreen() {
         onRowClick={(row) => setSelected(row)}
         emptyMessage={t("empty")}
         testId="audit-table"
+        exportConfig={{
+          fileName: "audit-log",
+          sheetName: t("title"),
+          columns: exportColumns,
+        }}
       />
 
       <AuditDetailModal entry={selected} onClose={() => setSelected(null)} />

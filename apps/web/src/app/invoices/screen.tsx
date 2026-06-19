@@ -33,6 +33,7 @@ import {
   type InvoiceSummary,
   type ListResult,
 } from "@/lib/api";
+import { type ExcelColumn } from "@/lib/export-excel";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -385,6 +386,56 @@ function useInvoiceColumns(): ColumnDef<InvoiceRow>[] {
   ];
 }
 
+/** Export columns for the invoice list — flat values (no badges), shared by both tabs. */
+function useInvoiceExportColumns(): ExcelColumn<InvoiceRow>[] {
+  const t = useTranslations("invoices");
+  const locale = useLocale();
+  const monthFmt = useMemo(
+    () => new Intl.DateTimeFormat(locale, { month: "short", year: "numeric" }),
+    [locale],
+  );
+
+  return [
+    { header: t("colPayer"), value: (row) => row.payer_name, width: 26 },
+    {
+      header: t("payerType"),
+      value: (row) =>
+        t(row.payer_type === "GUARDIAN" ? "payerGuardian" : "payerStudent"),
+    },
+    {
+      header: t("colPeriod"),
+      value: (row) =>
+        monthFmt.format(new Date(row.period_year, row.period_month - 1, 1)),
+    },
+    { header: t("colStatus"), value: (row) => t(`status.${row.status}`) },
+    { header: t("currency"), value: (row) => row.currency },
+    {
+      header: t("colTotal"),
+      value: (row) =>
+        formatMoney({ amount: row.total_minor, currency: row.currency }, locale),
+    },
+    {
+      header: t("amountPaid"),
+      value: (row) =>
+        formatMoney(
+          { amount: row.amount_paid_minor, currency: row.currency },
+          locale,
+        ),
+    },
+    {
+      header: t("balanceDue"),
+      value: (row) =>
+        formatMoney(
+          {
+            amount: Math.max(0, row.total_minor - row.amount_paid_minor),
+            currency: row.currency,
+          },
+          locale,
+        ),
+    },
+  ];
+}
+
 const STATUS_FILTER_OPTIONS = (
   t: ReturnType<typeof useTranslations>,
 ): FilterDef => ({
@@ -422,6 +473,7 @@ function AutomaticTab() {
 
   const refreshAll = useCallback(() => setRefreshToken((n) => n + 1), []);
   const columns = useInvoiceColumns();
+  const exportColumns = useInvoiceExportColumns();
 
   // Summary tracks the active period filters + the global refresh token (kind=AUTO).
   useEffect(() => {
@@ -536,6 +588,11 @@ function AutomaticTab() {
         )}
         emptyMessage={t("empty")}
         testId="invoices-table"
+        exportConfig={{
+          fileName: "invoices-automatic",
+          sheetName: t("tabs.auto"),
+          columns: exportColumns,
+        }}
         refreshToken={refreshToken}
       />
 
@@ -577,6 +634,7 @@ function ManualTab() {
 
   const refreshAll = useCallback(() => setRefreshToken((n) => n + 1), []);
   const columns = useInvoiceColumns();
+  const exportColumns = useInvoiceExportColumns();
 
   // Manual-only summary, refreshed alongside the list after every mutation.
   useEffect(() => {
@@ -661,6 +719,11 @@ function ManualTab() {
         )}
         emptyMessage={t("manualEmpty")}
         testId="manual-invoices-table"
+        exportConfig={{
+          fileName: "invoices-manual",
+          sheetName: t("tabs.manual"),
+          columns: exportColumns,
+        }}
         refreshToken={refreshToken}
       />
 

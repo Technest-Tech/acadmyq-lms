@@ -6,6 +6,7 @@ import {
   BellRing,
   Briefcase,
   Building2,
+  CalendarClock,
   CalendarDays,
   ClipboardCheck,
   CreditCard,
@@ -58,6 +59,7 @@ type NavKey =
   | "teachers"
   | "staff"
   | "schedule"
+  | "trials"
   | "attendance"
   | "studentReports"
   | "studentReportReviews"
@@ -71,7 +73,8 @@ type NavKey =
   | "audit"
   | "settings"
   | "platformSettings"
-  | "roles";
+  | "roles"
+  | "academyRoles";
 
 /**
  * Nav items gated by capability code (Sprint 2 §6.3). `dashboard` is always shown;
@@ -171,10 +174,24 @@ const NAV: ReadonlyArray<{
     group: "management",
   },
   {
+    key: "academyRoles",
+    icon: ShieldCheck,
+    permission: "role.manage",
+    href: "/roles",
+    group: "management",
+  },
+  {
     key: "schedule",
     icon: CalendarDays,
     permission: "schedule.read",
     href: "/calendar",
+    group: "management",
+  },
+  {
+    key: "trials",
+    icon: CalendarClock,
+    permission: "trial.read",
+    href: "/trials",
     group: "management",
   },
   {
@@ -288,6 +305,8 @@ const NAV_GROUPS = ["general", "management", "financial", "system"] as const;
  */
 const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   staff: "staff",
+  academyRoles: "custom_roles",
+  trials: "trials",
   certificates: "certificates",
   studentReports: "student_reports",
   studentReportReviews: "student_reports",

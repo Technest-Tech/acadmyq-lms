@@ -149,7 +149,8 @@
     "platformSettings": "Platform Settings",
     "roles": "Roles & Permissions",
     "upgradeBadge": "Upgrade",
-    "upgradeHint": "Upgrade your plan to unlock this feature"
+    "upgradeHint": "Upgrade your plan to unlock this feature",
+    "academyRoles": "Roles & Permissions"
   },
   "navGroup": {
     "general": "General",
@@ -331,7 +332,9 @@
     "total": "{count} total",
     "pageSize": "Page size",
     "prev": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "export": "Export Excel",
+    "exportError": "Export failed. Please try again."
   },
   "guardians": {
     "title": "Guardians",
@@ -1445,6 +1448,8 @@
     "upgradeCta": "Upgrade plan",
     "feature": {
       "staff": "Staff management",
+      "custom_roles": "Custom roles & permissions",
+      "trials": "Free trials pipeline",
       "certificates": "Certificates",
       "student_reports": "Student progress reports",
       "audit": {
@@ -1755,7 +1760,23 @@
       "creating": "Creating…",
       "save": "Save changes",
       "saving": "Saving…",
-      "saved": "Saved."
+      "saved": "Saved.",
+      "role": "Login role",
+      "roleStaff": "Staff (default)",
+      "searchRole": "Search role…",
+      "roleCan": "This role can:",
+      "roleNoPerms": "No capabilities — this login can sign in but do nothing yet.",
+      "manageRolesHint": "Need a different role?",
+      "manageRolesLink": "Manage roles",
+      "departmentHint": "Which team this person is in — for organizing your staff. It does NOT affect what they can access.",
+      "roleHint": "What this employee can do — pick one of your academy's roles. This controls their access.",
+      "sectionProfile": "Profile",
+      "sectionProfileDesc": "Basic details of the staff member.",
+      "sectionPay": "Compensation",
+      "sectionPayDesc": "Optional monthly salary, kept for your records.",
+      "sectionAccount": "Account & access",
+      "sectionAccountDesc": "Give this employee a login and choose what they can do.",
+      "createLoginDesc": "Create a dashboard login for this employee."
     },
     "detail": {
       "profile": "Profile",
@@ -2117,6 +2138,421 @@
       "refresh": "Refresh",
       "approve": "Approve",
       "reject": "Reject"
+    }
+  },
+  "trials": {
+    "title": "Free Trials",
+    "subtitle": "Find an available teacher, book a trial, and turn prospects into students.",
+    "back": "Back",
+    "empty": "You don't have access to free trials.",
+    "stats": {
+      "upcoming": "Upcoming",
+      "completed": "Completed",
+      "converted": "Converted",
+      "conversionRate": "Conversion rate"
+    },
+    "tabs": {
+      "find": "Find a teacher",
+      "pipeline": "Scheduled trials"
+    },
+    "finder": {
+      "dateLabel": "Date",
+      "timeLabel": "Time",
+      "anyTime": "Any time",
+      "duration": "Duration",
+      "minutes": "{count} min",
+      "busy": "busy",
+      "today": "Today",
+      "reset": "Reset",
+      "cellFree": "{count} free",
+      "cellBusy": "{count} busy",
+      "cellNone": "No teachers available at this time",
+      "cellNoneShort": "·",
+      "legendAvailable": "Teachers available",
+      "legendBooked": "All booked at this time",
+      "legendNone": "No availability",
+      "noAvailabilityTitle": "No availability this week",
+      "noAvailabilityHint": "Your teachers haven't set availability covering this week. Set it from each teacher's profile.",
+      "pickSlotTitle": "Pick a slot",
+      "pickSlotHint": "Choose a date and time, or click a slot on the calendar, to see who's available.",
+      "noneAtSlot": "No teachers available at this exact time.",
+      "slotHeading": "{date} at {time}",
+      "resultCount": "{count, plural, =0 {No teachers available} one {# teacher available} other {# teachers available}}",
+      "book": "Book trial",
+      "conflict": "Already booked"
+    },
+    "book": {
+      "title": "Book a trial",
+      "description": "Schedule this trial for an existing student or a new prospect.",
+      "slotSummary": "{date} at {time} · {duration} min",
+      "conflictWarning": "This teacher already has a session or trial overlapping this time.",
+      "existing": "Existing student",
+      "newLead": "New prospect",
+      "student": "Student",
+      "selectStudent": "Select a student",
+      "searchStudent": "Search students…",
+      "studentRequired": "Select a student.",
+      "leadRequired": "A new prospect needs a name and WhatsApp number.",
+      "leadName": "Full name",
+      "leadNamePlaceholder": "e.g. Sara Ahmed",
+      "whatsapp": "WhatsApp number",
+      "email": "Email",
+      "emailPlaceholder": "name@example.com (optional)",
+      "confirm": "Book trial"
+    },
+    "pipeline": {
+      "title": "Scheduled trials"
+    },
+    "table": {
+      "empty": "No trials yet. Find a teacher above to book the first one.",
+      "name": "Name",
+      "leadTag": "Lead",
+      "teacher": "Teacher",
+      "when": "When",
+      "duration": "Duration",
+      "status": "Status",
+      "recordOutcome": "Outcome",
+      "convert": "Convert",
+      "cancel": "Cancel trial"
+    },
+    "filters": {
+      "status": "Status"
+    },
+    "status": {
+      "SCHEDULED": "Scheduled",
+      "COMPLETED": "Completed",
+      "NO_SHOW": "No-show",
+      "CANCELLED": "Cancelled",
+      "CONVERTED": "Converted"
+    },
+    "outcome": {
+      "title": "Record trial outcome",
+      "notes": "Notes",
+      "notesPlaceholder": "How did the trial go? (optional)",
+      "save": "Save outcome"
+    },
+    "convert": {
+      "title": "Convert to student",
+      "description": "Create a full student record from this trial prospect.",
+      "intro": "We've prefilled the prospect's details. Add the guardian and any missing information to enroll them as a student.",
+      "linkFailed": "The student was created, but linking the trial failed. Check the students list before retrying."
+    },
+    "cancelModal": {
+      "title": "Cancel trial",
+      "body": "Cancel the trial for <b>{name}</b>? It stays in the pipeline marked cancelled.",
+      "keep": "Keep trial",
+      "confirm": "Cancel trial"
+    },
+    "alerts": {
+      "booked": "Trial booked.",
+      "outcomeSaved": "Outcome recorded.",
+      "converted": "Prospect converted to a student.",
+      "cancelled": "Trial cancelled.",
+      "cancelFailed": "Couldn't cancel the trial. Please try again."
+    }
+  },
+  "academyRoles": {
+    "title": "Roles & Permissions",
+    "subtitle": "Define custom roles for your team and choose exactly what each can do.",
+    "noPermission": "You don't have permission to manage roles.",
+    "loadError": "Couldn't load roles.",
+    "newRole": "New role",
+    "customRoles": "Custom roles",
+    "systemRoles": "Built-in roles",
+    "noCustomRoles": "No custom roles yet. Create one to tailor access for your team.",
+    "capabilities": "{count} capabilities",
+    "assigned": "{count} assigned",
+    "inactive": "Inactive",
+    "builtIn": "Built-in",
+    "edit": "Edit",
+    "delete": "Delete",
+    "createTitle": "New role",
+    "editTitle": "Edit role",
+    "nameLabel": "Role name",
+    "descriptionLabel": "Description",
+    "activeLabel": "Active (can be assigned to users)",
+    "permissionsLabel": "Permissions",
+    "permissionsHint": "Pick what this role can do. You can only grant capabilities you hold yourself.",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Role saved.",
+    "deleted": "Role deleted.",
+    "deleteTitle": "Delete role",
+    "deleteBody": "Delete the role “{name}”? This can't be undone.",
+    "deleting": "Deleting…",
+    "upgradeHint": "Building custom roles is available on a higher plan. Staff still get the built-in Staff role.",
+    "viewPlans": "View plans",
+    "role": {
+      "ACADEMY_OWNER": "Academy Owner",
+      "TEACHER": "Teacher",
+      "STAFF": "Staff"
+    },
+    "close": "Close",
+    "customBadge": "Custom",
+    "featuresLabel": "What this role can do",
+    "noFeatures": "No capabilities granted.",
+    "selectAll": "Select all",
+    "clearAll": "Clear"
+  },
+  "permissions": {
+    "groups": {
+      "student": "Students",
+      "guardian": "Guardians",
+      "teacher": "Teachers",
+      "schedule": "Scheduling",
+      "session": "Sessions & attendance",
+      "trial": "Trial lessons",
+      "invoice": "Invoices",
+      "payout": "Payroll",
+      "certificate": "Certificates",
+      "student_report": "Student reports",
+      "teacher_report": "Teacher reports",
+      "report_field": "Report fields",
+      "specialization": "Specializations",
+      "payment_settings": "Payment settings",
+      "staff": "Staff",
+      "staff_department": "Staff departments",
+      "user": "Users & access",
+      "role": "Roles & access",
+      "notification": "Notifications",
+      "audit": "Audit log",
+      "academy": "Academy",
+      "plan": "Plans",
+      "academy_billing": "Billing",
+      "automation": "Automation",
+      "platform": "Platform"
+    },
+    "items": {
+      "student_read": {
+        "label": "View students",
+        "desc": "See the student list and their profiles"
+      },
+      "student_create": {
+        "label": "Add students",
+        "desc": "Enroll new students"
+      },
+      "student_update": {
+        "label": "Edit students",
+        "desc": "Update student details"
+      },
+      "student_deactivate": {
+        "label": "Deactivate students",
+        "desc": "Archive a student without deleting their history"
+      },
+      "guardian_read": {
+        "label": "View guardians",
+        "desc": "See guardians and their linked students"
+      },
+      "guardian_create": {
+        "label": "Add guardians",
+        "desc": "Register a new guardian"
+      },
+      "guardian_update": {
+        "label": "Edit guardians",
+        "desc": "Update guardian details"
+      },
+      "teacher_read": {
+        "label": "View teachers",
+        "desc": "See the teacher list and profiles"
+      },
+      "teacher_read_own": {
+        "label": "View own teacher profile",
+        "desc": "A teacher sees their own record only"
+      },
+      "teacher_create": {
+        "label": "Add teachers",
+        "desc": "Register a new teacher"
+      },
+      "teacher_update": {
+        "label": "Edit teachers",
+        "desc": "Update teacher details and rates"
+      },
+      "teacher_deactivate": {
+        "label": "Deactivate teachers",
+        "desc": "Archive a teacher without deleting their history"
+      },
+      "schedule_read": {
+        "label": "View schedule",
+        "desc": "See the class calendar"
+      },
+      "schedule_manage": {
+        "label": "Manage schedule",
+        "desc": "Create and change class schedules"
+      },
+      "session_read": {
+        "label": "View sessions",
+        "desc": "See individual class sessions"
+      },
+      "session_mark_attendance": {
+        "label": "Mark attendance",
+        "desc": "Record who attended each session"
+      },
+      "session_write_report": {
+        "label": "Write session reports",
+        "desc": "Add notes/reports to a session"
+      },
+      "session_reschedule": {
+        "label": "Reschedule sessions",
+        "desc": "Move a session to another time"
+      },
+      "session_cancel": {
+        "label": "Cancel sessions",
+        "desc": "Cancel a scheduled session directly"
+      },
+      "session_cancel_request": {
+        "label": "Request cancellation",
+        "desc": "Ask an owner to cancel a session"
+      },
+      "session_cancel_approve": {
+        "label": "Approve cancellations",
+        "desc": "Approve or reject cancellation requests"
+      },
+      "trial_read": {
+        "label": "View trial lessons",
+        "desc": "See booked trial lessons"
+      },
+      "trial_manage": {
+        "label": "Manage trial lessons",
+        "desc": "Book and convert trial lessons"
+      },
+      "invoice_read": {
+        "label": "View invoices",
+        "desc": "See invoices and their status"
+      },
+      "invoice_create": {
+        "label": "Create invoices",
+        "desc": "Issue new invoices"
+      },
+      "invoice_close": {
+        "label": "Close invoices",
+        "desc": "Finalize an invoice for the period"
+      },
+      "invoice_mark_paid": {
+        "label": "Mark invoices paid",
+        "desc": "Record a payment against an invoice"
+      },
+      "invoice_send_link": {
+        "label": "Send invoice links",
+        "desc": "Send the public payment link to payers"
+      },
+      "payout_read": {
+        "label": "View payroll",
+        "desc": "See teacher payouts"
+      },
+      "payout_read_own": {
+        "label": "View own payout",
+        "desc": "A teacher sees their own payout only"
+      },
+      "payout_finalize": {
+        "label": "Finalize payouts",
+        "desc": "Lock a payout for the period"
+      },
+      "payout_adjust": {
+        "label": "Adjust payouts",
+        "desc": "Add bonuses or deductions"
+      },
+      "certificate_read": {
+        "label": "View certificates",
+        "desc": "See issued certificates"
+      },
+      "certificate_manage": {
+        "label": "Manage certificates",
+        "desc": "Create and issue certificates"
+      },
+      "student_report_submit": {
+        "label": "Submit progress reports",
+        "desc": "A teacher writes and submits reports"
+      },
+      "student_report_review": {
+        "label": "Review progress reports",
+        "desc": "Approve teacher-submitted reports"
+      },
+      "teacher_report_manage": {
+        "label": "Manage teacher reports",
+        "desc": "Configure teacher report templates"
+      },
+      "report_field_manage": {
+        "label": "Manage report fields",
+        "desc": "Customize the fields used in reports"
+      },
+      "specialization_manage": {
+        "label": "Manage specializations",
+        "desc": "Edit the list of teacher specializations"
+      },
+      "payment_settings_manage": {
+        "label": "Manage payment settings",
+        "desc": "Configure how the academy gets paid"
+      },
+      "staff_read": {
+        "label": "View staff",
+        "desc": "See non-teaching staff"
+      },
+      "staff_create": {
+        "label": "Add staff",
+        "desc": "Add a non-teaching staff member"
+      },
+      "staff_update": {
+        "label": "Edit staff",
+        "desc": "Update staff details"
+      },
+      "staff_deactivate": {
+        "label": "Deactivate staff",
+        "desc": "Archive a staff member"
+      },
+      "user_invite": {
+        "label": "Invite users",
+        "desc": "Create login accounts for team members"
+      },
+      "role_assign": {
+        "label": "Assign roles",
+        "desc": "Set which role a user has"
+      },
+      "role_manage": {
+        "label": "Manage roles",
+        "desc": "Create and edit custom roles"
+      },
+      "notification_read": {
+        "label": "View notifications",
+        "desc": "See the notifications inbox"
+      },
+      "audit_read": {
+        "label": "View audit log",
+        "desc": "See the history of changes"
+      },
+      "academy_create": {
+        "label": "Create academies"
+      },
+      "academy_suspend": {
+        "label": "Suspend academies"
+      },
+      "academy_configure": {
+        "label": "Configure academies"
+      },
+      "academy_enter": {
+        "label": "Enter academies"
+      },
+      "academy_read": {
+        "label": "View academies"
+      },
+      "plan_manage": {
+        "label": "Manage plans"
+      },
+      "academy_billing_manage": {
+        "label": "Manage academy billing"
+      },
+      "automation_manage": {
+        "label": "Manage automation"
+      },
+      "user_read_platform": {
+        "label": "View platform users"
+      },
+      "platform_manage": {
+        "label": "Manage platform"
+      },
+      "staff_department_manage": {
+        "label": "Manage staff departments"
+      }
     }
   }
 }
