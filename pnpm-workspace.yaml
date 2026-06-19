@@ -2,12 +2,15 @@ packages:
   - "apps/web"
   - "packages/*"
 
-# Allowed to run install/build scripts (pnpm 10+ blocks these by default and
-# exits non-zero in CI without an explicit allow-list). sharp powers Next.js
-# image optimization; @swc/core the build.
-onlyBuiltDependencies:
-  - "@parcel/watcher"
-  - "@swc/core"
-  - core-js
-  - sharp
-  - unrs-resolver
+# Dependency build scripts are blocked by default (pnpm 10+) and pnpm exits
+# non-zero in CI/deploy when any are left "ignored" until acknowledged. These
+# packages ship prebuilt binaries, so we explicitly decline to build them —
+# pnpm then skips them and exits 0. `allowBuilds` is the pnpm 11+ key; pnpm 10
+# already blocks builds by default (warning only), so this is the one knob that
+# matters on the deploy server's pnpm.
+allowBuilds:
+  '@parcel/watcher': false
+  '@swc/core': false
+  core-js: false
+  sharp: false
+  unrs-resolver: false
