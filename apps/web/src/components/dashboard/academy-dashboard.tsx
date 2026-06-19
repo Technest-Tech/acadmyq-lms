@@ -975,7 +975,7 @@ export function AcademyDashboard() {
     bucket?.currency ??
     monthProfit?.find((r) => r.currency)?.currency ??
     myEarnings?.currency ??
-    "USD";
+    "EGP";
   const canInvoice = can("invoice.view");
   const invoiceCount = invoiceSummary?.counts.all ?? 0;
   const studentLimit = entitlements?.limits?.students ?? null;

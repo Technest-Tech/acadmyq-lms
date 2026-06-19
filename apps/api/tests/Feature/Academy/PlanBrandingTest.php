@@ -28,7 +28,7 @@ it('stores the selected plan on the academy without gating any feature', functio
     $id = $this->postJson('/api/admin/academies', [
         'name' => 'Plan Academy', 'academy_type_id' => $this->quranType, 'plan_id' => $this->proPlan,
         'default_currency' => 'EGP', 'timezone' => 'Africa/Cairo',
-        'owner_full_name' => 'O', 'owner_email' => 'plan-owner@t.test',
+        'email' => 'plan-owner@t.test', 'password' => 'ownerpass123',
     ])->assertCreated()->json('academyId');
 
     $this->asSuperAdmin();
@@ -70,7 +70,7 @@ it('persists branding fields and reads them back', function () {
         'default_currency' => 'EGP', 'timezone' => 'Africa/Cairo',
         'brand_display_name' => 'Noor Academy', 'brand_logo_url' => 'https://cdn.test/logo.png',
         'subdomain' => 'branded-noor',
-        'owner_full_name' => 'O', 'owner_email' => 'brand-owner@t.test',
+        'email' => 'brand-owner@t.test', 'password' => 'ownerpass123',
     ])->assertCreated()->json('academyId');
 
     $res = $this->getJson("/api/admin/academies/{$id}")->assertOk()->json('academy');

@@ -328,13 +328,19 @@ export function PlanAdminScreen() {
                           </Button>
                         </div>
                         <span className="font-semibold">{p.name}</span>
-                        <span className="text-lg font-bold tracking-tight tabular-nums">
-                          {formatMoney({ amount: p.price_minor, currency: p.currency }, locale)}
-                          <span className="text-muted-foreground text-xs font-medium">
-                            {" "}
-                            {t("perMonth")}
+                        {p.price_minor === 0 ? (
+                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                            {t("freeTrial")}
                           </span>
-                        </span>
+                        ) : (
+                          <span className="text-lg font-bold tracking-tight tabular-nums">
+                            {formatMoney({ amount: p.price_minor, currency: p.currency }, locale)}
+                            <span className="text-muted-foreground text-xs font-medium">
+                              {" "}
+                              {t("perMonth")}
+                            </span>
+                          </span>
+                        )}
                         <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
                           <Building2 className="size-3" aria-hidden />
                           {t("academiesCount", { count: countByPlan.get(p.id) ?? 0 })}

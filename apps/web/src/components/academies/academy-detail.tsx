@@ -1,6 +1,5 @@
 "use client";
 
-import { INVOICE_GROUPING } from "@academiq/contracts";
 import {
   ArrowLeft,
   CalendarClock,
@@ -159,14 +158,10 @@ export function AcademyDetail({
     if (academy === null) return;
     setSaving(true);
     try {
+      // Currency, timezone, invoice grouping and billing day are fixed platform defaults — they
+      // are shown read-only in the hero meta strip and are never edited here.
       const res = await updateAcademy(academyId, {
         name: academy.name as string,
-        default_currency: academy.default_currency as string,
-        timezone: academy.timezone as string,
-        invoice_grouping: academy.invoice_grouping as
-          | "PER_GUARDIAN"
-          | "PER_STUDENT",
-        billing_day: Number(academy.billing_day),
         brand_display_name: (academy.brand_display_name as string) || null,
         brand_logo_url: (academy.brand_logo_url as string) || null,
         subdomain: (academy.subdomain as string) || null,
@@ -325,12 +320,12 @@ export function AcademyDetail({
           />
           <MetaItem
             icon={Clock}
-            label={t("wizard.timezone")}
+            label={t("colTimezone")}
             value={academy.timezone as string}
           />
           <MetaItem
             icon={CalendarClock}
-            label={t("wizard.billingDay")}
+            label={t("colBillingDay")}
             value={String(academy.billing_day ?? "—")}
           />
           <MetaItem icon={Clock} label={t("detail.created")} value={createdAt} />
@@ -349,78 +344,59 @@ export function AcademyDetail({
         <div className="space-y-6 lg:col-span-2">
           <Card title={t("detail.config")} icon={Settings2}>
             <div className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block space-y-1.5">
-                  <span className="text-sm font-medium">{t("wizard.name")}</span>
-                  <input
-                    aria-label={t("wizard.name")}
-                    className={inputClass}
-                    value={academy.name as string}
-                    onChange={(e) => set("name", e.target.value)}
-                  />
-                </label>
-                <label className="block space-y-1.5">
-                  <span className="text-sm font-medium">
-                    {t("wizard.currency")}
-                  </span>
-                  <input
-                    aria-label={t("wizard.currency")}
-                    className={inputClass}
-                    maxLength={3}
-                    dir="ltr"
-                    value={academy.default_currency as string}
-                    onChange={(e) =>
-                      set("default_currency", e.target.value.toUpperCase())
-                    }
-                  />
-                </label>
-                <label className="block space-y-1.5">
-                  <span className="text-sm font-medium">
-                    {t("wizard.timezone")}
-                  </span>
-                  <input
-                    aria-label={t("wizard.timezone")}
-                    className={inputClass}
-                    dir="ltr"
-                    value={academy.timezone as string}
-                    onChange={(e) => set("timezone", e.target.value)}
-                  />
-                </label>
-                <label className="block space-y-1.5">
-                  <span className="text-sm font-medium">
-                    {t("wizard.grouping")}
-                  </span>
-                  <select
-                    aria-label={t("wizard.grouping")}
-                    className={inputClass}
-                    value={academy.invoice_grouping as string}
-                    onChange={(e) => set("invoice_grouping", e.target.value)}
-                  >
-                    {INVOICE_GROUPING.map((g) => (
-                      <option key={g} value={g}>
-                        {g}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium">{t("wizard.name")}</span>
+                <input
+                  aria-label={t("wizard.name")}
+                  className={inputClass}
+                  value={academy.name as string}
+                  onChange={(e) => set("name", e.target.value)}
+                />
+              </label>
 
               <div className="border-t pt-4">
-                <p className="text-muted-foreground mb-2 text-xs">
-                  {t("wizard.reserved")}
+                <p className="text-muted-foreground mb-3 text-xs">
+                  {t("wizard.advancedHint")}
                 </p>
-                <label className="block space-y-1.5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block space-y-1.5">
+                    <span className="text-sm font-medium">
+                      {t("wizard.brandName")}
+                    </span>
+                    <input
+                      aria-label={t("wizard.brandName")}
+                      className={inputClass}
+                      value={(academy.brand_display_name as string) ?? ""}
+                      onChange={(e) =>
+                        set("brand_display_name", e.target.value)
+                      }
+                    />
+                  </label>
+                  <label className="block space-y-1.5">
+                    <span className="text-sm font-medium">
+                      {t("wizard.subdomain")}
+                    </span>
+                    <input
+                      aria-label={t("wizard.subdomain")}
+                      className={inputClass}
+                      dir="ltr"
+                      value={(academy.subdomain as string) ?? ""}
+                      onChange={(e) =>
+                        set("subdomain", e.target.value.toLowerCase())
+                      }
+                    />
+                  </label>
+                </div>
+                <label className="mt-4 block space-y-1.5">
                   <span className="text-sm font-medium">
-                    {t("wizard.subdomain")}
+                    {t("wizard.logoUrl")}
                   </span>
                   <input
-                    aria-label={t("wizard.subdomain")}
+                    aria-label={t("wizard.logoUrl")}
                     className={inputClass}
                     dir="ltr"
-                    value={(academy.subdomain as string) ?? ""}
-                    onChange={(e) =>
-                      set("subdomain", e.target.value.toLowerCase())
-                    }
+                    value={(academy.brand_logo_url as string) ?? ""}
+                    onChange={(e) => set("brand_logo_url", e.target.value)}
                   />
                 </label>
               </div>

@@ -472,7 +472,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div>
               <div className="text-sidebar-foreground text-[13px] font-semibold leading-tight">
-                {t("app.name")}
+                Acadmyq
               </div>
               <div className="text-sidebar-foreground/35 text-[10px] leading-tight tracking-wide">
                 Management

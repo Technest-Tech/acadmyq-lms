@@ -44,7 +44,7 @@ trait InteractsWithPeople
      */
     protected function academyDefaultCurrency(string $academyId): string
     {
-        return (string) (DB::table('academies')->where('id', $academyId)->value('default_currency') ?? 'USD');
+        return (string) (DB::table('academies')->where('id', $academyId)->value('default_currency') ?? 'EGP');
     }
 
     /**

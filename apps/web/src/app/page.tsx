@@ -83,7 +83,7 @@ const CONTENT = {
       badge: "قصة المؤسس",
       title: "اتبنى من جوا الأكاديميات",
       quote:
-        "أنا مهندس برمجيات وصاحب أكاديمية في نفس الوقت. بنيت Academiq لأني تعبت من إدارة الطلاب على Excel، تتبع المدفوعات يدوياً، وضياع سجلات الحضور. كل feature في النظام ده بيحل مشكلة حقيقية أنا شخصياً عشتها.",
+        "أنا مهندس برمجيات وصاحب أكاديمية في نفس الوقت. بنيت Acadmyq لأني تعبت من إدارة الطلاب على Excel، تتبع المدفوعات يدوياً، وضياع سجلات الحضور. كل feature في النظام ده بيحل مشكلة حقيقية أنا شخصياً عشتها.",
       role: "مهندس برمجيات وصاحب أكاديمية",
       points: [
         "فاهم الألم الحقيقي لإدارة الأكاديميات من الداخل",
@@ -126,7 +126,7 @@ const CONTENT = {
       items: [
         {
           quote:
-            "Academiq قلّل وقت الإدارة عندنا بـ 70٪. الفواتير لوحدها بتوفرلنا 8 ساعات كل شهر — والأولياء بدأوا يدفعوا في وقتهم.",
+            "Acadmyq قلّل وقت الإدارة عندنا بـ 70٪. الفواتير لوحدها بتوفرلنا 8 ساعات كل شهر — والأولياء بدأوا يدفعوا في وقتهم.",
           author: "سارة الرشيدي",
           role: "مديرة، أكاديمية نور",
           rating: 5,
@@ -144,7 +144,7 @@ const CONTENT = {
       title1: "مستعد",
       title2: "تحوّل أكاديميتك؟",
       subtitle:
-        "انضم لمئات الأكاديميات اللي بتستخدم Academiq دلوقتي. ابدأ تجربتك المجانية — مش محتاج كارت ائتمان.",
+        "انضم لمئات الأكاديميات اللي بتستخدم Acadmyq دلوقتي. ابدأ تجربتك المجانية — مش محتاج كارت ائتمان.",
       btn1: "راسلنا على واتساب",
       btn2: "سجّل دخول لأكاديميتك",
       pills: ["عربي وإنجليزي", "إشعارات واتساب", "آمن وخصوصي", "متوافق مع الموبايل"],
@@ -217,7 +217,7 @@ const CONTENT = {
       badge: "Founder Story",
       title: "Built from the inside out",
       quote:
-        "I'm a software engineer who also runs his own academy. I built Academiq because I was tired of managing students on spreadsheets, chasing parents for payments, and losing track of attendance. Every feature in this system solves a real problem I personally lived through.",
+        "I'm a software engineer who also runs his own academy. I built Acadmyq because I was tired of managing students on spreadsheets, chasing parents for payments, and losing track of attendance. Every feature in this system solves a real problem I personally lived through.",
       role: "Software Engineer & Academy Owner",
       points: [
         "Understands the real pain of running an academy from the inside",
@@ -260,7 +260,7 @@ const CONTENT = {
       items: [
         {
           quote:
-            "Academiq cut our admin time by 70%. The invoicing alone saves us 8 hours every month — and parents actually pay on time now.",
+            "Acadmyq cut our admin time by 70%. The invoicing alone saves us 8 hours every month — and parents actually pay on time now.",
           author: "Sarah Al-Rashidi",
           role: "Director, Noor Academy",
           rating: 5,
@@ -278,7 +278,7 @@ const CONTENT = {
       title1: "Ready to transform",
       title2: "your academy?",
       subtitle:
-        "Join hundreds of academies already using Academiq. Start your free trial — no credit card required.",
+        "Join hundreds of academies already using Acadmyq. Start your free trial — no credit card required.",
       btn1: "Send us on WhatsApp",
       btn2: "Sign in to your academy",
       pills: ["Arabic & English", "WhatsApp notifications", "Secure & private", "Mobile friendly"],
@@ -430,7 +430,7 @@ function Navbar({
                 scrolled ? "text-foreground" : "text-white"
               }`}
             >
-              Academiq
+              Acadmyq
             </span>
           </Link>
 
@@ -579,7 +579,7 @@ function HeroImage({ lang }: { lang: Lang }) {
           {/* Real screenshot */}
           <Image
             src="/hero_image.png"
-            alt={lang === "ar" ? "لوحة تحكم أكاديميك" : "Academiq Dashboard"}
+            alt={lang === "ar" ? "لوحة تحكم أكادْميك" : "Acadmyq Dashboard"}
             width={1560}
             height={900}
             priority
@@ -1267,11 +1267,11 @@ function Footer({ t, lang }: { t: Content["footer"]; lang: Lang }) {
             >
               <GraduationCap className="size-4 text-white" aria-hidden />
             </div>
-            <span className="text-sm font-bold text-white">Academiq</span>
+            <span className="text-sm font-bold text-white">Acadmyq</span>
           </div>
 
           <p className="order-last text-xs text-white/28 sm:order-none">
-            © 2025 Academiq. {t.rights}
+            © 2025 Acadmyq. {t.rights}
           </p>
 
           <div className="flex gap-6">

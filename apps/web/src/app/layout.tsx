@@ -14,7 +14,7 @@ const tajawal = Tajawal({
 });
 
 export const metadata: Metadata = {
-  title: "Academiq",
+  title: "Acadmyq",
   description: "Academy Management Platform",
 };
 

@@ -42,7 +42,7 @@ it('writes a correctly-attributed audit entry for each mutation', function () {
     $id = $this->postJson('/api/admin/academies', [
         'name' => 'Audited', 'academy_type_id' => $this->quranType,
         'default_currency' => 'EGP', 'timezone' => 'Africa/Cairo',
-        'owner_full_name' => 'O', 'owner_email' => 'audit-owner@t.test',
+        'email' => 'audit-owner@t.test', 'password' => 'ownerpass123',
     ])->assertCreated()->json('academyId');
 
     foreach (['academy.create', 'report_field.manage', 'user.invite', 'role.assign'] as $action) {
@@ -81,7 +81,7 @@ it('records before and after of changed fields on configure', function () {
     $id = $this->postJson('/api/admin/academies', [
         'name' => 'Before Name', 'academy_type_id' => $this->quranType,
         'default_currency' => 'EGP', 'timezone' => 'Africa/Cairo',
-        'owner_full_name' => 'O', 'owner_email' => 'diff-owner@t.test',
+        'email' => 'diff-owner@t.test', 'password' => 'ownerpass123',
     ])->json('academyId');
 
     Sanctum::actingAs($this->admin);

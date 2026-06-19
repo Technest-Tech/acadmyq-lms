@@ -30,8 +30,19 @@ final class PlanController extends Controller
     {
         Gate::authorize('plan.manage');
 
+        // `features` is a jsonb column; the query builder hands it back as a raw JSON string.
+        // Decode it so the client receives the documented { capabilities, limits } object
+        // (otherwise every limit reads as "unlimited" and every capability as off).
+        $plans = DB::table('plans')->orderBy('price_minor')->get()->map(function ($plan) {
+            $plan->features = is_string($plan->features)
+                ? (json_decode($plan->features, true) ?: (object) [])
+                : $plan->features;
+
+            return $plan;
+        });
+
         return response()->json([
-            'plans' => DB::table('plans')->orderBy('price_minor')->get(),
+            'plans' => $plans,
             'addOns' => DB::table('add_ons')->orderBy('code')->get(),
         ]);
     }

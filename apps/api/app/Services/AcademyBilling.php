@@ -375,7 +375,7 @@ final class AcademyBilling
     private function currencyFor(?object $academy): string
     {
         if ($academy === null) {
-            return 'USD';
+            return 'EGP';
         }
         if (($academy->plan_id ?? null) !== null) {
             $planCurrency = DB::table('plans')->where('id', $academy->plan_id)->value('currency');

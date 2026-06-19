@@ -101,8 +101,11 @@ class DemoAcademySeeder extends Seeder
         // `plans.features` follows the Sprint-9 documented shape:
         //   { capabilities: string[], limits: { maxStudents?, maxTeachers? } }
         // The commercial catalog (EGP) sold in the Egyptian market:
-        //   FREE  — every feature, tiny caps (2 teachers / 5 students); time-boxed to a 5-day
-        //           trial via the subscription (config('billing.trial_days')), then it suspends.
+        //   FREE  — NOT a free tier: it is the 5-day FREE TRIAL. Every feature, tiny caps
+        //           (2 teachers / 5 students); a FREE academy is provisioned on status=TRIAL so
+        //           the subscription expires after config('billing.trial_days')=5 days and the
+        //           academy is suspended until it converts to a paid plan. The paid plans below
+        //           are provisioned ACTIVE — they get NO free trial.
         //   BASIC — core operations only: invoicing + payroll + WhatsApp automation. Staff,
         //           certificates, student reports, full audit and custom report fields are PRO.
         //   PRO   — every feature, with generous caps (15 teachers / 60 students).
@@ -110,7 +113,7 @@ class DemoAcademySeeder extends Seeder
         // feature between tiers is an edit here — not a code change (§3.1, TC-9.5).
         $allCapabilities = array_keys(\App\Support\FeatureCatalog::CAPABILITIES);
         foreach ([
-            ['code' => 'FREE', 'name' => 'Free', 'price_minor' => 0, 'features' => json_encode([
+            ['code' => 'FREE', 'name' => 'Free Trial', 'price_minor' => 0, 'features' => json_encode([
                 'capabilities' => $allCapabilities,
                 'limits' => ['maxStudents' => 5, 'maxTeachers' => 2],
             ])],

@@ -33,8 +33,8 @@ function academyPayload(array $overrides = []): array
         'timezone' => 'Africa/Cairo',
         'invoice_grouping' => 'PER_GUARDIAN',
         'billing_day' => 1,
-        'owner_full_name' => 'Owner Noor',
-        'owner_email' => 'first-owner@noor.test',
+        'email' => 'first-owner@noor.test',
+        'password' => 'ownerpass123',
     ], $overrides);
 }
 
@@ -85,24 +85,24 @@ it('scopes the seeded fields to the new academy only', function () {
     expect(DB::table('report_field_definitions')->where('academy_id', $id)->count())->toBe(0);
 });
 
-// ── TC-3.4 / AC-3.3: the first owner can log in (after set-password) ──────────
+// ── TC-3.4 / AC-3.3: the first owner can log in with the credentials set at creation ──
 it('provisions a first owner who can log in to their configured academy', function () {
     Sanctum::actingAs($this->admin);
-    $id = $this->postJson('/api/admin/academies', academyPayload(['owner_email' => 'login-owner@noor.test']))
-        ->json('academyId');
+    $id = $this->postJson('/api/admin/academies', academyPayload([
+        'email' => 'login-owner@noor.test',
+        'password' => 'ownerpass123',
+    ]))->json('academyId');
 
-    // The owner is created with role + invited_at, awaiting a set-password.
+    // The owner is created with role + invited_at and the password set by the admin.
     $this->enterAcademyAsSuperAdmin($id);
     $owner = DB::table('users')->where('email', 'login-owner@noor.test')->first();
     expect($owner->academy_id)->toBe($id);
     expect($owner->invited_at)->not->toBeNull();
     expect(DB::table('user_roles')->where('user_id', $owner->id)->where('role', 'ACADEMY_OWNER')->exists())->toBeTrue();
 
-    // Simulate the owner completing set-password, then logging in.
-    DB::table('users')->where('id', $owner->id)->update(['password' => bcrypt('newsecret')]);
-
+    // The owner logs in immediately with the email + password set at creation (no set-password step).
     $this->withHeader('Origin', 'http://localhost:3000')
-        ->postJson('/api/auth/login', ['email' => 'login-owner@noor.test', 'password' => 'newsecret'])
+        ->postJson('/api/auth/login', ['email' => 'login-owner@noor.test', 'password' => 'ownerpass123'])
         ->assertOk()
         ->assertJsonPath('role', 'ACADEMY_OWNER')
         ->assertJsonPath('academyId', $id);
@@ -120,7 +120,7 @@ it('rolls back the whole creation when the owner email collides', function () {
     Sanctum::actingAs($this->admin);
     $this->postJson('/api/admin/academies', academyPayload([
         'name' => 'RollbackAcademy',
-        'owner_email' => 'taken@dupe.test',
+        'email' => 'taken@dupe.test',
     ]))->assertStatus(422);
 
     // No academy, no orphan fields, no orphan owner — the transaction rolled back (AC-3.4).
@@ -147,7 +147,7 @@ it('rejects a malformed subdomain', function () {
 
     foreach (['UPPER', 'has space', '-leading', 'trailing-', 'under_score'] as $bad) {
         $this->postJson('/api/admin/academies', academyPayload([
-            'owner_email' => 'o-'.bin2hex(random_bytes(3)).'@noor.test',
+            'email' => 'o-'.bin2hex(random_bytes(3)).'@noor.test',
             'subdomain' => $bad,
         ]))->assertStatus(422)->assertJsonValidationErrors('subdomain');
     }

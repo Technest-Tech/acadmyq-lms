@@ -56,7 +56,8 @@ it('creates a plan with capabilities and limits and reads them back', function (
     $elite = collect($row)->firstWhere('id', $planId);
 
     expect($elite['currency'])->toBe('USD');
-    $features = json_decode($elite['features'], true);
+    // The catalog endpoint decodes `features` into the documented object (not a raw JSON string).
+    $features = $elite['features'];
     expect($features['capabilities'])->toContain('audit.full')
         ->and($features['limits']['maxStudents'])->toBe(500);
 });

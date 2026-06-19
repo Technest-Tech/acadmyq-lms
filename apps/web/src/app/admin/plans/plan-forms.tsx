@@ -43,7 +43,7 @@ export function PlanFormModal({
   const [code, setCode] = useState(plan?.code ?? "");
   const [name, setName] = useState(plan?.name ?? "");
   const [price, setPrice] = useState(toMajor(plan?.price_minor ?? 0));
-  const [currency, setCurrency] = useState(plan?.currency ?? "USD");
+  const [currency, setCurrency] = useState(plan?.currency ?? "EGP");
   const [isActive, setIsActive] = useState(plan?.is_active ?? true);
   const [caps, setCaps] = useState<string[]>(
     plan?.features?.capabilities ?? [],
@@ -251,7 +251,7 @@ export function AddOnFormModal({
   const [code, setCode] = useState(addOn?.code ?? "");
   const [name, setName] = useState(addOn?.name ?? "");
   const [price, setPrice] = useState(toMajor(addOn?.price_minor ?? 0));
-  const [currency, setCurrency] = useState(addOn?.currency ?? "USD");
+  const [currency, setCurrency] = useState(addOn?.currency ?? "EGP");
   const [featureKey, setFeatureKey] = useState(
     addOn?.feature_key ?? capKeys[0] ?? "",
   );

@@ -28,7 +28,7 @@ function createPayload(array $overrides = []): array
     return array_merge([
         'name' => 'X', 'academy_type_id' => test()->quranType,
         'default_currency' => 'EGP', 'timezone' => 'Africa/Cairo',
-        'owner_full_name' => 'O', 'owner_email' => 'x'.bin2hex(random_bytes(3)).'@t.test',
+        'email' => 'x'.bin2hex(random_bytes(3)).'@t.test', 'password' => 'ownerpass123',
     ], $overrides);
 }
 

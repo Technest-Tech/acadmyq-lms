@@ -1,19 +1,18 @@
 "use client";
 
-import { INVOICE_GROUPING } from "@academiq/contracts";
 import {
   Building2,
-  Check,
+  ChevronDown,
   CreditCard,
-  Globe,
-  Receipt,
-  ShieldCheck,
+  Eye,
+  EyeOff,
+  Settings2,
   Sparkles,
   UserCircle,
   X,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -31,22 +30,17 @@ import { cn } from "@/lib/utils";
 const inputClass =
   "border-input bg-background w-full rounded-lg border px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none";
 
-type Step = 0 | 1 | 2 | 3 | 4;
-
-const STEP_ICONS: ComponentType<{ className?: string }>[] = [
-  Building2,
-  Receipt,
-  Globe,
-  UserCircle,
-  ShieldCheck,
-];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * The Super Admin "new academy" wizard (Sprint 3 §4.1): Identity → Billing → Branding →
- * Owner → Review. A premium, guided flow — progress stepper, per-step context, selectable
- * type/plan cards. Branding inputs are reserved (R-BRA-1) and labelled as such — stored, not
- * surfaced. On submit the whole thing is created server-side in one transaction, which seeds
- * the chosen type's report fields and provisions the first owner.
+ * The Super Admin "new academy" flow: a single screen that asks only for the essentials —
+ * name, type, plan and the first owner — with optional branding tucked behind an "Advanced"
+ * disclosure. Currency (EGP), timezone (Africa/Cairo) and invoice grouping (PER_GUARDIAN,
+ * monthly) are fixed platform defaults, sent silently and never surfaced. The FREE plan is a
+ * 5-day TRIAL (status TRIAL → expires unless converted); a paid tier (BASIC/PRO) goes straight
+ * to ACTIVE with no free days. On submit the whole thing is created server-side in one
+ * transaction, which seeds the chosen type's report fields, provisions the first owner, and
+ * opens the subscription.
  */
 export function AcademyWizard({
   onCreated,
@@ -60,7 +54,8 @@ export function AcademyWizard({
   const toast = useToast();
   const [types, setTypes] = useState<AcademyType[]>([]);
   const [plans, setPlans] = useState<PlanCatalogItem[]>([]);
-  const [step, setStep] = useState<Step>(0);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const [form, setForm] = useState<CreateAcademyInput>({
@@ -74,8 +69,8 @@ export function AcademyWizard({
     brand_display_name: "",
     brand_logo_url: "",
     subdomain: "",
-    owner_full_name: "",
-    owner_email: "",
+    email: "",
+    password: "",
   });
 
   useEffect(() => {
@@ -87,7 +82,6 @@ export function AcademyWizard({
           : f,
       );
     });
-    // Plans are optional for the picker; ignore failures (e.g. permission edge cases).
     void getPlanCatalog()
       .then((res) => setPlans(res.plans.filter((p) => p.is_active)))
       .catch(() => setPlans([]));
@@ -100,11 +94,16 @@ export function AcademyWizard({
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  const selectedPlan = plans.find((p) => p.id === form.plan_id);
+
   async function submit() {
     setSubmitting(true);
     try {
+      // FREE is a 5-day trial; a paid tier goes live immediately with no free days (backend reads `status`).
+      const status = selectedPlan?.code === "FREE" ? "TRIAL" : "ACTIVE";
       const payload: CreateAcademyInput = {
         ...form,
+        status,
         brand_display_name: form.brand_display_name || null,
         brand_logo_url: form.brand_logo_url || null,
         subdomain: form.subdomain || null,
@@ -114,24 +113,17 @@ export function AcademyWizard({
       onCreated(res.academyId);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : String(err));
-      setStep(0);
     } finally {
       setSubmitting(false);
     }
   }
 
-  const steps = [
-    t("stepIdentity"),
-    t("stepBilling"),
-    t("stepBranding"),
-    t("stepOwner"),
-    t("stepReview"),
-  ];
-
-  // Only the identity step has a hard requirement (a name); keep the rest non-blocking.
-  const canAdvance = step !== 0 || form.name.trim().length > 0;
-  const selectedType = types.find((x) => x.id === form.academy_type_id);
-  const selectedPlan = plans.find((p) => p.id === form.plan_id);
+  const canCreate =
+    form.name.trim().length > 0 &&
+    form.academy_type_id !== "" &&
+    form.plan_id != null &&
+    EMAIL_RE.test(form.email) &&
+    form.password.length >= 8;
 
   return (
     <div className="w-full space-y-6" data-testid="academy-wizard">
@@ -161,207 +153,173 @@ export function AcademyWizard({
         </div>
       </div>
 
-      {/* Stepper */}
-      <ol
-        className="flex items-center justify-between gap-1"
-        data-testid="wizard-steps"
+      {/* Essentials */}
+      <div
+        className="bg-card space-y-5 rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]"
+        data-testid="section-essentials"
       >
-        {steps.map((label, i) => {
-          const Icon = STEP_ICONS[i]!;
-          const done = i < step;
-          const active = i === step;
-          return (
-            <li
-              key={label}
-              data-active={active}
-              className="flex flex-1 items-center gap-2 last:flex-none"
-            >
+        <Field label={t("name")} required>
+          <input
+            aria-label={t("name")}
+            className={inputClass}
+            placeholder={t("namePlaceholder")}
+            value={form.name}
+            onChange={(e) => set("name", e.target.value)}
+          />
+        </Field>
+
+        <Field label={t("type")} required>
+          {/* Selectable type cards (a hidden select keeps the accessible label/testing path). */}
+          <select
+            aria-label={t("type")}
+            className="sr-only"
+            value={form.academy_type_id}
+            onChange={(e) => set("academy_type_id", e.target.value)}
+          >
+            {types.map((ty) => (
+              <option key={ty.id} value={ty.id}>
+                {ty.name}
+              </option>
+            ))}
+          </select>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {types.map((ty) => (
               <button
+                key={ty.id}
                 type="button"
-                onClick={() => i < step && setStep(i as Step)}
-                disabled={i > step}
+                onClick={() => set("academy_type_id", ty.id)}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg px-1 py-1 text-start transition-colors",
-                  i < step && "cursor-pointer",
+                  "rounded-lg border p-3 text-start transition-colors",
+                  form.academy_type_id === ty.id
+                    ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                    : "hover:bg-muted/40",
                 )}
               >
-                <span
-                  className={cn(
-                    "flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-bold transition-colors",
-                    active && "bg-primary text-primary-foreground shadow-sm",
-                    done && "bg-primary/15 text-primary",
-                    !active && !done && "bg-muted text-muted-foreground",
-                  )}
-                >
-                  {done ? (
-                    <Check className="size-4" aria-hidden />
-                  ) : (
-                    <Icon className="size-4" aria-hidden />
-                  )}
-                </span>
-                <span
-                  className={cn(
-                    "hidden text-xs font-medium sm:block",
-                    active ? "text-foreground" : "text-muted-foreground",
-                  )}
-                >
-                  {label}
-                </span>
+                <span className="font-medium">{ty.name}</span>
+                {ty.description && (
+                  <span className="text-muted-foreground mt-0.5 block text-xs">
+                    {ty.description}
+                  </span>
+                )}
               </button>
-              {i < steps.length - 1 && (
-                <span
-                  className={cn(
-                    "h-px flex-1 transition-colors",
-                    done ? "bg-primary/40" : "bg-border",
-                  )}
-                  aria-hidden
-                />
-              )}
-            </li>
-          );
-        })}
-      </ol>
+            ))}
+          </div>
+        </Field>
 
-      {/* Step body */}
-      <div className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        {step === 0 && (
-          <div className="space-y-4" data-testid="step-identity">
-            <StepIntro icon={Building2} title={t("stepIdentity")} hint={t("identityHint")} />
-            <Field label={t("name")} required>
-              <input
-                aria-label={t("name")}
-                className={inputClass}
-                placeholder={t("namePlaceholder")}
-                value={form.name}
-                onChange={(e) => set("name", e.target.value)}
+        <Field label={t("plan")} required>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {plans.map((p) => (
+              <PlanCard
+                key={p.id}
+                selected={form.plan_id === p.id}
+                onClick={() => set("plan_id", p.id)}
+                code={p.code}
+                name={p.name}
+                price={
+                  p.price_minor === 0
+                    ? t("free")
+                    : formatMoney(
+                        { amount: p.price_minor, currency: p.currency },
+                        locale,
+                      )
+                }
+                perMonth={p.price_minor > 0 ? t("perMonth") : undefined}
+                trial={p.code === "FREE" ? t("trialBadge") : undefined}
+                students={p.features?.limits?.maxStudents ?? null}
+                teachers={p.features?.limits?.maxTeachers ?? null}
+                studentsLabel={t("studentsLimit", {
+                  count: p.features?.limits?.maxStudents ?? 0,
+                })}
+                teachersLabel={t("teachersLimit", {
+                  count: p.features?.limits?.maxTeachers ?? 0,
+                })}
               />
-            </Field>
-            <Field label={t("type")}>
-              {/* Selectable type cards (a hidden select keeps the accessible label/testing path). */}
-              <select
-                aria-label={t("type")}
-                className="sr-only"
-                value={form.academy_type_id}
-                onChange={(e) => set("academy_type_id", e.target.value)}
+            ))}
+          </div>
+        </Field>
+      </div>
+
+      {/* Owner login credentials */}
+      <div
+        className="bg-card space-y-4 rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]"
+        data-testid="section-owner"
+      >
+        <SectionIntro
+          icon={UserCircle}
+          title={t("ownerSection")}
+          hint={t("ownerSectionHint")}
+        />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={t("ownerEmail")} required>
+            <input
+              aria-label={t("ownerEmail")}
+              type="email"
+              dir="ltr"
+              autoComplete="off"
+              className={inputClass}
+              value={form.email}
+              onChange={(e) => set("email", e.target.value)}
+            />
+          </Field>
+          <Field label={t("ownerPassword")} required>
+            <div className="relative">
+              <input
+                aria-label={t("ownerPassword")}
+                type={showPassword ? "text" : "password"}
+                dir="ltr"
+                autoComplete="new-password"
+                className={cn(inputClass, "pe-10")}
+                placeholder={t("passwordPlaceholder")}
+                value={form.password}
+                onChange={(e) => set("password", e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={t(showPassword ? "hidePassword" : "showPassword")}
+                className="text-muted-foreground hover:text-foreground absolute inset-y-0 end-0 flex items-center pe-3"
               >
-                {types.map((ty) => (
-                  <option key={ty.id} value={ty.id}>
-                    {ty.name}
-                  </option>
-                ))}
-              </select>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {types.map((ty) => (
-                  <button
-                    key={ty.id}
-                    type="button"
-                    onClick={() => set("academy_type_id", ty.id)}
-                    className={cn(
-                      "rounded-lg border p-3 text-start transition-colors",
-                      form.academy_type_id === ty.id
-                        ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                        : "hover:bg-muted/40",
-                    )}
-                  >
-                    <span className="font-medium">{ty.name}</span>
-                    {ty.description && (
-                      <span className="text-muted-foreground mt-0.5 block text-xs">
-                        {ty.description}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label={t("currency")}>
-                <input
-                  aria-label={t("currency")}
-                  className={inputClass}
-                  maxLength={3}
-                  dir="ltr"
-                  value={form.default_currency}
-                  onChange={(e) =>
-                    set("default_currency", e.target.value.toUpperCase())
-                  }
-                />
-              </Field>
-              <Field label={t("timezone")}>
-                <input
-                  aria-label={t("timezone")}
-                  className={inputClass}
-                  dir="ltr"
-                  value={form.timezone}
-                  onChange={(e) => set("timezone", e.target.value)}
-                />
-              </Field>
+                {showPassword ? (
+                  <EyeOff className="size-4" aria-hidden />
+                ) : (
+                  <Eye className="size-4" aria-hidden />
+                )}
+              </button>
             </div>
-          </div>
-        )}
+          </Field>
+        </div>
+      </div>
 
-        {step === 1 && (
-          <div className="space-y-4" data-testid="step-billing">
-            <StepIntro icon={Receipt} title={t("stepBilling")} hint={t("billingHint")} />
-            <Field label={t("plan")}>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                <PlanOption
-                  selected={form.plan_id == null}
-                  onClick={() => set("plan_id", null)}
-                  title={t("none")}
-                />
-                {plans.map((p) => (
-                  <PlanOption
-                    key={p.id}
-                    selected={form.plan_id === p.id}
-                    onClick={() => set("plan_id", p.id)}
-                    title={p.name}
-                    badge={p.code}
-                    price={formatMoney(
-                      { amount: p.price_minor, currency: p.currency },
-                      locale,
-                    )}
-                  />
-                ))}
-              </div>
-            </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label={t("grouping")}>
-                <select
-                  aria-label={t("grouping")}
-                  className={inputClass}
-                  value={form.invoice_grouping}
-                  onChange={(e) =>
-                    set(
-                      "invoice_grouping",
-                      e.target.value as CreateAcademyInput["invoice_grouping"],
-                    )
-                  }
-                >
-                  {INVOICE_GROUPING.map((g) => (
-                    <option key={g} value={g}>
-                      {g}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={t("billingDay")}>
-                <input
-                  aria-label={t("billingDay")}
-                  type="number"
-                  min={1}
-                  max={28}
-                  className={inputClass}
-                  value={form.billing_day}
-                  onChange={(e) => set("billing_day", Number(e.target.value))}
-                />
-              </Field>
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div className="space-y-4" data-testid="step-branding">
-            <StepIntro icon={Globe} title={t("stepBranding")} hint={t("reserved")} />
+      {/* Advanced (collapsed by default — sensible defaults already applied) */}
+      <div className="bg-card overflow-hidden rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
+          data-testid="advanced-toggle"
+          className="hover:bg-muted/40 flex w-full items-center justify-between gap-3 p-5 text-start transition-colors"
+        >
+          <span className="flex items-center gap-2.5">
+            <Settings2 className="text-muted-foreground size-4" aria-hidden />
+            <span>
+              <span className="block text-sm font-semibold">
+                {t("advanced")}
+              </span>
+              <span className="text-muted-foreground block text-xs">
+                {t("advancedHint")}
+              </span>
+            </span>
+          </span>
+          <ChevronDown
+            className={cn(
+              "text-muted-foreground size-4 transition-transform",
+              showAdvanced && "rotate-180",
+            )}
+            aria-hidden
+          />
+        </button>
+        {showAdvanced && (
+          <div className="space-y-4 border-t p-5" data-testid="advanced-panel">
             <Field label={t("brandName")}>
               <input
                 aria-label={t("brandName")}
@@ -370,122 +328,65 @@ export function AcademyWizard({
                 onChange={(e) => set("brand_display_name", e.target.value)}
               />
             </Field>
-            <Field label={t("logoUrl")}>
-              <input
-                aria-label={t("logoUrl")}
-                className={inputClass}
-                dir="ltr"
-                value={form.brand_logo_url ?? ""}
-                onChange={(e) => set("brand_logo_url", e.target.value)}
-              />
-            </Field>
-            <Field label={t("subdomain")}>
-              <input
-                aria-label={t("subdomain")}
-                className={inputClass}
-                dir="ltr"
-                value={form.subdomain ?? ""}
-                onChange={(e) => set("subdomain", e.target.value.toLowerCase())}
-              />
-            </Field>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div className="space-y-4" data-testid="step-owner">
-            <StepIntro icon={UserCircle} title={t("stepOwner")} hint={t("ownerHint")} />
-            <Field label={t("ownerName")}>
-              <input
-                aria-label={t("ownerName")}
-                className={inputClass}
-                value={form.owner_full_name}
-                onChange={(e) => set("owner_full_name", e.target.value)}
-              />
-            </Field>
-            <Field label={t("ownerEmail")}>
-              <input
-                aria-label={t("ownerEmail")}
-                type="email"
-                dir="ltr"
-                className={inputClass}
-                value={form.owner_email}
-                onChange={(e) => set("owner_email", e.target.value)}
-              />
-            </Field>
-          </div>
-        )}
-
-        {step === 4 && (
-          <div className="space-y-4" data-testid="step-review">
-            <StepIntro icon={ShieldCheck} title={t("stepReview")} hint={t("reviewHint")} />
-            <dl className="divide-y rounded-lg border">
-              <Row k={t("name")} v={form.name || "—"} />
-              <Row k={t("type")} v={selectedType?.name ?? "—"} />
-              <Row k={t("plan")} v={selectedPlan?.name ?? t("none")} />
-              <Row k={t("currency")} v={form.default_currency} />
-              <Row k={t("timezone")} v={form.timezone} />
-              <Row k={t("grouping")} v={form.invoice_grouping ?? ""} />
-              <Row k={t("billingDay")} v={String(form.billing_day)} />
-              <Row k={t("ownerName")} v={form.owner_full_name || "—"} />
-              <Row k={t("ownerEmail")} v={form.owner_email || "—"} />
-            </dl>
-            <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
-              <Sparkles className="size-3.5" aria-hidden />
-              {t("createNote")}
-            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={t("logoUrl")}>
+                <input
+                  aria-label={t("logoUrl")}
+                  className={inputClass}
+                  dir="ltr"
+                  value={form.brand_logo_url ?? ""}
+                  onChange={(e) => set("brand_logo_url", e.target.value)}
+                />
+              </Field>
+              <Field label={t("subdomain")}>
+                <input
+                  aria-label={t("subdomain")}
+                  className={inputClass}
+                  dir="ltr"
+                  value={form.subdomain ?? ""}
+                  onChange={(e) => set("subdomain", e.target.value.toLowerCase())}
+                />
+              </Field>
+            </div>
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={step === 0}
-          onClick={() => setStep((s) => (s - 1) as Step)}
-        >
-          {t("prev")}
-        </Button>
-        <span className="text-muted-foreground text-xs tabular-nums">
-          {t("stepCounter", { current: step + 1, total: steps.length })}
-        </span>
-        {step < 4 ? (
-          <Button
-            type="button"
-            size="sm"
-            disabled={!canAdvance}
-            onClick={() => setStep((s) => (s + 1) as Step)}
-          >
-            {t("next")}
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <Sparkles className="size-3.5 shrink-0" aria-hidden />
+          {t("createHint")}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+            {t("cancel")}
           </Button>
-        ) : (
           <Button
             type="button"
             size="sm"
-            disabled={submitting}
+            disabled={!canCreate || submitting}
             onClick={() => void submit()}
           >
             {submitting ? t("creating") : t("create")}
           </Button>
-        )}
+        </div>
       </div>
     </div>
   );
 }
 
-function StepIntro({
+function SectionIntro({
   icon: Icon,
   title,
   hint,
 }: {
-  icon: ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string }>;
   title: string;
   hint: string;
 }) {
   return (
-    <div className="flex items-start gap-2.5 border-b pb-3">
+    <div className="flex items-start gap-2.5">
       <Icon className="text-primary mt-0.5 size-4" aria-hidden />
       <div>
         <p className="text-sm font-semibold">{title}</p>
@@ -495,45 +396,66 @@ function StepIntro({
   );
 }
 
-function PlanOption({
+function PlanCard({
   selected,
   onClick,
-  title,
-  badge,
+  code,
+  name,
   price,
+  perMonth,
+  trial,
+  students,
+  teachers,
+  studentsLabel,
+  teachersLabel,
 }: {
   selected: boolean;
   onClick: () => void;
-  title: string;
-  badge?: string;
-  price?: string;
+  code: string;
+  name: string;
+  price: string;
+  perMonth?: string;
+  trial?: string;
+  students: number | null;
+  teachers: number | null;
+  studentsLabel: string;
+  teachersLabel: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={selected}
+      data-testid={`plan-${code}`}
       className={cn(
-        "flex items-center justify-between gap-2 rounded-lg border p-3 text-start transition-colors",
+        "flex flex-col gap-2 rounded-xl border p-4 text-start transition-colors",
         selected
           ? "border-primary bg-primary/5 ring-1 ring-primary/30"
           : "hover:bg-muted/40",
       )}
     >
-      <span className="flex items-center gap-2">
-        {badge ? (
-          <span className="bg-primary/10 text-primary inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold">
-            {badge}
-          </span>
-        ) : (
-          <CreditCard className="text-muted-foreground size-4" aria-hidden />
-        )}
-        <span className="text-sm font-medium">{title}</span>
-      </span>
-      {price && (
-        <span className="text-muted-foreground text-xs tabular-nums">
-          {price}
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2">
+          <CreditCard className="text-primary size-4" aria-hidden />
+          <span className="text-sm font-semibold">{name}</span>
         </span>
-      )}
+        {trial && (
+          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+            {trial}
+          </span>
+        )}
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-base font-bold tabular-nums">{price}</span>
+        {perMonth && (
+          <span className="text-muted-foreground text-xs">{perMonth}</span>
+        )}
+      </div>
+      <div className="text-muted-foreground space-y-0.5 text-xs">
+        {students != null && <span className="block">{studentsLabel}</span>}
+        {teachers != null && <span className="block">{teachersLabel}</span>}
+      </div>
+      <span className="sr-only">{code}</span>
     </button>
   );
 }
@@ -555,14 +477,5 @@ function Field({
       </span>
       {children}
     </label>
-  );
-}
-
-function Row({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex justify-between gap-4 px-3 py-2 text-sm">
-      <dt className="text-muted-foreground">{k}</dt>
-      <dd className="font-medium">{v}</dd>
-    </div>
   );
 }

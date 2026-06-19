@@ -55,7 +55,7 @@ it('seeds a new academy from its own type template, not the Qur\'an one', functi
     $id = $this->postJson('/api/admin/academies', [
         'name' => 'Polyglot', 'academy_type_id' => $this->langType,
         'default_currency' => 'EGP', 'timezone' => 'Africa/Cairo',
-        'owner_full_name' => 'O', 'owner_email' => 'lang-owner@t.test',
+        'email' => 'lang-owner@t.test', 'password' => 'ownerpass123',
     ])->assertCreated()->json('academyId');
 
     $this->enterAcademyAsSuperAdmin($id);

@@ -70,7 +70,7 @@ export function AcademySubscriptionPanel({
   const [data, setData] = useState<AcademySubscriptionView | null>(null);
   const [bills, setBills] = useState<AcademyBill[]>([]);
   const [busy, setBusy] = useState(false);
-  const [days, setDays] = useState(14);
+  const [days, setDays] = useState(5);
   const [openBill, setOpenBill] = useState<string | null>(null);
   const [subs, setSubs] = useState<Record<string, AcademyPaymentSubmission[]>>(
     {},
@@ -183,19 +183,18 @@ export function AcademySubscriptionPanel({
 
   return (
     <section className={cardClass} data-testid="academy-subscription-panel">
-      <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
-        <CreditCard className="text-muted-foreground size-4" aria-hidden />
-        {t("title")}
-      </h2>
-
-      {/* Status / trial banner */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      {/* Header */}
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          <CreditCard className="text-muted-foreground size-4" aria-hidden />
+          {t("title")}
+        </h2>
         <span
           data-testid="sub-state"
           className={
             sub.is_trial
-              ? "inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-300"
-              : "inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-950/40 dark:text-emerald-300"
+              ? "inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-300"
+              : "inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-950/40 dark:text-emerald-300"
           }
         >
           {sub.is_trial ? (
@@ -205,67 +204,89 @@ export function AcademySubscriptionPanel({
           )}
           {sub.is_trial ? t("trial") : t(`status.${sub.status}`)}
         </span>
-        {trialDays !== null && (
-          <span
-            data-testid="trial-countdown"
-            className="text-muted-foreground text-xs"
-          >
-            {trialDays > 0
-              ? t("trialDaysLeft", { days: trialDays })
-              : t("trialExpired")}
-          </span>
-        )}
       </div>
 
-      {/* Cost breakdown */}
-      <dl className="mb-4 space-y-1.5 text-sm">
-        <div className="flex items-center justify-between">
-          <dt className="text-muted-foreground">{t("plan")}</dt>
-          <dd className="font-medium">
-            {data.plan ? data.plan.name : t("noPlan")}
-          </dd>
+      {/* Trial banner — only while on the free trial */}
+      {sub.is_trial && (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/40 dark:bg-amber-950/25">
+          <Hourglass
+            className="size-5 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden
+          />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+              {t("trial")}
+            </p>
+            <p
+              data-testid="trial-countdown"
+              className="text-xs text-amber-700 dark:text-amber-300"
+            >
+              {trialDays !== null && trialDays > 0
+                ? t("trialDaysLeft", { days: trialDays })
+                : t("trialExpired")}
+            </p>
+          </div>
         </div>
-        <div className="flex items-center justify-between">
-          <dt className="text-muted-foreground">{t("basePrice")}</dt>
-          <dd className="font-medium" dir="ltr">
-            {money(sub.base_price_minor)}
-          </dd>
+      )}
+
+      {/* Cost hero — plan + EGP total */}
+      <div className="from-primary/[0.07] via-card to-card mb-4 rounded-xl border bg-gradient-to-br p-4 ring-1 ring-foreground/[0.03]">
+        <div className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
+              {t("plan")}
+            </p>
+            <p className="truncate text-lg font-bold">
+              {data.plan ? data.plan.name : t("noPlan")}
+            </p>
+          </div>
+          <div className="text-end">
+            <p
+              className="text-primary text-2xl font-bold tabular-nums"
+              dir="ltr"
+              data-testid="total-cost"
+            >
+              {money(sub.total_cost_minor)}
+            </p>
+            <p className="text-muted-foreground text-xs">
+              /{t(`interval.${sub.billing_interval}`)}
+            </p>
+          </div>
         </div>
-        {sub.addons_price_minor > 0 && (
+        <dl className="mt-3 space-y-1 border-t pt-3 text-xs">
           <div className="flex items-center justify-between">
-            <dt className="text-muted-foreground">{t("addOns")}</dt>
-            <dd className="font-medium" dir="ltr">
-              {money(sub.addons_price_minor)}
+            <dt className="text-muted-foreground">{t("basePrice")}</dt>
+            <dd className="font-medium tabular-nums" dir="ltr">
+              {money(sub.base_price_minor)}
             </dd>
           </div>
-        )}
-        <div className="flex items-center justify-between border-t pt-1.5">
-          <dt className="font-semibold">{t("totalCost")}</dt>
-          <dd className="text-primary font-bold" dir="ltr" data-testid="total-cost">
-            {money(sub.total_cost_minor)}
-            <span className="text-muted-foreground ms-1 text-xs font-normal">
-              /{t(`interval.${sub.billing_interval}`)}
-            </span>
-          </dd>
-        </div>
-      </dl>
+          {sub.addons_price_minor > 0 && (
+            <div className="flex items-center justify-between">
+              <dt className="text-muted-foreground">{t("addOns")}</dt>
+              <dd className="font-medium tabular-nums" dir="ltr">
+                {money(sub.addons_price_minor)}
+              </dd>
+            </div>
+          )}
+        </dl>
+      </div>
 
       {/* Dates */}
-      <div className="mb-4 grid grid-cols-2 gap-3 border-t pt-4 text-sm">
-        <div>
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="bg-muted/30 rounded-lg px-3 py-2.5">
           <p className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
             {sub.is_trial ? t("trialEnds") : t("activatedAt")}
           </p>
-          <p className="flex items-center gap-1 font-semibold">
+          <p className="mt-0.5 flex items-center gap-1 text-sm font-semibold">
             <CalendarClock className="text-muted-foreground size-3.5" aria-hidden />
             {fmtDate(sub.is_trial ? sub.trial_end : sub.activated_at)}
           </p>
         </div>
-        <div>
+        <div className="bg-muted/30 rounded-lg px-3 py-2.5">
           <p className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
             {t("periodEnds")}
           </p>
-          <p className="flex items-center gap-1 font-semibold">
+          <p className="mt-0.5 flex items-center gap-1 text-sm font-semibold">
             <CalendarClock className="text-muted-foreground size-3.5" aria-hidden />
             {fmtDate(sub.current_period_end)}
           </p>

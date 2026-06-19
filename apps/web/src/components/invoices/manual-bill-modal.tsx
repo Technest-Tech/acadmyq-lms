@@ -530,7 +530,7 @@ export function ManualBillModal({
               <span className="text-sm font-medium">{t("total")}</span>
               <span className="text-lg font-bold tabular-nums">
                 {formatMoney(
-                  { amount: itemizedTotalMinor, currency: currency || "USD" },
+                  { amount: itemizedTotalMinor, currency: currency || "EGP" },
                   locale,
                 )}
               </span>

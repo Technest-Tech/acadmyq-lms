@@ -97,7 +97,10 @@ final class AcademyController extends Controller
         $ctx = app(AuthContext::class);
 
         $academyId = (string) Str::uuid();
-        $ownerEmail = strtolower((string) $data['owner_email']);
+        $ownerEmail = strtolower((string) $data['email']);
+        // No name is collected at creation — default a display name from the email's local part
+        // (the owner can edit their profile later).
+        $ownerName = (string) Str::of($ownerEmail)->before('@')->trim() ?: $ownerEmail;
         $ownerId = (string) Str::uuid();
 
         // Seed-source template is read from the chosen type (data, not code: a new type seeds
@@ -110,7 +113,7 @@ final class AcademyController extends Controller
         try {
             // Everything below shares one transaction in the NEW academy's context: a failure
             // anywhere (e.g. a duplicate owner email) rolls the whole thing back (TC-3.5).
-            $this->inAcademyContext($academyId, function () use ($academyId, $data, $template, $ownerId, $ownerEmail, $ctx) {
+            $this->inAcademyContext($academyId, function () use ($academyId, $data, $template, $ownerId, $ownerEmail, $ownerName, $ctx) {
                 DB::table('academies')->insert([
                     'id' => $academyId,
                     'name' => $data['name'],
@@ -144,15 +147,15 @@ final class AcademyController extends Controller
                 DB::table('users')->insert([
                     'id' => $ownerId,
                     'academy_id' => $academyId,
-                    'full_name' => $data['owner_full_name'],
+                    'full_name' => $ownerName,
                     'email' => $ownerEmail,
-                    'password' => Hash::make(Str::random(40)),
+                    'password' => Hash::make((string) $data['password']),
                     'is_active' => true,
                     'invited_at' => now(),
                 ]);
                 Audit::log('user.invite', 'user', $ownerId, $academyId, $ctx->userId, 'SUPER_ADMIN', after: [
                     'email' => $ownerEmail,
-                    'full_name' => $data['owner_full_name'],
+                    'full_name' => $ownerName,
                 ]);
 
                 DB::table('user_roles')->insert([
@@ -164,21 +167,25 @@ final class AcademyController extends Controller
                 Audit::log('role.assign', 'user_role', $ownerId, $academyId, $ctx->userId, 'SUPER_ADMIN', after: [
                     'role' => 'ACADEMY_OWNER',
                 ]);
+
+                // Open the subscription now (mirrored from the just-set status/plan) so a paid tier's
+                // 5-day trial has real start/end dates from minute one, rather than being lazily
+                // backfilled on first read or by the nightly expiry job. Idempotent (TC-3.x).
+                app(AcademyBilling::class)->ensureSubscription($academyId);
             });
         } catch (Throwable $e) {
             // A unique violation (owner email / subdomain) surfaces as a clean 422; the
             // transaction has already rolled back, so no academy/fields/user remain (AC-3.4).
             if ($this->isUniqueViolation($e)) {
                 throw ValidationException::withMessages([
-                    'owner_email' => ['Could not create the academy: that email or subdomain is already taken.'],
+                    'email' => ['Could not create the academy: that email or subdomain is already taken.'],
                 ]);
             }
             throw $e;
         }
 
-        // Post-commit, retriable: send the owner their set-password link. A mail failure does
-        // not undo the academy — the owner can be re-provisioned via POST .../owner (§10).
-        $this->sendSetPasswordLink($ownerEmail);
+        // The owner can sign in immediately with the email + password set above — no set-password
+        // link is sent for the create flow.
 
         return response()->json([
             'academyId' => $academyId,
@@ -327,6 +334,101 @@ final class AcademyController extends Controller
         $this->sendSetPasswordLink($email);
 
         return response()->json(['ownerId' => $ownerId], 201);
+    }
+
+    /**
+     * GET /api/admin/academies/{id}/owner — the academy's current owner login (email + name) so
+     * the admin can manage it. Returns owner: null when none has been provisioned yet.
+     */
+    public function getOwner(string $id): JsonResponse
+    {
+        Gate::authorize('academy.configure');
+
+        if (DB::table('academies')->where('id', $id)->doesntExist()) {
+            abort(404, 'Academy not found.');
+        }
+
+        $owner = $this->inAcademyContext($id, fn () => DB::table('users as u')
+            ->join('user_roles as ur', 'ur.user_id', '=', 'u.id')
+            ->where('ur.academy_id', $id)
+            ->where('ur.role', 'ACADEMY_OWNER')
+            ->orderBy('u.created_at')
+            ->first(['u.id', 'u.full_name', 'u.email', 'u.is_active']));
+
+        return response()->json([
+            'owner' => $owner === null ? null : [
+                'id' => $owner->id,
+                'full_name' => $owner->full_name,
+                'email' => $owner->email,
+                'is_active' => (bool) $owner->is_active,
+            ],
+        ]);
+    }
+
+    /**
+     * PATCH /api/admin/academies/{id}/owner — manage the current owner's login: change the email
+     * and/or reset the password directly (no set-password email). At least one field is required.
+     * Gated by user.invite + role.assign (the same authority that provisions an owner).
+     */
+    public function updateOwner(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('academy.configure');
+
+        if (DB::table('academies')->where('id', $id)->doesntExist()) {
+            abort(404, 'Academy not found.');
+        }
+
+        $data = $request->validate([
+            'email' => ['sometimes', 'email', 'max:255'],
+            'password' => ['sometimes', 'string', 'min:8', 'max:255'],
+        ]);
+        if (! array_key_exists('email', $data) && ! array_key_exists('password', $data)) {
+            throw ValidationException::withMessages([
+                'email' => ['Provide a new email or password to update.'],
+            ]);
+        }
+        $ctx = app(AuthContext::class);
+
+        $owner = $this->inAcademyContext($id, fn () => DB::table('users as u')
+            ->join('user_roles as ur', 'ur.user_id', '=', 'u.id')
+            ->where('ur.academy_id', $id)
+            ->where('ur.role', 'ACADEMY_OWNER')
+            ->orderBy('u.created_at')
+            ->first(['u.id', 'u.email']));
+
+        if ($owner === null) {
+            abort(404, 'This academy has no owner yet — provision one first.');
+        }
+
+        $update = [];
+        $changed = [];
+        if (array_key_exists('email', $data)) {
+            $update['email'] = strtolower((string) $data['email']);
+            $changed[] = 'email';
+        }
+        if (array_key_exists('password', $data)) {
+            $update['password'] = Hash::make((string) $data['password']);
+            $changed[] = 'password';
+        }
+
+        try {
+            $this->inAcademyContext($id, function () use ($id, $owner, $update, $changed, $ctx) {
+                DB::table('users')->where('id', $owner->id)->update($update);
+                Audit::log('user.update', 'user', $owner->id, $id, $ctx->userId, 'SUPER_ADMIN', after: [
+                    'changed' => $changed,
+                    'email' => $update['email'] ?? $owner->email,
+                ]);
+            });
+        } catch (Throwable $e) {
+            if ($this->isUniqueViolation($e)) {
+                throw ValidationException::withMessages([
+                    'email' => ['That email is already in use by another account.'],
+                ]);
+            }
+            throw $e;
+        }
+
+        return response()->json(['ok' => true, 'changed' => $changed]);
     }
 
     /**
@@ -562,10 +664,11 @@ final class AcademyController extends Controller
         ];
 
         if ($creating) {
-            $rules['owner_full_name'] = ['required', 'string', 'max:255'];
-            // Owner email format only — global uniqueness is enforced inside the creation
-            // transaction so a collision exercises the atomic rollback (TC-3.5).
-            $rules['owner_email'] = ['required', 'email', 'max:255'];
+            // The first owner's login credentials, set directly by the Super Admin (no emailed
+            // set-password link). Email format only — global uniqueness is enforced inside the
+            // creation transaction so a collision exercises the atomic rollback (TC-3.5).
+            $rules['email'] = ['required', 'email', 'max:255'];
+            $rules['password'] = ['required', 'string', 'min:8', 'max:255'];
         }
 
         $data = $request->validate($rules);

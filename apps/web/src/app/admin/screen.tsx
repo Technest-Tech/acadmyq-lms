@@ -196,11 +196,9 @@ function StatusBar({
 
 function EndingSoonRow({
   item,
-  locale,
   t,
 }: {
   item: AdminEndingSoon;
-  locale: string;
   t: ReturnType<typeof useTranslations>;
 }) {
   const overdue = item.days_left < 0;
@@ -586,12 +584,7 @@ export function AdminDashboardScreen() {
           ) : (
             <div className="divide-y">
               {endingSoon.map((item) => (
-                <EndingSoonRow
-                  key={item.academy_id}
-                  item={item}
-                  locale={locale}
-                  t={t}
-                />
+                <EndingSoonRow key={item.academy_id} item={item} t={t} />
               ))}
             </div>
           )}

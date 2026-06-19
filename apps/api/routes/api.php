@@ -117,6 +117,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::patch('/admin/academies/{id}', [AcademyController::class, 'update']);
     Route::post('/admin/academies/{id}/suspend', [AcademyController::class, 'suspend']);
     Route::post('/admin/academies/{id}/reactivate', [AcademyController::class, 'reactivate']);
+    Route::get('/admin/academies/{id}/owner', [AcademyController::class, 'getOwner']);
+    Route::patch('/admin/academies/{id}/owner', [AcademyController::class, 'updateOwner']);
     Route::post('/admin/academies/{id}/owner', [AcademyController::class, 'provisionOwner']);
     Route::post('/admin/academies/{id}/enter', [AcademyController::class, 'enter']);
     Route::post('/admin/academies/exit', [AcademyController::class, 'exit']);

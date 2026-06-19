@@ -1,6 +1,6 @@
 "use client";
 
-import { Package } from "lucide-react";
+import { Check, CreditCard, Package } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -17,9 +17,7 @@ import {
   type PlanCatalogItem,
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
-
-const inputClass =
-  "border-input bg-background w-full rounded-md border px-3 py-2 text-sm";
+import { cn } from "@/lib/utils";
 
 /**
  * Per-academy plan & add-on assignment (admin panel — Phase 2). Surfaces the already-built
@@ -36,6 +34,7 @@ export function AcademyPlanManager({
   onPlanChanged: () => void;
 }) {
   const t = useTranslations("academies.detail");
+  const tw = useTranslations("academies.wizard");
   const locale = useLocale();
   const { can } = useAuth();
   const toast = useToast();
@@ -96,27 +95,62 @@ export function AcademyPlanManager({
         {t("planSection")}
       </h2>
 
-      <label className="block space-y-1">
+      <div className="space-y-2">
         <span className="text-sm font-medium">{t("changePlan")}</span>
-        <select
-          aria-label={t("changePlan")}
-          className={inputClass}
-          value={currentPlanId ?? ""}
-          disabled={busy || plans === null}
-          onChange={(e) => void changePlan(e.target.value)}
-          data-testid="plan-select"
-        >
-          {plans?.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} —{" "}
-              {formatMoney(
-                { amount: p.price_minor, currency: p.currency },
-                locale,
-              )}
-            </option>
-          ))}
-        </select>
-      </label>
+        {plans === null ? (
+          <div className="bg-muted h-24 animate-pulse rounded-xl" aria-hidden />
+        ) : (
+          <div className="grid gap-2" data-testid="plan-tiers">
+            {plans.map((p) => {
+              const current = p.id === currentPlanId;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={busy || current}
+                  aria-pressed={current}
+                  onClick={() => void changePlan(p.id)}
+                  data-testid={`plan-tier-${p.code}`}
+                  className={cn(
+                    "flex items-center justify-between gap-3 rounded-xl border p-3 text-start transition-colors",
+                    current
+                      ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                      : "hover:bg-muted/40 disabled:opacity-60",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <CreditCard
+                        className="text-primary size-4 shrink-0"
+                        aria-hidden
+                      />
+                      <span className="text-sm font-semibold">{p.name}</span>
+                      {p.code === "FREE" && (
+                        <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                          {tw("trialBadge")}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-muted-foreground mt-0.5 text-xs">
+                      {p.price_minor === 0
+                        ? tw("free")
+                        : `${formatMoney({ amount: p.price_minor, currency: p.currency }, locale)}${tw("perMonth")}`}
+                      {p.features?.limits?.maxStudents != null &&
+                        ` · ${tw("studentsLimit", { count: p.features.limits.maxStudents })}`}
+                    </p>
+                  </div>
+                  {current && (
+                    <span className="text-primary inline-flex items-center gap-1 text-xs font-semibold">
+                      <Check className="size-3.5" aria-hidden />
+                      {t("currentPlan")}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <div className="space-y-2">
         <span className="text-sm font-medium">{t("addOns")}</span>

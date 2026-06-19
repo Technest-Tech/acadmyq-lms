@@ -257,8 +257,9 @@ export interface CreateAcademyInput {
   brand_display_name?: string | null;
   brand_logo_url?: string | null;
   subdomain?: string | null;
-  owner_full_name: string;
-  owner_email: string;
+  /** The first owner's login credentials, set directly at creation. */
+  email: string;
+  password: string;
 }
 
 export function listAcademies(): Promise<{ academies: AcademyListItem[] }> {
@@ -2509,6 +2510,34 @@ export function provisionAcademyOwner(
       owner_full_name: input.ownerFullName,
       owner_email: input.ownerEmail,
     }),
+  });
+}
+
+export interface AcademyOwner {
+  id: string;
+  full_name: string;
+  email: string;
+  is_active: boolean;
+}
+
+/** GET /api/admin/academies/{id}/owner — the current owner login, or null if none yet. */
+export function getAcademyOwner(
+  academyId: string,
+): Promise<{ owner: AcademyOwner | null }> {
+  return apiFetch(`/api/admin/academies/${academyId}/owner`);
+}
+
+/**
+ * PATCH /api/admin/academies/{id}/owner — change the current owner's login email and/or reset
+ * their password directly. At least one field must be provided.
+ */
+export function updateAcademyOwner(
+  academyId: string,
+  input: { email?: string; password?: string },
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/admin/academies/${academyId}/owner`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
   });
 }
 

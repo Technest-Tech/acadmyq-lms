@@ -1,4 +1,4 @@
-# Academiq — Academy Management SaaS
+# Acadmyq — Academy Management SaaS
 
 Multi-tenant SaaS for managing teaching academies (first vertical: Qur'an academies, 1-on-1).
 The product/technical source of truth lives in [`docs/00-MASTER-SPEC.md`](docs/00-MASTER-SPEC.md);

@@ -674,7 +674,7 @@ export default async function PublicInvoicePage({ params }: PageProps) {
           <footer className="border-t border-gray-100 bg-gray-50/80 px-6 py-4 text-center sm:px-9">
             <p className="text-xs text-gray-400">
               <T en="Powered by " ar="مدعوم بواسطة " />
-              <span className="font-semibold text-emerald-700">Academiq</span>
+              <span className="font-semibold text-emerald-700">Acadmyq</span>
             </p>
           </footer>
         </div>

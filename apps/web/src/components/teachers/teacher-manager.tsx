@@ -107,7 +107,7 @@ export function TeacherManager() {
           active: active.total,
           inactive: inactive.total,
           avgRateMinor: avg,
-          currency: rows[0]?.currency ?? "USD",
+          currency: rows[0]?.currency ?? "EGP",
         });
       })
       .catch(() => {});

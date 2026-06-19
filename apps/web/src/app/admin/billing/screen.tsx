@@ -17,12 +17,15 @@ import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
+  activateAcademySubscription,
   ApiError,
   extendAcademyTrial,
   fetchPaymentScreenshot,
   getBillingOverview,
   getSubscriptionsOverview,
+  reactivateAcademy,
   reviewPaymentSubmission,
+  suspendAcademy,
   type BillingOverview,
   type PendingProof,
   type SubscriptionOverviewRow,
@@ -35,6 +38,12 @@ const STATUS_STYLE: Record<string, string> = {
   TRIAL: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
   SUSPENDED: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
 };
+
+/** Whole days from now until an ISO date (negative once past), or null when unset. */
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+}
 
 function StatCard({
   icon: Icon,
@@ -127,6 +136,15 @@ export function BillingScreen() {
 
   const trialCount = rows?.filter((r) => r.is_trial).length ?? 0;
   const outstandingCount = rows?.filter((r) => r.outstanding_count > 0).length ?? 0;
+
+  const fmtDate = (iso: string | null) =>
+    iso
+      ? new Date(iso).toLocaleDateString(locale === "ar" ? "ar" : locale, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        })
+      : ts("noDate");
 
   return (
     <div className="space-y-6">
@@ -260,6 +278,7 @@ export function BillingScreen() {
                 <th className="px-3 py-2.5 text-start">{ts("col.academy")}</th>
                 <th className="px-3 py-2.5 text-start">{ts("col.plan")}</th>
                 <th className="px-3 py-2.5 text-start">{ts("col.status")}</th>
+                <th className="px-3 py-2.5 text-start">{ts("col.renewal")}</th>
                 <th className="px-3 py-2.5 text-end">{ts("col.cost")}</th>
                 <th className="px-3 py-2.5 text-end">{ts("col.outstanding")}</th>
                 <th className="px-3 py-2.5 text-end">{ts("col.actions")}</th>
@@ -269,20 +288,21 @@ export function BillingScreen() {
               {rows === null ? (
                 Array.from({ length: 4 }).map((_, i) => (
                   <tr key={i}>
-                    <td colSpan={6} className="px-3 py-3">
+                    <td colSpan={7} className="px-3 py-3">
                       <div className="bg-muted h-5 animate-pulse rounded" aria-hidden />
                     </td>
                   </tr>
                 ))
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-muted-foreground px-3 py-10 text-center">{ts("none")}</td>
+                  <td colSpan={7} className="text-muted-foreground px-3 py-10 text-center">{ts("none")}</td>
                 </tr>
               ) : (
                 rows.map((r) => {
-                  const trialDays = r.is_trial && r.trial_end
-                    ? Math.ceil((new Date(r.trial_end).getTime() - Date.now()) / 86_400_000)
-                    : null;
+                  // Trial academies count down to trial_end; paid ones to the next renewal.
+                  const renewIso = r.is_trial ? r.trial_end : r.current_period_end;
+                  const renewDays = daysUntil(renewIso);
+                  const trialDays = r.is_trial ? renewDays : null;
                   return (
                     <tr key={r.academy_id} data-academy={r.academy_id} className="hover:bg-muted/30 transition-colors">
                       <td className="px-3 py-2 font-medium">
@@ -301,6 +321,25 @@ export function BillingScreen() {
                             : ts(`status.${r.academy_status}`)}
                         </span>
                       </td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-col">
+                          <span className="tabular-nums">{fmtDate(renewIso)}</span>
+                          {renewDays !== null && (
+                            <span
+                              className={cn(
+                                "text-[11px]",
+                                renewDays <= 0
+                                  ? "text-rose-600"
+                                  : renewDays <= 3
+                                    ? "text-amber-600"
+                                    : "text-muted-foreground",
+                              )}
+                            >
+                              {renewDays > 0 ? ts("daysLeft", { days: renewDays }) : ts("expired")}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-2 text-end font-semibold tabular-nums">
                         {formatMoney({ amount: r.total_cost_minor, currency: r.currency }, locale)}
                       </td>
@@ -313,19 +352,60 @@ export function BillingScreen() {
                           "—"
                         )}
                       </td>
-                      <td className="px-3 py-2 text-end">
-                        {r.is_trial && (
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => void act(() => extendAcademyTrial(r.academy_id, 14), ts("extended"))}
-                            data-testid={`extend-${r.academy_id}`}
-                          >
-                            {ts("action.extend")}
-                          </Button>
-                        )}
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-end gap-1.5">
+                          {r.is_trial && (
+                            <>
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() => void act(() => extendAcademyTrial(r.academy_id, 5), ts("extended"))}
+                                data-testid={`extend-${r.academy_id}`}
+                              >
+                                {ts("action.extend")}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="xs"
+                                disabled={busy}
+                                onClick={() => void act(() => activateAcademySubscription(r.academy_id), ts("activated"))}
+                                data-testid={`activate-${r.academy_id}`}
+                              >
+                                {ts("action.activate")}
+                              </Button>
+                            </>
+                          )}
+                          {can("academy.suspend") &&
+                            (r.academy_status === "SUSPENDED" ? (
+                              <Button
+                                type="button"
+                                size="xs"
+                                disabled={busy}
+                                onClick={() => void act(() => reactivateAcademy(r.academy_id), ts("reactivated"))}
+                                data-testid={`reactivate-${r.academy_id}`}
+                              >
+                                {ts("action.reactivate")}
+                              </Button>
+                            ) : (
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="ghost"
+                                className="text-rose-600 hover:text-rose-700"
+                                disabled={busy}
+                                onClick={() => void act(() => suspendAcademy(r.academy_id), ts("suspended"))}
+                                data-testid={`suspend-${r.academy_id}`}
+                              >
+                                {ts("action.suspend")}
+                              </Button>
+                            ))}
+                          {!r.is_trial &&
+                            !can("academy.suspend") && (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                        </div>
                       </td>
                     </tr>
                   );

@@ -10,6 +10,7 @@ import { AcademyWizard } from "./academy-wizard";
 vi.mock("@/lib/api", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/api")>()),
   getAcademyTypes: vi.fn(),
+  getPlanCatalog: vi.fn(),
   createAcademy: vi.fn(),
 }));
 
@@ -38,6 +39,29 @@ beforeEach(() => {
       },
     ],
   });
+  vi.mocked(api.getPlanCatalog).mockResolvedValue({
+    plans: [
+      {
+        id: "plan-free",
+        code: "FREE",
+        name: "Free",
+        price_minor: 0,
+        currency: "EGP",
+        is_active: true,
+        features: { capabilities: [], limits: { maxStudents: 5, maxTeachers: 2 } },
+      },
+      {
+        id: "plan-pro",
+        code: "PRO",
+        name: "Pro",
+        price_minor: 99900,
+        currency: "EGP",
+        is_active: true,
+        features: { capabilities: [], limits: { maxStudents: 60, maxTeachers: 15 } },
+      },
+    ],
+    addOns: [],
+  });
   vi.mocked(api.createAcademy).mockResolvedValue({
     academyId: "new-id",
     ownerId: "owner-id",
@@ -45,33 +69,18 @@ beforeEach(() => {
   });
 });
 
-describe("AcademyWizard (Sprint 3 §4.1)", () => {
-  it("walks the steps and creates the academy with the entered payload", async () => {
+describe("AcademyWizard (single-screen quick create)", () => {
+  it("creates the academy from one screen; a paid tier goes straight to ACTIVE (no trial)", async () => {
     const user = userEvent.setup();
     const { onCreated } = renderWizard();
-    await waitFor(() => expect(api.getAcademyTypes).toHaveBeenCalled());
+    await waitFor(() => expect(api.getPlanCatalog).toHaveBeenCalled());
 
-    // Step 1 — Identity
     await user.type(screen.getByLabelText(W.name), "Noor Academy");
-    await user.clear(screen.getByLabelText(W.currency));
-    await user.type(screen.getByLabelText(W.currency), "EGP");
-    await user.click(screen.getByRole("button", { name: W.next }));
-
-    // Step 2 — Billing
-    expect(screen.getByTestId("step-billing")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: W.next }));
-
-    // Step 3 — Branding (reserved)
-    expect(screen.getByTestId("step-branding")).toHaveTextContent(W.reserved);
-    await user.click(screen.getByRole("button", { name: W.next }));
-
-    // Step 4 — Owner
-    await user.type(screen.getByLabelText(W.ownerName), "Owner Noor");
+    // The first academy type auto-selects; pick the paid PRO plan.
+    await user.click(screen.getByTestId("plan-PRO"));
     await user.type(screen.getByLabelText(W.ownerEmail), "owner@noor.test");
-    await user.click(screen.getByRole("button", { name: W.next }));
+    await user.type(screen.getByLabelText(W.ownerPassword), "secret123");
 
-    // Step 5 — Review → Create
-    expect(screen.getByTestId("step-review")).toHaveTextContent("Noor Academy");
     await user.click(screen.getByRole("button", { name: W.create }));
 
     await waitFor(() =>
@@ -79,32 +88,99 @@ describe("AcademyWizard (Sprint 3 §4.1)", () => {
         expect.objectContaining({
           name: "Noor Academy",
           academy_type_id: "type-quran",
+          plan_id: "plan-pro",
+          status: "ACTIVE",
           default_currency: "EGP",
-          owner_email: "owner@noor.test",
+          email: "owner@noor.test",
+          password: "secret123",
         }),
       ),
     );
     expect(onCreated).toHaveBeenCalledWith("new-id");
   });
 
-  it("surfaces a server validation error and returns to step 1", async () => {
+  it("sends status TRIAL when the FREE plan is chosen (5-day free trial)", async () => {
+    const user = userEvent.setup();
+    renderWizard();
+    await waitFor(() => expect(api.getPlanCatalog).toHaveBeenCalled());
+
+    await user.type(screen.getByLabelText(W.name), "Free Academy");
+    await user.click(screen.getByTestId("plan-FREE"));
+    await user.type(screen.getByLabelText(W.ownerEmail), "owner@free.test");
+    await user.type(screen.getByLabelText(W.ownerPassword), "secret123");
+    await user.click(screen.getByRole("button", { name: W.create }));
+
+    await waitFor(() =>
+      expect(api.createAcademy).toHaveBeenCalledWith(
+        expect.objectContaining({ plan_id: "plan-free", status: "TRIAL" }),
+      ),
+    );
+  });
+
+  it("keeps Create disabled until the essentials are valid", async () => {
+    const user = userEvent.setup();
+    renderWizard();
+    await waitFor(() => expect(api.getPlanCatalog).toHaveBeenCalled());
+
+    const createBtn = screen.getByRole("button", { name: W.create });
+    expect(createBtn).toBeDisabled();
+
+    // Name + plan + email but no password yet → still disabled.
+    await user.type(screen.getByLabelText(W.name), "Half Academy");
+    await user.click(screen.getByTestId("plan-PRO"));
+    await user.type(screen.getByLabelText(W.ownerEmail), "owner@x.test");
+    expect(createBtn).toBeDisabled();
+
+    await user.type(screen.getByLabelText(W.ownerPassword), "secret123");
+    expect(createBtn).toBeEnabled();
+  });
+
+  it("reveals optional branding under the Advanced disclosure and sends fixed defaults", async () => {
+    const user = userEvent.setup();
+    renderWizard();
+    await waitFor(() => expect(api.getPlanCatalog).toHaveBeenCalled());
+
+    // The branding panel is collapsed by default.
+    expect(screen.queryByTestId("advanced-panel")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("advanced-toggle"));
+    expect(screen.getByTestId("advanced-panel")).toBeInTheDocument();
+    expect(screen.getByLabelText(W.brandName)).toBeInTheDocument();
+
+    // Currency / timezone / grouping are fixed platform defaults — not shown, but still sent.
+    await user.type(screen.getByLabelText(W.name), "Fixed Academy");
+    await user.click(screen.getByTestId("plan-FREE"));
+    await user.type(screen.getByLabelText(W.ownerEmail), "owner@x.test");
+    await user.type(screen.getByLabelText(W.ownerPassword), "secret123");
+    await user.click(screen.getByRole("button", { name: W.create }));
+
+    await waitFor(() =>
+      expect(api.createAcademy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          default_currency: "EGP",
+          timezone: "Africa/Cairo",
+          invoice_grouping: "PER_GUARDIAN",
+          billing_day: 1,
+        }),
+      ),
+    );
+  });
+
+  it("surfaces a server validation error via a toast", async () => {
     vi.mocked(api.createAcademy).mockRejectedValue(
       new api.ApiError(422, "That subdomain is taken."),
     );
     const user = userEvent.setup();
     renderWizard();
-    await waitFor(() => expect(api.getAcademyTypes).toHaveBeenCalled());
+    await waitFor(() => expect(api.getPlanCatalog).toHaveBeenCalled());
 
-    // Jump to review quickly (fields can be empty for this error-path test).
     await user.type(screen.getByLabelText(W.name), "X");
-    for (let i = 0; i < 4; i++) {
-      await user.click(screen.getByRole("button", { name: W.next }));
-    }
+    await user.click(screen.getByTestId("plan-PRO"));
+    await user.type(screen.getByLabelText(W.ownerEmail), "owner@x.test");
+    await user.type(screen.getByLabelText(W.ownerPassword), "secret123");
     await user.click(screen.getByRole("button", { name: W.create }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "That subdomain is taken.",
     );
-    expect(screen.getByTestId("step-identity")).toBeInTheDocument();
   });
 });
