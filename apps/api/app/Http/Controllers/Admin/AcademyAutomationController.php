@@ -54,6 +54,44 @@ final class AcademyAutomationController extends Controller
         return response()->json($data);
     }
 
+    /** GET /admin/automation/gateway/health — gateway up/down + session counts (System tab). */
+    public function gatewayHealth(): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+
+        return response()->json($this->gateway->health());
+    }
+
+    /** GET /admin/automation/gateway/settings — current live send-pacing (rate-limit) settings. */
+    public function gatewaySettings(): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+
+        return response()->json($this->gateway->getSettings());
+    }
+
+    /** PUT /admin/automation/gateway/settings — update the rate-limit knobs (applies live). */
+    public function updateGatewaySettings(Request $request): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+
+        $data = $request->validate([
+            'minIntervalMs' => ['sometimes', 'integer', 'min:0', 'max:600000'],
+            'maxIntervalMs' => ['sometimes', 'integer', 'min:0', 'max:600000'],
+            'dailyCap' => ['sometimes', 'integer', 'min:1', 'max:100000'],
+            'warmupDays' => ['sometimes', 'integer', 'min:0', 'max:60'],
+            'warmupDailyCap' => ['sometimes', 'integer', 'min:1', 'max:100000'],
+            'warmupMinIntervalMs' => ['sometimes', 'integer', 'min:0', 'max:600000'],
+            'warmupMaxIntervalMs' => ['sometimes', 'integer', 'min:0', 'max:600000'],
+        ]);
+        $ctx = app(AuthContext::class);
+
+        $res = $this->gateway->updateSettings($data);
+        Audit::log('whatsapp.settings_updated', 'platform', null, null, $ctx->userId, 'SUPER_ADMIN', after: array_keys($data));
+
+        return response()->json($res);
+    }
+
     /** GET /admin/academies/{id}/automation — toggles + has_token + masked tail + session status. */
     public function show(string $id): JsonResponse
     {

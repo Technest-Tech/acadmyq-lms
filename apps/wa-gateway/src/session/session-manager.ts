@@ -1,5 +1,6 @@
 import type { Pool } from 'pg'
 import { ManagedSession } from './managed-session.js'
+import type { SettingsStore } from '../settings.js'
 import type { WebhookClient } from '../webhook/webhook-client.js'
 import { sha256Hex, randomToken } from '../util/crypto.js'
 import type { AppConfig } from '../config.js'
@@ -18,6 +19,7 @@ export class SessionManager {
   constructor(
     private readonly pool: Pool,
     private readonly config: AppConfig,
+    private readonly settings: SettingsStore,
     private readonly webhook: WebhookClient,
     private readonly logger: Logger,
   ) {}
@@ -113,6 +115,7 @@ export class SessionManager {
       { sessionId, academyId, tokenHash, createdAt },
       this.pool,
       this.config,
+      this.settings,
       this.webhook,
       this.logger.child({ sessionId, academyId }),
     )

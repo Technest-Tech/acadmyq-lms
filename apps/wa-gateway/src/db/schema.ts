@@ -43,4 +43,18 @@ create table if not exists wa_webhook_outbox (
 );
 create index if not exists wa_webhook_outbox_pending_idx
   on wa_webhook_outbox (next_attempt_at) where delivered_at is null;
+
+-- Singleton row of live, admin-editable send pacing (anti-ban knobs). Seeded from env on first run.
+create table if not exists wa_settings (
+  id                     int primary key default 1,
+  send_min_interval_ms   int not null,
+  send_max_interval_ms   int not null,
+  send_daily_cap         int not null,
+  warmup_days            int not null,
+  warmup_daily_cap       int not null,
+  warmup_min_interval_ms int not null,
+  warmup_max_interval_ms int not null,
+  updated_at             timestamptz not null default now(),
+  constraint wa_settings_singleton check (id = 1)
+);
 `

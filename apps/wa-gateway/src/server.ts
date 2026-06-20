@@ -4,6 +4,7 @@ import { logger, REDACT_PATHS } from './logger.js'
 import { pool } from './db/pool.js'
 import { WebhookClient } from './webhook/webhook-client.js'
 import { SessionManager } from './session/session-manager.js'
+import { SettingsStore } from './settings.js'
 import { registerSendRoutes } from './routes/send.js'
 import { registerAdminRoutes } from './routes/admin.js'
 import { registerHealthRoutes } from './routes/health.js'
@@ -26,14 +27,28 @@ async function main(): Promise<void> {
   })
 
   const webhook = new WebhookClient(config.LARAVEL_WEBHOOK_URL, config.WEBHOOK_SIGNING_SECRET, logger)
-  const manager = new SessionManager(pool, config, webhook, logger)
+  const settings = new SettingsStore(
+    pool,
+    {
+      minIntervalMs: config.SEND_MIN_INTERVAL_MS,
+      maxIntervalMs: config.SEND_MAX_INTERVAL_MS,
+      dailyCap: config.SEND_DAILY_CAP,
+      warmupDays: config.WARMUP_DAYS,
+      warmupDailyCap: config.WARMUP_DAILY_CAP,
+      warmupMinIntervalMs: config.WARMUP_MIN_INTERVAL_MS,
+      warmupMaxIntervalMs: config.WARMUP_MAX_INTERVAL_MS,
+    },
+    logger,
+  )
+  const manager = new SessionManager(pool, config, settings, webhook, logger)
 
   registerSendRoutes(app, manager)
-  registerAdminRoutes(app, manager, config)
+  registerAdminRoutes(app, manager, settings, config)
   registerHealthRoutes(app, manager, config)
 
-  // Fail fast if the DB is unreachable, then apply schema + rehydrate sessions.
+  // Fail fast if the DB is unreachable, seed/load live settings, then rehydrate sessions.
   await pool.query('select 1')
+  await settings.init()
   await manager.bootstrap()
 
   // Periodic webhook outbox flush (retries failed deliveries to Laravel).

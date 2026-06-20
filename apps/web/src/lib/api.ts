@@ -717,6 +717,52 @@ export function getWhatsappActivity(limit = 50): Promise<{ activity: WhatsAppAct
   return apiFetch(`/api/admin/automation/activity?limit=${limit}`);
 }
 
+export interface GatewaySessionCounts {
+  total: number;
+  connected: number;
+  connecting: number;
+  qr: number;
+  disconnected: number;
+  logged_out: number;
+}
+
+export interface GatewayHealth {
+  ok: boolean;
+  up: boolean;
+  uptime?: number;
+  sessions?: GatewaySessionCounts;
+}
+
+export interface GatewaySettings {
+  minIntervalMs: number;
+  maxIntervalMs: number;
+  dailyCap: number;
+  warmupDays: number;
+  warmupDailyCap: number;
+  warmupMinIntervalMs: number;
+  warmupMaxIntervalMs: number;
+}
+
+/** Gateway liveness + per-state session counts (System tab). */
+export function getGatewayHealth(): Promise<GatewayHealth> {
+  return apiFetch("/api/admin/automation/gateway/health");
+}
+
+/** Current live send-pacing (rate-limit) settings. */
+export function getGatewaySettings(): Promise<{ ok: boolean; settings?: GatewaySettings }> {
+  return apiFetch("/api/admin/automation/gateway/settings");
+}
+
+/** Update the rate-limit knobs — applies live to every session on the gateway. */
+export function updateGatewaySettings(
+  patch: Partial<GatewaySettings>,
+): Promise<{ ok: boolean; settings?: GatewaySettings }> {
+  return apiFetch("/api/admin/automation/gateway/settings", {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
 /** Fetch a private payment-proof screenshot as an object URL (works in cookie + token modes). */
 export async function fetchPaymentScreenshot(
   academyId: string,

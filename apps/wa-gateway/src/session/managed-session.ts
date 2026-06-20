@@ -4,6 +4,7 @@ import { usePostgresAuthState, clearAuthState } from '../auth-store/postgres-aut
 import { createSocket } from './socket-factory.js'
 import { decideReconnect, backoffDelay } from './reconnect.js'
 import { SendQueue } from '../queue/send-queue.js'
+import type { SettingsStore } from '../settings.js'
 import type { WebhookClient } from '../webhook/webhook-client.js'
 import { qrToDataUrl } from '../qr/qr.js'
 import { jidDigits } from '../util/jid.js'
@@ -68,6 +69,7 @@ export class ManagedSession {
     init: ManagedSessionInit,
     private readonly pool: Pool,
     private readonly config: AppConfig,
+    private readonly settings: SettingsStore,
     private readonly webhook: WebhookClient,
     private readonly logger: Logger,
   ) {
@@ -80,15 +82,8 @@ export class ManagedSession {
       getSock: () => this.sock,
       isConnected: () => this.state === 'connected' && !!this.sock,
       sessionCreatedAt: this.createdAt,
-      config: {
-        minIntervalMs: config.SEND_MIN_INTERVAL_MS,
-        maxIntervalMs: config.SEND_MAX_INTERVAL_MS,
-        dailyCap: config.SEND_DAILY_CAP,
-        warmupDays: config.WARMUP_DAYS,
-        warmupDailyCap: config.WARMUP_DAILY_CAP,
-        warmupMinIntervalMs: config.WARMUP_MIN_INTERVAL_MS,
-        warmupMaxIntervalMs: config.WARMUP_MAX_INTERVAL_MS,
-      },
+      // Read live pacing each send so admin rate-limit changes apply immediately.
+      getPacing: () => this.settings.get(),
       logger: this.logger,
       onFailure: (messageId, jid, error) => {
         void this.webhook.send({

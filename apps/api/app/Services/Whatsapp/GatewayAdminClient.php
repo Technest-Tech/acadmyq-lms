@@ -97,6 +97,65 @@ final class GatewayAdminClient
         }
     }
 
+    /**
+     * Gateway liveness + per-state session counts (powers the "System" tab). `up=false` when the
+     * gateway is unreachable.
+     *
+     * @return array<string,mixed>
+     */
+    public function health(): array
+    {
+        try {
+            $res = $this->http()->get('/health');
+            if (! $res->successful()) {
+                return ['ok' => false, 'up' => false];
+            }
+
+            return ['ok' => true, 'up' => true] + (array) $res->json();
+        } catch (Throwable) {
+            return ['ok' => false, 'up' => false];
+        }
+    }
+
+    /**
+     * Current live send-pacing (anti-ban rate-limit) settings.
+     *
+     * @return array<string,mixed>
+     */
+    public function getSettings(): array
+    {
+        try {
+            $res = $this->http()->get('/settings');
+            if (! $res->successful()) {
+                return ['ok' => false];
+            }
+
+            return ['ok' => true] + (array) $res->json();
+        } catch (Throwable) {
+            return ['ok' => false];
+        }
+    }
+
+    /**
+     * Update the live send-pacing settings (applies immediately to all sessions).
+     *
+     * @param  array<string,int>  $patch
+     * @return array<string,mixed>
+     */
+    public function updateSettings(array $patch): array
+    {
+        try {
+            $res = $this->http()->put('/settings', $patch);
+            if (! $res->successful()) {
+                return ['ok' => false];
+            }
+
+            return ['ok' => true] + (array) $res->json();
+        } catch (Throwable) {
+            return ['ok' => false];
+        }
+    }
+
     private function http(): PendingRequest
     {
         return Http::withHeaders(['X-Gateway-Admin' => (string) config('services.whatsapp_gateway.admin_secret')])

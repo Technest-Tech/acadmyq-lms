@@ -16,7 +16,8 @@ export interface SendQueueDeps {
   getSock: () => WASocket | null
   isConnected: () => boolean
   sessionCreatedAt: number
-  config: SendPacingConfig
+  /** Read the CURRENT pacing each time — lets admin rate-limit changes apply live. */
+  getPacing: () => SendPacingConfig
   logger: Logger
   /** Called when an item permanently fails to send (after it left the queue). */
   onFailure: (messageId: string, jid: string, error: string) => void
@@ -74,19 +75,12 @@ export class SendQueue {
   }
 
   private pacing(): { min: number; max: number; cap: number } {
+    const cfg = this.deps.getPacing()
     const ageDays = (Date.now() - this.deps.sessionCreatedAt) / 86_400_000
-    const warming = ageDays < this.deps.config.warmupDays
+    const warming = ageDays < cfg.warmupDays
     return warming
-      ? {
-          min: this.deps.config.warmupMinIntervalMs,
-          max: this.deps.config.warmupMaxIntervalMs,
-          cap: this.deps.config.warmupDailyCap,
-        }
-      : {
-          min: this.deps.config.minIntervalMs,
-          max: this.deps.config.maxIntervalMs,
-          cap: this.deps.config.dailyCap,
-        }
+      ? { min: cfg.warmupMinIntervalMs, max: cfg.warmupMaxIntervalMs, cap: cfg.warmupDailyCap }
+      : { min: cfg.minIntervalMs, max: cfg.maxIntervalMs, cap: cfg.dailyCap }
   }
 
   private rollDay(): void {
