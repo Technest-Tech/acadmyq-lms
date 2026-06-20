@@ -15,3 +15,8 @@ allowBuilds:
   core-js: false
   sharp: false
   unrs-resolver: false
+  # apps/wa-gateway deps — ship prebuilt / need no install-time build (the gateway runs fine
+  # with these declined). Listed so pnpm exits 0 instead of ERR_PNPM_IGNORED_BUILDS on deploy.
+  baileys: false
+  esbuild: false
+  protobufjs: false
