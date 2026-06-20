@@ -575,6 +575,40 @@ export function getAutomationLog(
   return apiFetch(`/api/admin/academies/${academyId}/automation/log`);
 }
 
+// ── Self-hosted WhatsApp gateway: session lifecycle (Super Admin) ─────────────
+
+export interface WhatsAppQrResult {
+  state: string;
+  qr: string | null;
+  session_id?: string;
+}
+
+/** Start a gateway session for the academy; returns the first pairing QR (data URL). */
+export function whatsappConnect(academyId: string): Promise<WhatsAppQrResult> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/connect`, {
+    method: "POST",
+  });
+}
+
+/** Poll the current pairing QR + state while the user scans. */
+export function whatsappQr(academyId: string): Promise<WhatsAppQrResult> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/qr`);
+}
+
+/** Live session status from the gateway. */
+export function whatsappStatus(
+  academyId: string,
+): Promise<{ state: string; phoneJid?: string | null }> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/status`);
+}
+
+/** Logout + remove the academy's gateway session and clear the stored token. */
+export function whatsappLogout(academyId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/logout`, {
+    method: "POST",
+  });
+}
+
 // ── Cross-academy Super Admin overviews (sidebar pages) ──────────────────────
 
 export interface SubscriptionOverviewRow {

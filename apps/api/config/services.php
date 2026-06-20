@@ -38,13 +38,28 @@ return [
     ],
 
     /*
-    | Wasender WhatsApp gateway (per-academy automation). The auth token is NOT global — it is
-    | stored per-academy (encrypted) in academy_automation_settings and passed per request, so
-    | each academy's sends are fully isolated. Only the base URL and a request timeout are global.
+    | WhatsApp SEND surface. Historically this was the paid Wasender SaaS; it now points at our
+    | self-hosted Baileys gateway (apps/wa-gateway), which is API-compatible with WasenderClient.
+    | The per-academy bearer token is NOT global — it is the gateway-minted session token stored
+    | encrypted in academy_automation_settings.wasender_token and passed per request, so each
+    | academy's sends are fully isolated. Only the base URL and a request timeout are global.
     */
     'wasender' => [
-        'base_url' => env('WASENDER_BASE_URL', 'https://wasenderapi.com'),
+        'base_url' => env('WASENDER_BASE_URL', 'http://127.0.0.1:8088'),
         'timeout' => (int) env('WASENDER_TIMEOUT', 15),
+    ],
+
+    /*
+    | WhatsApp gateway LIFECYCLE surface (Super Admin): create session / fetch QR / status / logout,
+    | plus the inbound webhook secret. `admin_secret` authorises Laravel→gateway lifecycle calls
+    | (sent as the X-Gateway-Admin header); `webhook_secret` verifies the HMAC on gateway→Laravel
+    | webhooks. base_url defaults to the same gateway as the send surface.
+    */
+    'whatsapp_gateway' => [
+        'base_url' => env('WA_GATEWAY_URL', env('WASENDER_BASE_URL', 'http://127.0.0.1:8088')),
+        'admin_secret' => env('WA_GATEWAY_ADMIN_SECRET'),
+        'webhook_secret' => env('WA_WEBHOOK_SECRET'),
+        'timeout' => (int) env('WA_GATEWAY_TIMEOUT', 15),
     ],
 
     /*

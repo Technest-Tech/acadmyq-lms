@@ -2100,7 +2100,7 @@
   },
   "adminAutomation": {
     "title": "WhatsApp Automation",
-    "subtitle": "Each academy's Wasender connection and automation toggles.",
+    "subtitle": "Each academy's WhatsApp connection and automation toggles.",
     "loadError": "Couldn't load automation status.",
     "noPermission": "You don't have access to this page.",
     "none": "No academies yet.",
@@ -2113,13 +2113,26 @@
     "col": {
       "academy": "Academy",
       "token": "Token",
+      "whatsapp": "WhatsApp",
       "type1": "Billing",
       "type2": "Reminders",
       "sends": "Sent / Failed"
     },
-    "hasToken": "Token set",
-    "noToken": "No token",
-    "tokenHint": "Set or replace an academy's Wasender token from its detail page (Academies → open an academy)."
+    "hasToken": "Connected",
+    "noToken": "Not connected",
+    "connect": "Connect",
+    "connected": "Connected",
+    "disconnected": "Not connected",
+    "qrPending": "Scan pending",
+    "logout": "Log out",
+    "loggingOut": "Logging out…",
+    "qrTitle": "Connect WhatsApp",
+    "qrInstructions": "On the academy's phone open WhatsApp → Linked devices → Link a device, then scan this code.",
+    "qrGenerating": "Generating QR code…",
+    "qrConnected": "Connected! This window will close automatically.",
+    "qrError": "Couldn't start the WhatsApp session. The gateway may be unavailable.",
+    "connectError": "Connect failed.",
+    "tokenHint": "Click Connect on an academy, then scan the QR with that academy's WhatsApp phone (Linked devices). The session stays linked until you log out."
   },
   "studentReportReviews": {
     "title": "Student Report Reviews",

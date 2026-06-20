@@ -36,6 +36,7 @@ use App\Http\Controllers\Scheduling\ScheduleController;
 use App\Http\Controllers\Scheduling\SessionController;
 use App\Http\Controllers\SessionReportController;
 use App\Http\Controllers\StudentProgressReportController;
+use App\Http\Controllers\WhatsAppWebhookController;
 use App\Http\Controllers\Trials\TrialController;
 use App\Http\Controllers\PaymentSettingsController;
 use App\Http\Controllers\PaypalOrderController;
@@ -94,6 +95,13 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::get('/a/{token}', [AcademyPaymentController::class, 'show']);
     Route::post('/a/{token}/submit', [AcademyPaymentController::class, 'submit']);
 });
+
+/*
+| Internal webhook from the self-hosted WhatsApp gateway (apps/wa-gateway). NOT a Sanctum route —
+| the gateway authenticates with an HMAC signature verified by the `wa.webhook` middleware. Carries
+| connection/QR/message events; the controller maps each to its academy via the signed payload.
+*/
+Route::post('/internal/wa/webhook', [WhatsAppWebhookController::class, 'handle'])->middleware('wa.webhook');
 
 /*
 | Authenticated API. `auth:sanctum` establishes identity; `tenant.context`
@@ -160,6 +168,13 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::delete('/admin/academies/{id}/automation/token', [AcademyAutomationController::class, 'clearToken']);
     Route::post('/admin/academies/{id}/automation/test', [AcademyAutomationController::class, 'test']);
     Route::get('/admin/academies/{id}/automation/log', [AcademyAutomationController::class, 'log']);
+
+    // Self-hosted WhatsApp gateway session lifecycle (automation.manage — Super Admin). Connect mints
+    // a gateway session + returns the first QR; the panel polls /qr until /status flips to connected.
+    Route::post('/admin/academies/{id}/whatsapp/connect', [AcademyAutomationController::class, 'whatsappConnect']);
+    Route::get('/admin/academies/{id}/whatsapp/qr', [AcademyAutomationController::class, 'whatsappQr']);
+    Route::get('/admin/academies/{id}/whatsapp/status', [AcademyAutomationController::class, 'whatsappStatus']);
+    Route::post('/admin/academies/{id}/whatsapp/logout', [AcademyAutomationController::class, 'whatsappLogout']);
 
     // Plan gating surface for the UI (Sprint 9 §8). Resolved capabilities + limits for the
     // current academy; authenticated, no special capability.

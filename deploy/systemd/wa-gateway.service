@@ -1,0 +1,29 @@
+# Self-hosted WhatsApp gateway (Baileys). Runs on its OWN droplet, separate from the app.
+# Install to /etc/systemd/system/wa-gateway.service on the gateway droplet.
+[Unit]
+Description=Acadmyq WhatsApp Gateway (Baileys)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wagateway
+Group=wagateway
+WorkingDirectory=/opt/acadmyq/apps/wa-gateway
+EnvironmentFile=/etc/wa-gateway/wa-gateway.env
+ExecStart=/usr/bin/node /opt/acadmyq/apps/wa-gateway/dist/server.js
+Restart=always
+RestartSec=5
+# Never stop restarting — the uptime mandate. Creds live in Postgres, so a revived process
+# rehydrates + reconnects every session without a QR re-scan.
+StartLimitIntervalSec=0
+StandardOutput=append:/var/log/wa-gateway.log
+StandardError=append:/var/log/wa-gateway.log
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/log
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Middleware\EnsureEntitled;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\TenantContextMiddleware;
+use App\Http\Middleware\VerifyWhatsAppWebhook;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -33,6 +34,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'tenant.context' => TenantContextMiddleware::class,
             'entitled' => EnsureEntitled::class,
+            // HMAC guard for the public inbound webhook from the self-hosted WhatsApp gateway.
+            'wa.webhook' => VerifyWhatsAppWebhook::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

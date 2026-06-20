@@ -1,5 +1,6 @@
 packages:
   - "apps/web"
+  - "apps/wa-gateway"
   - "packages/*"
 
 # Dependency build scripts are blocked by default (pnpm 10+) and pnpm exits

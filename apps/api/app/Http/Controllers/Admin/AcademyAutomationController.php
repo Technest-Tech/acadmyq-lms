@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\Whatsapp\GatewayAdminClient;
 use App\Services\Whatsapp\WasenderClient;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -25,7 +26,10 @@ use Throwable;
  */
 final class AcademyAutomationController extends Controller
 {
-    public function __construct(private readonly WasenderClient $wasender) {}
+    public function __construct(
+        private readonly WasenderClient $wasender,
+        private readonly GatewayAdminClient $gateway,
+    ) {}
 
     /** GET /admin/automation — cross-academy WhatsApp automation overview (status + send counts). */
     public function overview(): JsonResponse
@@ -177,7 +181,110 @@ final class AcademyAutomationController extends Controller
         return response()->json(['log' => $rows]);
     }
 
+    // ── self-hosted gateway: WhatsApp session lifecycle (replaces the Wasender dashboard) ──────
+
+    /** POST /admin/academies/{id}/whatsapp/connect — start a gateway session; returns the first QR. */
+    public function whatsappConnect(string $id): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+        $this->assertAcademy($id);
+        $ctx = app(AuthContext::class);
+
+        $created = $this->gateway->createSession($id);
+        if (! $created['ok'] || ($created['token'] ?? null) === null || ($created['session_id'] ?? null) === null) {
+            abort(502, 'WhatsApp gateway unavailable'.(($created['error'] ?? null) !== null ? ': '.$created['error'] : '.'));
+        }
+
+        $this->inAcademyContext($id, function () use ($id, $created, $ctx) {
+            $this->ensureRow($id);
+            DB::table('academy_automation_settings')->where('academy_id', $id)->update([
+                // The gateway-minted bearer token is stored encrypted in the existing column; the
+                // WhatsAppSender seam will read it to deliver via our gateway.
+                'wasender_token' => Crypt::encryptString((string) $created['token']),
+                'wa_session_id' => (string) $created['session_id'],
+                'wasender_session_status' => 'QR',
+                'updated_at' => now(),
+            ]);
+            Audit::log('whatsapp.session_connect', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: ['session_started' => true]);
+        });
+
+        $qr = $this->gateway->getQr((string) $created['session_id']);
+
+        return response()->json([
+            'session_id' => $created['session_id'],
+            'state' => $qr['state'] ?? 'qr',
+            'qr' => $qr['qr'] ?? null,
+        ]);
+    }
+
+    /** GET /admin/academies/{id}/whatsapp/qr — poll the pairing QR + state (panel renders it). */
+    public function whatsappQr(string $id): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+        $this->assertAcademy($id);
+
+        $sessionId = $this->waSessionId($id);
+        if ($sessionId === null) {
+            return response()->json(['state' => 'disconnected', 'qr' => null]);
+        }
+        $qr = $this->gateway->getQr($sessionId);
+
+        return response()->json(['state' => $qr['state'] ?? 'disconnected', 'qr' => $qr['qr'] ?? null]);
+    }
+
+    /** GET /admin/academies/{id}/whatsapp/status — live session status from the gateway. */
+    public function whatsappStatus(string $id): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+        $this->assertAcademy($id);
+
+        $sessionId = $this->waSessionId($id);
+        if ($sessionId === null) {
+            return response()->json(['state' => 'disconnected']);
+        }
+        $status = $this->gateway->getStatus($sessionId);
+
+        return response()->json($status['ok'] ? $status : ['state' => 'disconnected']);
+    }
+
+    /** POST /admin/academies/{id}/whatsapp/logout — logout on the gateway + clear the local token. */
+    public function whatsappLogout(string $id): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+        $this->assertAcademy($id);
+        $ctx = app(AuthContext::class);
+
+        $sessionId = $this->waSessionId($id);
+        if ($sessionId !== null) {
+            $this->gateway->deleteSession($sessionId);
+        }
+
+        $this->inAcademyContext($id, function () use ($id, $ctx) {
+            $this->ensureRow($id);
+            DB::table('academy_automation_settings')->where('academy_id', $id)->update([
+                'wasender_token' => null,
+                'wa_session_id' => null,
+                'wasender_session_status' => null,
+                'updated_at' => now(),
+            ]);
+            Audit::log('whatsapp.session_logout', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: ['logged_out' => true]);
+        });
+
+        return response()->json(['ok' => true]);
+    }
+
     // ── internals ────────────────────────────────────────────────────────────
+
+    /** The academy's gateway session id (read within tenant context), or null when not connected. */
+    private function waSessionId(string $academyId): ?string
+    {
+        return $this->inAcademyContext($academyId, function () use ($academyId): ?string {
+            $row = DB::table('academy_automation_settings')->where('academy_id', $academyId)->first(['wa_session_id']);
+            $sid = $row->wa_session_id ?? null;
+
+            return $sid !== null && $sid !== '' ? (string) $sid : null;
+        });
+    }
 
     /** Ensure (and return) the academy's automation settings row. */
     private function ensureRow(string $academyId): object
