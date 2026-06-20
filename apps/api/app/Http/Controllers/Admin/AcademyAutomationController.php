@@ -43,6 +43,17 @@ final class AcademyAutomationController extends Controller
         return response()->json($data);
     }
 
+    /** GET /admin/automation/activity — cross-academy recent WhatsApp send feed (Super Admin). */
+    public function activity(Request $request): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+
+        $limit = max(1, min(200, (int) $request->query('limit', 50)));
+        $data = json_decode(DB::selectOne('select app.admin_whatsapp_activity(?) as o', [$limit])->o, true);
+
+        return response()->json($data);
+    }
+
     /** GET /admin/academies/{id}/automation — toggles + has_token + masked tail + session status. */
     public function show(string $id): JsonResponse
     {

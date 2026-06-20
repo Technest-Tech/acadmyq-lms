@@ -699,6 +699,24 @@ export function getAutomationOverview(): Promise<{
   return apiFetch("/api/admin/automation");
 }
 
+export interface WhatsAppActivityRow {
+  id: string;
+  academy_id: string;
+  academy_name: string;
+  automation_type: string;
+  transport: string;
+  recipient_kind: string;
+  recipient_phone: string | null;
+  status: "QUEUED" | "SENT" | "FAILED" | "SKIPPED";
+  error: string | null;
+  created_at: string;
+}
+
+/** Cross-academy recent WhatsApp send feed (Super Admin Activity tab). */
+export function getWhatsappActivity(limit = 50): Promise<{ activity: WhatsAppActivityRow[] }> {
+  return apiFetch(`/api/admin/automation/activity?limit=${limit}`);
+}
+
 /** Fetch a private payment-proof screenshot as an object URL (works in cookie + token modes). */
 export async function fetchPaymentScreenshot(
   academyId: string,

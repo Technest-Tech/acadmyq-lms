@@ -205,6 +205,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // per-academy endpoints above.
     Route::get('/admin/subscriptions', [AcademySubscriptionController::class, 'overview']);
     Route::get('/admin/automation', [AcademyAutomationController::class, 'overview']);
+    Route::get('/admin/automation/activity', [AcademyAutomationController::class, 'activity']);
 
     // Platform settings + feature flags (Super Admin, platform.manage). A disabled flag is a
     // kill-switch consulted by Entitlement::resolve — it removes a capability platform-wide.

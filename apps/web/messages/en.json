@@ -2108,6 +2108,7 @@
       "academies": "Academies",
       "connected": "Connected",
       "needsAttention": "Needs attention",
+      "deliveryRate": "Delivery rate",
       "type1": "Billing on",
       "type2": "Reminders on",
       "sends": "Sent (30d)"
@@ -2191,6 +2192,65 @@
       "qrInstructions": "On the academy's phone open WhatsApp → Linked devices → Link a device, then scan.",
       "qrGenerating": "Generating QR…",
       "connectedFlash": "Connected!"
+    },
+    "tabs": {
+      "overview": "Academies",
+      "activity": "Activity",
+      "guide": "Guide"
+    },
+    "toolbar": {
+      "sort": "Sort",
+      "sortName": "Name (A–Z)",
+      "sortStatus": "Status",
+      "sortSent": "Most sent",
+      "sortFailed": "Most failed",
+      "autoRefresh": "Auto-refresh",
+      "updatedAgo": "Updated {sec}s ago",
+      "updatedNow": "Just updated",
+      "export": "Export CSV",
+      "refresh": "Refresh"
+    },
+    "bulk": {
+      "selected": "{n} selected",
+      "enableBilling": "Enable billing",
+      "disableBilling": "Disable billing",
+      "enableReminders": "Enable reminders",
+      "disableReminders": "Disable reminders",
+      "clear": "Clear",
+      "applying": "Applying…"
+    },
+    "filterDisconnected": "Disconnected",
+    "activity": {
+      "title": "Recent activity",
+      "subtitle": "Latest WhatsApp sends across every academy.",
+      "all": "All",
+      "sent": "Sent",
+      "failed": "Failed",
+      "skipped": "Skipped",
+      "colAcademy": "Academy",
+      "colType": "Type",
+      "colRecipient": "To",
+      "colTransport": "Via",
+      "colStatus": "Status",
+      "colTime": "When",
+      "empty": "No activity yet.",
+      "loadError": "Couldn't load activity."
+    },
+    "guide": {
+      "title": "How it works",
+      "statusesTitle": "Connection statuses",
+      "stepsTitle": "Connecting an academy",
+      "step1": "Click Manage on the academy, then Connect.",
+      "step2": "On that academy's phone: WhatsApp → Linked devices → Link a device.",
+      "step3": "Scan the QR. The badge turns green (Connected).",
+      "step4": "Use Send a test message to verify delivery.",
+      "reliabilityTitle": "Reliability",
+      "reliability": "A connected session reconnects automatically after restarts and network drops. WhatsApp can still force a logout or ban a number — those require re-scanning the QR and are flagged as Needs attention.",
+      "sConnected": "Linked and ready to send.",
+      "sQr": "Waiting for the QR to be scanned.",
+      "sDisconnected": "Temporarily offline; auto-reconnecting.",
+      "sLoggedOut": "Unlinked or banned — re-scan required.",
+      "sNone": "No session set up yet."
     }
   },
   "studentReportReviews": {
