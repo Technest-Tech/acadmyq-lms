@@ -595,10 +595,17 @@ export function whatsappQr(academyId: string): Promise<WhatsAppQrResult> {
   return apiFetch(`/api/admin/academies/${academyId}/whatsapp/qr`);
 }
 
+export interface WhatsAppStatus {
+  state: string;
+  phoneJid?: string | null;
+  lastConnectedAt?: string | null;
+  lastSeenAt?: string | null;
+  queueDepth?: number;
+  reconnectAttempts?: number;
+}
+
 /** Live session status from the gateway. */
-export function whatsappStatus(
-  academyId: string,
-): Promise<{ state: string; phoneJid?: string | null }> {
+export function whatsappStatus(academyId: string): Promise<WhatsAppStatus> {
   return apiFetch(`/api/admin/academies/${academyId}/whatsapp/status`);
 }
 
@@ -606,6 +613,29 @@ export function whatsappStatus(
 export function whatsappLogout(academyId: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/admin/academies/${academyId}/whatsapp/logout`, {
     method: "POST",
+  });
+}
+
+/** Send an ad-hoc test message through the academy's session (or a wa.me deep link if offline). */
+export function whatsappSendTest(
+  academyId: string,
+  to: string,
+  text: string,
+): Promise<{ ok: boolean; transport: string; error: string | null; deeplink: string }> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/send-test`, {
+    method: "POST",
+    body: JSON.stringify({ to, text }),
+  });
+}
+
+/** Check whether a number is registered on WhatsApp (null = no active session to check with). */
+export function whatsappCheckNumber(
+  academyId: string,
+  to: string,
+): Promise<{ exists: boolean | null }> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/check`, {
+    method: "POST",
+    body: JSON.stringify({ to }),
   });
 }
 

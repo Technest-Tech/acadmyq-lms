@@ -175,6 +175,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/admin/academies/{id}/whatsapp/qr', [AcademyAutomationController::class, 'whatsappQr']);
     Route::get('/admin/academies/{id}/whatsapp/status', [AcademyAutomationController::class, 'whatsappStatus']);
     Route::post('/admin/academies/{id}/whatsapp/logout', [AcademyAutomationController::class, 'whatsappLogout']);
+    // Manual test send + number-on-WhatsApp check (Super Admin sanity tools).
+    Route::post('/admin/academies/{id}/whatsapp/send-test', [AcademyAutomationController::class, 'whatsappSendTest']);
+    Route::post('/admin/academies/{id}/whatsapp/check', [AcademyAutomationController::class, 'whatsappCheck']);
 
     // Plan gating surface for the UI (Sprint 9 §8). Resolved capabilities + limits for the
     // current academy; authenticated, no special capability.

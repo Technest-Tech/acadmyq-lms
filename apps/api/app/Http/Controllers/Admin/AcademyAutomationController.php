@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\Whatsapp\GatewayAdminClient;
 use App\Services\Whatsapp\WasenderClient;
+use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Tenancy;
@@ -29,6 +30,7 @@ final class AcademyAutomationController extends Controller
     public function __construct(
         private readonly WasenderClient $wasender,
         private readonly GatewayAdminClient $gateway,
+        private readonly WhatsAppSender $sender,
     ) {}
 
     /** GET /admin/automation — cross-academy WhatsApp automation overview (status + send counts). */
@@ -271,6 +273,64 @@ final class AcademyAutomationController extends Controller
         });
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * POST /admin/academies/{id}/whatsapp/send-test — send an ad-hoc test message through the seam
+     * (transport WASENDER when connected, else a wa.me deep link). Logged to automation_send_log.
+     */
+    public function whatsappSendTest(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+        $this->assertAcademy($id);
+
+        $data = $request->validate([
+            'to' => ['required', 'string', 'min:6', 'max:32'],
+            'text' => ['required', 'string', 'min:1', 'max:4096'],
+        ]);
+        $ctx = app(AuthContext::class);
+
+        $result = $this->inAcademyContext($id, function () use ($id, $data, $ctx) {
+            $res = $this->sender->sendOrLink($id, $data['to'], $data['text'], [
+                'automation_type' => 'MANUAL',
+                'recipient_kind' => 'ACADEMY_OWNER',
+                'template_key' => 'manual_test',
+            ]);
+            Audit::log('whatsapp.test_send', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: [
+                'transport' => $res['transport'],
+                'sent' => $res['sent'],
+            ]);
+
+            return $res;
+        });
+
+        return response()->json([
+            'ok' => $result['sent'],
+            'transport' => $result['transport'],
+            'error' => $result['error'],
+            'deeplink' => $result['deeplink'],
+        ]);
+    }
+
+    /** POST /admin/academies/{id}/whatsapp/check — is a number registered on WhatsApp? null = no session. */
+    public function whatsappCheck(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+        $this->assertAcademy($id);
+
+        $data = $request->validate(['to' => ['required', 'string', 'min:6', 'max:32']]);
+
+        $exists = $this->inAcademyContext($id, function () use ($id, $data) {
+            $row = DB::table('academy_automation_settings')->where('academy_id', $id)->first(['wasender_token']);
+            $token = $this->decryptToken($row->wasender_token ?? null);
+            if ($token === null) {
+                return null;
+            }
+
+            return $this->wasender->onWhatsApp($token, $data['to']);
+        });
+
+        return response()->json(['exists' => $exists]);
     }
 
     // ── internals ────────────────────────────────────────────────────────────
