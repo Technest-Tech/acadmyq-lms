@@ -154,7 +154,7 @@ export function CertificatesScreen() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-foreground text-2xl font-bold tracking-tight">{t("title")}</h1>
+        <h1 className="text-foreground text-xl font-bold tracking-tight sm:text-2xl">{t("title")}</h1>
         <p className="text-muted-foreground mt-1 text-sm">{t("subtitle")}</p>
       </div>
 
@@ -311,7 +311,7 @@ export function CertificatesScreen() {
 
         {/* ── Preview + download ── */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-foreground text-sm font-semibold">{t("previewHeading")}</h2>
             <Button
               type="button"
@@ -319,6 +319,7 @@ export function CertificatesScreen() {
               onClick={handleDownload}
               disabled={downloading || !draft}
               data-testid="cert-download"
+              className="max-sm:w-full"
             >
               {downloading ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -349,27 +350,24 @@ export function CertificatesScreen() {
         </div>
       </div>
 
-      {/* Off-screen full-size node for crisp PDF capture */}
+      {/* Off-screen full-size node for crisp PDF capture. Wrapped in a zero-size,
+          overflow-hidden box so the 1123px node never adds to the document scroll
+          width — important on mobile, and in RTL where a negative inline offset
+          would otherwise push it off the right edge and create a horizontal scrollbar. */}
       {draft && (
         <div
-          ref={captureRef}
           aria-hidden
-          style={{
-            position: "fixed",
-            top: 0,
-            insetInlineStart: -100000,
-            width: CERT_WIDTH,
-            height: CERT_HEIGHT,
-            pointerEvents: "none",
-          }}
+          style={{ position: "fixed", top: 0, left: 0, width: 0, height: 0, overflow: "hidden", pointerEvents: "none" }}
         >
-          <CertificatePreview
-            templateNumber={active}
-            content={draft}
-            recipientName={recipientName}
-            dateLabel={dateLabel}
-            lang={lang}
-          />
+          <div ref={captureRef} style={{ width: CERT_WIDTH, height: CERT_HEIGHT }}>
+            <CertificatePreview
+              templateNumber={active}
+              content={draft}
+              recipientName={recipientName}
+              dateLabel={dateLabel}
+              lang={lang}
+            />
+          </div>
         </div>
       )}
     </div>
