@@ -5,7 +5,6 @@ import {
   Check,
   Eye,
   EyeOff,
-  GraduationCap,
   Lock,
   Mail,
 } from "lucide-react";
@@ -96,9 +95,12 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div className="relative flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/15 backdrop-blur-sm">
-            <GraduationCap className="size-5 text-white" aria-hidden />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.png"
+            alt={t("app.name")}
+            className="size-10 rounded-xl bg-white/10 object-contain p-1 ring-1 ring-white/15 backdrop-blur-sm"
+          />
           <span className="text-lg font-bold tracking-tight">
             {t("app.name")}
           </span>
@@ -147,9 +149,12 @@ export default function LoginPage() {
           <div className="animate-page-enter w-full max-w-[400px] space-y-8">
             {/* Mobile/tablet logo (left panel hidden below lg) */}
             <div className="flex items-center gap-2.5 lg:hidden">
-              <div className="bg-primary/10 flex size-9 items-center justify-center rounded-xl">
-                <GraduationCap className="text-primary size-5" aria-hidden />
-              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo.png"
+                alt={t("app.name")}
+                className="size-9 shrink-0 object-contain"
+              />
               <span className="text-lg font-bold tracking-tight">
                 {t("app.name")}
               </span>

@@ -486,9 +486,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* ── Brand ──────────────────────────────────────────── */}
         <div className="border-sidebar-border flex h-14 shrink-0 items-center justify-between border-b px-4">
           <div className="flex items-center gap-2.5">
-            <div className="from-primary to-primary/75 flex size-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br shadow-sm shadow-primary/20">
-              <GraduationCap className="size-[15px] text-white" aria-hidden />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.png"
+              alt="Acadmyq"
+              className="size-8 shrink-0 object-contain"
+            />
             <div>
               <div className="text-sidebar-foreground text-[13px] font-semibold leading-tight">
                 Acadmyq

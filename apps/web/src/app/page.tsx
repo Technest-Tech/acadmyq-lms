@@ -419,12 +419,12 @@ function Navbar({
         <div className="flex h-16 items-center justify-between gap-4">
           {/* Logo */}
           <Link href="/" className="flex shrink-0 items-center gap-2.5">
-            <div
-              className="flex size-9 items-center justify-center rounded-xl"
-              style={{ background: "oklch(0.519 0.158 163.2)" }}
-            >
-              <GraduationCap className="size-5 text-white" aria-hidden />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.png"
+              alt="Acadmyq"
+              className="size-9 shrink-0 object-contain"
+            />
             <span
               className={`text-lg font-bold tracking-tight transition-colors ${
                 scrolled ? "text-foreground" : "text-white"
@@ -1261,12 +1261,12 @@ function Footer({ t, lang }: { t: Content["footer"]; lang: Lang }) {
       <div className="mx-auto max-w-7xl px-6 lg:px-8">
         <div className="flex flex-col items-center justify-between gap-6 sm:flex-row">
           <div className="flex items-center gap-2.5">
-            <div
-              className="flex size-8 items-center justify-center rounded-lg"
-              style={{ background: "oklch(0.519 0.158 163.2)" }}
-            >
-              <GraduationCap className="size-4 text-white" aria-hidden />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.png"
+              alt="Acadmyq"
+              className="size-8 shrink-0 object-contain"
+            />
             <span className="text-sm font-bold text-white">Acadmyq</span>
           </div>
 
