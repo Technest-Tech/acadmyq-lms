@@ -62,6 +62,7 @@ class DemoAcademySeeder extends Seeder
             $this->seedEnrollment();
             $this->seedScheduleAndSessions();
             $this->seedPaymentSettings();
+            $this->seedFinanceDemo();
             // Sync the demo academy's subscription snapshot to its (PRO) plan price so a re-seed
             // after a plan-price change never leaves a stale total.
             app(\App\Services\AcademyBilling::class)->recomputeTotals(self::ACADEMY_ID);
@@ -445,6 +446,141 @@ class DemoAcademySeeder extends Seeder
                     'status' => $status,
                 ]
             );
+        }
+    }
+
+    /**
+     * A richer, multi-currency demo so the academy dashboard's financial KPIs (Collected,
+     * Billed, Outstanding, Due) read as real numbers (TC-9.x demo). Families are billed in
+     * their own currency (USD/EUR/GBP/SAR/AED/EGP) — no FX, every figure stays grouped per
+     * currency exactly as the invoice-summary endpoint aggregates it. USD is deliberately the
+     * largest-billed currency so the headline cards render in USD with >$3,000 collected.
+     *
+     * Teacher SALARIES stay EGP-only (payouts below) — only family billing is multi-currency.
+     *
+     * Everything is keyed on a stable UUID / (payer, period) so a re-seed upserts in place;
+     * invoices are inserted with their final status, sidestepping the closed-invoice
+     * immutability trigger (which only guards UPDATEs and line-item inserts).
+     */
+    private function seedFinanceDemo(): void
+    {
+        $p = '0a000000-0000-7000-8000-';
+
+        // ── Guardians, each invoiced in their own currency ──────────────────────
+        // [id, name, phone, country, currency]
+        $guardians = [
+            [$p.'000000000101', 'James Carter', '+14155550101', 'US', 'USD'],
+            [$p.'000000000102', 'Sophie Dubois', '+33155550102', 'FR', 'EUR'],
+            [$p.'000000000103', 'Oliver Smith', '+44155550103', 'GB', 'GBP'],
+            [$p.'000000000104', 'Abdullah Al-Saud', '+966555550104', 'SA', 'SAR'],
+            [$p.'000000000105', 'Khalid Al-Maktoum', '+971555550105', 'AE', 'AED'],
+        ];
+        foreach ($guardians as [$id, $name, $phone, $country, $cur]) {
+            DB::table('guardians')->updateOrInsert(
+                ['id' => $id],
+                [
+                    'academy_id' => self::ACADEMY_ID,
+                    'full_name' => $name,
+                    'whatsapp_phone' => $phone,
+                    'country' => $country,
+                    'currency' => $cur,
+                ]
+            );
+        }
+
+        // ── Students (+ one active teacher assignment + a subscription each) ─────
+        // [id, guardianId, name, subscriptionCurrency, pricePerMonthMinor, teacherId]
+        $students = [
+            [$p.'000000000111', $p.'000000000101', 'Adam Carter', 'USD', 30000, self::TEACHER1_ID],
+            [$p.'000000000112', $p.'000000000101', 'Layla Carter', 'USD', 25000, self::TEACHER2_ID],
+            [$p.'000000000113', $p.'000000000102', 'Hugo Dubois', 'EUR', 28000, self::TEACHER1_ID],
+            [$p.'000000000114', $p.'000000000102', 'Emma Dubois', 'EUR', 24000, self::TEACHER2_ID],
+            [$p.'000000000115', $p.'000000000103', 'Jack Smith', 'GBP', 26000, self::TEACHER1_ID],
+            [$p.'000000000116', $p.'000000000103', 'Lily Smith', 'GBP', 22000, self::TEACHER2_ID],
+            [$p.'000000000117', $p.'000000000104', 'Omar Al-Saud', 'SAR', 70000, self::TEACHER1_ID],
+            [$p.'000000000118', $p.'000000000104', 'Sara Al-Saud', 'SAR', 60000, self::TEACHER2_ID],
+            [$p.'000000000119', $p.'000000000105', 'Yousef Al-Maktoum', 'AED', 65000, self::TEACHER1_ID],
+            [$p.'00000000011a', $p.'000000000105', 'Noor Al-Maktoum', 'AED', 55000, self::TEACHER2_ID],
+            [$p.'00000000011b', self::GUARDIAN_ID, 'Khadija Hassan', 'EGP', 80000, self::TEACHER1_ID],
+            [$p.'00000000011c', self::GUARDIAN_ID, 'Bilal Hassan', 'EGP', 60000, self::TEACHER2_ID],
+        ];
+        foreach ($students as [$id, $gid, $name, $cur, $price, $teacherId]) {
+            DB::table('students')->updateOrInsert(
+                ['id' => $id],
+                [
+                    'academy_id' => self::ACADEMY_ID,
+                    'guardian_id' => $gid,
+                    'full_name' => $name,
+                    'status' => 'REGULAR',
+                ]
+            );
+            DB::table('student_teacher_assignments')->updateOrInsert(
+                ['academy_id' => self::ACADEMY_ID, 'student_id' => $id, 'ended_at' => null],
+                ['teacher_id' => $teacherId]
+            );
+            DB::table('subscriptions')->updateOrInsert(
+                ['academy_id' => self::ACADEMY_ID, 'student_id' => $id, 'plan_label' => 'Monthly · '.$cur],
+                [
+                    'sessions_per_month' => 8,
+                    'price_minor' => $price,
+                    'currency' => $cur,
+                    'price_basis' => 'PER_MONTH',
+                    'status' => 'ACTIVE',
+                    'start_date' => '2026-01-01',
+                ]
+            );
+        }
+
+        // ── Monthly invoices (PER_GUARDIAN). Mix of statuses drives the KPIs:
+        //   PAID            → Collected
+        //   PARTIALLY_PAID  → Collected (part) + Outstanding + Due
+        //   CLOSED (unpaid) → Outstanding + Due
+        //   OPEN   (unpaid) → Due only
+        // [guardianId, currency, [ [year, month, totalMinor, paidMinor, status], ... ]]
+        $invoices = [
+            [$p.'000000000101', 'USD', [[2026, 4, 180000, 180000, 'PAID'], [2026, 5, 200000, 200000, 'PAID'], [2026, 6, 220000, 120000, 'PARTIALLY_PAID']]],
+            [$p.'000000000102', 'EUR', [[2026, 4, 90000, 90000, 'PAID'], [2026, 5, 100000, 100000, 'PAID'], [2026, 6, 110000, 0, 'CLOSED']]],
+            [$p.'000000000103', 'GBP', [[2026, 4, 80000, 80000, 'PAID'], [2026, 5, 80000, 80000, 'PAID'], [2026, 6, 90000, 0, 'OPEN']]],
+            [$p.'000000000104', 'SAR', [[2026, 4, 130000, 130000, 'PAID'], [2026, 5, 140000, 140000, 'PAID'], [2026, 6, 150000, 0, 'CLOSED']]],
+            [$p.'000000000105', 'AED', [[2026, 4, 120000, 120000, 'PAID'], [2026, 5, 130000, 130000, 'PAID'], [2026, 6, 140000, 60000, 'PARTIALLY_PAID']]],
+            [self::GUARDIAN_ID, 'EGP', [[2026, 4, 80000, 80000, 'PAID'], [2026, 5, 80000, 80000, 'PAID'], [2026, 6, 80000, 0, 'CLOSED']]],
+        ];
+        foreach ($invoices as [$gid, $cur, $rows]) {
+            foreach ($rows as [$year, $month, $total, $paid, $status]) {
+                $isClosed = in_array($status, ['CLOSED', 'PAID', 'PARTIALLY_PAID'], true);
+                $mm = sprintf('%02d', $month);
+                DB::table('invoices')->updateOrInsert(
+                    ['academy_id' => self::ACADEMY_ID, 'guardian_id' => $gid, 'period_year' => $year, 'period_month' => $month],
+                    [
+                        'student_id' => null,
+                        'status' => $status,
+                        'currency' => $cur,
+                        'subtotal_minor' => $total,
+                        'total_minor' => $total,
+                        'amount_paid_minor' => $paid,
+                        'public_token' => sprintf('demo-%s-%d-%s', substr($gid, -3), $year, $mm),
+                        'closed_at' => $isClosed ? "$year-$mm-05 12:00:00+00" : null,
+                        'paid_at' => $status === 'PAID' ? "$year-$mm-07 12:00:00+00" : null,
+                        'payment_method' => in_array($status, ['PAID', 'PARTIALLY_PAID'], true) ? 'BANK_TRANSFER' : null,
+                    ]
+                );
+            }
+        }
+
+        // ── Teacher payouts — ALWAYS EGP (salaries are single-currency) ─────────
+        // [teacherId, [ [year, month, totalMinor], ... ]]
+        $payouts = [
+            [self::TEACHER1_ID, [[2026, 4, 100000], [2026, 5, 110000], [2026, 6, 120000]]],
+            [self::TEACHER2_ID, [[2026, 4, 80000], [2026, 5, 85000], [2026, 6, 90000]]],
+        ];
+        foreach ($payouts as [$teacherId, $rows]) {
+            foreach ($rows as [$year, $month, $total]) {
+                $mm = sprintf('%02d', $month);
+                DB::table('payouts')->updateOrInsert(
+                    ['academy_id' => self::ACADEMY_ID, 'teacher_id' => $teacherId, 'period_year' => $year, 'period_month' => $month],
+                    ['total_minor' => $total, 'currency' => 'EGP', 'finalized_at' => "$year-$mm-28 12:00:00+00"]
+                );
+            }
         }
     }
 }
