@@ -981,11 +981,15 @@
       "student": "Student",
       "selectStudent": "Select a student",
       "searchStudent": "Search student…",
+      "teacher": "Teacher",
+      "selectTeacher": "Select a teacher",
+      "searchTeacher": "Search teacher…",
       "date": "Date",
       "time": "Time",
       "duration": "Duration",
       "create": "Create session",
-      "errStudent": "Please choose a student."
+      "errStudent": "Please choose a student.",
+      "errTeacher": "Please choose a teacher."
     },
     "status": {
       "SCHEDULED": "Scheduled",

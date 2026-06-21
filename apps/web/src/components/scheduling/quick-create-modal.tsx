@@ -1,13 +1,18 @@
 "use client";
 
-import { CalendarPlus, Clock, User } from "lucide-react";
+import { CalendarPlus, Clock, GraduationCap, User } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { Modal } from "@/components/ui/modal";
-import { ApiError, createSession, type StudentRow } from "@/lib/api";
+import {
+  ApiError,
+  createSession,
+  type StudentRow,
+  type TeacherRow,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const fieldClass =
@@ -17,12 +22,15 @@ const DURATION_PRESETS = [30, 45, 60, 90, 120];
 
 /**
  * Quick-create a one-off session (§5.1) straight from an empty calendar slot. The day + time
- * come pre-filled from where the owner clicked; they pick a student (the teacher defaults to
- * that student's assignment server-side) and a duration, then POST. The local wall-clock plus
- * the viewer timezone go to the backend so the stored UTC instant is DST-correct.
+ * come pre-filled from where the owner clicked; they pick a student and the teacher auto-fills
+ * to that student's assigned teacher (so the session lands under the same teacher as their other
+ * lessons on the attendance page) while staying overridable for substitute lessons. The local
+ * wall-clock plus the viewer timezone go to the backend so the stored UTC instant is DST-correct.
  */
 export function QuickCreateModal({
   students,
+  teachers,
+  defaultTeacherId,
   initialDate,
   initialTime,
   timeZone,
@@ -30,6 +38,9 @@ export function QuickCreateModal({
   onCreated,
 }: {
   students: StudentRow[];
+  teachers: TeacherRow[];
+  /** Pre-selected teacher (e.g. the calendar's active teacher filter); a chosen student overrides it. */
+  defaultTeacherId?: string;
   /** Y-m-d the slot fell on, in the viewer timezone. */
   initialDate: string;
   /** "HH:MM" wall-clock of the clicked slot. */
@@ -40,6 +51,7 @@ export function QuickCreateModal({
 }) {
   const t = useTranslations("scheduling");
   const [studentId, setStudentId] = useState("");
+  const [teacherId, setTeacherId] = useState(defaultTeacherId ?? "");
   const [date, setDate] = useState(initialDate);
   const [time, setTime] = useState(initialTime);
   const [duration, setDuration] = useState(30);
@@ -56,6 +68,20 @@ export function QuickCreateModal({
     [students],
   );
 
+  const teacherOptions = useMemo(
+    () => teachers.map((tch) => ({ value: tch.id, label: tch.full_name })),
+    [teachers],
+  );
+
+  // Picking a student snaps the teacher to that student's current assignment — the same teacher
+  // their recurring lessons run under — so the new session groups with them on attendance. The
+  // owner can still change it afterwards (substitute / make-up lessons).
+  function pickStudent(id: string) {
+    setStudentId(id);
+    const assigned = students.find((s) => s.id === id)?.teacher_id;
+    if (assigned) setTeacherId(assigned);
+  }
+
   const durationOptions = useMemo(() => {
     const vals = DURATION_PRESETS.includes(duration)
       ? DURATION_PRESETS
@@ -71,11 +97,16 @@ export function QuickCreateModal({
       setError(t("quickCreate.errStudent"));
       return;
     }
+    if (!teacherId) {
+      setError(t("quickCreate.errTeacher"));
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const res = await createSession({
         student_id: studentId,
+        teacher_id: teacherId,
         local_datetime: `${date} ${time}`,
         timezone: timeZone,
         duration_minutes: duration,
@@ -115,9 +146,28 @@ export function QuickCreateModal({
           <Combobox
             options={studentOptions}
             value={studentId}
-            onChange={setStudentId}
+            onChange={pickStudent}
             placeholder={t("quickCreate.selectStudent")}
             searchPlaceholder={t("quickCreate.searchStudent")}
+          />
+        </div>
+
+        {/* Teacher — auto-filled from the chosen student, overridable for substitutes */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-1.5 text-sm font-medium">
+            <GraduationCap
+              className="size-3.5 text-muted-foreground"
+              aria-hidden
+            />
+            {t("quickCreate.teacher")}
+            <span className="text-destructive">*</span>
+          </label>
+          <Combobox
+            options={teacherOptions}
+            value={teacherId}
+            onChange={setTeacherId}
+            placeholder={t("quickCreate.selectTeacher")}
+            searchPlaceholder={t("quickCreate.searchTeacher")}
           />
         </div>
 
@@ -181,7 +231,7 @@ export function QuickCreateModal({
             size="sm"
             data-testid="quick-create-submit"
             onClick={() => void submit()}
-            disabled={busy || !studentId}
+            disabled={busy || !studentId || !teacherId}
             className="gap-1.5"
           >
             {busy ? (

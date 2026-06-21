@@ -217,11 +217,12 @@ export function WeeklyCalendar({
   }, [pageTab, loadTimetables]);
 
   useEffect(() => {
-    if (!canPickTeacher) return;
+    // The roster powers both the teacher filter and the quick-create teacher picker.
+    if (!canPickTeacher && !canManage) return;
     void listTeachers({ pageSize: 50, filter: { status: "active" } })
       .then((r) => setTeachers(r.rows))
       .catch(() => setTeachers([]));
-  }, [canPickTeacher]);
+  }, [canPickTeacher, canManage]);
 
   useEffect(() => {
     // The roster powers both the student filter and the "new timetable" picker.
@@ -585,6 +586,8 @@ export function WeeklyCalendar({
       {quickCreate && canQuickCreate && (
         <QuickCreateModal
           students={students}
+          teachers={teachers}
+          defaultTeacherId={teacherId || undefined}
           initialDate={quickCreate.date}
           initialTime={quickCreate.time}
           timeZone={tz}

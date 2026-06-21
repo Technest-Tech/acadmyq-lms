@@ -981,11 +981,15 @@
       "student": "الطالب",
       "selectStudent": "اختر طالبًا",
       "searchStudent": "ابحث عن طالب…",
+      "teacher": "المعلّم",
+      "selectTeacher": "اختر معلّمًا",
+      "searchTeacher": "ابحث عن معلّم…",
       "date": "التاريخ",
       "time": "الوقت",
       "duration": "المدة",
       "create": "إنشاء جلسة",
-      "errStudent": "الرجاء اختيار طالب."
+      "errStudent": "الرجاء اختيار طالب.",
+      "errTeacher": "الرجاء اختيار معلّم."
     },
     "status": {
       "SCHEDULED": "مجدولة",
