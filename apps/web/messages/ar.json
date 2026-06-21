@@ -966,11 +966,26 @@
       },
       "more": "+{count} المزيد",
       "noSessions": "لا توجد جلسات في هذه الفترة.",
+      "searchPlaceholder": "ابحث عن طالب أو معلّم…",
+      "clearSearch": "مسح البحث",
+      "filterAll": "الكل",
       "summary": {
         "total": "إجمالي الجلسات",
         "cancelled": "ملغاة"
       },
       "empty": "لا تملك صلاحية الوصول إلى التقويم."
+    },
+    "quickCreate": {
+      "title": "جلسة جديدة",
+      "subtitle": "أضف جلسة لمرة واحدة في الوقت المحدد.",
+      "student": "الطالب",
+      "selectStudent": "اختر طالبًا",
+      "searchStudent": "ابحث عن طالب…",
+      "date": "التاريخ",
+      "time": "الوقت",
+      "duration": "المدة",
+      "create": "إنشاء جلسة",
+      "errStudent": "الرجاء اختيار طالب."
     },
     "status": {
       "SCHEDULED": "مجدولة",

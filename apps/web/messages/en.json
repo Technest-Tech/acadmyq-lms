@@ -966,11 +966,26 @@
       },
       "more": "+{count} more",
       "noSessions": "No sessions in this range.",
+      "searchPlaceholder": "Search student or teacher…",
+      "clearSearch": "Clear search",
+      "filterAll": "All",
       "summary": {
         "total": "Total sessions",
         "cancelled": "Cancelled"
       },
       "empty": "You do not have access to the calendar."
+    },
+    "quickCreate": {
+      "title": "New session",
+      "subtitle": "Add a one-off session at the chosen time.",
+      "student": "Student",
+      "selectStudent": "Select a student",
+      "searchStudent": "Search student…",
+      "date": "Date",
+      "time": "Time",
+      "duration": "Duration",
+      "create": "Create session",
+      "errStudent": "Please choose a student."
     },
     "status": {
       "SCHEDULED": "Scheduled",

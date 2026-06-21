@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AvailabilityWindow, CalendarSession } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -15,6 +15,34 @@ import {
 const PX_PER_HOUR = 56;
 /** Where the grid scrolls to on open, so the business day sits near the top (never clipped). */
 const SCROLL_TO_HOUR = 7;
+/** Drag/drop and quick-create both snap to this granularity (minutes). */
+const SNAP_MIN = 15;
+/** Default length for a quick-created session. */
+const DEFAULT_NEW_DURATION = 30;
+/** Pointer travel (px) before a press is treated as a drag rather than a click. */
+const DRAG_THRESHOLD = 4;
+
+const snap = (min: number) => Math.round(min / SNAP_MIN) * SNAP_MIN;
+const clamp = (n: number, lo: number, hi: number) =>
+  Math.max(lo, Math.min(hi, n));
+
+/** A session is movable only while it is a live SCHEDULED occurrence. */
+function isDraggable(s: CalendarSession): boolean {
+  return s.status === "SCHEDULED";
+}
+
+type DragState = {
+  s: CalendarSession;
+  originDay: string;
+  originMin: number;
+  /** Pointer's distance below the block's top edge, in minutes (keeps the grab point steady). */
+  offsetMin: number;
+  startX: number;
+  startY: number;
+  curDay: string;
+  curMin: number;
+  moved: boolean;
+};
 
 /** Lay overlapping sessions into side-by-side lanes within a single day column. */
 function packLanes(
@@ -24,7 +52,13 @@ function packLanes(
   const sorted = [...items].sort((a, b) =>
     a.scheduled_at_utc.localeCompare(b.scheduled_at_utc),
   );
-  const out: Array<{ s: CalendarSession; lane: number; lanes: number; start: number; end: number }> = [];
+  const out: Array<{
+    s: CalendarSession;
+    lane: number;
+    lanes: number;
+    start: number;
+    end: number;
+  }> = [];
   for (const s of sorted) {
     const start = minutesIntoDay(s.scheduled_at_utc, tz);
     const end = start + s.duration_minutes;
@@ -77,10 +111,18 @@ function availabilityBands(
       if (w.weekday === weekday) bands.push({ start: s, end: e, label });
     } else {
       if (w.weekday === weekday) bands.push({ start: s, end: 24 * 60, label });
-      if ((w.weekday + 1) % 7 === weekday) bands.push({ start: 0, end: e, label });
+      if ((w.weekday + 1) % 7 === weekday)
+        bands.push({ start: 0, end: e, label });
     }
   }
   return bands;
+}
+
+/** "minutes into day" → "HH:MM" wall-clock label. */
+function minutesToHHMM(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
 export function TimeGridView({
@@ -89,6 +131,10 @@ export function TimeGridView({
   tz,
   today,
   onSelect,
+  onReschedule,
+  onCreateAt,
+  canDrag = false,
+  canCreate = false,
   availability,
 }: {
   days: string[];
@@ -96,6 +142,14 @@ export function TimeGridView({
   tz: string;
   today: string;
   onSelect: (s: CalendarSession) => void;
+  /** Drop a SCHEDULED session at a new day + start-minute (drag-to-reschedule). */
+  onReschedule?: (s: CalendarSession, day: string, startMin: number) => void;
+  /** Click an empty slot to create a one-off session at that day + start-minute. */
+  onCreateAt?: (day: string, startMin: number) => void;
+  /** Enable drag-to-reschedule for SCHEDULED sessions (Owner only). */
+  canDrag?: boolean;
+  /** Enable click-empty-slot quick-create (Owner only). */
+  canCreate?: boolean;
   /** Optional weekly availability windows, drawn as soft background bands per weekday. */
   availability?: AvailabilityWindow[];
 }) {
@@ -104,7 +158,9 @@ export function TimeGridView({
   const byDay = useMemo(() => bucketByDay(sessions, tz), [sessions, tz]);
 
   // Re-render the now-line each minute.
-  const [nowMin, setNowMin] = useState(() => minutesIntoDay(new Date().toISOString(), tz));
+  const [nowMin, setNowMin] = useState(() =>
+    minutesIntoDay(new Date().toISOString(), tz),
+  );
   useEffect(() => {
     const id = setInterval(
       () => setNowMin(minutesIntoDay(new Date().toISOString(), tz)),
@@ -121,12 +177,130 @@ export function TimeGridView({
   const gridHeight = 24 * PX_PER_HOUR;
   const top = (min: number) => (min / totalMin) * gridHeight;
 
+  // ── Drag-to-reschedule ─────────────────────────────────────────────────────
+  // The inner grid (whose rect maps clientY → minutes) and per-day columns (hit-tested by
+  // clientX so RTL just works). A single ref mirrors the drag for the window listeners.
+  const gridRef = useRef<HTMLDivElement>(null);
+  const colRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const dragRef = useRef<DragState | null>(null);
+  // Swallows the synthetic click that follows a real drag (it would otherwise open the modal
+  // or fire quick-create wherever the pointer was released).
+  const suppressClick = useRef(false);
+
+  const setDragState = useCallback((next: DragState | null) => {
+    dragRef.current = next;
+    setDrag(next);
+  }, []);
+
+  const minuteAt = useCallback(
+    (clientY: number) => {
+      const rect = gridRef.current?.getBoundingClientRect();
+      if (!rect) return 0;
+      return ((clientY - rect.top) / gridHeight) * totalMin;
+    },
+    [gridHeight, totalMin],
+  );
+
+  const dayAt = useCallback((clientX: number, fallback: string) => {
+    for (const [day, el] of Object.entries(colRefs.current)) {
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (clientX >= r.left && clientX <= r.right) return day;
+    }
+    return fallback;
+  }, []);
+
+  useEffect(() => {
+    if (!drag) return;
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const moved =
+        d.moved ||
+        Math.abs(e.clientX - d.startX) > DRAG_THRESHOLD ||
+        Math.abs(e.clientY - d.startY) > DRAG_THRESHOLD;
+      const curDay = dayAt(e.clientX, d.curDay);
+      const raw = minuteAt(e.clientY) - d.offsetMin;
+      const curMin = clamp(snap(raw), 0, totalMin - d.s.duration_minutes);
+      setDragState({ ...d, curDay, curMin, moved });
+    };
+    const onUp = () => {
+      const d = dragRef.current;
+      setDragState(null);
+      if (!d) return;
+      if (d.moved) {
+        suppressClick.current = true;
+        if (d.curDay !== d.originDay || d.curMin !== d.originMin) {
+          onReschedule?.(d.s, d.curDay, d.curMin);
+        }
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [drag, dayAt, minuteAt, onReschedule, setDragState, totalMin]);
+
+  const beginDrag = useCallback(
+    (e: React.PointerEvent, s: CalendarSession, day: string) => {
+      if (!canDrag || !isDraggable(s) || e.button !== 0) return;
+      const startMin = minutesIntoDay(s.scheduled_at_utc, tz);
+      setDragState({
+        s,
+        originDay: day,
+        originMin: startMin,
+        offsetMin: minuteAt(e.clientY) - startMin,
+        startX: e.clientX,
+        startY: e.clientY,
+        curDay: day,
+        curMin: startMin,
+        moved: false,
+      });
+    },
+    [canDrag, tz, minuteAt, setDragState],
+  );
+
+  const handleSelect = useCallback(
+    (s: CalendarSession) => {
+      if (suppressClick.current) {
+        suppressClick.current = false;
+        return;
+      }
+      onSelect(s);
+    },
+    [onSelect],
+  );
+
+  const handleCreate = useCallback(
+    (e: React.MouseEvent, day: string) => {
+      if (!canCreate || !onCreateAt) return;
+      if (suppressClick.current) {
+        suppressClick.current = false;
+        return;
+      }
+      const rect = gridRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const raw = ((e.clientY - rect.top) / gridHeight) * totalMin;
+      const min = clamp(snap(raw), 0, totalMin - DEFAULT_NEW_DURATION);
+      onCreateAt(day, min);
+    },
+    [canCreate, onCreateAt, gridHeight, totalMin],
+  );
+
   // On open / navigation, scroll so the earliest session (or 07:00) sits just below the top.
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollHour = useMemo(() => {
     let lo = SCROLL_TO_HOUR;
     for (const s of sessions)
-      lo = Math.min(lo, Math.floor(minutesIntoDay(s.scheduled_at_utc, tz) / 60));
+      lo = Math.min(
+        lo,
+        Math.floor(minutesIntoDay(s.scheduled_at_utc, tz) / 60),
+      );
     return Math.max(0, lo);
   }, [sessions, tz]);
   useEffect(() => {
@@ -139,7 +313,9 @@ export function TimeGridView({
       {/* Sticky day header */}
       <div
         className="grid border-b"
-        style={{ gridTemplateColumns: `3.5rem repeat(${days.length}, minmax(0, 1fr))` }}
+        style={{
+          gridTemplateColumns: `3.5rem repeat(${days.length}, minmax(0, 1fr))`,
+        }}
       >
         <div className="border-r" />
         {days.map((day) => {
@@ -172,6 +348,7 @@ export function TimeGridView({
       {/* Scrollable time grid */}
       <div ref={scrollRef} className="max-h-[60vh] overflow-y-auto">
         <div
+          ref={gridRef}
           className="relative grid"
           style={{
             gridTemplateColumns: `3.5rem repeat(${days.length}, minmax(0, 1fr))`,
@@ -198,11 +375,20 @@ export function TimeGridView({
           {days.map((day) => {
             const isToday = day === today;
             const lanes = packLanes(byDay[day] ?? [], tz);
+            const showGhost = drag?.moved && drag.curDay === day;
             return (
               <div
                 key={day}
+                ref={(el) => {
+                  colRefs.current[day] = el;
+                }}
                 data-day={day}
-                className={cn("relative border-l", isToday && "bg-primary/[0.03]")}
+                onClick={(e) => handleCreate(e, day)}
+                className={cn(
+                  "relative border-l",
+                  isToday && "bg-primary/[0.03]",
+                  canCreate && "cursor-copy",
+                )}
               >
                 {/* Availability bands (soft emerald) behind the grid lines */}
                 {availabilityBands(availability ?? [], weekdayOf(day)).map(
@@ -210,7 +396,10 @@ export function TimeGridView({
                     <div
                       key={`av-${i}`}
                       className="pointer-events-none absolute inset-x-0 z-0 bg-emerald-400/10 border-y border-emerald-400/20"
-                      style={{ top: `${top(b.start)}px`, height: `${top(b.end) - top(b.start)}px` }}
+                      style={{
+                        top: `${top(b.start)}px`,
+                        height: `${top(b.end) - top(b.start)}px`,
+                      }}
                       data-availability={b.label}
                     />
                   ),
@@ -226,34 +415,66 @@ export function TimeGridView({
                 ))}
 
                 {/* Now indicator */}
-                {isToday && nowMin >= startHour * 60 && nowMin <= endHour * 60 && (
-                  <div
-                    className="pointer-events-none absolute inset-x-0 z-20"
-                    style={{ top: `${top(nowMin)}px` }}
-                    data-testid="now-indicator"
-                  >
-                    <div className="relative">
-                      <div className="absolute -top-1 -left-1 size-2 rounded-full bg-red-500" />
-                      <div className="border-t border-red-500" />
+                {isToday &&
+                  nowMin >= startHour * 60 &&
+                  nowMin <= endHour * 60 && (
+                    <div
+                      className="pointer-events-none absolute inset-x-0 z-20"
+                      style={{ top: `${top(nowMin)}px` }}
+                      data-testid="now-indicator"
+                    >
+                      <div className="relative">
+                        <div className="absolute -top-1 -left-1 size-2 rounded-full bg-red-500" />
+                        <div className="border-t border-red-500" />
+                      </div>
                     </div>
+                  )}
+
+                {/* Drag preview — where the session will land on drop */}
+                {showGhost && drag && (
+                  <div
+                    className="pointer-events-none absolute inset-x-1 z-30 rounded-lg border-2 border-dashed border-primary bg-primary/10"
+                    style={{
+                      top: `${top(drag.curMin)}px`,
+                      height: `${Math.max((drag.s.duration_minutes / totalMin) * gridHeight, 22)}px`,
+                    }}
+                    data-testid="drag-ghost"
+                  >
+                    <span className="text-primary block px-1.5 py-1 text-[0.7rem] font-semibold tabular-nums">
+                      {minutesToHHMM(drag.curMin)}
+                    </span>
                   </div>
                 )}
 
                 {/* Session blocks */}
                 {lanes.map(({ s, lane, lanes: n }) => {
                   const start = minutesIntoDay(s.scheduled_at_utc, tz);
-                  const height = Math.max((s.duration_minutes / totalMin) * gridHeight, 22);
+                  const height = Math.max(
+                    (s.duration_minutes / totalMin) * gridHeight,
+                    22,
+                  );
                   const width = 100 / n;
+                  const draggable = canDrag && isDraggable(s);
+                  const isDragging = drag?.s.id === s.id && drag.moved;
                   return (
                     <button
                       key={s.id}
                       type="button"
                       data-testid={`session-${s.id}`}
                       data-status={s.status}
-                      onClick={() => onSelect(s)}
+                      onPointerDown={
+                        draggable ? (e) => beginDrag(e, s, day) : undefined
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelect(s);
+                      }}
                       className={cn(
                         "absolute z-10 overflow-hidden rounded-lg border px-1.5 py-1 text-start text-[0.7rem] shadow-sm transition-all hover:z-30 hover:shadow-md",
                         STATUS_CHIP[s.status],
+                        draggable &&
+                          "cursor-grab touch-none active:cursor-grabbing",
+                        isDragging && "opacity-40",
                       )}
                       style={{
                         top: `${top(start)}px`,

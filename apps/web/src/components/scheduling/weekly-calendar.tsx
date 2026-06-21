@@ -2,10 +2,21 @@
 
 import { CalendarDays, Users } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ComponentType,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import type { SessionStatus } from "@academiq/contracts";
 import { useAuth } from "@/components/auth-provider";
+import { CalendarFilters } from "@/components/scheduling/calendar/calendar-filters";
 import { MonthView } from "@/components/scheduling/calendar/month-view";
-import { CalendarSummary, TimetablesSummary } from "@/components/scheduling/calendar/summary";
+import {
+  CalendarSummary,
+  TimetablesSummary,
+} from "@/components/scheduling/calendar/summary";
 import { TimeGridView } from "@/components/scheduling/calendar/time-grid-view";
 import { CalendarToolbar } from "@/components/scheduling/calendar/toolbar";
 import { TimetablesView } from "@/components/scheduling/calendar/timetables-view";
@@ -24,6 +35,7 @@ import {
   weekRangeLabel,
 } from "@/components/scheduling/calendar/utils";
 import { AddTimetableModal } from "@/components/scheduling/add-timetable-modal";
+import { QuickCreateModal } from "@/components/scheduling/quick-create-modal";
 import { ScheduleSection } from "@/components/scheduling/schedule-editor";
 import { SessionActions } from "@/components/scheduling/session-actions";
 import { TimetableLogModal } from "@/components/scheduling/timetable-log-modal";
@@ -38,6 +50,7 @@ import {
   listStudents,
   listTeachers,
   listTimetables,
+  rescheduleSession,
   type StudentRow,
   type TeacherRow,
   type TimetableSummary,
@@ -77,6 +90,10 @@ export function WeeklyCalendar({
   // raw permissions they carry (a teacher holds session.reschedule, but not on this surface).
   const canAct = can("session.reschedule") || can("session.cancel");
   const canOpenDetails = canAct || isTeacher;
+  // Drag-to-reschedule and click-to-create are owner-side affordances; teachers stay read-only
+  // on this surface even though they carry session.reschedule elsewhere.
+  const canDrag = !isTeacher && can("session.reschedule");
+  const canQuickCreate = !isTeacher && canManage;
 
   // The recurring-timetable roster lives in its own tab; the calendar feed is always
   // Month/Week/Day. Teachers only ever see the Calendar tab (their own sessions).
@@ -94,11 +111,27 @@ export function WeeklyCalendar({
   const [sessions, setSessions] = useState<CalendarSession[]>([]);
   const [selected, setSelected] = useState<CalendarSession | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Non-blocking info banner (e.g. conflict/availability warnings after a drag-reschedule).
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Client-side filters over the fetched feed: free-text + a status whitelist (empty = all).
+  const [query, setQuery] = useState("");
+  const [statuses, setStatuses] = useState<Set<SessionStatus>>(new Set());
+  // Quick-create target: the empty slot the owner clicked (viewer-tz day + "HH:MM").
+  const [quickCreate, setQuickCreate] = useState<{
+    date: string;
+    time: string;
+  } | null>(null);
   // Timetable list affordances (List view): update a student's recurring schedule,
   // read the full lesson log, or add a brand-new timetable.
-  const [editStudent, setEditStudent] = useState<{ id: string; name: string } | null>(null);
-  const [logStudent, setLogStudent] = useState<{ id: string; name: string } | null>(null);
+  const [editStudent, setEditStudent] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [logStudent, setLogStudent] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   // The Timetables tab is the academy's full roster — period-independent, so it has its own
   // fetch (the recurring schedules, not the month's generated sessions).
@@ -120,10 +153,18 @@ export function WeeklyCalendar({
         // Pad ±1 day so sessions that fall on `anchor` in the viewer's timezone but
         // outside the UTC calendar day (timezone offset spillover) are still returned.
         // bucketByDay groups by local date, so only anchor's sessions are rendered.
-        return { from: addDays(anchor, -1), to: addDays(anchor, 1), title: dayLongLabel(anchor, locale) };
+        return {
+          from: addDays(anchor, -1),
+          to: addDays(anchor, 1),
+          title: dayLongLabel(anchor, locale),
+        };
       default: {
         const ws = startOfWeek(anchor);
-        return { from: ws, to: addDays(ws, 6), title: weekRangeLabel(ws, locale) };
+        return {
+          from: ws,
+          to: addDays(ws, 6),
+          title: weekRangeLabel(ws, locale),
+        };
       }
     }
   }, [view, anchor, locale]);
@@ -234,6 +275,59 @@ export function WeeklyCalendar({
     setView("day");
   }, []);
 
+  // Apply the search + status filters to the fetched feed (everything downstream — views and
+  // the summary strip — reads this so the numbers always match what's on screen).
+  const visibleSessions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return sessions.filter((s) => {
+      if (statuses.size > 0 && !statuses.has(s.status)) return false;
+      if (!q) return true;
+      return (
+        (s.student_name ?? "").toLowerCase().includes(q) ||
+        (s.teacher_name ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [sessions, query, statuses]);
+
+  const toggleStatus = useCallback((s: SessionStatus) => {
+    setStatuses((prev) => {
+      const next = new Set(prev);
+      if (next.has(s)) next.delete(s);
+      else next.add(s);
+      return next;
+    });
+  }, []);
+
+  // Drag-drop landing: move a session to a new day + start-minute (viewer tz → wall clock).
+  const rescheduleTo = useCallback(
+    async (s: CalendarSession, day: string, startMin: number) => {
+      const hh = String(Math.floor(startMin / 60)).padStart(2, "0");
+      const mm = String(startMin % 60).padStart(2, "0");
+      try {
+        const res = await rescheduleSession(s.id, {
+          local_datetime: `${day} ${hh}:${mm}`,
+          timezone: tz,
+        });
+        setNotice(
+          res.warnings?.length
+            ? res.warnings.map((w) => w.message).join(" · ")
+            : null,
+        );
+        void load();
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : String(err));
+      }
+    },
+    [tz, load],
+  );
+
+  // Click an empty grid slot → open quick-create pre-filled with that day + time.
+  const openQuickCreate = useCallback((day: string, startMin: number) => {
+    const hh = String(Math.floor(startMin / 60)).padStart(2, "0");
+    const mm = String(startMin % 60).padStart(2, "0");
+    setQuickCreate({ date: day, time: `${hh}:${mm}` });
+  }, []);
+
   return (
     <div className="space-y-4" data-testid="weekly-calendar">
       {/* Page header */}
@@ -245,13 +339,18 @@ export function WeeklyCalendar({
           <h1 className="text-2xl font-bold tracking-tight">
             {t("calendar.title")}
           </h1>
-          <p className="text-muted-foreground text-sm">{t("calendar.subtitle")}</p>
+          <p className="text-muted-foreground text-sm">
+            {t("calendar.subtitle")}
+          </p>
         </div>
       </div>
 
       {/* ── Top-level tabs (teachers get the Calendar tab only) ──────────── */}
       {!isTeacher && (
-        <div role="tablist" className="bg-muted/40 flex gap-1 rounded-2xl border p-1.5">
+        <div
+          role="tablist"
+          className="bg-muted/40 flex gap-1 rounded-2xl border p-1.5"
+        >
           <PageTabButton
             tabKey="calendar"
             icon={CalendarDays}
@@ -277,7 +376,18 @@ export function WeeklyCalendar({
       )}
 
       {error && (
-        <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
+        <AlertBanner
+          variant="error"
+          message={error}
+          onDismiss={() => setError(null)}
+        />
+      )}
+      {notice && (
+        <AlertBanner
+          variant="info"
+          message={notice}
+          onDismiss={() => setNotice(null)}
+        />
       )}
 
       {pageTab === "calendar" ? (
@@ -313,16 +423,27 @@ export function WeeklyCalendar({
             allowedViews={allowedViews}
           />
 
-          <CalendarSummary sessions={sessions} />
+          <CalendarFilters
+            t={t}
+            query={query}
+            onQuery={setQuery}
+            statuses={statuses}
+            onToggleStatus={toggleStatus}
+            onClear={() => setStatuses(new Set())}
+          />
+
+          <CalendarSummary sessions={visibleSessions} />
 
           <div
-            className={loading ? "opacity-60 transition-opacity" : "transition-opacity"}
+            className={
+              loading ? "opacity-60 transition-opacity" : "transition-opacity"
+            }
             aria-busy={loading}
           >
             {view === "month" && (
               <MonthView
                 anchor={anchor}
-                sessions={sessions}
+                sessions={visibleSessions}
                 tz={tz}
                 today={today}
                 onSelect={(s) => canOpenDetails && setSelected(s)}
@@ -332,10 +453,18 @@ export function WeeklyCalendar({
             {(view === "week" || view === "day") && (
               <TimeGridView
                 days={days}
-                sessions={sessions}
+                sessions={visibleSessions}
                 tz={tz}
                 today={today}
                 onSelect={(s) => canOpenDetails && setSelected(s)}
+                onReschedule={
+                  canDrag
+                    ? (s, day, min) => void rescheduleTo(s, day, min)
+                    : undefined
+                }
+                onCreateAt={canQuickCreate ? openQuickCreate : undefined}
+                canDrag={canDrag}
+                canCreate={canQuickCreate}
               />
             )}
           </div>
@@ -452,6 +581,22 @@ export function WeeklyCalendar({
         />
       )}
 
+      {/* Quick-create a one-off session from a clicked empty slot (Calendar tab — owner only) */}
+      {quickCreate && canQuickCreate && (
+        <QuickCreateModal
+          students={students}
+          initialDate={quickCreate.date}
+          initialTime={quickCreate.time}
+          timeZone={tz}
+          onClose={() => setQuickCreate(null)}
+          onCreated={(warnings) => {
+            setQuickCreate(null);
+            setNotice(warnings.length ? warnings.join(" · ") : null);
+            void load();
+          }}
+        />
+      )}
+
       {/* Add a brand-new student timetable (List view — owner only) */}
       {!isTeacher && addOpen && canManage && (
         <AddTimetableModal
@@ -495,7 +640,9 @@ function PageTabButton({
       onClick={onClick}
       className={cn(
         "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors",
-        active ? "bg-card shadow-sm ring-1 ring-black/5" : "text-muted-foreground hover:bg-card/50",
+        active
+          ? "bg-card shadow-sm ring-1 ring-black/5"
+          : "text-muted-foreground hover:bg-card/50",
       )}
     >
       <Icon className="size-4" />
