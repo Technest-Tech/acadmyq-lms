@@ -407,20 +407,57 @@ class ShowcaseAcademySeeder extends Seeder
 
     // ── guardians + students ──────────────────────────────────────────────────
 
-    /** @return array<string,array{name:string,phone:string,self?:bool}> */
+    /**
+     * Guardians carry the billing currency (PER_GUARDIAN invoicing). Local families pay in EGP;
+     * the academy also serves a large diaspora billed in their own currency (USD/GBP/SAR/AED/EUR/CAD).
+     * Teacher pay is unaffected — payouts are always in EGP (see {@see teacherDefs}).
+     *
+     * @return array<string,array{name:string,phone:string,cur:string,country:string,self?:bool}>
+     */
     private function guardianDefs(): array
     {
         return [
-            'g1' => ['name' => 'Mahmoud Farouk', 'phone' => '+201001112233'],
-            'g2' => ['name' => 'Sara Abdelrahman', 'phone' => '+201002223344'],
-            'g3' => ['name' => 'Khaled Mostafa', 'phone' => '+201003334455'],
-            'g4' => ['name' => 'Nourhan Adel', 'phone' => '+201004445566'],
-            'g5' => ['name' => 'Tarek Hassan', 'phone' => '+201005556677'],
-            'g6' => ['name' => 'Mona Saeed', 'phone' => '+201006667788'],
-            'g7' => ['name' => 'Hossam Eldin', 'phone' => '+201007778899'],
-            'g8' => ['name' => 'Rania Lotfy', 'phone' => '+201008889900'],
-            'g9' => ['name' => 'Amir Zaki', 'phone' => '+201009990011', 'self' => true],
+            // ── Local (EGP) ──
+            'g1' => ['name' => 'Mahmoud Farouk', 'phone' => '+201001112233', 'cur' => 'EGP', 'country' => 'EG'],
+            'g2' => ['name' => 'Sara Abdelrahman', 'phone' => '+201002223344', 'cur' => 'EGP', 'country' => 'EG'],
+            'g3' => ['name' => 'Khaled Mostafa', 'phone' => '+201003334455', 'cur' => 'EGP', 'country' => 'EG'],
+            'g4' => ['name' => 'Nourhan Adel', 'phone' => '+201004445566', 'cur' => 'EGP', 'country' => 'EG'],
+            'g5' => ['name' => 'Tarek Hassan', 'phone' => '+201005556677', 'cur' => 'EGP', 'country' => 'EG'],
+            'g6' => ['name' => 'Mona Saeed', 'phone' => '+201006667788', 'cur' => 'EGP', 'country' => 'EG'],
+            'g7' => ['name' => 'Hossam Eldin', 'phone' => '+201007778899', 'cur' => 'EGP', 'country' => 'EG'],
+            'g8' => ['name' => 'Rania Lotfy', 'phone' => '+201008889900', 'cur' => 'EGP', 'country' => 'EG'],
+            'g9' => ['name' => 'Amir Zaki', 'phone' => '+201009990011', 'cur' => 'EGP', 'country' => 'EG', 'self' => true],
+            // ── USA / Canada (USD) ──
+            'gu1' => ['name' => 'Yusra Khan', 'phone' => '+12025550111', 'cur' => 'USD', 'country' => 'US'],
+            'gu2' => ['name' => 'Bilal Ahmed', 'phone' => '+13105550112', 'cur' => 'USD', 'country' => 'US'],
+            'gu3' => ['name' => 'Imran Patel', 'phone' => '+14165550113', 'cur' => 'USD', 'country' => 'CA'],
+            'gu4' => ['name' => 'Aisha Rahman', 'phone' => '+17185550114', 'cur' => 'USD', 'country' => 'US'],
+            'gu5' => ['name' => 'Khalid Yusuf', 'phone' => '+16465550115', 'cur' => 'USD', 'country' => 'US'],
+            'gu6' => ['name' => 'Tariq Saleh', 'phone' => '+15145550116', 'cur' => 'USD', 'country' => 'CA'],
+            // ── United Kingdom (GBP) ──
+            'gp1' => ['name' => 'Sufyan Malik', 'phone' => '+447700900201', 'cur' => 'GBP', 'country' => 'GB'],
+            'gp2' => ['name' => 'Nadia Begum', 'phone' => '+447700900202', 'cur' => 'GBP', 'country' => 'GB'],
+            // ── Saudi Arabia (SAR) ──
+            'gs1' => ['name' => 'Abdulaziz Al-Otaibi', 'phone' => '+966500000301', 'cur' => 'SAR', 'country' => 'SA'],
+            'gs2' => ['name' => 'Mansour Al-Harbi', 'phone' => '+966500000302', 'cur' => 'SAR', 'country' => 'SA'],
+            'gs3' => ['name' => 'Latifa Al-Qahtani', 'phone' => '+966500000303', 'cur' => 'SAR', 'country' => 'SA'],
+            // ── UAE (AED) ──
+            'ga1' => ['name' => 'Omar Al-Maktoum', 'phone' => '+971500000401', 'cur' => 'AED', 'country' => 'AE'],
+            'ga2' => ['name' => 'Huda Al-Nuaimi', 'phone' => '+971500000402', 'cur' => 'AED', 'country' => 'AE'],
+            // ── Europe (EUR) ──
+            'ge1' => ['name' => 'Yunus Demir', 'phone' => '+491700000501', 'cur' => 'EUR', 'country' => 'DE'],
+            'ge2' => ['name' => 'Fatima Bakkali', 'phone' => '+33700000502', 'cur' => 'EUR', 'country' => 'FR'],
         ];
+    }
+
+    private function guardianCur(string $key): string
+    {
+        return $this->guardianDefs()[$key]['cur'] ?? 'EGP';
+    }
+
+    private function guardianCountry(string $key): string
+    {
+        return $this->guardianDefs()[$key]['country'] ?? 'EG';
     }
 
     /**
@@ -454,6 +491,43 @@ class ShowcaseAcademySeeder extends Seeder
                 'basis' => 'PER_SESSION', 'price' => 12000, 'spm' => null, 'days' => [4], 'time' => '17:00', 'from' => 2, 'to' => 4, 'phone' => '+201101112211'],
             ['key' => 's12', 'name' => 'Fatima Hassan', 'guardian' => 'g5', 'teacher' => 2, 'status' => 'WITHDRAWN',
                 'basis' => 'PER_SESSION', 'price' => 12000, 'spm' => null, 'days' => [3], 'time' => '16:00', 'from' => 2, 'to' => 3, 'phone' => '+201101112212'],
+
+            // ── International students (prices in their guardian's currency; teachers still paid EGP) ──
+            // USD
+            ['key' => 'su1', 'name' => 'Adam Khan', 'guardian' => 'gu1', 'teacher' => 0, 'status' => 'REGULAR',
+                'basis' => 'PER_MONTH', 'price' => 20000, 'spm' => 8, 'days' => [1, 3], 'time' => '19:00', 'from' => 2, 'to' => null, 'phone' => '+12025550211'],
+            ['key' => 'su2', 'name' => 'Sumayya Ahmed', 'guardian' => 'gu2', 'teacher' => 2, 'status' => 'REGULAR',
+                'basis' => 'PER_SESSION', 'price' => 2200, 'spm' => null, 'days' => [0, 3], 'time' => '18:00', 'from' => 2, 'to' => null, 'phone' => '+13105550212'],
+            ['key' => 'su3', 'name' => 'Zayd Patel', 'guardian' => 'gu3', 'teacher' => 1, 'status' => 'REGULAR',
+                'basis' => 'PER_MONTH', 'price' => 18000, 'spm' => 8, 'days' => [2, 4], 'time' => '20:00', 'from' => 2, 'to' => null, 'phone' => '+14165550213'],
+            ['key' => 'su4', 'name' => 'Hamza Rahman', 'guardian' => 'gu4', 'teacher' => 0, 'status' => 'REGULAR',
+                'basis' => 'PER_SESSION', 'price' => 2500, 'spm' => null, 'days' => [1, 4], 'time' => '17:00', 'from' => 3, 'to' => null, 'phone' => '+17185550214'],
+            ['key' => 'su5', 'name' => 'Maryam Yusuf', 'guardian' => 'gu5', 'teacher' => 3, 'status' => 'REGULAR',
+                'basis' => 'PER_HOUR', 'price' => 3000, 'spm' => null, 'days' => [6], 'time' => '15:00', 'from' => 2, 'to' => null, 'phone' => '+16465550215'],
+            ['key' => 'su6', 'name' => 'Yusuf Saleh', 'guardian' => 'gu6', 'teacher' => 2, 'status' => 'REGULAR',
+                'basis' => 'PER_MONTH', 'price' => 16000, 'spm' => 8, 'days' => [0, 2], 'time' => '18:30', 'from' => 2, 'to' => null, 'phone' => '+15145550216'],
+            // GBP
+            ['key' => 'sp1', 'name' => 'Ibrahim Malik', 'guardian' => 'gp1', 'teacher' => 1, 'status' => 'REGULAR',
+                'basis' => 'PER_SESSION', 'price' => 1800, 'spm' => null, 'days' => [1, 3], 'time' => '18:00', 'from' => 2, 'to' => null, 'phone' => '+447700900211'],
+            ['key' => 'sp2', 'name' => 'Safa Begum', 'guardian' => 'gp2', 'teacher' => 2, 'status' => 'REGULAR',
+                'basis' => 'PER_MONTH', 'price' => 14000, 'spm' => 8, 'days' => [0], 'time' => '11:00', 'from' => 3, 'to' => null, 'phone' => '+447700900212'],
+            // SAR
+            ['key' => 'ss1', 'name' => 'Faisal Al-Otaibi', 'guardian' => 'gs1', 'teacher' => 0, 'status' => 'REGULAR',
+                'basis' => 'PER_SESSION', 'price' => 6000, 'spm' => null, 'days' => [6, 2], 'time' => '17:00', 'from' => 2, 'to' => null, 'phone' => '+966500000311'],
+            ['key' => 'ss2', 'name' => 'Sara Al-Harbi', 'guardian' => 'gs2', 'teacher' => 3, 'status' => 'REGULAR',
+                'basis' => 'PER_MONTH', 'price' => 48000, 'spm' => 8, 'days' => [1, 3], 'time' => '18:00', 'from' => 2, 'to' => null, 'phone' => '+966500000312'],
+            ['key' => 'ss3', 'name' => 'Reem Al-Qahtani', 'guardian' => 'gs3', 'teacher' => 3, 'status' => 'REGULAR',
+                'basis' => 'PER_SESSION', 'price' => 5500, 'spm' => null, 'days' => [0], 'time' => '16:00', 'from' => 4, 'to' => null, 'phone' => '+966500000313'],
+            // AED
+            ['key' => 'sa1', 'name' => 'Saif Al-Maktoum', 'guardian' => 'ga1', 'teacher' => 5, 'status' => 'REGULAR',
+                'basis' => 'PER_MONTH', 'price' => 55000, 'spm' => 8, 'days' => [2, 4], 'time' => '19:00', 'from' => 2, 'to' => null, 'phone' => '+971500000411'],
+            ['key' => 'sa2', 'name' => 'Layla Al-Nuaimi', 'guardian' => 'ga2', 'teacher' => 2, 'status' => 'REGULAR',
+                'basis' => 'PER_SESSION', 'price' => 7000, 'spm' => null, 'days' => [6], 'time' => '10:00', 'from' => 2, 'to' => null, 'phone' => '+971500000412'],
+            // EUR
+            ['key' => 'se1', 'name' => 'Emir Demir', 'guardian' => 'ge1', 'teacher' => 4, 'status' => 'REGULAR',
+                'basis' => 'PER_SESSION', 'price' => 2000, 'spm' => null, 'days' => [3, 5], 'time' => '18:00', 'from' => 2, 'to' => null, 'phone' => '+491700000511'],
+            ['key' => 'se2', 'name' => 'Adam Bakkali', 'guardian' => 'ge2', 'teacher' => 1, 'status' => 'REGULAR',
+                'basis' => 'PER_MONTH', 'price' => 15000, 'spm' => 8, 'days' => [0, 2], 'time' => '17:00', 'from' => 3, 'to' => null, 'phone' => '+33700000512'],
         ];
     }
 
@@ -476,14 +550,16 @@ class ShowcaseAcademySeeder extends Seeder
                     'academy_id' => self::ACADEMY_ID,
                     'full_name' => $g['name'],
                     'whatsapp_phone' => $g['phone'],
-                    'country' => 'EG',
-                    'currency' => 'EGP',
-                    'notes' => ($g['self'] ?? false) ? 'Adult learner (self-guardian).' : null,
+                    'country' => $g['country'],
+                    'currency' => $g['cur'],
+                    'notes' => ($g['self'] ?? false) ? 'Adult learner (self-guardian).'
+                        : ($g['cur'] !== 'EGP' ? 'Online student — billed in '.$g['cur'].'.' : null),
                 ]
             );
         }
 
         foreach ($this->studentDefs() as $s) {
+            $cur = $this->guardianCur($s['guardian']);
             DB::table('students')->updateOrInsert(
                 ['id' => $this->studentId($s['key'])],
                 [
@@ -491,7 +567,7 @@ class ShowcaseAcademySeeder extends Seeder
                     'guardian_id' => $this->guardianId($s['guardian']),
                     'full_name' => $s['name'],
                     'whatsapp_phone' => $s['phone'],
-                    'country' => 'EG',
+                    'country' => $this->guardianCountry($s['guardian']),
                     'status' => $s['status'],
                     'is_self_guardian' => $s['self'] ?? false,
                 ]
@@ -512,8 +588,8 @@ class ShowcaseAcademySeeder extends Seeder
             $subStatus = $s['status'] === 'REGULAR' ? 'ACTIVE' : 'ENDED';
             $label = match ($s['basis']) {
                 'PER_MONTH' => $s['spm'].' sessions / month',
-                'PER_HOUR' => 'Hourly ('.number_format($s['price'] / 100, 0).' EGP/hr)',
-                default => 'Per-session ('.number_format($s['price'] / 100, 0).' EGP)',
+                'PER_HOUR' => 'Hourly ('.number_format($s['price'] / 100, 0).' '.$cur.'/hr)',
+                default => 'Per-session ('.number_format($s['price'] / 100, 0).' '.$cur.')',
             };
             DB::table('subscriptions')->updateOrInsert(
                 ['id' => $this->id('sub:'.$s['key'])],
@@ -523,7 +599,7 @@ class ShowcaseAcademySeeder extends Seeder
                     'plan_label' => $label,
                     'sessions_per_month' => $s['spm'],
                     'price_minor' => $s['price'],
-                    'currency' => 'EGP',
+                    'currency' => $cur,
                     'price_basis' => $s['basis'],
                     'status' => $subStatus,
                     'start_date' => sprintf('2026-%02d-01', $s['from']),
@@ -628,6 +704,7 @@ class ShowcaseAcademySeeder extends Seeder
                         'student' => $s['key'],
                         'student_id' => $this->studentId($s['key']),
                         'guardian' => $s['guardian'],
+                        'currency' => $this->guardianCur($s['guardian']),
                         'teacher' => $s['teacher'],
                         'teacher_id' => $this->teacherId($s['teacher']),
                         'schedule_id' => $this->scheduleId($s['key']),
@@ -811,8 +888,9 @@ class ShowcaseAcademySeeder extends Seeder
                 continue; // already seeded (immutable once closed)
             }
 
+            $currency = $this->guardianCur($guardian);
             $issuedAt = $this->ts(sprintf('2026-%02d-01 09:00', $month));
-            [$status, $amountPaid, $paidAt, $method, $closedAt] = $this->invoiceState($guardian, $month, $subtotal);
+            [$status, $amountPaid, $paidAt, $method, $closedAt] = $this->invoiceState($guardian, $month, $subtotal, $currency);
 
             // Insert OPEN first so line items are accepted, then transition.
             DB::table('invoices')->insert([
@@ -823,7 +901,7 @@ class ShowcaseAcademySeeder extends Seeder
                 'period_year' => 2026,
                 'period_month' => $month,
                 'status' => 'OPEN',
-                'currency' => 'EGP',
+                'currency' => $currency,
                 'subtotal_minor' => $subtotal,
                 'total_minor' => $subtotal,
                 'amount_paid_minor' => 0,
@@ -849,7 +927,7 @@ class ShowcaseAcademySeeder extends Seeder
                     'student_id' => $r['student_id'],
                     'description' => $desc,
                     'amount_minor' => $r['billable_amount'],
-                    'currency' => 'EGP',
+                    'currency' => $currency,
                     'session_date' => $r['local_date'],
                     'created_at' => $issuedAt,
                 ]);
@@ -871,11 +949,22 @@ class ShowcaseAcademySeeder extends Seeder
     }
 
     /** @return array{0:string,1:int,2:?string,3:?string,4:?string} status,amountPaid,paidAt,method,closedAt */
-    private function invoiceState(string $guardian, int $month, int $subtotal): array
+    private function invoiceState(string $guardian, int $month, int $subtotal, string $currency = 'EGP'): array
     {
         $closedAt = $this->ts(sprintf('2026-%02d-28 18:00', $month));
         $paidAt = $this->ts(sprintf('2026-%02d-05 12:00', $month + 1));
         $method = ['CASH', 'BANK_TRANSFER', 'GATEWAY'][abs(crc32($guardian.$month)) % 3];
+
+        // International (online) families pay reliably online — every closed month is PAID, the
+        // in-progress month (June) is part-paid so the dashboard shows real "collected" and "due".
+        if ($currency !== 'EGP') {
+            $method = 'GATEWAY';
+            if ($month <= 5) {
+                return ['PAID', $subtotal, $paidAt, $method, $closedAt];
+            }
+
+            return ['PARTIALLY_PAID', intdiv($subtotal, 2), null, $method, $this->ts('2026-06-20 12:00')];
+        }
 
         if ($month <= 4) {
             return ['PAID', $subtotal, $paidAt, $method, $closedAt];
