@@ -874,6 +874,10 @@
   },
   "scheduling": {
     "title": "Weekly schedule",
+    "tabs": {
+      "calendar": "Calendar",
+      "timetables": "Student timetables"
+    },
     "active": "Active",
     "none": "No schedule set.",
     "weekdayLabel": "Day",

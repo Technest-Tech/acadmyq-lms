@@ -874,6 +874,10 @@
   },
   "scheduling": {
     "title": "الجدول الأسبوعي",
+    "tabs": {
+      "calendar": "التقويم",
+      "timetables": "جداول الطلاب"
+    },
     "active": "مُفعّل",
     "none": "لا يوجد جدول.",
     "weekdayLabel": "اليوم",

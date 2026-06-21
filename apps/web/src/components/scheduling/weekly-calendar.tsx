@@ -1,8 +1,8 @@
 "use client";
 
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, Users } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { MonthView } from "@/components/scheduling/calendar/month-view";
 import { CalendarSummary, TimetablesSummary } from "@/components/scheduling/calendar/summary";
@@ -28,7 +28,8 @@ import { ScheduleSection } from "@/components/scheduling/schedule-editor";
 import { SessionActions } from "@/components/scheduling/session-actions";
 import { TimetableLogModal } from "@/components/scheduling/timetable-log-modal";
 import { AlertBanner } from "@/components/ui/alert";
-import { type ComboboxOption } from "@/components/ui/combobox";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/modal";
 import {
   ApiError,
@@ -42,12 +43,17 @@ import {
   type TimetableSummary,
 } from "@/lib/api";
 
+type PageTab = "calendar" | "timetables";
+
 /**
- * The premium calendar (§5.5, AC-5.9). One session feed, four ways to read it — Month, Week,
- * Day and List — with a navigation toolbar, an at-a-glance summary strip, and a session
- * actions modal for reschedule/cancel/attendance. Every session renders at its time in the
- * VIEWER's timezone (the stored UTC never changes); a Teacher sees only their own sessions and
- * an Owner can pick any teacher (the server enforces both).
+ * The premium calendar (§5.5, AC-5.9). Two top-level tabs:
+ *   • Calendar — one session feed, three ways to read it (Month, Week, Day) with a navigation
+ *     toolbar, an at-a-glance summary strip, and a session actions modal.
+ *   • Student timetables — the academy's full roster of recurring weekly schedules
+ *     (period-independent), with update / lesson-log / new-timetable affordances.
+ * Every session renders at its time in the VIEWER's timezone (the stored UTC never changes); a
+ * Teacher sees only their own sessions and only the Calendar tab (the server enforces both); an
+ * Owner can pick any teacher.
  */
 export function WeeklyCalendar({
   timeZone,
@@ -72,12 +78,13 @@ export function WeeklyCalendar({
   const canAct = can("session.reschedule") || can("session.cancel");
   const canOpenDetails = canAct || isTeacher;
 
-  // Teachers only see their own sessions — Month/Week/Day are all they need.
-  const allowedViews: CalendarView[] = isTeacher
-    ? ["month", "week", "day"]
-    : ["month", "week", "day", "list"];
+  // The recurring-timetable roster lives in its own tab; the calendar feed is always
+  // Month/Week/Day. Teachers only ever see the Calendar tab (their own sessions).
+  const allowedViews: CalendarView[] = ["month", "week", "day"];
 
   const today = todayInTz(tz);
+  // Top-level tab. Teachers never get the timetables tab, so they're pinned to "calendar".
+  const [pageTab, setPageTab] = useState<PageTab>("calendar");
   const [view, setView] = useState<CalendarView>("week");
   const [anchor, setAnchor] = useState(today);
   const [teacherId, setTeacherId] = useState("");
@@ -93,16 +100,15 @@ export function WeeklyCalendar({
   const [editStudent, setEditStudent] = useState<{ id: string; name: string } | null>(null);
   const [logStudent, setLogStudent] = useState<{ id: string; name: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  // The List view is the academy's full timetable roster — period-independent, so it has its
-  // own fetch (the recurring schedules, not the month's generated sessions).
+  // The Timetables tab is the academy's full roster — period-independent, so it has its own
+  // fetch (the recurring schedules, not the month's generated sessions).
   const [timetables, setTimetables] = useState<TimetableSummary[]>([]);
   const [ttLoading, setTtLoading] = useState(false);
 
   // The fetch window + the title both follow the active view.
   const { from, to, title } = useMemo(() => {
     switch (view) {
-      case "month":
-      case "list": {
+      case "month": {
         const grid = monthGridDays(anchor);
         return {
           from: grid[0]!,
@@ -165,9 +171,9 @@ export function WeeklyCalendar({
   }, [teacherId, studentId]);
 
   useEffect(() => {
-    if (view !== "list") return;
+    if (pageTab !== "timetables") return;
     void loadTimetables();
-  }, [view, loadTimetables]);
+  }, [pageTab, loadTimetables]);
 
   useEffect(() => {
     if (!canPickTeacher) return;
@@ -210,7 +216,7 @@ export function WeeklyCalendar({
       setSelected(null);
       setAnchor((a) => {
         if (view === "day") return addDays(a, dir);
-        if (view === "month" || view === "list") return addMonths(a, dir);
+        if (view === "month") return addMonths(a, dir);
         return addDays(a, dir * 7);
       });
     },
@@ -243,69 +249,129 @@ export function WeeklyCalendar({
         </div>
       </div>
 
-      <CalendarToolbar
-        t={t}
-        title={title}
-        view={view}
-        onView={(v) => {
-          if (isTeacher && v === "list") return;
-          setSelected(null);
-          setView(v);
-        }}
-        onPrev={() => step(-1)}
-        onNext={() => step(1)}
-        onToday={() => {
-          setSelected(null);
-          setAnchor(today);
-        }}
-        canPickTeacher={canPickTeacher}
-        teacherOptions={teacherOptions}
-        teacherId={teacherId}
-        onTeacher={(id) => {
-          setTeacherId(id);
-          setSelected(null);
-        }}
-        canPickStudent={canPickStudent}
-        studentOptions={studentOptions}
-        studentId={studentId}
-        onStudent={(id) => {
-          setStudentId(id);
-          setSelected(null);
-        }}
-        allowedViews={allowedViews}
-      />
-
-      {view === "list" ? (
-        <TimetablesSummary timetables={timetables} />
-      ) : (
-        <CalendarSummary sessions={sessions} />
+      {/* ── Top-level tabs (teachers get the Calendar tab only) ──────────── */}
+      {!isTeacher && (
+        <div role="tablist" className="bg-muted/40 flex gap-1 rounded-2xl border p-1.5">
+          <PageTabButton
+            tabKey="calendar"
+            icon={CalendarDays}
+            label={t("tabs.calendar")}
+            active={pageTab === "calendar"}
+            onClick={() => {
+              setSelected(null);
+              setPageTab("calendar");
+            }}
+          />
+          <PageTabButton
+            tabKey="timetables"
+            icon={Users}
+            label={t("tabs.timetables")}
+            active={pageTab === "timetables"}
+            onClick={() => {
+              setSelected(null);
+              setPageTab("timetables");
+            }}
+            count={timetables.length}
+          />
+        </div>
       )}
 
       {error && (
         <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
       )}
 
-      <div className={loading ? "opacity-60 transition-opacity" : "transition-opacity"} aria-busy={loading}>
-        {view === "month" && (
-          <MonthView
-            anchor={anchor}
-            sessions={sessions}
-            tz={tz}
-            today={today}
-            onSelect={(s) => canOpenDetails && setSelected(s)}
-            onDrillDay={openDay}
+      {pageTab === "calendar" ? (
+        <>
+          <CalendarToolbar
+            t={t}
+            title={title}
+            view={view}
+            onView={(v) => {
+              setSelected(null);
+              setView(v);
+            }}
+            onPrev={() => step(-1)}
+            onNext={() => step(1)}
+            onToday={() => {
+              setSelected(null);
+              setAnchor(today);
+            }}
+            canPickTeacher={canPickTeacher}
+            teacherOptions={teacherOptions}
+            teacherId={teacherId}
+            onTeacher={(id) => {
+              setTeacherId(id);
+              setSelected(null);
+            }}
+            canPickStudent={canPickStudent}
+            studentOptions={studentOptions}
+            studentId={studentId}
+            onStudent={(id) => {
+              setStudentId(id);
+              setSelected(null);
+            }}
+            allowedViews={allowedViews}
           />
-        )}
-        {(view === "week" || view === "day") && (
-          <TimeGridView
-            days={days}
-            sessions={sessions}
-            tz={tz}
-            today={today}
-            onSelect={(s) => canOpenDetails && setSelected(s)}
-          />
-        )}
-        {view === "list" && (
+
+          <CalendarSummary sessions={sessions} />
+
+          <div
+            className={loading ? "opacity-60 transition-opacity" : "transition-opacity"}
+            aria-busy={loading}
+          >
+            {view === "month" && (
+              <MonthView
+                anchor={anchor}
+                sessions={sessions}
+                tz={tz}
+                today={today}
+                onSelect={(s) => canOpenDetails && setSelected(s)}
+                onDrillDay={openDay}
+              />
+            )}
+            {(view === "week" || view === "day") && (
+              <TimeGridView
+                days={days}
+                sessions={sessions}
+                tz={tz}
+                today={today}
+                onSelect={(s) => canOpenDetails && setSelected(s)}
+              />
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Roster filters — period-independent, so no date nav / view switcher. */}
+          {(canPickTeacher || canPickStudent) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {canPickTeacher && (
+                <Combobox
+                  data-testid="calendar-teacher"
+                  className="w-40 sm:w-44"
+                  options={teacherOptions}
+                  value={teacherId}
+                  onChange={setTeacherId}
+                  placeholder={t("calendar.allTeachers")}
+                  searchPlaceholder={t("calendar.searchTeacher")}
+                />
+              )}
+              {canPickStudent && (
+                <Combobox
+                  data-testid="calendar-student"
+                  className="w-40 sm:w-44"
+                  options={studentOptions}
+                  value={studentId}
+                  onChange={setStudentId}
+                  placeholder={t("calendar.allStudents")}
+                  searchPlaceholder={t("calendar.searchStudent")}
+                />
+              )}
+            </div>
+          )}
+
+          <TimetablesSummary timetables={timetables} />
+
           <TimetablesView
             timetables={timetables}
             loading={ttLoading}
@@ -314,8 +380,8 @@ export function WeeklyCalendar({
             onLog={(id, name) => setLogStudent({ id, name })}
             onAddNew={() => setAddOpen(true)}
           />
-        )}
-      </div>
+        </>
+      )}
 
       {/* Session actions modal */}
       {selected && canOpenDetails && (
@@ -400,5 +466,45 @@ export function WeeklyCalendar({
         />
       )}
     </div>
+  );
+}
+
+// ── Top-level tab button ──────────────────────────────────────────────────────
+
+function PageTabButton({
+  tabKey,
+  icon: Icon,
+  label,
+  active,
+  onClick,
+  count,
+}: {
+  tabKey: PageTab;
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  count?: number;
+}) {
+  return (
+    <button
+      role="tab"
+      type="button"
+      aria-selected={active}
+      data-testid={`calendar-tab-${tabKey}`}
+      onClick={onClick}
+      className={cn(
+        "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors",
+        active ? "bg-card shadow-sm ring-1 ring-black/5" : "text-muted-foreground hover:bg-card/50",
+      )}
+    >
+      <Icon className="size-4" />
+      <span>{label}</span>
+      {count != null && count > 0 && (
+        <span className="bg-primary text-primary-foreground ms-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums">
+          {count}
+        </span>
+      )}
+    </button>
   );
 }

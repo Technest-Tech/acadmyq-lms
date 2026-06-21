@@ -187,9 +187,9 @@ export function CertificatesScreen() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
         {/* ── Editor ── */}
-        <div className="space-y-5">
+        <div className="min-w-0 space-y-5">
           <section className="bg-card space-y-4 rounded-xl border p-4 shadow-sm">
             <h2 className="text-foreground text-sm font-semibold">{t("recipientHeading")}</h2>
 
@@ -310,7 +310,7 @@ export function CertificatesScreen() {
         </div>
 
         {/* ── Preview + download ── */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-foreground text-sm font-semibold">{t("previewHeading")}</h2>
             <Button
@@ -391,8 +391,12 @@ function ScaledPreview({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
+    // `dir="ltr"` keeps the scaling box anchored top-left even on an RTL page, so the
+    // `transformOrigin: "top left"` scale stays inside the visible frame. The certificate
+    // itself sets its own text direction internally, so this doesn't affect its content.
     <div
       ref={wrapRef}
+      dir="ltr"
       className="overflow-hidden rounded-xl border shadow-sm"
       style={{ height: CERT_HEIGHT * scale }}
     >
