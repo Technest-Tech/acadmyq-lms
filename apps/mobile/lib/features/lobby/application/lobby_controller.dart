@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/media/media_models.dart';
+import '../../../core/network/room_token_source.dart';
 import '../data/connectivity_gateway.dart';
 import '../data/permission_gateway.dart';
 
@@ -25,6 +27,8 @@ class LobbyController extends ChangeNotifier {
   PermissionState _cameraPermission = PermissionState.denied;
   bool _online = true;
   bool _checking = true;
+  bool _joining = false;
+  TokenFetchError? _joinError;
 
   bool get micEnabled => _micEnabled;
   bool get cameraEnabled => _cameraEnabled;
@@ -32,6 +36,12 @@ class LobbyController extends ChangeNotifier {
   PermissionState get cameraPermission => _cameraPermission;
   bool get online => _online;
   bool get checking => _checking;
+
+  /// True while a room token is being fetched (the Join button shows a spinner).
+  bool get joining => _joining;
+
+  /// The reason the last join attempt failed to get a token, if any.
+  TokenFetchError? get joinError => _joinError;
 
   /// The microphone is mandatory (audio is sacred); the camera is not. Joining also requires a
   /// network.
@@ -82,6 +92,31 @@ class LobbyController extends ChangeNotifier {
   }
 
   Future<void> openSettings() => _permissions.openSettings();
+
+  /// Exchange the room id for scoped credentials, ready to hand to the room. Returns null (and sets
+  /// [joinError]) if not joinable or the fetch fails — the screen stays in the lobby so the user can
+  /// react. Guards against double-taps via [joining].
+  Future<RoomCredentials?> resolveCredentials(
+    RoomTokenSource source,
+    String roomId,
+  ) async {
+    if (!canJoin || _joining) return null;
+    _joining = true;
+    _joinError = null;
+    notifyListeners();
+    try {
+      return await source.fetchToken(roomId);
+    } on TokenFetchException catch (e) {
+      _joinError = e.kind;
+      return null;
+    } catch (_) {
+      _joinError = TokenFetchError.unknown;
+      return null;
+    } finally {
+      _joining = false;
+      notifyListeners();
+    }
+  }
 
   @override
   void dispose() {

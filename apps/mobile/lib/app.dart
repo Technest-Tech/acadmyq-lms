@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'core/design_system/tokens.dart';
-import 'core/media/media_models.dart';
 import 'features/lobby/presentation/lobby_screen.dart';
 
 /// Root of the AcademIQ video client. Mobile-first, Arabic/RTL-ready, light + dark.
@@ -50,12 +49,7 @@ class _DevLanding extends StatelessWidget {
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => const LobbyScreen(
-                    credentials: RoomCredentials(
-                      url: 'wss://media.dev',
-                      token: 'dev-token',
-                      identity: 'teacher-1',
-                      roomName: 'Demo class',
-                    ),
+                    roomId: 'demo-room',
                     roomTitle: 'Demo class',
                   ),
                 ),

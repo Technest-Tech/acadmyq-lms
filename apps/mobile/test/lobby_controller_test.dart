@@ -1,8 +1,19 @@
+import 'package:academiq_mobile/core/media/media_models.dart';
+import 'package:academiq_mobile/core/network/room_token_source.dart';
 import 'package:academiq_mobile/features/lobby/application/lobby_controller.dart';
 import 'package:academiq_mobile/features/lobby/data/permission_gateway.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_lobby_gateways.dart';
+
+/// A token source that always fails with a given error (for the join-error path).
+class _FailingTokenSource implements RoomTokenSource {
+  const _FailingTokenSource(this.error);
+  final TokenFetchError error;
+  @override
+  Future<RoomCredentials> fetchToken(String roomId) async =>
+      throw TokenFetchException(error);
+}
 
 /// Phase 3c — lobby pre-flight logic, with fake gateways (no platform channels). Proves the join
 /// gate: mic is mandatory (audio is sacred, V-AUD-1), camera is optional, and a network is required.
@@ -89,5 +100,46 @@ void main() {
     expect(c.micEnabled, isTrue);
     c.toggleMic();
     expect(c.micEnabled, isFalse);
+  });
+
+  test('resolveCredentials returns creds when joinable', () async {
+    final LobbyController c = LobbyController(
+      FakePermissionGateway(micStatus: PermissionState.granted),
+      FakeConnectivityGateway(),
+    );
+    await settle();
+    final RoomCredentials? creds =
+        await c.resolveCredentials(const FakeRoomTokenSource(), 'room-1');
+    expect(creds, isNotNull);
+    expect(creds!.roomName, 'room-1');
+    expect(c.joinError, isNull);
+    expect(c.joining, isFalse);
+  });
+
+  test('resolveCredentials surfaces the join error on failure', () async {
+    final LobbyController c = LobbyController(
+      FakePermissionGateway(micStatus: PermissionState.granted),
+      FakeConnectivityGateway(),
+    );
+    await settle();
+    final RoomCredentials? creds = await c.resolveCredentials(
+      const _FailingTokenSource(TokenFetchError.upgradeRequired),
+      'room-1',
+    );
+    expect(creds, isNull);
+    expect(c.joinError, TokenFetchError.upgradeRequired);
+    expect(c.joining, isFalse);
+  });
+
+  test('resolveCredentials refuses when not joinable', () async {
+    final LobbyController c = LobbyController(
+      FakePermissionGateway(micStatus: PermissionState.denied),
+      FakeConnectivityGateway(),
+    );
+    await settle();
+    expect(
+      await c.resolveCredentials(const FakeRoomTokenSource(), 'room-1'),
+      isNull,
+    );
   });
 }

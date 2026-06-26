@@ -4,16 +4,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/design_system/tokens.dart';
 import '../../../core/di/providers.dart';
 import '../../../core/media/media_models.dart';
+import '../../../core/network/room_token_source.dart';
 import '../../room/presentation/room_screen.dart';
 import '../application/lobby_controller.dart';
 import '../data/permission_gateway.dart';
 
 /// The pre-flight before a class: set mic/camera, grant permissions, confirm you're online — so the
-/// user fixes problems here, not mid-lesson (docs/video-platform/04-FLUTTER-CLIENT §4).
+/// user fixes problems here, not mid-lesson (docs/video-platform/04-FLUTTER-CLIENT §4). On Join it
+/// fetches a scoped room token from the control plane, then enters the room.
 class LobbyScreen extends ConsumerWidget {
-  const LobbyScreen({super.key, required this.credentials, this.roomTitle});
+  const LobbyScreen({super.key, required this.roomId, this.roomTitle});
 
-  final RoomCredentials credentials;
+  /// The persistent room (`video_rooms.id`) to fetch a token for.
+  final String roomId;
   final String? roomTitle;
 
   @override
@@ -25,7 +28,7 @@ class LobbyScreen extends ConsumerWidget {
       backgroundColor: colors.surface,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        title: Text(roomTitle ?? credentials.roomName),
+        title: Text(roomTitle ?? 'Join class'),
       ),
       body: SafeArea(
         child: ListenableBuilder(
@@ -35,12 +38,7 @@ class LobbyScreen extends ConsumerWidget {
               padding: const EdgeInsets.all(AppSpacing.lg),
               child: Column(
                 children: <Widget>[
-                  Expanded(
-                    child: _Preview(
-                      controller: controller,
-                      identity: credentials.identity,
-                    ),
-                  ),
+                  Expanded(child: _Preview(controller: controller)),
                   const SizedBox(height: AppSpacing.lg),
                   _DeviceToggles(controller: controller),
                   const SizedBox(height: AppSpacing.lg),
@@ -57,11 +55,20 @@ class LobbyScreen extends ConsumerWidget {
     );
   }
 
-  void _join(BuildContext context, WidgetRef ref, LobbyController controller) {
-    Navigator.of(context).push(
+  Future<void> _join(
+    BuildContext context,
+    WidgetRef ref,
+    LobbyController controller,
+  ) async {
+    final RoomCredentials? creds = await controller.resolveCredentials(
+      ref.read(roomTokenSourceProvider),
+      roomId,
+    );
+    if (creds == null || !context.mounted) return;
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => RoomScreen(
-          credentials: credentials,
+          credentials: creds,
           roomTitle: roomTitle,
           initialMicEnabled: controller.micEnabled,
           initialCameraEnabled: controller.cameraEnabled,
@@ -72,10 +79,9 @@ class LobbyScreen extends ConsumerWidget {
 }
 
 class _Preview extends StatelessWidget {
-  const _Preview({required this.controller, required this.identity});
+  const _Preview({required this.controller});
 
   final LobbyController controller;
-  final String identity;
 
   @override
   Widget build(BuildContext context) {
@@ -90,43 +96,28 @@ class _Preview extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadii.lg),
       ),
       alignment: Alignment.center,
-      child: showCamera
-          // Real camera preview is wired in Phase 3c-iii (behind the media abstraction, V-ARCH-1).
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(Icons.videocam_rounded, size: 48, color: colors.primary),
-                const SizedBox(height: AppSpacing.md),
-                Text('Camera preview',
-                    style: Theme.of(context).textTheme.bodyMedium),
-              ],
-            )
-          : Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                CircleAvatar(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          // Real camera preview is wired in Phase 3c-iv (behind the media abstraction, V-ARCH-1).
+          showCamera
+              ? Icon(Icons.videocam_rounded, size: 48, color: colors.primary)
+              : CircleAvatar(
                   radius: 44,
                   backgroundColor: colors.primary,
-                  child: Text(
-                    _initial(identity),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 34,
-                        fontWeight: FontWeight.w600),
-                  ),
+                  child: const Icon(Icons.person, color: Colors.white, size: 44),
                 ),
-                const SizedBox(height: AppSpacing.md),
-                Text('Camera off',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: colors.onSurface.withValues(alpha: 0.6),
-                        )),
-              ],
-            ),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            showCamera ? 'Camera preview' : 'Camera off',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: colors.onSurface.withValues(alpha: 0.6),
+                ),
+          ),
+        ],
+      ),
     );
   }
-
-  String _initial(String s) =>
-      s.trim().isEmpty ? '?' : s.trim().characters.first.toUpperCase();
 }
 
 class _DeviceToggles extends StatelessWidget {
@@ -255,11 +246,25 @@ class _StatusAndJoin extends StatelessWidget {
             icon: Icons.wifi_off_rounded,
             text: "You're offline. Reconnect to join the class.",
           ),
+        if (controller.joinError != null)
+          _Notice(
+            color: colors.danger,
+            icon: Icons.error_outline_rounded,
+            text: _joinErrorMessage(controller.joinError!),
+          ),
         const SizedBox(height: AppSpacing.sm),
         FilledButton.icon(
-          onPressed: controller.canJoin ? onJoin : null,
-          icon: const Icon(Icons.video_call_rounded),
-          label: const Text('Join class'),
+          onPressed:
+              controller.canJoin && !controller.joining ? onJoin : null,
+          icon: controller.joining
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                )
+              : const Icon(Icons.video_call_rounded),
+          label: Text(controller.joining ? 'Joining…' : 'Join class'),
           style: FilledButton.styleFrom(
             backgroundColor: colors.primary,
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
@@ -268,6 +273,16 @@ class _StatusAndJoin extends StatelessWidget {
       ],
     );
   }
+
+  String _joinErrorMessage(TokenFetchError error) => switch (error) {
+        TokenFetchError.unauthorized => 'Your session expired. Please sign in again.',
+        TokenFetchError.upgradeRequired =>
+          'Video classes aren\'t included in this plan.',
+        TokenFetchError.forbidden => 'You don\'t have access to this room.',
+        TokenFetchError.notFound => 'This room no longer exists.',
+        TokenFetchError.network => 'Network error. Check your connection.',
+        TokenFetchError.unknown => 'Something went wrong. Please try again.',
+      };
 }
 
 class _Notice extends StatelessWidget {

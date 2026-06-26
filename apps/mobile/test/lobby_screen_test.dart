@@ -1,6 +1,5 @@
 import 'package:academiq_mobile/core/design_system/tokens.dart';
 import 'package:academiq_mobile/core/di/providers.dart';
-import 'package:academiq_mobile/core/media/media_models.dart';
 import 'package:academiq_mobile/features/lobby/data/permission_gateway.dart';
 import 'package:academiq_mobile/features/lobby/presentation/lobby_screen.dart';
 import 'package:flutter/material.dart';
@@ -10,14 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'support/fake_lobby_gateways.dart';
 
 /// Phase 3c — the lobby screen drives the join gate from the fake gateways (no platform channels).
+/// The media engine + token source default to the fakes via AppConfig (no dart-define in tests).
 void main() {
-  const RoomCredentials creds = RoomCredentials(
-    url: 'wss://media.test',
-    token: 'token',
-    identity: 'teacher-1',
-    roomName: 'r-abc__academy-1',
-  );
-
   Widget host({
     required PermissionState mic,
     required bool online,
@@ -39,7 +32,7 @@ void main() {
         ),
         home: Directionality(
           textDirection: direction,
-          child: const LobbyScreen(credentials: creds, roomTitle: 'Quran 1:1'),
+          child: const LobbyScreen(roomId: 'demo-room', roomTitle: 'Quran 1:1'),
         ),
       ),
     );
@@ -70,6 +63,17 @@ void main() {
 
     expect(find.textContaining('offline'), findsWidgets);
     expect(joinButton(tester).onPressed, isNull);
+  });
+
+  testWidgets('Join fetches a token and enters the room', (WidgetTester tester) async {
+    await tester.pumpWidget(host(mic: PermissionState.granted, online: true));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Join class'));
+    await tester.pumpAndSettle();
+
+    // We're in the room now: the control bar's Leave button is present.
+    expect(find.byIcon(Icons.call_end), findsOneWidget);
   });
 
   testWidgets('renders in RTL', (WidgetTester tester) async {
