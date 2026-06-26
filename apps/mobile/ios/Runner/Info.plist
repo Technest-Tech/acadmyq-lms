@@ -66,5 +66,13 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>AcademIQ uses the camera so you can be seen in your video class.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>AcademIQ uses the microphone so you can be heard in your video class.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 </dict>
 </plist>
