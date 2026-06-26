@@ -3086,3 +3086,88 @@ export function convertTrial(
 export function cancelTrial(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/trials/${id}`, { method: "DELETE" });
 }
+
+// ── Video classroom (docs/video-platform) ────────────────────────────────────
+// Management surface for the self-hosted LiveKit rooms + recordings. Plan-gated by
+// video.conferencing (402) and capability-gated by room.* / recording.view (403); the
+// live call itself runs in the Flutter client. Transport only — rules live in the API.
+
+export type VideoRoomStatus = "ACTIVE" | "ARCHIVED";
+
+export interface VideoRoom {
+  id: string;
+  name: string;
+  teacher_id: string | null;
+  status: VideoRoomStatus;
+  record_default: boolean;
+  created_at: string;
+}
+
+export type RecordingStatus =
+  | "STARTING"
+  | "RECORDING"
+  | "COMPLETED"
+  | "FAILED"
+  | "ABORTED";
+
+export interface RoomRecording {
+  id: string;
+  room_id: string;
+  session_id: string | null;
+  student_id: string | null;
+  status: RecordingStatus;
+  duration_s: number | null;
+  bytes: number | null;
+  started_at: string | null;
+  ended_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface VideoRoomInput {
+  name?: string;
+  teacher_id?: string | null;
+  record_default?: boolean;
+  status?: VideoRoomStatus;
+}
+
+export function listVideoRooms(): Promise<{ rooms: VideoRoom[] }> {
+  return apiFetch("/api/video/rooms");
+}
+
+export function createVideoRoom(
+  input: VideoRoomInput,
+): Promise<{ roomId: string }> {
+  return apiFetch("/api/video/rooms", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateVideoRoom(
+  id: string,
+  patch: VideoRoomInput,
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/video/rooms/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteVideoRoom(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/video/rooms/${id}`, { method: "DELETE" });
+}
+
+/** Mint a scoped LiveKit access token for the current user to join this room. */
+export function getVideoRoomToken(
+  id: string,
+): Promise<{ url: string; token: string; room: string; identity: string }> {
+  return apiFetch(`/api/video/rooms/${id}/token`, { method: "POST" });
+}
+
+export function listVideoRecordings(
+  roomId?: string,
+): Promise<{ recordings: RoomRecording[] }> {
+  const q = roomId ? `?room_id=${encodeURIComponent(roomId)}` : "";
+  return apiFetch(`/api/video/recordings${q}`);
+}

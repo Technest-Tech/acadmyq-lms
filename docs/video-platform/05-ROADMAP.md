@@ -121,6 +121,13 @@ conditions. De-risks the entire project for the price of one server.
 
 ## Phase 2 — Web panel integration (Next.js)
 
+> **Status: ✅ Implemented & tested (2026-06-26).** `/video-classroom` route + screen (rooms card
+> grid, create/edit/archive modal, recordings list), nav entry with the `video.conferencing`
+> upgrade badge, `videoClassroom` i18n (en + ar/RTL), and typed API helpers. 3 Vitest tests green;
+> `npm run typecheck` clean; zero new regressions (the 12 failing web tests pre-date this work —
+> see [[sprint9-preexisting-test-failures]]). The live call is the Flutter client (Phase 3), so this
+> surface is management-only; per-room billing detail follows in Phase 5.
+
 **Scope** (mirror `apps/web/src/app/invoices/`)
 - `app/video-classroom/page.tsx` + `screen.tsx` (gated by `can('room.read')`).
 - Nav entry in `app-shell.tsx` + `NAV_CAPABILITY['videoClassroom'] = 'video.conferencing'` (upgrade badge).

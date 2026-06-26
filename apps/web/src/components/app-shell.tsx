@@ -28,6 +28,7 @@ import {
   Users,
   UserCheck,
   UserCog,
+  Video,
   Wallet,
   X,
 } from "lucide-react";
@@ -59,6 +60,7 @@ type NavKey =
   | "teachers"
   | "staff"
   | "schedule"
+  | "videoClassroom"
   | "trials"
   | "attendance"
   | "studentReports"
@@ -188,6 +190,13 @@ const NAV: ReadonlyArray<{
     group: "management",
   },
   {
+    key: "videoClassroom",
+    icon: Video,
+    permission: "room.read",
+    href: "/video-classroom",
+    group: "management",
+  },
+  {
     key: "trials",
     icon: CalendarClock,
     permission: "trial.read",
@@ -304,6 +313,7 @@ const NAV_GROUPS = ["general", "management", "financial", "system"] as const;
  * server still enforces the gate (entitled: middleware → 402); this is UX only.
  */
 const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
+  videoClassroom: "video.conferencing",
   staff: "staff",
   academyRoles: "custom_roles",
   trials: "trials",
