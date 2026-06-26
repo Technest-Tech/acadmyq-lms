@@ -1,0 +1,63 @@
+# AcademIQ Video Platform — LOCAL media stack (Phase 0, Part A).
+# LiveKit SFU + Redis + Egress (recording) + MinIO (S3-compatible storage).
+#
+# DEV KEYS ONLY. Never use this config or these secrets in production.
+# Full runbook: docs/video-platform/02-INFRASTRUCTURE.md
+name: academiq-video-local
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports: ["6379:6379"]
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    # --node-ip controls the IP advertised in ICE candidates:
+    #   127.0.0.1 (default) → two browser tabs on THIS machine
+    #   your LAN IP         → two real devices on the same WiFi (set LIVEKIT_NODE_IP in .env)
+    command: --config /etc/livekit.yaml --node-ip ${LIVEKIT_NODE_IP:-127.0.0.1}
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"                     # signaling (HTTP/WS)
+      - "7881:7881"                     # RTC over TCP (fallback)
+      - "50000-50019:50000-50019/udp"   # RTC media (ICE/UDP) — small range for fast local startup
+    depends_on: [redis]
+
+  egress:
+    image: livekit/egress:latest
+    restart: unless-stopped
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+    cap_add: ["SYS_ADMIN"]              # Chrome (room-composite recording) needs this
+    depends_on: [redis, livekit, minio]
+
+  minio:                                # local S3-compatible store for recordings
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"                     # S3 API
+      - "9001:9001"                     # web console (http://localhost:9001)
+    volumes: ["minio-data:/data"]
+
+  minio-init:                           # one-shot: create the "recordings" bucket, then exit
+    image: minio/mc:latest
+    depends_on: [minio]
+    restart: "no"
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      /usr/bin/mc mb --ignore-existing local/recordings;
+      echo 'recordings bucket ready';
+      "
+
+volumes:
+  minio-data:

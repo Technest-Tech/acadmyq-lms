@@ -1,0 +1,19 @@
+# LiveKit SFU — LOCAL dev config. Dev keys only; do not reuse in production.
+port: 7880
+log_level: info
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50019
+  use_external_ip: false      # local/LAN dev (node IP is set via --node-ip in docker-compose)
+
+redis:
+  address: redis:6379
+
+# api_key: api_secret  (the secret must be >= 32 chars)
+keys:
+  devkey: devsecret_local_only_change_me_0123456789
+
+# No `turn:` block locally — a trusted LAN doesn't need a relay.
+# TURN (with TLS, incl. TCP/443) is enabled on Hetzner — see 02-INFRASTRUCTURE.md Part B.
