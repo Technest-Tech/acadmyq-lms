@@ -3165,6 +3165,40 @@ export function getVideoRoomToken(
   return apiFetch(`/api/video/rooms/${id}/token`, { method: "POST" });
 }
 
+/** The credential + identity a join-by-link request returns (mirrors VideoJoinController). */
+export interface JoinRoomResponse {
+  /** wss/ws SFU connect URL. */
+  url: string;
+  /** Short-lived scoped LiveKit access token. */
+  token: string;
+  /** LiveKit room name to connect to. */
+  roomName: string;
+  /** Human-friendly room name for the lobby/header. */
+  roomTitle: string;
+  /** The participant identity encoded in the token. */
+  identity: string;
+  /** Resolved display name (server uses the host's real name; null if none). */
+  displayName: string | null;
+  /** How the caller was admitted. */
+  role: "host" | "guest";
+}
+
+/**
+ * Join a room via its shareable link token (public POST /api/video/join/{token}). A logged-in
+ * host is detected server-side from the session cookie; everyone else joins as a guest and must
+ * supply a display name. Throws ApiError 404 (unknown/archived room) or 422 (guest needs a name).
+ */
+export function joinRoom(
+  token: string,
+  displayName?: string,
+): Promise<JoinRoomResponse> {
+  const name = displayName?.trim();
+  return apiFetch(`/api/video/join/${token}`, {
+    method: "POST",
+    body: JSON.stringify(name ? { display_name: name } : {}),
+  });
+}
+
 export function listVideoRecordings(
   roomId?: string,
 ): Promise<{ recordings: RoomRecording[] }> {
