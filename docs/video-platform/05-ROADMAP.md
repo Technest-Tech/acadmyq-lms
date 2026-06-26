@@ -149,6 +149,14 @@ conditions. De-risks the entire project for the price of one server.
 
 ## Phase 3 — Flutter client core (the call)
 
+> **Status: 🚧 In progress.** Phase 3a done (2026-06-26): app scaffolded at `apps/mobile`
+> (Flutter 3.41), the engine-agnostic `MediaSession` abstraction + value models + `FakeMediaSession`
+> + `RoomController` + design tokens. **7 tests green** (`flutter test`) — incl. the V-ARCH-1
+> architecture guard (`test/architecture_guard_test.dart`, TC-V3.4) and the MediaSession contract
+> tests (TC-V3.1); `flutter analyze` clean. **Next (3b/3c):** the `LivekitMediaSession` adapter
+> (the one file allowed to import `livekit_client`), the lobby pre-flight, and the audio-first room
+> UI wired to the local stack.
+
 **Prereq:** write [04-FLUTTER-CLIENT](04-FLUTTER-CLIENT.md) first.
 
 **Scope**

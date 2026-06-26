@@ -1,0 +1,11 @@
+# Static analysis for the AcademIQ video client. flutter_lints + a little extra strictness.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+
+linter:
+  rules:
+    prefer_final_locals: true
+    avoid_print: true
