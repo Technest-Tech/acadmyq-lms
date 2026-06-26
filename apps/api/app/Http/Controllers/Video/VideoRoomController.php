@@ -9,6 +9,7 @@ use App\Services\Livekit\LivekitRoomClient;
 use App\Services\Livekit\LivekitTokenService;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\VideoJoinToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -38,7 +39,7 @@ final class VideoRoomController extends Controller
         $rooms = DB::table('video_rooms')
             ->whereNull('deleted_at')
             ->orderByDesc('created_at')
-            ->get(['id', 'name', 'teacher_id', 'status', 'record_default', 'created_at']);
+            ->get(['id', 'name', 'teacher_id', 'status', 'record_default', 'join_token', 'created_at']);
 
         return response()->json(['rooms' => $rooms]);
     }
@@ -69,6 +70,7 @@ final class VideoRoomController extends Controller
             'teacher_id' => $data['teacher_id'] ?? null,
             'name' => $data['name'],
             'livekit_name' => $this->makeLivekitName($academyId),
+            'join_token' => VideoJoinToken::generate(),
             'record_default' => (bool) ($data['record_default'] ?? false),
         ]);
         Audit::log('video_room.create', 'video_room', $id, $academyId, $ctx->userId, $ctx->role, after: [
@@ -163,6 +165,26 @@ final class VideoRoomController extends Controller
             'room' => $room->livekit_name,
             'identity' => $ctx->userId,
         ]);
+    }
+
+    /**
+     * POST /api/video/rooms/{id}/rotate-link — regenerate the shareable join_token, invalidating
+     * any previously-shared link (a `room.manage` action; V-CTL-1). Returns the fresh token.
+     */
+    public function rotate(string $id): JsonResponse
+    {
+        Gate::authorize('room.manage');
+
+        $room = DB::table('video_rooms')->where('id', $id)->whereNull('deleted_at')->first();
+        if ($room === null) {
+            abort(404, 'Room not found.');
+        }
+
+        $token = VideoJoinToken::generate();
+        DB::table('video_rooms')->where('id', $id)->update(['join_token' => $token, 'updated_at' => now()]);
+        Audit::log('video_room.rotate_link', 'video_room', $id, (string) $this->ctx()->academyId, $this->ctx()->userId, $this->ctx()->role);
+
+        return response()->json(['join_token' => $token]);
     }
 
     private function ctx(): AuthContext

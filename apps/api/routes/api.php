@@ -42,6 +42,7 @@ use App\Http\Controllers\StudentProgressReportController;
 use App\Http\Controllers\TeacherReportController;
 use App\Http\Controllers\Trials\TrialController;
 use App\Http\Controllers\Video\LivekitWebhookController;
+use App\Http\Controllers\Video\VideoJoinController;
 use App\Http\Controllers\Video\VideoRecordingController;
 use App\Http\Controllers\Video\VideoRoomController;
 use App\Http\Controllers\WhatsAppWebhookController;
@@ -85,6 +86,11 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 */
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::get('/i/{token}', [InvoiceController::class, 'publicShow']);
+
+    // Public video join-by-link (docs/video-platform/06-WEB-CALL-CLIENT §2). One shareable link,
+    // two joiner types: an authenticated host (optional Sanctum auth, detected in the controller)
+    // or an anonymous guest. NOT Sanctum-gated; the room is resolved via a SECURITY DEFINER reader.
+    Route::post('/video/join/{token}', [VideoJoinController::class, 'join'])->where('token', '[A-Za-z0-9]+');
 
     // PayPal Checkout (public, token-authenticated). The token identifies the invoice;
     // credentials are fetched server-side via app.paypal_config_by_token (SECURITY DEFINER).
@@ -469,6 +475,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::patch('/video/rooms/{id}', [VideoRoomController::class, 'update']);
         Route::delete('/video/rooms/{id}', [VideoRoomController::class, 'destroy']);
         Route::post('/video/rooms/{id}/token', [VideoRoomController::class, 'token']);
+        Route::post('/video/rooms/{id}/rotate-link', [VideoRoomController::class, 'rotate']);
         Route::post('/video/rooms/{id}/recording', [VideoRecordingController::class, 'start']);
         Route::delete('/video/rooms/{id}/recording', [VideoRecordingController::class, 'stop']);
     });
