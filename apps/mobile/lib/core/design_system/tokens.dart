@@ -74,6 +74,12 @@ class AppColors extends ThemeExtension<AppColors> {
   }
 }
 
+/// Ergonomic access to the brand [AppColors] for the current theme: `context.colors.primary`.
+extension AppColorsContext on BuildContext {
+  AppColors get colors =>
+      Theme.of(this).extension<AppColors>() ?? AppColors.light;
+}
+
 /// Spacing scale (4px base).
 abstract final class AppSpacing {
   static const double xs = 4;

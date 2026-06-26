@@ -27,20 +27,31 @@ class RoomController extends ChangeNotifier {
       _quality = q;
       notifyListeners();
     });
+    _activeSpeakerSub =
+        _session.activeSpeakerStream.listen((Participant? p) {
+      _activeSpeaker = p;
+      notifyListeners();
+    });
   }
 
   final MediaSession _session;
   late final StreamSubscription<MediaSessionState> _stateSub;
   late final StreamSubscription<List<Participant>> _participantsSub;
   late final StreamSubscription<ConnectionQuality> _qualitySub;
+  late final StreamSubscription<Participant?> _activeSpeakerSub;
 
   MediaSessionState _state = MediaSessionState.idle;
   List<Participant> _participants = const <Participant>[];
   ConnectionQuality _quality = ConnectionQuality.unknown;
+  Participant? _activeSpeaker;
 
   MediaSessionState get state => _state;
   List<Participant> get participants => _participants;
   ConnectionQuality get quality => _quality;
+
+  /// The participant the room is currently focusing (loudest speaker), if any. The UI falls back to
+  /// the first remote / local participant when no one is actively speaking.
+  Participant? get activeSpeaker => _activeSpeaker;
   bool get isMicEnabled => _session.isMicEnabled;
   bool get isCameraEnabled => _session.isCameraEnabled;
 
@@ -66,6 +77,7 @@ class RoomController extends ChangeNotifier {
     _stateSub.cancel();
     _participantsSub.cancel();
     _qualitySub.cancel();
+    _activeSpeakerSub.cancel();
     super.dispose();
   }
 }
