@@ -38,10 +38,19 @@ final Provider<AppConfig> appConfigProvider =
 final Provider<Dio> dioProvider =
     Provider<Dio>((Ref ref) => buildControlPlaneDio(ref.watch(appConfigProvider)));
 
-/// Exchanges a room id for scoped LiveKit credentials — real HTTP, or a canned fake in dev/sim.
+/// Exchanges a room id for scoped LiveKit credentials. Resolution order: a pre-minted direct token
+/// (device test / guest-link shape) → real HTTP control-plane fetch → a canned fake in dev/sim.
 final Provider<RoomTokenSource> roomTokenSourceProvider =
     Provider<RoomTokenSource>((Ref ref) {
   final AppConfig config = ref.watch(appConfigProvider);
+  if (config.useDirectToken) {
+    return DirectRoomTokenSource(
+      url: config.directUrl,
+      token: config.directToken!,
+      room: config.directRoom,
+      identity: config.directIdentity,
+    );
+  }
   return config.useFakeMedia
       ? const FakeRoomTokenSource()
       : HttpRoomTokenSource(ref.watch(dioProvider));

@@ -106,4 +106,18 @@ void main() {
     expect(creds.token, isNotEmpty);
     expect(creds.url, startsWith('wss://'));
   });
+
+  test('DirectRoomTokenSource passes through the pre-minted credentials', () async {
+    const source = DirectRoomTokenSource(
+      url: 'ws://192.168.1.56:7880',
+      token: 'pre-minted-jwt',
+      room: 'r-abc__academy-1',
+      identity: 'teacher-phone',
+    );
+    final creds = await source.fetchToken('ignored');
+    expect(creds.url, 'ws://192.168.1.56:7880');
+    expect(creds.token, 'pre-minted-jwt');
+    expect(creds.roomName, 'r-abc__academy-1');
+    expect(creds.identity, 'teacher-phone');
+  });
 }

@@ -91,3 +91,27 @@ class FakeRoomTokenSource implements RoomTokenSource {
         roomName: roomId,
       );
 }
+
+/// Connects with a pre-minted token instead of calling the control plane. Used for the device
+/// bring-up test, and the shape a guest join (signed link → token, no login) will reuse.
+class DirectRoomTokenSource implements RoomTokenSource {
+  const DirectRoomTokenSource({
+    required this.url,
+    required this.token,
+    required this.room,
+    required this.identity,
+  });
+
+  final String url;
+  final String token;
+  final String room;
+  final String identity;
+
+  @override
+  Future<RoomCredentials> fetchToken(String roomId) async => RoomCredentials(
+        url: url,
+        token: token,
+        identity: identity,
+        roomName: room,
+      );
+}
