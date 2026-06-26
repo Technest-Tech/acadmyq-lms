@@ -23,16 +23,17 @@ final class FeatureCatalog
      * @return array<string, string> key => human label
      */
     public const CAPABILITIES = [
-        'invoicing'           => 'Invoice management & billing',
-        'payroll'             => 'Teacher payout calculation',
-        'certificates'        => 'Student certificates',
+        'invoicing' => 'Invoice management & billing',
+        'payroll' => 'Teacher payout calculation',
+        'certificates' => 'Student certificates',
         'whatsapp.automation' => 'WhatsApp automation & notifications',
-        'staff'               => 'Non-teaching staff management',
-        'custom_roles'        => 'Custom roles & permissions builder',
-        'trials'              => 'Free trials pipeline & availability matcher',
-        'student_reports'     => 'Student progress reports (teacher→owner review)',
-        'audit.full'          => 'Full audit history (beyond 30 days)',
+        'staff' => 'Non-teaching staff management',
+        'custom_roles' => 'Custom roles & permissions builder',
+        'trials' => 'Free trials pipeline & availability matcher',
+        'student_reports' => 'Student progress reports (teacher→owner review)',
+        'audit.full' => 'Full audit history (beyond 30 days)',
         'report_field.custom' => 'Custom report fields',
+        'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
     ];
 
     /**

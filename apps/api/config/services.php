@@ -63,6 +63,27 @@ return [
     ],
 
     /*
+    | Self-hosted LiveKit video stack (docs/video-platform). `host` is the wss:// URL clients
+    | connect to; `api_url` is the https:// server API the room/egress clients call. `api_secret`
+    | signs every access token AND verifies inbound webhooks — it NEVER leaves the server (V-SEC-1).
+    | The S3-compatible keys are where Egress uploads recordings (MinIO locally, Backblaze/Wasabi in
+    | prod). All optional/empty until the video add-on is provisioned for an academy.
+    */
+    'livekit' => [
+        'host' => env('LIVEKIT_HOST'),                 // wss://media.example.com (client connect URL)
+        'api_url' => env('LIVEKIT_API_URL'),           // https://media.example.com (server API)
+        'api_key' => env('LIVEKIT_API_KEY'),
+        'api_secret' => env('LIVEKIT_API_SECRET'),
+        'timeout' => (int) env('LIVEKIT_TIMEOUT', 15),
+        'token_ttl' => (int) env('LIVEKIT_TOKEN_TTL', 900),
+        'recording_retention_days' => (int) env('LIVEKIT_RECORDING_RETENTION_DAYS', 90),
+        's3_key' => env('LIVEKIT_S3_KEY'),
+        's3_secret' => env('LIVEKIT_S3_SECRET'),
+        's3_bucket' => env('LIVEKIT_S3_BUCKET', 'recordings'),
+        's3_endpoint' => env('LIVEKIT_S3_ENDPOINT'),
+    ],
+
+    /*
     | Live FX rates for the financial-statistics page. The owner sees every academy currency
     | converted into a single home currency (EGP by default) so multi-currency totals — and the
     | salaries computed from them — can be read in one number. open.er-api.com is free and needs

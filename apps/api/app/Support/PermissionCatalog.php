@@ -43,6 +43,10 @@ final class PermissionCatalog
         'audit.read',
         'staff.read', 'staff.create', 'staff.update', 'staff.deactivate',
         'staff_department.manage',
+        // Video classroom (docs/video-platform). The academy OWNS the room (V-CTL-1): owners
+        // create/manage rooms and recordings; teachers join. Gated by the `video.conferencing`
+        // entitlement on top of these RBAC capabilities.
+        'room.read', 'room.create', 'room.join', 'room.manage', 'recording.view',
     ];
 
     /**
@@ -72,6 +76,8 @@ final class PermissionCatalog
             'certificate.read', 'certificate.manage',
             'audit.read',
             'staff.read', 'staff.create', 'staff.update', 'staff.deactivate',
+            // Video classroom — the owner provisions/manages rooms and views recordings (V-CTL-1).
+            'room.read', 'room.create', 'room.join', 'room.manage', 'recording.view',
         ];
 
         return [
@@ -106,6 +112,9 @@ final class PermissionCatalog
                 // Write monthly progress reports about their own students and submit them for the
                 // Owner to review on the Notifications page (the Owner holds student_report.review).
                 'student_report.submit',
+                // Video classroom — a teacher JOINS their class and views its recordings, but does
+                // not create/manage rooms (the academy owns the room, V-CTL-1).
+                'room.read', 'room.join', 'recording.view',
             ],
             // Non-teaching staff baseline (reception/admin desk). Deliberately MINIMAL and
             // read-only: enough to see who's enrolled and the day's schedule. Anything beyond

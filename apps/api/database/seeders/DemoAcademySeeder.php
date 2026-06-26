@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Services\AcademyBilling;
+use App\Support\FeatureCatalog;
 use App\Support\PermissionCatalog;
 use App\Support\TenantContext;
 use Illuminate\Database\Seeder;
@@ -65,7 +67,7 @@ class DemoAcademySeeder extends Seeder
             $this->seedFinanceDemo();
             // Sync the demo academy's subscription snapshot to its (PRO) plan price so a re-seed
             // after a plan-price change never leaves a stale total.
-            app(\App\Services\AcademyBilling::class)->recomputeTotals(self::ACADEMY_ID);
+            app(AcademyBilling::class)->recomputeTotals(self::ACADEMY_ID);
         } finally {
             TenantContext::clear();
         }
@@ -115,7 +117,7 @@ class DemoAcademySeeder extends Seeder
         //   PRO   — every feature, with generous caps (15 teachers / 60 students).
         // Prices are in minor units (piastres): 699 EGP = 69900, 999 EGP = 99900. Moving a
         // feature between tiers is an edit here — not a code change (§3.1, TC-9.5).
-        $allCapabilities = array_keys(\App\Support\FeatureCatalog::CAPABILITIES);
+        $allCapabilities = array_keys(FeatureCatalog::CAPABILITIES);
         foreach ([
             ['code' => 'FREE', 'name' => 'Free Trial', 'price_minor' => 0, 'features' => json_encode([
                 'capabilities' => $allCapabilities,
@@ -138,6 +140,30 @@ class DemoAcademySeeder extends Seeder
                     'currency' => 'EGP',
                     'features' => $plan['features'],
                     'is_active' => true,
+                ]
+            );
+        }
+
+        // Video classroom add-on (docs/video-platform §5). Sold standalone OR bundled: it is
+        // already in every PRO/FREE plan above (PRO uses the full FeatureCatalog), and these
+        // per-currency add-on rows let a BASIC / video-only academy buy it à la carte. Money never
+        // converts (MoneyMinorUnits), so there is one priced row per currency, all unlocking the
+        // same `video.conferencing` feature_key; the grant picks the row matching the academy's plan.
+        foreach ([
+            ['code' => 'VIDEO_EGP', 'price_minor' => 49900, 'currency' => 'EGP'],
+            ['code' => 'VIDEO_USD', 'price_minor' => 1500,  'currency' => 'USD'],
+            ['code' => 'VIDEO_GBP', 'price_minor' => 1200,  'currency' => 'GBP'],
+            ['code' => 'VIDEO_SAR', 'price_minor' => 5600,  'currency' => 'SAR'],
+            ['code' => 'VIDEO_AED', 'price_minor' => 5500,  'currency' => 'AED'],
+            ['code' => 'VIDEO_EUR', 'price_minor' => 1400,  'currency' => 'EUR'],
+        ] as $addOn) {
+            DB::table('add_ons')->updateOrInsert(
+                ['code' => $addOn['code']],
+                [
+                    'name' => 'Video Classroom',
+                    'price_minor' => $addOn['price_minor'],
+                    'currency' => $addOn['currency'],
+                    'feature_key' => 'video.conferencing',
                 ]
             );
         }
@@ -369,27 +395,27 @@ class DemoAcademySeeder extends Seeder
     {
         $methods = [
             [
-                'method'    => 'BANK_TRANSFER',
+                'method' => 'BANK_TRANSFER',
                 'is_active' => true,
-                'config'    => json_encode([
+                'config' => json_encode([
                     'account_number' => '1234567890',
                     'account_holder' => 'Demo Academy',
-                    'bank_name'      => 'Al Rajhi Bank',
-                    'iban'           => 'SA00 0000 0000 0000 0000 0000',
+                    'bank_name' => 'Al Rajhi Bank',
+                    'iban' => 'SA00 0000 0000 0000 0000 0000',
                 ]),
             ],
             [
-                'method'    => 'PAYPAL',
+                'method' => 'PAYPAL',
                 'is_active' => false,
-                'config'    => json_encode([
+                'config' => json_encode([
                     'email' => 'payments@demo-academy.com',
-                    'mode'  => 'live',
+                    'mode' => 'live',
                 ]),
             ],
             [
-                'method'    => 'XPAY',
+                'method' => 'XPAY',
                 'is_active' => false,
-                'config'    => json_encode([]),
+                'config' => json_encode([]),
             ],
         ];
 

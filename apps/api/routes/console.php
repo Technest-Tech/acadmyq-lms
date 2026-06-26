@@ -9,6 +9,7 @@ use App\Jobs\FlagOverdueReportsJob;
 use App\Jobs\GenerateAcademyInvoicesJob;
 use App\Jobs\LessonReminderJob;
 use App\Jobs\MonthlyStudentBillingJob;
+use App\Jobs\PurgeExpiredRecordingsJob;
 use App\Jobs\RollSessionWindowJob;
 use App\Jobs\SendAcademyBillRemindersJob;
 use Illuminate\Foundation\Inspiring;
@@ -87,3 +88,10 @@ Schedule::job(new MonthlyStudentBillingJob)->monthlyOn(3, '08:00')->name('type1-
 | per (session, recipient); each academy uses only its own Wasender token.
 */
 Schedule::job(new LessonReminderJob)->hourly()->name('type2-lesson-reminders')->withoutOverlapping();
+
+/*
+| Daily recording-retention purge (docs/video-platform, V-REC-2). Each morning, for every active
+| academy, delete COMPLETED room recordings whose retention window has lapsed so stored video does
+| not grow unbounded. Idempotent and per-academy tenant-isolated, so missed/duplicated runs are safe.
+*/
+Schedule::job(new PurgeExpiredRecordingsJob)->dailyAt('03:30')->name('purge-expired-recordings')->withoutOverlapping();

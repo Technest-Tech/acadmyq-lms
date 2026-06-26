@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Middleware\EnsureEntitled;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\TenantContextMiddleware;
+use App\Http\Middleware\VerifyLivekitWebhook;
 use App\Http\Middleware\VerifyWhatsAppWebhook;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -36,6 +37,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'entitled' => EnsureEntitled::class,
             // HMAC guard for the public inbound webhook from the self-hosted WhatsApp gateway.
             'wa.webhook' => VerifyWhatsAppWebhook::class,
+            // JWT/body-hash guard for the public inbound webhook from the self-hosted LiveKit server.
+            'livekit.webhook' => VerifyLivekitWebhook::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

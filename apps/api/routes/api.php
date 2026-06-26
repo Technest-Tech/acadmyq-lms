@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AcademyProfileController;
+use App\Http\Controllers\AcademyRoleController;
 use App\Http\Controllers\Admin\AcademyAutomationController;
 use App\Http\Controllers\Admin\AcademyController;
 use App\Http\Controllers\Admin\AcademySubscriptionController;
@@ -11,8 +13,6 @@ use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
-use App\Http\Controllers\AcademyProfileController;
-use App\Http\Controllers\AcademyRoleController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CertificateTemplateController;
@@ -20,13 +20,14 @@ use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PaymentSettingsController;
 use App\Http\Controllers\PayoutController;
-use App\Http\Controllers\Public\AcademyPaymentController;
+use App\Http\Controllers\PaypalOrderController;
 use App\Http\Controllers\People\GuardianController;
 use App\Http\Controllers\People\StaffController;
-use App\Http\Controllers\StaffDepartmentController;
 use App\Http\Controllers\People\StudentController;
 use App\Http\Controllers\People\TeacherController;
+use App\Http\Controllers\Public\AcademyPaymentController;
 use App\Http\Controllers\ReportFieldController;
 use App\Http\Controllers\Scheduling\AttendanceController;
 use App\Http\Controllers\Scheduling\CalendarController;
@@ -35,13 +36,15 @@ use App\Http\Controllers\Scheduling\GenerateSessionsController;
 use App\Http\Controllers\Scheduling\ScheduleController;
 use App\Http\Controllers\Scheduling\SessionController;
 use App\Http\Controllers\SessionReportController;
-use App\Http\Controllers\StudentProgressReportController;
-use App\Http\Controllers\WhatsAppWebhookController;
-use App\Http\Controllers\Trials\TrialController;
-use App\Http\Controllers\PaymentSettingsController;
-use App\Http\Controllers\PaypalOrderController;
 use App\Http\Controllers\SpecializationController;
+use App\Http\Controllers\StaffDepartmentController;
+use App\Http\Controllers\StudentProgressReportController;
 use App\Http\Controllers\TeacherReportController;
+use App\Http\Controllers\Trials\TrialController;
+use App\Http\Controllers\Video\LivekitWebhookController;
+use App\Http\Controllers\Video\VideoRecordingController;
+use App\Http\Controllers\Video\VideoRoomController;
+use App\Http\Controllers\WhatsAppWebhookController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -102,6 +105,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
 | connection/QR/message events; the controller maps each to its academy via the signed payload.
 */
 Route::post('/internal/wa/webhook', [WhatsAppWebhookController::class, 'handle'])->middleware('wa.webhook');
+
+/*
+| Internal webhook from the self-hosted LiveKit server (docs/video-platform). NOT a Sanctum route —
+| LiveKit signs each webhook with a JWT (verified by the `livekit.webhook` middleware) whose sha256
+| claim must match the body. Carries egress/participant/room events; the controller resolves the
+| academy from the room-name suffix and writes inside Tenancy::withContext.
+*/
+Route::post('/internal/livekit/webhook', [LivekitWebhookController::class, 'handle'])->middleware('livekit.webhook');
 
 /*
 | Authenticated API. `auth:sanctum` establishes identity; `tenant.context`
@@ -444,5 +455,21 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/payouts/{id}/adjustments', [PayoutController::class, 'addAdjustment']);
         Route::delete('/payouts/{id}/adjustments/{adjustmentId}', [PayoutController::class, 'removeAdjustment']);
         Route::get('/reports/profit-summary', [PayoutController::class, 'profitSummary']);
+    });
+
+    // Video classroom (docs/video-platform). Plan-gated by entitled:video.conferencing (402 on a
+    // miss); each operation is capability-gated in the controller via Gate::authorize (403), and
+    // every row is tenant-scoped by RLS. The academy owns the room (V-CTL-1): owners create/manage,
+    // teachers join; recordings are on-demand (V-REC-1) and the token endpoint mints a scoped JWT.
+    Route::middleware('entitled:video.conferencing')->group(function () {
+        Route::get('/video/rooms', [VideoRoomController::class, 'index']);
+        Route::post('/video/rooms', [VideoRoomController::class, 'store']);
+        Route::get('/video/recordings', [VideoRecordingController::class, 'index']);
+        Route::get('/video/rooms/{id}', [VideoRoomController::class, 'show']);
+        Route::patch('/video/rooms/{id}', [VideoRoomController::class, 'update']);
+        Route::delete('/video/rooms/{id}', [VideoRoomController::class, 'destroy']);
+        Route::post('/video/rooms/{id}/token', [VideoRoomController::class, 'token']);
+        Route::post('/video/rooms/{id}/recording', [VideoRecordingController::class, 'start']);
+        Route::delete('/video/rooms/{id}/recording', [VideoRecordingController::class, 'stop']);
     });
 });
