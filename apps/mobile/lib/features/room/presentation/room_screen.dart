@@ -15,10 +15,21 @@ import '../application/room_controller.dart';
 /// Drives the engine-agnostic [RoomController]; it works identically against the real
 /// [LivekitMediaSession] and the `FakeMediaSession` (rule V-ARCH-1).
 class RoomScreen extends ConsumerStatefulWidget {
-  const RoomScreen({super.key, required this.credentials, this.roomTitle});
+  const RoomScreen({
+    super.key,
+    required this.credentials,
+    this.roomTitle,
+    this.initialMicEnabled = true,
+    this.initialCameraEnabled = false,
+  });
 
   final RoomCredentials credentials;
   final String? roomTitle;
+
+  /// The mic/camera intent carried in from the lobby pre-flight. Audio-first defaults: mic on,
+  /// camera off.
+  final bool initialMicEnabled;
+  final bool initialCameraEnabled;
 
   @override
   ConsumerState<RoomScreen> createState() => _RoomScreenState();
@@ -36,6 +47,13 @@ class _RoomScreenState extends ConsumerState<RoomScreen> {
   Future<void> _join() async {
     try {
       await _controller.join(widget.credentials);
+      // Reconcile the session with the device choice made in the lobby.
+      if (_controller.isMicEnabled != widget.initialMicEnabled) {
+        await _controller.toggleMic();
+      }
+      if (_controller.isCameraEnabled != widget.initialCameraEnabled) {
+        await _controller.toggleCamera();
+      }
     } catch (_) {
       // The controller surfaces failure via MediaSessionState.failed; the UI renders a retry.
     }

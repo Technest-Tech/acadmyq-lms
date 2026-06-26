@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   livekit_client: ^2.8.1
   flutter_riverpod: ^3.3.2
+  permission_handler: ^12.0.3
+  connectivity_plus: ^7.2.0
 
 dev_dependencies:
   flutter_test:
