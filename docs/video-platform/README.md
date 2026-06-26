@@ -23,6 +23,7 @@ into the existing AcademIQ system (`apps/api` Laravel + `apps/web` Next.js + Pos
 | [02-INFRASTRUCTURE.md](02-INFRASTRUCTURE.md) | Local Docker setup + Hetzner runbook, staged sizing, TURN/coturn, Egress, object storage, ports/firewall, observability — the Phase-0 runbook | ✅ Written |
 | [03-DATA-MODEL.md](03-DATA-MODEL.md) | New tables + migrations (RLS-scoped), enums, indexes, seed data, entitlement/permission seeds, guest-join design | ✅ Written |
 | [04-FLUTTER-CLIENT.md](04-FLUTTER-CLIENT.md) | Flutter app clean architecture, the `MediaSession` abstraction, design system, state mgmt, multi-platform (mobile→desktop) | ✅ Written |
+| [06-WEB-CALL-CLIENT.md](06-WEB-CALL-CLIENT.md) | **PRIORITY** — browser call client + shareable per-room join links (Zoom-style), premium responsive UI, mobile web | 📋 Spec (next build) |
 
 **Status legend:** ✅ written · ⏳ to be written next · 🚧 in progress
 
