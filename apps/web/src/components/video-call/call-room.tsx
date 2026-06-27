@@ -50,7 +50,12 @@ export function CallRoom({
       options={{ adaptiveStream: true, dynacast: true }}
       className="flex h-[100dvh] flex-col bg-slate-900 text-white"
     >
-      <InCall roomTitle={creds.roomTitle} canManage={creds.canManage} roomId={creds.roomId} />
+      <InCall
+        roomTitle={creds.roomTitle}
+        canManage={creds.canManage}
+        roomId={creds.roomId}
+        suppressRecording={creds.suppressRecordingIndicator ?? false}
+      />
     </LiveKitRoom>
   );
 }
@@ -60,10 +65,12 @@ function InCall({
   roomTitle,
   canManage,
   roomId,
+  suppressRecording,
 }: {
   roomTitle: string;
   canManage: boolean;
   roomId: string;
+  suppressRecording: boolean;
 }) {
   useWakeLock();
   const participants = useParticipants();
@@ -88,7 +95,7 @@ function InCall({
     <CallControlContext.Provider value={control}>
       <PinContext.Provider value={pin}>
         <CompositePipProvider>
-          <CallStage roomTitle={roomTitle} />
+          <CallStage roomTitle={roomTitle} suppressRecording={suppressRecording} />
           <RoomAudioRenderer />
           <ParticipantsPanel
             open={panelOpen}

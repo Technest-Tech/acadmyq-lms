@@ -27,7 +27,13 @@ function trackKey(ref: TrackReferenceOrPlaceholder): string {
  * spotlight (1:1 → big focus + draggable self-PiP), grid (small group), presenter (screen-share).
  * Audio is played by RoomAudioRenderer in the parent (audio-first, V-AUD-1).
  */
-export function CallStage({ roomTitle }: { roomTitle: string }) {
+export function CallStage({
+  roomTitle,
+  suppressRecording = false,
+}: {
+  roomTitle: string;
+  suppressRecording?: boolean;
+}) {
   const t = useTranslations("videoCall");
   const state = useConnectionState();
   const participants = useParticipants();
@@ -61,7 +67,7 @@ export function CallStage({ roomTitle }: { roomTitle: string }) {
           {roomTitle}
         </h1>
         <div className="flex items-center gap-2">
-          <RecIndicator />
+          <RecIndicator suppress={suppressRecording} />
           <ConnectionPill />
         </div>
       </div>
@@ -103,11 +109,15 @@ export function CallStage({ roomTitle }: { roomTitle: string }) {
   );
 }
 
-/** A live "REC" badge shown to EVERYONE while the room is being recorded (consent visibility). */
-function RecIndicator() {
+/**
+ * A live "REC" badge shown to EVERYONE while the room is being recorded (consent visibility). In a
+ * COVERT-monitored room (08-ROOM-ACCESS §5) `suppress` is set, hiding the indicator — the academy
+ * owns that legal call.
+ */
+function RecIndicator({ suppress = false }: { suppress?: boolean }) {
   const t = useTranslations("videoCall");
   const isRecording = useIsRecording();
-  if (!isRecording) return null;
+  if (!isRecording || suppress) return null;
 
   return (
     <span className="flex items-center gap-1.5 rounded-full bg-red-500/20 px-2.5 py-1 text-xs font-semibold text-red-200 ring-1 ring-red-400/30 backdrop-blur">

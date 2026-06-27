@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Video;
 use App\Http\Controllers\Controller;
 use App\Services\Livekit\LivekitRoomClient;
 use App\Services\Livekit\LivekitTokenService;
+use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\PermissionResolver;
 use App\Support\Tenancy;
@@ -95,7 +96,32 @@ final class VideoJoinController extends Controller
         $user = Auth::guard('sanctum')->user();
         $authHost = $user !== null ? $this->resolveHost((string) $user->getKey(), $academyId) : null;
 
-        if ($authHost !== null) {
+        if ($linkRole === 'monitor') {
+            // Supervisor mode — an explicit HIDDEN entry that OVERRIDES the auth-host default (using
+            // the monitor link is a deliberate choice to be invisible, not to appear as host).
+            // Requires login + room.monitor + the room being monitor-enabled; ALWAYS audited
+            // (08-ROOM-ACCESS §5), even in covert mode.
+            if ($user === null) {
+                abort(response()->json(['code' => 'login_required', 'message' => 'Sign in as management to monitor this session.'], 401));
+            }
+            $monitorRole = $this->resolveMonitor((string) $user->getKey(), $academyId);
+            if ($monitorRole === null) {
+                abort(response()->json(['code' => 'monitor_forbidden', 'message' => 'You do not have permission to monitor this session.'], 403));
+            }
+            if (! (bool) ($config['monitor_enabled'] ?? false)) {
+                abort(response()->json(['code' => 'monitor_disabled', 'message' => 'Monitor mode is not enabled for this room.'], 403));
+            }
+
+            $identity = (string) $user->getKey();
+            $displayName = trim((string) ($user->full_name ?? ''));
+            $canManage = false;
+            $role = 'monitor';
+            $accessToken = $this->tokens->monitorToken($livekitName, $identity, $displayName !== '' ? $displayName : null);
+
+            // Accountability is mandatory even when covert — record WHO watched, WHICH room, WHEN.
+            Audit::log('video_room.monitor_join', 'video_room', $roomId, $academyId, $identity, $monitorRole, after: ['livekit_name' => $livekitName]);
+            // No attendance row — a monitor is a ghost; its presence lives only in the audit log.
+        } elseif ($authHost !== null) {
             // Identity-verified host — bypasses every link gate (passwords/presence/capacity).
             $identity = (string) $user->getKey();
             $displayName = trim((string) ($user->full_name ?? ''));
@@ -125,9 +151,6 @@ final class VideoJoinController extends Controller
                 'userId' => null,
                 'participantRole' => 'HOST',
             ]);
-        } elseif ($linkRole === 'monitor') {
-            // Supervisor mode is wired in S3 (room.monitor cap + hidden grant + audit + disclosure).
-            abort(response()->json(['code' => 'monitor_unavailable', 'message' => 'Monitor mode is not available yet.'], 403));
         } else {
             $displayName = trim((string) ($data['display_name'] ?? ''));
             if ($displayName === '') {
@@ -165,11 +188,14 @@ final class VideoJoinController extends Controller
             // Host admin capability: gates the in-call record control AND moderation (mute/remove/end).
             'canManage' => $canManage,
             // Settings the client honours (never the password values): record is also gated by
-            // recording_enabled; guests start muted when mute_guests_on_join; the monitor disclosure
-            // notice shows when the room may be supervised (08-ROOM-ACCESS §4/§5).
+            // recording_enabled; guests start muted when mute_guests_on_join. Monitor disclosure
+            // (08-ROOM-ACCESS §5): when a room may be supervised AND disclosure is on, joiners see a
+            // "may be monitored & recorded" notice. In COVERT mode (monitor_disclose=false) the notice
+            // is hidden AND the recording indicator is suppressed — the academy owns that legal call.
             'recordingEnabled' => (bool) ($config['recording_enabled'] ?? true),
             'muteOnJoin' => $role === 'guest' && (bool) ($config['mute_guests_on_join'] ?? false),
-            'monitorDisclosure' => (bool) ($config['monitor_enabled'] ?? false),
+            'monitorDisclosure' => (bool) ($config['monitor_enabled'] ?? false) && (bool) ($config['monitor_disclose'] ?? true),
+            'suppressRecordingIndicator' => (bool) ($config['monitor_enabled'] ?? false) && ! (bool) ($config['monitor_disclose'] ?? true),
         ]);
     }
 
@@ -342,6 +368,27 @@ final class VideoJoinController extends Controller
             $caps = PermissionResolver::forRole($r->role);
             if (in_array('room.join', $caps, true)) {
                 return ['role' => (string) $r->role, 'canManage' => in_array('room.manage', $caps, true)];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Does this authenticated user hold `room.monitor` in the room's academy? Returns the granting
+     * role (for the audit trail), or null. Reads roles through the BYPASSRLS `app.auth_user_roles()`
+     * because no tenant context is set on this public route — same discipline as resolveHost().
+     */
+    private function resolveMonitor(string $userId, string $academyId): ?string
+    {
+        $roles = DB::select('select role, academy_id from app.auth_user_roles(?::uuid)', [$userId]);
+
+        foreach ($roles as $r) {
+            if ($r->academy_id === null || (string) $r->academy_id !== $academyId) {
+                continue;
+            }
+            if (in_array('room.monitor', PermissionResolver::forRole($r->role), true)) {
+                return (string) $r->role;
             }
         }
 

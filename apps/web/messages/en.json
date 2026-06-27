@@ -1143,6 +1143,12 @@
     "slugLabel": "Short link",
     "slugPlaceholder": "e.g. halaqa-1",
     "slugHelp": "Readable guest URL (needs a guest password + academy subdomain). Lowercase, letters/numbers/hyphens.",
+    "copyMonitorLink": "Monitor link",
+    "monitorLinkCopied": "Monitor link copied — management only.",
+    "monitorTitle": "Supervisor mode",
+    "monitorEnabledLabel": "Allow management to monitor this room",
+    "monitorDiscloseLabel": "Show participants a \"may be monitored\" notice",
+    "monitorCovertWarning": "Covert: participants are not told they may be monitored or recorded. You are responsible for ensuring this is legal where your academy operates. Every monitor entry is still audited.",
     "duration": "Duration",
     "minutesShort": "min",
     "status": {

@@ -38,12 +38,13 @@ final class VideoRoomController extends Controller
 
         // One subdomain for the whole list (RLS scopes every room to the caller's academy).
         $subdomain = DB::table('academies')->where('id', (string) $this->ctx()->academyId)->value('subdomain');
+        $canMonitor = $this->ctx()->can('room.monitor');
 
         $rooms = DB::table('video_rooms')
             ->whereNull('deleted_at')
             ->orderByDesc('created_at')
-            ->get(['id', 'name', 'teacher_id', 'status', 'record_default', 'join_token', 'host_token', 'slug', 'config', 'created_at'])
-            ->map(fn (object $r) => $this->withConfig($r, $subdomain));
+            ->get(['id', 'name', 'teacher_id', 'status', 'record_default', 'join_token', 'host_token', 'monitor_token', 'slug', 'config', 'created_at'])
+            ->map(fn (object $r) => $this->withConfig($r, $subdomain, $canMonitor));
 
         return response()->json(['rooms' => $rooms]);
     }
@@ -106,7 +107,7 @@ final class VideoRoomController extends Controller
 
         $subdomain = DB::table('academies')->where('id', (string) $room->academy_id)->value('subdomain');
 
-        return response()->json(['room' => $this->withConfig($room, $subdomain)]);
+        return response()->json(['room' => $this->withConfig($room, $subdomain, $this->ctx()->can('room.monitor'))]);
     }
 
     /** PATCH /api/video/rooms/{id} — rename / retitle / toggle record-default. */
@@ -219,9 +220,14 @@ final class VideoRoomController extends Controller
         }
 
         $which = (string) $request->input('which', 'guest');
+        // Rotating the private monitor link is itself a management action (room.monitor).
+        if ($which === 'monitor') {
+            Gate::authorize('room.monitor');
+        }
         $column = match ($which) {
             'guest' => 'join_token',
             'host' => 'host_token',
+            'monitor' => 'monitor_token',
             default => abort(422, 'Unknown link type.'),
         };
         $token = $which === 'guest' ? VideoJoinToken::generate() : VideoJoinToken::generateSecret();
@@ -238,13 +244,15 @@ final class VideoRoomController extends Controller
      * always sees every key regardless of when the room was created. The query builder returns jsonb
      * as a raw string, so we decode it explicitly here.
      */
-    private function withConfig(object $row, ?string $subdomain = null): object
+    private function withConfig(object $row, ?string $subdomain = null, bool $canMonitor = false): object
     {
         $stored = (array) json_decode((string) ($row->config ?? '{}'), true);
         $row->config = (object) array_merge($this->defaultConfig(), $stored);
-        // The monitor link is private to management (gated by room.monitor in S3) — never expose its
-        // token through the room.read list/detail surfaces. show() selects every column, so strip it.
-        unset($row->monitor_token);
+        // The monitor link is private to management — expose its token ONLY to room.monitor holders
+        // (08-ROOM-ACCESS §5); strip it for everyone else (a plain teacher with room.read must not see it).
+        if (! $canMonitor) {
+            unset($row->monitor_token);
+        }
         // The academy subdomain lets the panel build the readable slug URL (/r/{academy}/{slug}).
         $row->academy_subdomain = $subdomain;
 
@@ -270,6 +278,9 @@ final class VideoRoomController extends Controller
             'allow_guest_screenshare' => true,
             'max_participants' => null,
             'monitor_enabled' => false,
+            // Disclose monitoring to participants (safe default). Set false for COVERT supervision —
+            // the academy owns that legal call (08-ROOM-ACCESS §5); entry is audited regardless.
+            'monitor_disclose' => true,
         ];
     }
 
@@ -306,6 +317,7 @@ final class VideoRoomController extends Controller
             'settings.allow_guest_screenshare' => ['sometimes', 'boolean'],
             'settings.max_participants' => ['sometimes', 'nullable', 'integer', 'min:2', 'max:500'],
             'settings.monitor_enabled' => ['sometimes', 'boolean'],
+            'settings.monitor_disclose' => ['sometimes', 'boolean'],
         ]);
 
         $allowed = array_keys($this->defaultConfig());

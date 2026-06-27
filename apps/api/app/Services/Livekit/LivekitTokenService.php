@@ -99,6 +99,26 @@ final class LivekitTokenService
         return $claims;
     }
 
+    /**
+     * Supervisor / monitor token (08-ROOM-ACCESS §5): a HIDDEN participant who subscribes to all
+     * A/V but publishes nothing and appears in NO participant list and NO tile — invisible to the
+     * teacher and students. `hidden:true` is the LiveKit grant that suppresses the SFU announcement.
+     * Entry is gated to room.monitor and audited at the controller; recording (if any) is server-side.
+     */
+    public function monitorToken(string $roomName, string $identity, ?string $displayName): string
+    {
+        $grant = [
+            'room' => $roomName,
+            'roomJoin' => true,
+            'canSubscribe' => true,
+            'canPublish' => false,
+            'canPublishData' => false,
+            'hidden' => true,
+        ];
+
+        return $this->mint($identity, $grant, $this->participantClaims($displayName, 'monitor'));
+    }
+
     /** Short-lived server-admin token for room/egress lifecycle calls to the LiveKit server API. */
     public function adminToken(): string
     {

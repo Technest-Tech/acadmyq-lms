@@ -70,7 +70,12 @@ final class VideoRecordingController extends Controller
     /** POST /api/video/rooms/{id}/recording — start an on-demand recording. */
     public function start(string $id): JsonResponse
     {
-        Gate::authorize('room.manage');
+        // A managing host OR a supervisor (room.monitor) may record — the latter can record while
+        // hidden (08-ROOM-ACCESS §5). Recording remains opt-in per session (V-REC-1).
+        $ctx = $this->ctx();
+        if (! $ctx->can('room.manage') && ! $ctx->can('room.monitor')) {
+            abort(403, 'You do not have permission to record this room.');
+        }
 
         $room = DB::table('video_rooms')->where('id', $id)->whereNull('deleted_at')->first();
         if ($room === null) {
@@ -84,7 +89,6 @@ final class VideoRecordingController extends Controller
             abort(403, 'Recording is disabled for this room.');
         }
 
-        $ctx = $this->ctx();
         $recordingId = (string) Str::uuid();
         $output = $this->fileOutput($recordingId);
 

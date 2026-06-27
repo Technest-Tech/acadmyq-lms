@@ -3108,6 +3108,8 @@ export interface RoomAccessSettings {
   allow_guest_screenshare: boolean;
   max_participants: number | null;
   monitor_enabled: boolean;
+  /** Disclose monitoring to participants. false = COVERT (no notice, recording indicator hidden). */
+  monitor_disclose: boolean;
 }
 
 export interface VideoRoom {
@@ -3120,6 +3122,8 @@ export interface VideoRoom {
   join_token: string;
   /** Private HOST link token → /r/{host_token} (full control, no login). room.manage only. */
   host_token?: string;
+  /** Private MONITOR link token → /r/{monitor_token} (hidden supervisor). room.monitor only. */
+  monitor_token?: string;
   /** Academy-chosen short slug → /r/{academy_subdomain}/{slug} (readable guest link). */
   slug?: string | null;
   /** The academy's subdomain — combined with slug to build the readable guest URL. */
@@ -3188,8 +3192,8 @@ export function deleteVideoRoom(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/video/rooms/${id}`, { method: "DELETE" });
 }
 
-/** Which room link to regenerate (08-ROOM-ACCESS §2). Monitor rotation arrives with S3. */
-export type RoomLinkKind = "guest" | "host";
+/** Which room link to regenerate (08-ROOM-ACCESS §2). `monitor` requires room.monitor. */
+export type RoomLinkKind = "guest" | "host" | "monitor";
 
 /**
  * Regenerate one of a room's shareable links, invalidating its previously-shared URL. Returns the
@@ -3244,10 +3248,18 @@ export interface JoinRoomResponse {
   identity: string;
   /** Resolved display name (server uses the host's real name; null if none). */
   displayName: string | null;
-  /** How the caller was admitted. */
-  role: "host" | "guest";
+  /** How the caller was admitted. `monitor` = a hidden supervisor (08-ROOM-ACCESS §5). */
+  role: "host" | "guest" | "monitor";
   /** Host admin (holds room.manage): may record AND moderate (mute/remove/end). */
   canManage: boolean;
+  /** Recording allowed for this room (gates the record button alongside canManage). */
+  recordingEnabled?: boolean;
+  /** Guests start with the mic off when true. */
+  muteOnJoin?: boolean;
+  /** Show a "may be monitored & recorded" notice (monitor-enabled + disclosure on). */
+  monitorDisclosure?: boolean;
+  /** Covert monitoring — hide the live recording indicator from participants. */
+  suppressRecordingIndicator?: boolean;
 }
 
 /**

@@ -166,10 +166,12 @@ The monitor is invisible **in the call**, but the system is **not** covert:
    identity. The monitor link is a convenience deep-link, but the joiner must be logged in **and** hold
    `room.monitor`; otherwise → login redirect / 403. *(This is the one place I deviate from "links need
    no login" — accountability requires it. Flagged in §12-D2.)*
-3. **REC badge tension.** Monitor-triggered recording would normally trip the existing live "REC"
-   badge (server-truth `useIsRecording`). **Default: keep it shown (disclosed).** Suppressing it =
-   fully-covert recording — I will NOT build that variant without your explicit go-ahead and your
-   confirmation of local (Egypt/MENA) law (§12-D2).
+3. **REC badge / covert mode.** Disclosure is a per-room toggle `monitor_disclose` (default `true`).
+   With it **on**, the live "REC" badge (server-truth `useIsRecording`) stays visible. With it **off**
+   (COVERT — explicitly authorised by the academy owner, who owns the legal call): the notice is hidden
+   and the recording indicator is suppressed for participants (`suppressRecordingIndicator` →
+   `RecIndicator suppress`). **Audit is unconditional in both modes** — the academy's safeguard against
+   abuse. The join endpoint exposes `monitorDisclosure` + `suppressRecordingIndicator` accordingly.
 
 The monitor does **not** write a `room_participants` (attendance) row — it's a ghost; its presence
 lives only in the audit log. Server-side counts (`require_host_present`, `max_participants`) exclude
@@ -319,8 +321,14 @@ live flows, no new regressions (mind the known pre-existing failures recorded in
 
 - **D1 — slug route shape → Option A** (two-segment `/r/{academy}/{room}`, namespaced by
   `academies.subdomain`). Host/monitor stay on `/r/{token}`.
-- **D2 — monitor → disclosed + audited + auth-required**, REC badge **kept shown (disclosed)**. The
-  fully-covert variant is explicitly NOT built without a separate go-ahead + local-law check.
+- **D2 — monitor → auth-required + ALWAYS audited.** Disclosure is a **per-room toggle**
+  (`monitor_disclose`, default `true` = disclosed). **The academy owner explicitly authorised the
+  COVERT variant (2026-06-27)** and accepted legal responsibility for using it lawfully in their
+  jurisdiction. When `monitor_disclose=false`: no "may be monitored" notice **and** the live recording
+  indicator is suppressed for participants — but **every monitor entry is still audited** (who/when/
+  room), which is non-negotiable and the academy's protection against a rogue admin. The disclosed
+  variant remains available by leaving the toggle on. *(In-call disclosure banner UI for the disclosed
+  variant = follow-up; the `monitorDisclosure` flag is already delivered.)*
 - **D3 — defaults → `recording_enabled=true`, `allow_guest_screenshare=true`** (preserve today's
   behaviour).
 - **Collision policy** — build S1 backend-first; touch only files outside the parallel device-picker

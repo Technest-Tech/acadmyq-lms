@@ -123,11 +123,12 @@ it('the guest join_token resolves to a guest', function () {
         ->assertOk()->assertJsonPath('role', 'guest');
 });
 
-it('a monitor link is not available yet (403)', function () {
+it('a monitor link requires login (anonymous → 401)', function () {
+    // Full monitor behaviour (hidden grant, room.monitor gate, audit) lives in VideoRoomMonitorTest.
     $room = seedLinkRoom($this->pro, ['monitor_enabled' => true]);
 
     $this->postJson("/api/video/join/{$room['monitor_token']}", ['display_name' => 'Boss'])
-        ->assertStatus(403)->assertJsonPath('code', 'monitor_unavailable');
+        ->assertStatus(401)->assertJsonPath('code', 'login_required');
 });
 
 it('an authenticated host on a host link keeps their own identity (auth wins)', function () {
@@ -212,12 +213,12 @@ it('rotates the host link and kills the old one', function () {
 });
 
 // ── exposure ─────────────────────────────────────────────────────────────────────────
-it('exposes host_token and slug but never monitor_token', function () {
+it('exposes host_token and slug to a manager', function () {
+    // monitor_token visibility (room.monitor only) is covered in VideoRoomMonitorTest.
     Sanctum::actingAs($this->proOwner);
     $id = $this->postJson('/api/video/rooms', ['name' => 'Linked'])->json('roomId');
 
     $room = $this->getJson("/api/video/rooms/{$id}")->assertOk()->json('room');
     expect($room['host_token'])->toBeString()->not->toBeEmpty();
     expect($room)->toHaveKey('slug');
-    expect($room)->not->toHaveKey('monitor_token');
 });

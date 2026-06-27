@@ -3,6 +3,7 @@
 import {
   Copy,
   Download,
+  Eye,
   Film,
   KeyRound,
   Loader2,
@@ -135,6 +136,12 @@ export function VideoClassroomScreen() {
     return copy(roomShareUrl(room.host_token), t("hostLinkCopied"));
   }
 
+  // The private monitor (supervisor) link — management only. Requires login + room.monitor at join.
+  function copyMonitorLink(room: VideoRoom) {
+    if (!room.monitor_token) return Promise.resolve();
+    return copy(roomShareUrl(room.monitor_token), t("monitorLinkCopied"));
+  }
+
   // Fetch a fresh short-lived presigned URL on demand (never store it), then play in-panel or
   // download. Re-fetched each time so an expired link is never reused.
   async function openRecording(rec: RoomRecording, mode: "play" | "download") {
@@ -261,6 +268,18 @@ export function VideoClassroomScreen() {
                     >
                       <KeyRound className="size-3.5" aria-hidden />
                       {t("copyHostLink")}
+                    </Button>
+                  )}
+                  {can("room.monitor") && room.monitor_token && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      onClick={() => copyMonitorLink(room)}
+                      data-testid={`copy-monitor-link-${room.id}`}
+                    >
+                      <Eye className="size-3.5" aria-hidden />
+                      {t("copyMonitorLink")}
                     </Button>
                   )}
                   {can("room.manage") && (

@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -34,6 +35,8 @@ export function RoomModal({
   onSaved: (message: string) => void;
 }) {
   const t = useTranslations("videoClassroom");
+  const { can } = useAuth();
+  const canMonitor = can("room.monitor");
   const [name, setName] = useState("");
   const [recordDefault, setRecordDefault] = useState(false);
   // Access settings.
@@ -43,6 +46,9 @@ export function RoomModal({
   const [recordingEnabled, setRecordingEnabled] = useState(true);
   const [requireHostPresent, setRequireHostPresent] = useState(false);
   const [allowGuestScreenshare, setAllowGuestScreenshare] = useState(true);
+  // Supervisor mode (08-ROOM-ACCESS §5) — only editable by room.monitor holders.
+  const [monitorEnabled, setMonitorEnabled] = useState(false);
+  const [monitorDisclose, setMonitorDisclose] = useState(true);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,19 +66,27 @@ export function RoomModal({
     setRecordingEnabled(c?.recording_enabled ?? true);
     setRequireHostPresent(c?.require_host_present ?? false);
     setAllowGuestScreenshare(c?.allow_guest_screenshare ?? true);
+    setMonitorEnabled(c?.monitor_enabled ?? false);
+    setMonitorDisclose(c?.monitor_disclose ?? true);
     setError(null);
   }, [open, room]);
 
   function buildSettings(): Partial<RoomAccessSettings> {
     const pw = guestPassword.trim();
     const max = maxParticipants.trim();
-    return {
+    const s: Partial<RoomAccessSettings> = {
       guest_password: pw === "" ? null : pw,
       max_participants: max === "" ? null : Number(max),
       recording_enabled: recordingEnabled,
       require_host_present: requireHostPresent,
       allow_guest_screenshare: allowGuestScreenshare,
     };
+    // Only a room.monitor holder edits supervisor settings (avoids a plain manager clobbering them).
+    if (canMonitor) {
+      s.monitor_enabled = monitorEnabled;
+      s.monitor_disclose = monitorDisclose;
+    }
+    return s;
   }
 
   async function submit() {
@@ -238,6 +252,38 @@ export function RoomModal({
             />
             {t("allowGuestScreenshare")}
           </label>
+
+          {/* Supervisor mode — management-only (room.monitor) */}
+          {canMonitor && (
+            <div className="border-border/60 space-y-3 border-t pt-3">
+              <p className="text-foreground text-sm font-semibold">{t("monitorTitle")}</p>
+              <label className="flex items-center gap-2.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={monitorEnabled}
+                  onChange={(e) => setMonitorEnabled(e.target.checked)}
+                  className="border-input size-4 rounded"
+                />
+                {t("monitorEnabledLabel")}
+              </label>
+              {monitorEnabled && (
+                <label className="flex items-center gap-2.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={monitorDisclose}
+                    onChange={(e) => setMonitorDisclose(e.target.checked)}
+                    className="border-input size-4 rounded"
+                  />
+                  {t("monitorDiscloseLabel")}
+                </label>
+              )}
+              {monitorEnabled && !monitorDisclose && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                  {t("monitorCovertWarning")}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}

@@ -45,8 +45,9 @@ final class PermissionCatalog
         'staff_department.manage',
         // Video classroom (docs/video-platform). The academy OWNS the room (V-CTL-1): owners
         // create/manage rooms and recordings; teachers join. Gated by the `video.conferencing`
-        // entitlement on top of these RBAC capabilities.
-        'room.read', 'room.create', 'room.join', 'room.manage', 'recording.view',
+        // entitlement on top of these RBAC capabilities. `room.monitor` = enter supervisor (ghost)
+        // mode to silently observe + record a session for quality & safety (08-ROOM-ACCESS §5).
+        'room.read', 'room.create', 'room.join', 'room.manage', 'recording.view', 'room.monitor',
     ];
 
     /**
@@ -76,8 +77,9 @@ final class PermissionCatalog
             'certificate.read', 'certificate.manage',
             'audit.read',
             'staff.read', 'staff.create', 'staff.update', 'staff.deactivate',
-            // Video classroom — the owner provisions/manages rooms and views recordings (V-CTL-1).
-            'room.read', 'room.create', 'room.join', 'room.manage', 'recording.view',
+            // Video classroom — the owner provisions/manages rooms and views recordings (V-CTL-1),
+            // and may enter supervisor (monitor) mode. Composable into a custom management role.
+            'room.read', 'room.create', 'room.join', 'room.manage', 'recording.view', 'room.monitor',
         ];
 
         return [

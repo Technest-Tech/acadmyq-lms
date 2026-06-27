@@ -2,6 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthContext } from "@/components/auth-provider";
+import { authValue, makeSession } from "@/test/auth";
 import enMessages from "../../../messages/en.json";
 import { RoomModal } from "./room-modal";
 
@@ -15,11 +17,13 @@ import * as api from "@/lib/api";
 
 const t = enMessages.videoClassroom;
 
-function renderModal(room: api.VideoRoom | null = null) {
+function renderModal(room: api.VideoRoom | null = null, permissions: string[] = ["room.manage"]) {
   const onSaved = vi.fn();
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <RoomModal open room={room} onClose={vi.fn()} onSaved={onSaved} />
+      <AuthContext.Provider value={authValue(makeSession("ACADEMY_OWNER", { permissions }))}>
+        <RoomModal open room={room} onClose={vi.fn()} onSaved={onSaved} />
+      </AuthContext.Provider>
     </NextIntlClientProvider>,
   );
   return { onSaved };
@@ -35,6 +39,7 @@ const baseConfig: api.RoomAccessSettings = {
   allow_guest_screenshare: true,
   max_participants: null,
   monitor_enabled: false,
+  monitor_disclose: true,
 };
 
 describe("RoomModal access settings (S1)", () => {
@@ -86,6 +91,21 @@ describe("RoomModal access settings (S1)", () => {
         }),
       ),
     );
+  });
+
+  it("shows supervisor toggles + a covert warning to a room.monitor holder", async () => {
+    const user = userEvent.setup();
+    renderModal(null, ["room.manage", "room.monitor"]);
+
+    expect(screen.getByText(t.monitorTitle)).toBeInTheDocument();
+    await user.click(screen.getByLabelText(t.monitorEnabledLabel)); // enable monitoring
+    await user.click(screen.getByLabelText(t.monitorDiscloseLabel)); // turn disclosure OFF → covert
+    expect(screen.getByText(t.monitorCovertWarning)).toBeInTheDocument();
+  });
+
+  it("hides supervisor toggles from a plain manager", () => {
+    renderModal(null, ["room.manage"]);
+    expect(screen.queryByText(t.monitorTitle)).not.toBeInTheDocument();
   });
 
   it("sends the slug (null when blank, value when set)", async () => {
