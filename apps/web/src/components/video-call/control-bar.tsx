@@ -7,6 +7,7 @@ import { Loader2, Mic, MicOff, MonitorUp, PhoneOff, Square, Users, Video, VideoO
 import { useTranslations } from "next-intl";
 import type { LucideIcon } from "lucide-react";
 import { startRoomRecording, stopRoomRecording } from "@/lib/api";
+import { DeviceMenu } from "./device-menu";
 
 /** A round mic/camera/screen toggle. Muted/inactive state is red/neutral; ≥44px touch target. */
 function ToggleButton({
@@ -174,6 +175,7 @@ export function ControlBar({
           {participantCount}
         </span>
       </button>
+      <DeviceMenu />
       <button
         type="button"
         onClick={() => void room.disconnect()}

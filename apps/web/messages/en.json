@@ -2800,6 +2800,8 @@
     "joinError": "Couldn't join the room. Please try again.",
     "camera": "Camera",
     "microphone": "Microphone",
+    "speaker": "Speaker",
+    "devices": "Devices",
     "turnCameraOff": "Turn camera off",
     "turnCameraOn": "Turn camera on",
     "muteMic": "Mute microphone",

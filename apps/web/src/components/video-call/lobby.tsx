@@ -22,6 +22,7 @@ import {
 import { getMe } from "@/lib/api";
 import { LOCALE_COOKIE, locales } from "@/i18n/config";
 import { BrandBackdrop } from "./brand-backdrop";
+import { DevicePicker } from "./device-picker";
 import { MicMeter } from "./mic-meter";
 
 /** The device + identity choices the lobby hands to the call on Join. */
@@ -356,43 +357,6 @@ function PreviewToggle({
     >
       <Icon className="size-5" />
     </button>
-  );
-}
-
-function DevicePicker({
-  label,
-  Icon,
-  devices,
-  activeId,
-  onChange,
-}: {
-  label: string;
-  Icon: typeof Mic;
-  devices: MediaDeviceInfo[];
-  activeId: string;
-  onChange: (id: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-      <Icon className="size-4 shrink-0 text-slate-400" />
-      <select
-        aria-label={label}
-        value={activeId}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={devices.length === 0}
-        className="min-w-0 flex-1 bg-transparent text-sm text-slate-200 outline-none [&>option]:bg-slate-800"
-      >
-        {devices.length === 0 ? (
-          <option value="">{label}</option>
-        ) : (
-          devices.map((d, i) => (
-            <option key={d.deviceId} value={d.deviceId}>
-              {d.label || `${label} ${i + 1}`}
-            </option>
-          ))
-        )}
-      </select>
-    </div>
   );
 }
 
