@@ -471,6 +471,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/video/rooms', [VideoRoomController::class, 'index']);
         Route::post('/video/rooms', [VideoRoomController::class, 'store']);
         Route::get('/video/recordings', [VideoRecordingController::class, 'index']);
+        Route::get('/video/recordings/{id}/url', [VideoRecordingController::class, 'url']);
         Route::get('/video/rooms/{id}', [VideoRoomController::class, 'show']);
         Route::patch('/video/rooms/{id}', [VideoRoomController::class, 'update']);
         Route::delete('/video/rooms/{id}', [VideoRoomController::class, 'destroy']);

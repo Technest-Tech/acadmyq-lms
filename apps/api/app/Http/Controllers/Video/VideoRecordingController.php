@@ -12,14 +12,15 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
  * Recordings — on-demand only (V-REC-1). Start/stop are owner/manager actions (room.manage);
  * listing/replay requires recording.view. Starting kicks off a LiveKit Egress and writes a
  * STARTING row; the egress webhook later finalises it (LivekitWebhookController). Retention is
- * stamped at creation (V-REC-2) and enforced by PurgeExpiredRecordingsJob. The full S3 output
- * wiring + signed-URL replay land with Phase 4 — Phase 1 establishes the seam.
+ * stamped at creation (V-REC-2) and enforced by PurgeExpiredRecordingsJob. Replay is a short-lived
+ * presigned GET URL (`recording.view`); storage access is signed-URL only (V-SEC-2).
  */
 final class VideoRecordingController extends Controller
 {
@@ -38,6 +39,32 @@ final class VideoRecordingController extends Controller
         return response()->json([
             'recordings' => $query->get(['id', 'room_id', 'session_id', 'student_id', 'status', 'duration_s', 'bytes', 'started_at', 'ended_at', 'expires_at', 'created_at']),
         ]);
+    }
+
+    /**
+     * GET /api/video/recordings/{id}/url — a short-lived presigned GET URL for a COMPLETED
+     * recording (V-SEC-2: storage is signed-URL only). RLS scopes the lookup to the caller's
+     * academy, so a recording from another tenant simply 404s.
+     */
+    public function url(string $id): JsonResponse
+    {
+        Gate::authorize('recording.view');
+
+        $rec = DB::table('room_recordings')
+            ->where('id', $id)
+            ->where('status', 'COMPLETED')
+            ->whereNotNull('storage_key')
+            ->first();
+        if ($rec === null) {
+            abort(404, 'Recording not available.');
+        }
+
+        $url = Storage::disk('video_recordings')->temporaryUrl(
+            (string) $rec->storage_key,
+            now()->addMinutes(15),
+        );
+
+        return response()->json(['url' => $url]);
     }
 
     /** POST /api/video/rooms/{id}/recording — start an on-demand recording. */

@@ -92,9 +92,13 @@ final class VideoJoinController extends Controller
             'token' => $accessToken,
             'roomName' => $livekitName,
             'roomTitle' => (string) $room['name'],
+            'roomId' => (string) $room['room_id'],
             'identity' => $identity,
             'displayName' => $displayName !== '' ? $displayName : null,
             'role' => $role,
+            // Only a host holding room.manage may drive recording (start/stop gate on room.manage).
+            // The browser uses this to show the in-call record control to hosts only.
+            'canRecord' => $host !== null && ($host['canManage'] ?? false),
         ]);
     }
 

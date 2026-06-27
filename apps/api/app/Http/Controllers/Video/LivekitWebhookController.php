@@ -68,13 +68,20 @@ final class LivekitWebhookController extends Controller
             default => 'RECORDING',
         };
 
+        // Real payload (verified 2026-06-27 against a live local egress): `fileResults[]` is the
+        // modern shape (legacy `file` kept as a fallback); `size`/`duration` arrive as STRINGS
+        // (protobuf int64 → JSON) and `duration` is in NANOSECONDS.
         $file = (array) ($info['fileResults'][0] ?? $info['file'] ?? []);
 
         $this->inAcademy($academyId, function () use ($egressId, $mapped, $file): void {
             // Idempotent: update-by-egress_id; a duplicate delivery is a harmless re-write.
             DB::table('room_recordings')->where('egress_id', $egressId)->update(array_filter([
                 'status' => $mapped,
-                'storage_key' => $file['location'] ?? $file['filename'] ?? null,
+                // Store the bucket-relative object KEY (`filename`), NOT `location`: the real
+                // `location` is a full URL carrying the storage endpoint host (e.g. the internal
+                // `minio:9000`), which is useless for a presigned playback URL. `filename` is what
+                // Storage::temporaryUrl() needs.
+                'storage_key' => $file['filename'] ?? $file['location'] ?? null,
                 'bytes' => isset($file['size']) ? (int) $file['size'] : null,
                 'duration_s' => isset($file['duration']) ? (int) round(((int) $file['duration']) / 1_000_000_000) : null,
                 'ended_at' => now(),

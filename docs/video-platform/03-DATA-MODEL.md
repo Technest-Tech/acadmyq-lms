@@ -261,3 +261,45 @@ Follow the existing deterministic-ID + idempotent pattern (stable UUIDs derived 
 
 > **Doc coherence:** this introduces guest-join (`V-ACC-2`), which extends the token flow in
 > 01-ARCHITECTURE §3. That doc has been cross-referenced accordingly.
+
+---
+
+## 8. LiveKit `egress_ended` webhook — real payload (verified) {#egress-webhook}
+
+`LivekitWebhookController::onEgress` finalises a `room_recordings` row (AC-V1.7). The **real** shape
+was captured 2026-06-27 against a live local egress (room-composite → MinIO) — it differs from a
+naive mock in ways that bite, so this is the ground truth the handler + the `VideoWebhookTest` fixture
+are written against:
+
+```jsonc
+{
+  "event": "egress_ended",
+  "egressInfo": {
+    "egressId":  "EG_…",          // camelCase (NOT egress_id)
+    "roomName":  "r-…__<academyId>", // camelCase; academy resolved from the __<uuid> suffix
+    "status":    "EGRESS_COMPLETE",  // string enum: EGRESS_COMPLETE | EGRESS_FAILED | EGRESS_ABORTED
+    "fileResults": [{               // modern array form (legacy singular `file` also present)
+      "filename": "recordings/<id>.mp4",                          // ← bucket-relative OBJECT KEY
+      "location": "http://minio:9000/recordings/recordings/<id>.mp4", // full URL w/ storage host
+      "size":     "14587884",        // STRING (protobuf int64 → JSON) — bytes
+      "duration": "38945951463"      // STRING — NANOSECONDS
+    }]
+  }
+}
+```
+
+**Field mapping (and the gotchas):**
+
+| Webhook field | Column | Note |
+|---|---|---|
+| `egressInfo.egressId` | (match key) | camelCase; handler also accepts `egress_id` defensively |
+| `egressInfo.roomName` | → academy via `__<uuid>` | camelCase; also accepts `room_name` |
+| `egressInfo.status` | `status` | `EGRESS_COMPLETE`→`COMPLETED`, `_FAILED`→`FAILED`, `_ABORTED`→`ABORTED`, else `RECORDING` |
+| `fileResults[0].filename` | `storage_key` | **store the object KEY, not `location`** — `location` carries the storage-endpoint host (e.g. internal `minio:9000`), useless for a presigned URL |
+| `fileResults[0].size` | `bytes` | string → `(int)` |
+| `fileResults[0].duration` | `duration_s` | string **nanoseconds** → `round(/1e9)` |
+
+> The egress also writes a small `<egressId>.json` manifest beside the media file, and the
+> controller's `filepath` (`recordings/<id>.mp4`) is *inside* the `recordings` bucket, so the object
+> key is `recordings/<id>.mp4` (the doubled segment is expected). Presigned replay (Phase R2) takes
+> `storage_key` as the key for `Storage::disk('s3')->temporaryUrl()`.

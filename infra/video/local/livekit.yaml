@@ -15,5 +15,14 @@ redis:
 keys:
   devkey: devsecret_local_only_change_me_0123456789
 
+# Webhooks → the Laravel control plane (signed with the devkey secret; verified by
+# VerifyLivekitWebhook). The URL must be reachable FROM this container; `host.docker.internal`
+# resolves to the host on Docker Desktop, so run the API bound to 0.0.0.0:8000
+# (`php artisan serve --host=0.0.0.0`). LOCAL ONLY — Hetzner config lives in infra/video/prod.
+webhook:
+  api_key: devkey
+  urls:
+    - http://host.docker.internal:8000/api/internal/livekit/webhook
+
 # No `turn:` block locally — a trusted LAN doesn't need a relay.
 # TURN (with TLS, incl. TCP/443) is enabled on Hetzner — see 02-INFRASTRUCTURE.md Part B.

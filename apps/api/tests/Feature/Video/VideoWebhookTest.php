@@ -100,13 +100,22 @@ it('finalises a recording on egress_ended and is idempotent on duplicate deliver
     ]);
     $this->clearTenantContext();
 
+    // The REAL LiveKit egress_ended shape, verified 2026-06-27 against a live local egress (see
+    // docs/video-platform/03-DATA-MODEL §egress-webhook): camelCase keys, a `fileResults[]` array,
+    // string-typed int64s (`size` bytes, `duration` NANOSECONDS), and a `filename` object key
+    // distinct from the full-URL `location`.
     [$body, $token] = signLivekit([
         'event' => 'egress_ended',
         'egressInfo' => [
-            'egress_id' => 'EG_test123',
-            'room_name' => $this->livekitName,
+            'egressId' => 'EG_test123',
+            'roomName' => $this->livekitName,
             'status' => 'EGRESS_COMPLETE',
-            'file' => ['location' => 's3://recordings/x.mp4', 'size' => 1048576, 'duration' => 60_000_000_000],
+            'fileResults' => [[
+                'filename' => 'recordings/x.mp4',
+                'location' => 'http://minio:9000/recordings/recordings/x.mp4',
+                'size' => '14587884',
+                'duration' => '38945951463',
+            ]],
         ],
     ]);
 
@@ -118,8 +127,9 @@ it('finalises a recording on egress_ended and is idempotent on duplicate deliver
     $rec = DB::table('room_recordings')->where('egress_id', 'EG_test123')->get();
     expect($rec)->toHaveCount(1);
     expect($rec[0]->status)->toBe('COMPLETED');
-    expect($rec[0]->duration_s)->toBe(60);
-    expect($rec[0]->storage_key)->toBe('s3://recordings/x.mp4');
+    expect($rec[0]->duration_s)->toBe(39);                  // round(38_945_951_463 ns / 1e9)
+    expect($rec[0]->bytes)->toBe(14587884);                 // string int64 → int
+    expect($rec[0]->storage_key)->toBe('recordings/x.mp4'); // the object KEY (filename), not `location`
 });
 
 // ── participant join/leave history ────────────────────────────────────────────────
