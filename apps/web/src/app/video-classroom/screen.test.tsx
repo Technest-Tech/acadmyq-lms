@@ -49,6 +49,7 @@ describe("VideoClassroomScreen (Phase 2)", () => {
           teacher_id: null,
           status: "ACTIVE",
           record_default: false,
+          join_token: "tok-r1",
           created_at: "2026-06-01T10:00:00Z",
         },
         {
@@ -57,6 +58,7 @@ describe("VideoClassroomScreen (Phase 2)", () => {
           teacher_id: null,
           status: "ARCHIVED",
           record_default: true,
+          join_token: "tok-r2",
           created_at: "2026-06-02T10:00:00Z",
         },
       ],

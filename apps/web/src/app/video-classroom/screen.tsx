@@ -1,6 +1,6 @@
 "use client";
 
-import { Film, Pencil, Plus, Trash2, Video } from "lucide-react";
+import { Copy, Film, Pencil, Plus, Trash2, Video, Video as VideoJoin } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -11,6 +11,7 @@ import {
   deleteVideoRoom,
   listVideoRecordings,
   listVideoRooms,
+  roomShareUrl,
   type RoomRecording,
   type VideoRoom,
 } from "@/lib/api";
@@ -97,6 +98,20 @@ export function VideoClassroomScreen() {
     refresh();
   }
 
+  async function copyLink(room: VideoRoom) {
+    const url = roomShareUrl(room.join_token);
+    try {
+      await navigator.clipboard.writeText(url);
+      setFlash(t("linkCopied"));
+    } catch {
+      setFlash(url); // clipboard blocked → surface the URL so it can be copied manually
+    }
+  }
+
+  function joinRoom(room: VideoRoom) {
+    window.open(roomShareUrl(room.join_token), "_blank", "noopener,noreferrer");
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -166,35 +181,54 @@ export function VideoClassroomScreen() {
                   </div>
                   <RoomStatusBadge status={room.status} />
                 </div>
-                <p className="text-muted-foreground text-xs">
-                  {t("openInAppHint")}
-                </p>
-                {can("room.manage") && (
-                  <div className="mt-auto flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="xs"
-                      onClick={() => {
-                        setEditing(room);
-                        setModalOpen(true);
-                      }}
-                    >
-                      <Pencil className="size-3.5" aria-hidden />
-                      {t("edit")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => archive(room)}
-                      data-testid={`archive-${room.id}`}
-                    >
-                      <Trash2 className="size-3.5" aria-hidden />
-                      {t("archive")}
-                    </Button>
-                  </div>
-                )}
+                <p className="text-muted-foreground text-xs">{t("shareHint")}</p>
+                <div className="mt-auto flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="xs"
+                    onClick={() => joinRoom(room)}
+                    data-testid={`join-${room.id}`}
+                  >
+                    <VideoJoin className="size-3.5" aria-hidden />
+                    {t("join")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={() => copyLink(room)}
+                    data-testid={`copy-link-${room.id}`}
+                  >
+                    <Copy className="size-3.5" aria-hidden />
+                    {t("copyLink")}
+                  </Button>
+                  {can("room.manage") && (
+                    <>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => {
+                          setEditing(room);
+                          setModalOpen(true);
+                        }}
+                      >
+                        <Pencil className="size-3.5" aria-hidden />
+                        {t("edit")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => archive(room)}
+                        data-testid={`archive-${room.id}`}
+                      >
+                        <Trash2 className="size-3.5" aria-hidden />
+                        {t("archive")}
+                      </Button>
+                    </>
+                  )}
+                </div>
               </article>
             ))}
           </div>

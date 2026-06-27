@@ -3100,6 +3100,8 @@ export interface VideoRoom {
   teacher_id: string | null;
   status: VideoRoomStatus;
   record_default: boolean;
+  /** Shareable join-link token → /r/{join_token} (Copy link / Join from the panel). */
+  join_token: string;
   created_at: string;
 }
 
@@ -3156,6 +3158,17 @@ export function updateVideoRoom(
 
 export function deleteVideoRoom(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/video/rooms/${id}`, { method: "DELETE" });
+}
+
+/** Regenerate a room's shareable join_token, invalidating any previously-shared link. */
+export function rotateRoomLink(id: string): Promise<{ join_token: string }> {
+  return apiFetch(`/api/video/rooms/${id}/rotate-link`, { method: "POST" });
+}
+
+/** The public shareable URL for a room's join token (/r/{token}). */
+export function roomShareUrl(joinToken: string): string {
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  return `${origin}/r/${joinToken}`;
 }
 
 /** Mint a scoped LiveKit access token for the current user to join this room. */
