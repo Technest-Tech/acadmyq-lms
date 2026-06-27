@@ -17,19 +17,21 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Public join-by-link endpoint (docs/video-platform/06-WEB-CALL-CLIENT §2) — the browser sibling
- * of the authenticated `/video/rooms/{id}/token` flow. ONE shareable link `/r/{join_token}`,
- * TWO joiner types:
+ * Public join-by-link endpoint (docs/video-platform/06 + 08-ROOM-ACCESS §2) — the browser sibling of
+ * the authenticated `/video/rooms/{id}/token` flow. Role-separated links resolve to grants:
  *
- *   - Authenticated HOST: a logged-in user who holds `room.join` in the room's academy joins with
- *     their identity (and `roomAdmin` iff they hold `room.manage`).
- *   - Anonymous GUEST: a student/parent with no account types a display name and joins with
- *     publish+subscribe ONLY — never admin/record (V-SEC-1, realises V-ACC-2 as a copy-paste link).
+ *   - Authenticated HOST (strongest): a logged-in user holding `room.join` in the room's academy
+ *     joins with their identity (roomAdmin iff they hold `room.manage`), regardless of the link used.
+ *   - HOST link (no-login): the room's private high-entropy `host_token` → host with roomAdmin,
+ *     behind the optional host password.
+ *   - GUEST link: the short slug `/r/{academy}/{room}` or the `join_token` → publish+subscribe only,
+ *     behind the optional guest password (V-SEC-1, realises V-ACC-2 as a copy-paste link).
+ *   - MONITOR link: the private `monitor_token` → supervisor mode (wired in S3).
  *
- * The route is NOT Sanctum-gated and carries no tenant context, so the room is resolved through the
- * SECURITY DEFINER `app.video_room_by_join_token()` (never a raw cross-tenant read, V-TEN-1) and the
- * attendance row is written inside `Tenancy::withContext` — the same discipline LivekitWebhook uses.
- * Throttled at the route (like `/i/{token}`) to blunt token enumeration.
+ * The routes are NOT Sanctum-gated and carry no tenant context, so the room is resolved through the
+ * SECURITY DEFINER readers `app.video_room_by_access_token()` / `app.video_room_by_slug()` (never a
+ * raw cross-tenant read, V-TEN-1) and the attendance row is written inside `Tenancy::withContext` —
+ * the same discipline LivekitWebhook uses. Throttled at the route to blunt token enumeration.
  */
 final class VideoJoinController extends Controller
 {
@@ -41,60 +43,109 @@ final class VideoJoinController extends Controller
         private readonly LivekitRoomClient $rooms,
     ) {}
 
+    /** POST /api/video/join/{token} — join via a guest / host / monitor token link. */
     public function join(Request $request, string $token): JsonResponse
+    {
+        $room = $this->resolveRoom($token);
+        if ($room === null) {
+            abort(404, 'Room not found.');
+        }
+
+        return $this->performJoin($request, $room);
+    }
+
+    /**
+     * POST /api/video/join-slug/{academy}/{room} — the readable guest link /r/{academy}/{room}
+     * (08-ROOM-ACCESS §3). Resolves the room from the academy subdomain + slug (always a guest link).
+     */
+    public function joinBySlug(Request $request, string $academy, string $room): JsonResponse
+    {
+        $resolved = $this->resolveRoomBySlug($academy, $room);
+        if ($resolved === null) {
+            abort(404, 'Room not found.');
+        }
+
+        return $this->performJoin($request, $resolved);
+    }
+
+    /**
+     * Shared join core for every link type. Role precedence (08-ROOM-ACCESS §2): an authenticated host
+     * (identity-verified, strongest path) ALWAYS wins regardless of the link used; otherwise the link's
+     * own role decides — a host link → host (roomAdmin, behind the optional host password); a monitor
+     * link → supervisor mode (wired in S3, rejected here); else a guest (behind the optional guest
+     * password + presence/capacity gates). All grants are minted server-side (V-SEC-1).
+     *
+     * @param  array<string,mixed>  $room
+     */
+    private function performJoin(Request $request, array $room): JsonResponse
     {
         $data = $request->validate([
             'display_name' => ['sometimes', 'nullable', 'string', 'max:80'],
             'password' => ['sometimes', 'nullable', 'string', 'max:64'],
         ]);
 
-        $room = $this->resolveRoom($token);
-        if ($room === null) {
-            abort(404, 'Room not found.');
-        }
-
         $academyId = (string) $room['academy_id'];
+        $roomId = (string) $room['room_id'];
         $livekitName = (string) $room['livekit_name'];
         $config = $this->parseConfig($room['config'] ?? null);
+        $linkRole = (string) ($room['link_role'] ?? 'guest');
 
-        // Optional auth: a logged-in host vs an anonymous guest. The Sanctum guard returns null
-        // for an unauthenticated request (verified), so this never forces a login.
+        // A logged-in host overrides the link. The Sanctum guard returns null for an unauthenticated
+        // request (verified), so this never forces a login.
         $user = Auth::guard('sanctum')->user();
-        $host = $user !== null ? $this->resolveHost((string) $user->getKey(), $academyId) : null;
+        $authHost = $user !== null ? $this->resolveHost((string) $user->getKey(), $academyId) : null;
 
-        if ($host !== null) {
-            // An identity-verified host bypasses guest passwords / presence / capacity gates — those
-            // only guard the public guest path (08-ROOM-ACCESS §4).
+        if ($authHost !== null) {
+            // Identity-verified host — bypasses every link gate (passwords/presence/capacity).
             $identity = (string) $user->getKey();
             $displayName = trim((string) ($user->full_name ?? ''));
-            $accessToken = $this->tokens->accessToken($livekitName, $identity, $displayName, $host['canManage']);
+            $canManage = (bool) $authHost['canManage'];
             $role = 'host';
+            $accessToken = $this->tokens->accessToken($livekitName, $identity, $displayName, $canManage);
 
-            $this->recordParticipant($academyId, (string) $room['room_id'], $identity, $displayName, [
+            $this->recordParticipant($academyId, $roomId, $identity, $displayName, [
                 'ctxUserId' => $identity,
-                'ctxRole' => $host['role'],
+                'ctxRole' => $authHost['role'],
                 'userId' => $identity,
                 'participantRole' => 'HOST',
             ]);
+        } elseif ($linkRole === 'host') {
+            // No-login host link: a shared secret granting full control (roomAdmin), behind the
+            // optional host password.
+            $this->enforceHostPassword($config, $request);
+            $displayName = trim((string) ($data['display_name'] ?? '')) ?: 'Host';
+            $identity = 'host-'.Str::lower(Str::random(16));
+            $canManage = true;
+            $role = 'host';
+            $accessToken = $this->tokens->accessToken($livekitName, $identity, $displayName, true);
+
+            $this->recordParticipant($academyId, $roomId, $identity, $displayName, [
+                'ctxUserId' => self::SYSTEM_USER_ID,
+                'ctxRole' => 'SUPER_ADMIN',
+                'userId' => null,
+                'participantRole' => 'HOST',
+            ]);
+        } elseif ($linkRole === 'monitor') {
+            // Supervisor mode is wired in S3 (room.monitor cap + hidden grant + audit + disclosure).
+            abort(response()->json(['code' => 'monitor_unavailable', 'message' => 'Monitor mode is not available yet.'], 403));
         } else {
             $displayName = trim((string) ($data['display_name'] ?? ''));
             if ($displayName === '') {
                 abort(422, 'A display name is required to join.');
             }
 
-            // Enforce the room's guest gates server-side before minting a token (V-SEC-1): optional
-            // password, then the host-present / capacity checks (best-effort, fail-open on SFU error).
+            // Guest gates, server-side before minting (V-SEC-1): optional password, then the
+            // host-present / capacity checks (best-effort, fail-open on SFU error).
             $this->enforceGuestPassword($config, $request);
             $this->enforceGuestPresenceAndCapacity($config, $livekitName);
 
-            // Unguessable per-join identity so each guest is a distinct LiveKit participant and the
-            // attendance row is uniquely keyed (never a `users` row — they have no account).
             $identity = 'guest-'.Str::lower(Str::random(16));
             $allowScreenshare = (bool) ($config['allow_guest_screenshare'] ?? true);
-            $accessToken = $this->tokens->guestToken($livekitName, $identity, $displayName, $allowScreenshare);
+            $canManage = false;
             $role = 'guest';
+            $accessToken = $this->tokens->guestToken($livekitName, $identity, $displayName, $allowScreenshare);
 
-            $this->recordParticipant($academyId, (string) $room['room_id'], $identity, $displayName, [
+            $this->recordParticipant($academyId, $roomId, $identity, $displayName, [
                 'ctxUserId' => self::SYSTEM_USER_ID,
                 'ctxRole' => 'SUPER_ADMIN', // system context for the tenant write (mirrors the webhook)
                 'userId' => null,
@@ -107,26 +158,42 @@ final class VideoJoinController extends Controller
             'token' => $accessToken,
             'roomName' => $livekitName,
             'roomTitle' => (string) $room['name'],
-            'roomId' => (string) $room['room_id'],
+            'roomId' => $roomId,
             'identity' => $identity,
             'displayName' => $displayName !== '' ? $displayName : null,
             'role' => $role,
-            // Host admin capability (room.manage): gates the in-call record control AND moderation
-            // (mute/remove/end). Guests and hosts without room.manage get false.
-            'canManage' => $host !== null && ($host['canManage'] ?? false),
-            // Settings the client honours (never the password values): the record button is also
-            // gated by recording_enabled; guests start muted when mute_guests_on_join; and the
-            // monitor disclosure notice shows when the room may be supervised (08-ROOM-ACCESS §4/§5).
+            // Host admin capability: gates the in-call record control AND moderation (mute/remove/end).
+            'canManage' => $canManage,
+            // Settings the client honours (never the password values): record is also gated by
+            // recording_enabled; guests start muted when mute_guests_on_join; the monitor disclosure
+            // notice shows when the room may be supervised (08-ROOM-ACCESS §4/§5).
             'recordingEnabled' => (bool) ($config['recording_enabled'] ?? true),
             'muteOnJoin' => $role === 'guest' && (bool) ($config['mute_guests_on_join'] ?? false),
             'monitorDisclosure' => (bool) ($config['monitor_enabled'] ?? false),
         ]);
     }
 
-    /** Resolve the room from the join token via the BYPASSRLS reader; null if missing/archived. */
+    /**
+     * Resolve a room from any access token (join/host/monitor) via the BYPASSRLS reader, including the
+     * matched `link_role`; null if missing/archived. Never a raw cross-tenant read (V-TEN-1).
+     */
     private function resolveRoom(string $token): ?array
     {
-        $rows = DB::select('select app.video_room_by_join_token(?) as data', [$token]);
+        return $this->decodeRoom(DB::select('select app.video_room_by_access_token(?) as data', [$token]));
+    }
+
+    /** Resolve a room from its academy subdomain + slug (always a guest link); null if missing. */
+    private function resolveRoomBySlug(string $academy, string $slug): ?array
+    {
+        return $this->decodeRoom(DB::select('select app.video_room_by_slug(?, ?) as data', [$academy, $slug]));
+    }
+
+    /**
+     * @param  array<int,object>  $rows
+     * @return array<string,mixed>|null
+     */
+    private function decodeRoom(array $rows): ?array
+    {
         $raw = $rows[0]->data ?? null;
         if ($raw === null) {
             return null;
@@ -168,6 +235,23 @@ final class VideoJoinController extends Controller
         $supplied = (string) $request->input('password', '');
         if ($supplied === '') {
             // Distinct codes so the lobby can show a password field vs. an "incorrect" error.
+            abort(response()->json(['code' => 'password_required', 'message' => 'This room requires a password.'], 422));
+        }
+        if (! hash_equals($expected, $supplied)) {
+            abort(response()->json(['code' => 'password_incorrect', 'message' => 'Incorrect room password.'], 422));
+        }
+    }
+
+    /** Optional per-room HOST-link password (08-ROOM-ACCESS §4) — only guards the no-login host link. */
+    private function enforceHostPassword(array $config, Request $request): void
+    {
+        $expected = $config['host_password'] ?? null;
+        if (! is_string($expected) || $expected === '') {
+            return;
+        }
+
+        $supplied = (string) $request->input('password', '');
+        if ($supplied === '') {
             abort(response()->json(['code' => 'password_required', 'message' => 'This room requires a password.'], 422));
         }
         if (! hash_equals($expected, $supplied)) {

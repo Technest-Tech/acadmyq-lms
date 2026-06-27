@@ -20,8 +20,20 @@ final class VideoJoinToken
     /** 24 × log2(62) ≈ 143 bits, well over the 128-bit floor. */
     private const LEN = 24;
 
+    /** Host/monitor links are shared secrets that grant elevated roles — give them more headroom. */
+    private const SECRET_LEN = 40;
+
     public static function generate(): string
     {
         return Str::random(self::LEN);
+    }
+
+    /**
+     * A higher-entropy secret for the private host/monitor links (08-ROOM-ACCESS §2). 40 × log2(62)
+     * ≈ 238 bits, and strictly [A-Za-z0-9] so it still matches the public join route's token regex.
+     */
+    public static function generateSecret(): string
+    {
+        return Str::random(self::SECRET_LEN);
     }
 }

@@ -88,10 +88,14 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::get('/i/{token}', [InvoiceController::class, 'publicShow']);
 
-    // Public video join-by-link (docs/video-platform/06-WEB-CALL-CLIENT §2). One shareable link,
-    // two joiner types: an authenticated host (optional Sanctum auth, detected in the controller)
-    // or an anonymous guest. NOT Sanctum-gated; the room is resolved via a SECURITY DEFINER reader.
+    // Public video join-by-link (docs/video-platform/06 + 08-ROOM-ACCESS §2/§3). Role-separated
+    // links: a guest/host/monitor token (/r/{token}) OR a readable per-academy slug
+    // (/r/{academy}/{room}). NOT Sanctum-gated; the room + link role are resolved via SECURITY
+    // DEFINER readers, and an authenticated host is still detected in the controller.
     Route::post('/video/join/{token}', [VideoJoinController::class, 'join'])->where('token', '[A-Za-z0-9]+');
+    Route::post('/video/join-slug/{academy}/{room}', [VideoJoinController::class, 'joinBySlug'])
+        ->where('academy', '[a-z0-9][a-z0-9-]*')
+        ->where('room', '[a-z0-9][a-z0-9-]*');
 
     // PayPal Checkout (public, token-authenticated). The token identifies the invoice;
     // credentials are fetched server-side via app.paypal_config_by_token (SECURITY DEFINER).

@@ -39,7 +39,7 @@ final class VideoRoomController extends Controller
         $rooms = DB::table('video_rooms')
             ->whereNull('deleted_at')
             ->orderByDesc('created_at')
-            ->get(['id', 'name', 'teacher_id', 'status', 'record_default', 'join_token', 'config', 'created_at'])
+            ->get(['id', 'name', 'teacher_id', 'status', 'record_default', 'join_token', 'host_token', 'slug', 'config', 'created_at'])
             ->map(fn (object $r) => $this->withConfig($r));
 
         return response()->json(['rooms' => $rooms]);
@@ -53,11 +53,13 @@ final class VideoRoomController extends Controller
         $ctx = $this->ctx();
         $academyId = (string) $ctx->academyId;
 
+        $this->normalizeSlugInput($request);
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'teacher_id' => ['sometimes', 'nullable', 'uuid'],
             'record_default' => ['sometimes', 'boolean'],
             'session_id' => ['sometimes', 'nullable', 'uuid'],
+            'slug' => ['sometimes', 'nullable', 'string', 'min:4', 'max:40', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
         ]);
 
         if (! empty($data['teacher_id']) && DB::table('teachers')->where('id', $data['teacher_id'])->whereNull('deleted_at')->doesntExist()) {
@@ -65,6 +67,7 @@ final class VideoRoomController extends Controller
         }
 
         $config = array_merge($this->defaultConfig(), $this->validateSettings($request));
+        $slug = $request->has('slug') ? $this->resolveSlug($request, $academyId, $config, null) : null;
 
         $id = (string) Str::uuid();
         DB::table('video_rooms')->insert([
@@ -74,6 +77,9 @@ final class VideoRoomController extends Controller
             'name' => $data['name'],
             'livekit_name' => $this->makeLivekitName($academyId),
             'join_token' => VideoJoinToken::generate(),
+            'host_token' => VideoJoinToken::generateSecret(),
+            'monitor_token' => VideoJoinToken::generateSecret(),
+            'slug' => $slug,
             'record_default' => (bool) ($data['record_default'] ?? false),
             'config' => json_encode($config),
         ]);
@@ -108,19 +114,27 @@ final class VideoRoomController extends Controller
             abort(404, 'Room not found.');
         }
 
+        $this->normalizeSlugInput($request);
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'teacher_id' => ['sometimes', 'nullable', 'uuid'],
             'record_default' => ['sometimes', 'boolean'],
             'status' => ['sometimes', Rule::in(['ACTIVE', 'ARCHIVED'])],
+            'slug' => ['sometimes', 'nullable', 'string', 'min:4', 'max:40', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
         ]);
 
         // Settings live in the config JSONB — merge the provided keys over the existing config
         // (defaults backfilled for any room created before settings existed).
+        $existing = is_string($room->config) ? (array) json_decode($room->config, true) : (array) ($room->config ?? []);
         $settings = $this->validateSettings($request);
+        $mergedConfig = array_merge($this->defaultConfig(), $existing, $settings);
         if ($settings !== []) {
-            $existing = is_string($room->config) ? (array) json_decode($room->config, true) : (array) ($room->config ?? []);
-            $data['config'] = json_encode(array_merge($this->defaultConfig(), $existing, $settings));
+            $data['config'] = json_encode($mergedConfig);
+        }
+
+        // Slug protection is checked against the FINAL config (a password set in the same request counts).
+        if ($request->has('slug')) {
+            $data['slug'] = $this->resolveSlug($request, (string) $this->ctx()->academyId, $mergedConfig, $id);
         }
 
         if ($data === []) {
@@ -186,10 +200,11 @@ final class VideoRoomController extends Controller
     }
 
     /**
-     * POST /api/video/rooms/{id}/rotate-link — regenerate the shareable join_token, invalidating
-     * any previously-shared link (a `room.manage` action; V-CTL-1). Returns the fresh token.
+     * POST /api/video/rooms/{id}/rotate-link — regenerate one of the room's shareable links,
+     * invalidating its previously-shared URL (a `room.manage` action; V-CTL-1). Body `{ which:
+     * 'guest'|'host' }` (default 'guest'; monitor rotation arrives with S3's room.monitor gate).
      */
-    public function rotate(string $id): JsonResponse
+    public function rotate(Request $request, string $id): JsonResponse
     {
         Gate::authorize('room.manage');
 
@@ -198,11 +213,19 @@ final class VideoRoomController extends Controller
             abort(404, 'Room not found.');
         }
 
-        $token = VideoJoinToken::generate();
-        DB::table('video_rooms')->where('id', $id)->update(['join_token' => $token, 'updated_at' => now()]);
-        Audit::log('video_room.rotate_link', 'video_room', $id, (string) $this->ctx()->academyId, $this->ctx()->userId, $this->ctx()->role);
+        $which = (string) $request->input('which', 'guest');
+        $column = match ($which) {
+            'guest' => 'join_token',
+            'host' => 'host_token',
+            default => abort(422, 'Unknown link type.'),
+        };
+        $token = $which === 'guest' ? VideoJoinToken::generate() : VideoJoinToken::generateSecret();
 
-        return response()->json(['join_token' => $token]);
+        DB::table('video_rooms')->where('id', $id)->update([$column => $token, 'updated_at' => now()]);
+        Audit::log('video_room.rotate_link', 'video_room', $id, (string) $this->ctx()->academyId, $this->ctx()->userId, $this->ctx()->role, after: ['which' => $which]);
+
+        // Return both a generic `token` and the column-named key (back-compat with the guest default).
+        return response()->json(['which' => $which, 'token' => $token, $column => $token]);
     }
 
     /**
@@ -214,6 +237,9 @@ final class VideoRoomController extends Controller
     {
         $stored = (array) json_decode((string) ($row->config ?? '{}'), true);
         $row->config = (object) array_merge($this->defaultConfig(), $stored);
+        // The monitor link is private to management (gated by room.monitor in S3) — never expose its
+        // token through the room.read list/detail surfaces. show() selects every column, so strip it.
+        unset($row->monitor_token);
 
         return $row;
     }
@@ -278,6 +304,55 @@ final class VideoRoomController extends Controller
         $allowed = array_keys($this->defaultConfig());
 
         return array_intersect_key($raw, array_flip($allowed));
+    }
+
+    /** Lower-case + trim a provided slug, normalising "" to null (clear), before validation. */
+    private function normalizeSlugInput(Request $request): void
+    {
+        if (! $request->has('slug')) {
+            return;
+        }
+        $slug = $request->input('slug');
+        if (is_string($slug)) {
+            $slug = Str::lower(trim($slug));
+            $request->merge(['slug' => $slug === '' ? null : $slug]);
+        }
+    }
+
+    /**
+     * Resolve a (already format-validated) slug for a room: null clears it; otherwise enforce that the
+     * academy has a subdomain to namespace the URL, that the room is protected (a guessable slug needs
+     * a guest password — waiting room becomes a valid alternative in S4), and that the slug is unique
+     * within the academy. Aborts 422 with a code on any violation.
+     */
+    private function resolveSlug(Request $request, string $academyId, array $config, ?string $roomId): ?string
+    {
+        $slug = $request->input('slug');
+        if ($slug === null || $slug === '') {
+            return null;
+        }
+        $slug = Str::lower(trim((string) $slug));
+
+        $subdomain = DB::table('academies')->where('id', $academyId)->value('subdomain');
+        if ($subdomain === null || $subdomain === '') {
+            abort(response()->json(['code' => 'slug_needs_subdomain', 'message' => 'Set an academy subdomain before using a room slug.'], 422));
+        }
+
+        if (($config['guest_password'] ?? null) === null) {
+            abort(response()->json(['code' => 'slug_needs_password', 'message' => 'A room slug needs a guest password to be safe.'], 422));
+        }
+
+        $taken = DB::table('video_rooms')
+            ->where('academy_id', $academyId)
+            ->whereRaw('lower(slug) = ?', [$slug])
+            ->whereNull('deleted_at')
+            ->when($roomId !== null, fn ($q) => $q->where('id', '!=', $roomId))
+            ->exists();
+        if ($taken) {
+            abort(response()->json(['code' => 'slug_taken', 'message' => 'That slug is already used by another room.'], 422));
+        }
+
+        return $slug;
     }
 
     private function ctx(): AuthContext
