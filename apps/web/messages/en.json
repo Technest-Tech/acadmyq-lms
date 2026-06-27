@@ -2819,6 +2819,8 @@
     "you": "You",
     "leave": "Leave",
     "participants": "Participants",
+    "pin": "Pin",
+    "unpin": "Unpin",
     "more": "More",
     "shareScreen": "Share screen",
     "stopShareScreen": "Stop sharing",

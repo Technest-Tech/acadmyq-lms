@@ -15,6 +15,7 @@ import { ConnectionPill } from "./connection-pill";
 import { DraggablePip } from "./draggable-pip";
 import { gridColumns, selectLayout } from "./layout";
 import { ParticipantTile } from "./participant-tile";
+import { usePin } from "./pin-context";
 
 function trackKey(ref: TrackReferenceOrPlaceholder): string {
   return `${ref.participant.identity}:${ref.publication?.trackSid ?? ref.source}`;
@@ -37,14 +38,23 @@ export function CallStage({ roomTitle }: { roomTitle: string }) {
     onlySubscribed: false,
   });
 
+  const { pinnedId } = usePin();
+  const pinnedTrack = pinnedId
+    ? cameras.find((c) => c.participant.identity === pinnedId)
+    : undefined;
+
   const hasScreen = screens.length > 0;
-  const layout = selectLayout(participants.length, hasScreen);
+  const layout = selectLayout(participants.length, hasScreen, !!pinnedTrack);
+  // What we actually render: screen-share keeps presenter even over a pin; otherwise a live pin
+  // turns the spotlight into a chosen-person focus. `data-layout` makes this assertable in tests.
+  const renderMode =
+    layout === "presenter" ? "presenter" : pinnedTrack ? "pinned" : layout;
   const connecting = state === ConnectionState.Connecting;
   const reconnecting =
     state === ConnectionState.Reconnecting || state === ConnectionState.SignalReconnecting;
 
   return (
-    <div className="relative flex-1 overflow-hidden p-3 sm:p-4">
+    <div className="relative flex-1 overflow-hidden p-3 sm:p-4" data-layout={renderMode}>
       {/* Header */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-3 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
         <h1 className="truncate rounded-full bg-black/30 px-3 py-1 text-sm font-semibold text-white/90 ring-1 ring-white/10 backdrop-blur">
@@ -71,9 +81,15 @@ export function CallStage({ roomTitle }: { roomTitle: string }) {
           <Loader2 className="size-8 animate-spin text-emerald-400" />
           <p className="text-sm">{t("connecting")}</p>
         </div>
-      ) : layout === "presenter" ? (
-        <PresenterLayout screen={screens[0]} cameras={cameras} youLabel={t("you")} />
-      ) : layout === "spotlight" ? (
+      ) : renderMode === "presenter" ? (
+        <FocusLayout focus={screens[0]} others={cameras} youLabel={t("you")} />
+      ) : renderMode === "pinned" ? (
+        <FocusLayout
+          focus={pinnedTrack}
+          others={cameras.filter((c) => c.participant.identity !== pinnedId)}
+          youLabel={t("you")}
+        />
+      ) : renderMode === "spotlight" ? (
         <SpotlightLayout
           cameras={cameras}
           youLabel={t("you")}
@@ -157,27 +173,33 @@ function SpotlightLayout({
   );
 }
 
-function PresenterLayout({
-  screen,
-  cameras,
+/**
+ * A big focus tile + a horizontal filmstrip of everyone else. Shared by the screen-share presenter
+ * view (focus = the shared screen) and the pinned-spotlight view (focus = the chosen participant).
+ */
+function FocusLayout({
+  focus,
+  others,
   youLabel,
 }: {
-  screen: TrackReferenceOrPlaceholder | undefined;
-  cameras: TrackReferenceOrPlaceholder[];
+  focus: TrackReferenceOrPlaceholder | undefined;
+  others: TrackReferenceOrPlaceholder[];
   youLabel: string;
 }) {
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="relative min-h-0 flex-1">
-        {screen && <ParticipantTile trackRef={screen} fill youLabel={youLabel} />}
+        {focus && <ParticipantTile trackRef={focus} fill youLabel={youLabel} />}
       </div>
-      <div className="flex shrink-0 gap-2 overflow-x-auto pb-1">
-        {cameras.map((c) => (
-          <div key={trackKey(c)} className="w-32 shrink-0 sm:w-40">
-            <ParticipantTile trackRef={c} youLabel={youLabel} />
-          </div>
-        ))}
-      </div>
+      {others.length > 0 && (
+        <div className="flex shrink-0 gap-2 overflow-x-auto pb-1">
+          {others.map((c) => (
+            <div key={trackKey(c)} className="w-32 shrink-0 sm:w-40">
+              <ParticipantTile trackRef={c} youLabel={youLabel} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

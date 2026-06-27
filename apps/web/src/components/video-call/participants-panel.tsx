@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useParticipants } from "@livekit/components-react";
 import { useTranslations } from "next-intl";
-import { Loader2, Mic, MicOff, PhoneOff, UserX, X } from "lucide-react";
+import { Loader2, Mic, MicOff, PhoneOff, Pin, PinOff, UserX, X } from "lucide-react";
 import { endRoomForAll, muteParticipant, removeParticipant } from "@/lib/api";
+import { usePin } from "./pin-context";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -32,6 +33,7 @@ export function ParticipantsPanel({
 }) {
   const t = useTranslations("videoCall");
   const participants = useParticipants();
+  const { isPinned, togglePin } = usePin();
   const [busy, setBusy] = useState<string | null>(null);
 
   if (!open) return null;
@@ -92,46 +94,67 @@ export function ParticipantsPanel({
                   {p.isLocal && <span className="ms-1 text-white/50">({t("you")})</span>}
                 </span>
 
-                {actionable ? (
-                  <div className="flex items-center gap-1">
-                    {p.isMicrophoneEnabled ? (
+                <div className="flex items-center gap-1">
+                  {/* Pin/spotlight is a local view choice — available to every viewer. */}
+                  <button
+                    type="button"
+                    onClick={() => togglePin(p.identity)}
+                    aria-pressed={isPinned(p.identity)}
+                    aria-label={isPinned(p.identity) ? t("unpin") : t("pin")}
+                    title={isPinned(p.identity) ? t("unpin") : t("pin")}
+                    className={`flex size-8 items-center justify-center rounded-lg transition ${
+                      isPinned(p.identity)
+                        ? "text-emerald-300 hover:bg-emerald-500/15"
+                        : "text-slate-400 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    {isPinned(p.identity) ? (
+                      <PinOff className="size-4" />
+                    ) : (
+                      <Pin className="size-4" />
+                    )}
+                  </button>
+                  {actionable ? (
+                    <>
+                      {p.isMicrophoneEnabled ? (
+                        <button
+                          type="button"
+                          onClick={() => void act(`${p.identity}:mute`, () => muteParticipant(roomId, p.identity))}
+                          disabled={busy === `${p.identity}:mute`}
+                          aria-label={t("muteParticipant")}
+                          title={t("muteParticipant")}
+                          className="flex size-8 items-center justify-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+                        >
+                          {busy === `${p.identity}:mute` ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Mic className="size-4" />
+                          )}
+                        </button>
+                      ) : (
+                        <MicOff className="size-4 text-red-400" aria-label={t("muted")} />
+                      )}
                       <button
                         type="button"
-                        onClick={() => void act(`${p.identity}:mute`, () => muteParticipant(roomId, p.identity))}
-                        disabled={busy === `${p.identity}:mute`}
-                        aria-label={t("muteParticipant")}
-                        title={t("muteParticipant")}
-                        className="flex size-8 items-center justify-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+                        onClick={() => void act(`${p.identity}:remove`, () => removeParticipant(roomId, p.identity))}
+                        disabled={busy === `${p.identity}:remove`}
+                        aria-label={t("removeParticipant")}
+                        title={t("removeParticipant")}
+                        className="flex size-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
                       >
-                        {busy === `${p.identity}:mute` ? (
+                        {busy === `${p.identity}:remove` ? (
                           <Loader2 className="size-4 animate-spin" />
                         ) : (
-                          <Mic className="size-4" />
+                          <UserX className="size-4" />
                         )}
                       </button>
-                    ) : (
-                      <MicOff className="size-4 text-red-400" aria-label={t("muted")} />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => void act(`${p.identity}:remove`, () => removeParticipant(roomId, p.identity))}
-                      disabled={busy === `${p.identity}:remove`}
-                      aria-label={t("removeParticipant")}
-                      title={t("removeParticipant")}
-                      className="flex size-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
-                    >
-                      {busy === `${p.identity}:remove` ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <UserX className="size-4" />
-                      )}
-                    </button>
-                  </div>
-                ) : p.isMicrophoneEnabled ? (
-                  <Mic className="size-4 text-slate-400" />
-                ) : (
-                  <MicOff className="size-4 text-red-400" />
-                )}
+                    </>
+                  ) : p.isMicrophoneEnabled ? (
+                    <Mic className="size-4 text-slate-400" />
+                  ) : (
+                    <MicOff className="size-4 text-red-400" />
+                  )}
+                </div>
               </li>
             );
           })}

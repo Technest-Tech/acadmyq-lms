@@ -7,7 +7,9 @@ import {
   type TrackReferenceOrPlaceholder,
 } from "@livekit/components-react";
 import { Track } from "livekit-client";
-import { MicOff, MonitorUp } from "lucide-react";
+import { MicOff, MonitorUp, Pin, PinOff } from "lucide-react";
+import { useTranslations } from "next-intl";
+import { usePin } from "./pin-context";
 
 /** Up to two initials from a display name (falls back to a placeholder glyph). */
 function initials(name: string): string {
@@ -32,12 +34,15 @@ export function ParticipantTile({
   fill?: boolean;
   youLabel?: string;
 }) {
+  const t = useTranslations("videoCall");
+  const { isPinned, togglePin } = usePin();
   const participant = trackRef.participant;
   const speaking = useIsSpeaking(participant);
   const micOn = participant.isMicrophoneEnabled;
   const label = participant.name || participant.identity;
   const isScreen = trackRef.source === Track.Source.ScreenShare;
   const isLocal = participant.isLocal;
+  const pinned = isPinned(participant.identity);
   const showVideo = isTrackReference(trackRef) && !trackRef.publication.isMuted;
 
   return (
@@ -71,10 +76,27 @@ export function ParticipantTile({
             </span>
           )
         )}
-        <span className="truncate text-sm font-medium text-white">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">
           {label}
           {isLocal && !isScreen && <span className="ms-1 text-white/60">({youLabel})</span>}
         </span>
+        {/* Pin/spotlight this participant locally (not screen-shares — those auto-present). */}
+        {!isScreen && (
+          <button
+            type="button"
+            onClick={() => togglePin(participant.identity)}
+            aria-pressed={pinned}
+            aria-label={pinned ? t("unpin") : t("pin")}
+            title={pinned ? t("unpin") : t("pin")}
+            className={`flex size-7 shrink-0 items-center justify-center rounded-full transition ${
+              pinned
+                ? "bg-emerald-500/90 text-white"
+                : "bg-white/10 text-white/80 opacity-80 hover:bg-white/20 hover:text-white hover:opacity-100"
+            }`}
+          >
+            {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+          </button>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { LiveKitRoom, RoomAudioRenderer, useParticipants } from "@livekit/components-react";
 import type { AudioCaptureOptions, DisconnectReason, VideoCaptureOptions } from "livekit-client";
 import type { JoinRoomResponse } from "@/lib/api";
@@ -8,6 +8,7 @@ import { CallStage } from "./call-stage";
 import { ControlBar } from "./control-bar";
 import type { LobbySettings } from "./lobby";
 import { ParticipantsPanel } from "./participants-panel";
+import { PinContext, nextPinned } from "./pin-context";
 import { useWakeLock } from "./use-wake-lock";
 
 /**
@@ -65,9 +66,23 @@ function InCall({
   useWakeLock();
   const participants = useParticipants();
   const [panelOpen, setPanelOpen] = useState(false);
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
+
+  // A local pin/spotlight, shared with the stage + tiles + panel. Drop it if the pinned person leaves.
+  useEffect(() => {
+    if (pinnedId && !participants.some((p) => p.identity === pinnedId)) setPinnedId(null);
+  }, [pinnedId, participants]);
+
+  const togglePin = useCallback((identity: string) => {
+    setPinnedId((prev) => nextPinned(prev, identity));
+  }, []);
+  const pin = useMemo(
+    () => ({ pinnedId, togglePin, isPinned: (id: string) => id === pinnedId }),
+    [pinnedId, togglePin],
+  );
 
   return (
-    <>
+    <PinContext.Provider value={pin}>
       <CallStage roomTitle={roomTitle} />
       <RoomAudioRenderer />
       <ParticipantsPanel
@@ -84,6 +99,6 @@ function InCall({
           roomId={roomId}
         />
       </div>
-    </>
+    </PinContext.Provider>
   );
 }
