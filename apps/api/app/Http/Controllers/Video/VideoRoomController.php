@@ -39,7 +39,8 @@ final class VideoRoomController extends Controller
         $rooms = DB::table('video_rooms')
             ->whereNull('deleted_at')
             ->orderByDesc('created_at')
-            ->get(['id', 'name', 'teacher_id', 'status', 'record_default', 'join_token', 'config', 'created_at']);
+            ->get(['id', 'name', 'teacher_id', 'status', 'record_default', 'join_token', 'config', 'created_at'])
+            ->map(fn (object $r) => $this->withConfig($r));
 
         return response()->json(['rooms' => $rooms]);
     }
@@ -94,7 +95,7 @@ final class VideoRoomController extends Controller
             abort(404, 'Room not found.');
         }
 
-        return response()->json(['room' => $room]);
+        return response()->json(['room' => $this->withConfig($room)]);
     }
 
     /** PATCH /api/video/rooms/{id} — rename / retitle / toggle record-default. */
@@ -202,6 +203,19 @@ final class VideoRoomController extends Controller
         Audit::log('video_room.rotate_link', 'video_room', $id, (string) $this->ctx()->academyId, $this->ctx()->userId, $this->ctx()->role);
 
         return response()->json(['join_token' => $token]);
+    }
+
+    /**
+     * Decode a room's config JSONB into a full settings object (defaults backfilled), so the panel
+     * always sees every key regardless of when the room was created. The query builder returns jsonb
+     * as a raw string, so we decode it explicitly here.
+     */
+    private function withConfig(object $row): object
+    {
+        $stored = (array) json_decode((string) ($row->config ?? '{}'), true);
+        $row->config = (object) array_merge($this->defaultConfig(), $stored);
+
+        return $row;
     }
 
     /**

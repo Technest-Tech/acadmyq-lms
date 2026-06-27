@@ -3094,6 +3094,22 @@ export function cancelTrial(id: string): Promise<{ ok: boolean }> {
 
 export type VideoRoomStatus = "ACTIVE" | "ARCHIVED";
 
+/**
+ * Per-room access settings (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §4), stored in the
+ * room's config JSONB and enforced server-side at /join. Every password is OPTIONAL (null = none).
+ */
+export interface RoomAccessSettings {
+  guest_password: string | null;
+  host_password: string | null;
+  waiting_room: boolean;
+  recording_enabled: boolean;
+  require_host_present: boolean;
+  mute_guests_on_join: boolean;
+  allow_guest_screenshare: boolean;
+  max_participants: number | null;
+  monitor_enabled: boolean;
+}
+
 export interface VideoRoom {
   id: string;
   name: string;
@@ -3102,6 +3118,8 @@ export interface VideoRoom {
   record_default: boolean;
   /** Shareable join-link token → /r/{join_token} (Copy link / Join from the panel). */
   join_token: string;
+  /** Access settings (defaults backfilled by the API), surfaced in the room modal. */
+  config?: RoomAccessSettings;
   created_at: string;
 }
 
@@ -3131,6 +3149,8 @@ export interface VideoRoomInput {
   teacher_id?: string | null;
   record_default?: boolean;
   status?: VideoRoomStatus;
+  /** Partial access-settings patch — only the provided keys are merged into the room's config. */
+  settings?: Partial<RoomAccessSettings>;
 }
 
 export function listVideoRooms(): Promise<{ rooms: VideoRoom[] }> {
