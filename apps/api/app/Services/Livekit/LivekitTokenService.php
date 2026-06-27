@@ -39,7 +39,9 @@ final class LivekitTokenService
 
     /**
      * A participant who may join, publish and subscribe. `roomAdmin` (in-call moderation) is
-     * granted ONLY when the caller holds room.manage. Recording is never client-granted.
+     * granted ONLY when the caller holds room.manage. Recording is never client-granted. Carries a
+     * `metadata.role=host` marker so server-side checks (require_host_present) and the participant
+     * UI can tell a host from a guest (08-ROOM-ACCESS §6.3).
      */
     public function accessToken(string $roomName, string $identity, ?string $displayName, bool $canManage): string
     {
@@ -54,15 +56,47 @@ final class LivekitTokenService
             $grant['roomAdmin'] = true;
         }
 
-        $claims = $displayName !== null && $displayName !== '' ? ['name' => $displayName] : [];
-
-        return $this->mint($identity, $grant, $claims);
+        return $this->mint($identity, $grant, $this->participantClaims($displayName, 'host'));
     }
 
-    /** A guest (student via a signed link): join + publish + subscribe only — never admin/record. */
-    public function guestToken(string $roomName, string $identity, ?string $displayName): string
+    /**
+     * A guest (student via a shareable link): join + publish + subscribe only — never admin/record.
+     * When the room disables guest screen-share (`allow_guest_screenshare=false`), the grant is
+     * narrowed to camera + microphone sources so a guest token cannot publish a screen share
+     * (08-ROOM-ACCESS §4). Carries a `metadata.role=guest` marker.
+     */
+    public function guestToken(string $roomName, string $identity, ?string $displayName, bool $allowScreenshare = true): string
     {
-        return $this->accessToken($roomName, $identity, $displayName, canManage: false);
+        $grant = [
+            'room' => $roomName,
+            'roomJoin' => true,
+            'canPublish' => true,
+            'canSubscribe' => true,
+            'canPublishData' => true,
+        ];
+        if (! $allowScreenshare) {
+            // LiveKit TrackSource names (lowercase): omitting screen_share blocks screen publishing
+            // at the SFU regardless of what the client attempts.
+            $grant['canPublishSources'] = ['camera', 'microphone'];
+        }
+
+        return $this->mint($identity, $grant, $this->participantClaims($displayName, 'guest'));
+    }
+
+    /**
+     * Top-level JWT claims shared by participant tokens: an optional display `name` and a
+     * `metadata` JSON string carrying the participant's room role.
+     *
+     * @return array<string,mixed>
+     */
+    private function participantClaims(?string $displayName, string $role): array
+    {
+        $claims = ['metadata' => json_encode(['role' => $role])];
+        if ($displayName !== null && $displayName !== '') {
+            $claims['name'] = $displayName;
+        }
+
+        return $claims;
     }
 
     /** Short-lived server-admin token for room/egress lifecycle calls to the LiveKit server API. */

@@ -77,6 +77,13 @@ final class VideoRecordingController extends Controller
             abort(404, 'Room not found.');
         }
 
+        // Per-room recording gate (08-ROOM-ACCESS §4). Default true preserves today's behaviour for
+        // rooms created before settings existed (empty config → allowed).
+        $config = is_string($room->config) ? (array) json_decode($room->config, true) : (array) ($room->config ?? []);
+        if (($config['recording_enabled'] ?? true) === false) {
+            abort(403, 'Recording is disabled for this room.');
+        }
+
         $ctx = $this->ctx();
         $recordingId = (string) Str::uuid();
         $output = $this->fileOutput($recordingId);

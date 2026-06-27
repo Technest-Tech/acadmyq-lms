@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Video;
 
 use App\Http\Controllers\Controller;
+use App\Services\Livekit\LivekitRoomClient;
 use App\Services\Livekit\LivekitTokenService;
 use App\Support\AuthContext;
 use App\Support\PermissionResolver;
@@ -35,12 +36,16 @@ final class VideoJoinController extends Controller
     /** Synthetic actor for the guest attendance write (no Sanctum user present), as in the webhook. */
     private const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 
-    public function __construct(private readonly LivekitTokenService $tokens) {}
+    public function __construct(
+        private readonly LivekitTokenService $tokens,
+        private readonly LivekitRoomClient $rooms,
+    ) {}
 
     public function join(Request $request, string $token): JsonResponse
     {
         $data = $request->validate([
             'display_name' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'password' => ['sometimes', 'nullable', 'string', 'max:64'],
         ]);
 
         $room = $this->resolveRoom($token);
@@ -50,6 +55,7 @@ final class VideoJoinController extends Controller
 
         $academyId = (string) $room['academy_id'];
         $livekitName = (string) $room['livekit_name'];
+        $config = $this->parseConfig($room['config'] ?? null);
 
         // Optional auth: a logged-in host vs an anonymous guest. The Sanctum guard returns null
         // for an unauthenticated request (verified), so this never forces a login.
@@ -57,6 +63,8 @@ final class VideoJoinController extends Controller
         $host = $user !== null ? $this->resolveHost((string) $user->getKey(), $academyId) : null;
 
         if ($host !== null) {
+            // An identity-verified host bypasses guest passwords / presence / capacity gates — those
+            // only guard the public guest path (08-ROOM-ACCESS §4).
             $identity = (string) $user->getKey();
             $displayName = trim((string) ($user->full_name ?? ''));
             $accessToken = $this->tokens->accessToken($livekitName, $identity, $displayName, $host['canManage']);
@@ -73,10 +81,17 @@ final class VideoJoinController extends Controller
             if ($displayName === '') {
                 abort(422, 'A display name is required to join.');
             }
+
+            // Enforce the room's guest gates server-side before minting a token (V-SEC-1): optional
+            // password, then the host-present / capacity checks (best-effort, fail-open on SFU error).
+            $this->enforceGuestPassword($config, $request);
+            $this->enforceGuestPresenceAndCapacity($config, $livekitName);
+
             // Unguessable per-join identity so each guest is a distinct LiveKit participant and the
             // attendance row is uniquely keyed (never a `users` row — they have no account).
             $identity = 'guest-'.Str::lower(Str::random(16));
-            $accessToken = $this->tokens->guestToken($livekitName, $identity, $displayName);
+            $allowScreenshare = (bool) ($config['allow_guest_screenshare'] ?? true);
+            $accessToken = $this->tokens->guestToken($livekitName, $identity, $displayName, $allowScreenshare);
             $role = 'guest';
 
             $this->recordParticipant($academyId, (string) $room['room_id'], $identity, $displayName, [
@@ -99,6 +114,12 @@ final class VideoJoinController extends Controller
             // Host admin capability (room.manage): gates the in-call record control AND moderation
             // (mute/remove/end). Guests and hosts without room.manage get false.
             'canManage' => $host !== null && ($host['canManage'] ?? false),
+            // Settings the client honours (never the password values): the record button is also
+            // gated by recording_enabled; guests start muted when mute_guests_on_join; and the
+            // monitor disclosure notice shows when the room may be supervised (08-ROOM-ACCESS §4/§5).
+            'recordingEnabled' => (bool) ($config['recording_enabled'] ?? true),
+            'muteOnJoin' => $role === 'guest' && (bool) ($config['mute_guests_on_join'] ?? false),
+            'monitorDisclosure' => (bool) ($config['monitor_enabled'] ?? false),
         ]);
     }
 
@@ -114,6 +135,108 @@ final class VideoJoinController extends Controller
         $dto = is_string($raw) ? json_decode($raw, true) : (array) $raw;
 
         return empty($dto) ? null : $dto;
+    }
+
+    /**
+     * Decode the room's settings (the reader embeds the config JSONB as nested JSON, so it usually
+     * arrives already-decoded as an array; tolerate a raw string too).
+     *
+     * @return array<string,mixed>
+     */
+    private function parseConfig(mixed $raw): array
+    {
+        if (is_array($raw)) {
+            return $raw;
+        }
+        if (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+
+            return is_array($decoded) ? $decoded : [];
+        }
+
+        return [];
+    }
+
+    /** Optional per-room guest password (08-ROOM-ACCESS §4) — constant-time compared; OFF when null. */
+    private function enforceGuestPassword(array $config, Request $request): void
+    {
+        $expected = $config['guest_password'] ?? null;
+        if (! is_string($expected) || $expected === '') {
+            return;
+        }
+
+        $supplied = (string) $request->input('password', '');
+        if ($supplied === '') {
+            // Distinct codes so the lobby can show a password field vs. an "incorrect" error.
+            abort(response()->json(['code' => 'password_required', 'message' => 'This room requires a password.'], 422));
+        }
+        if (! hash_equals($expected, $supplied)) {
+            abort(response()->json(['code' => 'password_incorrect', 'message' => 'Incorrect room password.'], 422));
+        }
+    }
+
+    /**
+     * require_host_present + max_participants. Both read the SFU's live participant list once, and are
+     * BEST-EFFORT: a transient SFU error fails OPEN (allow the join) rather than locking out a class.
+     * Hidden monitors (08-ROOM-ACCESS §5) never count toward capacity.
+     */
+    private function enforceGuestPresenceAndCapacity(array $config, string $livekitName): void
+    {
+        $requireHost = (bool) ($config['require_host_present'] ?? false);
+        $max = $config['max_participants'] ?? null;
+        $max = is_numeric($max) ? (int) $max : null;
+        if (! $requireHost && ($max === null || $max <= 0)) {
+            return;
+        }
+
+        $list = $this->rooms->listParticipants($livekitName);
+        if (! $list['ok']) {
+            return; // fail-open
+        }
+        $participants = $list['participants'];
+
+        if ($requireHost && ! $this->hasLiveHost($participants)) {
+            abort(response()->json(['code' => 'host_absent', 'message' => 'Waiting for the teacher to start the class.'], 409));
+        }
+        if ($max !== null && $max > 0 && $this->countJoinable($participants) >= $max) {
+            abort(response()->json(['code' => 'room_full', 'message' => 'This room is full.'], 409));
+        }
+    }
+
+    /** The `role` carried in a participant's LiveKit metadata (host|guest|monitor), or null. */
+    private function participantRole(array $participant): ?string
+    {
+        $meta = (string) ($participant['metadata'] ?? '');
+        if ($meta === '') {
+            return null;
+        }
+        $decoded = json_decode($meta, true);
+
+        return is_array($decoded) && isset($decoded['role']) ? (string) $decoded['role'] : null;
+    }
+
+    private function hasLiveHost(array $participants): bool
+    {
+        foreach ($participants as $p) {
+            if ($this->participantRole((array) $p) === 'host') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Count participants who occupy a seat — everyone except hidden monitors. */
+    private function countJoinable(array $participants): int
+    {
+        $count = 0;
+        foreach ($participants as $p) {
+            if ($this->participantRole((array) $p) !== 'monitor') {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     /**
