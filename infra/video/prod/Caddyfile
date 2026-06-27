@@ -1,0 +1,18 @@
+# AcademIQ media — Caddy reverse proxy + automatic HTTPS (Let's Encrypt).
+# Env vars come from the Caddy container (set in docker-compose.yml from /opt/academiq-video/.env).
+# Caddy ALSO obtains a cert for the TURN domain so coturn can reuse it (see provision.sh / sync-coturn-certs.sh).
+{
+	email {$ACME_EMAIL}
+}
+
+# LiveKit signaling → wss://media.acadmyq.com (clients connect here on 443)
+{$DOMAIN_MEDIA} {
+	reverse_proxy 127.0.0.1:7880
+}
+
+# TURN domain — Caddy issues/renews this cert; coturn reuses it for TURN/TLS on 5349.
+# The 200 stub also lets you sanity-check the cert in a browser.
+{$DOMAIN_TURN} {
+	header Content-Type "text/plain"
+	respond "AcademIQ media — TURN endpoint (TLS on :5349)" 200
+}

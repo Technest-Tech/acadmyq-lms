@@ -1,0 +1,10 @@
+# AcademIQ media — re-sync the Caddy-renewed TURN cert into coturn (oneshot, run by the timer).
+[Unit]
+Description=Sync Caddy-renewed TURN TLS cert into coturn
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/academiq-video
+ExecStart=/opt/academiq-video/scripts/sync-coturn-certs.sh

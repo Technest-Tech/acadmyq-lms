@@ -1,0 +1,15 @@
+apiVersion: 1
+providers:
+  - name: AcademIQ
+    orgId: 1
+    folder: AcademIQ
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
+# To add the rich community dashboards, import by ID in the Grafana UI:
+#   * Node Exporter Full → 1860
+#   * LiveKit (official)  → see https://github.com/livekit/livekit (grafana dashboard json)

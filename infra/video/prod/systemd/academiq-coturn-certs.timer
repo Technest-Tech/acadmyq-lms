@@ -1,0 +1,12 @@
+# AcademIQ media — weekly check to pick up Caddy-renewed TURN certs (LE renews ~30d before expiry).
+# Install: cp systemd/academiq-coturn-certs.{service,timer} /etc/systemd/system/ && systemctl daemon-reload
+#          systemctl enable --now academiq-coturn-certs.timer
+[Unit]
+Description=Weekly sync of Caddy-renewed TURN cert into coturn
+
+[Timer]
+OnCalendar=Sun 04:30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

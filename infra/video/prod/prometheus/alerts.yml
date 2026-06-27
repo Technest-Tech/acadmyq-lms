@@ -1,0 +1,56 @@
+# AcademIQ media — Prometheus alert rules.
+# These evaluate and show in Prometheus/Grafana now; wire an Alertmanager receiver (prometheus.yml)
+# to actually deliver them to email/Slack. See 07-DEPLOYMENT.md §14.
+groups:
+  - name: media-node
+    rules:
+      - alert: NodeExporterDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "node_exporter target is down"
+          description: "Host metrics have been unavailable for >2m on {{ $labels.instance }}."
+
+      - alert: LiveKitDown
+        expr: up{job="livekit"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "LiveKit metrics endpoint is down"
+          description: "LiveKit /metrics (:6789) unreachable for >2m — the SFU may be down."
+
+      - alert: HighCPU
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "CPU > 85% for 10m"
+          description: "Sustained high CPU — risk of media jitter. Consider resize / separate egress node."
+
+      - alert: HighMemory
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Memory > 90% for 10m"
+
+      - alert: LowDisk
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Disk < 15% free on /"
+          description: "Recordings/logs filling the disk. Check log rotation + object-storage lifecycle."
+
+      - alert: SwapHeavilyUsed
+        expr: (1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) * 100 > 75
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Swap > 75% used"
+          description: "Under memory pressure — risk of OOM/jitter. Resize or reduce concurrent recordings."
+
+# NOTE — additional alerts to wire once metric names/exporters are confirmed on this version:
+#   * Packet loss / NACK rate   → from LiveKit metrics (livekit_* counters)
+#   * TLS cert expiry            → add blackbox_exporter or x509-certificate-exporter, alert < 14d

@@ -1,0 +1,126 @@
+# AcademIQ media — PRODUCTION stack (DigitalOcean droplet, media.acadmyq.com).
+# Brought up by provision.sh / systemd unit academiq-video.service. Secrets via ./.env (chmod 600).
+#
+# NETWORKING: media services run on the HOST network (LiveKit's recommended Docker model) — this
+# avoids publishing a 10k-port UDP range through docker-proxy and keeps ICE candidates correct.
+# Internal ports (7880 livekit, 6789 metrics, 6379 redis, 9090/9100/3000 obs) are NOT in the ufw
+# allow-list, so they are unreachable from the internet; several also bind 127.0.0.1 explicitly.
+#
+# Image versions are pinned (no :latest) for reproducibility — bump deliberately (see 07-DEPLOYMENT.md §22).
+name: academiq-video
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    network_mode: host
+    command: ["redis-server", "--bind", "127.0.0.1", "--port", "6379",
+              "--requirepass", "${REDIS_PASSWORD}", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  livekit:
+    image: livekit/livekit-server:v1.13.1
+    restart: unless-stopped
+    network_mode: host
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./config/livekit.yaml:/etc/livekit.yaml:ro
+    ulimits:
+      nofile:
+        soft: 1048576
+        hard: 1048576
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL}
+      DOMAIN_MEDIA: ${DOMAIN_MEDIA}
+      DOMAIN_TURN: ${DOMAIN_TURN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/data:/data            # certs live here; synced to coturn (CA-agnostic)
+      - ./caddy/config:/config
+    depends_on: [livekit]
+
+  coturn:
+    image: coturn/coturn:4.14.0
+    restart: unless-stopped
+    network_mode: host
+    user: "0:0"                       # root, so it can read the Caddy-issued key
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ./coturn/certs:/certs:ro      # turn.crt / turn.key synced from Caddy by provision.sh
+    depends_on: [caddy]
+
+  node-exporter:
+    image: prom/node-exporter:v1.11.1
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    command:
+      - '--path.rootfs=/host'
+      - '--web.listen-address=127.0.0.1:9100'
+    volumes:
+      - /:/host:ro,rslave
+
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.listen-address=127.0.0.1:9090'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    depends_on: [node-exporter]
+
+  grafana:
+    image: grafana/grafana:11.6.16
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1          # localhost-only; reach via SSH tunnel
+      GF_SERVER_HTTP_PORT: "3000"
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on: [prometheus]
+
+  # Recording — only starts with `docker compose --profile recording up -d` (needs S3 storage configured).
+  egress:
+    image: livekit/egress:v1.13.0
+    restart: unless-stopped
+    network_mode: host
+    profiles: ["recording"]
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./config/egress.yaml:/etc/egress.yaml:ro
+    cap_add: ["SYS_ADMIN"]             # headless Chrome (room-composite recording)
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  prometheus_data:
+  grafana_data:

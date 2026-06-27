@@ -1,0 +1,33 @@
+# AcademIQ media — LiveKit SFU (PRODUCTION).
+# This is a TEMPLATE: provision.sh renders it to config/livekit.yaml via envsubst,
+# injecting secrets from /opt/academiq-video/.env. NEVER commit the rendered file.
+port: 7880
+log_level: info
+
+rtc:
+  tcp_port: 7881                 # ICE/TCP fallback (ufw-open)
+  port_range_start: 50000        # ICE/UDP media (ufw-open 50000-60000)
+  port_range_end: 60000
+  use_external_ip: true          # advertise the droplet's public IP in ICE candidates
+  # Standalone coturn (use-auth-secret). LiveKit mints time-limited TURN REST
+  # credentials from this shared secret and advertises the relay to clients —
+  # the fallback path for UDP-blocked / restrictive networks (AC-V0.4).
+  turn_servers:
+    - host: ${DOMAIN_TURN}
+      port: 5349
+      protocol: tls
+      secret: ${TURN_STATIC_AUTH_SECRET}
+
+redis:
+  address: 127.0.0.1:6379        # host-networked redis, localhost-only
+  password: ${REDIS_PASSWORD}
+
+keys:
+  ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+
+prometheus_port: 6789            # metrics scrape (localhost; ufw blocks externally)
+
+webhook:
+  api_key: ${LIVEKIT_WEBHOOK_API_KEY}   # must be one of the keys above; signs webhook POSTs
+  urls:
+    - ${WEBHOOK_URL}             # → Laravel control plane

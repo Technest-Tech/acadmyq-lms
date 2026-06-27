@@ -1,0 +1,8 @@
+# Secrets + rendered (from *.template) + runtime data — created on the server, NEVER committed.
+.env
+config/livekit.yaml
+config/egress.yaml
+coturn/turnserver.conf
+coturn/certs/
+caddy/data/
+caddy/config/

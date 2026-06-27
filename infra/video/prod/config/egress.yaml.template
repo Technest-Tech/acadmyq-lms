@@ -1,0 +1,21 @@
+# AcademIQ media — LiveKit Egress (recording → durable object storage). PRODUCTION.
+# TEMPLATE: provision.sh renders to config/egress.yaml via envsubst. Never commit the rendered file.
+# Egress is gated behind the `recording` compose profile — it only runs once S3 storage is configured.
+log_level: info
+
+redis:
+  address: 127.0.0.1:6379
+  password: ${REDIS_PASSWORD}
+
+api_key: ${LIVEKIT_API_KEY}
+api_secret: ${LIVEKIT_API_SECRET}
+ws_url: ws://127.0.0.1:7880      # host-networked local LiveKit
+
+# S3-compatible durable storage (Backblaze B2 / Wasabi / DO Spaces). Bucket created out-of-band.
+s3:
+  access_key: ${REC_S3_ACCESS_KEY}
+  secret: ${REC_S3_SECRET}
+  region: ${REC_S3_REGION}
+  bucket: ${REC_S3_BUCKET}
+  endpoint: ${REC_S3_ENDPOINT}
+  force_path_style: ${REC_S3_FORCE_PATH_STYLE}

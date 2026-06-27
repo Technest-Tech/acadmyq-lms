@@ -1,0 +1,52 @@
+# AcademIQ media — standalone coturn (TURN/STUN over UDP/TCP + TLS). PRODUCTION.
+# TEMPLATE: provision.sh renders to coturn/turnserver.conf via envsubst. Never commit the rendered file.
+# Runs on the host network; the TLS cert is Caddy-issued for the TURN domain and synced to ./coturn/certs.
+# NOTE: coturn does NOT support inline comments after a value — keep comments on their own lines.
+
+# --- listeners ---
+# 3478 = STUN/TURN over UDP+TCP ; 5349 = TURN over TLS (DPI-friendly, looks like HTTPS)
+listening-port=3478
+tls-listening-port=5349
+listening-ip=0.0.0.0
+relay-ip=${EXTERNAL_IP}
+external-ip=${EXTERNAL_IP}
+# relay port range (ufw-open 49160-49200/udp)
+min-port=${TURN_MIN_PORT}
+max-port=${TURN_MAX_PORT}
+
+# --- identity ---
+realm=${TURN_REALM}
+server-name=${TURN_REALM}
+
+# --- auth: shared secret (RFC5766 TURN REST API). LiveKit mints short-lived creds from the SAME secret. ---
+use-auth-secret
+static-auth-secret=${TURN_STATIC_AUTH_SECRET}
+
+# --- TLS (cert synced from Caddy; stable paths, CA-agnostic) ---
+cert=/certs/turn.crt
+pkey=/certs/turn.key
+
+# --- hardening ---
+# disable the telnet admin CLI
+no-cli
+# never relay to TCP peers
+no-tcp-relay
+no-multicast-peers
+fingerprint
+stale-nonce=600
+# Block relaying into private/internal ranges (SSRF-style abuse protection)
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+# allow the SFU's own public IP as a relay peer (it lives on this box)
+allowed-peer-ip=${EXTERNAL_IP}
+
+pidfile=/var/run/turnserver.pid
+log-file=stdout
+simple-log
