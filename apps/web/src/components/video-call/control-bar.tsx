@@ -3,11 +3,24 @@
 import { useEffect, useRef, useState } from "react";
 import { useIsRecording, useRoomContext, useTrackToggle } from "@livekit/components-react";
 import { Track } from "livekit-client";
-import { Loader2, Mic, MicOff, MonitorUp, PhoneOff, Square, Users, Video, VideoOff } from "lucide-react";
+import {
+  Loader2,
+  Maximize,
+  Mic,
+  MicOff,
+  Minimize,
+  MonitorUp,
+  PhoneOff,
+  Square,
+  Users,
+  Video,
+  VideoOff,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { LucideIcon } from "lucide-react";
 import { startRoomRecording, stopRoomRecording } from "@/lib/api";
 import { DeviceMenu } from "./device-menu";
+import { useFullscreen } from "./use-fullscreen";
 
 /** A round mic/camera/screen toggle. Muted/inactive state is red/neutral; ≥44px touch target. */
 function ToggleButton({
@@ -127,6 +140,7 @@ export function ControlBar({
   const mic = useTrackToggle({ source: Track.Source.Microphone });
   const cam = useTrackToggle({ source: Track.Source.Camera });
   const screen = useTrackToggle({ source: Track.Source.ScreenShare });
+  const fs = useFullscreen();
 
   return (
     <div className="mx-auto flex w-fit items-center gap-2.5 rounded-full bg-slate-800/80 px-3 py-2.5 ring-1 ring-white/10 backdrop-blur sm:gap-3 sm:px-4">
@@ -162,6 +176,19 @@ export function ControlBar({
       >
         <MonitorUp className="size-5" />
       </button>
+      {/* Fullscreen — desktop only; hidden where the element Fullscreen API is unavailable (iOS). */}
+      {fs.supported && (
+        <button
+          type="button"
+          onClick={() => void fs.toggle()}
+          aria-pressed={fs.isFullscreen}
+          aria-label={fs.isFullscreen ? t("exitFullscreen") : t("enterFullscreen")}
+          title={fs.isFullscreen ? t("exitFullscreen") : t("enterFullscreen")}
+          className="hidden size-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:flex"
+        >
+          {fs.isFullscreen ? <Minimize className="size-5" /> : <Maximize className="size-5" />}
+        </button>
+      )}
       {canManage && <RecordButton roomId={roomId} />}
       <button
         type="button"
