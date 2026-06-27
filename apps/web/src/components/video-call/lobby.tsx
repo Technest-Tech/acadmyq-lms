@@ -8,7 +8,8 @@ import {
   type LocalAudioTrack,
   type LocalVideoTrack,
 } from "livekit-client";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Loader2,
@@ -19,6 +20,7 @@ import {
   VideoOff,
 } from "lucide-react";
 import { getMe } from "@/lib/api";
+import { LOCALE_COOKIE, locales } from "@/i18n/config";
 import { BrandBackdrop } from "./brand-backdrop";
 import { MicMeter } from "./mic-meter";
 
@@ -152,6 +154,11 @@ export function Lobby({
       <BrandBackdrop />
 
       <div className="relative grid w-full max-w-4xl gap-5 rounded-3xl bg-white/[0.03] p-4 ring-1 ring-white/10 backdrop-blur-sm sm:p-6 lg:grid-cols-[1.4fr_1fr]">
+        {/* Language toggle — guests with no account can pick their language before joining */}
+        <div className="absolute end-3 top-3 z-20">
+          <LangToggle />
+        </div>
+
         {/* ── Camera preview ── */}
         <div className="relative aspect-video overflow-hidden rounded-2xl bg-slate-900 ring-1 ring-white/10">
           {errorConfig ? (
@@ -284,6 +291,40 @@ export function Lobby({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Dark-styled ar/en switch for the lobby — writes the NEXT_LOCALE cookie + soft-refreshes. */
+function LangToggle() {
+  const active = useLocale();
+  const t = useTranslations("locale");
+  const router = useRouter();
+
+  function switchTo(locale: string) {
+    document.cookie = `${LOCALE_COOKIE}=${locale};path=/;max-age=31536000;samesite=lax`;
+    router.refresh();
+  }
+
+  return (
+    <div
+      className="flex items-center gap-0.5 rounded-lg bg-black/30 p-0.5 ring-1 ring-white/10 backdrop-blur"
+      role="group"
+      aria-label="language"
+    >
+      {locales.map((locale) => (
+        <button
+          key={locale}
+          type="button"
+          aria-pressed={locale === active}
+          onClick={() => switchTo(locale)}
+          className={`rounded-md px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+            locale === active ? "bg-white/15 text-white" : "text-slate-400 hover:text-white"
+          }`}
+        >
+          {t(locale)}
+        </button>
+      ))}
     </div>
   );
 }
