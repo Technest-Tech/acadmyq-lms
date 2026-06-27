@@ -11,6 +11,7 @@ import {
   Minimize,
   MonitorUp,
   PhoneOff,
+  PictureInPicture2,
   Square,
   Users,
   Video,
@@ -19,6 +20,7 @@ import {
 import { useTranslations } from "next-intl";
 import type { LucideIcon } from "lucide-react";
 import { startRoomRecording, stopRoomRecording } from "@/lib/api";
+import { usePip } from "./composite-pip";
 import { DeviceMenu } from "./device-menu";
 import { useFullscreen } from "./use-fullscreen";
 
@@ -141,6 +143,7 @@ export function ControlBar({
   const cam = useTrackToggle({ source: Track.Source.Camera });
   const screen = useTrackToggle({ source: Track.Source.ScreenShare });
   const fs = useFullscreen();
+  const pip = usePip();
 
   return (
     <div className="mx-auto flex w-fit items-center gap-2.5 rounded-full bg-slate-800/80 px-3 py-2.5 ring-1 ring-white/10 backdrop-blur sm:gap-3 sm:px-4">
@@ -187,6 +190,23 @@ export function ControlBar({
           className="hidden size-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:flex"
         >
           {fs.isFullscreen ? <Minimize className="size-5" /> : <Maximize className="size-5" />}
+        </button>
+      )}
+      {/* Picture-in-picture — a floating window of ALL participants; desktop only, support-gated. */}
+      {pip.supported && (
+        <button
+          type="button"
+          onClick={pip.toggle}
+          aria-pressed={pip.isActive}
+          aria-label={pip.isActive ? t("exitPictureInPicture") : t("pictureInPicture")}
+          title={pip.isActive ? t("exitPictureInPicture") : t("pictureInPicture")}
+          className={`hidden size-12 items-center justify-center rounded-full transition sm:flex ${
+            pip.isActive
+              ? "bg-emerald-500/90 text-white hover:bg-emerald-500"
+              : "bg-white/10 text-white hover:bg-white/20"
+          }`}
+        >
+          <PictureInPicture2 className="size-5" />
         </button>
       )}
       {canManage && <RecordButton roomId={roomId} />}

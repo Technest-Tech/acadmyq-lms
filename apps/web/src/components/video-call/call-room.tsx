@@ -6,6 +6,7 @@ import type { AudioCaptureOptions, DisconnectReason, VideoCaptureOptions } from 
 import type { JoinRoomResponse } from "@/lib/api";
 import { CallControlContext } from "./call-control-context";
 import { CallStage } from "./call-stage";
+import { CompositePipProvider } from "./composite-pip";
 import { ControlBar } from "./control-bar";
 import type { LobbySettings } from "./lobby";
 import { ParticipantsPanel } from "./participants-panel";
@@ -86,22 +87,24 @@ function InCall({
   return (
     <CallControlContext.Provider value={control}>
       <PinContext.Provider value={pin}>
-        <CallStage roomTitle={roomTitle} />
-        <RoomAudioRenderer />
-        <ParticipantsPanel
-          open={panelOpen}
-          onClose={() => setPanelOpen(false)}
-          canManage={canManage}
-          roomId={roomId}
-        />
-        <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
-          <ControlBar
-            onToggleParticipants={() => setPanelOpen((v) => !v)}
-            participantCount={participants.length}
+        <CompositePipProvider>
+          <CallStage roomTitle={roomTitle} />
+          <RoomAudioRenderer />
+          <ParticipantsPanel
+            open={panelOpen}
+            onClose={() => setPanelOpen(false)}
             canManage={canManage}
             roomId={roomId}
           />
-        </div>
+          <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
+            <ControlBar
+              onToggleParticipants={() => setPanelOpen((v) => !v)}
+              participantCount={participants.length}
+              canManage={canManage}
+              roomId={roomId}
+            />
+          </div>
+        </CompositePipProvider>
       </PinContext.Provider>
     </CallControlContext.Provider>
   );

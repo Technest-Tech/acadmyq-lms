@@ -2848,6 +2848,8 @@
     "stopShareScreen": "إيقاف المشاركة",
     "enterFullscreen": "ملء الشاشة",
     "exitFullscreen": "إنهاء ملء الشاشة",
+    "pictureInPicture": "نافذة عائمة",
+    "exitPictureInPicture": "إغلاق النافذة العائمة",
     "startRecording": "تسجيل",
     "stopRecording": "إيقاف التسجيل",
     "recordingBadge": "تسجيل",

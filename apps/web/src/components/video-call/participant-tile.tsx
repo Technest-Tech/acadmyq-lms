@@ -67,6 +67,8 @@ export function ParticipantTile({
 
   return (
     <div
+      // Tag camera tiles so the composite-PiP can sample this already-decoding <video> (no 2nd decode).
+      data-pip-id={isScreen ? undefined : participant.identity}
       className={`group relative overflow-hidden rounded-2xl bg-slate-800 ring-1 transition-shadow duration-200 ${
         speaking && !isScreen ? "ring-2 ring-emerald-400" : "ring-white/10"
       } ${fill ? "size-full" : "aspect-video min-h-0 w-full"}`}

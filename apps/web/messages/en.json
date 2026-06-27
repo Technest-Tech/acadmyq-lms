@@ -2848,6 +2848,8 @@
     "stopShareScreen": "Stop sharing",
     "enterFullscreen": "Fullscreen",
     "exitFullscreen": "Exit fullscreen",
+    "pictureInPicture": "Floating window",
+    "exitPictureInPicture": "Close floating window",
     "startRecording": "Record",
     "stopRecording": "Stop recording",
     "recordingBadge": "REC",
