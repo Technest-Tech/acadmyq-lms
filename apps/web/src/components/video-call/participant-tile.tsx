@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   VideoTrack,
   isTrackReference,
@@ -7,8 +8,10 @@ import {
   type TrackReferenceOrPlaceholder,
 } from "@livekit/components-react";
 import { Track } from "livekit-client";
-import { MicOff, MonitorUp, Pin, PinOff } from "lucide-react";
+import { Loader2, Mic, MicOff, MonitorUp, Pin, PinOff, UserX } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { muteParticipant, removeParticipant } from "@/lib/api";
+import { useCallControl } from "./call-control-context";
 import { usePin } from "./pin-context";
 
 /** Up to two initials from a display name (falls back to a placeholder glyph). */
@@ -36,6 +39,7 @@ export function ParticipantTile({
 }) {
   const t = useTranslations("videoCall");
   const { isPinned, togglePin } = usePin();
+  const { canManage, roomId } = useCallControl();
   const participant = trackRef.participant;
   const speaking = useIsSpeaking(participant);
   const micOn = participant.isMicrophoneEnabled;
@@ -44,6 +48,22 @@ export function ParticipantTile({
   const isLocal = participant.isLocal;
   const pinned = isPinned(participant.identity);
   const showVideo = isTrackReference(trackRef) && !trackRef.publication.isMuted;
+
+  // Host moderation, inline on the tile (server-mediated) — lives in the bottom bar with the pin so it
+  // never collides with the stage header, on every tile incl. the 1:1 focus.
+  const showHostControls = canManage && !isLocal && !isScreen;
+  const [busy, setBusy] = useState<"mute" | "remove" | null>(null);
+
+  async function act(kind: "mute" | "remove", fn: () => Promise<unknown>) {
+    setBusy(kind);
+    try {
+      await fn();
+    } catch {
+      // The roster reflects the authoritative SFU state via events; a failed action just no-ops.
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <div
@@ -80,6 +100,31 @@ export function ParticipantTile({
           {label}
           {isLocal && !isScreen && <span className="ms-1 text-white/60">({youLabel})</span>}
         </span>
+        {/* Host moderation — force-mute (only while their mic is live) + remove, server-mediated. */}
+        {showHostControls && micOn && (
+          <button
+            type="button"
+            onClick={() => void act("mute", () => muteParticipant(roomId, participant.identity))}
+            disabled={busy !== null}
+            aria-label={t("muteParticipant")}
+            title={t("muteParticipant")}
+            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80 transition hover:bg-white/20 hover:text-white disabled:opacity-50"
+          >
+            {busy === "mute" ? <Loader2 className="size-3.5 animate-spin" /> : <Mic className="size-3.5" />}
+          </button>
+        )}
+        {showHostControls && (
+          <button
+            type="button"
+            onClick={() => void act("remove", () => removeParticipant(roomId, participant.identity))}
+            disabled={busy !== null}
+            aria-label={t("removeParticipant")}
+            title={t("removeParticipant")}
+            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80 transition hover:bg-red-500/80 hover:text-white disabled:opacity-50"
+          >
+            {busy === "remove" ? <Loader2 className="size-3.5 animate-spin" /> : <UserX className="size-3.5" />}
+          </button>
+        )}
         {/* Pin/spotlight this participant locally (not screen-shares — those auto-present). */}
         {!isScreen && (
           <button

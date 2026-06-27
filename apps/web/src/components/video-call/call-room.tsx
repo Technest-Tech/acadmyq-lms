@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { LiveKitRoom, RoomAudioRenderer, useParticipants } from "@livekit/components-react";
 import type { AudioCaptureOptions, DisconnectReason, VideoCaptureOptions } from "livekit-client";
 import type { JoinRoomResponse } from "@/lib/api";
+import { CallControlContext } from "./call-control-context";
 import { CallStage } from "./call-stage";
 import { ControlBar } from "./control-bar";
 import type { LobbySettings } from "./lobby";
@@ -80,25 +81,28 @@ function InCall({
     () => ({ pinnedId, togglePin, isPinned: (id: string) => id === pinnedId }),
     [pinnedId, togglePin],
   );
+  const control = useMemo(() => ({ canManage, roomId }), [canManage, roomId]);
 
   return (
-    <PinContext.Provider value={pin}>
-      <CallStage roomTitle={roomTitle} />
-      <RoomAudioRenderer />
-      <ParticipantsPanel
-        open={panelOpen}
-        onClose={() => setPanelOpen(false)}
-        canManage={canManage}
-        roomId={roomId}
-      />
-      <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
-        <ControlBar
-          onToggleParticipants={() => setPanelOpen((v) => !v)}
-          participantCount={participants.length}
+    <CallControlContext.Provider value={control}>
+      <PinContext.Provider value={pin}>
+        <CallStage roomTitle={roomTitle} />
+        <RoomAudioRenderer />
+        <ParticipantsPanel
+          open={panelOpen}
+          onClose={() => setPanelOpen(false)}
           canManage={canManage}
           roomId={roomId}
         />
-      </div>
-    </PinContext.Provider>
+        <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
+          <ControlBar
+            onToggleParticipants={() => setPanelOpen((v) => !v)}
+            participantCount={participants.length}
+            canManage={canManage}
+            roomId={roomId}
+          />
+        </div>
+      </PinContext.Provider>
+    </CallControlContext.Provider>
   );
 }
