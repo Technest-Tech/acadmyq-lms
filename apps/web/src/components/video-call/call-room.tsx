@@ -47,7 +47,7 @@ export function CallRoom({
       options={{ adaptiveStream: true, dynacast: true }}
       className="flex h-[100dvh] flex-col bg-slate-900 text-white"
     >
-      <InCall roomTitle={creds.roomTitle} canRecord={creds.canRecord} roomId={creds.roomId} />
+      <InCall roomTitle={creds.roomTitle} canManage={creds.canManage} roomId={creds.roomId} />
     </LiveKitRoom>
   );
 }
@@ -55,11 +55,11 @@ export function CallRoom({
 /** Inside the room context: stage + audio + participants drawer + control bar, with a wake lock. */
 function InCall({
   roomTitle,
-  canRecord,
+  canManage,
   roomId,
 }: {
   roomTitle: string;
-  canRecord: boolean;
+  canManage: boolean;
   roomId: string;
 }) {
   useWakeLock();
@@ -70,12 +70,17 @@ function InCall({
     <>
       <CallStage roomTitle={roomTitle} />
       <RoomAudioRenderer />
-      <ParticipantsPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
+      <ParticipantsPanel
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        canManage={canManage}
+        roomId={roomId}
+      />
       <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
         <ControlBar
           onToggleParticipants={() => setPanelOpen((v) => !v)}
           participantCount={participants.length}
-          canRecord={canRecord}
+          canManage={canManage}
           roomId={roomId}
         />
       </div>

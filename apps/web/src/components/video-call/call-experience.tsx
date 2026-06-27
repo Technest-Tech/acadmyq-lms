@@ -13,7 +13,7 @@ import { Lobby, type LobbySettings } from "./lobby";
 // chatty per-track debug logs (e.g. the one-time "silence detected" track-start check).
 setLogLevel("warn");
 
-type Phase = "lobby" | "in-call" | "left" | "lost" | "dead";
+type Phase = "lobby" | "in-call" | "left" | "lost" | "ended" | "removed" | "dead";
 
 /**
  * Drives the public join-by-link experience: a premium lobby (camera/mic preview, device pickers,
@@ -50,11 +50,15 @@ export function CallExperience({ token }: { token: string }) {
     }
   }
 
-  // A deliberate Leave (room.disconnect → CLIENT_INITIATED) lands on the calm "left" screen;
-  // any other disconnect (network drop, server shutdown, removed by host) is an unexpected loss
-  // and gets the "connection lost" screen with a prominent rejoin (which re-mints a fresh token).
+  // Distinguish three disconnect shapes: a deliberate Leave (CLIENT_INITIATED) → calm "left";
+  // the host ended the call for everyone (ROOM_DELETED/ROOM_CLOSED) → calm "ended"; anything else
+  // (network drop, server shutdown, removed mid-call) → "connection lost" with a prominent rejoin.
   function handleDisconnect(reason?: DisconnectReason) {
-    setPhase(reason === DisconnectReason.CLIENT_INITIATED ? "left" : "lost");
+    if (reason === DisconnectReason.CLIENT_INITIATED) setPhase("left");
+    else if (reason === DisconnectReason.ROOM_DELETED || reason === DisconnectReason.ROOM_CLOSED)
+      setPhase("ended");
+    else if (reason === DisconnectReason.PARTICIPANT_REMOVED) setPhase("removed");
+    else setPhase("lost");
   }
 
   if (phase === "in-call" && creds && settings) {
@@ -84,6 +88,21 @@ export function CallExperience({ token }: { token: string }) {
         action={{ label: t("rejoin"), onClick: () => setPhase("lobby") }}
       />
     );
+  }
+
+  if (phase === "ended") {
+    return (
+      <StatusScreen
+        title={t("endedTitle")}
+        body={t("endedBody")}
+        action={{ label: t("rejoin"), onClick: () => setPhase("lobby") }}
+      />
+    );
+  }
+
+  // Removed by a host — no rejoin affordance (the intent was to remove them).
+  if (phase === "removed") {
+    return <StatusScreen title={t("removedTitle")} body={t("removedBody")} />;
   }
 
   return (

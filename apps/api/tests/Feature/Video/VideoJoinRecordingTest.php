@@ -15,9 +15,9 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * R1 — the join-by-link response carries `roomId` + `canRecord` so the browser call client can show
+ * R1 — the join-by-link response carries `roomId` + `canManage` so the browser call client can show
  * the in-call record control to hosts ONLY (the start/stop endpoints gate on room.manage). A guest,
- * and a teacher who lacks room.manage, must get canRecord=false.
+ * and a teacher who lacks room.manage, must get canManage=false.
  */
 beforeEach(function () {
     $this->seed(DemoAcademySeeder::class);
@@ -57,7 +57,7 @@ function makeRecRoom(string $academyId): array
     return ['id' => $id, 'token' => $token];
 }
 
-it('exposes roomId and canRecord=true for a host with room.manage', function () {
+it('exposes roomId and canManage=true for a host with room.manage', function () {
     $room = makeRecRoom($this->pro);
     Sanctum::actingAs($this->owner);
 
@@ -65,10 +65,10 @@ it('exposes roomId and canRecord=true for a host with room.manage', function () 
 
     expect($res->json('role'))->toBe('host');
     expect($res->json('roomId'))->toBe($room['id']);
-    expect($res->json('canRecord'))->toBeTrue();
+    expect($res->json('canManage'))->toBeTrue();
 });
 
-it('returns canRecord=false for a host without room.manage (teacher)', function () {
+it('returns canManage=false for a host without room.manage (teacher)', function () {
     $room = makeRecRoom($this->pro);
     Sanctum::actingAs($this->teacher);
 
@@ -76,14 +76,14 @@ it('returns canRecord=false for a host without room.manage (teacher)', function 
 
     expect($res->json('role'))->toBe('host');
     expect($res->json('roomId'))->toBe($room['id']);
-    expect($res->json('canRecord'))->toBeFalse();
+    expect($res->json('canManage'))->toBeFalse();
 });
 
-it('returns canRecord=false for an anonymous guest', function () {
+it('returns canManage=false for an anonymous guest', function () {
     $room = makeRecRoom($this->pro);
 
     $res = $this->postJson("/api/video/join/{$room['token']}", ['display_name' => 'Yusuf'])->assertOk();
 
     expect($res->json('role'))->toBe('guest');
-    expect($res->json('canRecord'))->toBeFalse();
+    expect($res->json('canManage'))->toBeFalse();
 });

@@ -96,9 +96,9 @@ final class VideoJoinController extends Controller
             'identity' => $identity,
             'displayName' => $displayName !== '' ? $displayName : null,
             'role' => $role,
-            // Only a host holding room.manage may drive recording (start/stop gate on room.manage).
-            // The browser uses this to show the in-call record control to hosts only.
-            'canRecord' => $host !== null && ($host['canManage'] ?? false),
+            // Host admin capability (room.manage): gates the in-call record control AND moderation
+            // (mute/remove/end). Guests and hosts without room.manage get false.
+            'canManage' => $host !== null && ($host['canManage'] ?? false),
         ]);
     }
 

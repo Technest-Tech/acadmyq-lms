@@ -111,13 +111,13 @@ function RecordButton({ roomId }: { roomId: string }) {
 export function ControlBar({
   onToggleParticipants,
   participantCount,
-  canRecord,
+  canManage,
   roomId,
 }: {
   onToggleParticipants: () => void;
   participantCount: number;
   /** Host with room.manage → show the record toggle. */
-  canRecord: boolean;
+  canManage: boolean;
   /** Room UUID the record toggle drives. */
   roomId: string;
 }) {
@@ -161,7 +161,7 @@ export function ControlBar({
       >
         <MonitorUp className="size-5" />
       </button>
-      {canRecord && <RecordButton roomId={roomId} />}
+      {canManage && <RecordButton roomId={roomId} />}
       <button
         type="button"
         onClick={onToggleParticipants}

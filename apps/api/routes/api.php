@@ -43,6 +43,7 @@ use App\Http\Controllers\TeacherReportController;
 use App\Http\Controllers\Trials\TrialController;
 use App\Http\Controllers\Video\LivekitWebhookController;
 use App\Http\Controllers\Video\VideoJoinController;
+use App\Http\Controllers\Video\VideoModerationController;
 use App\Http\Controllers\Video\VideoRecordingController;
 use App\Http\Controllers\Video\VideoRoomController;
 use App\Http\Controllers\WhatsAppWebhookController;
@@ -479,5 +480,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/video/rooms/{id}/rotate-link', [VideoRoomController::class, 'rotate']);
         Route::post('/video/rooms/{id}/recording', [VideoRecordingController::class, 'start']);
         Route::delete('/video/rooms/{id}/recording', [VideoRecordingController::class, 'stop']);
+        // Host moderation (room.manage) — server-mediated SFU admin actions.
+        Route::post('/video/rooms/{id}/participants/{identity}/mute', [VideoModerationController::class, 'mute']);
+        Route::post('/video/rooms/{id}/participants/{identity}/remove', [VideoModerationController::class, 'remove']);
+        Route::post('/video/rooms/{id}/end', [VideoModerationController::class, 'end']);
     });
 });

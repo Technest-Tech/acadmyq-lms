@@ -3196,8 +3196,8 @@ export interface JoinRoomResponse {
   displayName: string | null;
   /** How the caller was admitted. */
   role: "host" | "guest";
-  /** Whether this joiner may start/stop recording (a host holding room.manage). */
-  canRecord: boolean;
+  /** Host admin (holds room.manage): may record AND moderate (mute/remove/end). */
+  canManage: boolean;
 }
 
 /**
@@ -3236,4 +3236,25 @@ export function startRoomRecording(roomId: string): Promise<{ recordingId: strin
 /** Stop the room's active recording (host with room.manage). */
 export function stopRoomRecording(roomId: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/video/rooms/${roomId}/recording`, { method: "DELETE" });
+}
+
+// ── In-call host moderation (room.manage; server-mediated SFU admin) ──────────
+
+/** Force-mute a participant's microphone. */
+export function muteParticipant(roomId: string, identity: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/video/rooms/${roomId}/participants/${encodeURIComponent(identity)}/mute`, {
+    method: "POST",
+  });
+}
+
+/** Remove (kick) a participant from the call. */
+export function removeParticipant(roomId: string, identity: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/video/rooms/${roomId}/participants/${encodeURIComponent(identity)}/remove`, {
+    method: "POST",
+  });
+}
+
+/** End the live call for everyone (the room stays available to rejoin later). */
+export function endRoomForAll(roomId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/video/rooms/${roomId}/end`, { method: "POST" });
 }

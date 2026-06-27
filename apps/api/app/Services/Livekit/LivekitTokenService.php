@@ -75,4 +75,17 @@ final class LivekitTokenService
             'roomRecord' => true,
         ], ttl: 60);
     }
+
+    /**
+     * Short-lived admin token SCOPED to one room. Room-scoped RoomService ops (ListParticipants,
+     * RemoveParticipant, MutePublishedTrack, …) require `roomAdmin` together with the `room` claim
+     * — a roomAdmin token without a room is rejected as "permissions denied".
+     */
+    public function roomAdminToken(string $room): string
+    {
+        return $this->mint('server-admin', [
+            'roomAdmin' => true,
+            'room' => $room,
+        ], ttl: 60);
+    }
 }

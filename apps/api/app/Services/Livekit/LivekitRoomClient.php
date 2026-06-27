@@ -49,7 +49,7 @@ final class LivekitRoomClient
     public function listParticipants(string $room): array
     {
         try {
-            $res = $this->http()->post('/twirp/livekit.RoomService/ListParticipants', ['room' => $room]);
+            $res = $this->httpForRoom($room)->post('/twirp/livekit.RoomService/ListParticipants', ['room' => $room]);
             if (! $res->successful()) {
                 return ['ok' => false, 'participants' => []];
             }
@@ -60,9 +60,82 @@ final class LivekitRoomClient
         }
     }
 
+    /** Remove (kick) a participant from a room — moderation, host-only (room.manage). */
+    public function removeParticipant(string $room, string $identity): bool
+    {
+        try {
+            return $this->httpForRoom($room)
+                ->post('/twirp/livekit.RoomService/RemoveParticipant', ['room' => $room, 'identity' => $identity])
+                ->successful();
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /** Force-mute (or unmute) a participant's published track by sid — moderation, host-only. */
+    public function mutePublishedTrack(string $room, string $identity, string $trackSid, bool $muted): bool
+    {
+        try {
+            return $this->httpForRoom($room)
+                ->post('/twirp/livekit.RoomService/MutePublishedTrack', [
+                    'room' => $room,
+                    'identity' => $identity,
+                    'track_sid' => $trackSid,
+                    'muted' => $muted,
+                ])
+                ->successful();
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * The sid of a participant's currently-published microphone (audio) track, or null. Used by the
+     * mute-others moderation action so the browser only needs to pass the target identity.
+     */
+    public function micTrackSid(string $room, string $identity): ?string
+    {
+        $list = $this->listParticipants($room);
+        if (! $list['ok']) {
+            return null;
+        }
+
+        foreach ($list['participants'] as $p) {
+            $p = (array) $p;
+            if ((string) ($p['identity'] ?? '') !== $identity) {
+                continue;
+            }
+            foreach ((array) ($p['tracks'] ?? []) as $track) {
+                $track = (array) $track;
+                // Real payload is camelCase JSON; accept the snake_case fallback too. Microphone
+                // is TrackType AUDIO / TrackSource MICROPHONE.
+                $type = (string) ($track['type'] ?? '');
+                $source = (string) ($track['source'] ?? '');
+                if ($type === 'AUDIO' || str_contains($source, 'MICROPHONE')) {
+                    $sid = (string) ($track['sid'] ?? '');
+
+                    return $sid !== '' ? $sid : null;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private function http(): PendingRequest
     {
-        return Http::withToken($this->tokens->adminToken())
+        return $this->client($this->tokens->adminToken());
+    }
+
+    /** Room-scoped admin client — required for ListParticipants/RemoveParticipant/MutePublishedTrack. */
+    private function httpForRoom(string $room): PendingRequest
+    {
+        return $this->client($this->tokens->roomAdminToken($room));
+    }
+
+    private function client(string $token): PendingRequest
+    {
+        return Http::withToken($token)
             ->acceptJson()
             ->asJson()
             ->baseUrl((string) config('services.livekit.api_url'))
