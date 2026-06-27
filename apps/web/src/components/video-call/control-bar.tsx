@@ -1,10 +1,12 @@
 "use client";
 
-import { useRoomContext, useTrackToggle } from "@livekit/components-react";
+import { useEffect, useRef, useState } from "react";
+import { useIsRecording, useRoomContext, useTrackToggle } from "@livekit/components-react";
 import { Track } from "livekit-client";
-import { Mic, MicOff, MonitorUp, PhoneOff, Users, Video, VideoOff } from "lucide-react";
+import { Loader2, Mic, MicOff, MonitorUp, PhoneOff, Square, Users, Video, VideoOff } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { LucideIcon } from "lucide-react";
+import { startRoomRecording, stopRoomRecording } from "@/lib/api";
 
 /** A round mic/camera/screen toggle. Muted/inactive state is red/neutral; ≥44px touch target. */
 function ToggleButton({
@@ -45,6 +47,63 @@ function ToggleButton({
 }
 
 /**
+ * Host-only record toggle. Reflects the SERVER recording state via useIsRecording (so it's correct
+ * even if another host toggled it), and shows a pending spinner from the click until the SFU's
+ * recording state actually flips — egress takes a few seconds to spin up its compositor. A safety
+ * timeout clears the spinner if the state never changes (e.g. egress failed to start).
+ */
+function RecordButton({ roomId }: { roomId: string }) {
+  const t = useTranslations("videoCall");
+  const isRecording = useIsRecording();
+  const [pending, setPending] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // The server state caught up to our action → stop showing pending.
+  useEffect(() => {
+    setPending(false);
+    if (timer.current) clearTimeout(timer.current);
+  }, [isRecording]);
+
+  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+
+  async function toggle() {
+    if (pending) return;
+    setPending(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setPending(false), 12000); // egress didn't flip — release the UI
+    try {
+      if (isRecording) await stopRoomRecording(roomId);
+      else await startRoomRecording(roomId);
+    } catch {
+      setPending(false);
+      if (timer.current) clearTimeout(timer.current);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void toggle()}
+      disabled={pending}
+      aria-pressed={isRecording}
+      aria-label={isRecording ? t("stopRecording") : t("startRecording")}
+      title={isRecording ? t("stopRecording") : t("startRecording")}
+      className={`flex size-12 items-center justify-center rounded-full transition disabled:opacity-60 ${
+        isRecording ? "bg-red-500/90 text-white hover:bg-red-500" : "bg-white/10 text-white hover:bg-white/20"
+      }`}
+    >
+      {pending ? (
+        <Loader2 className="size-5 animate-spin" />
+      ) : isRecording ? (
+        <Square className="size-4 fill-current" />
+      ) : (
+        <span className="size-3.5 rounded-full bg-red-500" />
+      )}
+    </button>
+  );
+}
+
+/**
  * The in-call control bar: mic · camera · screen-share (desktop) · participants · leave. Built on
  * useTrackToggle so local publish state stays in sync with the SFU; the red leave button
  * disconnects, which the LiveKitRoom wrapper turns into the "left" screen.
@@ -52,9 +111,15 @@ function ToggleButton({
 export function ControlBar({
   onToggleParticipants,
   participantCount,
+  canRecord,
+  roomId,
 }: {
   onToggleParticipants: () => void;
   participantCount: number;
+  /** Host with room.manage → show the record toggle. */
+  canRecord: boolean;
+  /** Room UUID the record toggle drives. */
+  roomId: string;
 }) {
   const t = useTranslations("videoCall");
   const room = useRoomContext();
@@ -96,6 +161,7 @@ export function ControlBar({
       >
         <MonitorUp className="size-5" />
       </button>
+      {canRecord && <RecordButton roomId={roomId} />}
       <button
         type="button"
         onClick={onToggleParticipants}

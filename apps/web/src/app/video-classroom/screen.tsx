@@ -1,6 +1,18 @@
 "use client";
 
-import { Copy, Film, Pencil, Plus, Trash2, Video, Video as VideoJoin } from "lucide-react";
+import {
+  Copy,
+  Download,
+  Film,
+  Loader2,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+  Video,
+  Video as VideoJoin,
+  X,
+} from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -9,6 +21,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   deleteVideoRoom,
+  getRecordingUrl,
   listVideoRecordings,
   listVideoRooms,
   roomShareUrl,
@@ -67,6 +80,8 @@ export function VideoClassroomScreen() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<VideoRoom | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const [playerUrl, setPlayerUrl] = useState<string | null>(null);
+  const [recBusyId, setRecBusyId] = useState<string | null>(null);
 
   const canRead = can("room.read");
   const canViewRecordings = can("recording.view");
@@ -105,6 +120,28 @@ export function VideoClassroomScreen() {
       setFlash(t("linkCopied"));
     } catch {
       setFlash(url); // clipboard blocked → surface the URL so it can be copied manually
+    }
+  }
+
+  // Fetch a fresh short-lived presigned URL on demand (never store it), then play in-panel or
+  // download. Re-fetched each time so an expired link is never reused.
+  async function openRecording(rec: RoomRecording, mode: "play" | "download") {
+    setRecBusyId(rec.id);
+    try {
+      const { url } = await getRecordingUrl(rec.id);
+      if (mode === "play") {
+        setPlayerUrl(url);
+      } else {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `recording-${rec.id}.mp4`;
+        a.rel = "noopener";
+        a.click();
+      }
+    } catch {
+      setFlash(t("recordingUnavailable"));
+    } finally {
+      setRecBusyId(null);
     }
   }
 
@@ -263,11 +300,39 @@ export function VideoClassroomScreen() {
                       {new Date(rec.created_at).toLocaleString(locale)}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 sm:gap-3">
                     {rec.duration_s != null && (
                       <span className="text-muted-foreground tabular-nums">
                         {Math.round(rec.duration_s / 60)} {t("minutesShort")}
                       </span>
+                    )}
+                    {rec.status === "COMPLETED" && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openRecording(rec, "play")}
+                          disabled={recBusyId === rec.id}
+                          aria-label={t("playRecording")}
+                          title={t("playRecording")}
+                          className="text-muted-foreground hover:bg-muted hover:text-foreground flex size-8 items-center justify-center rounded-lg transition disabled:opacity-50"
+                        >
+                          {recBusyId === rec.id ? (
+                            <Loader2 className="size-4 animate-spin" />
+                          ) : (
+                            <Play className="size-4" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openRecording(rec, "download")}
+                          disabled={recBusyId === rec.id}
+                          aria-label={t("downloadRecording")}
+                          title={t("downloadRecording")}
+                          className="text-muted-foreground hover:bg-muted hover:text-foreground flex size-8 items-center justify-center rounded-lg transition disabled:opacity-50"
+                        >
+                          <Download className="size-4" />
+                        </button>
+                      </div>
                     )}
                     <RecordingStatusBadge status={rec.status} />
                   </div>
@@ -276,6 +341,33 @@ export function VideoClassroomScreen() {
             </div>
           )}
         </section>
+      )}
+
+      {playerUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          onClick={() => setPlayerUrl(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("recordingsTitle")}
+        >
+          <div className="relative w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setPlayerUrl(null)}
+              aria-label={t("close")}
+              className="absolute -top-10 end-0 flex size-9 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+            >
+              <X className="size-5" />
+            </button>
+            <video
+              src={playerUrl}
+              controls
+              autoPlay
+              className="aspect-video w-full rounded-2xl bg-black shadow-2xl"
+            />
+          </div>
+        </div>
       )}
 
       <RoomModal

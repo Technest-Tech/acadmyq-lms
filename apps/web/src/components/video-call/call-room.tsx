@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { LiveKitRoom, RoomAudioRenderer, useParticipants } from "@livekit/components-react";
-import type { AudioCaptureOptions, VideoCaptureOptions } from "livekit-client";
+import type { AudioCaptureOptions, DisconnectReason, VideoCaptureOptions } from "livekit-client";
 import type { JoinRoomResponse } from "@/lib/api";
 import { CallStage } from "./call-stage";
 import { ControlBar } from "./control-bar";
@@ -23,7 +23,7 @@ export function CallRoom({
 }: {
   creds: JoinRoomResponse;
   settings: LobbySettings;
-  onLeave: () => void;
+  onLeave: (reason?: DisconnectReason) => void;
 }) {
   const audio: AudioCaptureOptions | boolean = settings.micEnabled
     ? settings.audioDeviceId
@@ -43,17 +43,25 @@ export function CallRoom({
       connect
       audio={audio}
       video={video}
-      onDisconnected={onLeave}
+      onDisconnected={(reason) => onLeave(reason)}
       options={{ adaptiveStream: true, dynacast: true }}
       className="flex h-[100dvh] flex-col bg-slate-900 text-white"
     >
-      <InCall roomTitle={creds.roomTitle} />
+      <InCall roomTitle={creds.roomTitle} canRecord={creds.canRecord} roomId={creds.roomId} />
     </LiveKitRoom>
   );
 }
 
 /** Inside the room context: stage + audio + participants drawer + control bar, with a wake lock. */
-function InCall({ roomTitle }: { roomTitle: string }) {
+function InCall({
+  roomTitle,
+  canRecord,
+  roomId,
+}: {
+  roomTitle: string;
+  canRecord: boolean;
+  roomId: string;
+}) {
   useWakeLock();
   const participants = useParticipants();
   const [panelOpen, setPanelOpen] = useState(false);
@@ -67,6 +75,8 @@ function InCall({ roomTitle }: { roomTitle: string }) {
         <ControlBar
           onToggleParticipants={() => setPanelOpen((v) => !v)}
           participantCount={participants.length}
+          canRecord={canRecord}
+          roomId={roomId}
         />
       </div>
     </>

@@ -2,6 +2,7 @@
 
 import {
   useConnectionState,
+  useIsRecording,
   useParticipants,
   useSpeakingParticipants,
   useTracks,
@@ -49,7 +50,10 @@ export function CallStage({ roomTitle }: { roomTitle: string }) {
         <h1 className="truncate rounded-full bg-black/30 px-3 py-1 text-sm font-semibold text-white/90 ring-1 ring-white/10 backdrop-blur">
           {roomTitle}
         </h1>
-        <ConnectionPill />
+        <div className="flex items-center gap-2">
+          <RecIndicator />
+          <ConnectionPill />
+        </div>
       </div>
 
       {/* Reconnecting banner (V-MOB-2) */}
@@ -80,6 +84,20 @@ export function CallStage({ roomTitle }: { roomTitle: string }) {
         <GridLayout cameras={cameras} youLabel={t("you")} />
       )}
     </div>
+  );
+}
+
+/** A live "REC" badge shown to EVERYONE while the room is being recorded (consent visibility). */
+function RecIndicator() {
+  const t = useTranslations("videoCall");
+  const isRecording = useIsRecording();
+  if (!isRecording) return null;
+
+  return (
+    <span className="flex items-center gap-1.5 rounded-full bg-red-500/20 px-2.5 py-1 text-xs font-semibold text-red-200 ring-1 ring-red-400/30 backdrop-blur">
+      <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
+      {t("recordingBadge")}
+    </span>
   );
 }
 

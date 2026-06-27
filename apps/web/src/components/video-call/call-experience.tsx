@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { setLogLevel } from "livekit-client";
+import { DisconnectReason, setLogLevel } from "livekit-client";
 import { useTranslations } from "next-intl";
+import { WifiOff } from "lucide-react";
 import { ApiError, joinRoom, type JoinRoomResponse } from "@/lib/api";
 import { BrandBackdrop } from "./brand-backdrop";
 import { CallRoom } from "./call-room";
@@ -12,7 +13,7 @@ import { Lobby, type LobbySettings } from "./lobby";
 // chatty per-track debug logs (e.g. the one-time "silence detected" track-start check).
 setLogLevel("warn");
 
-type Phase = "lobby" | "in-call" | "left" | "dead";
+type Phase = "lobby" | "in-call" | "left" | "lost" | "dead";
 
 /**
  * Drives the public join-by-link experience: a premium lobby (camera/mic preview, device pickers,
@@ -49,8 +50,15 @@ export function CallExperience({ token }: { token: string }) {
     }
   }
 
+  // A deliberate Leave (room.disconnect → CLIENT_INITIATED) lands on the calm "left" screen;
+  // any other disconnect (network drop, server shutdown, removed by host) is an unexpected loss
+  // and gets the "connection lost" screen with a prominent rejoin (which re-mints a fresh token).
+  function handleDisconnect(reason?: DisconnectReason) {
+    setPhase(reason === DisconnectReason.CLIENT_INITIATED ? "left" : "lost");
+  }
+
   if (phase === "in-call" && creds && settings) {
-    return <CallRoom creds={creds} settings={settings} onLeave={() => setPhase("left")} />;
+    return <CallRoom creds={creds} settings={settings} onLeave={handleDisconnect} />;
   }
 
   if (phase === "dead") {
@@ -62,6 +70,17 @@ export function CallExperience({ token }: { token: string }) {
       <StatusScreen
         title={t("leftTitle")}
         body={t("leftBody")}
+        action={{ label: t("rejoin"), onClick: () => setPhase("lobby") }}
+      />
+    );
+  }
+
+  if (phase === "lost") {
+    return (
+      <StatusScreen
+        tone="alert"
+        title={t("lostTitle")}
+        body={t("lostBody")}
         action={{ label: t("rejoin"), onClick: () => setPhase("lobby") }}
       />
     );
@@ -81,15 +100,22 @@ function StatusScreen({
   title,
   body,
   action,
+  tone = "calm",
 }: {
   title: string;
   body: string;
   action?: { label: string; onClick: () => void };
+  tone?: "calm" | "alert";
 }) {
   return (
     <div className="relative flex min-h-[100dvh] items-center justify-center p-4 text-white">
       <BrandBackdrop />
       <div className="relative w-full max-w-sm rounded-3xl bg-white/[0.03] p-6 text-center ring-1 ring-white/10 backdrop-blur-sm">
+        {tone === "alert" && (
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-amber-500/15 text-amber-300 ring-1 ring-amber-400/30">
+            <WifiOff className="size-6" />
+          </div>
+        )}
         <h1 className="text-lg font-semibold text-white">{title}</h1>
         <p className="mt-2 text-sm text-slate-400">{body}</p>
         {action && (

@@ -3188,12 +3188,16 @@ export interface JoinRoomResponse {
   roomName: string;
   /** Human-friendly room name for the lobby/header. */
   roomTitle: string;
+  /** The room's UUID — lets a host drive recording (start/stop) from the call. */
+  roomId: string;
   /** The participant identity encoded in the token. */
   identity: string;
   /** Resolved display name (server uses the host's real name; null if none). */
   displayName: string | null;
   /** How the caller was admitted. */
   role: "host" | "guest";
+  /** Whether this joiner may start/stop recording (a host holding room.manage). */
+  canRecord: boolean;
 }
 
 /**
@@ -3217,4 +3221,19 @@ export function listVideoRecordings(
 ): Promise<{ recordings: RoomRecording[] }> {
   const q = roomId ? `?room_id=${encodeURIComponent(roomId)}` : "";
   return apiFetch(`/api/video/recordings${q}`);
+}
+
+/** A short-lived presigned URL to play/download a COMPLETED recording (recording.view). */
+export function getRecordingUrl(id: string): Promise<{ url: string }> {
+  return apiFetch(`/api/video/recordings/${id}/url`);
+}
+
+/** Start an on-demand recording for a room (host with room.manage; rides the session cookie). */
+export function startRoomRecording(roomId: string): Promise<{ recordingId: string }> {
+  return apiFetch(`/api/video/rooms/${roomId}/recording`, { method: "POST" });
+}
+
+/** Stop the room's active recording (host with room.manage). */
+export function stopRoomRecording(roomId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/video/rooms/${roomId}/recording`, { method: "DELETE" });
 }
