@@ -28,6 +28,7 @@ import { MicMeter } from "./mic-meter";
 /** The device + identity choices the lobby hands to the call on Join. */
 export interface LobbySettings {
   name: string;
+  password?: string;
   micEnabled: boolean;
   camEnabled: boolean;
   audioDeviceId?: string;
@@ -41,11 +42,14 @@ export function Lobby({
   onJoin,
   joining,
   joinError,
+  passwordRequired = false,
 }: {
   roomTitle?: string;
   onJoin: (settings: LobbySettings) => void;
   joining: boolean;
   joinError?: string;
+  /** The room asked for a password (08-ROOM-ACCESS §4) — reveal the password field. */
+  passwordRequired?: boolean;
 }) {
   const t = useTranslations("videoCall");
 
@@ -53,6 +57,7 @@ export function Lobby({
 
   const [name, setName] = useState("");
   const [nameError, setNameError] = useState(false);
+  const [password, setPassword] = useState("");
   const [camEnabled, setCamEnabled] = useState(true);
   const [micEnabled, setMicEnabled] = useState(true);
   const [mediaError, setMediaError] = useState<MediaError>(secure ? null : "insecure");
@@ -135,6 +140,7 @@ export function Lobby({
     }
     onJoin({
       name: isHost ? (identity.hostName ?? "") : name.trim(),
+      password: password.trim() || undefined,
       micEnabled,
       camEnabled,
       audioDeviceId: micSelect.activeDeviceId || undefined,
@@ -250,6 +256,28 @@ export function Lobby({
               </>
             )}
           </div>
+
+          {/* Room password — revealed when the server says the room requires one */}
+          {passwordRequired && (
+            <div className="mt-4">
+              <label htmlFor="room-password" className="block text-sm font-medium text-slate-300">
+                {t("passwordLabel")}
+              </label>
+              <input
+                id="room-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !joining) handleJoin();
+                }}
+                maxLength={64}
+                autoFocus
+                placeholder={t("passwordPlaceholder")}
+                className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-slate-500 outline-none focus:border-emerald-400/50 focus:ring-2 focus:ring-emerald-400/20"
+              />
+            </div>
+          )}
 
           {/* Device pickers */}
           {!mediaError && (

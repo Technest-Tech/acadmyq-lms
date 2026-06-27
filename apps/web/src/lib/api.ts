@@ -3116,8 +3116,14 @@ export interface VideoRoom {
   teacher_id: string | null;
   status: VideoRoomStatus;
   record_default: boolean;
-  /** Shareable join-link token → /r/{join_token} (Copy link / Join from the panel). */
+  /** Shareable GUEST link token → /r/{join_token} (publish+subscribe). */
   join_token: string;
+  /** Private HOST link token → /r/{host_token} (full control, no login). room.manage only. */
+  host_token?: string;
+  /** Academy-chosen short slug → /r/{academy_subdomain}/{slug} (readable guest link). */
+  slug?: string | null;
+  /** The academy's subdomain — combined with slug to build the readable guest URL. */
+  academy_subdomain?: string | null;
   /** Access settings (defaults backfilled by the API), surfaced in the room modal. */
   config?: RoomAccessSettings;
   created_at: string;
@@ -3149,6 +3155,8 @@ export interface VideoRoomInput {
   teacher_id?: string | null;
   record_default?: boolean;
   status?: VideoRoomStatus;
+  /** Short readable slug (kebab-case); null clears it. Needs a guest password + academy subdomain. */
+  slug?: string | null;
   /** Partial access-settings patch — only the provided keys are merged into the room's config. */
   settings?: Partial<RoomAccessSettings>;
 }
@@ -3180,15 +3188,37 @@ export function deleteVideoRoom(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/video/rooms/${id}`, { method: "DELETE" });
 }
 
-/** Regenerate a room's shareable join_token, invalidating any previously-shared link. */
-export function rotateRoomLink(id: string): Promise<{ join_token: string }> {
-  return apiFetch(`/api/video/rooms/${id}/rotate-link`, { method: "POST" });
+/** Which room link to regenerate (08-ROOM-ACCESS §2). Monitor rotation arrives with S3. */
+export type RoomLinkKind = "guest" | "host";
+
+/**
+ * Regenerate one of a room's shareable links, invalidating its previously-shared URL. Returns the
+ * fresh token (and, for back-compat, the column-named key for the guest default).
+ */
+export function rotateRoomLink(
+  id: string,
+  which: RoomLinkKind = "guest",
+): Promise<{ which: string; token: string; join_token?: string; host_token?: string }> {
+  return apiFetch(`/api/video/rooms/${id}/rotate-link`, {
+    method: "POST",
+    body: JSON.stringify({ which }),
+  });
 }
 
-/** The public shareable URL for a room's join token (/r/{token}). */
-export function roomShareUrl(joinToken: string): string {
+/** The public shareable URL for a room token (/r/{token}) — guest join_token or host_token. */
+export function roomShareUrl(token: string): string {
   const origin = typeof window === "undefined" ? "" : window.location.origin;
-  return `${origin}/r/${joinToken}`;
+  return `${origin}/r/${token}`;
+}
+
+/** The readable guest URL for a slugged room (/r/{academy}/{slug}), or null if not slugged. */
+export function roomSlugUrl(
+  academySubdomain: string | null | undefined,
+  slug: string | null | undefined,
+): string | null {
+  if (!academySubdomain || !slug) return null;
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+  return `${origin}/r/${academySubdomain}/${slug}`;
 }
 
 /** Mint a scoped LiveKit access token for the current user to join this room. */
@@ -3228,12 +3258,36 @@ export interface JoinRoomResponse {
 export function joinRoom(
   token: string,
   displayName?: string,
+  password?: string,
 ): Promise<JoinRoomResponse> {
-  const name = displayName?.trim();
   return apiFetch(`/api/video/join/${token}`, {
     method: "POST",
-    body: JSON.stringify(name ? { display_name: name } : {}),
+    body: JSON.stringify(joinBody(displayName, password)),
   });
+}
+
+/**
+ * Join via the readable per-academy slug link (/r/{academy}/{slug} → POST /video/join-slug/…). Always
+ * a guest link; a slugged room requires a guest password (08-ROOM-ACCESS §3), so `password` is usual.
+ */
+export function joinRoomBySlug(
+  academy: string,
+  room: string,
+  displayName?: string,
+  password?: string,
+): Promise<JoinRoomResponse> {
+  return apiFetch(`/api/video/join-slug/${academy}/${room}`, {
+    method: "POST",
+    body: JSON.stringify(joinBody(displayName, password)),
+  });
+}
+
+function joinBody(displayName?: string, password?: string): Record<string, string> {
+  const body: Record<string, string> = {};
+  const name = displayName?.trim();
+  if (name) body.display_name = name;
+  if (password) body.password = password;
+  return body;
 }
 
 export function listVideoRecordings(

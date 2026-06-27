@@ -50,6 +50,9 @@ describe("VideoClassroomScreen (Phase 2)", () => {
           status: "ACTIVE",
           record_default: false,
           join_token: "tok-r1",
+          host_token: "host-r1",
+          slug: "halaqa-1",
+          academy_subdomain: "noor",
           created_at: "2026-06-01T10:00:00Z",
         },
         {
@@ -73,6 +76,19 @@ describe("VideoClassroomScreen (Phase 2)", () => {
     expect(await screen.findByText("Halaqa 1")).toBeInTheDocument();
     expect(screen.getByText("Halaqa 2")).toBeInTheDocument();
     expect(screen.getAllByTestId("video-room-card")).toHaveLength(2);
+  });
+
+  // S2: the private host link copy is room.manage-only.
+  it("shows the host link copy for a manager, hides it otherwise", async () => {
+    renderScreen();
+    await screen.findByText("Halaqa 1");
+    expect(screen.getByTestId("copy-host-link-r1")).toBeInTheDocument();
+  });
+
+  it("hides the host link copy without room.manage", async () => {
+    renderScreen(["room.read"]);
+    await screen.findByText("Halaqa 1");
+    expect(screen.queryByTestId("copy-host-link-r1")).not.toBeInTheDocument();
   });
 
   // Client-side permission gate (server still enforces).

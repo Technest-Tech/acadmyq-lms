@@ -4,6 +4,7 @@ import {
   Copy,
   Download,
   Film,
+  KeyRound,
   Loader2,
   Pencil,
   Play,
@@ -25,6 +26,7 @@ import {
   listVideoRecordings,
   listVideoRooms,
   roomShareUrl,
+  roomSlugUrl,
   type RoomRecording,
   type VideoRoom,
 } from "@/lib/api";
@@ -113,14 +115,24 @@ export function VideoClassroomScreen() {
     refresh();
   }
 
-  async function copyLink(room: VideoRoom) {
-    const url = roomShareUrl(room.join_token);
+  async function copy(url: string, message: string) {
     try {
       await navigator.clipboard.writeText(url);
-      setFlash(t("linkCopied"));
+      setFlash(message);
     } catch {
       setFlash(url); // clipboard blocked → surface the URL so it can be copied manually
     }
+  }
+
+  // The guest link prefers the readable slug URL (/r/{academy}/{slug}) when set, else the token URL.
+  function copyLink(room: VideoRoom) {
+    return copy(roomSlugUrl(room.academy_subdomain, room.slug) ?? roomShareUrl(room.join_token), t("linkCopied"));
+  }
+
+  // The private host link grants full control with no login — share only with the teacher.
+  function copyHostLink(room: VideoRoom) {
+    if (!room.host_token) return Promise.resolve();
+    return copy(roomShareUrl(room.host_token), t("hostLinkCopied"));
   }
 
   // Fetch a fresh short-lived presigned URL on demand (never store it), then play in-panel or
@@ -239,6 +251,18 @@ export function VideoClassroomScreen() {
                     <Copy className="size-3.5" aria-hidden />
                     {t("copyLink")}
                   </Button>
+                  {can("room.manage") && room.host_token && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      onClick={() => copyHostLink(room)}
+                      data-testid={`copy-host-link-${room.id}`}
+                    >
+                      <KeyRound className="size-3.5" aria-hidden />
+                      {t("copyHostLink")}
+                    </Button>
+                  )}
                   {can("room.manage") && (
                     <>
                       <Button

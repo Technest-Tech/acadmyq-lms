@@ -4,7 +4,7 @@ import { useState } from "react";
 import { DisconnectReason, setLogLevel } from "livekit-client";
 import { useTranslations } from "next-intl";
 import { WifiOff } from "lucide-react";
-import { ApiError, joinRoom, type JoinRoomResponse } from "@/lib/api";
+import { ApiError, joinRoom, joinRoomBySlug, type JoinRoomResponse } from "@/lib/api";
 import { BrandBackdrop } from "./brand-backdrop";
 import { CallRoom } from "./call-room";
 import { Lobby, type LobbySettings } from "./lobby";
@@ -15,17 +15,23 @@ setLogLevel("warn");
 
 type Phase = "lobby" | "in-call" | "left" | "lost" | "ended" | "removed" | "dead";
 
+/** A token link (/r/{token}) or a readable per-academy slug link (/r/{academy}/{room}). */
+type CallTarget = { token: string } | { academy: string; room: string };
+
 /**
  * Drives the public join-by-link experience: a premium lobby (camera/mic preview, device pickers,
- * host detection) → POST /api/video/join/{token} → the live CallRoom, with left/dead end-states.
- * A logged-in host is detected server-side from the session cookie; the lobby's typed name is only
- * used for guests. 404 = a dead link; everything else is a retryable error surfaced in the lobby.
+ * host detection) → the public join endpoint → the live CallRoom, with left/dead end-states. Works
+ * from a role-separated token link OR a readable academy slug. A logged-in host is detected
+ * server-side from the session cookie; the lobby's typed name is only used for guests. A room with a
+ * password prompts for one (password_required) and re-prompts on a wrong one (password_incorrect).
+ * 404 = a dead link; everything else is a retryable error surfaced in the lobby.
  */
-export function CallExperience({ token }: { token: string }) {
+export function CallExperience(target: CallTarget) {
   const t = useTranslations("videoCall");
   const [phase, setPhase] = useState<Phase>("lobby");
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | undefined>();
+  const [passwordRequired, setPasswordRequired] = useState(false);
   const [creds, setCreds] = useState<JoinRoomResponse | null>(null);
   const [settings, setSettings] = useState<LobbySettings | null>(null);
 
@@ -33,15 +39,33 @@ export function CallExperience({ token }: { token: string }) {
     setJoining(true);
     setJoinError(undefined);
     try {
-      const c = await joinRoom(token, s.name);
+      const c =
+        "token" in target
+          ? await joinRoom(target.token, s.name, s.password)
+          : await joinRoomBySlug(target.academy, target.room, s.name, s.password);
       setCreds(c);
       setSettings(s);
       setPhase("in-call");
     } catch (e) {
-      if (e instanceof ApiError && e.status === 404) {
-        setPhase("dead");
-      } else if (e instanceof ApiError && e.status === 422) {
-        setJoinError(t("nameRequired"));
+      if (e instanceof ApiError) {
+        const code = (e.body as { code?: string } | undefined)?.code;
+        if (e.status === 404) {
+          setPhase("dead");
+        } else if (code === "password_required") {
+          setPasswordRequired(true);
+          setJoinError(t("passwordRequired"));
+        } else if (code === "password_incorrect") {
+          setPasswordRequired(true);
+          setJoinError(t("passwordIncorrect"));
+        } else if (code === "host_absent") {
+          setJoinError(t("hostAbsent"));
+        } else if (code === "room_full") {
+          setJoinError(t("roomFull"));
+        } else if (e.status === 422) {
+          setJoinError(t("nameRequired"));
+        } else {
+          setJoinError(t("joinError"));
+        }
       } else {
         setJoinError(t("joinError"));
       }
@@ -111,6 +135,7 @@ export function CallExperience({ token }: { token: string }) {
       onJoin={handleJoin}
       joining={joining}
       joinError={joinError}
+      passwordRequired={passwordRequired}
     />
   );
 }

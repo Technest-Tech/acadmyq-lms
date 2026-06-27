@@ -88,6 +88,22 @@ describe("RoomModal access settings (S1)", () => {
     );
   });
 
+  it("sends the slug (null when blank, value when set)", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.type(screen.getByLabelText(t.nameLabel), "Halaqa");
+    await user.type(screen.getByPlaceholderText(t.slugPlaceholder), "halaqa-1");
+    await user.type(screen.getByPlaceholderText(t.guestPasswordPlaceholder), "open-sesame");
+    await user.click(screen.getByRole("button", { name: t.create }));
+
+    await waitFor(() =>
+      expect(api.createVideoRoom).toHaveBeenCalledWith(
+        expect.objectContaining({ slug: "halaqa-1" }),
+      ),
+    );
+  });
+
   it("rejects a too-short password without calling the API", async () => {
     const user = userEvent.setup();
     renderModal();

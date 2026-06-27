@@ -37,6 +37,7 @@ export function RoomModal({
   const [name, setName] = useState("");
   const [recordDefault, setRecordDefault] = useState(false);
   // Access settings.
+  const [slug, setSlug] = useState("");
   const [guestPassword, setGuestPassword] = useState("");
   const [maxParticipants, setMaxParticipants] = useState("");
   const [recordingEnabled, setRecordingEnabled] = useState(true);
@@ -53,6 +54,7 @@ export function RoomModal({
     setName(room?.name ?? "");
     setRecordDefault(room?.record_default ?? false);
     const c = room?.config;
+    setSlug(room?.slug ?? "");
     setGuestPassword(c?.guest_password ?? "");
     setMaxParticipants(c?.max_participants != null ? String(c.max_participants) : "");
     setRecordingEnabled(c?.recording_enabled ?? true);
@@ -87,11 +89,12 @@ export function RoomModal({
     setError(null);
     try {
       const settings = buildSettings();
+      const slugValue = slug.trim() === "" ? null : slug.trim();
       if (isEdit) {
-        await updateVideoRoom(room.id, { name: trimmed, record_default: recordDefault, settings });
+        await updateVideoRoom(room.id, { name: trimmed, record_default: recordDefault, slug: slugValue, settings });
         onSaved(t("saved"));
       } else {
-        await createVideoRoom({ name: trimmed, record_default: recordDefault, settings });
+        await createVideoRoom({ name: trimmed, record_default: recordDefault, slug: slugValue, settings });
         onSaved(t("created"));
       }
     } catch (e) {
@@ -154,6 +157,23 @@ export function RoomModal({
         {/* ── Access & settings ─────────────────────────────────────────── */}
         <div className="border-border/60 space-y-4 border-t pt-4">
           <p className="text-foreground text-sm font-semibold">{t("settingsTitle")}</p>
+
+          <div className="space-y-1.5">
+            <label htmlFor="room-slug" className="text-sm font-medium">
+              {t("slugLabel")}{" "}
+              <span className="text-muted-foreground font-normal">({t("optional")})</span>
+            </label>
+            <input
+              id="room-slug"
+              type="text"
+              autoComplete="off"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              placeholder={t("slugPlaceholder")}
+              className={inputClass}
+            />
+            <p className="text-muted-foreground text-xs">{t("slugHelp")}</p>
+          </div>
 
           <div className="space-y-1.5">
             <label htmlFor="room-guest-password" className="text-sm font-medium">

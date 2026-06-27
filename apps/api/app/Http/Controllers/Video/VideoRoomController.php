@@ -36,11 +36,14 @@ final class VideoRoomController extends Controller
     {
         Gate::authorize('room.read');
 
+        // One subdomain for the whole list (RLS scopes every room to the caller's academy).
+        $subdomain = DB::table('academies')->where('id', (string) $this->ctx()->academyId)->value('subdomain');
+
         $rooms = DB::table('video_rooms')
             ->whereNull('deleted_at')
             ->orderByDesc('created_at')
             ->get(['id', 'name', 'teacher_id', 'status', 'record_default', 'join_token', 'host_token', 'slug', 'config', 'created_at'])
-            ->map(fn (object $r) => $this->withConfig($r));
+            ->map(fn (object $r) => $this->withConfig($r, $subdomain));
 
         return response()->json(['rooms' => $rooms]);
     }
@@ -101,7 +104,9 @@ final class VideoRoomController extends Controller
             abort(404, 'Room not found.');
         }
 
-        return response()->json(['room' => $this->withConfig($room)]);
+        $subdomain = DB::table('academies')->where('id', (string) $room->academy_id)->value('subdomain');
+
+        return response()->json(['room' => $this->withConfig($room, $subdomain)]);
     }
 
     /** PATCH /api/video/rooms/{id} — rename / retitle / toggle record-default. */
@@ -233,13 +238,15 @@ final class VideoRoomController extends Controller
      * always sees every key regardless of when the room was created. The query builder returns jsonb
      * as a raw string, so we decode it explicitly here.
      */
-    private function withConfig(object $row): object
+    private function withConfig(object $row, ?string $subdomain = null): object
     {
         $stored = (array) json_decode((string) ($row->config ?? '{}'), true);
         $row->config = (object) array_merge($this->defaultConfig(), $stored);
         // The monitor link is private to management (gated by room.monitor in S3) — never expose its
         // token through the room.read list/detail surfaces. show() selects every column, so strip it.
         unset($row->monitor_token);
+        // The academy subdomain lets the panel build the readable slug URL (/r/{academy}/{slug}).
+        $row->academy_subdomain = $subdomain;
 
         return $row;
     }
