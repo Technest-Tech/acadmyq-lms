@@ -34,6 +34,12 @@ php8.2 artisan view:cache
 echo "▶ Running migrations ..."
 php8.2 artisan migrate --force
 
+echo "▶ Syncing RBAC catalog (permissions + role grants) ..."
+# Capabilities added to PermissionCatalog only reach a role via this sync. Idempotent + additive
+# (never deletes), so custom grants survive. Without it, new capabilities (e.g. the video room.*
+# caps) never land on prod and the feature is silently inaccessible.
+php8.2 artisan db:seed --class=Database\\Seeders\\PermissionSeeder --force
+
 echo "▶ Restarting services ..."
 sudo systemctl restart php8.2-fpm
 sudo systemctl restart acadmyq-web
