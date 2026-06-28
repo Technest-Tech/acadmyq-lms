@@ -85,6 +85,7 @@ return [
         's3_secret' => env('LIVEKIT_S3_SECRET'),
         's3_bucket' => env('LIVEKIT_S3_BUCKET', 'recordings'),
         's3_endpoint' => env('LIVEKIT_S3_ENDPOINT'),
+        's3_region' => env('LIVEKIT_S3_REGION', 'auto'),
     ],
 
     /*

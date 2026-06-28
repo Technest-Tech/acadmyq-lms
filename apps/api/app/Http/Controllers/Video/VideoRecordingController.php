@@ -272,15 +272,27 @@ final class VideoRecordingController extends Controller
     /** @return array{filepath: string, s3: array<string,mixed>} */
     private function fileOutput(string $recordingId): array
     {
-        return [
-            'filepath' => "recordings/{$recordingId}.mp4",
-            's3' => [
-                'access_key' => (string) config('services.livekit.s3_key'),
-                'secret' => (string) config('services.livekit.s3_secret'),
+        $output = ['filepath' => "recordings/{$recordingId}.mp4"];
+
+        $key = (string) config('services.livekit.s3_key');
+        $secret = (string) config('services.livekit.s3_secret');
+        $endpoint = (string) config('services.livekit.s3_endpoint');
+
+        // Only attach explicit S3 credentials when they are configured. With empty credentials the
+        // Egress service rejects the request and recording 502s on start; omitting the upload block
+        // instead lets Egress fall back to the storage in its own egress.yaml (the deployed default),
+        // so recording keeps working even before the control plane's LIVEKIT_S3_* env is wired.
+        if ($key !== '' && $secret !== '' && $endpoint !== '') {
+            $output['s3'] = [
+                'access_key' => $key,
+                'secret' => $secret,
                 'bucket' => (string) config('services.livekit.s3_bucket'),
-                'endpoint' => (string) config('services.livekit.s3_endpoint'),
+                'endpoint' => $endpoint,
+                'region' => (string) config('services.livekit.s3_region'),
                 'force_path_style' => true,
-            ],
-        ];
+            ];
+        }
+
+        return $output;
     }
 }
