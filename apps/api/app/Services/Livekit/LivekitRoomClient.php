@@ -35,6 +35,26 @@ final class LivekitRoomClient
         }
     }
 
+    /**
+     * Lightweight reachability probe for the Super Admin health card: a cheap read-only ListRooms
+     * call against the SFU. Returns the live room count when reachable, a structured error otherwise.
+     *
+     * @return array{ok: bool, rooms: int, error: ?string}
+     */
+    public function ping(): array
+    {
+        try {
+            $res = $this->http()->post('/twirp/livekit.RoomService/ListRooms', []);
+            if (! $res->successful()) {
+                return ['ok' => false, 'rooms' => 0, 'error' => "http_{$res->status()}"];
+            }
+
+            return ['ok' => true, 'rooms' => count((array) ($res->json('rooms') ?? [])), 'error' => null];
+        } catch (Throwable) {
+            return ['ok' => false, 'rooms' => 0, 'error' => 'transport_error'];
+        }
+    }
+
     /** Best-effort delete of a room on the SFU (kicks participants). */
     public function deleteRoom(string $name): bool
     {
@@ -112,6 +132,38 @@ final class LivekitRoomClient
                 $type = (string) ($track['type'] ?? '');
                 $source = (string) ($track['source'] ?? '');
                 if ($type === 'AUDIO' || str_contains($source, 'MICROPHONE')) {
+                    $sid = (string) ($track['sid'] ?? '');
+
+                    return $sid !== '' ? $sid : null;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The sid of a participant's currently-published CAMERA (video) track, or null. Powers the host
+     * "stop video" moderation — the SCREEN_SHARE video track is deliberately excluded.
+     */
+    public function cameraTrackSid(string $room, string $identity): ?string
+    {
+        $list = $this->listParticipants($room);
+        if (! $list['ok']) {
+            return null;
+        }
+
+        foreach ($list['participants'] as $p) {
+            $p = (array) $p;
+            if ((string) ($p['identity'] ?? '') !== $identity) {
+                continue;
+            }
+            foreach ((array) ($p['tracks'] ?? []) as $track) {
+                $track = (array) $track;
+                $type = (string) ($track['type'] ?? '');
+                $source = (string) ($track['source'] ?? '');
+                // Camera is TrackType VIDEO / TrackSource CAMERA — never the SCREEN_SHARE video track.
+                if (str_contains($source, 'CAMERA') || ($type === 'VIDEO' && ! str_contains($source, 'SCREEN'))) {
                     $sid = (string) ($track['sid'] ?? '');
 
                     return $sid !== '' ? $sid : null;

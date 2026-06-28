@@ -9,9 +9,11 @@ use App\Services\Livekit\LivekitRoomClient;
 use App\Services\Livekit\LivekitTokenService;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\Entitlement;
 use App\Support\VideoJoinToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -43,7 +45,7 @@ final class VideoRoomController extends Controller
         $rooms = DB::table('video_rooms')
             ->whereNull('deleted_at')
             ->orderByDesc('created_at')
-            ->get(['id', 'name', 'teacher_id', 'status', 'record_default', 'join_token', 'host_token', 'monitor_token', 'slug', 'config', 'created_at'])
+            ->get(['id', 'name', 'teacher_id', 'status', 'join_token', 'host_token', 'monitor_token', 'slug', 'config', 'created_at'])
             ->map(fn (object $r) => $this->withConfig($r, $subdomain, $canMonitor));
 
         return response()->json(['rooms' => $rooms]);
@@ -61,7 +63,6 @@ final class VideoRoomController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'teacher_id' => ['sometimes', 'nullable', 'uuid'],
-            'record_default' => ['sometimes', 'boolean'],
             'session_id' => ['sometimes', 'nullable', 'uuid'],
             'slug' => ['sometimes', 'nullable', 'string', 'min:4', 'max:40', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
         ]);
@@ -70,8 +71,30 @@ final class VideoRoomController extends Controller
             abort(422, 'Unknown or inactive teacher.');
         }
 
+        // Plan room cap (FeatureCatalog `maxRooms`). Counts the academy's live (non-archived) rooms;
+        // unlimited when the plan sets no cap (fail open). A 402 keeps "plan limit" distinct from 403.
+        $activeRooms = (int) DB::table('video_rooms')->where('academy_id', $academyId)->whereNull('deleted_at')->count();
+        if (! Entitlement::withinLimit($ctx, 'maxRooms', $activeRooms)) {
+            $cap = Entitlement::limit($ctx, 'maxRooms');
+            abort(response()->json([
+                'error' => 'plan_limit_reached',
+                'code' => 'room_limit_reached',
+                'resource' => 'rooms',
+                'limit' => $cap,
+                'current' => $activeRooms,
+                'message' => "You've reached your plan's limit of {$cap} video rooms. Upgrade your plan to add more.",
+            ], 402));
+        }
+
         $config = array_merge($this->defaultConfig(), $this->validateSettings($request));
+        $this->enforceMonitorEntitlement($ctx, $config);
+        // Academy-chosen slugs are retired (08-ROOM-ACCESS §14) but the route still accepts one for
+        // back-compat tests/integrations; null when not provided.
         $slug = $request->has('slug') ? $this->resolveSlug($request, $academyId, $config, null) : null;
+
+        // Auto-generated SHORT links (08-ROOM-ACCESS §14): `{kebab-room-name}-{≤7 alnum}`, one per role,
+        // each distinct from the others and unique within the academy.
+        $links = $this->mintRoomLinks($data['name']);
 
         $id = (string) Str::uuid();
         DB::table('video_rooms')->insert([
@@ -80,11 +103,10 @@ final class VideoRoomController extends Controller
             'teacher_id' => $data['teacher_id'] ?? null,
             'name' => $data['name'],
             'livekit_name' => $this->makeLivekitName($academyId),
-            'join_token' => VideoJoinToken::generate(),
-            'host_token' => VideoJoinToken::generateSecret(),
-            'monitor_token' => VideoJoinToken::generateSecret(),
+            'join_token' => $links['join_token'],
+            'host_token' => $links['host_token'],
+            'monitor_token' => $links['monitor_token'],
             'slug' => $slug,
-            'record_default' => (bool) ($data['record_default'] ?? false),
             'config' => json_encode($config),
         ]);
         Audit::log('video_room.create', 'video_room', $id, $academyId, $ctx->userId, $ctx->role, after: [
@@ -110,6 +132,96 @@ final class VideoRoomController extends Controller
         return response()->json(['room' => $this->withConfig($room, $subdomain, $this->ctx()->can('room.monitor'))]);
     }
 
+    /**
+     * GET /api/video/rooms/{id}/logs — the room's access log (08-ROOM-ACCESS §15): WHO accessed the
+     * room, WHEN they joined/left and for HOW LONG (room_participants), plus every audited action on
+     * the room (audit_log), all timestamped. RLS-scoped; gated room.read. A `video_room.monitor_join`
+     * event is stripped unless the caller holds room.monitor — covert supervision must not leak to a
+     * plain manager via the activity feed (same privacy gate as the monitor_token exposure).
+     */
+    public function logs(string $id): JsonResponse
+    {
+        Gate::authorize('room.read');
+
+        $room = DB::table('video_rooms')->where('id', $id)->whereNull('deleted_at')
+            ->first(['id', 'name', 'status', 'created_at']);
+        if ($room === null) {
+            abort(404, 'Room not found.');
+        }
+
+        $cap = 500;
+
+        // Access sessions — the join/leave history written at /join.
+        $rawSessions = DB::table('room_participants as rp')
+            ->leftJoin('users as u', 'u.id', '=', 'rp.user_id')
+            ->where('rp.room_id', $id)
+            ->orderByDesc('rp.joined_at')
+            ->limit($cap + 1)
+            ->get(['rp.id', 'rp.identity', 'rp.display_name', 'rp.user_id', 'u.full_name as user_name', 'rp.role', 'rp.joined_at', 'rp.left_at']);
+        $sessionsTruncated = $rawSessions->count() > $cap;
+        $sessions = $rawSessions->take($cap)->map(function (object $r): array {
+            $joined = $r->joined_at !== null ? Carbon::parse($r->joined_at) : null;
+            $left = $r->left_at !== null ? Carbon::parse($r->left_at) : null;
+            // Integer-second diff via timestamps — avoids Carbon major-version diff() sign quirks.
+            $duration = ($joined !== null && $left !== null) ? max(0, $left->getTimestamp() - $joined->getTimestamp()) : null;
+
+            return [
+                'id' => (string) $r->id,
+                'identity' => (string) $r->identity,
+                'display_name' => $r->display_name,
+                'user_id' => $r->user_id,
+                'user_name' => $r->user_name,
+                'role' => (string) $r->role,
+                'joined_at' => $joined?->toIso8601String(),
+                'left_at' => $left?->toIso8601String(),
+                'duration_s' => $duration,
+                'ongoing' => $left === null,
+            ];
+        })->values()->all();
+
+        // Activity — every audited action on this room. monitor_join is room.monitor-only.
+        $canMonitor = $this->ctx()->can('room.monitor');
+        $rawEvents = DB::table('audit_log as al')
+            ->leftJoin('users as u', 'u.id', '=', 'al.actor_user_id')
+            ->where('al.entity_type', 'video_room')
+            ->where('al.entity_id', $id)
+            ->when(! $canMonitor, fn ($q) => $q->where('al.action', '!=', 'video_room.monitor_join'))
+            ->orderByDesc('al.created_at')
+            ->limit($cap + 1)
+            ->get(['al.id', 'al.action', 'al.actor_user_id', 'u.full_name as actor_name', 'al.actor_role', 'al.after', 'al.created_at']);
+        $eventsTruncated = $rawEvents->count() > $cap;
+        $events = $rawEvents->take($cap)->map(fn (object $r): array => [
+            'id' => (string) $r->id,
+            'action' => (string) $r->action,
+            'actor_user_id' => $r->actor_user_id,
+            'actor_name' => $r->actor_name,
+            'actor_role' => $r->actor_role,
+            'after' => $r->after !== null ? json_decode($r->after, true) : null,
+            'created_at' => Carbon::parse($r->created_at)->toIso8601String(),
+        ])->values()->all();
+
+        $uniqueParticipants = collect($sessions)->pluck('identity')->unique()->count();
+        $totalSeconds = (int) collect($sessions)->sum(fn (array $s) => $s['duration_s'] ?? 0);
+
+        return response()->json([
+            'room' => [
+                'id' => (string) $room->id,
+                'name' => (string) $room->name,
+                'status' => (string) $room->status,
+                'created_at' => Carbon::parse($room->created_at)->toIso8601String(),
+            ],
+            'sessions' => $sessions,
+            'events' => $events,
+            'stats' => [
+                'total_sessions' => count($sessions),
+                'unique_participants' => $uniqueParticipants,
+                'total_seconds' => $totalSeconds,
+                'last_access' => $sessions[0]['joined_at'] ?? null,
+            ],
+            'truncated' => $sessionsTruncated || $eventsTruncated,
+        ]);
+    }
+
     /** PATCH /api/video/rooms/{id} — rename / retitle / toggle record-default. */
     public function update(Request $request, string $id): JsonResponse
     {
@@ -124,7 +236,6 @@ final class VideoRoomController extends Controller
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
             'teacher_id' => ['sometimes', 'nullable', 'uuid'],
-            'record_default' => ['sometimes', 'boolean'],
             'status' => ['sometimes', Rule::in(['ACTIVE', 'ARCHIVED'])],
             'slug' => ['sometimes', 'nullable', 'string', 'min:4', 'max:40', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/'],
         ]);
@@ -134,6 +245,11 @@ final class VideoRoomController extends Controller
         $existing = is_string($room->config) ? (array) json_decode($room->config, true) : (array) ($room->config ?? []);
         $settings = $this->validateSettings($request);
         $mergedConfig = array_merge($this->defaultConfig(), $existing, $settings);
+        // Block turning monitor mode ON when the plan doesn't include it (no-op when it was already on
+        // and isn't being changed — only a fresh enable is gated, so we don't trap legacy rooms).
+        if (($settings['monitor_enabled'] ?? false) === true) {
+            $this->enforceMonitorEntitlement($this->ctx(), $mergedConfig);
+        }
         if ($settings !== []) {
             $data['config'] = json_encode($mergedConfig);
         }
@@ -230,7 +346,12 @@ final class VideoRoomController extends Controller
             'monitor' => 'monitor_token',
             default => abort(422, 'Unknown link type.'),
         };
-        $token = $which === 'guest' ? VideoJoinToken::generate() : VideoJoinToken::generateSecret();
+        // A rotated link stays a SHORT link (08-ROOM-ACCESS §14), distinct from the room's other links.
+        $token = $this->uniqueRoomToken((string) $room->name, [
+            (string) $room->join_token,
+            (string) ($room->host_token ?? ''),
+            (string) ($room->monitor_token ?? ''),
+        ]);
 
         DB::table('video_rooms')->where('id', $id)->update([$column => $token, 'updated_at' => now()]);
         Audit::log('video_room.rotate_link', 'video_room', $id, (string) $this->ctx()->academyId, $this->ctx()->userId, $this->ctx()->role, after: ['which' => $which]);
@@ -341,8 +462,8 @@ final class VideoRoomController extends Controller
     /**
      * Resolve a (already format-validated) slug for a room: null clears it; otherwise enforce that the
      * academy has a subdomain to namespace the URL, that the room is protected (a guessable slug needs
-     * a guest password — waiting room becomes a valid alternative in S4), and that the slug is unique
-     * within the academy. Aborts 422 with a code on any violation.
+     * a guest password OR the waiting room — S4), and that the slug is unique within the academy.
+     * Aborts 422 with a code on any violation.
      */
     private function resolveSlug(Request $request, string $academyId, array $config, ?string $roomId): ?string
     {
@@ -357,8 +478,10 @@ final class VideoRoomController extends Controller
             abort(response()->json(['code' => 'slug_needs_subdomain', 'message' => 'Set an academy subdomain before using a room slug.'], 422));
         }
 
-        if (($config['guest_password'] ?? null) === null) {
-            abort(response()->json(['code' => 'slug_needs_password', 'message' => 'A room slug needs a guest password to be safe.'], 422));
+        // A guessable slug is only safe when each entrant is gated — by a guest password OR the waiting
+        // room (every knocker is admitted by a human). S4 broadens the S2 "needs password" rule.
+        if (($config['guest_password'] ?? null) === null && ! (bool) ($config['waiting_room'] ?? false)) {
+            abort(response()->json(['code' => 'slug_needs_password_or_waiting', 'message' => 'A room slug needs a guest password or the waiting room to be safe.'], 422));
         }
 
         $taken = DB::table('video_rooms')
@@ -377,6 +500,72 @@ final class VideoRoomController extends Controller
     private function ctx(): AuthContext
     {
         return app(AuthContext::class);
+    }
+
+    /**
+     * Supervisor mode is a plan feature (FeatureCatalog `monitorAllowed`, fail open). Reject enabling
+     * it on a room whose academy's plan excludes it — a 403 (your plan doesn't include this), so the
+     * monitor join never has to half-work.
+     *
+     * @param  array<string,mixed>  $config
+     */
+    private function enforceMonitorEntitlement(AuthContext $ctx, array $config): void
+    {
+        if (($config['monitor_enabled'] ?? false) === true && ! Entitlement::flag($ctx, 'monitorAllowed')) {
+            abort(response()->json([
+                'code' => 'monitor_not_in_plan',
+                'message' => "Your plan doesn't include supervisor (monitor) mode.",
+            ], 403));
+        }
+    }
+
+    /**
+     * Mint the trio of auto-generated SHORT links for a new room (08-ROOM-ACCESS §14): one per role
+     * (guest/host/monitor), each `{kebab-room-name}-{≤7 alnum}`, all distinct from one another.
+     *
+     * @return array{join_token: string, host_token: string, monitor_token: string}
+     */
+    private function mintRoomLinks(string $name): array
+    {
+        $taken = [];
+        $links = [];
+        foreach (['join_token', 'host_token', 'monitor_token'] as $col) {
+            $token = $this->uniqueRoomToken($name, $taken);
+            $taken[] = $token;
+            $links[$col] = $token;
+        }
+
+        return $links;
+    }
+
+    /**
+     * A short room link (`{kebab-name}-{≤7 alnum}`) that collides neither with `$avoid` (the room's
+     * other links being minted in the same request) nor with any live room's token in this academy
+     * (RLS scopes the lookup). Cross-academy collisions are caught by the columns' UNIQUE constraints
+     * — the ≤7-char random code makes them astronomically unlikely, so a handful of tries is plenty.
+     *
+     * @param  array<int,string>  $avoid
+     */
+    private function uniqueRoomToken(string $name, array $avoid): string
+    {
+        for ($i = 0; $i < 8; $i++) {
+            $token = VideoJoinToken::forRoom($name);
+            if (in_array($token, $avoid, true)) {
+                continue;
+            }
+            $clashes = DB::table('video_rooms')
+                ->whereNull('deleted_at')
+                ->where(fn ($q) => $q->where('join_token', $token)
+                    ->orWhere('host_token', $token)
+                    ->orWhere('monitor_token', $token))
+                ->exists();
+            if (! $clashes) {
+                return $token;
+            }
+        }
+
+        // Astronomically-unlikely fallback (8 straight collisions): extra entropy guarantees termination.
+        return VideoJoinToken::forRoom($name.'-'.VideoJoinToken::code());
     }
 
     /**

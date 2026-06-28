@@ -12,7 +12,9 @@ import { Loader2, Mic, MicOff, MonitorUp, Pin, PinOff, UserX } from "lucide-reac
 import { useTranslations } from "next-intl";
 import { muteParticipant, removeParticipant } from "@/lib/api";
 import { useCallControl } from "./call-control-context";
+import type { TileDensity } from "./layout";
 import { usePin } from "./pin-context";
+import { useSettings } from "./use-call-settings";
 
 /** Up to two initials from a display name (falls back to a placeholder glyph). */
 function initials(name: string): string {
@@ -32,14 +34,18 @@ export function ParticipantTile({
   trackRef,
   fill = false,
   youLabel = "you",
+  density = "normal",
 }: {
   trackRef: TrackReferenceOrPlaceholder;
   fill?: boolean;
   youLabel?: string;
+  /** Tile chrome scale for the gallery grid — avatar/text/controls shrink as tiles get smaller. */
+  density?: TileDensity;
 }) {
   const t = useTranslations("videoCall");
   const { isPinned, togglePin } = usePin();
-  const { canManage, roomId } = useCallControl();
+  const { canManage, roomId, manageToken } = useCallControl();
+  const { settings } = useSettings();
   const participant = trackRef.participant;
   const speaking = useIsSpeaking(participant);
   const micOn = participant.isMicrophoneEnabled;
@@ -49,9 +55,25 @@ export function ParticipantTile({
   const pinned = isPinned(participant.identity);
   const showVideo = isTrackReference(trackRef) && !trackRef.publication.isMuted;
 
+  // Tile chrome scales with the tile's rendered size so a 20-up gallery stays legible, not crowded.
+  const tiny = density === "tiny";
+  const compact = density === "compact";
+  const avatarCls = tiny
+    ? "size-9 text-sm"
+    : compact
+      ? "size-12 text-base"
+      : "size-16 text-xl sm:size-20 sm:text-2xl";
+  const nameCls = density === "normal" ? "text-sm" : "text-xs";
+  const barCls = tiny ? "gap-1 px-2 py-1" : compact ? "gap-1.5 px-2.5 py-1.5" : "gap-1.5 px-3 py-2";
+  const btnCls = compact || tiny ? "size-6" : "size-7";
+  const iconCls = compact || tiny ? "size-3" : "size-3.5";
+  // On the smallest tiles, drop the inline action buttons (host actions stay in the participants
+  // panel) so the name + mic state never gets squeezed out.
+  const showActions = !tiny;
+
   // Host moderation, inline on the tile (server-mediated) — lives in the bottom bar with the pin so it
   // never collides with the stage header, on every tile incl. the 1:1 focus.
-  const showHostControls = canManage && !isLocal && !isScreen;
+  const showHostControls = canManage && !isLocal && !isScreen && showActions;
   const [busy, setBusy] = useState<"mute" | "remove" | null>(null);
 
   async function act(kind: "mute" | "remove", fn: () => Promise<unknown>) {
@@ -77,18 +99,22 @@ export function ParticipantTile({
         <VideoTrack
           trackRef={trackRef}
           className={`size-full ${isScreen ? "bg-black object-contain" : "object-cover"} ${
-            isLocal && !isScreen ? "-scale-x-100" : ""
+            isLocal && !isScreen && settings.mirror ? "-scale-x-100" : ""
           }`}
         />
       ) : (
         <div className="flex size-full items-center justify-center">
-          <span className="flex size-16 items-center justify-center rounded-full bg-slate-700 text-xl font-semibold text-slate-200 sm:size-20 sm:text-2xl">
+          <span
+            className={`flex items-center justify-center rounded-full bg-slate-700 font-semibold text-slate-200 ${avatarCls}`}
+          >
             {initials(label)}
           </span>
         </div>
       )}
 
-      <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-black/60 to-transparent px-3 py-2">
+      <div
+        className={`absolute inset-x-0 bottom-0 flex items-center bg-gradient-to-t from-black/60 to-transparent ${barCls}`}
+      >
         {isScreen ? (
           <MonitorUp className="size-4 shrink-0 text-emerald-300" />
         ) : (
@@ -98,7 +124,7 @@ export function ParticipantTile({
             </span>
           )
         )}
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">
+        <span className={`min-w-0 flex-1 truncate font-medium text-white ${nameCls}`}>
           {label}
           {isLocal && !isScreen && <span className="ms-1 text-white/60">({youLabel})</span>}
         </span>
@@ -106,42 +132,42 @@ export function ParticipantTile({
         {showHostControls && micOn && (
           <button
             type="button"
-            onClick={() => void act("mute", () => muteParticipant(roomId, participant.identity))}
+            onClick={() => void act("mute", () => muteParticipant(roomId, participant.identity, manageToken))}
             disabled={busy !== null}
             aria-label={t("muteParticipant")}
             title={t("muteParticipant")}
-            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80 transition hover:bg-white/20 hover:text-white disabled:opacity-50"
+            className={`flex ${btnCls} shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80 transition hover:bg-white/20 hover:text-white disabled:opacity-50`}
           >
-            {busy === "mute" ? <Loader2 className="size-3.5 animate-spin" /> : <Mic className="size-3.5" />}
+            {busy === "mute" ? <Loader2 className={`${iconCls} animate-spin`} /> : <Mic className={iconCls} />}
           </button>
         )}
         {showHostControls && (
           <button
             type="button"
-            onClick={() => void act("remove", () => removeParticipant(roomId, participant.identity))}
+            onClick={() => void act("remove", () => removeParticipant(roomId, participant.identity, manageToken))}
             disabled={busy !== null}
             aria-label={t("removeParticipant")}
             title={t("removeParticipant")}
-            className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80 transition hover:bg-red-500/80 hover:text-white disabled:opacity-50"
+            className={`flex ${btnCls} shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80 transition hover:bg-red-500/80 hover:text-white disabled:opacity-50`}
           >
-            {busy === "remove" ? <Loader2 className="size-3.5 animate-spin" /> : <UserX className="size-3.5" />}
+            {busy === "remove" ? <Loader2 className={`${iconCls} animate-spin`} /> : <UserX className={iconCls} />}
           </button>
         )}
         {/* Pin/spotlight this participant locally (not screen-shares — those auto-present). */}
-        {!isScreen && (
+        {!isScreen && showActions && (
           <button
             type="button"
             onClick={() => togglePin(participant.identity)}
             aria-pressed={pinned}
             aria-label={pinned ? t("unpin") : t("pin")}
             title={pinned ? t("unpin") : t("pin")}
-            className={`flex size-7 shrink-0 items-center justify-center rounded-full transition ${
+            className={`flex ${btnCls} shrink-0 items-center justify-center rounded-full transition ${
               pinned
                 ? "bg-emerald-500/90 text-white"
                 : "bg-white/10 text-white/80 opacity-80 hover:bg-white/20 hover:text-white hover:opacity-100"
             }`}
           >
-            {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+            {pinned ? <PinOff className={iconCls} /> : <Pin className={iconCls} />}
           </button>
         )}
       </div>

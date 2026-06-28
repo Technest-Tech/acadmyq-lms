@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useIsRecording, useRoomContext, useTrackToggle } from "@livekit/components-react";
+import { useRoomContext, useTrackToggle } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import {
   Loader2,
@@ -12,6 +11,8 @@ import {
   MonitorUp,
   PhoneOff,
   PictureInPicture2,
+  Presentation,
+  Settings,
   Square,
   Users,
   Video,
@@ -19,9 +20,10 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { LucideIcon } from "lucide-react";
-import { startRoomRecording, stopRoomRecording } from "@/lib/api";
+import { ChatButton } from "./chat-button";
 import { usePip } from "./composite-pip";
-import { DeviceMenu } from "./device-menu";
+import { useRecording } from "./recording-context";
+import { useWhiteboard } from "./whiteboard-context";
 import { useFullscreen } from "./use-fullscreen";
 
 /** A round mic/camera/screen toggle. Muted/inactive state is red/neutral; ≥44px touch target. */
@@ -62,55 +64,60 @@ function ToggleButton({
   );
 }
 
-/**
- * Host-only record toggle. Reflects the SERVER recording state via useIsRecording (so it's correct
- * even if another host toggled it), and shows a pending spinner from the click until the SFU's
- * recording state actually flips — egress takes a few seconds to spin up its compositor. A safety
- * timeout clears the spinner if the state never changes (e.g. egress failed to start).
- */
-function RecordButton({ roomId }: { roomId: string }) {
+/** Host-only whiteboard toggle — opens/closes the shared board for everyone (whiteboard-context). */
+function WhiteboardButton() {
   const t = useTranslations("videoCall");
-  const isRecording = useIsRecording();
-  const [pending, setPending] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { open, toggleBoard } = useWhiteboard();
+  return (
+    <button
+      type="button"
+      onClick={toggleBoard}
+      aria-pressed={open}
+      aria-label={t("whiteboard")}
+      title={t("whiteboard")}
+      className={`flex size-12 items-center justify-center rounded-full transition ${
+        open ? "bg-emerald-500/90 text-white hover:bg-emerald-500" : "bg-white/10 text-white hover:bg-white/20"
+      }`}
+    >
+      <Presentation className="size-5" />
+    </button>
+  );
+}
 
-  // The server state caught up to our action → stop showing pending.
-  useEffect(() => {
-    setPending(false);
-    if (timer.current) clearTimeout(timer.current);
-  }, [isRecording]);
-
-  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
-
-  async function toggle() {
-    if (pending) return;
-    setPending(true);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setPending(false), 12000); // egress didn't flip — release the UI
-    try {
-      if (isRecording) await stopRoomRecording(roomId);
-      else await startRoomRecording(roomId);
-    } catch {
-      setPending(false);
-      if (timer.current) clearTimeout(timer.current);
-    }
-  }
+/**
+ * Host-only record toggle, driven by the shared recording lifecycle (recording-context). Reflects
+ * the SERVER recording state (correct even if another host toggled it) and shows a pending spinner
+ * through the `starting`/`stopping` windows until egress actually flips — the context fires the
+ * "started" / "saved" toasts off the real signal, so this button is purely presentational.
+ */
+function RecordButton() {
+  const t = useTranslations("videoCall");
+  const { phase, isRecording, busy, toggle } = useRecording();
+  const active = isRecording || phase === "stopping";
+  const label =
+    phase === "starting"
+      ? t("recordingStarting")
+      : phase === "stopping"
+        ? t("recordingStopping")
+        : active
+          ? t("stopRecording")
+          : t("startRecording");
 
   return (
     <button
       type="button"
-      onClick={() => void toggle()}
-      disabled={pending}
-      aria-pressed={isRecording}
-      aria-label={isRecording ? t("stopRecording") : t("startRecording")}
-      title={isRecording ? t("stopRecording") : t("startRecording")}
+      onClick={toggle}
+      disabled={busy}
+      aria-pressed={active}
+      aria-label={label}
+      title={label}
       className={`flex size-12 items-center justify-center rounded-full transition disabled:opacity-60 ${
-        isRecording ? "bg-red-500/90 text-white hover:bg-red-500" : "bg-white/10 text-white hover:bg-white/20"
+        active ? "bg-red-500/90 text-white hover:bg-red-500" : "bg-white/10 text-white hover:bg-white/20"
       }`}
     >
-      {pending ? (
+      {busy ? (
         <Loader2 className="size-5 animate-spin" />
-      ) : isRecording ? (
+      ) : active ? (
         <Square className="size-4 fill-current" />
       ) : (
         <span className="size-3.5 rounded-full bg-red-500" />
@@ -126,16 +133,15 @@ function RecordButton({ roomId }: { roomId: string }) {
  */
 export function ControlBar({
   onToggleParticipants,
+  onToggleSettings,
   participantCount,
   canManage,
-  roomId,
 }: {
   onToggleParticipants: () => void;
+  onToggleSettings: () => void;
   participantCount: number;
-  /** Host with room.manage → show the record toggle. */
+  /** Host with room.manage → show the record toggle (driven by recording-context). */
   canManage: boolean;
-  /** Room UUID the record toggle drives. */
-  roomId: string;
 }) {
   const t = useTranslations("videoCall");
   const room = useRoomContext();
@@ -146,7 +152,7 @@ export function ControlBar({
   const pip = usePip();
 
   return (
-    <div className="mx-auto flex w-fit items-center gap-2.5 rounded-full bg-slate-800/80 px-3 py-2.5 ring-1 ring-white/10 backdrop-blur sm:gap-3 sm:px-4">
+    <div className="mx-auto flex w-fit max-w-[calc(100vw-1rem)] flex-wrap items-center justify-center gap-2 rounded-3xl bg-slate-800/80 px-3 py-2.5 ring-1 ring-white/10 backdrop-blur sm:gap-3 sm:rounded-full sm:px-4">
       <ToggleButton
         on={mic.enabled}
         pending={mic.pending}
@@ -209,7 +215,8 @@ export function ControlBar({
           <PictureInPicture2 className="size-5" />
         </button>
       )}
-      {canManage && <RecordButton roomId={roomId} />}
+      {canManage && <WhiteboardButton />}
+      {canManage && <RecordButton />}
       <button
         type="button"
         onClick={onToggleParticipants}
@@ -222,7 +229,16 @@ export function ControlBar({
           {participantCount}
         </span>
       </button>
-      <DeviceMenu />
+      <ChatButton />
+      <button
+        type="button"
+        onClick={onToggleSettings}
+        aria-label={t("settings")}
+        title={t("settings")}
+        className="flex size-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+      >
+        <Settings className="size-5" />
+      </button>
       <button
         type="button"
         onClick={() => void room.disconnect()}

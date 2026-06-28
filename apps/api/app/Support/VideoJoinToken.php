@@ -7,21 +7,33 @@ namespace App\Support;
 use Illuminate\Support\Str;
 
 /**
- * Builds the unguessable `join_token` that powers a room's shareable link
- * (`/r/{join_token}`, docs/video-platform/06-WEB-CALL-CLIENT §2).
+ * Builds the tokens that power a room's shareable links (`/r/{token}`,
+ * docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §14).
  *
- * Anyone holding the link can reach the pre-join lobby (the Zoom-style model), so the token IS
- * the secret — it must clear the same 128-bit entropy floor the public-invoice token does. At
- * 24 chars of [A-Za-z0-9], 24 × log2(62) ≈ 143 bits, comfortably above the floor. No separators:
- * the token stays strictly [A-Za-z0-9]+ so it matches the public-route regex.
+ * The room links (guest/host/monitor) are now **auto-generated SHORT links** of the form
+ * `{kebab-room-name}-{code}` (e.g. `halaqa-live-k3p9x`) — see `forRoom()`. The room name makes the
+ * link human-readable; the ≤7-char lowercase-alnum random `code` makes it unguessable enough for a
+ * shareable bearer link (the optional host password is the extra guard for the no-login host link).
+ *
+ * The legacy `generate()`/`generateSecret()` (strictly [A-Za-z0-9]) remain for the bearer
+ * `knock_token` (the waiting-room poll secret, NOT a `/r/` link) and any back-compat callers.
  */
 final class VideoJoinToken
 {
     /** 24 × log2(62) ≈ 143 bits, well over the 128-bit floor. */
     private const LEN = 24;
 
-    /** Host/monitor links are shared secrets that grant elevated roles — give them more headroom. */
+    /** A higher-entropy bearer secret (e.g. the waiting-room knock_token). 40 × log2(62) ≈ 238 bits. */
     private const SECRET_LEN = 40;
+
+    /** The random suffix on a short link — the brief's hard cap (≤ 7 lowercase alphanumerics). */
+    private const CODE_LEN = 7;
+
+    /** Cap the readable name prefix so even a long room name yields a tidy link. */
+    private const SLUG_MAX = 32;
+
+    /** Lowercase letters + digits only (no separators) — the short-link random suffix alphabet. */
+    private const CODE_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
     public static function generate(): string
     {
@@ -29,11 +41,40 @@ final class VideoJoinToken
     }
 
     /**
-     * A higher-entropy secret for the private host/monitor links (08-ROOM-ACCESS §2). 40 × log2(62)
-     * ≈ 238 bits, and strictly [A-Za-z0-9] so it still matches the public join route's token regex.
+     * A higher-entropy bearer secret. 40 × log2(62) ≈ 238 bits, strictly [A-Za-z0-9]. Used for the
+     * waiting-room `knock_token` (a poll secret, never surfaced as a `/r/` link).
      */
     public static function generateSecret(): string
     {
         return Str::random(self::SECRET_LEN);
+    }
+
+    /**
+     * An auto-generated SHORT, human-readable room link: `{kebab-room-name}-{code}` where `code` is
+     * ≤7 lowercase alphanumerics (08-ROOM-ACCESS §14). The name is kebab-cased + truncated; a name
+     * with no ASCII letters/digits (e.g. Arabic-only) falls back to `room-{code}`. The result stays
+     * within `[a-z0-9][a-z0-9-]*`, matching the public join route + the Next `/r/[token]` segment.
+     */
+    public static function forRoom(string $name): string
+    {
+        $slug = trim(Str::slug($name), '-');
+        if ($slug === '') {
+            $slug = 'room';
+        }
+        $slug = trim(Str::limit($slug, self::SLUG_MAX, ''), '-');
+
+        return $slug.'-'.self::code();
+    }
+
+    /** A ≤7-char lowercase-alphanumeric random code (the unguessable suffix on a short link). */
+    public static function code(): string
+    {
+        $max = strlen(self::CODE_ALPHABET) - 1;
+        $out = '';
+        for ($i = 0; $i < self::CODE_LEN; $i++) {
+            $out .= self::CODE_ALPHABET[random_int(0, $max)];
+        }
+
+        return $out;
     }
 }

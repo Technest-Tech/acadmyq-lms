@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { roomShareUrl } from "@/lib/api";
-import { gridColumns, selectLayout } from "./layout";
+import { gridColumns, selectLayout, tileDensity, tileGrid } from "./layout";
 import { nextPinned } from "./pin-context";
 
 describe("selectLayout", () => {
@@ -52,6 +52,46 @@ describe("gridColumns", () => {
     expect(gridColumns(4)).toContain("grid-cols-2");
     expect(gridColumns(9)).toContain("sm:grid-cols-3");
     expect(gridColumns(12)).toContain("sm:grid-cols-4");
+  });
+});
+
+describe("tileGrid", () => {
+  it("is a single cell for one tile", () => {
+    expect(tileGrid(1, 1000, 600)).toEqual({ cols: 1, rows: 1 });
+  });
+
+  it("picks a balanced 2x2 for four tiles in a landscape area", () => {
+    expect(tileGrid(4, 1600, 900)).toEqual({ cols: 2, rows: 2 });
+  });
+
+  it("fits everyone — cols x rows always covers the count", () => {
+    for (const n of [3, 5, 7, 10, 16, 20]) {
+      const { cols, rows } = tileGrid(n, 1280, 720);
+      expect(cols * rows).toBeGreaterThanOrEqual(n);
+      expect(cols).toBeGreaterThan(0);
+      expect(rows).toBeGreaterThan(0);
+    }
+  });
+
+  it("prefers more columns in a wide area and more rows in a tall one", () => {
+    const wide = tileGrid(6, 1920, 600);
+    const tall = tileGrid(6, 600, 1920);
+    expect(wide.cols).toBeGreaterThanOrEqual(tall.cols);
+    expect(tall.rows).toBeGreaterThanOrEqual(wide.rows);
+  });
+
+  it("falls back to a square-ish grid before the area is measured", () => {
+    expect(tileGrid(9, 0, 0)).toEqual({ cols: 3, rows: 3 });
+    expect(tileGrid(10, 0, 0)).toEqual({ cols: 4, rows: 3 });
+  });
+});
+
+describe("tileDensity", () => {
+  it("scales chrome down as tiles shrink", () => {
+    expect(tileDensity(400)).toBe("normal");
+    expect(tileDensity(200)).toBe("compact");
+    expect(tileDensity(120)).toBe("tiny");
+    expect(tileDensity(0)).toBe("normal"); // unmeasured → full chrome
   });
 });
 

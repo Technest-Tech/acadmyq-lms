@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -73,9 +74,36 @@ final class Entitlement
             return null;
         }
 
-        $limit = self::resolve($ctx->academyId)['limits'][$limitKey] ?? null;
+        return self::limitFor($ctx->academyId, $limitKey);
+    }
+
+    /**
+     * The plan's numeric cap for $limitKey by academy id — for the public token paths (join,
+     * recording-by-host-link) that carry no AuthContext but resolve the academy from the room token.
+     * null ⇒ unlimited/undefined.
+     */
+    public static function limitFor(string $academyId, string $limitKey): ?int
+    {
+        $limit = self::resolve($academyId)['limits'][$limitKey] ?? null;
 
         return $limit === null ? null : (int) $limit;
+    }
+
+    /**
+     * A boolean plan flag (stored in features.limits as 1/0). FAILS OPEN: an absent flag ⇒ allowed,
+     * so a plan only ever DISABLES a feature by explicitly setting it to 0. Same semantics whether
+     * resolved from an AuthContext or directly by academy id (token paths).
+     */
+    public static function flag(AuthContext $ctx, string $key): bool
+    {
+        return $ctx->academyId === null ? true : self::flagFor($ctx->academyId, $key);
+    }
+
+    public static function flagFor(string $academyId, string $key): bool
+    {
+        $value = self::limitFor($academyId, $key);
+
+        return $value === null || $value !== 0;
     }
 
     /**
@@ -90,7 +118,7 @@ final class Entitlement
         $plan = DB::table('academies as a')
             ->leftJoin('plans as p', 'p.id', '=', 'a.plan_id')
             ->where('a.id', $academyId)
-            ->first(['p.code as plan_code', 'p.features']);
+            ->first(['p.code as plan_code', 'p.features', 'a.video_access', 'a.video_trial_ends_at', 'a.video_plan_id']);
 
         $features = self::decodeFeatures($plan->features ?? null);
 
@@ -107,20 +135,86 @@ final class Entitlement
             array_map('strval', $addOnKeys),
         )));
 
+        // Per-academy video override (Super Admin "add academy to video / activate-deactivate /
+        // trial" — Tier 2). It governs ONLY `video.conferencing`: force-ON adds it even when the
+        // plan doesn't, force-OFF removes it even when the plan/add-on does, and an ENABLED grant
+        // with a passed trial date auto-expires. NULL ⇒ follow the plan/add-on (no effect).
+        $capabilities = self::applyVideoOverride($capabilities, $plan);
+
         // Platform kill-switch layer (Phase 6): a feature_flags row with enabled=false removes
         // that capability platform-wide, even when the plan or an add-on grants it. Absent flag
         // ⇒ no effect (governed purely by the plan). Catalog reads are shared (RLS using true).
+        // Applied LAST so a platform-wide disable beats even a per-academy force-ON.
         $disabled = DB::table('feature_flags')->where('enabled', false)->pluck('key')->all();
         if ($disabled !== []) {
             $capabilities = array_values(array_diff($capabilities, $disabled));
         }
 
+        // A per-academy video TIER drives only the video limit keys; every other limit still comes
+        // from the academy's own plan (so a video grant never alters maxStudents, etc.).
+        $limits = $features['limits'];
+        if (! empty($plan->video_plan_id ?? null)) {
+            $limits = self::mergeVideoLimits($limits, (string) $plan->video_plan_id);
+        }
+
         return [
             'plan' => $plan->plan_code ?? null,
             'capabilities' => $capabilities,
-            'limits' => $features['limits'],
+            'limits' => $limits,
             'addOns' => array_values(array_map('strval', $addOnKeys)),
         ];
+    }
+
+    /**
+     * Apply the per-academy video access override to the resolved capability set. Scoped to the
+     * single `video.conferencing` key:
+     *   - 'ENABLED' + no trial / future trial ⇒ force-ON (added even if absent).
+     *   - 'ENABLED' + past trial               ⇒ force-OFF (the trial expired).
+     *   - 'DISABLED'                           ⇒ force-OFF.
+     *   - NULL                                 ⇒ no change (follow the plan/add-on).
+     *
+     * @param  list<string>  $capabilities
+     * @return list<string>
+     */
+    private static function applyVideoOverride(array $capabilities, ?object $academy): array
+    {
+        $access = $academy->video_access ?? null;
+        if ($access === null) {
+            return $capabilities; // follow the plan/add-on
+        }
+
+        $on = false;
+        if ($access === 'ENABLED') {
+            $trialEnd = $academy->video_trial_ends_at ?? null;
+            $on = $trialEnd === null || Carbon::parse($trialEnd)->isFuture();
+        }
+
+        $capabilities = array_values(array_filter($capabilities, static fn (string $c): bool => $c !== 'video.conferencing'));
+        if ($on) {
+            $capabilities[] = 'video.conferencing';
+        }
+
+        return array_values($capabilities);
+    }
+
+    /**
+     * Merge the video TIER's limit map over the base limits, but only the video limit/flag keys
+     * (FeatureCatalog::VIDEO_LIMIT_KEYS). A key the tier doesn't set leaves the base value intact.
+     *
+     * @param  array<string,mixed>  $base
+     * @return array<string,mixed>
+     */
+    private static function mergeVideoLimits(array $base, string $videoPlanId): array
+    {
+        $tier = self::decodeFeatures(DB::table('plans')->where('id', $videoPlanId)->value('features'))['limits'];
+
+        foreach (FeatureCatalog::VIDEO_LIMIT_KEYS as $key) {
+            if (array_key_exists($key, $tier)) {
+                $base[$key] = $tier[$key];
+            }
+        }
+
+        return $base;
     }
 
     /**

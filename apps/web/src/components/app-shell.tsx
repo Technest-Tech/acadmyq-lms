@@ -18,6 +18,7 @@ import {
   LogOut,
   Menu,
   MessageCircle,
+  MonitorPlay,
   NotebookPen,
   Package,
   ReceiptText,
@@ -55,6 +56,7 @@ type NavKey =
   | "plans"
   | "staffDepartments"
   | "adminAutomation"
+  | "adminVideo"
   | "guardians"
   | "students"
   | "teachers"
@@ -145,6 +147,13 @@ const NAV: ReadonlyArray<{
     icon: MessageCircle,
     permission: "automation.manage",
     href: "/admin/automation",
+    group: "management",
+  },
+  {
+    key: "adminVideo",
+    icon: MonitorPlay,
+    permission: "platform.manage",
+    href: "/admin/video",
     group: "management",
   },
   {

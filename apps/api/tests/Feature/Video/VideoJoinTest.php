@@ -91,6 +91,9 @@ it('an authenticated owner joins via the link as host with roomAdmin', function 
     expect($claims['video']['roomJoin'])->toBeTrue();
     expect($claims['video']['canPublish'])->toBeTrue();
     expect($claims['video']['roomAdmin'] ?? false)->toBeTrue();
+    // The token lifetime honors the configured TTL — this is the credential a mid-call reconnect
+    // re-auths with, so it must span a full lesson (see LivekitConfigTest for the shipped default).
+    expect($claims['exp'] - $claims['nbf'])->toBe((int) config('services.livekit.token_ttl'));
 });
 
 // ── AC-W3: a teacher (room.join, NOT room.manage) is host WITHOUT roomAdmin ────────

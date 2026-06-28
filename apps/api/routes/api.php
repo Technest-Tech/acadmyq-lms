@@ -13,6 +13,7 @@ use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Admin\VideoOversightController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CertificateTemplateController;
@@ -92,10 +93,41 @@ Route::middleware(['throttle:60,1'])->group(function () {
     // links: a guest/host/monitor token (/r/{token}) OR a readable per-academy slug
     // (/r/{academy}/{room}). NOT Sanctum-gated; the room + link role are resolved via SECURITY
     // DEFINER readers, and an authenticated host is still detected in the controller.
-    Route::post('/video/join/{token}', [VideoJoinController::class, 'join'])->where('token', '[A-Za-z0-9]+');
+    // The token is now an auto-generated SHORT link (`{kebab-name}-{code}`, 08-ROOM-ACCESS §14), so the
+    // pattern allows the `-` separator; legacy [A-Za-z0-9] tokens still match.
+    Route::post('/video/join/{token}', [VideoJoinController::class, 'join'])->where('token', '[A-Za-z0-9][A-Za-z0-9-]*');
     Route::post('/video/join-slug/{academy}/{room}', [VideoJoinController::class, 'joinBySlug'])
         ->where('academy', '[a-z0-9][a-z0-9-]*')
         ->where('room', '[a-z0-9][a-z0-9-]*');
+
+    // Waiting room (08-ROOM-ACCESS §13). The waiting guest short-polls knockStatus(); a host runs the
+    // queue via the manage credential (= the room's host_token), so the no-login host link works too.
+    // The `manageToken` is the room's host_token — now a SHORT link (`{kebab-name}-{code}`, §14), so its
+    // pattern must allow the `-` like /video/join above; legacy [A-Za-z0-9] host_tokens still match. The
+    // `knockToken` is a separate bearer secret (generateSecret(), strictly [A-Za-z0-9]) — no `-`.
+    Route::post('/video/knock/{knockToken}', [VideoJoinController::class, 'knockStatus'])
+        ->where('knockToken', '[A-Za-z0-9]+');
+    Route::get('/video/manage/{manageToken}/knocks', [VideoJoinController::class, 'listKnocks'])
+        ->where('manageToken', '[A-Za-z0-9][A-Za-z0-9-]*');
+    Route::post('/video/manage/{manageToken}/knocks/{knockId}', [VideoJoinController::class, 'decideKnock'])
+        ->where('manageToken', '[A-Za-z0-9][A-Za-z0-9-]*')
+        ->where('knockId', '[0-9a-fA-F-]{36}');
+
+    // No-login host actions (08-ROOM-ACCESS §13.5): moderation + recording driven by the manage
+    // credential (= the room's host_token), so an unregistered teacher controls the class from the
+    // host link alone — no account, no login. Possession of the secret IS the authority.
+    Route::post('/video/manage/{manageToken}/participants/{identity}/mute', [VideoModerationController::class, 'muteByManage'])
+        ->where('manageToken', '[A-Za-z0-9][A-Za-z0-9-]*');
+    Route::post('/video/manage/{manageToken}/participants/{identity}/mute-video', [VideoModerationController::class, 'muteVideoByManage'])
+        ->where('manageToken', '[A-Za-z0-9][A-Za-z0-9-]*');
+    Route::post('/video/manage/{manageToken}/participants/{identity}/remove', [VideoModerationController::class, 'removeByManage'])
+        ->where('manageToken', '[A-Za-z0-9][A-Za-z0-9-]*');
+    Route::post('/video/manage/{manageToken}/end', [VideoModerationController::class, 'endByManage'])
+        ->where('manageToken', '[A-Za-z0-9][A-Za-z0-9-]*');
+    Route::post('/video/manage/{manageToken}/recording', [VideoRecordingController::class, 'startByManage'])
+        ->where('manageToken', '[A-Za-z0-9][A-Za-z0-9-]*');
+    Route::delete('/video/manage/{manageToken}/recording', [VideoRecordingController::class, 'stopByManage'])
+        ->where('manageToken', '[A-Za-z0-9][A-Za-z0-9-]*');
 
     // PayPal Checkout (public, token-authenticated). The token identifies the invoice;
     // credentials are fetched server-side via app.paypal_config_by_token (SECURITY DEFINER).
@@ -232,6 +264,20 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/admin/automation/gateway/health', [AcademyAutomationController::class, 'gatewayHealth']);
     Route::get('/admin/automation/gateway/settings', [AcademyAutomationController::class, 'gatewaySettings']);
     Route::put('/admin/automation/gateway/settings', [AcademyAutomationController::class, 'updateGatewaySettings']);
+
+    // Super Admin video oversight — Tier 1 (read-only governance for the self-hosted video
+    // platform; docs/video-platform/08-ROOM-ACCESS-AND-MONITORING). Each route is gated by
+    // platform.manage in the controller; the cross-tenant reads go through the audited
+    // SECURITY DEFINER hatches (app.admin_video_stats / app.admin_video_audit).
+    Route::get('/admin/video/usage', [VideoOversightController::class, 'usage']);
+    Route::get('/admin/video/compliance', [VideoOversightController::class, 'compliance']);
+    Route::get('/admin/video/health', [VideoOversightController::class, 'health']);
+    Route::get('/admin/video/plans', [VideoOversightController::class, 'plans']);
+    // Per-academy video governance (Tier 2): detail, per-room logs, and the access write
+    // (activate/deactivate/trial/tier) — the academies.video_access override.
+    Route::get('/admin/video/academies/{id}', [VideoOversightController::class, 'academy']);
+    Route::get('/admin/video/academies/{id}/rooms/{roomId}/logs', [VideoOversightController::class, 'roomLogs']);
+    Route::post('/admin/video/academies/{id}/access', [VideoOversightController::class, 'setAccess']);
 
     // Platform settings + feature flags (Super Admin, platform.manage). A disabled flag is a
     // kill-switch consulted by Entitlement::resolve — it removes a capability platform-wide.
@@ -477,7 +523,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/video/rooms', [VideoRoomController::class, 'store']);
         Route::get('/video/recordings', [VideoRecordingController::class, 'index']);
         Route::get('/video/recordings/{id}/url', [VideoRecordingController::class, 'url']);
+        Route::delete('/video/recordings/{id}', [VideoRecordingController::class, 'destroy']);
         Route::get('/video/rooms/{id}', [VideoRoomController::class, 'show']);
+        Route::get('/video/rooms/{id}/logs', [VideoRoomController::class, 'logs']);
         Route::patch('/video/rooms/{id}', [VideoRoomController::class, 'update']);
         Route::delete('/video/rooms/{id}', [VideoRoomController::class, 'destroy']);
         Route::post('/video/rooms/{id}/token', [VideoRoomController::class, 'token']);
@@ -486,6 +534,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::delete('/video/rooms/{id}/recording', [VideoRecordingController::class, 'stop']);
         // Host moderation (room.manage) — server-mediated SFU admin actions.
         Route::post('/video/rooms/{id}/participants/{identity}/mute', [VideoModerationController::class, 'mute']);
+        Route::post('/video/rooms/{id}/participants/{identity}/mute-video', [VideoModerationController::class, 'muteVideo']);
         Route::post('/video/rooms/{id}/participants/{identity}/remove', [VideoModerationController::class, 'remove']);
         Route::post('/video/rooms/{id}/end', [VideoModerationController::class, 'end']);
     });

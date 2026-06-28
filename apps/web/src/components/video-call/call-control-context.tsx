@@ -10,11 +10,18 @@ import { createContext, useContext } from "react";
 export interface CallControlValue {
   canManage: boolean;
   roomId: string;
+  /**
+   * The waiting-room manage credential (= the room's host_token). Present for any host joiner,
+   * including the no-login host link — moderation routes to it so an unregistered teacher can mute/
+   * remove without a session. null → fall back to the session-authenticated room endpoints.
+   */
+  manageToken: string | null;
 }
 
 export const CallControlContext = createContext<CallControlValue>({
   canManage: false,
   roomId: "",
+  manageToken: null,
 });
 
 export function useCallControl(): CallControlValue {

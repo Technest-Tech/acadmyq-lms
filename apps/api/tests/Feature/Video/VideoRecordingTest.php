@@ -85,3 +85,38 @@ it('404s a recording from another academy (RLS isolation)', function () {
     Sanctum::actingAs($this->owner); // owner of $this->pro, not $this->other
     $this->getJson("/api/video/recordings/{$id}/url")->assertNotFound();
 });
+
+// ── delete (management action) ────────────────────────────────────────────────────────
+it('deletes a recording: removes the stored object and the row (room.manage)', function () {
+    $id = seedRecording($this->pro, 'COMPLETED', 'recordings/x.mp4');
+
+    $disk = Mockery::mock(Filesystem::class);
+    $disk->shouldReceive('delete')->once()
+        ->withArgs(fn ($key) => $key === 'recordings/x.mp4')
+        ->andReturnTrue();
+    Storage::set('video_recordings', $disk);
+
+    Sanctum::actingAs($this->owner);
+    $this->deleteJson("/api/video/recordings/{$id}")->assertOk()->assertJsonPath('ok', true);
+
+    $this->asAcademy($this->pro);
+    expect(DB::table('room_recordings')->where('id', $id)->exists())->toBeFalse();
+});
+
+it('forbids a teacher (recording.view but not room.manage) from deleting', function () {
+    $teacher = $this->makeUser($this->pro, 'TEACHER');
+    $id = seedRecording($this->pro, 'COMPLETED', 'recordings/x.mp4');
+
+    Sanctum::actingAs($teacher);
+    $this->deleteJson("/api/video/recordings/{$id}")->assertForbidden();
+
+    $this->asAcademy($this->pro);
+    expect(DB::table('room_recordings')->where('id', $id)->exists())->toBeTrue();
+});
+
+it('404s deleting a recording from another academy (RLS isolation)', function () {
+    $id = seedRecording($this->other, 'COMPLETED', 'recordings/x.mp4');
+
+    Sanctum::actingAs($this->owner); // owner of $this->pro, not $this->other
+    $this->deleteJson("/api/video/recordings/{$id}")->assertNotFound();
+});

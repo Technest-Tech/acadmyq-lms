@@ -375,10 +375,22 @@ LIVEKIT_API_SECRET=<LIVEKIT_API_SECRET>
 LIVEKIT_WEBHOOK_SECRET=<LIVEKIT_API_SECRET>
 LIVEKIT_TOKEN_TTL=900
 ```
-The LiveKit `webhook.urls` already points at `WEBHOOK_URL` (default
-`https://api.acadmyq.com/internal/livekit/webhook`). Confirm the API's real public host and the route.
+The LiveKit `webhook.urls` already points at `WEBHOOK_URL`
+(`https://api.acadmyq.com/api/internal/livekit/webhook` — note the `/api` prefix; verified via prod
+`route:list`).
 
-> _Status: pending — to be filled once the Laravel deployment target is confirmed._
+> ✅ **DONE (2026-06-27).** The control plane is a **separate DigitalOcean droplet** `159.89.89.241`
+> (`api.acadmyq.com`, self-hosted nginx + PHP 8.2-FPM + Postgres 16, app dir `/var/www/acadmyq`,
+> branch deploys via `deploy/deploy.sh`). Steps taken:
+> 1. Pushed `feat/video-platform` to `origin` (the video backend wasn't deployed before — prod ran
+>    `feat/whatsapp-gateway`).
+> 2. **Backed up** the prod DB (`pg_dump -Fc`) + `apps/api/.env` to `/root/backups/` first.
+> 3. Appended the `LIVEKIT_*` block to `/var/www/acadmyq/apps/api/.env` (WhatsApp `WA_*`/`WASENDER_*`
+>    env left untouched — that gateway was already live).
+> 4. `sudo -u acadmyq APP_BRANCH=feat/video-platform deploy/deploy.sh` → built web, `config/route:cache`,
+>    ran the two video migrations, restarted php-fpm/web/queue.
+> 5. Verified: `/api/health` ok, all `api/video/*` routes registered, `media.acadmyq.com` baked into the
+>    cached config, a bogus join token returns 404 (stack loads, no 500).
 
 ---
 
@@ -398,13 +410,20 @@ The LiveKit `webhook.urls` already points at `WEBHOOK_URL` (default
 ## 15. Step 11 — Recording → durable object storage
 
 Egress is gated behind the `recording` compose profile (it needs S3 storage + ~1–2 vCPU/recording).
-1. Create a bucket on **Backblaze B2 / Wasabi / DO Spaces**; get an access key/secret + endpoint + region.
+1. Create an S3-compatible bucket; get an access key/secret + endpoint + region.
 2. Fill `REC_S3_*` in `/opt/academiq-video/.env`; re-render: `./provision.sh` (idempotent).
 3. Start it: `docker compose --profile recording up -d`.
-4. **Retention/lifecycle:** set a bucket lifecycle rule (e.g. expire after the plan's retention window,
-   `V-REC-2`) so storage cost is bounded.
+4. **Retention/lifecycle:** the app purges old recordings (`LIVEKIT_RECORDING_RETENTION_DAYS`, default 90,
+   via `PurgeExpiredRecordingsJob`, `V-REC-2`). Optionally also add a bucket lifecycle rule as a backstop.
 
-> _Status: pending — storage provider TBD (user decision)._
+> ✅ **DONE (2026-06-27) — Cloudflare R2.** Bucket `acadmyq-meet`, endpoint
+> `https://<account>.r2.cloudflarestorage.com`, `region=auto`, `force_path_style=true`. Chosen for the
+> **10 GB free tier + $0 egress** (recordings get downloaded; R2 never bills egress). Validated R2
+> read/write/delete with `mc` before starting egress; egress connected to Redis and reports **service ready**.
+>
+> ⚠️ **Gotcha:** `livekit/egress` runs as **non-root (uid 1001)**, unlike livekit/coturn (root). The
+> rendered `config/egress.yaml` must be readable by that uid — `provision.sh` sets it `chmod 640` +
+> `chown 1001:root` (a `chmod 600 root` config makes egress crash-loop with `permission denied`).
 
 ---
 

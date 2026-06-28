@@ -10,11 +10,18 @@ export interface Rect {
   h: number;
 }
 
+/** Near-square grid dimensions for `n` tiles: cols = ceil(√n), rows = ceil(n / cols). Shared by the
+ * canvas composite AND the Document-PiP CSS grid so both tile the room the same way. */
+export function gridDims(n: number): { cols: number; rows: number } {
+  if (n <= 0) return { cols: 0, rows: 0 };
+  const cols = Math.ceil(Math.sqrt(n));
+  return { cols, rows: Math.ceil(n / cols) };
+}
+
 /** Grid cell rects for `n` tiles in a `W`×`H` canvas (cols = ceil(sqrt(n)), rows fill top-to-bottom). */
 export function pipCells(n: number, W: number, H: number): Rect[] {
   if (n <= 0 || W <= 0 || H <= 0) return [];
-  const cols = Math.ceil(Math.sqrt(n));
-  const rows = Math.ceil(n / cols);
+  const { cols, rows } = gridDims(n);
   const w = W / cols;
   const h = H / rows;
   const out: Rect[] = [];

@@ -25,11 +25,14 @@ export function ParticipantsPanel({
   onClose,
   canManage,
   roomId,
+  manageToken,
 }: {
   open: boolean;
   onClose: () => void;
   canManage: boolean;
   roomId: string;
+  /** Host link credential — routes moderation through the no-login host endpoint when present. */
+  manageToken: string | null;
 }) {
   const t = useTranslations("videoCall");
   const participants = useParticipants();
@@ -51,7 +54,7 @@ export function ParticipantsPanel({
 
   function endForAll() {
     if (!window.confirm(t("endForAllConfirm"))) return;
-    void act("end", () => endRoomForAll(roomId));
+    void act("end", () => endRoomForAll(roomId, manageToken));
   }
 
   return (
@@ -119,7 +122,7 @@ export function ParticipantsPanel({
                       {p.isMicrophoneEnabled ? (
                         <button
                           type="button"
-                          onClick={() => void act(`${p.identity}:mute`, () => muteParticipant(roomId, p.identity))}
+                          onClick={() => void act(`${p.identity}:mute`, () => muteParticipant(roomId, p.identity, manageToken))}
                           disabled={busy === `${p.identity}:mute`}
                           aria-label={t("muteParticipant")}
                           title={t("muteParticipant")}
@@ -136,7 +139,7 @@ export function ParticipantsPanel({
                       )}
                       <button
                         type="button"
-                        onClick={() => void act(`${p.identity}:remove`, () => removeParticipant(roomId, p.identity))}
+                        onClick={() => void act(`${p.identity}:remove`, () => removeParticipant(roomId, p.identity, manageToken))}
                         disabled={busy === `${p.identity}:remove`}
                         aria-label={t("removeParticipant")}
                         title={t("removeParticipant")}

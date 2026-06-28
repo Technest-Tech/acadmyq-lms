@@ -9,8 +9,10 @@ use App\Services\Livekit\LivekitRoomClient;
 use App\Services\Livekit\LivekitTokenService;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\Entitlement;
 use App\Support\PermissionResolver;
 use App\Support\Tenancy;
+use App\Support\VideoJoinToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -70,6 +72,112 @@ final class VideoJoinController extends Controller
     }
 
     /**
+     * POST /api/video/knock/{knockToken} — the waiting guest's short-poll (08-ROOM-ACCESS §13.6).
+     * Public + context-free, so the knock is read through the SECURITY DEFINER reader. While PENDING
+     * it reports `knocking`; once a host admits, THIS endpoint mints the guest token + writes the
+     * attendance row (so the token only ever lives in the admitted guest's own response).
+     */
+    public function knockStatus(Request $request, string $knockToken): JsonResponse
+    {
+        $knock = $this->decodeRoom(DB::select('select app.video_knock_status(?) as data', [$knockToken]));
+        if ($knock === null) {
+            abort(404, 'Knock not found.');
+        }
+
+        $status = (string) ($knock['status'] ?? '');
+        if ($status === 'PENDING') {
+            return response()->json(['state' => 'knocking']);
+        }
+        if ($status === 'DENIED') {
+            return response()->json(['state' => 'denied']);
+        }
+        if ($status !== 'ADMITTED') {
+            // EXPIRED (or any unexpected terminal state) — the guest must knock again.
+            return response()->json(['state' => 'expired']);
+        }
+
+        // Admitted — the host's explicit admit IS the gate, so presence/capacity are not re-checked
+        // here (re-running require_host_present would contradict the admit). Mint with the identity
+        // pre-allocated at knock time so a re-poll is idempotent (attendance dedupes on identity).
+        $config = $this->parseConfig($knock['config'] ?? null);
+        $academyId = (string) $knock['academy_id'];
+        $roomId = (string) $knock['room_id'];
+        $livekitName = (string) $knock['livekit_name'];
+        $identity = (string) $knock['identity'];
+        $displayName = (string) ($knock['display_name'] ?? '');
+        $allowScreenshare = (bool) ($config['allow_guest_screenshare'] ?? true);
+
+        $accessToken = $this->tokens->guestToken($livekitName, $identity, $displayName, $allowScreenshare);
+
+        $this->recordParticipant($academyId, $roomId, $identity, $displayName, [
+            'ctxUserId' => self::SYSTEM_USER_ID,
+            'ctxRole' => 'SUPER_ADMIN',
+            'userId' => null,
+            'participantRole' => 'PARTICIPANT',
+        ]);
+
+        return response()->json([
+            'state' => 'admitted',
+            'url' => (string) config('services.livekit.host'),
+            'token' => $accessToken,
+            'roomName' => $livekitName,
+            'roomTitle' => (string) $knock['name'],
+            'roomId' => $roomId,
+            'identity' => $identity,
+            'displayName' => $displayName !== '' ? $displayName : null,
+            'role' => 'guest',
+            'canManage' => false,
+            'manageToken' => null,
+            'recordingEnabled' => (bool) ($config['recording_enabled'] ?? true),
+            'muteOnJoin' => (bool) ($config['mute_guests_on_join'] ?? false),
+            'monitorDisclosure' => (bool) ($config['monitor_enabled'] ?? false) && (bool) ($config['monitor_disclose'] ?? true),
+            'suppressRecordingIndicator' => (bool) ($config['monitor_enabled'] ?? false) && ! (bool) ($config['monitor_disclose'] ?? true),
+        ]);
+    }
+
+    /**
+     * GET /api/video/manage/{manageToken}/knocks — the host's pending-knock queue (08-ROOM-ACCESS
+     * §13.5). Authenticated by the manage credential (= the room's host_token), so the no-login host
+     * link works as well as a logged-in manager. Lists only fresh PENDING knocks (≤ the 15-min TTL).
+     */
+    public function listKnocks(Request $request, string $manageToken): JsonResponse
+    {
+        $room = $this->resolveHostRoom($manageToken);
+
+        return response()->json(['knocks' => $this->readPendingKnocks((string) $room['academy_id'], (string) $room['room_id'])]);
+    }
+
+    /**
+     * POST /api/video/manage/{manageToken}/knocks/{knockId} — admit or deny a knocker (08-ROOM-ACCESS
+     * §13.5). Idempotent: only a PENDING knock transitions; a settled one returns its current status.
+     * Always audited (who decided, which room).
+     */
+    public function decideKnock(Request $request, string $manageToken, string $knockId): JsonResponse
+    {
+        $room = $this->resolveHostRoom($manageToken);
+        $data = $request->validate(['decision' => ['required', 'in:admit,deny']]);
+
+        $academyId = (string) $room['academy_id'];
+        $roomId = (string) $room['room_id'];
+        $decider = Auth::guard('sanctum')->user();
+        $deciderId = $decider !== null ? (string) $decider->getKey() : null;
+        $newStatus = $data['decision'] === 'admit' ? 'ADMITTED' : 'DENIED';
+
+        $applied = $this->decideKnockRow($academyId, $roomId, $knockId, $newStatus, $deciderId);
+        if ($applied === null) {
+            abort(404, 'Knock not found.');
+        }
+
+        Audit::log(
+            $data['decision'] === 'admit' ? 'video_room.knock_admit' : 'video_room.knock_deny',
+            'video_room', $roomId, $academyId, $deciderId, $deciderId !== null ? 'MANAGER' : 'HOST_LINK',
+            after: ['knock_id' => $knockId, 'status' => $applied],
+        );
+
+        return response()->json(['ok' => true, 'status' => $applied]);
+    }
+
+    /**
      * Shared join core for every link type. Role precedence (08-ROOM-ACCESS §2): an authenticated host
      * (identity-verified, strongest path) ALWAYS wins regardless of the link used; otherwise the link's
      * own role decides — a host link → host (roomAdmin, behind the optional host password); a monitor
@@ -96,30 +204,44 @@ final class VideoJoinController extends Controller
         $user = Auth::guard('sanctum')->user();
         $authHost = $user !== null ? $this->resolveHost((string) $user->getKey(), $academyId) : null;
 
+        // The waiting-room manage credential (08-ROOM-ACCESS §13.5): the room's host_token, handed to
+        // any host-role joiner so they can run the knock queue. Null for guests/monitors.
+        $manageToken = null;
+
         if ($linkRole === 'monitor') {
             // Supervisor mode — an explicit HIDDEN entry that OVERRIDES the auth-host default (using
-            // the monitor link is a deliberate choice to be invisible, not to appear as host).
-            // Requires login + room.monitor + the room being monitor-enabled; ALWAYS audited
-            // (08-ROOM-ACCESS §5), even in covert mode.
-            if ($user === null) {
-                abort(response()->json(['code' => 'login_required', 'message' => 'Sign in as management to monitor this session.'], 401));
-            }
-            $monitorRole = $this->resolveMonitor((string) $user->getKey(), $academyId);
-            if ($monitorRole === null) {
-                abort(response()->json(['code' => 'monitor_forbidden', 'message' => 'You do not have permission to monitor this session.'], 403));
-            }
+            // the monitor link is a deliberate choice to be invisible, not to appear as host). The
+            // monitor link is a shared secret like the host link: ANYONE holding it joins as a ghost,
+            // NO login required (08-ROOM-ACCESS §5). The only gate is the room being monitor-enabled.
+            // ALWAYS audited — with the signed-in identity when present, else an anonymous link entry.
             if (! (bool) ($config['monitor_enabled'] ?? false)) {
                 abort(response()->json(['code' => 'monitor_disabled', 'message' => 'Monitor mode is not enabled for this room.'], 403));
             }
+            // Supervisor mode is also a PLAN feature (FeatureCatalog `monitorAllowed`, fail open): a
+            // plan can switch it off even on a monitor-enabled room. Resolved in the academy's context
+            // (this public route sets none, and academies/academy_addons are RLS-scoped).
+            if (! $this->planFlag($academyId, 'monitorAllowed')) {
+                abort(response()->json(['code' => 'monitor_disabled', 'message' => 'Monitor mode is not available on this academy\'s plan.'], 403));
+            }
 
-            $identity = (string) $user->getKey();
-            $displayName = trim((string) ($user->full_name ?? ''));
+            if ($user !== null) {
+                $identity = (string) $user->getKey();
+                $displayName = trim((string) ($user->full_name ?? ''));
+                $auditActor = $identity;
+                $auditRole = $this->resolveMonitor($identity, $academyId) ?? 'MEMBER';
+            } else {
+                $identity = 'monitor-'.Str::lower(Str::random(16));
+                $displayName = trim((string) ($data['display_name'] ?? ''));
+                $auditActor = null;
+                $auditRole = 'MONITOR_LINK';
+            }
             $canManage = false;
             $role = 'monitor';
             $accessToken = $this->tokens->monitorToken($livekitName, $identity, $displayName !== '' ? $displayName : null);
 
-            // Accountability is mandatory even when covert — record WHO watched, WHICH room, WHEN.
-            Audit::log('video_room.monitor_join', 'video_room', $roomId, $academyId, $identity, $monitorRole, after: ['livekit_name' => $livekitName]);
+            // Accountability is mandatory even when covert — record WHO watched (or that the link was
+            // used anonymously), WHICH room, WHEN.
+            Audit::log('video_room.monitor_join', 'video_room', $roomId, $academyId, $auditActor, $auditRole, after: ['livekit_name' => $livekitName]);
             // No attendance row — a monitor is a ghost; its presence lives only in the audit log.
         } elseif ($authHost !== null) {
             // Identity-verified host — bypasses every link gate (passwords/presence/capacity).
@@ -127,6 +249,7 @@ final class VideoJoinController extends Controller
             $displayName = trim((string) ($user->full_name ?? ''));
             $canManage = (bool) $authHost['canManage'];
             $role = 'host';
+            $manageToken = ($room['host_token'] ?? null) ?: null;
             $accessToken = $this->tokens->accessToken($livekitName, $identity, $displayName, $canManage);
 
             $this->recordParticipant($academyId, $roomId, $identity, $displayName, [
@@ -143,6 +266,7 @@ final class VideoJoinController extends Controller
             $identity = 'host-'.Str::lower(Str::random(16));
             $canManage = true;
             $role = 'host';
+            $manageToken = ($room['host_token'] ?? null) ?: null;
             $accessToken = $this->tokens->accessToken($livekitName, $identity, $displayName, true);
 
             $this->recordParticipant($academyId, $roomId, $identity, $displayName, [
@@ -157,10 +281,27 @@ final class VideoJoinController extends Controller
                 abort(422, 'A display name is required to join.');
             }
 
-            // Guest gates, server-side before minting (V-SEC-1): optional password, then the
-            // host-present / capacity checks (best-effort, fail-open on SFU error).
+            // Guest gates, server-side before minting (V-SEC-1): optional password first (you must know
+            // it to even knock), then the waiting room, then the host-present / capacity checks.
             $this->enforceGuestPassword($config, $request);
-            $this->enforceGuestPresenceAndCapacity($config, $livekitName);
+
+            // Waiting room (08-ROOM-ACCESS §13): mint NOTHING — record a knock and return the
+            // "knocking" state. The guest short-polls knockStatus() until a host admits (auth-host,
+            // host link and monitor sit above this branch, so they bypass the wait entirely).
+            if ((bool) ($config['waiting_room'] ?? false)) {
+                $identity = 'guest-'.Str::lower(Str::random(16));
+                $knockToken = VideoJoinToken::generateSecret();
+                $this->recordKnock($academyId, $roomId, $knockToken, $identity, $displayName);
+
+                return response()->json([
+                    'state' => 'knocking',
+                    'knockToken' => $knockToken,
+                    'roomId' => $roomId,
+                    'roomTitle' => (string) $room['name'],
+                ]);
+            }
+
+            $this->enforceGuestPresenceAndCapacity($config, $livekitName, $academyId);
 
             $identity = 'guest-'.Str::lower(Str::random(16));
             $allowScreenshare = (bool) ($config['allow_guest_screenshare'] ?? true);
@@ -187,6 +328,9 @@ final class VideoJoinController extends Controller
             'role' => $role,
             // Host admin capability: gates the in-call record control AND moderation (mute/remove/end).
             'canManage' => $canManage,
+            // Waiting-room manage credential (08-ROOM-ACCESS §13.5) — present only for host-role joiners
+            // so the client can poll/admit the knock queue; null for guests and monitors.
+            'manageToken' => $manageToken,
             // Settings the client honours (never the password values): record is also gated by
             // recording_enabled; guests start muted when mute_guests_on_join. Monitor disclosure
             // (08-ROOM-ACCESS §5): when a room may be supervised AND disclosure is on, joiners see a
@@ -290,11 +434,17 @@ final class VideoJoinController extends Controller
      * BEST-EFFORT: a transient SFU error fails OPEN (allow the join) rather than locking out a class.
      * Hidden monitors (08-ROOM-ACCESS §5) never count toward capacity.
      */
-    private function enforceGuestPresenceAndCapacity(array $config, string $livekitName): void
+    private function enforceGuestPresenceAndCapacity(array $config, string $livekitName, string $academyId): void
     {
         $requireHost = (bool) ($config['require_host_present'] ?? false);
-        $max = $config['max_participants'] ?? null;
-        $max = is_numeric($max) ? (int) $max : null;
+        // The effective seat cap is the tighter of the room's own `max_participants` and the plan's
+        // `maxRoomParticipants` (FeatureCatalog) — either may be null (uncapped); we take the min.
+        $roomMax = is_numeric($config['max_participants'] ?? null) ? (int) $config['max_participants'] : null;
+        $planMax = $this->planLimit($academyId, 'maxRoomParticipants');
+        $max = match (true) {
+            $roomMax !== null && $planMax !== null => min($roomMax, $planMax),
+            default => $roomMax ?? $planMax,
+        };
         if (! $requireHost && ($max === null || $max <= 0)) {
             return;
         }
@@ -425,6 +575,118 @@ final class VideoJoinController extends Controller
                 'role' => $opts['participantRole'],
                 'joined_at' => now(),
             ]);
+        });
+    }
+
+    /**
+     * Record a PENDING knock inside the room's tenant context (same context-free-write discipline as
+     * recordParticipant). The guest gets back only the knock_token; no LiveKit token is minted yet.
+     */
+    private function recordKnock(string $academyId, string $roomId, string $knockToken, string $identity, string $displayName): void
+    {
+        $ctx = new AuthContext(self::SYSTEM_USER_ID, $academyId, 'SUPER_ADMIN', []);
+
+        Tenancy::withContext($ctx, function () use ($academyId, $roomId, $knockToken, $identity, $displayName): void {
+            DB::table('room_knocks')->insert([
+                'id' => (string) Str::uuid(),
+                'academy_id' => $academyId,
+                'room_id' => $roomId,
+                'knock_token' => $knockToken,
+                'identity' => $identity,
+                'display_name' => $displayName,
+                'status' => 'PENDING',
+            ]);
+        });
+    }
+
+    /**
+     * Resolve a plan FLAG (FeatureCatalog, fail open) for an academy inside its own tenant context —
+     * this public route sets none, and academies/academy_addons are RLS-scoped, so a context-free
+     * read would see no plan and silently fail open. Mirrors recordKnock's context discipline.
+     */
+    private function planFlag(string $academyId, string $key): bool
+    {
+        $ctx = new AuthContext(self::SYSTEM_USER_ID, $academyId, 'SUPER_ADMIN', []);
+
+        return Tenancy::withContext($ctx, fn (): bool => Entitlement::flagFor($academyId, $key));
+    }
+
+    /** Resolve a plan numeric LIMIT for an academy inside its tenant context (see planFlag). */
+    private function planLimit(string $academyId, string $key): ?int
+    {
+        $ctx = new AuthContext(self::SYSTEM_USER_ID, $academyId, 'SUPER_ADMIN', []);
+
+        return Tenancy::withContext($ctx, fn (): ?int => Entitlement::limitFor($academyId, $key));
+    }
+
+    /**
+     * Resolve a room from its manage credential (the host_token) for the knock-management endpoints,
+     * requiring the matched link to be the HOST link (a guest/monitor token, or an unknown one, is
+     * rejected 403 — we don't distinguish missing from wrong-role, to avoid token enumeration).
+     *
+     * @return array<string,mixed>
+     */
+    private function resolveHostRoom(string $manageToken): array
+    {
+        $room = $this->resolveRoom($manageToken);
+        if ($room === null || (string) ($room['link_role'] ?? '') !== 'host') {
+            abort(response()->json(['code' => 'manage_forbidden', 'message' => 'Invalid host link.'], 403));
+        }
+
+        return $room;
+    }
+
+    /**
+     * The room's pending queue (fresh PENDING knocks only, ≤ the 15-min TTL), read inside the room's
+     * tenant context.
+     *
+     * @return array<int,array{id:string,displayName:string,createdAt:string}>
+     */
+    private function readPendingKnocks(string $academyId, string $roomId): array
+    {
+        $ctx = new AuthContext(self::SYSTEM_USER_ID, $academyId, 'SUPER_ADMIN', []);
+
+        return Tenancy::withContext($ctx, function () use ($roomId): array {
+            return DB::table('room_knocks')
+                ->where('room_id', $roomId)
+                ->where('status', 'PENDING')
+                ->where('created_at', '>', now()->subMinutes(15))
+                ->orderBy('created_at')
+                ->get(['id', 'display_name', 'created_at'])
+                ->map(fn (object $k): array => [
+                    'id' => (string) $k->id,
+                    'displayName' => (string) $k->display_name,
+                    'createdAt' => (string) $k->created_at,
+                ])
+                ->all();
+        });
+    }
+
+    /**
+     * Apply an admit/deny decision inside the room's tenant context. Idempotent: only a PENDING knock
+     * transitions; a settled knock returns its current status; a missing knock returns null (→ 404).
+     */
+    private function decideKnockRow(string $academyId, string $roomId, string $knockId, string $newStatus, ?string $deciderId): ?string
+    {
+        $ctx = new AuthContext(self::SYSTEM_USER_ID, $academyId, 'SUPER_ADMIN', []);
+
+        return Tenancy::withContext($ctx, function () use ($roomId, $knockId, $newStatus, $deciderId): ?string {
+            $knock = DB::table('room_knocks')->where('id', $knockId)->where('room_id', $roomId)->first();
+            if ($knock === null) {
+                return null;
+            }
+            if ((string) $knock->status !== 'PENDING') {
+                return (string) $knock->status; // already settled — idempotent
+            }
+
+            DB::table('room_knocks')->where('id', $knockId)->update([
+                'status' => $newStatus,
+                'decided_by' => $deciderId,
+                'decided_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            return $newStatus;
         });
     }
 }

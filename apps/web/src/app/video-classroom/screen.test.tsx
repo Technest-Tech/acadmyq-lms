@@ -48,10 +48,8 @@ describe("VideoClassroomScreen (Phase 2)", () => {
           name: "Halaqa 1",
           teacher_id: null,
           status: "ACTIVE",
-          record_default: false,
-          join_token: "tok-r1",
-          host_token: "host-r1",
-          slug: "halaqa-1",
+          join_token: "halaqa-1-k3p9x",
+          host_token: "halaqa-1-h7m2q",
           academy_subdomain: "noor",
           created_at: "2026-06-01T10:00:00Z",
         },
@@ -60,8 +58,7 @@ describe("VideoClassroomScreen (Phase 2)", () => {
           name: "Halaqa 2",
           teacher_id: null,
           status: "ARCHIVED",
-          record_default: true,
-          join_token: "tok-r2",
+          join_token: "halaqa-2-b8n4z",
           created_at: "2026-06-02T10:00:00Z",
         },
       ],
@@ -89,6 +86,29 @@ describe("VideoClassroomScreen (Phase 2)", () => {
     renderScreen(["room.read"]);
     await screen.findByText("Halaqa 1");
     expect(screen.queryByTestId("copy-host-link-r1")).not.toBeInTheDocument();
+  });
+
+  // Tabs: Rooms ⇄ Recordings (recordings tab only for recording.view holders).
+  it("switches between the Rooms and Recordings tabs", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Halaqa 1");
+    expect(screen.getAllByTestId("video-room-card")).toHaveLength(2);
+
+    await user.click(screen.getByTestId("video-tab-recordings"));
+    expect(screen.queryAllByTestId("video-room-card")).toHaveLength(0);
+    expect(
+      screen.getByText(enMessages.videoClassroom.recordingsEmpty),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("video-tab-rooms"));
+    expect(screen.getAllByTestId("video-room-card")).toHaveLength(2);
+  });
+
+  it("hides the recordings tab without recording.view", async () => {
+    renderScreen(["room.read"]);
+    await screen.findByText("Halaqa 1");
+    expect(screen.queryByTestId("video-tab-recordings")).not.toBeInTheDocument();
   });
 
   // Client-side permission gate (server still enforces).

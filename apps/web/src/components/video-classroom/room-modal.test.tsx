@@ -42,14 +42,14 @@ const baseConfig: api.RoomAccessSettings = {
   monitor_disclose: true,
 };
 
-describe("RoomModal access settings (S1)", () => {
+describe("RoomModal (simplified, 08-ROOM-ACCESS §14)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.createVideoRoom).mockResolvedValue({ roomId: "r9" });
     vi.mocked(api.updateVideoRoom).mockResolvedValue({ ok: true, changed: [] });
   });
 
-  it("creates with no password and behaviour-preserving defaults", async () => {
+  it("creates with no password, waiting list off and recording allowed by default", async () => {
     const user = userEvent.setup();
     renderModal();
 
@@ -57,40 +57,96 @@ describe("RoomModal access settings (S1)", () => {
     await user.click(screen.getByRole("button", { name: t.create }));
 
     await waitFor(() =>
+      expect(api.createVideoRoom).toHaveBeenCalledWith({
+        name: "Halaqa",
+        settings: expect.objectContaining({
+          host_password: null,
+          guest_password: null,
+          waiting_room: false,
+          recording_enabled: true,
+        }),
+      }),
+    );
+    // Removed fields must NOT be sent.
+    const arg = vi.mocked(api.createVideoRoom).mock.calls[0]![0];
+    expect(arg).not.toHaveProperty("record_default");
+    expect(arg).not.toHaveProperty("slug");
+    expect(arg.settings).not.toHaveProperty("max_participants");
+  });
+
+  it("only shows a password input for the selected side(s)", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    // None → no password inputs.
+    expect(screen.queryByLabelText(t.teacherPasswordLabel)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(t.studentPasswordLabel)).not.toBeInTheDocument();
+
+    // Teacher only → just the teacher field.
+    await user.click(screen.getByTestId("pw-mode-teacher"));
+    expect(screen.getByLabelText(t.teacherPasswordLabel)).toBeInTheDocument();
+    expect(screen.queryByLabelText(t.studentPasswordLabel)).not.toBeInTheDocument();
+
+    // Both → both fields.
+    await user.click(screen.getByTestId("pw-mode-both"));
+    expect(screen.getByLabelText(t.teacherPasswordLabel)).toBeInTheDocument();
+    expect(screen.getByLabelText(t.studentPasswordLabel)).toBeInTheDocument();
+  });
+
+  it("maps Both → host_password (teacher) + guest_password (student)", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.type(screen.getByLabelText(t.nameLabel), "Halaqa");
+    await user.click(screen.getByTestId("pw-mode-both"));
+    await user.type(screen.getByLabelText(t.teacherPasswordLabel), "teach-key");
+    await user.type(screen.getByLabelText(t.studentPasswordLabel), "open-sesame");
+    await user.click(screen.getByRole("button", { name: t.create }));
+
+    await waitFor(() =>
       expect(api.createVideoRoom).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "Halaqa",
           settings: expect.objectContaining({
-            guest_password: null, // blank → no password (OPTIONAL)
-            max_participants: null,
-            recording_enabled: true,
-            require_host_present: false,
-            allow_guest_screenshare: true,
+            host_password: "teach-key",
+            guest_password: "open-sesame",
           }),
         }),
       ),
     );
   });
 
-  it("sets an optional guest password and a max-participants cap", async () => {
+  it("toggles the waiting list and recording", async () => {
     const user = userEvent.setup();
     renderModal();
 
     await user.type(screen.getByLabelText(t.nameLabel), "Halaqa");
-    await user.type(screen.getByPlaceholderText(t.guestPasswordPlaceholder), "open-sesame");
-    await user.type(screen.getByPlaceholderText(t.maxParticipantsPlaceholder), "12");
+    await user.click(screen.getByLabelText(t.waitingRoom));
+    await user.click(screen.getByLabelText(t.recordingEnabled)); // default on → off
     await user.click(screen.getByRole("button", { name: t.create }));
 
     await waitFor(() =>
       expect(api.createVideoRoom).toHaveBeenCalledWith(
         expect.objectContaining({
           settings: expect.objectContaining({
-            guest_password: "open-sesame",
-            max_participants: 12,
+            waiting_room: true,
+            recording_enabled: false,
           }),
         }),
       ),
     );
+  });
+
+  it("rejects a too-short password without calling the API", async () => {
+    const user = userEvent.setup();
+    renderModal();
+
+    await user.type(screen.getByLabelText(t.nameLabel), "Halaqa");
+    await user.click(screen.getByTestId("pw-mode-student"));
+    await user.type(screen.getByLabelText(t.studentPasswordLabel), "ab");
+    await user.click(screen.getByRole("button", { name: t.create }));
+
+    expect(await screen.findByText(t.passwordTooShort)).toBeInTheDocument();
+    expect(api.createVideoRoom).not.toHaveBeenCalled();
   });
 
   it("shows supervisor toggles + a covert warning to a room.monitor holder", async () => {
@@ -108,60 +164,31 @@ describe("RoomModal access settings (S1)", () => {
     expect(screen.queryByText(t.monitorTitle)).not.toBeInTheDocument();
   });
 
-  it("sends the slug (null when blank, value when set)", async () => {
-    const user = userEvent.setup();
-    renderModal();
-
-    await user.type(screen.getByLabelText(t.nameLabel), "Halaqa");
-    await user.type(screen.getByPlaceholderText(t.slugPlaceholder), "halaqa-1");
-    await user.type(screen.getByPlaceholderText(t.guestPasswordPlaceholder), "open-sesame");
-    await user.click(screen.getByRole("button", { name: t.create }));
-
-    await waitFor(() =>
-      expect(api.createVideoRoom).toHaveBeenCalledWith(
-        expect.objectContaining({ slug: "halaqa-1" }),
-      ),
-    );
-  });
-
-  it("rejects a too-short password without calling the API", async () => {
-    const user = userEvent.setup();
-    renderModal();
-
-    await user.type(screen.getByLabelText(t.nameLabel), "Halaqa");
-    await user.type(screen.getByPlaceholderText(t.guestPasswordPlaceholder), "ab");
-    await user.click(screen.getByRole("button", { name: t.create }));
-
-    expect(await screen.findByText(t.passwordTooShort)).toBeInTheDocument();
-    expect(api.createVideoRoom).not.toHaveBeenCalled();
-  });
-
-  it("pre-fills from an existing room and submits the merged settings on edit", async () => {
+  it("pre-fills the password mode + fields from an existing room and submits merged settings", async () => {
     const user = userEvent.setup();
     const room: api.VideoRoom = {
       id: "r1",
       name: "Existing",
       teacher_id: null,
       status: "ACTIVE",
-      record_default: false,
-      join_token: "tok",
+      join_token: "existing-k3p9x",
       created_at: "2026-06-01T00:00:00Z",
       config: {
         ...baseConfig,
+        host_password: "teach-pass",
         guest_password: "old-pass",
         recording_enabled: false,
-        require_host_present: true,
-        allow_guest_screenshare: false,
-        max_participants: 5,
+        waiting_room: true,
       },
     };
     renderModal(room);
 
-    // The password field is pre-filled and the toggles reflect the stored config.
-    expect(screen.getByPlaceholderText(t.guestPasswordPlaceholder)).toHaveValue("old-pass");
+    // "Both" mode is derived; both fields pre-filled; toggles reflect stored config.
+    expect(screen.getByTestId("pw-mode-both")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText(t.teacherPasswordLabel)).toHaveValue("teach-pass");
+    expect(screen.getByLabelText(t.studentPasswordLabel)).toHaveValue("old-pass");
     expect(screen.getByLabelText(t.recordingEnabled)).not.toBeChecked();
-    expect(screen.getByLabelText(t.requireHostPresent)).toBeChecked();
-    expect(screen.getByLabelText(t.allowGuestScreenshare)).not.toBeChecked();
+    expect(screen.getByLabelText(t.waitingRoom)).toBeChecked();
 
     await user.click(screen.getByRole("button", { name: t.save }));
 
@@ -170,11 +197,10 @@ describe("RoomModal access settings (S1)", () => {
         "r1",
         expect.objectContaining({
           settings: expect.objectContaining({
+            host_password: "teach-pass",
             guest_password: "old-pass",
             recording_enabled: false,
-            require_host_present: true,
-            allow_guest_screenshare: false,
-            max_participants: 5,
+            waiting_room: true,
           }),
         }),
       ),

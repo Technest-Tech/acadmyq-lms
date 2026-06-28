@@ -56,6 +56,16 @@ export function PlanFormModal({
     }
     return init;
   });
+  // Boolean plan flags live in features.limits as 1/0 (fail open) — checked = allowed unless the
+  // stored value is exactly 0.
+  const flagCatalog = catalog.flags ?? {};
+  const [flags, setFlags] = useState<Record<string, boolean>>(() => {
+    const init: Record<string, boolean> = {};
+    for (const key of Object.keys(flagCatalog)) {
+      init[key] = plan?.features?.limits?.[key] !== 0;
+    }
+    return init;
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,12 +79,16 @@ export function PlanFormModal({
     setBusy(true);
     const features = {
       capabilities: caps,
-      limits: Object.fromEntries(
-        Object.keys(catalog.limits).map((k) => [
-          k,
-          limits[k]?.trim() ? Number(limits[k]) : null,
-        ]),
-      ),
+      limits: {
+        ...Object.fromEntries(
+          Object.keys(catalog.limits).map((k) => [
+            k,
+            limits[k]?.trim() ? Number(limits[k]) : null,
+          ]),
+        ),
+        // Flags ride in the same map as 1/0 so Entitlement resolves them with the limits.
+        ...Object.fromEntries(Object.keys(flagCatalog).map((k) => [k, flags[k] ? 1 : 0])),
+      },
     };
     try {
       if (editing) {
@@ -215,6 +229,27 @@ export function PlanFormModal({
             </label>
           ))}
         </fieldset>
+
+        {Object.keys(flagCatalog).length > 0 && (
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">{t("flags")}</legend>
+            <p className="text-muted-foreground text-xs">{t("flagsHint")}</p>
+            {Object.entries(flagCatalog).map(([key, label]) => (
+              <label key={key} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={flags[key] ?? true}
+                  onChange={() => setFlags((f) => ({ ...f, [key]: !(f[key] ?? true) }))}
+                  data-testid={`flag-${key}`}
+                />
+                <span>{label}</span>
+                <span className="text-muted-foreground font-mono text-xs" dir="ltr">
+                  {key}
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
 
         <label className="flex items-center gap-2 text-sm">
           <input

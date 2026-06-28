@@ -121,7 +121,7 @@ code reads `config('services.livekit.*')` (never `env()` outside config files).
     'api_secret'  => env('LIVEKIT_API_SECRET'),    // signs access tokens — NEVER leaves the server
     'webhook_secret' => env('LIVEKIT_WEBHOOK_SECRET'),
     'timeout'     => (int) env('LIVEKIT_TIMEOUT', 15),
-    'token_ttl'   => (int) env('LIVEKIT_TOKEN_TTL', 900), // seconds
+    'token_ttl'   => (int) env('LIVEKIT_TOKEN_TTL', 14400), // seconds (4h — must outlive a full lesson; a mid-call reconnect re-auths with this token)
 ],
 ```
 New env names documented (empty) in `apps/api/.env.example`. Per-tenant secrets, if any, are stored

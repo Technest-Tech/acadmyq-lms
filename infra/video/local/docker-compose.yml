@@ -12,7 +12,10 @@ services:
     ports: ["6379:6379"]
 
   livekit:
-    image: livekit/livekit-server:latest
+    # Pinned to match prod (media.acadmyq.com runs v1.13.1). The floating `latest` tag drifted to a
+    # stale v1.9.9 locally, which is too old for livekit-client 2.20's data channel → in-call chat
+    # (sendChatMessage over the reliable data channel) failed. Pin so the local SFU stays compatible.
+    image: livekit/livekit-server:v1.13.1
     restart: unless-stopped
     # --node-ip controls the IP advertised in ICE candidates:
     #   127.0.0.1 (default) → two browser tabs on THIS machine

@@ -84,19 +84,24 @@ it('mints a hidden subscribe-only token and overrides the auth-host default', fu
 });
 
 // ── gates ──────────────────────────────────────────────────────────────────────────
-it('requires login to use the monitor link', function () {
+it('lets anyone with the monitor link join without login (anonymous ghost)', function () {
     $room = seedMonitorRoom($this->pro, ['monitor_enabled' => true]);
 
-    $this->postJson("/api/video/join/{$room['monitor_token']}")
-        ->assertStatus(401)->assertJsonPath('code', 'login_required');
+    $res = $this->postJson("/api/video/join/{$room['monitor_token']}", ['display_name' => 'Boss'])->assertOk();
+
+    expect($res->json('role'))->toBe('monitor');
+    expect($res->json('identity'))->toStartWith('monitor-'); // synthetic — no account
+    expect($res->json('canManage'))->toBeFalse();
 });
 
-it('forbids a user without room.monitor', function () {
+it('lets a signed-in user without room.monitor use the link', function () {
     $room = seedMonitorRoom($this->pro, ['monitor_enabled' => true]);
-    Sanctum::actingAs($this->proTeacher);
+    Sanctum::actingAs($this->proTeacher); // a plain teacher — possession of the link is the authority
 
-    $this->postJson("/api/video/join/{$room['monitor_token']}")
-        ->assertStatus(403)->assertJsonPath('code', 'monitor_forbidden');
+    $res = $this->postJson("/api/video/join/{$room['monitor_token']}")->assertOk();
+
+    expect($res->json('role'))->toBe('monitor');
+    expect($res->json('identity'))->toBe((string) $this->proTeacher->getKey());
 });
 
 it('rejects monitoring a room that is not monitor-enabled', function () {
@@ -122,6 +127,21 @@ it('audits the monitor entry and writes no attendance row', function () {
         ->exists();
     expect($audited)->toBeTrue();
     expect(DB::table('room_participants')->where('room_id', $room['id'])->count())->toBe(0);
+});
+
+it('audits an anonymous (no-login) monitor entry as a link actor', function () {
+    $room = seedMonitorRoom($this->pro, ['monitor_enabled' => true]);
+
+    $this->postJson("/api/video/join/{$room['monitor_token']}")->assertOk();
+
+    $this->asAcademy($this->pro);
+    $row = DB::table('audit_log')
+        ->where('action', 'video_room.monitor_join')
+        ->where('entity_id', $room['id'])
+        ->first();
+    expect($row)->not->toBeNull();
+    expect($row->actor_user_id)->toBeNull();   // no account
+    expect($row->actor_role)->toBe('MONITOR_LINK');
 });
 
 // ── monitor_token exposure (room.monitor only) ───────────────────────────────────────

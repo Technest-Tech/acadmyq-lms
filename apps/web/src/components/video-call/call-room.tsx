@@ -1,16 +1,36 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { LiveKitRoom, RoomAudioRenderer, useParticipants } from "@livekit/components-react";
-import type { AudioCaptureOptions, DisconnectReason, VideoCaptureOptions } from "livekit-client";
+import {
+  LiveKitRoom,
+  RoomAudioRenderer,
+  useParticipants,
+} from "@livekit/components-react";
+import type {
+  AudioCaptureOptions,
+  DisconnectReason,
+  VideoCaptureOptions,
+} from "livekit-client";
 import type { JoinRoomResponse } from "@/lib/api";
+import { ApplySettingsOnJoin } from "./apply-settings-on-join";
 import { CallControlContext } from "./call-control-context";
-import { CallStage } from "./call-stage";
+import { CallMain } from "./call-main";
+import { CallTimerProvider } from "./call-timer-context";
+import { ChatPanel } from "./chat-panel";
+import { ChatProvider } from "./chat-context";
 import { CompositePipProvider } from "./composite-pip";
 import { ControlBar } from "./control-bar";
 import type { LobbySettings } from "./lobby";
+import { MonitorFrame } from "./monitor-frame";
 import { ParticipantsPanel } from "./participants-panel";
 import { PinContext, nextPinned } from "./pin-context";
+import { RecordingProvider } from "./recording-context";
+import { SettingsDialog } from "./settings-dialog";
+import { WhiteboardProvider } from "./whiteboard-context";
+import {
+  CallSettingsContext,
+  useProvideCallSettings,
+} from "./use-call-settings";
 import { useWakeLock } from "./use-wake-lock";
 
 /**
@@ -54,7 +74,9 @@ export function CallRoom({
         roomTitle={creds.roomTitle}
         canManage={creds.canManage}
         roomId={creds.roomId}
+        manageToken={creds.manageToken ?? null}
         suppressRecording={creds.suppressRecordingIndicator ?? false}
+        isMonitor={creds.role === "monitor"}
       />
     </LiveKitRoom>
   );
@@ -65,21 +87,28 @@ function InCall({
   roomTitle,
   canManage,
   roomId,
+  manageToken,
   suppressRecording,
+  isMonitor,
 }: {
   roomTitle: string;
   canManage: boolean;
   roomId: string;
+  manageToken: string | null;
   suppressRecording: boolean;
+  isMonitor: boolean;
 }) {
   useWakeLock();
   const participants = useParticipants();
+  const settingsCtx = useProvideCallSettings();
   const [panelOpen, setPanelOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
 
   // A local pin/spotlight, shared with the stage + tiles + panel. Drop it if the pinned person leaves.
   useEffect(() => {
-    if (pinnedId && !participants.some((p) => p.identity === pinnedId)) setPinnedId(null);
+    if (pinnedId && !participants.some((p) => p.identity === pinnedId))
+      setPinnedId(null);
   }, [pinnedId, participants]);
 
   const togglePin = useCallback((identity: string) => {
@@ -89,30 +118,55 @@ function InCall({
     () => ({ pinnedId, togglePin, isPinned: (id: string) => id === pinnedId }),
     [pinnedId, togglePin],
   );
-  const control = useMemo(() => ({ canManage, roomId }), [canManage, roomId]);
+  const control = useMemo(
+    () => ({ canManage, roomId, manageToken }),
+    [canManage, roomId, manageToken],
+  );
 
   return (
-    <CallControlContext.Provider value={control}>
-      <PinContext.Provider value={pin}>
-        <CompositePipProvider>
-          <CallStage roomTitle={roomTitle} suppressRecording={suppressRecording} />
-          <RoomAudioRenderer />
-          <ParticipantsPanel
-            open={panelOpen}
-            onClose={() => setPanelOpen(false)}
-            canManage={canManage}
-            roomId={roomId}
-          />
-          <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
-            <ControlBar
-              onToggleParticipants={() => setPanelOpen((v) => !v)}
-              participantCount={participants.length}
-              canManage={canManage}
-              roomId={roomId}
-            />
-          </div>
-        </CompositePipProvider>
-      </PinContext.Provider>
-    </CallControlContext.Provider>
+    <CallSettingsContext.Provider value={settingsCtx}>
+      <CallControlContext.Provider value={control}>
+        <PinContext.Provider value={pin}>
+          <CompositePipProvider>
+            <ChatProvider>
+              <RecordingProvider>
+                <WhiteboardProvider>
+                  {/* Above the stage⇄whiteboard swap so the call timer survives the board opening. */}
+                  <CallTimerProvider>
+                    <ApplySettingsOnJoin />
+                    {isMonitor && <MonitorFrame />}
+                    <CallMain
+                      roomTitle={roomTitle}
+                      suppressRecording={suppressRecording}
+                    />
+                    <RoomAudioRenderer />
+                    <ParticipantsPanel
+                      open={panelOpen}
+                      onClose={() => setPanelOpen(false)}
+                      canManage={canManage}
+                      roomId={roomId}
+                      manageToken={manageToken}
+                    />
+                    <SettingsDialog
+                      open={settingsOpen}
+                      onClose={() => setSettingsOpen(false)}
+                    />
+                    <ChatPanel />
+                    <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
+                      <ControlBar
+                        onToggleParticipants={() => setPanelOpen((v) => !v)}
+                        onToggleSettings={() => setSettingsOpen((v) => !v)}
+                        participantCount={participants.length}
+                        canManage={canManage}
+                      />
+                    </div>
+                  </CallTimerProvider>
+                </WhiteboardProvider>
+              </RecordingProvider>
+            </ChatProvider>
+          </CompositePipProvider>
+        </PinContext.Provider>
+      </CallControlContext.Provider>
+    </CallSettingsContext.Provider>
   );
 }

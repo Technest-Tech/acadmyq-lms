@@ -123,12 +123,12 @@ it('the guest join_token resolves to a guest', function () {
         ->assertOk()->assertJsonPath('role', 'guest');
 });
 
-it('a monitor link requires login (anonymous → 401)', function () {
-    // Full monitor behaviour (hidden grant, room.monitor gate, audit) lives in VideoRoomMonitorTest.
+it('a monitor link resolves to a monitor without login (anonymous ghost)', function () {
+    // Full monitor behaviour (hidden grant, monitor-enabled gate, audit) lives in VideoRoomMonitorTest.
     $room = seedLinkRoom($this->pro, ['monitor_enabled' => true]);
 
     $this->postJson("/api/video/join/{$room['monitor_token']}", ['display_name' => 'Boss'])
-        ->assertStatus(401)->assertJsonPath('code', 'login_required');
+        ->assertOk()->assertJsonPath('role', 'monitor');
 });
 
 it('an authenticated host on a host link keeps their own identity (auth wins)', function () {
@@ -159,7 +159,7 @@ it('rejects a slug without a guest password', function () {
     Sanctum::actingAs($this->proOwner);
 
     $this->postJson('/api/video/rooms', ['name' => 'X', 'slug' => 'open-room'])
-        ->assertStatus(422)->assertJsonPath('code', 'slug_needs_password');
+        ->assertStatus(422)->assertJsonPath('code', 'slug_needs_password_or_waiting');
 });
 
 it('rejects a slug when the academy has no subdomain', function () {
@@ -210,6 +210,32 @@ it('rotates the host link and kills the old one', function () {
     // Old host link no longer resolves; the new one grants host (anonymous, no login).
     $this->postJson("/api/video/join/{$room['host_token']}", ['display_name' => 'U'])->assertNotFound();
     $this->postJson("/api/video/join/{$fresh}", ['display_name' => 'U'])->assertOk()->assertJsonPath('role', 'host');
+});
+
+// ── short links (S5, 08-ROOM-ACCESS §14) ──────────────────────────────────────────────
+it('mints short, human-readable links on create and they resolve', function () {
+    Sanctum::actingAs($this->proOwner);
+    $id = $this->postJson('/api/video/rooms', ['name' => 'Halaqa Live'])->assertCreated()->json('roomId');
+
+    $room = $this->getJson("/api/video/rooms/{$id}")->assertOk()->json('room');
+
+    foreach (['join_token', 'host_token'] as $key) {
+        $token = $room[$key];
+        // Shape: `{kebab-room-name}-{code}` with the readable prefix from the name.
+        expect($token)->toStartWith('halaqa-live-');
+        expect($token)->toContain('-');
+        // The random code (after the last hyphen) is ≤7 lowercase alphanumerics — the brief's cap.
+        $code = substr($token, (int) strrpos($token, '-') + 1);
+        expect(strlen($code))->toBeLessThanOrEqual(7);
+        expect($code)->toMatch('/^[a-z0-9]+$/');
+        // Never the old 24-char raw token (which had no separators).
+        expect($token)->not->toMatch('/^[A-Za-z0-9]{24}$/');
+    }
+
+    // The hyphenated short link routes + resolves the room at /join (the authenticated owner wins
+    // the role here; the anonymous-guest path through a short link is covered by the rotate test).
+    $this->postJson("/api/video/join/{$room['join_token']}", ['display_name' => 'Sara'])
+        ->assertOk()->assertJsonPath('roomId', $id);
 });
 
 // ── exposure ─────────────────────────────────────────────────────────────────────────

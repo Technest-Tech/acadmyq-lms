@@ -763,6 +763,220 @@ export function updateGatewaySettings(
   });
 }
 
+// ── Super Admin video oversight — Tier 1 (read-only) ─────────────────────
+// Cross-tenant usage, the monitor/recording compliance feed, and live service health for the
+// self-hosted video platform. Backed by the audited SECURITY DEFINER readers; platform.manage-gated.
+
+/** Effective per-academy video state (the academies.video_access override resolved against the plan). */
+export type VideoAccessStatus =
+  | "ENABLED" // force-on (permanent)
+  | "TRIAL" // force-on, auto-expires at video_trial_ends_at
+  | "PLAN" // entitled via the plan / add-on
+  | "EXPIRED" // a trial that has lapsed
+  | "DISABLED" // force-off
+  | "NONE"; // not entitled, no override
+
+export type VideoAccessOverride = "ENABLED" | "DISABLED" | null;
+
+export interface VideoUsageRow {
+  academy_id: string;
+  academy_name: string;
+  currency: string | null;
+  plan_name: string | null;
+  plan_code: string | null;
+  video_plan_name: string | null;
+  video_access: VideoAccessOverride;
+  video_trial_ends_at: string | null;
+  video_status: VideoAccessStatus;
+  video_enabled: boolean;
+  active_rooms: number;
+  live_rooms: number;
+  max_rooms: number | null;
+  recordings_count: number;
+  storage_bytes: number;
+  recording_seconds: number;
+  active_recordings: number;
+  participant_sessions: number;
+}
+
+export interface VideoUsageTotals {
+  academies: number;
+  enabled: number;
+  trial: number;
+  active_rooms: number;
+  recordings_count: number;
+  storage_bytes: number;
+  recording_seconds: number;
+  active_recordings: number;
+}
+
+/** Per-academy video usage (active rooms vs plan cap, recordings, storage) + platform totals. */
+export function getVideoUsage(): Promise<{
+  academies: VideoUsageRow[];
+  totals: VideoUsageTotals;
+}> {
+  return apiFetch("/api/admin/video/usage");
+}
+
+export interface VideoAcademyRoom {
+  id: string;
+  name: string;
+  status: VideoRoomStatus;
+  created_at: string;
+  deleted_at: string | null;
+  recordings_count: number;
+  storage_bytes: number;
+  active_recordings: number;
+  participant_sessions: number;
+  last_activity: string | null;
+}
+
+export interface VideoAcademyDetail {
+  academy: {
+    id: string;
+    name: string;
+    currency: string | null;
+    subdomain: string | null;
+    created_at: string;
+    plan_id: string | null;
+    plan_name: string | null;
+    plan_code: string | null;
+    video_plan_id: string | null;
+    video_plan_name: string | null;
+    video_access: VideoAccessOverride;
+    video_trial_ends_at: string | null;
+    base_entitled: boolean;
+    video_status: VideoAccessStatus;
+    /** Effective video limits/flags (the assigned tier wins per key, else the academy's plan). */
+    video_limits: Record<string, number>;
+  };
+  subscription: {
+    status: string;
+    is_trial: boolean;
+    trial_start: string | null;
+    trial_end: string | null;
+    current_period_start: string | null;
+    current_period_end: string | null;
+    currency: string | null;
+    plan_name: string | null;
+  } | null;
+  stats: {
+    active_rooms: number;
+    total_rooms: number;
+    recordings_count: number;
+    storage_bytes: number;
+    recording_seconds: number;
+    active_recordings: number;
+    participant_sessions: number;
+  };
+  rooms: VideoAcademyRoom[];
+}
+
+/** The per-academy video oversight detail (status, subscription, usage, rooms). */
+export function getVideoAcademy(id: string): Promise<VideoAcademyDetail> {
+  return apiFetch(`/api/admin/video/academies/${id}`);
+}
+
+export interface VideoAdminRoomLog {
+  room: {
+    id: string;
+    academy_id: string;
+    name: string;
+    status: VideoRoomStatus;
+    created_at: string;
+  };
+  sessions: RoomLogSession[];
+  events: RoomLogEvent[];
+}
+
+/** A room's cross-tenant access log (who joined / when / how long + audited actions). */
+export function getVideoAcademyRoomLog(academyId: string, roomId: string): Promise<VideoAdminRoomLog> {
+  return apiFetch(`/api/admin/video/academies/${academyId}/rooms/${roomId}/logs`);
+}
+
+export interface VideoTierPlan {
+  id: string;
+  code: string;
+  name: string;
+  grants_video: boolean;
+  options: Record<string, number>;
+  video_capable: boolean;
+}
+
+/** Video-capable plans usable as a per-academy video tier (drives the academy's video options). */
+export function getVideoPlans(): Promise<{ plans: VideoTierPlan[] }> {
+  return apiFetch("/api/admin/video/plans");
+}
+
+export type VideoAccessAction =
+  | "enable"
+  | "trial"
+  | "extend_trial"
+  | "disable"
+  | "follow_plan"
+  | "set_tier";
+
+export interface VideoAccessPayload {
+  action: VideoAccessAction;
+  trial_days?: number | null;
+  video_plan_id?: string | null;
+}
+
+/** Set an academy's video access override (activate / deactivate / trial / tier). Super Admin, audited. */
+export function setVideoAccess(
+  id: string,
+  payload: VideoAccessPayload,
+): Promise<{ ok: boolean; academy: VideoAcademyDetail["academy"] | null }> {
+  return apiFetch(`/api/admin/video/academies/${id}/access`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export interface VideoComplianceRow {
+  id: string;
+  academy_id: string | null;
+  academy_name: string | null;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  actor_role: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  after: Record<string, unknown> | null;
+  created_at: string;
+}
+
+/** Platform-wide monitor & recording compliance feed (the sensitive video.* audit actions). */
+export function getVideoCompliance(
+  limit = 100,
+): Promise<{ rows: VideoComplianceRow[]; total: number; limit: number }> {
+  return apiFetch(`/api/admin/video/compliance?limit=${limit}`);
+}
+
+export interface VideoHealth {
+  livekit: { ok: boolean; rooms?: number; error: string | null };
+  egress: { ok: boolean; active?: number; error: string | null };
+  storage: {
+    ok: boolean;
+    configured: boolean;
+    bucket?: string;
+    status?: number;
+    error: string | null;
+  };
+  capacity: {
+    active_recordings: number | null;
+    soft_limit: number;
+    level: "idle" | "busy" | "at_capacity" | "unknown";
+  };
+  checked_at: string;
+}
+
+/** LiveKit + Egress + object-storage reachability + concurrent-recording capacity hint. */
+export function getVideoHealth(): Promise<VideoHealth> {
+  return apiFetch("/api/admin/video/health");
+}
+
 /** Fetch a private payment-proof screenshot as an object URL (works in cookie + token modes). */
 export async function fetchPaymentScreenshot(
   academyId: string,
@@ -2590,6 +2804,8 @@ export function setUserRole(
 export interface CapabilityCatalog {
   capabilities: Record<string, string>;
   limits: Record<string, string>;
+  /** Boolean plan flags (e.g. recordingAllowed) — stored in features.limits as 1/0, fail open. */
+  flags?: Record<string, string>;
 }
 
 export function getCapabilityCatalog(): Promise<CapabilityCatalog> {
@@ -3117,16 +3333,18 @@ export interface VideoRoom {
   name: string;
   teacher_id: string | null;
   status: VideoRoomStatus;
-  record_default: boolean;
-  /** Shareable GUEST link token → /r/{join_token} (publish+subscribe). */
+  /**
+   * Auto-generated SHORT guest link → /r/{join_token} (08-ROOM-ACCESS §14), e.g.
+   * `halaqa-live-k3p9x` (publish+subscribe). This is the link shown everywhere in the panel.
+   */
   join_token: string;
-  /** Private HOST link token → /r/{host_token} (full control, no login). room.manage only. */
+  /** Auto-generated SHORT host link → /r/{host_token} (full control, no login). room.manage only. */
   host_token?: string;
-  /** Private MONITOR link token → /r/{monitor_token} (hidden supervisor). room.monitor only. */
+  /** Auto-generated SHORT monitor link → /r/{monitor_token} (hidden supervisor). room.monitor only. */
   monitor_token?: string;
-  /** Academy-chosen short slug → /r/{academy_subdomain}/{slug} (readable guest link). */
+  /** Legacy academy-chosen slug → /r/{academy_subdomain}/{slug}; retired for new rooms (§14). */
   slug?: string | null;
-  /** The academy's subdomain — combined with slug to build the readable guest URL. */
+  /** The academy's subdomain — combined with slug to build the legacy readable guest URL. */
   academy_subdomain?: string | null;
   /** Access settings (defaults backfilled by the API), surfaced in the room modal. */
   config?: RoomAccessSettings;
@@ -3157,10 +3375,7 @@ export interface RoomRecording {
 export interface VideoRoomInput {
   name?: string;
   teacher_id?: string | null;
-  record_default?: boolean;
   status?: VideoRoomStatus;
-  /** Short readable slug (kebab-case); null clears it. Needs a guest password + academy subdomain. */
-  slug?: string | null;
   /** Partial access-settings patch — only the provided keys are merged into the room's config. */
   settings?: Partial<RoomAccessSettings>;
 }
@@ -3209,7 +3424,10 @@ export function rotateRoomLink(
   });
 }
 
-/** The public shareable URL for a room token (/r/{token}) — guest join_token or host_token. */
+/**
+ * The public shareable URL for a room token (/r/{token}). The token is now an auto-generated SHORT
+ * link (`{kebab-name}-{code}`, 08-ROOM-ACCESS §14) — guest join_token, host_token or monitor_token.
+ */
 export function roomShareUrl(token: string): string {
   const origin = typeof window === "undefined" ? "" : window.location.origin;
   return `${origin}/r/${token}`;
@@ -3225,6 +3443,56 @@ export function roomSlugUrl(
   return `${origin}/r/${academySubdomain}/${slug}`;
 }
 
+// ── Per-room access log (08-ROOM-ACCESS §15) ─────────────────────────────────
+
+/** One access session — a participant's join/leave history for the room. */
+export interface RoomLogSession {
+  id: string;
+  identity: string;
+  display_name: string | null;
+  user_id: string | null;
+  /** Full name of the authenticated joiner (null for anonymous guests). */
+  user_name: string | null;
+  role: "HOST" | "CO_HOST" | "PARTICIPANT" | string;
+  joined_at: string | null;
+  left_at: string | null;
+  /** Seconds in the room (null while still connected / ongoing). */
+  duration_s: number | null;
+  ongoing: boolean;
+}
+
+/** One audited action on the room (create / update / rotate-link / knock / monitor-join …). */
+export interface RoomLogEvent {
+  id: string;
+  action: string;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  actor_role: string | null;
+  after: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface RoomLogStats {
+  total_sessions: number;
+  unique_participants: number;
+  total_seconds: number;
+  last_access: string | null;
+}
+
+export interface RoomLogs {
+  room: { id: string; name: string; status: VideoRoomStatus; created_at: string };
+  sessions: RoomLogSession[];
+  events: RoomLogEvent[];
+  stats: RoomLogStats;
+  /** True when the session/event lists were capped (most-recent N only). */
+  truncated: boolean;
+}
+
+/** Fetch a room's access log: who joined, when, for how long, plus every audited action. */
+export function getRoomLogs(id: string): Promise<RoomLogs> {
+  return apiFetch(`/api/video/rooms/${id}/logs`);
+}
+
 /** Mint a scoped LiveKit access token for the current user to join this room. */
 export function getVideoRoomToken(
   id: string,
@@ -3234,6 +3502,8 @@ export function getVideoRoomToken(
 
 /** The credential + identity a join-by-link request returns (mirrors VideoJoinController). */
 export interface JoinRoomResponse {
+  /** Present (=`"admitted"`) on the waiting-room admit poll; absent on a direct join. */
+  state?: "admitted";
   /** wss/ws SFU connect URL. */
   url: string;
   /** Short-lived scoped LiveKit access token. */
@@ -3252,6 +3522,11 @@ export interface JoinRoomResponse {
   role: "host" | "guest" | "monitor";
   /** Host admin (holds room.manage): may record AND moderate (mute/remove/end). */
   canManage: boolean;
+  /**
+   * Waiting-room manage credential (= the room's host_token, 08-ROOM-ACCESS §13.5). Present only for
+   * host-role joiners; lets the client poll + admit/deny the knock queue. null for guests/monitors.
+   */
+  manageToken?: string | null;
   /** Recording allowed for this room (gates the record button alongside canManage). */
   recordingEnabled?: boolean;
   /** Guests start with the mic off when true. */
@@ -3263,15 +3538,36 @@ export interface JoinRoomResponse {
 }
 
 /**
+ * A guest hitting a waiting-room room is not minted a token — instead they get a "knocking" state
+ * with a knock_token to poll until a host admits them (08-ROOM-ACCESS §13).
+ */
+export interface KnockingResponse {
+  state: "knocking";
+  /** The bearer secret the waiting guest polls with (pollKnock). */
+  knockToken: string;
+  roomId: string;
+  roomTitle: string;
+}
+
+/** A join-by-link returns either a real credential (direct join) or a "knocking" state (waiting room). */
+export type JoinResult = JoinRoomResponse | KnockingResponse;
+
+/** True when a join result is the waiting-room "knocking" state rather than a real credential. */
+export function isKnocking(r: JoinResult): r is KnockingResponse {
+  return (r as KnockingResponse).state === "knocking";
+}
+
+/**
  * Join a room via its shareable link token (public POST /api/video/join/{token}). A logged-in
  * host is detected server-side from the session cookie; everyone else joins as a guest and must
- * supply a display name. Throws ApiError 404 (unknown/archived room) or 422 (guest needs a name).
+ * supply a display name. A `waiting_room` room returns a `KnockingResponse` for guests instead of a
+ * token. Throws ApiError 404 (unknown/archived room) or 422 (guest needs a name).
  */
 export function joinRoom(
   token: string,
   displayName?: string,
   password?: string,
-): Promise<JoinRoomResponse> {
+): Promise<JoinResult> {
   return apiFetch(`/api/video/join/${token}`, {
     method: "POST",
     body: JSON.stringify(joinBody(displayName, password)),
@@ -3280,14 +3576,14 @@ export function joinRoom(
 
 /**
  * Join via the readable per-academy slug link (/r/{academy}/{slug} → POST /video/join-slug/…). Always
- * a guest link; a slugged room requires a guest password (08-ROOM-ACCESS §3), so `password` is usual.
+ * a guest link; a slugged room requires a guest password OR the waiting room (08-ROOM-ACCESS §3/§13).
  */
 export function joinRoomBySlug(
   academy: string,
   room: string,
   displayName?: string,
   password?: string,
-): Promise<JoinRoomResponse> {
+): Promise<JoinResult> {
   return apiFetch(`/api/video/join-slug/${academy}/${room}`, {
     method: "POST",
     body: JSON.stringify(joinBody(displayName, password)),
@@ -3302,6 +3598,54 @@ function joinBody(displayName?: string, password?: string): Record<string, strin
   return body;
 }
 
+// ── Waiting room (08-ROOM-ACCESS §13) ────────────────────────────────────────────────
+
+/** The result of a waiting guest's poll: still waiting, refused, timed out, or admitted (full creds). */
+export type KnockPoll =
+  | { state: "knocking" }
+  | { state: "denied" }
+  | { state: "expired" }
+  | JoinRoomResponse; // state: "admitted"
+
+/** True when a knock poll resolved to an admitted credential (token minted). */
+export function isAdmitted(p: KnockPoll): p is JoinRoomResponse {
+  return (p as JoinRoomResponse).state === "admitted";
+}
+
+/**
+ * The waiting guest's short-poll (public POST /api/video/knock/{knockToken}). While PENDING it returns
+ * `knocking`; once a host admits, it returns the full join credential (the token is minted here).
+ */
+export function pollKnock(knockToken: string): Promise<KnockPoll> {
+  return apiFetch(`/api/video/knock/${knockToken}`, { method: "POST" });
+}
+
+/** A pending entry request shown in the host's waiting-room queue. */
+export interface PendingKnock {
+  id: string;
+  displayName: string;
+  createdAt: string;
+}
+
+/** The host's pending-knock queue, authenticated by the manage credential (= the room's host_token). */
+export function listKnocks(manageToken: string): Promise<{ knocks: PendingKnock[] }> {
+  return apiFetch(`/api/video/manage/${manageToken}/knocks`);
+}
+
+export type KnockDecision = "admit" | "deny";
+
+/** Admit or deny a knocker (host action, authenticated by the manage credential). Idempotent. */
+export function decideKnock(
+  manageToken: string,
+  knockId: string,
+  decision: KnockDecision,
+): Promise<{ ok: boolean; status: string }> {
+  return apiFetch(`/api/video/manage/${manageToken}/knocks/${knockId}`, {
+    method: "POST",
+    body: JSON.stringify({ decision }),
+  });
+}
+
 export function listVideoRecordings(
   roomId?: string,
 ): Promise<{ recordings: RoomRecording[] }> {
@@ -3314,33 +3658,64 @@ export function getRecordingUrl(id: string): Promise<{ url: string }> {
   return apiFetch(`/api/video/recordings/${id}/url`);
 }
 
-/** Start an on-demand recording for a room (host with room.manage; rides the session cookie). */
-export function startRoomRecording(roomId: string): Promise<{ recordingId: string }> {
-  return apiFetch(`/api/video/rooms/${roomId}/recording`, { method: "POST" });
+/** Permanently delete a recording (management action, room.manage). Removes the stored file + row. */
+export function deleteRecording(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/video/recordings/${id}`, { method: "DELETE" });
 }
 
-/** Stop the room's active recording (host with room.manage). */
-export function stopRoomRecording(roomId: string): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/video/rooms/${roomId}/recording`, { method: "DELETE" });
+/**
+ * Start an on-demand recording. A host running the call holds the manage credential (= the room's
+ * host_token), so the no-login host link drives recording from the link alone; a logged-in manager
+ * without one falls back to the session-authenticated room endpoint.
+ */
+export function startRoomRecording(roomId: string, manageToken?: string | null): Promise<{ recordingId: string }> {
+  const path = manageToken
+    ? `/api/video/manage/${manageToken}/recording`
+    : `/api/video/rooms/${roomId}/recording`;
+  return apiFetch(path, { method: "POST" });
 }
 
-// ── In-call host moderation (room.manage; server-mediated SFU admin) ──────────
+/** Stop the room's active recording (host link via manageToken, else session-authenticated). */
+export function stopRoomRecording(roomId: string, manageToken?: string | null): Promise<{ ok: boolean }> {
+  const path = manageToken
+    ? `/api/video/manage/${manageToken}/recording`
+    : `/api/video/rooms/${roomId}/recording`;
+  return apiFetch(path, { method: "DELETE" });
+}
+
+// ── In-call host moderation (server-mediated SFU admin) ───────────────────────
+// Each action works from the no-login HOST LINK (manageToken = host_token) or, for a logged-in
+// manager without one, the session-authenticated room endpoint. Possession of the link is authority.
 
 /** Force-mute a participant's microphone. */
-export function muteParticipant(roomId: string, identity: string): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/video/rooms/${roomId}/participants/${encodeURIComponent(identity)}/mute`, {
-    method: "POST",
-  });
+export function muteParticipant(roomId: string, identity: string, manageToken?: string | null): Promise<{ ok: boolean }> {
+  const id = encodeURIComponent(identity);
+  const path = manageToken
+    ? `/api/video/manage/${manageToken}/participants/${id}/mute`
+    : `/api/video/rooms/${roomId}/participants/${id}/mute`;
+  return apiFetch(path, { method: "POST" });
+}
+
+/** Force a participant's camera off (host "stop video"). They can re-enable it themselves. */
+export function muteParticipantVideo(roomId: string, identity: string, manageToken?: string | null): Promise<{ ok: boolean }> {
+  const id = encodeURIComponent(identity);
+  const path = manageToken
+    ? `/api/video/manage/${manageToken}/participants/${id}/mute-video`
+    : `/api/video/rooms/${roomId}/participants/${id}/mute-video`;
+  return apiFetch(path, { method: "POST" });
 }
 
 /** Remove (kick) a participant from the call. */
-export function removeParticipant(roomId: string, identity: string): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/video/rooms/${roomId}/participants/${encodeURIComponent(identity)}/remove`, {
-    method: "POST",
-  });
+export function removeParticipant(roomId: string, identity: string, manageToken?: string | null): Promise<{ ok: boolean }> {
+  const id = encodeURIComponent(identity);
+  const path = manageToken
+    ? `/api/video/manage/${manageToken}/participants/${id}/remove`
+    : `/api/video/rooms/${roomId}/participants/${id}/remove`;
+  return apiFetch(path, { method: "POST" });
 }
 
 /** End the live call for everyone (the room stays available to rejoin later). */
-export function endRoomForAll(roomId: string): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/video/rooms/${roomId}/end`, { method: "POST" });
+export function endRoomForAll(roomId: string, manageToken?: string | null): Promise<{ ok: boolean }> {
+  const path = manageToken ? `/api/video/manage/${manageToken}/end` : `/api/video/rooms/${roomId}/end`;
+  return apiFetch(path, { method: "POST" });
 }

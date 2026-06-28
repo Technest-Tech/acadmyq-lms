@@ -75,7 +75,11 @@ return [
         'api_key' => env('LIVEKIT_API_KEY'),
         'api_secret' => env('LIVEKIT_API_SECRET'),
         'timeout' => (int) env('LIVEKIT_TIMEOUT', 15),
-        'token_ttl' => (int) env('LIVEKIT_TOKEN_TTL', 900),
+        // 4h — a join token must OUTLIVE a full lesson. A connected participant is never dropped when
+        // the token expires; only (re)connection re-checks it, so a short TTL means a mid-call network
+        // blip can fail to reconnect (the SDK re-auths the resume with the original token). See
+        // docs/video-platform/06-WEB-CALL-CLIENT §5 "refresh before expiry".
+        'token_ttl' => (int) env('LIVEKIT_TOKEN_TTL', 14400),
         'recording_retention_days' => (int) env('LIVEKIT_RECORDING_RETENTION_DAYS', 90),
         's3_key' => env('LIVEKIT_S3_KEY'),
         's3_secret' => env('LIVEKIT_S3_SECRET'),

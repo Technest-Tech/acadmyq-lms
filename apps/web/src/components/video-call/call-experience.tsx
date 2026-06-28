@@ -4,16 +4,35 @@ import { useState } from "react";
 import { DisconnectReason, setLogLevel } from "livekit-client";
 import { useTranslations } from "next-intl";
 import { WifiOff } from "lucide-react";
-import { ApiError, joinRoom, joinRoomBySlug, type JoinRoomResponse } from "@/lib/api";
+import {
+  ApiError,
+  isKnocking,
+  joinRoom,
+  joinRoomBySlug,
+  type JoinRoomResponse,
+  type KnockingResponse,
+} from "@/lib/api";
 import { BrandBackdrop } from "./brand-backdrop";
 import { CallRoom } from "./call-room";
+import { KnockControl } from "./knock-control";
 import { Lobby, type LobbySettings } from "./lobby";
+import { WaitingScreen } from "./waiting-screen";
 
 // Keep the browser console clean for this premium surface — surface warnings/errors, drop the
 // chatty per-track debug logs (e.g. the one-time "silence detected" track-start check).
 setLogLevel("warn");
 
-type Phase = "lobby" | "in-call" | "left" | "lost" | "ended" | "removed" | "dead";
+type Phase =
+  | "lobby"
+  | "waiting"
+  | "denied"
+  | "expired"
+  | "in-call"
+  | "left"
+  | "lost"
+  | "ended"
+  | "removed"
+  | "dead";
 
 /** A token link (/r/{token}) or a readable per-academy slug link (/r/{academy}/{room}). */
 type CallTarget = { token: string } | { academy: string; room: string };
@@ -33,6 +52,7 @@ export function CallExperience(target: CallTarget) {
   const [joinError, setJoinError] = useState<string | undefined>();
   const [passwordRequired, setPasswordRequired] = useState(false);
   const [creds, setCreds] = useState<JoinRoomResponse | null>(null);
+  const [knock, setKnock] = useState<KnockingResponse | null>(null);
   const [settings, setSettings] = useState<LobbySettings | null>(null);
 
   async function handleJoin(s: LobbySettings) {
@@ -43,9 +63,15 @@ export function CallExperience(target: CallTarget) {
         "token" in target
           ? await joinRoom(target.token, s.name, s.password)
           : await joinRoomBySlug(target.academy, target.room, s.name, s.password);
-      setCreds(c);
       setSettings(s);
-      setPhase("in-call");
+      if (isKnocking(c)) {
+        // Waiting room: no token yet — wait for a host to admit (08-ROOM-ACCESS §13).
+        setKnock(c);
+        setPhase("waiting");
+      } else {
+        setCreds(c);
+        setPhase("in-call");
+      }
     } catch (e) {
       if (e instanceof ApiError) {
         const code = (e.body as { code?: string } | undefined)?.code;
@@ -86,7 +112,44 @@ export function CallExperience(target: CallTarget) {
   }
 
   if (phase === "in-call" && creds && settings) {
-    return <CallRoom creds={creds} settings={settings} onLeave={handleDisconnect} />;
+    // The host knock-control (08-ROOM-ACCESS §13) floats beside the call as a sibling — never inside
+    // CallRoom — and only when this joiner is a host (manageToken present). Pure REST, no LK context.
+    return (
+      <>
+        <CallRoom creds={creds} settings={settings} onLeave={handleDisconnect} />
+        {creds.manageToken && <KnockControl manageToken={creds.manageToken} />}
+      </>
+    );
+  }
+
+  if (phase === "waiting" && knock) {
+    return (
+      <WaitingScreen
+        knockToken={knock.knockToken}
+        roomTitle={knock.roomTitle}
+        onAdmitted={(c) => {
+          setCreds(c);
+          setPhase("in-call");
+        }}
+        onDenied={() => setPhase("denied")}
+        onExpired={() => setPhase("expired")}
+        onCancel={() => setPhase("lobby")}
+      />
+    );
+  }
+
+  if (phase === "denied") {
+    return <StatusScreen title={t("knockDeniedTitle")} body={t("knockDeniedBody")} />;
+  }
+
+  if (phase === "expired") {
+    return (
+      <StatusScreen
+        title={t("knockExpiredTitle")}
+        body={t("knockExpiredBody")}
+        action={{ label: t("rejoin"), onClick: () => setPhase("lobby") }}
+      />
+    );
   }
 
   if (phase === "dead") {

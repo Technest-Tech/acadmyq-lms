@@ -87,6 +87,14 @@ check (§5) with graceful messaging when camera/mic is blocked.
   presenter (shared screen large, people as a filmstrip). Subtle active-speaker emphasis.
 - **Control bar**: mic · camera · screen-share (desktop) · **leave** (red) · participants · more. Bottom
   bar on mobile, large touch targets, safe-area insets.
+- **Recording lifecycle** (host, `recording-context.tsx`): a shared `idle → starting → recording →
+  stopping → idle` state machine drives both the record button and the in-room badge. Toasts fire off
+  the **real SFU `useIsRecording` signal**, not the API round-trip — "Recording started" only once
+  egress is actually live, "Recording saved to your account." only once egress tears down and the file
+  finalises. The record button shows a spinner through `starting`/`stopping`; everyone sees the red
+  **REC** badge while live (consent), and the host additionally sees an amber **Saving…** badge during
+  `stopping`. A 15s settle timeout releases the optimistic phase if egress never flips. Covert-monitored
+  rooms suppress the badge (`suppressRecordingIndicator`, see [08-ROOM-ACCESS](08-ROOM-ACCESS-AND-MONITORING.md)).
 - **Polish**: dark calm aesthetic, rounded tiles, speaking ring, mute/name badges, smooth join/leave
   transitions, a connection-quality pill, a calm "reconnecting…" banner (`V-MOB-2`), brand emerald
   accent. (Background blur, raise-hand, chat = later.)

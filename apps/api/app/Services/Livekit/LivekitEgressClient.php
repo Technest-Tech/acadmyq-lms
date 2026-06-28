@@ -42,6 +42,27 @@ final class LivekitEgressClient
         }
     }
 
+    /**
+     * Reachability probe for the Super Admin health card: a cheap ListEgress read scoped to active
+     * jobs. Returns whether the Egress service answered, plus the count of in-flight egresses (a
+     * second source for the concurrent-recording capacity hint).
+     *
+     * @return array{ok: bool, active: int, error: ?string}
+     */
+    public function ping(): array
+    {
+        try {
+            $res = $this->http()->post('/twirp/livekit.Egress/ListEgress', ['active' => true]);
+            if (! $res->successful()) {
+                return ['ok' => false, 'active' => 0, 'error' => "http_{$res->status()}"];
+            }
+
+            return ['ok' => true, 'active' => count((array) ($res->json('items') ?? [])), 'error' => null];
+        } catch (Throwable) {
+            return ['ok' => false, 'active' => 0, 'error' => 'transport_error'];
+        }
+    }
+
     /** @return array{ok: bool} */
     public function stopEgress(string $egressId): array
     {

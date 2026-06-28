@@ -30,7 +30,14 @@ function trackRef({ identity = "guest-1", name = "Sara", isLocal = false, micOn 
   } as never;
 }
 
-function renderTile(opts: TileOpts, control = { canManage: true, roomId: "room-1" }) {
+function renderTile(
+  opts: TileOpts,
+  control: { canManage: boolean; roomId: string; manageToken: string | null } = {
+    canManage: true,
+    roomId: "room-1",
+    manageToken: "host-tok",
+  },
+) {
   return render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
       <CallControlContext.Provider value={control}>
@@ -53,7 +60,7 @@ describe("ParticipantTile host controls", () => {
   });
 
   it("hides host controls for a non-host viewer", () => {
-    renderTile({}, { canManage: false, roomId: "room-1" });
+    renderTile({}, { canManage: false, roomId: "room-1", manageToken: null });
     expect(screen.queryByLabelText(muteLabel)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(removeLabel)).not.toBeInTheDocument();
   });
@@ -73,12 +80,12 @@ describe("ParticipantTile host controls", () => {
   it("force-mutes through the server API with the room id + identity", () => {
     renderTile({ identity: "guest-7" });
     fireEvent.click(screen.getByLabelText(muteLabel));
-    expect(api.muteParticipant).toHaveBeenCalledWith("room-1", "guest-7");
+    expect(api.muteParticipant).toHaveBeenCalledWith("room-1", "guest-7", "host-tok");
   });
 
   it("removes through the server API with the room id + identity", () => {
     renderTile({ identity: "guest-9" });
     fireEvent.click(screen.getByLabelText(removeLabel));
-    expect(api.removeParticipant).toHaveBeenCalledWith("room-1", "guest-9");
+    expect(api.removeParticipant).toHaveBeenCalledWith("room-1", "guest-9", "host-tok");
   });
 });

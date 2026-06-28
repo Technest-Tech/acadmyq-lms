@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { coverCrop, pipCells } from "./pip-layout";
+import { coverCrop, gridDims, pipCells } from "./pip-layout";
+
+describe("gridDims", () => {
+  it("is empty for no tiles", () => {
+    expect(gridDims(0)).toEqual({ cols: 0, rows: 0 });
+  });
+  it("packs into a near-square grid (cols = ceil(√n))", () => {
+    expect(gridDims(1)).toEqual({ cols: 1, rows: 1 });
+    expect(gridDims(2)).toEqual({ cols: 2, rows: 1 });
+    expect(gridDims(4)).toEqual({ cols: 2, rows: 2 });
+    expect(gridDims(5)).toEqual({ cols: 3, rows: 2 });
+    expect(gridDims(9)).toEqual({ cols: 3, rows: 3 });
+    expect(gridDims(20)).toEqual({ cols: 5, rows: 4 });
+  });
+});
 
 describe("pipCells", () => {
   it("returns nothing for an empty scene", () => {

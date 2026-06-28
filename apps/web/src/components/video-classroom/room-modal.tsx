@@ -1,10 +1,12 @@
 "use client";
 
+import { Eye, KeyRound, Lock, ShieldCheck, SlidersHorizontal, Video } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { cn } from "@/lib/utils";
 import {
   createVideoRoom,
   updateVideoRoom,
@@ -14,14 +16,92 @@ import {
 
 const MIN_PASSWORD_LEN = 4;
 
+/** Which side(s) of the room a password protects (08-ROOM-ACCESS §14). */
+type PasswordMode = "none" | "teacher" | "student" | "both";
+const PASSWORD_MODES: readonly PasswordMode[] = ["none", "teacher", "student", "both"];
+
+/** A native checkbox styled as an accessible on/off switch (label association preserved). */
+function Switch({
+  checked,
+  onChange,
+  "aria-label": ariaLabel,
+}: {
+  checked: boolean;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  "aria-label"?: string;
+}) {
+  return (
+    <span className="relative inline-flex h-5 w-9 shrink-0 items-center">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        aria-label={ariaLabel}
+        className="peer absolute inset-0 z-10 m-0 cursor-pointer opacity-0"
+      />
+      <span className="bg-input peer-checked:bg-primary peer-focus-visible:ring-primary/30 block h-5 w-9 rounded-full transition-colors peer-focus-visible:ring-2" />
+      <span className="pointer-events-none absolute start-0.5 size-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4 rtl:peer-checked:-translate-x-4" />
+    </span>
+  );
+}
+
+/** A bordered settings row: icon + title + helper text, with a trailing switch. */
+function ToggleRow({
+  icon: Icon,
+  title,
+  help,
+  checked,
+  onChange,
+}: {
+  icon: typeof Lock;
+  title: string;
+  help?: string;
+  checked: boolean;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border p-3 transition-colors",
+        checked ? "border-primary/30 bg-primary/5" : "border-border bg-background",
+      )}
+    >
+      <label className="flex cursor-pointer items-center justify-between gap-3">
+        <span className="flex min-w-0 items-center gap-2.5">
+          <Icon className="text-muted-foreground size-4 shrink-0" aria-hidden />
+          <span className="text-sm font-medium">{title}</span>
+        </span>
+        <Switch checked={checked} onChange={onChange} />
+      </label>
+      {help && <p className="text-muted-foreground mt-1.5 ms-[26px] text-xs">{help}</p>}
+    </div>
+  );
+}
+
+/** A titled form section with a leading icon. */
+function Section({ icon: Icon, title, children }: { icon: typeof Lock; title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="bg-muted text-muted-foreground grid size-6 place-items-center rounded-md">
+          <Icon className="size-3.5" aria-hidden />
+        </span>
+        <h3 className="text-sm font-semibold">{title}</h3>
+      </div>
+      {children}
+    </section>
+  );
+}
+
 /**
  * Create / edit a video room. When `room` is null it creates; otherwise it edits. Owner-only
  * (room.create / room.manage are enforced server-side); the academy owns the room (V-CTL-1).
  *
- * The "Access & settings" section edits the per-room settings stored in config JSONB
- * (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §4). Only the settings that take effect
- * server-side today are surfaced — host password (S2), waiting room (S4) and monitor (S3) arrive
- * with their phases. Every password is OPTIONAL (blank = none).
+ * Reduced (08-ROOM-ACCESS §14) to the essentials: name, an optional 4-way password (None / Teacher /
+ * Student / Both → host_password / guest_password), the guest waiting list, and whether recording is
+ * allowed (recording itself is on-demand — a host starts it from the call). The room.monitor-gated
+ * supervisor subsection is preserved. Links are auto-generated short links — no slug field. Every
+ * password is OPTIONAL (blank = none); settings the form omits keep their server defaults on edit.
  */
 export function RoomModal({
   open,
@@ -37,15 +117,13 @@ export function RoomModal({
   const t = useTranslations("videoClassroom");
   const { can } = useAuth();
   const canMonitor = can("room.monitor");
+
   const [name, setName] = useState("");
-  const [recordDefault, setRecordDefault] = useState(false);
-  // Access settings.
-  const [slug, setSlug] = useState("");
-  const [guestPassword, setGuestPassword] = useState("");
-  const [maxParticipants, setMaxParticipants] = useState("");
+  const [passwordMode, setPasswordMode] = useState<PasswordMode>("none");
+  const [teacherPassword, setTeacherPassword] = useState("");
+  const [studentPassword, setStudentPassword] = useState("");
+  const [waitingRoom, setWaitingRoom] = useState(false);
   const [recordingEnabled, setRecordingEnabled] = useState(true);
-  const [requireHostPresent, setRequireHostPresent] = useState(false);
-  const [allowGuestScreenshare, setAllowGuestScreenshare] = useState(true);
   // Supervisor mode (08-ROOM-ACCESS §5) — only editable by room.monitor holders.
   const [monitorEnabled, setMonitorEnabled] = useState(false);
   const [monitorDisclose, setMonitorDisclose] = useState(true);
@@ -58,28 +136,31 @@ export function RoomModal({
   useEffect(() => {
     if (!open) return;
     setName(room?.name ?? "");
-    setRecordDefault(room?.record_default ?? false);
     const c = room?.config;
-    setSlug(room?.slug ?? "");
-    setGuestPassword(c?.guest_password ?? "");
-    setMaxParticipants(c?.max_participants != null ? String(c.max_participants) : "");
+    const hp = c?.host_password ?? "";
+    const gp = c?.guest_password ?? "";
+    setTeacherPassword(hp);
+    setStudentPassword(gp);
+    setPasswordMode(hp && gp ? "both" : hp ? "teacher" : gp ? "student" : "none");
+    setWaitingRoom(c?.waiting_room ?? false);
     setRecordingEnabled(c?.recording_enabled ?? true);
-    setRequireHostPresent(c?.require_host_present ?? false);
-    setAllowGuestScreenshare(c?.allow_guest_screenshare ?? true);
     setMonitorEnabled(c?.monitor_enabled ?? false);
     setMonitorDisclose(c?.monitor_disclose ?? true);
     setError(null);
   }, [open, room]);
 
+  const teacherOn = passwordMode === "teacher" || passwordMode === "both";
+  const studentOn = passwordMode === "student" || passwordMode === "both";
+
   function buildSettings(): Partial<RoomAccessSettings> {
-    const pw = guestPassword.trim();
-    const max = maxParticipants.trim();
+    const tp = teacherPassword.trim();
+    const sp = studentPassword.trim();
     const s: Partial<RoomAccessSettings> = {
-      guest_password: pw === "" ? null : pw,
-      max_participants: max === "" ? null : Number(max),
+      // null clears the password on edit (e.g. switching a side off); blank also means "no password".
+      host_password: teacherOn && tp !== "" ? tp : null,
+      guest_password: studentOn && sp !== "" ? sp : null,
+      waiting_room: waitingRoom,
       recording_enabled: recordingEnabled,
-      require_host_present: requireHostPresent,
-      allow_guest_screenshare: allowGuestScreenshare,
     };
     // Only a room.monitor holder edits supervisor settings (avoids a plain manager clobbering them).
     if (canMonitor) {
@@ -93,8 +174,12 @@ export function RoomModal({
     const trimmed = name.trim();
     if (!trimmed) return;
 
-    const pw = guestPassword.trim();
-    if (pw !== "" && pw.length < MIN_PASSWORD_LEN) {
+    const tp = teacherPassword.trim();
+    const sp = studentPassword.trim();
+    if (
+      (teacherOn && tp !== "" && tp.length < MIN_PASSWORD_LEN) ||
+      (studentOn && sp !== "" && sp.length < MIN_PASSWORD_LEN)
+    ) {
       setError(t("passwordTooShort"));
       return;
     }
@@ -103,12 +188,11 @@ export function RoomModal({
     setError(null);
     try {
       const settings = buildSettings();
-      const slugValue = slug.trim() === "" ? null : slug.trim();
       if (isEdit) {
-        await updateVideoRoom(room.id, { name: trimmed, record_default: recordDefault, slug: slugValue, settings });
+        await updateVideoRoom(room.id, { name: trimmed, settings });
         onSaved(t("saved"));
       } else {
-        await createVideoRoom({ name: trimmed, record_default: recordDefault, slug: slugValue, settings });
+        await createVideoRoom({ name: trimmed, settings });
         onSaved(t("created"));
       }
     } catch (e) {
@@ -125,7 +209,9 @@ export function RoomModal({
     <Modal
       open={open}
       onClose={onClose}
+      size="lg"
       title={t(isEdit ? "editModalTitle" : "createModalTitle")}
+      description={t("subtitle")}
       footer={
         <>
           <Button type="button" variant="ghost" onClick={onClose}>
@@ -138,155 +224,164 @@ export function RoomModal({
       }
     >
       <form
-        className="space-y-4"
+        className="space-y-6"
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
         }}
       >
-        <div className="space-y-1.5">
-          <label htmlFor="room-name" className="text-sm font-medium">
-            {t("nameLabel")}
-          </label>
-          <input
-            id="room-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t("namePlaceholder")}
-            autoFocus
-            className={inputClass}
-          />
-        </div>
-
-        <label className="flex items-center gap-2.5 text-sm">
-          <input
-            type="checkbox"
-            checked={recordDefault}
-            onChange={(e) => setRecordDefault(e.target.checked)}
-            className="border-input size-4 rounded"
-          />
-          {t("recordDefault")}
-        </label>
-
-        {/* ── Access & settings ─────────────────────────────────────────── */}
-        <div className="border-border/60 space-y-4 border-t pt-4">
-          <p className="text-foreground text-sm font-semibold">{t("settingsTitle")}</p>
-
+        {/* Room details */}
+        <Section icon={Video} title={t("sectionDetails")}>
           <div className="space-y-1.5">
-            <label htmlFor="room-slug" className="text-sm font-medium">
-              {t("slugLabel")}{" "}
+            <label htmlFor="room-name" className="text-sm font-medium">
+              {t("nameLabel")}
+            </label>
+            <div className="relative">
+              <Video className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" aria-hidden />
+              <input
+                id="room-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t("namePlaceholder")}
+                autoFocus
+                className={cn(inputClass, "ps-9")}
+              />
+            </div>
+            <p className="text-muted-foreground text-xs">{t("nameHelp")}</p>
+          </div>
+        </Section>
+
+        <div className="border-t" />
+
+        {/* Access & security — None / Teacher only / Student only / Both */}
+        <Section icon={ShieldCheck} title={t("sectionAccess")}>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">
+              {t("passwordModeLabel")}{" "}
               <span className="text-muted-foreground font-normal">({t("optional")})</span>
             </label>
-            <input
-              id="room-slug"
-              type="text"
-              autoComplete="off"
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              placeholder={t("slugPlaceholder")}
-              className={inputClass}
-            />
-            <p className="text-muted-foreground text-xs">{t("slugHelp")}</p>
-          </div>
+            <div
+              role="group"
+              aria-label={t("passwordModeLabel")}
+              className="bg-muted/60 grid grid-cols-2 gap-1 rounded-xl p-1 sm:grid-cols-4"
+            >
+              {PASSWORD_MODES.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPasswordMode(m)}
+                  aria-pressed={passwordMode === m}
+                  data-testid={`pw-mode-${m}`}
+                  className={cn(
+                    "rounded-lg px-2.5 py-1.5 text-sm font-medium transition-all",
+                    passwordMode === m
+                      ? "bg-background text-foreground shadow-sm ring-1 ring-border"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {t(`passwordMode.${m}`)}
+                </button>
+              ))}
+            </div>
 
-          <div className="space-y-1.5">
-            <label htmlFor="room-guest-password" className="text-sm font-medium">
-              {t("guestPasswordLabel")}{" "}
-              <span className="text-muted-foreground font-normal">({t("optional")})</span>
-            </label>
-            <input
-              id="room-guest-password"
-              type="text"
-              autoComplete="off"
-              value={guestPassword}
-              onChange={(e) => setGuestPassword(e.target.value)}
-              placeholder={t("guestPasswordPlaceholder")}
-              className={inputClass}
-            />
-            <p className="text-muted-foreground text-xs">{t("guestPasswordHelp")}</p>
+            {(teacherOn || studentOn) && (
+              <div className="grid gap-3 pt-2 sm:grid-cols-2">
+                {teacherOn && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="room-teacher-password" className="flex items-center gap-1.5 text-sm font-medium">
+                      <KeyRound className="text-muted-foreground size-3.5" aria-hidden />
+                      {t("teacherPasswordLabel")}
+                    </label>
+                    <input
+                      id="room-teacher-password"
+                      type="text"
+                      autoComplete="off"
+                      value={teacherPassword}
+                      onChange={(e) => setTeacherPassword(e.target.value)}
+                      placeholder={t("teacherPasswordPlaceholder")}
+                      className={inputClass}
+                    />
+                  </div>
+                )}
+                {studentOn && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="room-student-password" className="flex items-center gap-1.5 text-sm font-medium">
+                      <Lock className="text-muted-foreground size-3.5" aria-hidden />
+                      {t("studentPasswordLabel")}
+                    </label>
+                    <input
+                      id="room-student-password"
+                      type="text"
+                      autoComplete="off"
+                      value={studentPassword}
+                      onChange={(e) => setStudentPassword(e.target.value)}
+                      placeholder={t("studentPasswordPlaceholder")}
+                      className={inputClass}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+            <p className="text-muted-foreground text-xs">{t("passwordModeHelp")}</p>
           </div>
+        </Section>
 
-          <div className="space-y-1.5">
-            <label htmlFor="room-max" className="text-sm font-medium">
-              {t("maxParticipantsLabel")}{" "}
-              <span className="text-muted-foreground font-normal">({t("optional")})</span>
-            </label>
-            <input
-              id="room-max"
-              type="number"
-              min={2}
-              max={500}
-              value={maxParticipants}
-              onChange={(e) => setMaxParticipants(e.target.value)}
-              placeholder={t("maxParticipantsPlaceholder")}
-              className={inputClass}
+        <div className="border-t" />
+
+        {/* Options — guest waiting list + allow recording */}
+        <Section icon={SlidersHorizontal} title={t("sectionOptions")}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ToggleRow
+              icon={KeyRound}
+              title={t("waitingRoom")}
+              help={t("waitingRoomHelp")}
+              checked={waitingRoom}
+              onChange={(e) => setWaitingRoom(e.target.checked)}
             />
-          </div>
-
-          <label className="flex items-center gap-2.5 text-sm">
-            <input
-              type="checkbox"
+            <ToggleRow
+              icon={Video}
+              title={t("recordingEnabled")}
+              help={t("recordingEnabledHelp")}
               checked={recordingEnabled}
               onChange={(e) => setRecordingEnabled(e.target.checked)}
-              className="border-input size-4 rounded"
             />
-            {t("recordingEnabled")}
-          </label>
+          </div>
+        </Section>
 
-          <label className="flex items-center gap-2.5 text-sm">
-            <input
-              type="checkbox"
-              checked={requireHostPresent}
-              onChange={(e) => setRequireHostPresent(e.target.checked)}
-              className="border-input size-4 rounded"
-            />
-            {t("requireHostPresent")}
-          </label>
-
-          <label className="flex items-center gap-2.5 text-sm">
-            <input
-              type="checkbox"
-              checked={allowGuestScreenshare}
-              onChange={(e) => setAllowGuestScreenshare(e.target.checked)}
-              className="border-input size-4 rounded"
-            />
-            {t("allowGuestScreenshare")}
-          </label>
-
-          {/* Supervisor mode — management-only (room.monitor) */}
-          {canMonitor && (
-            <div className="border-border/60 space-y-3 border-t pt-3">
-              <p className="text-foreground text-sm font-semibold">{t("monitorTitle")}</p>
-              <label className="flex items-center gap-2.5 text-sm">
-                <input
-                  type="checkbox"
-                  checked={monitorEnabled}
-                  onChange={(e) => setMonitorEnabled(e.target.checked)}
-                  className="border-input size-4 rounded"
-                />
-                {t("monitorEnabledLabel")}
-              </label>
+        {/* Supervisor mode — management-only (room.monitor) */}
+        {canMonitor && (
+          <>
+            <div className="border-t" />
+            <Section icon={Eye} title={t("monitorTitle")}>
+              <ToggleRow
+                icon={Eye}
+                title={t("monitorEnabledLabel")}
+                help={t("monitorRoleHint")}
+                checked={monitorEnabled}
+                onChange={(e) => setMonitorEnabled(e.target.checked)}
+              />
               {monitorEnabled && (
-                <label className="flex items-center gap-2.5 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={monitorDisclose}
-                    onChange={(e) => setMonitorDisclose(e.target.checked)}
-                    className="border-input size-4 rounded"
-                  />
-                  {t("monitorDiscloseLabel")}
-                </label>
+                <ToggleRow
+                  icon={ShieldCheck}
+                  title={t("monitorDiscloseLabel")}
+                  checked={monitorDisclose}
+                  onChange={(e) => setMonitorDisclose(e.target.checked)}
+                />
               )}
               {monitorEnabled && !monitorDisclose && (
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
                   {t("monitorCovertWarning")}
                 </p>
               )}
-            </div>
-          )}
-        </div>
+            </Section>
+          </>
+        )}
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && (
+          <p className="border-destructive/30 bg-destructive/5 text-destructive rounded-lg border px-3 py-2 text-sm">
+            {error}
+          </p>
+        )}
       </form>
     </Modal>
   );

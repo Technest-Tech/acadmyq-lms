@@ -9,9 +9,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { useParticipants, useTracks } from "@livekit/components-react";
 import { Track } from "livekit-client";
+import { documentPipSupported, openPipWindow } from "./document-pip";
 import { coverCrop, pipCells } from "./pip-layout";
+import { PipGrid } from "./pip-window";
 
 interface PipValue {
   supported: boolean;
@@ -28,6 +31,8 @@ export function usePip(): PipValue {
 const CANVAS_W = 480;
 const CANVAS_H = 360;
 const FPS = 12;
+const PIP_W = 420;
+const PIP_H = 320;
 
 interface SceneItem {
   id: string;
@@ -37,15 +42,16 @@ interface SceneItem {
 }
 
 /**
- * Provides a native Picture-in-Picture floating window that shows ALL participants Zoom-style. A hidden
- * canvas composites every camera (cover-fit grid + name/mute overlays) on a ~12fps loop; its
- * captureStream() feeds a hidden <video> handed to requestPictureInPicture(). Audio keeps playing from
- * the page's RoomAudioRenderer, so you see AND hear the room while working in another tab/app.
+ * A floating "all participants" window (Zoom-style) so you can see AND hear the room while working in
+ * another tab/app. Two backends:
  *
- * Frames are sampled from the stage's already-rendered tile <video>s (tagged `data-pip-id`) — every
- * participant always has a tile, so there's no second decode (a remote track only decodes into one
- * sink) and no extra subscription. (Caveat: a fully-hidden tab throttles the canvas redraw — video
- * gets choppy in deep background while audio stays full.) Gated on `document.pictureInPictureEnabled`.
+ * 1. **Document Picture-in-Picture** (Chromium 116+, preferred) — a real window we portal LIVE `<video>`
+ *    tiles + host controls into. The videos are bound to the LiveKit tracks, so they keep decoding while
+ *    the opener tab is backgrounded (no freeze), the host can mute/remove inline, and it scales to many
+ *    participants via a responsive CSS grid.
+ * 2. **Canvas → native PiP** (fallback for Safari/Firefox/older) — a hidden canvas composites every
+ *    camera (sampled from the stage tiles tagged `data-pip-id`) at ~12fps into a captured <video>.
+ *    Caveat: a fully-hidden tab throttles the canvas redraw, so video gets choppy in deep background.
  */
 export function CompositePipProvider({ children }: { children: ReactNode }) {
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], {
@@ -54,8 +60,12 @@ export function CompositePipProvider({ children }: { children: ReactNode }) {
   useParticipants(); // re-render on mic/identity changes so the scene + overlays stay fresh
 
   const [isActive, setIsActive] = useState(false);
-  const supported = typeof document !== "undefined" && !!document.pictureInPictureEnabled;
+  const [pipWindow, setPipWindow] = useState<Window | null>(null);
+  const docPip = documentPipSupported();
+  const nativePip = typeof document !== "undefined" && !!document.pictureInPictureEnabled;
+  const supported = docPip || nativePip;
 
+  // Canvas-fallback machinery (unused on the Document-PiP path).
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sceneRef = useRef<SceneItem[]>([]);
@@ -75,65 +85,104 @@ export function CompositePipProvider({ children }: { children: ReactNode }) {
     timerRef.current = null;
   }, []);
 
-  const cleanup = useCallback(() => {
+  const cleanupCanvas = useCallback(() => {
     stopLoop();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
   }, [stopLoop]);
 
-  const toggle = useCallback(async () => {
+  const openCanvasPip = useCallback(async () => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
-    if (!supported || !canvas || !video) return;
+    if (!canvas || !video) return;
+    const ctx = canvas.getContext("2d");
+    stopLoop();
+    const tick = () => ctx && drawScene(ctx, canvas.width, canvas.height, sceneRef.current);
+    tick();
+    timerRef.current = setInterval(tick, Math.round(1000 / FPS));
+    if (!streamRef.current) {
+      streamRef.current = canvas.captureStream(FPS);
+      video.srcObject = streamRef.current;
+    }
+    await video.play().catch(() => {});
+    await video.requestPictureInPicture();
+    setIsActive(true);
+  }, [stopLoop]);
+
+  const openDocPip = useCallback(async () => {
+    const win = await openPipWindow(PIP_W, PIP_H);
+    // The window's own close button fires `pagehide` — mirror it into state + drop the portal.
+    win.addEventListener("pagehide", () => {
+      setPipWindow(null);
+      setIsActive(false);
+    });
+    setPipWindow(win);
+    setIsActive(true);
+  }, []);
+
+  const toggle = useCallback(async () => {
     try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-        return; // leavepictureinpicture handler tears down
+      if (isActive) {
+        if (pipWindow) pipWindow.close();
+        else if (document.pictureInPictureElement) await document.exitPictureInPicture();
+        return;
       }
-      const ctx = canvas.getContext("2d");
-      stopLoop();
-      const tick = () => ctx && drawScene(ctx, canvas.width, canvas.height, sceneRef.current);
-      tick();
-      timerRef.current = setInterval(tick, Math.round(1000 / FPS));
-      if (!streamRef.current) {
-        streamRef.current = canvas.captureStream(FPS);
-        video.srcObject = streamRef.current;
-      }
-      await video.play().catch(() => {});
-      await video.requestPictureInPicture();
-      setIsActive(true);
+      if (docPip) await openDocPip();
+      else if (nativePip) await openCanvasPip();
     } catch {
-      cleanup();
+      cleanupCanvas();
+      if (pipWindow) {
+        try {
+          pipWindow.close();
+        } catch {
+          /* already gone */
+        }
+      }
+      setPipWindow(null);
       setIsActive(false);
     }
-  }, [supported, stopLoop, cleanup]);
+  }, [isActive, pipWindow, docPip, nativePip, openDocPip, openCanvasPip, cleanupCanvas]);
 
-  // The window's own close button fires leavepictureinpicture — mirror it into our state.
+  // The native-PiP window's close button fires leavepictureinpicture — mirror it (canvas path).
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     const onLeave = () => {
-      cleanup();
+      cleanupCanvas();
       setIsActive(false);
     };
     video.addEventListener("leavepictureinpicture", onLeave);
     return () => video.removeEventListener("leavepictureinpicture", onLeave);
-  }, [cleanup]);
+  }, [cleanupCanvas]);
 
   // Tear everything down if the call surface unmounts while PiP is open.
   useEffect(() => {
     return () => {
       if (document.pictureInPictureElement) void document.exitPictureInPicture().catch(() => {});
-      cleanup();
+      cleanupCanvas();
     };
-  }, [cleanup]);
+  }, [cleanupCanvas]);
+
+  // Close the Document-PiP window when it changes out or the provider unmounts.
+  useEffect(() => {
+    return () => {
+      if (pipWindow) {
+        try {
+          pipWindow.close();
+        } catch {
+          /* already gone */
+        }
+      }
+    };
+  }, [pipWindow]);
 
   return (
     <PipContext.Provider value={{ supported, isActive, toggle }}>
       {children}
       <canvas ref={canvasRef} width={CANVAS_W} height={CANVAS_H} className="hidden" aria-hidden />
       <video ref={videoRef} muted playsInline className="hidden" aria-hidden />
+      {pipWindow && createPortal(<PipGrid />, pipWindow.document.body)}
     </PipContext.Provider>
   );
 }

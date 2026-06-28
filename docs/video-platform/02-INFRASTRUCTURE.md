@@ -234,7 +234,7 @@ LIVEKIT_API_URL=https://media.example.com
 LIVEKIT_API_KEY=<same as livekit.yaml>
 LIVEKIT_API_SECRET=<same as livekit.yaml>
 LIVEKIT_WEBHOOK_SECRET=<webhook api_key>
-LIVEKIT_TOKEN_TTL=900
+LIVEKIT_TOKEN_TTL=14400
 ```
 
 ### B.6 Walk-test (the whole point of Phase 0)

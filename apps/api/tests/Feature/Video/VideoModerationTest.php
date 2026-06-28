@@ -31,7 +31,10 @@ beforeEach(function () {
     Http::fake([
         'media.test/twirp/livekit.RoomService/ListParticipants' => Http::response([
             'participants' => [
-                ['identity' => 'guest-x', 'tracks' => [['sid' => 'TR_aud', 'type' => 'AUDIO']]],
+                ['identity' => 'guest-x', 'tracks' => [
+                    ['sid' => 'TR_aud', 'type' => 'AUDIO'],
+                    ['sid' => 'TR_cam', 'type' => 'VIDEO', 'source' => 'CAMERA'],
+                ]],
             ],
         ]),
         'media.test/*' => Http::response([]),
@@ -73,6 +76,17 @@ it('a host mutes a participant (looks up the mic track, then MutePublishedTrack)
 
     Http::assertSent(fn ($r) => str_contains($r->url(), 'MutePublishedTrack')
         && $r['identity'] === 'guest-x' && $r['track_sid'] === 'TR_aud' && $r['muted'] === true);
+});
+
+it('a host stops a participant video (looks up the camera track, never the screen-share)', function () {
+    $room = makeModRoom($this->pro);
+    Sanctum::actingAs($this->owner);
+
+    $this->postJson("/api/video/rooms/{$room['id']}/participants/guest-x/mute-video")
+        ->assertOk()->assertJsonPath('ok', true);
+
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'MutePublishedTrack')
+        && $r['identity'] === 'guest-x' && $r['track_sid'] === 'TR_cam' && $r['muted'] === true);
 });
 
 it('a host removes a participant', function () {

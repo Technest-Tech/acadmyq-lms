@@ -44,7 +44,11 @@ mkdir -p config coturn/certs caddy/data caddy/config
 envsubst "$VARS" < config/livekit.yaml.template   > config/livekit.yaml
 envsubst "$VARS" < config/egress.yaml.template     > config/egress.yaml
 envsubst "$VARS" < coturn/turnserver.conf.template > coturn/turnserver.conf
-chmod 600 config/livekit.yaml config/egress.yaml coturn/turnserver.conf
+chmod 600 config/livekit.yaml coturn/turnserver.conf
+# livekit + coturn run as root, but livekit/egress runs as NON-root (uid 1001) and must read
+# its own config — keep it non-world-readable (640) but owned by the egress uid.
+chmod 640 config/egress.yaml
+chown 1001:root config/egress.yaml 2>/dev/null || true
 
 # ---------- core stack (coturn started last, once its cert exists) ----------
 docker compose pull redis livekit caddy node-exporter prometheus grafana
