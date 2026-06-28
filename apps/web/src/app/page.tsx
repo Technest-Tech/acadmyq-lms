@@ -8,13 +8,24 @@ import {
   CheckCircle,
   ClipboardCheck,
   Code2,
+  Eye,
   FileText,
   GraduationCap,
+  Languages,
+  Link2,
+  Lock,
   Menu,
+  MessageSquare,
+  Mic,
+  MicOff,
+  MonitorUp,
+  PhoneOff,
   Play,
+  Radio,
   Shield,
   Star,
   Users,
+  Video,
   X,
   Zap,
 } from "lucide-react";
@@ -32,6 +43,7 @@ const CONTENT = {
   ar: {
     nav: {
       features: "المميزات",
+      liveClasses: "الفصول المباشرة",
       howItWorks: "طريقة العمل",
       reviews: "آراء العملاء",
       signIn: "تسجيل الدخول",
@@ -42,10 +54,13 @@ const CONTENT = {
       headline1: "شغّل أكاديميتك",
       gradient: "بشكل أذكى",
       subtitle:
-        "الطلاب، المدرسين، الجداول، الفواتير، والحضور — كلهم في منصة واحدة أنيقة مصممة للأكاديميات الجادة.",
+        "الطلاب، المدرسين، الجداول، الفواتير، الحضور، والفصول المباشرة — كلهم في منصة واحدة أنيقة مصممة للأكاديميات الجادة.",
       cta1: "راسلنا على واتساب",
-      cta2: "تابع العرض",
+      cta2: "شوف الفصل المباشر",
       trust: ["مش محتاج كارت ائتمان", "إعداد في 5 دقايق", "إلغاء في أي وقت"],
+      announceTag: "جديد",
+      announce: "الفصول المباشرة وصلت — جرّبها",
+      socialProof: "موثوق من +500 أكاديمية",
     },
     features: {
       badge: "كل اللي محتاجه",
@@ -140,6 +155,59 @@ const CONTENT = {
         },
       ],
     },
+    video: {
+      badge: "جديد · الفصول المباشرة",
+      title1: "فصول مباشرة مدمجة.",
+      title2: "وداعاً Zoom.",
+      subtitle:
+        "فصل افتراضي احترافي جوّا أكاديميتك — الطالب يدخل برابط واحد من غير تحميل ولا حساب، الإدارة تتابع الجودة، وكل حصة تتسجل وتترِبط بالطالب. كله بالعربي، وكله على نظامك.",
+      cta: "جرّب الفصل المباشر",
+      points: [
+        {
+          title: "رابط واحد للطالب",
+          desc: "يدخل في ثانية — من غير تحميل تطبيق، من غير حساب، من غير باسوورد Zoom.",
+        },
+        {
+          title: "وضع المشرف",
+          desc: "الإدارة تقدر تتابع أي حصة مباشرة عشان تضمن الجودة — مع سجل تدقيق كامل.",
+        },
+        {
+          title: "تسجيل تلقائي",
+          desc: "كل حصة تتسجل وتتحفظ وتترِبط بالطالب — جاهزة للمراجعة في أي وقت.",
+        },
+        {
+          title: "عربي بالكامل و RTL",
+          desc: "واجهة متصممة بالعربي من اليمين للشمال — مش مجرد ترجمة سطحية.",
+        },
+      ],
+      mock: {
+        live: "مباشر",
+        rec: "تسجيل",
+        speaking: "يتحدث",
+        supervising: "الإدارة بتتابع",
+        participants: ["أ. محمد", "سارة", "عمر", "ليلى"],
+        you: "أنت",
+      },
+    },
+    compare: {
+      badge: "المقارنة",
+      title: "ليه أفضل من Zoom للأكاديميات؟",
+      subtitle:
+        "Zoom أداة اجتماعات عامة. إحنا منصة تعليمية متبنية على طريقة شغل الأكاديمية نفسها.",
+      zoom: "Zoom",
+      us: "Acadmyq",
+      unavailable: "غير متاح",
+      rows: [
+        { label: "دخول الطالب", zoom: "تحميل تطبيق + حساب", us: "رابط واحد بس" },
+        { label: "التكلفة", zoom: "اشتراك لكل مدرس", us: "مدمج في باقتك" },
+        { label: "اللغة والاتجاه", zoom: "إنجليزي، RTL ضعيف", us: "عربي كامل + RTL" },
+        { label: "إشراف الإدارة على الحصص", zoom: false, us: "وضع المشرف" },
+        { label: "التكامل مع نظام الأكاديمية", zoom: false, us: "جوّا نفس المنصة" },
+        { label: "التسجيلات", zoom: "تخزين بتكلفة زيادة", us: "محفوظة ومربوطة بالحصة" },
+        { label: "سجل الدخول (مين دخل وإمتى)", zoom: false, us: "لكل حصة" },
+        { label: "مكان البيانات", zoom: "خوادم أجنبية", us: "خادمك أنت" },
+      ],
+    },
     cta: {
       title1: "مستعد",
       title2: "تحوّل أكاديميتك؟",
@@ -166,6 +234,7 @@ const CONTENT = {
   en: {
     nav: {
       features: "Features",
+      liveClasses: "Live Classes",
       howItWorks: "How it works",
       reviews: "Reviews",
       signIn: "Sign in",
@@ -176,10 +245,13 @@ const CONTENT = {
       headline1: "Run your academy",
       gradient: "smarter",
       subtitle:
-        "Students, teachers, scheduling, invoicing, and attendance — unified in one elegant platform designed for serious academies.",
+        "Students, teachers, scheduling, invoicing, attendance, and live classes — unified in one elegant platform designed for serious academies.",
       cta1: "Send us on WhatsApp",
-      cta2: "Watch demo",
+      cta2: "See the live classroom",
       trust: ["No credit card required", "Setup in 5 minutes", "Cancel anytime"],
+      announceTag: "NEW",
+      announce: "Live classes are here — try them",
+      socialProof: "Trusted by 500+ academies",
     },
     features: {
       badge: "Everything you need",
@@ -274,6 +346,59 @@ const CONTENT = {
         },
       ],
     },
+    video: {
+      badge: "New · Live Classes",
+      title1: "Live classes, built in.",
+      title2: "Goodbye Zoom.",
+      subtitle:
+        "A professional virtual classroom inside your academy — students join with one link, no app and no account; management oversees quality; and every session is recorded and tied to the student. All in Arabic, all on your system.",
+      cta: "See the live classroom",
+      points: [
+        {
+          title: "One link for students",
+          desc: "They join in a second — no app download, no account, no Zoom password.",
+        },
+        {
+          title: "Supervisor mode",
+          desc: "Management can watch any live class to ensure quality — with a full audit trail.",
+        },
+        {
+          title: "Automatic recording",
+          desc: "Every session is recorded, stored, and tied to the student — ready to review anytime.",
+        },
+        {
+          title: "Fully Arabic & RTL",
+          desc: "An interface designed in Arabic, right-to-left — not a shallow translation.",
+        },
+      ],
+      mock: {
+        live: "LIVE",
+        rec: "REC",
+        speaking: "Speaking",
+        supervising: "Management watching",
+        participants: ["Mr. Mohammed", "Sara", "Omar", "Laila"],
+        you: "You",
+      },
+    },
+    compare: {
+      badge: "Comparison",
+      title: "Why it beats Zoom for academies",
+      subtitle:
+        "Zoom is a generic meeting tool. We're a teaching platform built around how an academy actually works.",
+      zoom: "Zoom",
+      us: "Acadmyq",
+      unavailable: "Not available",
+      rows: [
+        { label: "Student access", zoom: "App download + account", us: "Just one link" },
+        { label: "Cost", zoom: "Per-teacher license", us: "Included in your plan" },
+        { label: "Language & direction", zoom: "English, weak RTL", us: "Full Arabic + RTL" },
+        { label: "Class supervision", zoom: false, us: "Supervisor mode" },
+        { label: "Academy-system integration", zoom: false, us: "Inside one platform" },
+        { label: "Recordings", zoom: "Extra-cost storage", us: "Saved & tied to class" },
+        { label: "Access log (who joined, when)", zoom: false, us: "Every class" },
+        { label: "Where data lives", zoom: "Foreign servers", us: "Your own server" },
+      ],
+    },
     cta: {
       title1: "Ready to transform",
       title2: "your academy?",
@@ -308,6 +433,22 @@ const FEATURE_ICONS: React.ElementType[] = [
   FileText,
   BarChart3,
   Shield,
+];
+
+const VIDEO_POINT_ICONS: React.ElementType[] = [Link2, Eye, Radio, Languages];
+
+const VIDEO_TILE_STYLES = [
+  { bg: "linear-gradient(135deg, oklch(0.34 0.07 163), oklch(0.17 0.04 163))", active: true, muted: false },
+  { bg: "linear-gradient(135deg, oklch(0.32 0.06 264), oklch(0.17 0.03 264))", active: false, muted: false },
+  { bg: "linear-gradient(135deg, oklch(0.33 0.07 305), oklch(0.17 0.04 305))", active: false, muted: true },
+  { bg: "linear-gradient(135deg, oklch(0.34 0.07 70), oklch(0.18 0.04 60))", active: false, muted: false },
+];
+
+const HERO_AVATARS = [
+  "linear-gradient(135deg, oklch(0.72 0.13 163), oklch(0.5 0.15 200))",
+  "linear-gradient(135deg, oklch(0.8 0.12 85), oklch(0.6 0.14 50))",
+  "linear-gradient(135deg, oklch(0.68 0.14 285), oklch(0.5 0.16 320))",
+  "linear-gradient(135deg, oklch(0.74 0.12 210), oklch(0.52 0.15 250))",
 ];
 
 /* ─── Lang Toggle ────────────────────────────────────────────────────── */
@@ -403,6 +544,7 @@ function Navbar({
 
   const navLinks = [
     { href: "#features", label: t.features },
+    { href: "#video", label: t.liveClasses },
     { href: "#how-it-works", label: t.howItWorks },
     { href: "#testimonials", label: t.reviews },
   ];
@@ -658,6 +800,13 @@ function HeroImage({ lang }: { lang: Lang }) {
 function Hero({ t, lang }: { t: Content["hero"]; lang: Lang }) {
   return (
     <section className="relative flex min-h-[88vh] items-center overflow-hidden rounded-b-[2.5rem]">
+      <style>{`
+        @keyframes heroOrbA { 0%,100% { transform: translate3d(0,0,0) scale(1); } 50% { transform: translate3d(40px,30px,0) scale(1.12); } }
+        @keyframes heroOrbB { 0%,100% { transform: translate3d(0,0,0) scale(1); } 50% { transform: translate3d(-36px,-26px,0) scale(1.15); } }
+        .hero-orb-a { animation: heroOrbA 16s ease-in-out infinite; }
+        .hero-orb-b { animation: heroOrbB 18s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) { .hero-orb-a, .hero-orb-b { animation: none; } }
+      `}</style>
       <div
         className="absolute inset-0"
         style={{
@@ -666,12 +815,12 @@ function Hero({ t, lang }: { t: Content["hero"]; lang: Lang }) {
         }}
       />
       <div
-        className="pointer-events-none absolute -top-56 -right-56 size-[700px] rounded-full blur-[140px]"
-        style={{ background: "radial-gradient(circle, oklch(0.519 0.158 163 / 0.22), transparent 70%)" }}
+        className="hero-orb-a pointer-events-none absolute -top-56 -right-56 size-[700px] rounded-full blur-[140px]"
+        style={{ background: "radial-gradient(circle, oklch(0.519 0.158 163 / 0.26), transparent 70%)" }}
       />
       <div
-        className="pointer-events-none absolute -bottom-40 -left-40 size-[550px] rounded-full blur-[110px]"
-        style={{ background: "radial-gradient(circle, oklch(0.835 0.118 85 / 0.15), transparent 70%)" }}
+        className="hero-orb-b pointer-events-none absolute -bottom-40 -left-40 size-[550px] rounded-full blur-[110px]"
+        style={{ background: "radial-gradient(circle, oklch(0.835 0.118 85 / 0.17), transparent 70%)" }}
       />
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.038]"
@@ -683,23 +832,33 @@ function Hero({ t, lang }: { t: Content["hero"]; lang: Lang }) {
 
       <div className="relative z-10 mx-auto grid w-full max-w-7xl grid-cols-1 items-center gap-16 px-6 py-32 lg:grid-cols-2 lg:gap-12 lg:px-8">
         {/* Copy */}
-        <div className="animate-page-enter space-y-8">
-          {/* Badge */}
-          <div
-            className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold"
+        <div className="animate-page-enter space-y-7">
+          {/* Announcement pill → live classes */}
+          <a
+            href="#video"
+            className="group inline-flex items-center gap-2 rounded-full py-1 pe-3 ps-1 text-xs font-medium backdrop-blur-sm transition-all hover:scale-[1.02]"
             style={{
-              background: "oklch(0.519 0.158 163 / 0.13)",
-              color: "oklch(0.76 0.13 163)",
-              border: "1px solid oklch(0.519 0.158 163 / 0.26)",
+              background: "oklch(1 0 0 / 0.06)",
+              border: "1px solid oklch(1 0 0 / 0.13)",
             }}
           >
-            <Zap className="size-3 shrink-0" aria-hidden />
-            {t.badge}
-          </div>
+            <span
+              className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-bold text-white"
+              style={{ background: "oklch(0.55 0.2 25)" }}
+            >
+              <span className="size-1.5 animate-pulse rounded-full bg-white" />
+              {t.announceTag}
+            </span>
+            <span className="text-white/80">{t.announce}</span>
+            <ArrowRight
+              className="size-3.5 text-white/45 transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5"
+              aria-hidden
+            />
+          </a>
 
           {/* Headline */}
-          <div className="space-y-3">
-            <h1 className="text-5xl font-bold leading-[1.12] tracking-tight text-white lg:text-6xl xl:text-[4.25rem]">
+          <div className="space-y-4">
+            <h1 className="text-5xl font-bold leading-[1.1] tracking-tight text-white lg:text-6xl xl:text-[4.5rem]">
               {t.headline1}{" "}
               <br className="hidden sm:block" />
               <span
@@ -734,7 +893,8 @@ function Hero({ t, lang }: { t: Content["hero"]; lang: Lang }) {
               <WhatsAppIcon className="size-5 shrink-0" />
               {t.cta1}
             </a>
-            <button
+            <a
+              href="#video"
               className="flex h-12 items-center justify-center gap-2.5 rounded-xl px-7 text-sm font-semibold text-white/70 transition-colors hover:text-white"
               style={{ border: "1px solid oklch(1 0 0 / 0.14)" }}
             >
@@ -748,11 +908,47 @@ function Hero({ t, lang }: { t: Content["hero"]; lang: Lang }) {
                 />
               </div>
               {t.cta2}
-            </button>
+            </a>
+          </div>
+
+          {/* Social proof: avatar stack + rating */}
+          <div className="flex items-center gap-4 pt-1">
+            <div className="flex -space-x-2.5 rtl:space-x-reverse">
+              {HERO_AVATARS.map((bg, i) => (
+                <div
+                  key={i}
+                  className="size-9 rounded-full"
+                  style={{ background: bg, boxShadow: "0 0 0 2px oklch(0.11 0.02 250)" }}
+                />
+              ))}
+              <div
+                className="flex size-9 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                style={{
+                  background: "oklch(0.519 0.158 163.2)",
+                  boxShadow: "0 0 0 2px oklch(0.11 0.02 250)",
+                }}
+              >
+                500+
+              </div>
+            </div>
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Star
+                    key={i}
+                    className="size-3.5 fill-current"
+                    style={{ color: "oklch(0.835 0.118 85)" }}
+                    aria-hidden
+                  />
+                ))}
+                <span className="ms-1 text-sm font-bold text-white">4.9</span>
+              </div>
+              <div className="text-xs text-white/50">{t.socialProof}</div>
+            </div>
           </div>
 
           {/* Trust badges */}
-          <div className="flex flex-wrap gap-x-6 gap-y-2 pt-1">
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
             {t.trust.map((item) => (
               <div key={item} className="flex items-center gap-1.5 text-xs text-white/42">
                 <CheckCircle
@@ -840,6 +1036,398 @@ function Features({ t }: { t: Content["features"] }) {
               </div>
             );
           })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Video Call Mock ────────────────────────────────────────────────── */
+
+function VideoCallMock({
+  t,
+  lang,
+}: {
+  t: Content["video"]["mock"];
+  lang: Lang;
+}) {
+  return (
+    <div className="relative">
+      {/* Ambient glow */}
+      <div
+        className="pointer-events-none absolute -inset-4 rounded-[2rem] blur-[70px]"
+        style={{
+          background:
+            "radial-gradient(ellipse at 50% 50%, oklch(0.519 0.158 163 / 0.28), transparent 70%)",
+        }}
+      />
+
+      {/* Gradient border wrapper */}
+      <div
+        className="relative rounded-[1.4rem] p-[1.5px]"
+        style={{
+          background:
+            "linear-gradient(135deg, oklch(0.519 0.158 163.2 / 0.8) 0%, oklch(1 0 0 / 0.1) 45%, oklch(0.835 0.118 85 / 0.6) 100%)",
+        }}
+      >
+        <div
+          className="overflow-hidden rounded-[1.32rem]"
+          style={{ boxShadow: "0 32px 80px oklch(0 0 0 / 0.55)" }}
+        >
+          {/* Browser chrome — always LTR */}
+          <div
+            className="flex items-center gap-1.5 px-4 py-2.5"
+            dir="ltr"
+            style={{
+              background: "oklch(0.135 0.02 250)",
+              borderBottom: "1px solid oklch(1 0 0 / 0.08)",
+            }}
+          >
+            <div className="size-2.5 rounded-full" style={{ background: "#FF5F57" }} />
+            <div className="size-2.5 rounded-full" style={{ background: "#FEBC2E" }} />
+            <div className="size-2.5 rounded-full" style={{ background: "#28C840" }} />
+            <div
+              className="mx-3 flex flex-1 items-center gap-1.5 rounded-md px-3 text-[10px]"
+              style={{
+                height: "22px",
+                background: "oklch(1 0 0 / 0.07)",
+                color: "oklch(1 0 0 / 0.4)",
+              }}
+            >
+              <Lock className="size-2.5 shrink-0" aria-hidden />
+              acadmyq.io/r/halaqa-live-k3p9x
+            </div>
+          </div>
+
+          {/* Call stage */}
+          <div className="relative p-3" style={{ background: "oklch(0.12 0.015 250)" }}>
+            {/* Top overlays — live / rec / supervising */}
+            <div
+              className="absolute inset-x-3 top-5 z-10 flex items-center justify-between gap-2"
+              dir={lang === "ar" ? "rtl" : "ltr"}
+            >
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold text-white"
+                  style={{ background: "oklch(0.55 0.2 25)" }}
+                >
+                  <span className="size-1.5 animate-pulse rounded-full bg-white" />
+                  {t.live}
+                </span>
+                <span
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold text-white"
+                  style={{ background: "oklch(0 0 0 / 0.55)" }}
+                >
+                  <span
+                    className="size-1.5 rounded-full"
+                    style={{ background: "oklch(0.62 0.22 25)" }}
+                  />
+                  {t.rec}
+                </span>
+              </div>
+              <span
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-semibold"
+                style={{
+                  background: "oklch(0.835 0.118 85 / 0.18)",
+                  color: "oklch(0.86 0.1 85)",
+                  border: "1px solid oklch(0.835 0.118 85 / 0.35)",
+                }}
+              >
+                <Eye className="size-3 shrink-0" aria-hidden />
+                {t.supervising}
+              </span>
+            </div>
+
+            {/* Participant grid */}
+            <div className="grid grid-cols-2 gap-2.5 pt-8">
+              {VIDEO_TILE_STYLES.map((s, i) => {
+                const name = t.participants[i] ?? "";
+                const initial = [...name].find((c) => /\p{L}/u.test(c)) ?? "?";
+                return (
+                  <div
+                    key={i}
+                    className="relative aspect-[4/3] overflow-hidden rounded-xl"
+                    style={{
+                      background: s.bg,
+                      boxShadow: s.active
+                        ? "0 0 0 2px oklch(0.72 0.14 163), 0 0 22px oklch(0.519 0.158 163 / 0.45)"
+                        : "inset 0 0 0 1px oklch(1 0 0 / 0.06)",
+                    }}
+                  >
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div
+                        className="flex size-12 items-center justify-center rounded-full text-lg font-bold text-white"
+                        style={{
+                          background: "oklch(1 0 0 / 0.16)",
+                          border: "1px solid oklch(1 0 0 / 0.2)",
+                        }}
+                      >
+                        {initial}
+                      </div>
+                    </div>
+                    <div
+                      className="absolute bottom-2 start-2 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium text-white"
+                      style={{ background: "oklch(0 0 0 / 0.5)" }}
+                    >
+                      {s.muted ? (
+                        <MicOff
+                          className="size-2.5 shrink-0"
+                          style={{ color: "oklch(0.72 0.2 25)" }}
+                          aria-hidden
+                        />
+                      ) : (
+                        <Mic className="size-2.5 shrink-0" aria-hidden />
+                      )}
+                      {name}
+                    </div>
+                    {s.active && (
+                      <div
+                        className="absolute top-2 end-2 rounded px-1.5 py-0.5 text-[9px] font-semibold text-white"
+                        style={{ background: "oklch(0.519 0.158 163.2)" }}
+                      >
+                        {t.speaking}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Control bar */}
+            <div
+              className="mt-3 flex items-center justify-center gap-1.5 rounded-2xl py-2.5"
+              style={{
+                background: "oklch(0.16 0.02 250)",
+                border: "1px solid oklch(1 0 0 / 0.06)",
+              }}
+            >
+              {[Mic, Video, MonitorUp, MessageSquare, Users].map((Icon, i) => (
+                <div
+                  key={i}
+                  className="flex size-9 items-center justify-center rounded-full"
+                  style={{
+                    background: "oklch(1 0 0 / 0.08)",
+                    color: "oklch(1 0 0 / 0.75)",
+                  }}
+                >
+                  <Icon className="size-4" aria-hidden />
+                </div>
+              ))}
+              <div
+                className="ms-1 flex size-9 items-center justify-center rounded-full text-white"
+                style={{ background: "oklch(0.55 0.2 25)" }}
+              >
+                <PhoneOff className="size-4" aria-hidden />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Video Showcase ─────────────────────────────────────────────────── */
+
+function VideoShowcase({ t, lang }: { t: Content["video"]; lang: Lang }) {
+  return (
+    <section
+      id="video"
+      className="relative overflow-hidden py-28"
+      style={{
+        background:
+          "linear-gradient(160deg, oklch(0.09 0.018 250) 0%, oklch(0.12 0.032 210) 50%, oklch(0.16 0.066 163) 100%)",
+      }}
+    >
+      <div
+        className="pointer-events-none absolute -top-40 -end-40 size-[600px] rounded-full blur-[130px]"
+        style={{ background: "radial-gradient(circle, oklch(0.519 0.158 163 / 0.2), transparent 70%)" }}
+      />
+      <div
+        className="pointer-events-none absolute -bottom-40 -start-40 size-[500px] rounded-full blur-[120px]"
+        style={{ background: "radial-gradient(circle, oklch(0.835 0.118 85 / 0.13), transparent 70%)" }}
+      />
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.04]"
+        style={{
+          backgroundImage: "radial-gradient(circle at 1.5px 1.5px, white 1.5px, transparent 0)",
+          backgroundSize: "28px 28px",
+        }}
+      />
+
+      <div className="relative mx-auto max-w-7xl px-6 lg:px-8">
+        <div className="mx-auto mb-14 max-w-2xl space-y-4 text-center">
+          <div
+            className="inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold"
+            style={{
+              background: "oklch(0.55 0.2 25 / 0.14)",
+              color: "oklch(0.8 0.15 25)",
+              border: "1px solid oklch(0.55 0.2 25 / 0.3)",
+            }}
+          >
+            <span
+              className="size-1.5 animate-pulse rounded-full"
+              style={{ background: "oklch(0.65 0.22 25)" }}
+            />
+            {t.badge}
+          </div>
+          <h2 className="text-4xl font-bold leading-[1.15] tracking-tight text-white lg:text-5xl">
+            {t.title1}{" "}
+            <span
+              style={{
+                backgroundImage:
+                  "linear-gradient(135deg, oklch(0.73 0.16 163) 0%, oklch(0.835 0.118 85) 100%)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                backgroundClip: "text",
+              }}
+            >
+              {t.title2}
+            </span>
+          </h2>
+          <p className="text-lg leading-relaxed text-white/55">{t.subtitle}</p>
+        </div>
+
+        <div className="grid items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
+          <VideoCallMock t={t.mock} lang={lang} />
+
+          <div className="space-y-4">
+            {t.points.map((p, i) => {
+              const Icon = VIDEO_POINT_ICONS[i] ?? Video;
+              return (
+                <div
+                  key={i}
+                  className="flex items-start gap-4 rounded-2xl p-4 transition-colors"
+                  style={{
+                    background: "oklch(1 0 0 / 0.04)",
+                    border: "1px solid oklch(1 0 0 / 0.08)",
+                  }}
+                >
+                  <div
+                    className="flex size-11 shrink-0 items-center justify-center rounded-xl"
+                    style={{
+                      background: "oklch(0.519 0.158 163 / 0.16)",
+                      border: "1px solid oklch(0.519 0.158 163 / 0.3)",
+                    }}
+                  >
+                    <Icon
+                      className="size-5"
+                      style={{ color: "oklch(0.74 0.15 163)" }}
+                      aria-hidden
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-semibold text-white">{p.title}</h3>
+                    <p className="text-sm leading-relaxed text-white/55">{p.desc}</p>
+                  </div>
+                </div>
+              );
+            })}
+
+            <a
+              href={WA_LINK}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex h-12 items-center gap-2 rounded-xl px-7 text-sm font-bold text-white transition-all hover:scale-[1.02]"
+              style={{
+                background: "oklch(0.519 0.158 163.2)",
+                boxShadow: "0 8px 24px oklch(0.519 0.158 163 / 0.4)",
+              }}
+            >
+              {t.cta}
+              <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Video vs. Zoom Comparison ──────────────────────────────────────── */
+
+function VideoCompare({ t }: { t: Content["compare"] }) {
+  return (
+    <section className="bg-background py-28">
+      <div className="mx-auto max-w-4xl px-6 lg:px-8">
+        <div className="mx-auto mb-14 max-w-2xl space-y-4 text-center">
+          <div
+            className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold"
+            style={{
+              background: "oklch(0.519 0.158 163 / 0.1)",
+              color: "oklch(0.519 0.158 163.2)",
+              border: "1px solid oklch(0.519 0.158 163 / 0.2)",
+            }}
+          >
+            {t.badge}
+          </div>
+          <h2 className="text-4xl font-bold tracking-tight text-foreground">{t.title}</h2>
+          <p className="text-lg leading-relaxed text-muted-foreground">{t.subtitle}</p>
+        </div>
+
+        <div
+          className="overflow-hidden rounded-3xl"
+          style={{
+            border: "1px solid oklch(0.905 0.002 248)",
+            boxShadow: "0 8px 40px oklch(0 0 0 / 0.06)",
+          }}
+        >
+          {/* Header row */}
+          <div className="grid grid-cols-[1.3fr_1fr_1fr]">
+            <div style={{ background: "oklch(0.98 0.002 248)" }} />
+            <div
+              className="flex items-center justify-center px-3 py-4 text-sm font-semibold text-muted-foreground"
+              style={{ background: "oklch(0.98 0.002 248)" }}
+            >
+              {t.zoom}
+            </div>
+            <div
+              className="flex items-center justify-center gap-1.5 px-3 py-4 text-sm font-bold text-white"
+              style={{ background: "oklch(0.519 0.158 163.2)" }}
+            >
+              {t.us}
+            </div>
+          </div>
+
+          {/* Rows */}
+          {t.rows.map((row, i) => (
+            <div
+              key={i}
+              className="grid grid-cols-[1.3fr_1fr_1fr] border-t"
+              style={{ borderColor: "oklch(0.92 0.002 248)" }}
+            >
+              <div className="flex items-center px-3 py-3.5 text-[13px] font-medium text-foreground sm:px-5 sm:text-sm">
+                {row.label}
+              </div>
+              <div className="flex items-center justify-center px-2 py-3.5 text-center text-[11px] text-muted-foreground sm:px-4 sm:text-[13px]">
+                {typeof row.zoom === "string" ? (
+                  row.zoom
+                ) : (
+                  <span
+                    className="inline-flex items-center gap-1"
+                    style={{ color: "oklch(0.62 0.16 25)" }}
+                  >
+                    <X className="size-3.5 shrink-0" aria-hidden />
+                    {t.unavailable}
+                  </span>
+                )}
+              </div>
+              <div
+                className="flex items-center justify-center gap-1.5 px-2 py-3.5 text-center text-[11px] font-semibold sm:px-4 sm:text-[13px]"
+                style={{
+                  background: "oklch(0.519 0.158 163 / 0.05)",
+                  color: "oklch(0.42 0.13 163)",
+                }}
+              >
+                <Check
+                  className="size-3.5 shrink-0"
+                  style={{ color: "oklch(0.519 0.158 163.2)" }}
+                  aria-hidden
+                />
+                {row.us}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </section>
@@ -1305,6 +1893,8 @@ export default function LandingPage() {
       <main>
         <Hero t={t.hero} lang={lang} />
         <Features t={t.features} />
+        <VideoShowcase t={t.video} lang={lang} />
+        <VideoCompare t={t.compare} />
         <FounderSection t={t.founder} />
         <Stats stats={t.stats} />
         <HowItWorks t={t.howItWorks} />
