@@ -147,7 +147,11 @@ export function ControlBar({
   const room = useRoomContext();
   const mic = useTrackToggle({ source: Track.Source.Microphone });
   const cam = useTrackToggle({ source: Track.Source.Camera });
-  const screen = useTrackToggle({ source: Track.Source.ScreenShare });
+  const screen = useTrackToggle({
+    source: Track.Source.ScreenShare,
+    // Request system/tab audio with the share so the picker shows "Share audio".
+    captureOptions: { audio: true },
+  });
   const fs = useFullscreen();
   const pip = usePip();
 
