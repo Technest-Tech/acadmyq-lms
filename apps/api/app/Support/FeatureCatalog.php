@@ -34,6 +34,7 @@ final class FeatureCatalog
         'audit.full' => 'Full audit history (beyond 30 days)',
         'report_field.custom' => 'Custom report fields',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
+        'video.only' => 'Video-only workspace (the panel shows the video classroom only)',
     ];
 
     /**

@@ -35,6 +35,12 @@ export function AddAcademyModal({
   const [mode, setMode] = useState<"enable" | "trial">("trial");
   const [trialDays, setTrialDays] = useState(14);
   const [planId, setPlanId] = useState("");
+  // Per-academy "meet options" — blank number ⇒ inherit from the plan/tier; toggles default on.
+  const [maxRooms, setMaxRooms] = useState("");
+  const [maxParticipants, setMaxParticipants] = useState("");
+  const [retentionDays, setRetentionDays] = useState("");
+  const [recordingAllowed, setRecordingAllowed] = useState(true);
+  const [monitorAllowed, setMonitorAllowed] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,10 +70,18 @@ export function AddAcademyModal({
     setSaving(true);
     setError(null);
     try {
+      const num = (s: string) => (s.trim() === "" ? null : Math.max(1, parseInt(s, 10)));
       await setVideoAccess(academyId, {
         action: mode === "trial" ? "trial" : "enable",
         trial_days: mode === "trial" ? trialDays : null,
         video_plan_id: planId || null,
+        overrides: {
+          maxRooms: num(maxRooms),
+          maxRoomParticipants: num(maxParticipants),
+          recordingRetentionDays: num(retentionDays),
+          recordingAllowed,
+          monitorAllowed,
+        },
       });
       onDone();
     } catch (err) {
@@ -160,6 +174,58 @@ export function AddAcademyModal({
               ))}
             </select>
             <p className="text-muted-foreground mt-1 text-[11px]">{t("add.tierHint")}</p>
+          </div>
+
+          {/* Meet options — per-academy video limits/flags (blank number ⇒ inherit from plan/tier) */}
+          <div className="space-y-2.5 rounded-xl border bg-muted/30 p-3">
+            <p className="text-xs font-semibold">{t("add.options.title")}</p>
+            <div className="grid grid-cols-3 gap-2">
+              <label className="block">
+                <span className="text-muted-foreground mb-1 block text-[11px]">{t("add.options.maxRooms")}</span>
+                <input
+                  type="number" min={1} value={maxRooms} onChange={(e) => setMaxRooms(e.target.value)}
+                  placeholder={t("add.options.inherit")}
+                  className="bg-background w-full rounded-lg border px-2 py-1.5 text-sm tabular-nums outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground mb-1 block text-[11px]">{t("add.options.maxParticipants")}</span>
+                <input
+                  type="number" min={1} value={maxParticipants} onChange={(e) => setMaxParticipants(e.target.value)}
+                  placeholder={t("add.options.inherit")}
+                  className="bg-background w-full rounded-lg border px-2 py-1.5 text-sm tabular-nums outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </label>
+              <label className="block">
+                <span className="text-muted-foreground mb-1 block text-[11px]">{t("add.options.retention")}</span>
+                <input
+                  type="number" min={1} value={retentionDays} onChange={(e) => setRetentionDays(e.target.value)}
+                  placeholder={t("add.options.inherit")}
+                  className="bg-background w-full rounded-lg border px-2 py-1.5 text-sm tabular-nums outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button" onClick={() => setRecordingAllowed((v) => !v)}
+                className={cn(
+                  "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                  recordingAllowed ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50",
+                )}
+              >
+                {recordingAllowed ? "✓ " : ""}{t("add.options.recording")}
+              </button>
+              <button
+                type="button" onClick={() => setMonitorAllowed((v) => !v)}
+                className={cn(
+                  "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                  monitorAllowed ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50",
+                )}
+              >
+                {monitorAllowed ? "✓ " : ""}{t("add.options.monitor")}
+              </button>
+            </div>
+            <p className="text-muted-foreground text-[11px]">{t("add.options.hint")}</p>
           </div>
 
           {error && <p className="text-xs font-medium text-rose-600">{error}</p>}

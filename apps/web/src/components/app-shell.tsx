@@ -431,6 +431,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [loading, session, router]);
 
+  // A video-only ("Meet Plan") academy has no general dashboard — send it to the video classroom,
+  // its only surface. Runs once entitlements resolve; harmless for every other academy.
+  useEffect(() => {
+    if (capabilities?.includes("video.only") && pathname === "/dashboard") {
+      router.replace("/video-classroom");
+    }
+  }, [capabilities, pathname, router]);
+
   if (loading || session === null) {
     return (
       <div
@@ -452,6 +460,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // second link to the same place. Hide it for them.
   const isPlatformAdmin =
     session.role === "SUPER_ADMIN" && session.academyId === null;
+  // A "Meet Plan" academy (the `video.only` capability) manages the video classroom and nothing
+  // else — collapse the whole nav to just that. Only applies once the plan entitlements resolve.
+  const videoOnly = capabilities !== null && capabilities.includes("video.only");
   const items = NAV.filter((item) => {
     if (item.permission !== null && !can(item.permission)) return false;
     if (item.key === "dashboard" && isPlatformAdmin) return false;
@@ -459,6 +470,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // audit.read (the page and API stay reachable) — this just keeps it out of the
     // owner panel's navigation.
     if (item.key === "audit" && session.role !== "SUPER_ADMIN") return false;
+    if (videoOnly && item.key !== "videoClassroom") return false;
     return true;
   });
   const inEnteredAcademy =

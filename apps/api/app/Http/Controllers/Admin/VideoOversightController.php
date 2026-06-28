@@ -72,8 +72,25 @@ final class VideoOversightController extends Controller
         if ($json === null) {
             abort(404, 'Academy not found.');
         }
+        $data = json_decode($json, true);
 
-        return response()->json(json_decode($json, true));
+        // Fold the free-form per-academy override into the effective video_limits the panel shows, and
+        // expose it raw so the editor pre-fills. The cross-tenant stats reader doesn't carry the
+        // override column, so read it in the academy's own context (where RLS admits the row).
+        $raw = $this->inAcademyContext($id, fn () => DB::table('academies')->where('id', $id)->value('video_overrides'));
+        $override = is_string($raw) ? (array) (json_decode($raw, true)['limits'] ?? []) : [];
+        if (is_array($data['academy'] ?? null)) {
+            $limits = (array) ($data['academy']['video_limits'] ?? []);
+            foreach (FeatureCatalog::VIDEO_LIMIT_KEYS as $k) {
+                if (array_key_exists($k, $override)) {
+                    $limits[$k] = $override[$k];
+                }
+            }
+            $data['academy']['video_limits'] = $limits;
+            $data['academy']['video_overrides'] = $override === [] ? null : $override;
+        }
+
+        return response()->json($data);
     }
 
     /**
@@ -141,6 +158,14 @@ final class VideoOversightController extends Controller
             'action' => ['required', Rule::in(['enable', 'trial', 'extend_trial', 'disable', 'follow_plan', 'set_tier'])],
             'trial_days' => ['required_if:action,trial', 'required_if:action,extend_trial', 'nullable', 'integer', 'min:1', 'max:3650'],
             'video_plan_id' => ['nullable', 'uuid', Rule::exists('plans', 'id')],
+            // Free-form per-academy "meet options" — present (even empty) ⇒ replace the override; an
+            // all-blank payload clears it (revert to plan/tier); absent ⇒ leave it untouched.
+            'overrides' => ['sometimes', 'nullable', 'array'],
+            'overrides.maxRooms' => ['nullable', 'integer', 'min:1', 'max:100000'],
+            'overrides.maxRoomParticipants' => ['nullable', 'integer', 'min:1', 'max:100000'],
+            'overrides.recordingRetentionDays' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            'overrides.recordingAllowed' => ['nullable', 'boolean'],
+            'overrides.monitorAllowed' => ['nullable', 'boolean'],
         ]);
 
         $action = $data['action'];
@@ -181,6 +206,24 @@ final class VideoOversightController extends Controller
         // "add academy to video with a tier" flow and a standalone set_tier.
         if ($request->has('video_plan_id')) {
             $update['video_plan_id'] = $data['video_plan_id'] ?? null;
+        }
+
+        // Per-academy meet-option override → academies.video_overrides ({ "limits": {...} }). Only the
+        // video limit/flag keys are kept; an all-empty payload clears the override.
+        if ($request->has('overrides')) {
+            $ov = (array) ($data['overrides'] ?? []);
+            $limits = [];
+            foreach (['maxRooms', 'maxRoomParticipants', 'recordingRetentionDays'] as $k) {
+                if (isset($ov[$k]) && $ov[$k] !== '' && $ov[$k] !== null) {
+                    $limits[$k] = (int) $ov[$k];
+                }
+            }
+            foreach (['recordingAllowed', 'monitorAllowed'] as $k) {
+                if (array_key_exists($k, $ov) && $ov[$k] !== null) {
+                    $limits[$k] = filter_var($ov[$k], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+                }
+            }
+            $update['video_overrides'] = $limits === [] ? null : json_encode(['limits' => $limits]);
         }
 
         $ctx = app(AuthContext::class);

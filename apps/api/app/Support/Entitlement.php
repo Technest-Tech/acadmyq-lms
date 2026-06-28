@@ -118,7 +118,7 @@ final class Entitlement
         $plan = DB::table('academies as a')
             ->leftJoin('plans as p', 'p.id', '=', 'a.plan_id')
             ->where('a.id', $academyId)
-            ->first(['p.code as plan_code', 'p.features', 'a.video_access', 'a.video_trial_ends_at', 'a.video_plan_id']);
+            ->first(['p.code as plan_code', 'p.features', 'a.video_access', 'a.video_trial_ends_at', 'a.video_plan_id', 'a.video_overrides']);
 
         $features = self::decodeFeatures($plan->features ?? null);
 
@@ -156,6 +156,11 @@ final class Entitlement
         if (! empty($plan->video_plan_id ?? null)) {
             $limits = self::mergeVideoLimits($limits, (string) $plan->video_plan_id);
         }
+
+        // Free-form per-academy "meet options" override (Super Admin sets it in the video oversight
+        // panel). Wins over BOTH the academy's plan and its video tier — but only for the video limit
+        // keys, so it never alters maxStudents, etc.
+        $limits = self::applyOverrideLimits($limits, $plan->video_overrides ?? null);
 
         return [
             'plan' => $plan->plan_code ?? null,
@@ -211,6 +216,32 @@ final class Entitlement
         foreach (FeatureCatalog::VIDEO_LIMIT_KEYS as $key) {
             if (array_key_exists($key, $tier)) {
                 $base[$key] = $tier[$key];
+            }
+        }
+
+        return $base;
+    }
+
+    /**
+     * Apply the free-form per-academy video override (academies.video_overrides, shaped
+     * { "limits": { maxRoomParticipants?: number, monitorAllowed?: 0|1, … } }) over the resolved
+     * limits — only the FeatureCatalog::VIDEO_LIMIT_KEYS. A key the override omits leaves the base
+     * value intact; a NULL/blank override is a no-op.
+     *
+     * @param  array<string,mixed>  $base
+     * @return array<string,mixed>
+     */
+    private static function applyOverrideLimits(array $base, mixed $rawOverrides): array
+    {
+        if (! is_string($rawOverrides) && ! is_array($rawOverrides)) {
+            return $base;
+        }
+
+        $override = self::decodeFeatures($rawOverrides)['limits'];
+
+        foreach (FeatureCatalog::VIDEO_LIMIT_KEYS as $key) {
+            if (array_key_exists($key, $override)) {
+                $base[$key] = $override[$key];
             }
         }
 

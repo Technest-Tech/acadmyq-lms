@@ -847,8 +847,10 @@ export interface VideoAcademyDetail {
     video_trial_ends_at: string | null;
     base_entitled: boolean;
     video_status: VideoAccessStatus;
-    /** Effective video limits/flags (the assigned tier wins per key, else the academy's plan). */
+    /** Effective video limits/flags (per-academy override wins, then the tier, then the plan). */
     video_limits: Record<string, number>;
+    /** Raw per-academy meet-option override (null ⇒ inherit from plan/tier). */
+    video_overrides: VideoMeetOptions | null;
   };
   subscription: {
     status: string;
@@ -916,10 +918,21 @@ export type VideoAccessAction =
   | "follow_plan"
   | "set_tier";
 
+/** Per-academy "meet options" — the video limits/flags a Super Admin can vary per academy. */
+export interface VideoMeetOptions {
+  maxRooms?: number | null;
+  maxRoomParticipants?: number | null;
+  recordingRetentionDays?: number | null;
+  recordingAllowed?: 0 | 1 | boolean | null;
+  monitorAllowed?: 0 | 1 | boolean | null;
+}
+
 export interface VideoAccessPayload {
   action: VideoAccessAction;
   trial_days?: number | null;
   video_plan_id?: string | null;
+  /** Free-form per-academy override; present ⇒ replace (empty clears), absent ⇒ leave untouched. */
+  overrides?: VideoMeetOptions | null;
 }
 
 /** Set an academy's video access override (activate / deactivate / trial / tier). Super Admin, audited. */

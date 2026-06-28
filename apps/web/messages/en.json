@@ -2337,7 +2337,17 @@
       "submit": "Add to video",
       "submitting": "Adding…",
       "pickAcademy": "Choose an academy first.",
-      "failed": "Couldn't update video access."
+      "failed": "Couldn't update video access.",
+      "options": {
+        "title": "Meet options (per academy)",
+        "maxRooms": "Max rooms",
+        "maxParticipants": "Max participants / room",
+        "retention": "Recording retention (days)",
+        "recording": "Recording allowed",
+        "monitor": "Supervisor (monitor) mode",
+        "inherit": "Inherit",
+        "hint": "Leave a number blank to inherit it from the plan or tier. These values are stored per academy."
+      }
     },
     "detail": {
       "back": "Back to video oversight",
