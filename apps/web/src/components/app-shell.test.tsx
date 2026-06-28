@@ -11,6 +11,23 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/",
 }));
 
+// The shell waits for plan entitlements before rendering (so a video-only academy never flashes
+// the full chrome). Resolve them with a full, non-video-only capability set so the academy nav
+// renders; tests await the sidebar appearing before asserting.
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api")>()),
+  getEntitlements: vi.fn().mockResolvedValue({
+    plan: "PRO",
+    capabilities: ["video.conferencing"],
+    limits: {},
+    addOns: [],
+    usage: {},
+  }),
+}));
+
+/** Wait for the shell to finish loading entitlements and render its chrome. */
+const ready = () => screen.findByTestId("sidebar");
+
 function renderShell(
   role: Parameters<typeof makeSession>[0] = "ACADEMY_OWNER",
   overrides = {},
@@ -33,9 +50,9 @@ function navKeys(): string[] {
 }
 
 describe("AppShell responsiveness (TC-0.16)", () => {
-  it("collapses the sidebar off-canvas by default and prevents horizontal scroll", () => {
+  it("collapses the sidebar off-canvas by default and prevents horizontal scroll", async () => {
     const { container } = renderShell();
-    const sidebar = screen.getByTestId("sidebar");
+    const sidebar = await ready();
 
     expect(sidebar.className).toContain("-translate-x-full");
     expect(sidebar.className).toContain("md:translate-x-0");
@@ -48,7 +65,7 @@ describe("AppShell responsiveness (TC-0.16)", () => {
   it("toggles the drawer via the mobile menu button", async () => {
     const user = userEvent.setup();
     renderShell();
-    const sidebar = screen.getByTestId("sidebar");
+    const sidebar = await ready();
 
     await user.click(
       screen.getByRole("button", { name: arMessages.header.menu }),
@@ -59,8 +76,9 @@ describe("AppShell responsiveness (TC-0.16)", () => {
 });
 
 describe("AppShell role-aware navigation (AC-2.12 / TC-2.23)", () => {
-  it("shows an Owner the full academy nav", () => {
+  it("shows an Owner the full academy nav", async () => {
     renderShell("ACADEMY_OWNER");
+    await ready();
     const keys = navKeys();
 
     expect(keys).toEqual(
@@ -78,8 +96,9 @@ describe("AppShell role-aware navigation (AC-2.12 / TC-2.23)", () => {
     expect(keys).not.toContain("academies");
   });
 
-  it("limits a Teacher to permitted items (no invoices/payroll/teachers/settings)", () => {
+  it("limits a Teacher to permitted items (no invoices/payroll/teachers/settings)", async () => {
     renderShell("TEACHER");
+    await ready();
     const keys = navKeys();
 
     expect(keys).toEqual(
@@ -92,32 +111,34 @@ describe("AppShell role-aware navigation (AC-2.12 / TC-2.23)", () => {
     expect(keys).not.toContain("academies");
   });
 
-  it("shows a Super Admin the Academies entry", () => {
+  it("shows a Super Admin the Academies entry", async () => {
     renderShell("SUPER_ADMIN");
+    await ready();
     expect(navKeys()).toContain("academies");
   });
 });
 
 describe("AppShell header (TC-2.26)", () => {
-  it("shows the current user name and role", () => {
+  it("shows the current user name and role", async () => {
     renderShell("ACADEMY_OWNER", {
       user: { id: "u1", fullName: "Owner Noor", email: "o@x.test" },
     });
 
-    const user = screen.getByTestId("current-user");
+    const user = await screen.findByTestId("current-user");
     expect(user).toHaveTextContent("Owner Noor");
     expect(user).toHaveTextContent(arMessages.roles.ACADEMY_OWNER);
   });
 
-  it("shows the entered-academy indicator + Exit for a Super Admin inside an academy", () => {
+  it("shows the entered-academy indicator + Exit for a Super Admin inside an academy", async () => {
     renderShell("SUPER_ADMIN", { academyId: "academy-1" });
 
-    const indicator = screen.getByTestId("entered-academy");
+    const indicator = await screen.findByTestId("entered-academy");
     expect(indicator).toHaveTextContent(arMessages.header.exit);
   });
 
-  it("hides the entered-academy indicator on the platform view", () => {
+  it("hides the entered-academy indicator on the platform view", async () => {
     renderShell("SUPER_ADMIN", { academyId: null });
+    await ready();
     expect(screen.queryByTestId("entered-academy")).toBeNull();
   });
 });

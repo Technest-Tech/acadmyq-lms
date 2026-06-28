@@ -344,7 +344,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [notifCount, setNotifCount] = useState(0);
   const [srCount, setSrCount] = useState(0);
   const [attnCount, setAttnCount] = useState(0);
+  // The academy's resolved plan capabilities. `null` = not yet known (still loading) — we must NOT
+  // render the nav while unknown, or a video-only ("Meet Plan") academy flashes the full academy
+  // chrome before collapsing to the video classroom. `entitlementsFailed` flips true only after the
+  // fetch has exhausted its retries, so a genuine outage falls back to the full nav (fail-open)
+  // instead of spinning forever — a transient abort (e.g. React StrictMode's dev double-mount) just
+  // retries and never flashes.
   const [capabilities, setCapabilities] = useState<string[] | null>(null);
+  const [entitlementsFailed, setEntitlementsFailed] = useState(false);
 
   useEffect(() => {
     setOpen(false);
@@ -410,12 +417,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (session === null || session.academyId === null) {
       setCapabilities(null);
+      setEntitlementsFailed(false);
       return;
     }
     let alive = true;
-    getEntitlements()
-      .then((e) => alive && setCapabilities(e.capabilities))
-      .catch(() => alive && setCapabilities(null));
+    setCapabilities(null);
+    setEntitlementsFailed(false);
+    void (async () => {
+      for (let attempt = 0; attempt < 3 && alive; attempt++) {
+        try {
+          const e = await getEntitlements();
+          if (alive) {
+            setCapabilities(e.capabilities);
+            setEntitlementsFailed(false);
+          }
+          return;
+        } catch {
+          if (attempt === 2) {
+            if (alive) setEntitlementsFailed(true); // give up → fail-open to the full nav
+          } else {
+            await new Promise((r) => setTimeout(r, 150));
+          }
+        }
+      }
+    })();
     return () => {
       alive = false;
     };
@@ -439,7 +464,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [capabilities, pathname, router]);
 
-  if (loading || session === null) {
+  // Inside an academy, hold the chrome until the plan capabilities are known (or the fetch has
+  // definitively failed) — otherwise a video-only academy briefly paints the full nav.
+  const entitlementsPending =
+    session !== null &&
+    session.academyId !== null &&
+    capabilities === null &&
+    !entitlementsFailed;
+  if (loading || session === null || entitlementsPending) {
     return (
       <div
         className="bg-background flex min-h-dvh items-center justify-center"

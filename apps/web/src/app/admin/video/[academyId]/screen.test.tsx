@@ -40,6 +40,7 @@ const DETAIL = {
     base_entitled: true,
     video_status: "ENABLED" as const,
     video_limits: { maxRooms: 10, recordingAllowed: 1 },
+    video_overrides: null,
   },
   subscription: {
     status: "ACTIVE",

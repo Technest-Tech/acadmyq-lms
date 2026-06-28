@@ -117,7 +117,9 @@ class DemoAcademySeeder extends Seeder
         //   PRO   — every feature, with generous caps (15 teachers / 60 students).
         // Prices are in minor units (piastres): 699 EGP = 69900, 999 EGP = 99900. Moving a
         // feature between tiers is an edit here — not a code change (§3.1, TC-9.5).
-        $allCapabilities = array_keys(FeatureCatalog::CAPABILITIES);
+        // Every catalog capability EXCEPT the Meet-exclusive ones (e.g. `video.only`, which would
+        // collapse the panel to the video classroom only — that belongs solely to the MEET plan).
+        $allCapabilities = FeatureCatalog::bundledCapabilities();
         foreach ([
             ['code' => 'FREE', 'name' => 'Free Trial', 'price_minor' => 0, 'features' => json_encode([
                 'capabilities' => $allCapabilities,

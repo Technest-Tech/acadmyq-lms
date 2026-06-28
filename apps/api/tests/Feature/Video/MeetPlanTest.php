@@ -42,6 +42,25 @@ it('an academy on the Meet Plan resolves video.conferencing + video.only', funct
     expect($caps)->toContain('video.conferencing')->toContain('video.only');
 });
 
+it('a DISABLED / expired-trial video override does NOT strip video from a Meet (video-only) plan', function () {
+    $meet = DB::table('plans')->where('code', 'MEET')->value('id');
+    $academy = $this->createAcademy(overrides: ['plan_id' => $meet]);
+
+    $this->enterAcademyAsSuperAdmin($academy);
+
+    // A leftover Super-Admin "video disabled" override would otherwise force video.conferencing OFF —
+    // but a video-only academy must never be left with zero features, so the plan wins.
+    DB::table('academies')->where('id', $academy)->update(['video_access' => 'DISABLED']);
+    expect(Entitlement::resolve($academy)['capabilities'])->toContain('video.conferencing');
+
+    // Same for an ENABLED grant whose trial date has already passed.
+    DB::table('academies')->where('id', $academy)->update([
+        'video_access' => 'ENABLED',
+        'video_trial_ends_at' => now()->subDay(),
+    ]);
+    expect(Entitlement::resolve($academy)['capabilities'])->toContain('video.conferencing');
+});
+
 it('a per-academy override beats the plan for video limit keys, leaving others intact', function () {
     $meet = DB::table('plans')->where('code', 'MEET')->value('id');
     $academy = $this->createAcademy(overrides: ['plan_id' => $meet]);

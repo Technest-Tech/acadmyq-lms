@@ -80,6 +80,31 @@ final class FeatureCatalog
         'monitorAllowed',
     ];
 
+    /**
+     * Capabilities that must NEVER be part of a general "all features" plan bundle — they are
+     * exclusive to a specific plan shape. `video.only` flips an academy into the video-only
+     * (Meet Plan) workspace where the panel collapses to just the video classroom, so granting
+     * it to a full plan (FREE/PRO) would wrongly hide the whole academy. Only the MEET plan,
+     * seeded by its own migration, carries it.
+     *
+     * @var list<string>
+     */
+    public const MEET_EXCLUSIVE_CAPABILITIES = [
+        'video.only',
+    ];
+
+    /**
+     * Every capability a full-featured plan (FREE/PRO) may bundle — the whole catalog MINUS the
+     * Meet-exclusive ones. Use this instead of `array_keys(CAPABILITIES)` when granting "all
+     * features", so a special-purpose capability never leaks into a general plan.
+     *
+     * @return list<string>
+     */
+    public static function bundledCapabilities(): array
+    {
+        return array_values(array_diff(array_keys(self::CAPABILITIES), self::MEET_EXCLUSIVE_CAPABILITIES));
+    }
+
     /** @return array{capabilities: array<string,string>, limits: array<string,string>, flags: array<string,string>} */
     public static function all(): array
     {

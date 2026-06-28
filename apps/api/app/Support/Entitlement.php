@@ -194,6 +194,16 @@ final class Entitlement
             $on = $trialEnd === null || Carbon::parse($trialEnd)->isFuture();
         }
 
+        // A video-only ("Meet Plan") academy exists SOLELY for the video classroom — its plan grants
+        // video.conferencing as the entire product. A 'DISABLED' / expired-trial override must never
+        // strip that, or the academy would be left with zero features (and the panel would lock its
+        // only surface). To stop such an academy a Super Admin changes its plan or suspends it — the
+        // video override cannot force video OFF here. (A normal video plan, e.g. PRO, can still be
+        // disabled: it keeps its other features, so the governance kill-switch stays meaningful.)
+        if (in_array('video.only', $capabilities, true)) {
+            $on = true;
+        }
+
         $capabilities = array_values(array_filter($capabilities, static fn (string $c): bool => $c !== 'video.conferencing'));
         if ($on) {
             $capabilities[] = 'video.conferencing';

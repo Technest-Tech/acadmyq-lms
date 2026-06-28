@@ -133,7 +133,9 @@ class ShowcaseAcademySeeder extends Seeder
             ]
         );
 
-        $allCapabilities = array_keys(\App\Support\FeatureCatalog::CAPABILITIES);
+        // All catalog capabilities EXCEPT the Meet-exclusive ones (e.g. `video.only`) — see
+        // FeatureCatalog::bundledCapabilities(). A full plan must never carry `video.only`.
+        $allCapabilities = \App\Support\FeatureCatalog::bundledCapabilities();
         foreach ([
             ['code' => 'FREE', 'name' => 'Free Trial', 'price_minor' => 0, 'features' => [
                 'capabilities' => $allCapabilities, 'limits' => ['maxStudents' => 5, 'maxTeachers' => 2],
