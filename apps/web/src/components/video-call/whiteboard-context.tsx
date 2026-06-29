@@ -19,12 +19,13 @@ import { loadPdf, renderPage } from "./whiteboard-pdf";
 import {
   WHITEBOARD_TOPIC,
   bgElementId,
+  changedSince,
   decodeMessage,
   encodeMessage,
   mergeElements,
   pageBounds,
-  sceneSignature,
   splitChunks,
+  winsOver,
   type DocPageMeta,
   type SyncElement,
   type WhiteboardMessage,
@@ -46,6 +47,7 @@ export interface BoardApi {
   updateScene: (scene: { elements?: readonly BoardElement[] }) => void;
   getSceneElementsIncludingDeleted: () => readonly BoardElement[];
   addFiles: (files: BoardFile[]) => void;
+  getFiles: () => Record<string, { id: string; dataURL: string; mimeType: string }>;
   scrollToContent: (target?: unknown, opts?: { fitToContent?: boolean; animate?: boolean }) => void;
 }
 
@@ -84,17 +86,69 @@ export interface WhiteboardValue {
 const WhiteboardContext = createContext<WhiteboardValue | null>(null);
 
 /** Trailing throttle on outbound scene broadcasts — coalesces a burst of strokes into one packet. */
-const BROADCAST_THROTTLE_MS = 180;
+const BROADCAST_THROTTLE_MS = 120;
 /** A page's locked background-image element id prefix — these sync via doc-page, NOT the scene feed. */
 const BG_PREFIX = "wb-doc-bg-";
+/** Downscale embedded images past this longest edge before sharing — keeps big photos from lagging. */
+const IMAGE_MAX_DIM = 1600;
+/** Skip recompressing an image already under this many data-URL chars (cheap + already small). */
+const IMAGE_SKIP_BYTES = 200_000;
 
 const isBg = (el: BoardElement): boolean => typeof el.id === "string" && el.id.startsWith(BG_PREFIX);
 const annotationsOf = (els: readonly BoardElement[]): BoardElement[] => els.filter((el) => !isBg(el));
-/** Signature over the ANNOTATIONS only — page backgrounds sync out-of-band so they don't trip broadcasts. */
-const annotationSig = (els: readonly BoardElement[]): string => sceneSignature(annotationsOf(els));
+
+/** A shareable image payload + the mime it was (re)encoded as. */
+interface SharedFile {
+  dataURL: string;
+  mimeType: string;
+}
+
+/**
+ * Downscale + recompress a big embedded image before it crosses the data channel, so a multi-megabyte
+ * phone photo doesn't lag every peer (and the upload itself). Keeps the original format (PNG stays PNG
+ * so transparency survives; JPEG/WebP keep theirs) and only swaps in the result when it's actually
+ * smaller. Falls back to the original on any failure — never blocks a share.
+ */
+async function shareableImage(dataURL: string, mimeType: string): Promise<SharedFile> {
+  if (!dataURL.startsWith("data:image/") || mimeType === "image/svg+xml") {
+    return { dataURL, mimeType };
+  }
+  if (dataURL.length < IMAGE_SKIP_BYTES) return { dataURL, mimeType }; // already small — don't decode
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = reject;
+      i.src = dataURL;
+    });
+    const longest = Math.max(img.width, img.height);
+    const scale = Math.min(1, IMAGE_MAX_DIM / longest);
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { dataURL, mimeType };
+    ctx.drawImage(img, 0, 0, w, h);
+    const outType = mimeType === "image/jpeg" || mimeType === "image/webp" ? mimeType : "image/png";
+    const out = canvas.toDataURL(outType, 0.82);
+    return out.length < dataURL.length ? { dataURL: out, mimeType: outType } : { dataURL, mimeType };
+  } catch {
+    return { dataURL, mimeType };
+  }
+}
 
 interface ChunkBuf {
   meta: DocPageMeta | null;
+  n: number;
+  parts: string[];
+  received: number;
+}
+
+/** Reassembly buffer for an embedded image's chunked bytes (mirrors ChunkBuf, minus page metadata). */
+interface FileBuf {
+  mimeType: string;
   n: number;
   parts: string[];
   received: number;
@@ -128,7 +182,13 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
   canManageRef.current = canManage;
   const apiRef = useRef<BoardApi | null>(null);
   const sceneRef = useRef<BoardElement[]>([]); // full local truth (backgrounds + annotations)
-  const lastSentSig = useRef("");
+  // id → version we last broadcast, so a change burst only sends the touched elements (the delta).
+  const sentVersions = useRef<Map<string, number>>(new Map());
+  // File ids the room already has (we sent them, or received them) — never re-broadcast these bytes.
+  const sentFiles = useRef<Set<string>>(new Set());
+  // Incoming embedded-image chunk buffers + pages/files that arrived before Excalidraw mounted.
+  const fileBufRef = useRef<Map<string, FileBuf>>(new Map());
+  const pendingFilesRef = useRef<BoardFile[]>([]);
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Document refs (host keeps the loaded PDF + the current page so it can answer late joiners).
@@ -161,11 +221,50 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
 
   // Apply a reconciled set of ANNOTATIONS to the live canvas (backgrounds are preserved untouched).
   const applyScene = useCallback((incoming: BoardElement[]) => {
+    const before = new Map(sceneRef.current.map((e) => [e.id, e]));
     const merged = mergeElements(sceneRef.current, incoming);
     sceneRef.current = merged;
-    lastSentSig.current = annotationSig(merged); // pre-set so the echoing onChange doesn't re-broadcast
+    // Record only the elements the remote actually applied as "already sent" (so the echoing onChange
+    // won't re-broadcast them). An element where LOCAL won the merge keeps its old sent-version, so our
+    // own newer edit still rides the next delta.
+    for (const el of incoming) {
+      const prev = before.get(el.id);
+      if (!prev || winsOver(el, prev)) sentVersions.current.set(el.id, el.version);
+    }
     apiRef.current?.updateScene({ elements: merged });
   }, []);
+
+  // Buffer-reassemble an embedded image's chunks, then add its bytes to the canvas (or queue them if
+  // Excalidraw hasn't mounted). The image ELEMENT itself arrives over the scene feed.
+  const maybeAssembleFile = useCallback((fileId: string) => {
+    const buf = fileBufRef.current.get(fileId);
+    if (!buf || buf.n === 0 || buf.received < buf.n) return;
+    const dataURL = buf.parts.join("");
+    fileBufRef.current.delete(fileId);
+    sentFiles.current.add(fileId); // the room already has it now
+    const file: BoardFile = { id: fileId, dataURL, mimeType: buf.mimeType, created: Date.now() };
+    if (apiRef.current) apiRef.current.addFiles([file]);
+    else pendingFilesRef.current.push(file);
+  }, []);
+
+  // Share any embedded images the room doesn't have yet (downscaled), so peers actually see them. To
+  // one identity for a late joiner, or to everyone (default) when a local image was just added.
+  const broadcastFiles = useCallback(
+    async (to?: string) => {
+      const api = apiRef.current;
+      if (!api) return;
+      const files = api.getFiles();
+      for (const [fileId, f] of Object.entries(files)) {
+        if (!to && sentFiles.current.has(fileId)) continue; // already shared with the room
+        sentFiles.current.add(fileId);
+        const shared = await shareableImage(f.dataURL, f.mimeType);
+        const chunks = splitChunks(shared.dataURL);
+        sendMessage({ t: "file", fileId, mimeType: shared.mimeType, n: chunks.length }, to);
+        chunks.forEach((s, i) => sendMessage({ t: "file-chunk", fileId, i, n: chunks.length, s }, to));
+      }
+    },
+    [sendMessage],
+  );
 
   // Build a page's locked background-image element via Excalidraw's own restore (fills element defaults).
   const buildBg = useCallback(async (meta: DocPageMeta): Promise<BoardElement> => {
@@ -197,6 +296,7 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
         return;
       }
       api.addFiles([{ id: meta.fileId, dataURL, mimeType: meta.mimeType, created: Date.now() }]);
+      sentFiles.current.add(meta.fileId); // a page is shared via doc-* — keep it out of the image feed
       const bg = await buildBg(meta);
       const rest = sceneRef.current.filter((el) => el.id !== bgElementId(meta.page));
       const next = [bg, ...rest]; // background first → back of the z-order
@@ -222,7 +322,9 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
   // Wipe the document + its annotations everywhere (host doc-close, or a remote one).
   const closeDocLocal = useCallback(() => {
     sceneRef.current = [];
-    lastSentSig.current = annotationSig([]);
+    sentVersions.current.clear();
+    sentFiles.current.clear();
+    fileBufRef.current.clear();
     apiRef.current?.updateScene({ elements: [] });
     setDoc(null);
     hostPageRef.current = null;
@@ -258,6 +360,8 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
               const chunks = splitChunks(cur.dataURL);
               chunks.forEach((s, i) => sendMessage({ t: "doc-chunk", fileId: cur.meta.fileId, i, n: chunks.length, s }, from));
             }
+            // ...and any embedded images on the board, so late joiners don't see broken placeholders.
+            void broadcastFiles(from);
           }
           break;
         case "sync-full":
@@ -269,7 +373,7 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
           // Keep any page backgrounds; drop annotations only.
           const kept = sceneRef.current.filter(isBg);
           sceneRef.current = kept;
-          lastSentSig.current = annotationSig(kept);
+          sentVersions.current.clear();
           apiRef.current?.updateScene({ elements: kept });
           break;
         }
@@ -295,9 +399,28 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
         case "doc-close":
           closeDocLocal();
           break;
+        case "file": {
+          const { fileId, mimeType, n } = msg;
+          const buf = fileBufRef.current.get(fileId) ?? { mimeType, n, parts: [], received: 0 };
+          buf.mimeType = mimeType;
+          buf.n = n;
+          fileBufRef.current.set(fileId, buf);
+          maybeAssembleFile(fileId);
+          break;
+        }
+        case "file-chunk": {
+          const { fileId, i, n, s } = msg;
+          const buf = fileBufRef.current.get(fileId) ?? { mimeType: "image/png", n, parts: [], received: 0 };
+          buf.n = n;
+          if (buf.parts[i] === undefined) buf.received++;
+          buf.parts[i] = s;
+          fileBufRef.current.set(fileId, buf);
+          maybeAssembleFile(fileId);
+          break;
+        }
       }
     },
-    [applyScene, sendMessage, maybeAssemble, closeDocLocal],
+    [applyScene, sendMessage, maybeAssemble, maybeAssembleFile, broadcastFiles, closeDocLocal],
   );
   handlerRef.current = handleMessage;
 
@@ -346,7 +469,7 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
     if (!canManageRef.current) return;
     const kept = sceneRef.current.filter(isBg);
     sceneRef.current = kept;
-    lastSentSig.current = annotationSig(kept);
+    sentVersions.current.clear();
     apiRef.current?.updateScene({ elements: kept });
     sendMessage({ t: "clear" });
   }, [sendMessage]);
@@ -419,8 +542,12 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
   const registerApi = useCallback((api: BoardApi | null) => {
     apiRef.current = api;
     if (!api) return;
-    // Seed a freshly-mounted canvas with the last-known scene, then flush any pages that arrived first.
+    // Seed a freshly-mounted canvas with the last-known scene, then flush any pages/images that
+    // arrived before Excalidraw mounted.
     if (sceneRef.current.length > 0) api.updateScene({ elements: sceneRef.current });
+    const pendingFiles = pendingFilesRef.current;
+    pendingFilesRef.current = [];
+    if (pendingFiles.length > 0) api.addFiles(pendingFiles);
     const pending = pendingPagesRef.current;
     pendingPagesRef.current = [];
     for (const { meta, dataURL } of pending) void applyPage(meta, dataURL);
@@ -433,13 +560,18 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
       const api = apiRef.current;
       if (!api) return;
       const all = api.getSceneElementsIncludingDeleted() as BoardElement[];
-      const sig = annotationSig(all);
-      if (sig === lastSentSig.current) return; // no annotation change (e.g. an echoed apply / bg load)
-      lastSentSig.current = sig;
       sceneRef.current = all;
-      sendMessage({ t: "scene", elements: annotationsOf(all) });
+      const annos = annotationsOf(all);
+      // Send only the touched elements (delta) — a typing/drawing burst no longer re-ships the scene.
+      const delta = changedSince(annos, sentVersions.current);
+      if (delta.length > 0) {
+        for (const el of annos) sentVersions.current.set(el.id, el.version);
+        sendMessage({ t: "scene", elements: delta });
+      }
+      // Share any embedded images that were just added (downscaled, once per file).
+      void broadcastFiles();
     }, BROADCAST_THROTTLE_MS);
-  }, [sendMessage]);
+  }, [sendMessage, broadcastFiles]);
 
   const initialElements = useCallback(() => sceneRef.current, []);
 

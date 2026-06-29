@@ -31,7 +31,11 @@ export type WhiteboardMessage<E extends SyncElement = SyncElement> =
   /** One slice of a page image's base64 bytes (chunked so it never overruns the data channel). */
   | { t: "doc-chunk"; fileId: string; i: number; n: number; s: string }
   /** Host closes the document (clears the board). */
-  | { t: "doc-close" };
+  | { t: "doc-close" }
+  /** An embedded image's bytes are coming (metadata) — the image ELEMENT rides the scene feed. */
+  | { t: "file"; fileId: string; mimeType: string; n: number }
+  /** One slice of an embedded image's data-URL (chunked like doc bytes; reassembled then addFiles'd). */
+  | { t: "file-chunk"; fileId: string; i: number; n: number; s: string };
 
 /** A document page broadcast: metadata here, the image bytes across the matching doc-chunk msgs. */
 export interface DocPageMeta {
@@ -100,6 +104,8 @@ const MESSAGE_TYPES = new Set([
   "doc-page",
   "doc-chunk",
   "doc-close",
+  "file",
+  "file-chunk",
 ]);
 
 function isWhiteboardMessage(v: unknown): v is WhiteboardMessage {
@@ -127,6 +133,19 @@ export function mergeElements<E extends SyncElement>(local: readonly E[], remote
 export function winsOver(candidate: SyncElement, current: SyncElement): boolean {
   if (candidate.version !== current.version) return candidate.version > current.version;
   return candidate.versionNonce < current.versionNonce;
+}
+
+/**
+ * The DELTA to broadcast: only elements whose `version` differs from what was last sent for that id
+ * (`sent` maps id → last-broadcast version). Cuts a typing/drawing burst down to the few touched
+ * elements instead of re-sending the whole scene every tick. Deletions ride along — Excalidraw keeps
+ * a deleted element with `isDeleted` and a bumped version, so it falls out as a normal change.
+ */
+export function changedSince<E extends SyncElement>(
+  elements: readonly E[],
+  sent: Map<string, number>,
+): E[] {
+  return elements.filter((el) => sent.get(el.id) !== el.version);
 }
 
 /** A cheap fingerprint of a scene's mutable state (count + summed versions) to skip no-op broadcasts. */

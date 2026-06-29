@@ -128,6 +128,7 @@ describe("WhiteboardProvider", () => {
         updateScene,
         getSceneElementsIncludingDeleted: () => [],
         addFiles: vi.fn(),
+        getFiles: () => ({}),
         scrollToContent: vi.fn(),
       };
       // Register once on mount.
@@ -146,5 +147,67 @@ describe("WhiteboardProvider", () => {
 
     inject({ t: "scene", elements: [{ id: "a", version: 3, versionNonce: 5 }] });
     expect(updateScene).toHaveBeenCalledWith({ elements: [{ id: "a", version: 3, versionNonce: 5 }] });
+  });
+
+  it("broadcasts only the CHANGED element (delta), not the whole scene", () => {
+    vi.useFakeTimers();
+    let els: { id: string; version: number; versionNonce: number }[] = [
+      { id: "a", version: 1, versionNonce: 1 },
+      { id: "b", version: 1, versionNonce: 2 },
+    ];
+    let notify = () => {};
+    let bound = false;
+    function Binder() {
+      const { registerApi, notifyLocalChange } = useWhiteboard();
+      notify = notifyLocalChange;
+      if (!bound) {
+        bound = true;
+        registerApi({
+          updateScene: vi.fn(),
+          getSceneElementsIncludingDeleted: () => els,
+          addFiles: vi.fn(),
+          getFiles: () => ({}),
+          scrollToContent: vi.fn(),
+        });
+      }
+      return null;
+    }
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <CallControlContext.Provider value={{ canManage: true, roomId: "r1", manageToken: null }}>
+          <WhiteboardProvider>
+            <Binder />
+          </WhiteboardProvider>
+        </CallControlContext.Provider>
+      </NextIntlClientProvider>,
+    );
+
+    // First flush: both elements are new → both go out.
+    act(() => {
+      notify();
+      vi.advanceTimersByTime(200);
+    });
+    let scenes = sentMessages().filter((m) => m.t === "scene");
+    expect(scenes.at(-1)).toEqual({
+      t: "scene",
+      elements: [
+        { id: "a", version: 1, versionNonce: 1 },
+        { id: "b", version: 1, versionNonce: 2 },
+      ],
+    });
+
+    // Touch only b → only b is broadcast.
+    els = [
+      { id: "a", version: 1, versionNonce: 1 },
+      { id: "b", version: 2, versionNonce: 2 },
+    ];
+    act(() => {
+      notify();
+      vi.advanceTimersByTime(200);
+    });
+    scenes = sentMessages().filter((m) => m.t === "scene");
+    expect(scenes.at(-1)).toEqual({ t: "scene", elements: [{ id: "b", version: 2, versionNonce: 2 }] });
+
+    vi.useRealTimers();
   });
 });

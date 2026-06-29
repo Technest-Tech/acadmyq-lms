@@ -14,27 +14,24 @@ import {
   X,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import "@excalidraw/excalidraw/index.css";
 import { formatElapsed, useCallElapsed } from "./call-timer-context";
-import { useWhiteboard, type BoardApi } from "./whiteboard-context";
+import { useWhiteboard } from "./whiteboard-context";
 
 // PDF / document annotation (Slice 2) is paused — finishing later. Flip to `true` to restore the
 // Open-PDF button + page navigation; the underlying render/sync code stays intact behind it.
 const SHOW_PDF = false;
 
-// Excalidraw reads `window` and ships its own canvas — it must never render on the server.
-const Excalidraw = dynamic(
-  () =>
-    import("@excalidraw/excalidraw").then((m) => ({ default: m.Excalidraw })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex h-full w-full items-center justify-center text-slate-400">
-        <Loader2 className="size-6 animate-spin" />
-      </div>
-    ),
-  },
-);
+// Excalidraw reads `window` and ships its own canvas — it must never render on the server. The
+// curated-menu wrapper lives in its own module (whiteboard-canvas) so it can import MainMenu
+// statically and replace the stock menu (drops the GitHub/Discord/X + Excalidraw+ links).
+const WhiteboardCanvas = dynamic(() => import("./whiteboard-canvas"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full w-full items-center justify-center text-slate-400">
+      <Loader2 className="size-6 animate-spin" />
+    </div>
+  ),
+});
 
 /**
  * The shared whiteboard surface, rendered (by <CallMain>) AS the main stage area while the board is
@@ -182,25 +179,13 @@ export function WhiteboardPanel() {
       {/* The canvas — Excalidraw fills an explicitly-sized box (absolute inset-0 over a flex-1 parent). */}
       <div className="relative min-h-0 flex-1">
         <div className="absolute inset-0">
-          <Excalidraw
-            excalidrawAPI={(api) => registerApi(api as unknown as BoardApi)}
-            initialData={{
-              elements: initialElements() as never,
-              appState: { viewBackgroundColor: "#ffffff" },
-              scrollToContent: true,
-            }}
-            viewModeEnabled={!canDraw}
+          <WhiteboardCanvas
+            registerApi={registerApi}
+            initialElements={initialElements()}
+            canDraw={canDraw}
             langCode={locale === "ar" ? "ar-SA" : "en"}
             onChange={() => {
               if (canDraw) notifyLocalChange();
-            }}
-            UIOptions={{
-              canvasActions: {
-                loadScene: false,
-                saveToActiveFile: false,
-                export: false,
-                toggleTheme: false,
-              },
             }}
           />
         </div>

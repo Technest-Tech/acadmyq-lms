@@ -3,6 +3,7 @@ import {
   DOC_PAGE_SLOT,
   DOC_PAGE_WIDTH,
   bgElementId,
+  changedSince,
   decodeMessage,
   encodeMessage,
   mergeElements,
@@ -118,6 +119,36 @@ describe("whiteboard-protocol", () => {
       const chunks = splitChunks(data, 5);
       expect(chunks).toEqual(["01234", "56789", "abcde", "f"]);
       expect(chunks.join("")).toBe(data);
+    });
+  });
+
+  describe("changedSince", () => {
+    const els: SyncElement[] = [
+      { id: "a", version: 2, versionNonce: 1 },
+      { id: "b", version: 5, versionNonce: 2 },
+      { id: "c", version: 1, versionNonce: 3 },
+    ];
+    it("returns only elements whose version differs from the sent map", () => {
+      const sent = new Map([
+        ["a", 2],
+        ["b", 4], // b changed since last send
+        // c never sent
+      ]);
+      expect(changedSince(els, sent)).toEqual([
+        { id: "b", version: 5, versionNonce: 2 },
+        { id: "c", version: 1, versionNonce: 3 },
+      ]);
+    });
+    it("returns nothing when every version matches", () => {
+      const sent = new Map([
+        ["a", 2],
+        ["b", 5],
+        ["c", 1],
+      ]);
+      expect(changedSince(els, sent)).toEqual([]);
+    });
+    it("treats an empty sent map as everything changed", () => {
+      expect(changedSince(els, new Map())).toEqual(els);
     });
   });
 });
