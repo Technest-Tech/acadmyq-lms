@@ -46,7 +46,7 @@ export function PipGrid() {
   );
 }
 
-function PipTile({ trackRef }: { trackRef: TrackReferenceOrPlaceholder }) {
+export function PipTile({ trackRef }: { trackRef: TrackReferenceOrPlaceholder }) {
   const t = useTranslations("videoCall");
   const { canManage, roomId, manageToken } = useCallControl();
   const p = trackRef.participant;

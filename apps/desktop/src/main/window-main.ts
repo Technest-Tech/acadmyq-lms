@@ -3,6 +3,18 @@ import { BrowserWindow, shell } from "electron";
 import { installNavGuard, loadHome } from "./home";
 
 /**
+ * The single main window, tracked module-level so the main process can target IT specifically (e.g.
+ * presenter mode hides/restores it) without guessing among the overlay/picker windows that
+ * `BrowserWindow.getAllWindows()` also returns.
+ */
+let mainWin: BrowserWindow | null = null;
+
+/** The main window, or null if it hasn't been created / has been destroyed. */
+export function getMainWindow(): BrowserWindow | null {
+  return mainWin && !mainWin.isDestroyed() ? mainWin : null;
+}
+
+/**
  * The primary window. This is a MEETING-ONLY app: it opens on a native "Join a meeting" screen and
  * only ever shows a chrome-free meeting (`/r/*`) or the host sign-in — never the AcademIQ dashboard
  * (a nav guard enforces this). The meeting itself is the real web call UI, reused as-is; native
@@ -37,6 +49,11 @@ export function createMainWindow(): BrowserWindow {
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  mainWin = win;
+  win.on("closed", () => {
+    if (mainWin === win) mainWin = null;
   });
 
   installNavGuard(win); // keep the window to home / meetings / sign-in only

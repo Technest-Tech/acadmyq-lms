@@ -26,6 +26,7 @@ import { ParticipantsPanel } from "./participants-panel";
 import { PinContext, nextPinned } from "./pin-context";
 import { RecordingProvider } from "./recording-context";
 import { SettingsDialog } from "./settings-dialog";
+import { usePresenterMode } from "./use-presenter-mode";
 import { WhiteboardProvider } from "./whiteboard-context";
 import {
   CallSettingsContext,
@@ -100,6 +101,9 @@ function InCall({
 }) {
   useWakeLock();
   const participants = useParticipants();
+  // Desktop app only: when this host starts screen-sharing, reshape the window into the floating
+  // presenter panel (and restore on stop). `presenter` drives the compact layout in CallMain.
+  const presenter = usePresenterMode(canManage);
   const settingsCtx = useProvideCallSettings();
   const [panelOpen, setPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -138,6 +142,7 @@ function InCall({
                     <CallMain
                       roomTitle={roomTitle}
                       suppressRecording={suppressRecording}
+                      presenter={presenter}
                     />
                     <RoomAudioRenderer />
                     <ParticipantsPanel

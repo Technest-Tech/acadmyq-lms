@@ -21,6 +21,17 @@ declare global {
     pushAnnotationScene(elements: readonly unknown[]): void;
     /** Arm/disarm annotation (overlay visibility + screens-only picker). Added in Phase 5. */
     setAnnotateMode?(on: boolean): void;
+    /**
+     * Presenter mode — reshape the call window into a small, content-protected floating panel while
+     * screen-sharing so the teacher can use their PC (students never see the panel). The web renders
+     * its compact presenter layout in the same window. Optional: absent in older desktop builds.
+     */
+    enterPresenter?(): void;
+    /**
+     * Exit presenter mode — restore the call window and clear the annotation overlay. Safe even if
+     * presenter mode was never entered (doubles as the share-stop overlay cleanup).
+     */
+    exitPresenter?(): void;
   }
 
   interface Window {

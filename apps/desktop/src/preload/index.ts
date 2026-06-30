@@ -26,6 +26,21 @@ const api = {
   setAnnotateMode(on: boolean): void {
     ipcRenderer.send("annotate:set", !!on);
   },
+  /**
+   * Enter presenter mode — reshape the call window into a small, always-on-top, content-protected
+   * floating panel so the teacher can use their PC while sharing (students never see the panel). The
+   * web renders its desktop-only compact presenter layout in this same window.
+   */
+  enterPresenter(): void {
+    ipcRenderer.send("presenter:enter");
+  },
+  /**
+   * Exit presenter mode — restore the call window and tear down the annotation overlay. Safe to
+   * call even if presenter mode was never entered (it doubles as the share-stop overlay cleanup).
+   */
+  exitPresenter(): void {
+    ipcRenderer.send("presenter:exit");
+  },
 };
 
 contextBridge.exposeInMainWorld("academiqDesktop", api);
