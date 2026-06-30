@@ -35,7 +35,16 @@ export type WhiteboardMessage<E extends SyncElement = SyncElement> =
   /** An embedded image's bytes are coming (metadata) — the image ELEMENT rides the scene feed. */
   | { t: "file"; fileId: string; mimeType: string; n: number }
   /** One slice of an embedded image's data-URL (chunked like doc bytes; reassembled then addFiles'd). */
-  | { t: "file-chunk"; fileId: string; i: number; n: number; s: string };
+  | { t: "file-chunk"; fileId: string; i: number; n: number; s: string }
+  /**
+   * Screen-share annotation delta: strokes drawn over the LIVE shared screen. A separate lane from
+   * the Excalidraw whiteboard scene (above) so the two surfaces never bleed into each other; it
+   * still reuses {@link mergeElements} for convergence. On the teacher's desktop app these are
+   * forwarded to the overlay and baked into the shared screen pixels.
+   */
+  | { t: "sa-scene"; elements: E[] }
+  /** Host wipes all screen-share annotations. */
+  | { t: "sa-clear" };
 
 /** A document page broadcast: metadata here, the image bytes across the matching doc-chunk msgs. */
 export interface DocPageMeta {
@@ -106,6 +115,8 @@ const MESSAGE_TYPES = new Set([
   "doc-close",
   "file",
   "file-chunk",
+  "sa-scene",
+  "sa-clear",
 ]);
 
 function isWhiteboardMessage(v: unknown): v is WhiteboardMessage {

@@ -3,12 +3,14 @@
 import { useRoomContext, useTrackToggle } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import {
+  Eraser,
   Loader2,
   Maximize,
   Mic,
   MicOff,
   Minimize,
   MonitorUp,
+  Pencil,
   PhoneOff,
   PictureInPicture2,
   Presentation,
@@ -25,6 +27,8 @@ import { usePip } from "./composite-pip";
 import { useRecording } from "./recording-context";
 import { useWhiteboard } from "./whiteboard-context";
 import { useFullscreen } from "./use-fullscreen";
+import { useIsDesktop } from "./use-is-desktop";
+import { useState } from "react";
 
 /** A round mic/camera/screen toggle. Muted/inactive state is red/neutral; ≥44px touch target. */
 function ToggleButton({
@@ -81,6 +85,55 @@ function WhiteboardButton() {
     >
       <Presentation className="size-5" />
     </button>
+  );
+}
+
+/**
+ * Annotate-the-shared-screen toggle — shown only to a host running the DESKTOP app. Arming makes the
+ * screen-share picker screens-only, shows the overlay on the shared display, and lets students draw
+ * (canDraw); a sibling clear button wipes the marks. In a plain browser this renders nothing, so the
+ * web control bar is unchanged (V-DESK-3). Marks bake into the shared screen via the desktop overlay.
+ */
+function AnnotateButton() {
+  const isDesktop = useIsDesktop();
+  const { canManage, setAllowDraw, clearScreenAnnotations } = useWhiteboard();
+  const [on, setOn] = useState(false);
+
+  if (!isDesktop || !canManage) return null;
+
+  const toggle = () => {
+    const next = !on;
+    setOn(next);
+    setAllowDraw(next); // let students draw on the share while annotation is on
+    window.academiqDesktop?.setAnnotateMode?.(next);
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-pressed={on}
+        aria-label="Annotate shared screen"
+        title="Annotate shared screen"
+        className={`flex size-12 items-center justify-center rounded-full transition ${
+          on ? "bg-emerald-500/90 text-white hover:bg-emerald-500" : "bg-white/10 text-white hover:bg-white/20"
+        }`}
+      >
+        <Pencil className="size-5" />
+      </button>
+      {on && (
+        <button
+          type="button"
+          onClick={clearScreenAnnotations}
+          aria-label="Clear annotations"
+          title="Clear annotations"
+          className="flex size-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+        >
+          <Eraser className="size-5" />
+        </button>
+      )}
+    </>
   );
 }
 
@@ -220,6 +273,7 @@ export function ControlBar({
         </button>
       )}
       {canManage && <WhiteboardButton />}
+      <AnnotateButton />
       {canManage && <RecordButton />}
       <button
         type="button"

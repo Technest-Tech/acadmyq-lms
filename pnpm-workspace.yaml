@@ -1,6 +1,7 @@
 packages:
   - "apps/web"
   - "apps/wa-gateway"
+  - "apps/desktop"
   - "packages/*"
 
 # Dependency build scripts are blocked by default (pnpm 10+) and pnpm exits
@@ -20,3 +21,6 @@ allowBuilds:
   baileys: false
   esbuild: false
   protobufjs: false
+  # apps/desktop (electron) is intentionally NOT opted-in here: Electron's postinstall downloads a
+  # ~150 MB binary that CI/deploy never need (they don't run the desktop app). Developers fetch it
+  # locally with `pnpm --filter @academiq/desktop run rebuild:electron` (see apps/desktop/README).

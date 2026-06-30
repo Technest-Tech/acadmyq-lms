@@ -1,0 +1,25 @@
+# Phase 1 packaging — Windows NSIS, UNSIGNED (no code-signing certificate yet; the build is usable
+# locally and with friends). macOS dmg + notarization and Windows code-signing come in Phase 6.
+appId: com.academiq.teacher
+productName: AcademIQ Teacher
+copyright: © AcademIQ
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+protocols:
+  - name: AcademIQ Room
+    schemes:
+      - academiq
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}.${ext}

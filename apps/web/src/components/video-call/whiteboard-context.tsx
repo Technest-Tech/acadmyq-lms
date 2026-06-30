@@ -81,6 +81,14 @@ export interface WhiteboardValue {
   goToPage: (page: number) => void;
   /** Host: close the document (clears the board). */
   closeDocument: () => void;
+
+  // --- Screen-share annotation (separate lane from the Excalidraw board above) ---
+  /** The merged screen-share annotation scene (strokes over the live shared screen). */
+  screenAnnotations: readonly BoardElement[];
+  /** Author/extend screen-share annotation elements (canDraw-gated); broadcasts + forwards to desktop. */
+  pushScreenAnnotation: (elements: BoardElement[]) => void;
+  /** Host: wipe all screen-share annotations. */
+  clearScreenAnnotations: () => void;
 }
 
 const WhiteboardContext = createContext<WhiteboardValue | null>(null);
@@ -182,6 +190,14 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
   canManageRef.current = canManage;
   const apiRef = useRef<BoardApi | null>(null);
   const sceneRef = useRef<BoardElement[]>([]); // full local truth (backgrounds + annotations)
+
+  // Screen-share annotation lane — strokes drawn over the LIVE shared screen, kept entirely separate
+  // from the Excalidraw scene above so the two surfaces never bleed. Reuses the same merge rule.
+  const [screenAnnotations, setScreenAnnotations] = useState<BoardElement[]>([]);
+  const screenSceneRef = useRef<BoardElement[]>([]);
+  const screenSentVersions = useRef<Map<string, number>>(new Map());
+  const canDrawRef = useRef(false);
+  canDrawRef.current = canManage || allowDraw;
   // id → version we last broadcast, so a change burst only sends the touched elements (the delta).
   const sentVersions = useRef<Map<string, number>>(new Map());
   // File ids the room already has (we sent them, or received them) — never re-broadcast these bytes.
@@ -233,6 +249,36 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
     }
     apiRef.current?.updateScene({ elements: merged });
   }, []);
+
+  // Publish the merged screen-annotation scene to React (the on-video layer renders it) and, on the
+  // teacher's desktop app, to the overlay window — which bakes it into the shared screen pixels. The
+  // forward is a no-op in a plain browser (window.academiqDesktop absent), so web stays unaffected.
+  const commitScreen = useCallback((next: BoardElement[]) => {
+    screenSceneRef.current = next;
+    setScreenAnnotations(next);
+    if (typeof window !== "undefined" && window.academiqDesktop) {
+      window.academiqDesktop.pushAnnotationScene(next);
+    }
+  }, []);
+
+  const pushScreenAnnotation = useCallback(
+    (elements: BoardElement[]) => {
+      if (!canDrawRef.current || elements.length === 0) return;
+      const merged = mergeElements(screenSceneRef.current, elements);
+      const delta = changedSince(merged, screenSentVersions.current);
+      for (const el of merged) screenSentVersions.current.set(el.id, el.version);
+      if (delta.length > 0) sendMessage({ t: "sa-scene", elements: delta });
+      commitScreen(merged);
+    },
+    [sendMessage, commitScreen],
+  );
+
+  const clearScreenAnnotations = useCallback(() => {
+    if (!canManageRef.current) return;
+    screenSentVersions.current.clear();
+    sendMessage({ t: "sa-clear" });
+    commitScreen([]);
+  }, [sendMessage, commitScreen]);
 
   // Buffer-reassemble an embedded image's chunks, then add its bytes to the canvas (or queue them if
   // Excalidraw hasn't mounted). The image ELEMENT itself arrives over the scene feed.
@@ -362,6 +408,10 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
             }
             // ...and any embedded images on the board, so late joiners don't see broken placeholders.
             void broadcastFiles(from);
+            // ...and the current screen-share annotations (their own lane).
+            if (screenSceneRef.current.length > 0) {
+              sendMessage({ t: "sa-scene", elements: screenSceneRef.current }, from);
+            }
           }
           break;
         case "sync-full":
@@ -418,9 +468,20 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
           maybeAssembleFile(fileId);
           break;
         }
+        case "sa-scene": {
+          const incoming = msg.elements as BoardElement[];
+          // Record received versions so we don't echo someone else's strokes back as our own delta.
+          for (const el of incoming) screenSentVersions.current.set(el.id, el.version);
+          commitScreen(mergeElements(screenSceneRef.current, incoming));
+          break;
+        }
+        case "sa-clear":
+          screenSentVersions.current.clear();
+          commitScreen([]);
+          break;
       }
     },
-    [applyScene, sendMessage, maybeAssemble, maybeAssembleFile, broadcastFiles, closeDocLocal],
+    [applyScene, sendMessage, maybeAssemble, maybeAssembleFile, broadcastFiles, closeDocLocal, commitScreen],
   );
   handlerRef.current = handleMessage;
 
@@ -596,6 +657,9 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
       loadDocument,
       goToPage,
       closeDocument,
+      screenAnnotations,
+      pushScreenAnnotation,
+      clearScreenAnnotations,
     }),
     [
       open,
@@ -614,6 +678,9 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
       loadDocument,
       goToPage,
       closeDocument,
+      screenAnnotations,
+      pushScreenAnnotation,
+      clearScreenAnnotations,
     ],
   );
 

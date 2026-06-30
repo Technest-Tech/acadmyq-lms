@@ -24,6 +24,8 @@ into the existing AcademIQ system (`apps/api` Laravel + `apps/web` Next.js + Pos
 | [03-DATA-MODEL.md](03-DATA-MODEL.md) | New tables + migrations (RLS-scoped), enums, indexes, seed data, entitlement/permission seeds, guest-join design | ✅ Written |
 | [04-FLUTTER-CLIENT.md](04-FLUTTER-CLIENT.md) | Flutter app clean architecture, the `MediaSession` abstraction, design system, state mgmt, multi-platform (mobile→desktop) | ✅ Written |
 | [06-WEB-CALL-CLIENT.md](06-WEB-CALL-CLIENT.md) | **PRIORITY** — browser call client + shareable per-room join links (Zoom-style), premium responsive UI, mobile web | 📋 Spec (next build) |
+| [09-WHITEBOARD-AND-ANNOTATION.md](09-WHITEBOARD-AND-ANNOTATION.md) | Shared Excalidraw whiteboard + PDF/document annotation over the LiveKit data channel | ✅ Written |
+| [10-DESKTOP-CLIENT.md](10-DESKTOP-CLIENT.md) | Teacher Electron app (`apps/desktop`) — baked-into-screen annotation, native picker, deep-link (`V-DESK-*`) | 🚧 In progress |
 
 **Status legend:** ✅ written · ⏳ to be written next · 🚧 in progress
 

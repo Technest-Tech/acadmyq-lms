@@ -16,6 +16,7 @@ import { DraggablePip } from "./draggable-pip";
 import { selectLayout, tileDensity, tileGrid } from "./layout";
 import { ParticipantTile } from "./participant-tile";
 import { usePin } from "./pin-context";
+import { ScreenAnnotateLayer } from "./screen-annotate-layer";
 import { useRecording } from "./recording-context";
 import { useElementSize } from "./use-element-size";
 
@@ -105,7 +106,7 @@ export function CallStage({
           <p className="text-sm">{t("connecting")}</p>
         </div>
       ) : renderMode === "presenter" ? (
-        <FocusLayout focus={screens[0]} others={cameras} youLabel={t("you")} />
+        <FocusLayout focus={screens[0]} others={cameras} youLabel={t("you")} annotatable />
       ) : renderMode === "pinned" ? (
         <FocusLayout
           focus={pinnedTrack}
@@ -270,15 +271,19 @@ function FocusLayout({
   focus,
   others,
   youLabel,
+  annotatable = false,
 }: {
   focus: TrackReferenceOrPlaceholder | undefined;
   others: TrackReferenceOrPlaceholder[];
   youLabel: string;
+  /** Overlay the screen-share annotation surface (presenter/screen-share focus only). */
+  annotatable?: boolean;
 }) {
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="relative min-h-0 flex-1">
         {focus && <ParticipantTile trackRef={focus} fill youLabel={youLabel} />}
+        {annotatable && focus && <ScreenAnnotateLayer />}
       </div>
       {others.length > 0 && (
         <div className="flex shrink-0 gap-2 overflow-x-auto pb-1">

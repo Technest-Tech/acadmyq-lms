@@ -1,0 +1,28 @@
+{
+  "name": "@academiq/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AcademIQ Teacher — Electron desktop client wrapping the web call UI (Phase 1: shell).",
+  "main": "./out/main/index.js",
+  "author": "AcademIQ",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "rebuild:electron": "node -e \"const {execSync}=require('node:child_process'),{dirname}=require('node:path');const d=dirname(require.resolve('electron/package.json'));execSync(process.execPath+' install.js',{cwd:d,stdio:'inherit'})\"",
+    "pack:win": "electron-vite build && electron-builder --win nsis --dir",
+    "dist:win": "electron-vite build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.11"
+  }
+}
