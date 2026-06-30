@@ -4,23 +4,22 @@ packages:
   - "apps/desktop"
   - "packages/*"
 
-# Dependency build scripts are blocked by default (pnpm 10+) and pnpm exits
-# non-zero in CI/deploy when any are left "ignored" until acknowledged. These
-# packages ship prebuilt binaries, so we explicitly decline to build them —
-# pnpm then skips them and exits 0. `allowBuilds` is the pnpm 11+ key; pnpm 10
-# already blocks builds by default (warning only), so this is the one knob that
-# matters on the deploy server's pnpm.
-allowBuilds:
-  '@parcel/watcher': false
-  '@swc/core': false
-  core-js: false
-  sharp: false
-  unrs-resolver: false
-  # apps/wa-gateway deps — ship prebuilt / need no install-time build (the gateway runs fine
-  # with these declined). Listed so pnpm exits 0 instead of ERR_PNPM_IGNORED_BUILDS on deploy.
-  baileys: false
-  esbuild: false
-  protobufjs: false
-  # apps/desktop (electron) is intentionally NOT opted-in here: Electron's postinstall downloads a
-  # ~150 MB binary that CI/deploy never need (they don't run the desktop app). Developers fetch it
-  # locally with `pnpm --filter @academiq/desktop run rebuild:electron` (see apps/desktop/README).
+# Dependency build scripts are blocked by default (pnpm 10/11). On a fresh install pnpm exits
+# non-zero (ERR_PNPM_IGNORED_BUILDS) for any dependency whose build script is ignored but not
+# explicitly acknowledged. `ignoredBuiltDependencies` is the real pnpm key for that
+# acknowledgement (the old `allowBuilds` key was NOT a pnpm setting — it was a silent no-op, and
+# fresh deploys only passed because these packages were already in the store). Each package below
+# ships prebuilt binaries (or, for electron, a ~150 MB binary that CI/deploy never need), so we
+# decline to build them and pnpm exits 0. Developers who actually run the desktop app fetch
+# electron's binary locally with `pnpm --filter @academiq/desktop run rebuild:electron`
+# (see apps/desktop/README).
+ignoredBuiltDependencies:
+  - '@parcel/watcher'
+  - '@swc/core'
+  - core-js
+  - sharp
+  - unrs-resolver
+  - baileys
+  - esbuild
+  - protobufjs
+  - electron
