@@ -32,6 +32,11 @@ function ensureOverlay(): BrowserWindow {
     fullscreenable: false,
     skipTaskbar: true,
     focusable: false, // never steals focus from the app being annotated
+    // Let the overlay cover the WHOLE display incl. the macOS menu-bar region. Without this, macOS
+    // clamps the window below the menu bar, so everything it paints lands ~menu-bar-height too LOW in
+    // the screen capture (marks appear shifted down from where they were drawn). With it + the
+    // screen-saver level, the overlay's (0,0) is the true top-left of the captured display.
+    enableLargerThanScreen: true,
     backgroundColor: "#00000000",
     webPreferences: {
       preload: join(__dirname, "../preload/overlay-preload.js"),
