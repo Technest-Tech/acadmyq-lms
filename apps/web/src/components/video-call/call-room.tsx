@@ -108,6 +108,19 @@ function InCall({
   const [panelOpen, setPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
+  // Presenter-panel collapse (desktop): shrink the floating window into a small bubble and back.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    if (!presenter && collapsed) setCollapsed(false); // share stopped → always reopen
+  }, [presenter, collapsed]);
+  const collapsePanel = useCallback(() => {
+    setCollapsed(true);
+    window.academiqDesktop?.collapsePresenter?.();
+  }, []);
+  const expandPanel = useCallback(() => {
+    setCollapsed(false);
+    window.academiqDesktop?.expandPresenter?.();
+  }, []);
 
   // A local pin/spotlight, shared with the stage + tiles + panel. Drop it if the pinned person leaves.
   useEffect(() => {
@@ -143,6 +156,8 @@ function InCall({
                       roomTitle={roomTitle}
                       suppressRecording={suppressRecording}
                       presenter={presenter}
+                      collapsed={collapsed}
+                      onExpand={expandPanel}
                     />
                     <RoomAudioRenderer />
                     <ParticipantsPanel
@@ -157,14 +172,26 @@ function InCall({
                       onClose={() => setSettingsOpen(false)}
                     />
                     <ChatPanel />
-                    <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
-                      <ControlBar
-                        onToggleParticipants={() => setPanelOpen((v) => !v)}
-                        onToggleSettings={() => setSettingsOpen((v) => !v)}
-                        participantCount={participants.length}
-                        canManage={canManage}
-                      />
-                    </div>
+                    {/* The control bar hides while collapsed (the bubble is the only UI); compact in
+                        presenter mode so it fits the small floating panel. */}
+                    {!collapsed && (
+                      <div
+                        className={
+                          presenter
+                            ? "shrink-0 px-1.5 pb-1.5 pt-1"
+                            : "shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3"
+                        }
+                      >
+                        <ControlBar
+                          onToggleParticipants={() => setPanelOpen((v) => !v)}
+                          onToggleSettings={() => setSettingsOpen((v) => !v)}
+                          participantCount={participants.length}
+                          canManage={canManage}
+                          presenter={presenter}
+                          onCollapse={collapsePanel}
+                        />
+                      </div>
+                    )}
                   </CallTimerProvider>
                 </WhiteboardProvider>
               </RecordingProvider>

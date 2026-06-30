@@ -13,13 +13,12 @@ import {
   beginElement,
   extendElement,
   hitsElement,
-  pointerToShare,
   tombstone,
   type AuthoredEl,
   type SceneEl,
   type ToolKind,
 } from "./authoring";
-import { SHARE_W } from "./coords";
+import { SHARE_W, shareFrameHeight } from "./coords";
 
 type Pt = [number, number];
 
@@ -66,6 +65,11 @@ const ctx = canvas.getContext("2d")!;
 
 let scene: El[] = [];
 let tool: ToolState = { tool: "pen", color: "#ef4444", width: 6 };
+// The shared display's NATIVE pixel size (from overlay:meta). The share frame's height is keyed on
+// this aspect — the SAME one the web student uses (their video's natural size) — so marks the student
+// draws bake back at the exact spot. Falls back to the window aspect until meta arrives.
+let displayW = 0;
+let displayH = 0;
 
 // In-progress authoring state.
 let active: AuthoredEl | null = null;
@@ -83,7 +87,12 @@ window.academiqOverlay?.onScene((elements) => {
   scene = Array.isArray(elements) ? elements : [];
   redraw();
 });
-window.academiqOverlay?.onMeta(() => redraw());
+window.academiqOverlay?.onMeta((m) => {
+  const meta = m as { width?: number; height?: number } | null;
+  displayW = meta?.width ?? 0;
+  displayH = meta?.height ?? 0;
+  redraw();
+});
 window.academiqOverlay?.onTool((t) => {
   tool = t;
   document.body.style.cursor =
@@ -94,8 +103,20 @@ window.addEventListener("resize", redraw);
 
 // ---- Authoring (pointer capture) ----------------------------------------------------------------
 
+/** The share frame's height (scene units) for the current display — native aspect if known, else the
+ * window's own aspect. Keep identical to the web's `shareFrameHeight(video.natural*)`. */
+function frameHeight(cssW: number, cssH: number): number {
+  if (displayW > 0 && displayH > 0) return shareFrameHeight(displayW, displayH);
+  return cssW > 0 ? (SHARE_W * cssH) / cssW : SHARE_W;
+}
+
+/** Map an overlay CSS-pixel pointer position to share-frame units (x by width, y by the share-frame
+ * height — NOT a uniform scale, so it lines up with the web even if the window aspect drifts). */
 function sharePoint(e: PointerEvent): Pt {
-  return pointerToShare(e.clientX, e.clientY, window.innerWidth);
+  const cssW = window.innerWidth;
+  const cssH = window.innerHeight;
+  const shareH = frameHeight(cssW, cssH);
+  return [cssW > 0 ? (e.clientX * SHARE_W) / cssW : 0, cssH > 0 ? (e.clientY * shareH) / cssH : 0];
 }
 
 /** Optimistically apply an authored delta into the local scene so the mark shows instantly. */
@@ -219,9 +240,13 @@ function redraw(): void {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // share units → device px: uniform scale k (share→CSS) composed with dpr (CSS→device).
-  const k = (cssW / SHARE_W) * dpr;
-  ctx.setTransform(k, 0, 0, k, 0, 0);
+  // share units → device px. X scales by width; Y scales by the share-frame height (native display
+  // aspect), so a mark lands at the same FRACTION of the screen the web placed it at — fixing the
+  // vertical drift between a student's web canvas and the baked overlay. dpr composes CSS→device.
+  const shareH = frameHeight(cssW, cssH);
+  const kx = (cssW / SHARE_W) * dpr;
+  const ky = (cssH / shareH) * dpr;
+  ctx.setTransform(kx, 0, 0, ky, 0, 0);
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
 

@@ -3132,6 +3132,8 @@
     "exitFullscreen": "Exit fullscreen",
     "pictureInPicture": "Floating window",
     "exitPictureInPicture": "Close floating window",
+    "collapsePanel": "Collapse",
+    "expandPanel": "Expand panel",
     "settings": "Settings",
     "audio": "Audio",
     "video": "Video",

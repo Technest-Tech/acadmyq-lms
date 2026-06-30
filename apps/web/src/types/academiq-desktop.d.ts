@@ -32,6 +32,10 @@ declare global {
      * presenter mode was never entered (doubles as the share-stop overlay cleanup).
      */
     exitPresenter?(): void;
+    /** Collapse the floating presenter panel into a small bubble. Optional. */
+    collapsePresenter?(): void;
+    /** Restore the bubble back to the full floating presenter panel. Optional. */
+    expandPresenter?(): void;
     /**
      * Subscribe to strokes the teacher authored on the interactive overlay (their own pen, Phase 5).
      * The web client injects them into the screen-annotation lane like a local stroke. Returns an

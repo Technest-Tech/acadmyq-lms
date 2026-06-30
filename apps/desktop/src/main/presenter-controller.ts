@@ -22,24 +22,31 @@ import { hideOverlay, postSceneToOverlay } from "./window-overlay";
  */
 const PANEL_W = 420;
 const PANEL_H = 340;
+const BUBBLE_W = 84;
+const BUBBLE_H = 84;
 const MARGIN = 16;
 
 let active = false;
+let collapsed = false;
 let savedBounds: Electron.Rectangle | null = null;
 let savedMinSize: [number, number] | null = null;
 let wasMaximized = false;
 
-/** Anchor the panel to the top-trailing (right) corner of the shared display (or the cursor's). */
-function panelBounds(): Electron.Rectangle {
+/** Anchor a panel of the given size to the top-trailing (right) corner of the shared display. */
+function anchoredBounds(width: number, height: number): Electron.Rectangle {
   const display =
     getSharedDisplay() ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const wa = display.workArea; // respects menu bar / taskbar
   return {
-    x: Math.round(wa.x + wa.width - PANEL_W - MARGIN),
+    x: Math.round(wa.x + wa.width - width - MARGIN),
     y: Math.round(wa.y + MARGIN),
-    width: PANEL_W,
-    height: PANEL_H,
+    width,
+    height,
   };
+}
+
+function panelBounds(): Electron.Rectangle {
+  return anchoredBounds(PANEL_W, PANEL_H);
 }
 
 /** Reshape + content-protect the call window into the floating presenter panel. */
@@ -51,12 +58,29 @@ export function enterPresenter(): void {
   savedBounds = win.getBounds();
   savedMinSize = win.getMinimumSize() as [number, number];
 
+  collapsed = false;
   if (wasMaximized) win.unmaximize();
   win.setContentProtection(true); // exclude the panel from the shared-screen capture
-  win.setMinimumSize(300, 220); // allow the small panel (normal min is 960×600)
+  win.setMinimumSize(BUBBLE_W, BUBBLE_H); // allow the bubble (normal min is 960×600)
   win.setBounds(panelBounds());
   win.setAlwaysOnTop(true, "screen-saver"); // float above the teacher's other apps
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+}
+
+/** Shrink the floating panel into a small bubble (the web swaps to its compact bubble UI). */
+export function collapsePresenter(): void {
+  const win = getMainWindow();
+  if (!win || !active || collapsed) return;
+  collapsed = true;
+  win.setBounds(anchoredBounds(BUBBLE_W, BUBBLE_H));
+}
+
+/** Restore the bubble back to the full floating panel. */
+export function expandPresenter(): void {
+  const win = getMainWindow();
+  if (!win || !active || !collapsed) return;
+  collapsed = false;
+  win.setBounds(panelBounds());
 }
 
 /** Restore the call window and tear down the annotation overlay (also the stuck-overlay bug fix). */
@@ -84,6 +108,7 @@ export function exitPresenter(): void {
     win.focus();
   }
   active = false;
+  collapsed = false;
   savedBounds = null;
   savedMinSize = null;
   wasMaximized = false;

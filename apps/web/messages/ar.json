@@ -3132,6 +3132,8 @@
     "exitFullscreen": "إنهاء ملء الشاشة",
     "pictureInPicture": "نافذة عائمة",
     "exitPictureInPicture": "إغلاق النافذة العائمة",
+    "collapsePanel": "تصغير",
+    "expandPanel": "توسيع اللوحة",
     "settings": "الإعدادات",
     "audio": "الصوت",
     "video": "الفيديو",

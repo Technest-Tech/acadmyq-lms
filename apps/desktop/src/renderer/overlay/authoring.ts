@@ -2,8 +2,6 @@
 // Excalidraw-shaped annotation elements (in SHARE_W share-frame units), plus eraser hit-testing.
 // Kept free of DOM/IPC so the geometry is simple to reason about (and unit-testable if desktop ever
 // gains a test runner). The painter (overlay.ts) owns the canvas + event wiring; this owns the math.
-import { shareScale } from "./coords";
-
 export type Pt = [number, number];
 
 export type ToolKind =
@@ -44,13 +42,6 @@ export interface SceneEl {
   strokeWidth?: number;
   isDeleted?: boolean;
   version?: number;
-}
-
-/** Map a CSS-pixel pointer position on the full-display overlay to share-frame units (uniform scale). */
-export function pointerToShare(clientX: number, clientY: number, cssWidth: number): Pt {
-  const k = shareScale(cssWidth); // CSS px per share unit
-  if (k <= 0) return [0, 0];
-  return [clientX / k, clientY / k];
 }
 
 export function randomNonce(): number {

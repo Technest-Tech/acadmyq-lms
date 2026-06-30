@@ -9,6 +9,7 @@ import {
   Mic,
   MicOff,
   Minimize,
+  Minimize2,
   MonitorUp,
   Pencil,
   PhoneOff,
@@ -40,6 +41,7 @@ function ToggleButton({
   label,
   className = "",
   activeStyle = "bg-white/10 text-white hover:bg-white/20",
+  compact = false,
 }: {
   on: boolean;
   pending?: boolean;
@@ -49,6 +51,8 @@ function ToggleButton({
   label: string;
   className?: string;
   activeStyle?: string;
+  /** Smaller footprint for the floating presenter panel. */
+  compact?: boolean;
 }) {
   const Icon = on ? OnIcon : OffIcon;
   return (
@@ -59,11 +63,11 @@ function ToggleButton({
       aria-pressed={on}
       aria-label={label}
       title={label}
-      className={`flex size-12 items-center justify-center rounded-full transition disabled:opacity-50 ${
+      className={`flex ${compact ? "size-10" : "size-12"} items-center justify-center rounded-full transition disabled:opacity-50 ${
         on ? activeStyle : "bg-red-500/90 text-white hover:bg-red-500"
       } ${className}`}
     >
-      <Icon className="size-5" />
+      <Icon className={compact ? "size-[18px]" : "size-5"} />
     </button>
   );
 }
@@ -94,7 +98,7 @@ function WhiteboardButton() {
  * (canDraw); a sibling clear button wipes the marks. In a plain browser this renders nothing, so the
  * web control bar is unchanged (V-DESK-3). Marks bake into the shared screen via the desktop overlay.
  */
-function AnnotateButton() {
+function AnnotateButton({ compact = false }: { compact?: boolean }) {
   const isDesktop = useIsDesktop();
   const { canManage, setAllowDraw, clearScreenAnnotations, setScreenBaking } = useWhiteboard();
   const [on, setOn] = useState(false);
@@ -128,6 +132,8 @@ function AnnotateButton() {
     window.academiqDesktop?.setAnnotateMode?.(next);
   };
 
+  const sz = compact ? "size-10" : "size-12";
+  const icon = compact ? "size-[18px]" : "size-5";
   return (
     <>
       <button
@@ -136,13 +142,14 @@ function AnnotateButton() {
         aria-pressed={on}
         aria-label="Annotate shared screen"
         title="Annotate shared screen"
-        className={`flex size-12 items-center justify-center rounded-full transition ${
+        className={`flex ${sz} items-center justify-center rounded-full transition ${
           on ? "bg-emerald-500/90 text-white hover:bg-emerald-500" : "bg-white/10 text-white hover:bg-white/20"
         }`}
       >
-        <Pencil className="size-5" />
+        <Pencil className={icon} />
       </button>
-      {on && (
+      {/* In the compact presenter bar the floating toolbar already carries Clear, so skip it here. */}
+      {on && !compact && (
         <button
           type="button"
           onClick={clearScreenAnnotations}
@@ -163,7 +170,7 @@ function AnnotateButton() {
  * through the `starting`/`stopping` windows until egress actually flips — the context fires the
  * "started" / "saved" toasts off the real signal, so this button is purely presentational.
  */
-function RecordButton() {
+function RecordButton({ compact = false }: { compact?: boolean }) {
   const t = useTranslations("videoCall");
   const { phase, isRecording, busy, toggle } = useRecording();
   const active = isRecording || phase === "stopping";
@@ -184,14 +191,14 @@ function RecordButton() {
       aria-pressed={active}
       aria-label={label}
       title={label}
-      className={`flex size-12 items-center justify-center rounded-full transition disabled:opacity-60 ${
+      className={`flex ${compact ? "size-10" : "size-12"} items-center justify-center rounded-full transition disabled:opacity-60 ${
         active ? "bg-red-500/90 text-white hover:bg-red-500" : "bg-white/10 text-white hover:bg-white/20"
       }`}
     >
       {busy ? (
-        <Loader2 className="size-5 animate-spin" />
+        <Loader2 className={`${compact ? "size-[18px]" : "size-5"} animate-spin`} />
       ) : active ? (
-        <Square className="size-4 fill-current" />
+        <Square className={`${compact ? "size-3.5" : "size-4"} fill-current`} />
       ) : (
         <span className="size-3.5 rounded-full bg-red-500" />
       )}
@@ -209,12 +216,18 @@ export function ControlBar({
   onToggleSettings,
   participantCount,
   canManage,
+  presenter = false,
+  onCollapse,
 }: {
   onToggleParticipants: () => void;
   onToggleSettings: () => void;
   participantCount: number;
   /** Host with room.manage → show the record toggle (driven by recording-context). */
   canManage: boolean;
+  /** Compact, single-row layout for the small floating presenter panel (desktop screen-share). */
+  presenter?: boolean;
+  /** Presenter only: collapse the panel into a bubble. */
+  onCollapse?: () => void;
 }) {
   const t = useTranslations("videoCall");
   const room = useRoomContext();
@@ -227,6 +240,81 @@ export function ControlBar({
   });
   const fs = useFullscreen();
   const pip = usePip();
+
+  // Compact presenter bar: a single tidy row of just the controls a teacher needs while sharing —
+  // mic · camera · stop-share · annotate · record · participants · collapse · leave. The rest
+  // (fullscreen/PiP/whiteboard/chat/settings) stay in the full bar shown when not presenting.
+  if (presenter) {
+    return (
+      <div className="mx-auto flex w-fit max-w-full items-center justify-center gap-1.5 overflow-x-auto rounded-full bg-slate-800/90 px-2 py-1.5 ring-1 ring-white/10 backdrop-blur">
+        <ToggleButton
+          compact
+          on={mic.enabled}
+          pending={mic.pending}
+          onClick={() => void mic.toggle()}
+          OnIcon={Mic}
+          OffIcon={MicOff}
+          label={mic.enabled ? t("muteMic") : t("unmuteMic")}
+        />
+        <ToggleButton
+          compact
+          on={cam.enabled}
+          pending={cam.pending}
+          onClick={() => void cam.toggle()}
+          OnIcon={Video}
+          OffIcon={VideoOff}
+          label={cam.enabled ? t("turnCameraOff") : t("turnCameraOn")}
+        />
+        <button
+          type="button"
+          onClick={() => void screen.toggle()}
+          disabled={screen.pending}
+          aria-pressed={screen.enabled}
+          aria-label={screen.enabled ? t("stopShareScreen") : t("shareScreen")}
+          title={screen.enabled ? t("stopShareScreen") : t("shareScreen")}
+          className={`flex size-10 shrink-0 items-center justify-center rounded-full transition disabled:opacity-50 ${
+            screen.enabled ? "bg-emerald-500/90 text-white hover:bg-emerald-500" : "bg-white/10 text-white hover:bg-white/20"
+          }`}
+        >
+          <MonitorUp className="size-[18px]" />
+        </button>
+        <AnnotateButton compact />
+        {canManage && <RecordButton compact />}
+        <button
+          type="button"
+          onClick={onToggleParticipants}
+          aria-label={t("participants")}
+          title={t("participants")}
+          className="relative flex size-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+        >
+          <Users className="size-[18px]" />
+          <span className="absolute -end-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[0.6rem] font-bold text-white">
+            {participantCount}
+          </span>
+        </button>
+        {onCollapse && (
+          <button
+            type="button"
+            onClick={onCollapse}
+            aria-label={t("collapsePanel")}
+            title={t("collapsePanel")}
+            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+          >
+            <Minimize2 className="size-[18px]" />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => void room.disconnect()}
+          aria-label={t("leave")}
+          title={t("leave")}
+          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700"
+        >
+          <PhoneOff className="size-[18px]" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex w-fit max-w-[calc(100vw-1rem)] flex-wrap items-center justify-center gap-2 rounded-3xl bg-slate-800/80 px-3 py-2.5 ring-1 ring-white/10 backdrop-blur sm:gap-3 sm:rounded-full sm:px-4">

@@ -41,6 +41,14 @@ const api = {
   exitPresenter(): void {
     ipcRenderer.send("presenter:exit");
   },
+  /** Collapse the floating presenter panel into a small bubble. */
+  collapsePresenter(): void {
+    ipcRenderer.send("presenter:collapse");
+  },
+  /** Restore the bubble back to the full floating presenter panel. */
+  expandPresenter(): void {
+    ipcRenderer.send("presenter:expand");
+  },
   /**
    * Subscribe to strokes the teacher authored on the interactive overlay (their own pen). The web
    * client injects them into the screen-annotation lane exactly like a local stroke (broadcast to

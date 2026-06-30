@@ -1,7 +1,12 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { loadMeeting, loadSignIn } from "./home";
 import { armAnnotate, setTool, type AnnotationTool } from "./overlay-controller";
-import { enterPresenter, exitPresenter } from "./presenter-controller";
+import {
+  collapsePresenter,
+  enterPresenter,
+  exitPresenter,
+  expandPresenter,
+} from "./presenter-controller";
 import { getMainWindow } from "./window-main";
 import { postCommandToOverlay, postSceneToOverlay } from "./window-overlay";
 
@@ -63,6 +68,12 @@ export function registerIpc(): void {
   });
   ipcMain.on("presenter:exit", () => {
     exitPresenter();
+  });
+  ipcMain.on("presenter:collapse", () => {
+    collapsePresenter();
+  });
+  ipcMain.on("presenter:expand", () => {
+    expandPresenter();
   });
 }
 

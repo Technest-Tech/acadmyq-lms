@@ -1,6 +1,7 @@
 "use client";
 
 import { CallStage } from "./call-stage";
+import { PresenterBubble } from "./presenter-bubble";
 import { PresenterPanel } from "./presenter-panel";
 import { WhiteboardPanel } from "./whiteboard-panel";
 import { useWhiteboard } from "./whiteboard-context";
@@ -17,14 +18,22 @@ export function CallMain({
   roomTitle,
   suppressRecording,
   presenter,
+  collapsed = false,
+  onExpand,
 }: {
   roomTitle: string;
   suppressRecording: boolean;
   /** Desktop-only: the host is screen-sharing → show the compact participants panel. */
   presenter: boolean;
+  /** Presenter only: the panel is collapsed into a bubble. */
+  collapsed?: boolean;
+  /** Presenter only: expand the bubble back to the full panel. */
+  onExpand?: () => void;
 }) {
   const { open } = useWhiteboard();
-  if (presenter) return <PresenterPanel />;
+  if (presenter) {
+    return collapsed && onExpand ? <PresenterBubble onExpand={onExpand} /> : <PresenterPanel />;
+  }
   return open ? (
     <WhiteboardPanel />
   ) : (
