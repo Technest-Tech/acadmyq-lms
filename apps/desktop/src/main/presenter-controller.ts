@@ -23,8 +23,8 @@ import { hideShareIndicator, showShareIndicator } from "./window-share-indicator
  */
 const PANEL_W = 384;
 const PANEL_H = 312;
-const BUBBLE_W = 188;
-const BUBBLE_H = 120;
+const BUBBLE_W = 224;
+const BUBBLE_H = 132;
 const MARGIN = 16;
 const isMac = process.platform === "darwin";
 
