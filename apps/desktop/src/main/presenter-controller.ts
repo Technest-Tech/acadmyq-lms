@@ -69,6 +69,10 @@ export function exitPresenter(): void {
   hideOverlay(); // belt-and-suspenders
 
   const win = getMainWindow();
+  // Reset the web Annotate toggle + baking flag so a stopped share never leaves a stale "on" button
+  // (the overlay/toolbar are already torn down above). Harmless on a plain leave/unmount.
+  win?.webContents.send("desktop:annotate-control", "off");
+
   if (win && active) {
     win.setAlwaysOnTop(false);
     win.setVisibleOnAllWorkspaces(false);

@@ -38,7 +38,7 @@ interface ActiveStroke {
 }
 
 export function ScreenAnnotateLayer() {
-  const { canDraw, screenAnnotations, pushScreenAnnotation } = useWhiteboard();
+  const { canDraw, screenAnnotations, pushScreenAnnotation, screenBaking } = useWhiteboard();
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const activeRef = useRef<ActiveStroke | null>(null);
@@ -71,11 +71,18 @@ export function ScreenAnnotateLayer() {
 
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
-    for (const el of screenAnnotations) drawStroke(ctx, el, rect, shareH);
+    // When the sharer bakes marks into the video (desktop overlay), the persistent scene is already
+    // in the video pixels — re-drawing it here would double every stroke with a slight offset. So in
+    // that mode we paint ONLY the local in-progress stroke (a transient echo that gives the drawer
+    // instant feedback before the baked frame round-trips). A plain-web sharer doesn't bake, so the
+    // canvas stays the sole renderer and we paint the full scene.
+    if (!screenBaking) {
+      for (const el of screenAnnotations) drawStroke(ctx, el, rect, shareH);
+    }
     if (activeRef.current) {
       drawStroke(ctx, activeRef.current as unknown as BoardElement, rect, shareH);
     }
-  }, [screenAnnotations, findVideo]);
+  }, [screenAnnotations, screenBaking, findVideo]);
 
   // Redraw when the scene changes…
   useEffect(() => {

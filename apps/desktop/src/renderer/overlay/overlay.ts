@@ -1,10 +1,24 @@
-// The annotation overlay painter. It receives the room's annotation elements (Excalidraw-shaped,
-// authored in SHARE_W share-frame units) over IPC and paints them on a transparent canvas spanning
-// the shared display, so they bake into the screen-share capture. Render-only — never authors.
+// The annotation overlay painter + (Phase 5) the teacher's own authoring surface. It receives the
+// room's annotation elements (Excalidraw-shaped, in SHARE_W share-frame units) over IPC and paints
+// them on a transparent canvas spanning the shared display, so they bake into the screen-share
+// capture. When the teacher picks a drawing tool in the toolbar, main makes this window interactive
+// and pushes the tool; the overlay then captures the pointer, authors strokes (in the SAME share-frame
+// units the web uses), and sends them back to main → the web call client → students (the overlay has
+// no LiveKit connection of its own).
 //
-// Deliberately a lean canvas painter, NOT Excalidraw: the overlay only needs to DRAW (no tools,
-// selection, menus), must be truly transparent + click-through, and featherweight. It reuses the
-// PROTOCOL (the same elements the whiteboard channel carries), not the editor.
+// Deliberately a lean canvas painter, NOT Excalidraw: the overlay only needs to draw + capture simple
+// freehand/shape gestures, must be truly transparent, and featherweight. It reuses the PROTOCOL (the
+// same elements the whiteboard channel carries), not the editor.
+import {
+  beginElement,
+  extendElement,
+  hitsElement,
+  pointerToShare,
+  tombstone,
+  type AuthoredEl,
+  type SceneEl,
+  type ToolKind,
+} from "./authoring";
 import { SHARE_W } from "./coords";
 
 type Pt = [number, number];
@@ -26,6 +40,13 @@ interface El {
   text?: string;
   fontSize?: number;
   isDeleted?: boolean;
+  version?: number;
+}
+
+interface ToolState {
+  tool: ToolKind;
+  color: string;
+  width: number;
 }
 
 declare global {
@@ -33,6 +54,9 @@ declare global {
     academiqOverlay?: {
       onMeta(cb: (m: unknown) => void): () => void;
       onScene(cb: (elements: El[]) => void): () => void;
+      onTool(cb: (t: ToolState) => void): () => void;
+      onCommand(cb: (c: "undo" | "redo") => void): () => void;
+      author(elements: unknown[]): void;
     };
   }
 }
@@ -41,13 +65,149 @@ const canvas = document.getElementById("grid") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
 
 let scene: El[] = [];
+let tool: ToolState = { tool: "pen", color: "#ef4444", width: 6 };
+
+// In-progress authoring state.
+let active: AuthoredEl | null = null;
+let drawing = false;
+let lastSent = 0;
+const SEND_THROTTLE_MS = 45;
+const ERASER_RADIUS = 14; // share units
+
+// Undo/redo of the teacher's own marks. We only need ids — the (possibly deleted) elements live on
+// in `scene` (the merge keeps tombstones), so redo can resurrect them.
+const undoStack: string[] = [];
+const redoStack: string[] = [];
 
 window.academiqOverlay?.onScene((elements) => {
   scene = Array.isArray(elements) ? elements : [];
   redraw();
 });
 window.academiqOverlay?.onMeta(() => redraw());
+window.academiqOverlay?.onTool((t) => {
+  tool = t;
+  document.body.style.cursor =
+    t.tool === "select" ? "default" : t.tool === "eraser" ? "cell" : "crosshair";
+});
+window.academiqOverlay?.onCommand((c) => (c === "undo" ? undo() : redo()));
 window.addEventListener("resize", redraw);
+
+// ---- Authoring (pointer capture) ----------------------------------------------------------------
+
+function sharePoint(e: PointerEvent): Pt {
+  return pointerToShare(e.clientX, e.clientY, window.innerWidth);
+}
+
+/** Optimistically apply an authored delta into the local scene so the mark shows instantly. */
+function applyLocal(el: AuthoredEl): void {
+  const i = scene.findIndex((s) => s.id === el.id);
+  if (i >= 0) scene[i] = el as unknown as El;
+  else scene.push(el as unknown as El);
+}
+
+function sendActive(force: boolean): void {
+  if (!active) return;
+  const now = Date.now();
+  if (!force && now - lastSent < SEND_THROTTLE_MS) return;
+  lastSent = now;
+  // Send a copy so later mutation of the in-progress stroke doesn't alias the broadcast element.
+  const copy: AuthoredEl = { ...active, points: active.points ? [...active.points] : undefined };
+  applyLocal(copy);
+  window.academiqOverlay?.author([copy]);
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  if (tool.tool === "select") return;
+  if (tool.tool === "eraser") {
+    drawing = true;
+    canvas.setPointerCapture(e.pointerId);
+    eraseAt(sharePoint(e));
+    return;
+  }
+  active = beginElement(tool.tool, sharePoint(e), tool.color, tool.width);
+  if (!active) return;
+  drawing = true;
+  canvas.setPointerCapture(e.pointerId);
+  sendActive(true);
+  redraw();
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  if (!drawing) return;
+  const p = sharePoint(e);
+  if (tool.tool === "eraser") {
+    eraseAt(p);
+    return;
+  }
+  if (!active) return;
+  extendElement(active, tool.tool, p);
+  redraw();
+  sendActive(false);
+});
+
+function endStroke(): void {
+  if (!drawing) return;
+  drawing = false;
+  if (tool.tool === "eraser") return;
+  if (!active) return;
+  active.version += 1;
+  sendActive(true); // final, complete element
+  undoStack.push(active.id);
+  redoStack.length = 0;
+  active = null;
+  redraw();
+}
+
+canvas.addEventListener("pointerup", endStroke);
+canvas.addEventListener("pointercancel", endStroke);
+
+function eraseAt(p: Pt): void {
+  for (let i = scene.length - 1; i >= 0; i--) {
+    const el = scene[i] as SceneEl;
+    if (hitsElement(el, p, ERASER_RADIUS)) {
+      const dead = tombstone(el);
+      applyLocal(dead);
+      window.academiqOverlay?.author([dead]);
+      redraw();
+      break; // one element per move tick keeps it predictable
+    }
+  }
+}
+
+function undo(): void {
+  while (undoStack.length) {
+    const id = undoStack.pop()!;
+    const el = scene.find((s) => s.id === id) as SceneEl | undefined;
+    if (!el || el.isDeleted) continue; // already gone — keep popping
+    const dead = tombstone(el);
+    applyLocal(dead);
+    window.academiqOverlay?.author([dead]);
+    redoStack.push(id);
+    redraw();
+    return;
+  }
+}
+
+function redo(): void {
+  while (redoStack.length) {
+    const id = redoStack.pop()!;
+    const el = scene.find((s) => s.id === id) as SceneEl | undefined;
+    if (!el || !el.isDeleted) continue;
+    const alive: AuthoredEl = {
+      ...(el as unknown as AuthoredEl),
+      isDeleted: false,
+      version: (el.version ?? 1) + 1,
+      versionNonce: (Math.random() * 1e9) | 0,
+    };
+    applyLocal(alive);
+    window.academiqOverlay?.author([alive]);
+    undoStack.push(id);
+    redraw();
+    return;
+  }
+}
+
+// ---- Painting -----------------------------------------------------------------------------------
 
 function redraw(): void {
   const dpr = window.devicePixelRatio || 1;
@@ -66,8 +226,11 @@ function redraw(): void {
   ctx.lineCap = "round";
 
   for (const el of scene) {
-    if (!el.isDeleted && el.type) drawElement(el);
+    if (el.isDeleted || !el.type) continue;
+    if (active && el.id === active.id) continue; // the in-progress copy is drawn from `active`
+    drawElement(el);
   }
+  if (active) drawElement(active as unknown as El);
 }
 
 function drawElement(el: El): void {

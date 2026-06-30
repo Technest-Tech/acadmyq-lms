@@ -89,6 +89,14 @@ export interface WhiteboardValue {
   pushScreenAnnotation: (elements: BoardElement[]) => void;
   /** Host: wipe all screen-share annotations. */
   clearScreenAnnotations: () => void;
+  /**
+   * True when the active screen-sharer bakes annotations into the shared video (desktop app, annotate
+   * armed). Viewers then render only a transient local echo, never the full remote scene (which is
+   * already in the video pixels) — this is what prevents the duplicated/offset stroke.
+   */
+  screenBaking: boolean;
+  /** Desktop host: announce whether annotations are being baked into the shared video. */
+  setScreenBaking: (on: boolean) => void;
 }
 
 const WhiteboardContext = createContext<WhiteboardValue | null>(null);
@@ -196,6 +204,11 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
   const [screenAnnotations, setScreenAnnotations] = useState<BoardElement[]>([]);
   const screenSceneRef = useRef<BoardElement[]>([]);
   const screenSentVersions = useRef<Map<string, number>>(new Map());
+  // Whether the current screen-sharer bakes marks into the video (desktop app + annotate armed). Set
+  // locally by the desktop host (broadcast to all) and on receipt of an `sa-baking` packet.
+  const [screenBaking, setScreenBakingState] = useState(false);
+  const screenBakingRef = useRef(false);
+  screenBakingRef.current = screenBaking;
   const canDrawRef = useRef(false);
   canDrawRef.current = canManage || allowDraw;
   // id → version we last broadcast, so a change burst only sends the touched elements (the delta).
@@ -279,6 +292,18 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
     sendMessage({ t: "sa-clear" });
     commitScreen([]);
   }, [sendMessage, commitScreen]);
+
+  // Desktop host: tell everyone whether the shared screen is being baked with annotations, so viewers
+  // suppress their own canvas render of the scene (the marks are already in the video). Idempotent.
+  const setScreenBaking = useCallback(
+    (on: boolean) => {
+      if (screenBakingRef.current === on) return;
+      screenBakingRef.current = on;
+      setScreenBakingState(on);
+      sendMessage({ t: "sa-baking", baking: on });
+    },
+    [sendMessage],
+  );
 
   // Buffer-reassemble an embedded image's chunks, then add its bytes to the canvas (or queue them if
   // Excalidraw hasn't mounted). The image ELEMENT itself arrives over the scene feed.
@@ -412,6 +437,11 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
             if (screenSceneRef.current.length > 0) {
               sendMessage({ t: "sa-scene", elements: screenSceneRef.current }, from);
             }
+            // ...and whether those marks are being baked into the video, so the joiner doesn't
+            // double-render them on its canvas.
+            if (screenBakingRef.current) {
+              sendMessage({ t: "sa-baking", baking: true }, from);
+            }
           }
           break;
         case "sync-full":
@@ -478,6 +508,10 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
         case "sa-clear":
           screenSentVersions.current.clear();
           commitScreen([]);
+          break;
+        case "sa-baking":
+          screenBakingRef.current = msg.baking;
+          setScreenBakingState(msg.baking);
           break;
       }
     },
@@ -638,6 +672,19 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => () => void (flushTimer.current && clearTimeout(flushTimer.current)), []);
 
+  // Desktop only: the teacher's own strokes, authored on the interactive overlay (their pen), arrive
+  // over the bridge. Inject them into the screen-annotation lane exactly like a local web stroke — so
+  // they broadcast to students AND bake back into the overlay (the overlay has no LiveKit connection).
+  useEffect(() => {
+    const desktop = typeof window !== "undefined" ? window.academiqDesktop : undefined;
+    if (!desktop?.onScreenAnnotation) return;
+    return desktop.onScreenAnnotation((elements) => {
+      if (Array.isArray(elements) && elements.length > 0) {
+        pushScreenAnnotation(elements as BoardElement[]);
+      }
+    });
+  }, [pushScreenAnnotation]);
+
   const value = useMemo<WhiteboardValue>(
     () => ({
       open,
@@ -660,6 +707,8 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
       screenAnnotations,
       pushScreenAnnotation,
       clearScreenAnnotations,
+      screenBaking,
+      setScreenBaking,
     }),
     [
       open,
@@ -681,6 +730,8 @@ export function WhiteboardProvider({ children }: { children: ReactNode }) {
       screenAnnotations,
       pushScreenAnnotation,
       clearScreenAnnotations,
+      screenBaking,
+      setScreenBaking,
     ],
   );
 

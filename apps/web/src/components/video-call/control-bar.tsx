@@ -28,7 +28,7 @@ import { useRecording } from "./recording-context";
 import { useWhiteboard } from "./whiteboard-context";
 import { useFullscreen } from "./use-fullscreen";
 import { useIsDesktop } from "./use-is-desktop";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** A round mic/camera/screen toggle. Muted/inactive state is red/neutral; ≥44px touch target. */
 function ToggleButton({
@@ -96,8 +96,27 @@ function WhiteboardButton() {
  */
 function AnnotateButton() {
   const isDesktop = useIsDesktop();
-  const { canManage, setAllowDraw, clearScreenAnnotations } = useWhiteboard();
+  const { canManage, setAllowDraw, clearScreenAnnotations, setScreenBaking } = useWhiteboard();
   const [on, setOn] = useState(false);
+  const onRef = useRef(on);
+  onRef.current = on;
+
+  // The floating toolbar's Clear/Close buttons reach us over the bridge: "clear" wipes the marks,
+  // "off" (the toolbar's red X) flips this toggle off and tears down the draw permission + baking flag.
+  useEffect(() => {
+    const desktop = typeof window !== "undefined" ? window.academiqDesktop : undefined;
+    if (!desktop?.onAnnotateControl) return;
+    return desktop.onAnnotateControl((command) => {
+      if (command === "clear") {
+        clearScreenAnnotations();
+      } else if (command === "off" && onRef.current) {
+        setOn(false);
+        setAllowDraw(false);
+        setScreenBaking(false);
+        // The desktop side already disarmed the overlay (armAnnotate(false)); no setAnnotateMode here.
+      }
+    });
+  }, [clearScreenAnnotations, setAllowDraw, setScreenBaking]);
 
   if (!isDesktop || !canManage) return null;
 
@@ -105,6 +124,7 @@ function AnnotateButton() {
     const next = !on;
     setOn(next);
     setAllowDraw(next); // let students draw on the share while annotation is on
+    setScreenBaking(next); // tell viewers the overlay bakes marks → they stop double-rendering them
     window.academiqDesktop?.setAnnotateMode?.(next);
   };
 

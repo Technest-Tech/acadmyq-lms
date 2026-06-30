@@ -6,6 +6,7 @@ import { registerIpc } from "./ipc";
 import { initOverlayController, toggleAnnotate } from "./overlay-controller";
 import { createMainWindow } from "./window-main";
 import { destroyOverlay } from "./window-overlay";
+import { destroyToolbar } from "./window-toolbar";
 
 // Arm/disarm annotation. While armed the picker offers screens-only and the overlay rides the
 // shared display. (A web control-bar button replaces this shortcut in Phase 5.)
@@ -57,6 +58,7 @@ if (!gotLock) {
   app.on("will-quit", () => {
     globalShortcut.unregisterAll();
     destroyOverlay();
+    destroyToolbar();
   });
 
   app.on("window-all-closed", () => {

@@ -37,10 +37,13 @@ function Harness() {
       <span data-testid="open">{String(wb.open)}</span>
       <span data-testid="allowDraw">{String(wb.allowDraw)}</span>
       <span data-testid="canDraw">{String(wb.canDraw)}</span>
+      <span data-testid="screenBaking">{String(wb.screenBaking)}</span>
       <button onClick={wb.openBoard}>open</button>
       <button onClick={wb.closeBoard}>close</button>
       <button onClick={() => wb.setAllowDraw(true)}>grant</button>
       <button onClick={wb.clearBoard}>clear</button>
+      <button onClick={() => wb.setScreenBaking(true)}>bake-on</button>
+      <button onClick={() => wb.setScreenBaking(false)}>bake-off</button>
     </div>
   );
 }
@@ -118,6 +121,47 @@ describe("WhiteboardProvider", () => {
     dc.send.mockClear();
     inject({ t: "sync-request" }, "guest-9");
     expect(sentMessages().some((m) => m.t === "sync-full")).toBe(false);
+  });
+
+  it("a desktop host announces baking state once per change and reflects it locally", () => {
+    renderWb(true);
+    expect(screen.getByTestId("screenBaking").textContent).toBe("false");
+
+    fireEvent.click(screen.getByText("bake-on"));
+    expect(screen.getByTestId("screenBaking").textContent).toBe("true");
+    expect(sentMessages().at(-1)).toEqual({ t: "sa-baking", baking: true });
+
+    // Idempotent: re-asserting the same state sends nothing new.
+    dc.send.mockClear();
+    fireEvent.click(screen.getByText("bake-on"));
+    expect(sentMessages().some((m) => m.t === "sa-baking")).toBe(false);
+
+    fireEvent.click(screen.getByText("bake-off"));
+    expect(screen.getByTestId("screenBaking").textContent).toBe("false");
+    expect(sentMessages().at(-1)).toEqual({ t: "sa-baking", baking: false });
+  });
+
+  it("a viewer adopts the sharer's baking state from an sa-baking packet", () => {
+    renderWb(false);
+    expect(screen.getByTestId("screenBaking").textContent).toBe("false");
+    inject({ t: "sa-baking", baking: true });
+    expect(screen.getByTestId("screenBaking").textContent).toBe("true");
+    inject({ t: "sa-baking", baking: false });
+    expect(screen.getByTestId("screenBaking").textContent).toBe("false");
+  });
+
+  it("the host replays the baking flag to a late joiner's sync-request", () => {
+    renderWb(true);
+    fireEvent.click(screen.getByText("bake-on"));
+    dc.send.mockClear();
+
+    inject({ t: "sync-request" }, "guest-12");
+    const replies = dc.send.mock.calls
+      .map((c) => ({ msg: decodeMessage(c[0] as Uint8Array), opts: c[1] as { destinationIdentities?: string[] } }))
+      .filter((r) => r.msg?.t === "sa-baking");
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.msg).toEqual({ t: "sa-baking", baking: true });
+    expect(replies[0]!.opts.destinationIdentities).toEqual(["guest-12"]);
   });
 
   it("reconciles a remote scene into the live canvas via the registered API", () => {

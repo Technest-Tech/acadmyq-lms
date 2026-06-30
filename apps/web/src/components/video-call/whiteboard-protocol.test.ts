@@ -37,6 +37,10 @@ describe("whiteboard-protocol", () => {
         },
         { t: "doc-chunk", fileId: "f2", i: 0, n: 3, s: "AAAA" },
         { t: "doc-close" },
+        { t: "sa-scene", elements: [el("s", 1, 4)] },
+        { t: "sa-clear" },
+        { t: "sa-baking", baking: true },
+        { t: "sa-baking", baking: false },
       ];
       for (const m of msgs) expect(decodeMessage(encodeMessage(m))).toEqual(m);
     });

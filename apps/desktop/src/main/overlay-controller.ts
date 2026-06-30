@@ -1,6 +1,21 @@
 import { screen, type Display } from "electron";
 import { isDev } from "./env";
-import { hideOverlay, showOverlayOnDisplay } from "./window-overlay";
+import {
+  hideOverlay,
+  postToolToOverlay,
+  setOverlayInteractive,
+  showOverlayOnDisplay,
+} from "./window-overlay";
+import { hideToolbar, showToolbar } from "./window-toolbar";
+
+/** The teacher's current authoring tool/style — pushed to the overlay; drives its interactivity. */
+export interface AnnotationTool {
+  tool: "select" | "pen" | "line" | "arrow" | "rectangle" | "ellipse" | "eraser";
+  color: string;
+  width: number;
+}
+
+let currentTool: AnnotationTool = { tool: "pen", color: "#ef4444", width: 6 };
 
 /**
  * Owns the policy of WHEN and WHERE the annotation overlay appears:
@@ -54,9 +69,28 @@ export function getSharedDisplay(): Display | null {
   return screen.getAllDisplays().find((d) => String(d.id) === sharedDisplayId) ?? null;
 }
 
+/**
+ * Apply the teacher's tool pick: forward it to the overlay (cursor + authoring) and make the overlay
+ * interactive (pointer-capturing) for any drawing tool, or click-through for "select" so the teacher
+ * can keep using their PC. No-op for overlay placement, which `reconcile()` owns.
+ */
+export function setTool(tool: AnnotationTool): void {
+  currentTool = tool;
+  postToolToOverlay(tool);
+  setOverlayInteractive(tool.tool !== "select");
+}
+
 function reconcile(): void {
   const display =
     getSharedDisplay() ?? (isDev && annotateArmed ? screen.getPrimaryDisplay() : null);
-  if (annotateArmed && display) showOverlayOnDisplay(display);
-  else hideOverlay();
+  if (annotateArmed && display) {
+    showOverlayOnDisplay(display);
+    showToolbar();
+    // Re-assert interactivity for the current tool whenever we (re)show the overlay.
+    setOverlayInteractive(currentTool.tool !== "select");
+  } else {
+    setOverlayInteractive(false); // never leave the overlay capturing the pointer once disarmed
+    hideOverlay();
+    hideToolbar();
+  }
 }

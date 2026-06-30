@@ -13,6 +13,8 @@ let overlayWin: BrowserWindow | null = null;
 // Latest annotation scene, kept so a freshly shown/created overlay paints immediately (no waiting
 // for the next data-channel tick).
 let lastScene: unknown[] = [];
+// Latest authoring tool, so a freshly shown overlay knows its cursor + interactivity immediately.
+let lastTool: unknown = { tool: "pen", color: "#ef4444", width: 6 };
 const RENDERER_URL = process.env["ELECTRON_RENDERER_URL"];
 
 function ensureOverlay(): BrowserWindow {
@@ -67,6 +69,7 @@ export function showOverlayOnDisplay(display: Display): void {
       bounds: display.bounds,
     });
     win.webContents.send("overlay:scene", lastScene);
+    win.webContents.send("overlay:tool", lastTool);
   };
   if (win.webContents.isLoading()) win.webContents.once("did-finish-load", sync);
   else sync();
@@ -81,6 +84,21 @@ export function postSceneToOverlay(elements: unknown[]): void {
   const wc = overlayWin.webContents;
   if (wc.isLoading()) wc.once("did-finish-load", () => wc.send("overlay:scene", elements));
   else wc.send("overlay:scene", elements);
+}
+
+/** Push the active authoring tool/style to the overlay (remembered for the next show). */
+export function postToolToOverlay(tool: unknown): void {
+  lastTool = tool;
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  const wc = overlayWin.webContents;
+  if (wc.isLoading()) wc.once("did-finish-load", () => wc.send("overlay:tool", tool));
+  else wc.send("overlay:tool", tool);
+}
+
+/** Relay a toolbar command (undo/redo) to the overlay, which performs it against its authored marks. */
+export function postCommandToOverlay(command: "undo" | "redo"): void {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  overlayWin.webContents.send("overlay:command", command);
 }
 
 export function showOverlayOnPrimary(): void {

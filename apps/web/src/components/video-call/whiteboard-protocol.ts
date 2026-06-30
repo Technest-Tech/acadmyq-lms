@@ -44,7 +44,15 @@ export type WhiteboardMessage<E extends SyncElement = SyncElement> =
    */
   | { t: "sa-scene"; elements: E[] }
   /** Host wipes all screen-share annotations. */
-  | { t: "sa-clear" };
+  | { t: "sa-clear" }
+  /**
+   * The screen-sharer announces whether their annotations are being BAKED into the shared video
+   * (true only on the teacher's desktop app, while annotate mode is armed). When baking, viewers must
+   * NOT also paint the scene on their web canvas — it's already in the video pixels, and a second
+   * render would double the marks (with a slight coordinate offset). A plain-web sharer never sends
+   * this, so the web canvas stays the sole renderer there.
+   */
+  | { t: "sa-baking"; baking: boolean };
 
 /** A document page broadcast: metadata here, the image bytes across the matching doc-chunk msgs. */
 export interface DocPageMeta {
@@ -117,6 +125,7 @@ const MESSAGE_TYPES = new Set([
   "file-chunk",
   "sa-scene",
   "sa-clear",
+  "sa-baking",
 ]);
 
 function isWhiteboardMessage(v: unknown): v is WhiteboardMessage {

@@ -41,6 +41,26 @@ const api = {
   exitPresenter(): void {
     ipcRenderer.send("presenter:exit");
   },
+  /**
+   * Subscribe to strokes the teacher authored on the interactive overlay (their own pen). The web
+   * client injects them into the screen-annotation lane exactly like a local stroke (broadcast to
+   * students + baked back into the overlay). Returns an unsubscribe.
+   */
+  onScreenAnnotation(cb: (elements: unknown[]) => void): () => void {
+    const handler = (_e: unknown, elements: unknown[]) => cb(elements);
+    ipcRenderer.on("desktop:annotate-author", handler);
+    return () => ipcRenderer.removeListener("desktop:annotate-author", handler);
+  },
+  /**
+   * Subscribe to toolbar control commands routed to the web client: "clear" wipes the screen
+   * annotations (host-gated, broadcast); "off" means the toolbar's close button was pressed, so the
+   * Annotate toggle should flip off. Returns an unsubscribe.
+   */
+  onAnnotateControl(cb: (command: "clear" | "off") => void): () => void {
+    const handler = (_e: unknown, command: "clear" | "off") => cb(command);
+    ipcRenderer.on("desktop:annotate-control", handler);
+    return () => ipcRenderer.removeListener("desktop:annotate-control", handler);
+  },
 };
 
 contextBridge.exposeInMainWorld("academiqDesktop", api);

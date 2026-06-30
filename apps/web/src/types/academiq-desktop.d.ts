@@ -32,6 +32,17 @@ declare global {
      * presenter mode was never entered (doubles as the share-stop overlay cleanup).
      */
     exitPresenter?(): void;
+    /**
+     * Subscribe to strokes the teacher authored on the interactive overlay (their own pen, Phase 5).
+     * The web client injects them into the screen-annotation lane like a local stroke. Returns an
+     * unsubscribe. Optional: absent in older desktop builds.
+     */
+    onScreenAnnotation?(cb: (elements: readonly unknown[]) => void): () => void;
+    /**
+     * Subscribe to toolbar control commands ("clear" wipes screen annotations; "off" = the toolbar
+     * close button was pressed → flip the Annotate toggle off). Returns an unsubscribe. Optional.
+     */
+    onAnnotateControl?(cb: (command: "clear" | "off") => void): () => void;
   }
 
   interface Window {
