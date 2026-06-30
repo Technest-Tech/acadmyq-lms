@@ -24,6 +24,8 @@ import type { LobbySettings } from "./lobby";
 import { MonitorFrame } from "./monitor-frame";
 import { ParticipantsPanel } from "./participants-panel";
 import { PinContext, nextPinned } from "./pin-context";
+import { PresenterBubble } from "./presenter-bubble";
+import { PresenterShell } from "./presenter-panel";
 import { RecordingProvider } from "./recording-context";
 import { SettingsDialog } from "./settings-dialog";
 import { usePresenterMode } from "./use-presenter-mode";
@@ -152,13 +154,33 @@ function InCall({
                   <CallTimerProvider>
                     <ApplySettingsOnJoin />
                     {isMonitor && <MonitorFrame />}
-                    <CallMain
-                      roomTitle={roomTitle}
-                      suppressRecording={suppressRecording}
-                      presenter={presenter}
-                      collapsed={collapsed}
-                      onExpand={expandPanel}
-                    />
+                    {presenter ? (
+                      // Desktop screen-share: the modern floating presenter card (or its collapsed
+                      // bubble). The normal stage + control bar are replaced entirely.
+                      collapsed ? (
+                        <PresenterBubble onExpand={expandPanel} />
+                      ) : (
+                        <PresenterShell
+                          onCollapse={collapsePanel}
+                          canManage={canManage}
+                          participantCount={participants.length}
+                          onToggleParticipants={() => setPanelOpen((v) => !v)}
+                          onToggleSettings={() => setSettingsOpen((v) => !v)}
+                        />
+                      )
+                    ) : (
+                      <>
+                        <CallMain roomTitle={roomTitle} suppressRecording={suppressRecording} />
+                        <div className="shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
+                          <ControlBar
+                            onToggleParticipants={() => setPanelOpen((v) => !v)}
+                            onToggleSettings={() => setSettingsOpen((v) => !v)}
+                            participantCount={participants.length}
+                            canManage={canManage}
+                          />
+                        </div>
+                      </>
+                    )}
                     <RoomAudioRenderer />
                     <ParticipantsPanel
                       open={panelOpen}
@@ -172,26 +194,6 @@ function InCall({
                       onClose={() => setSettingsOpen(false)}
                     />
                     <ChatPanel />
-                    {/* The control bar hides while collapsed (the bubble is the only UI); compact in
-                        presenter mode so it fits the small floating panel. */}
-                    {!collapsed && (
-                      <div
-                        className={
-                          presenter
-                            ? "shrink-0 px-1.5 pb-1.5 pt-1"
-                            : "shrink-0 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3"
-                        }
-                      >
-                        <ControlBar
-                          onToggleParticipants={() => setPanelOpen((v) => !v)}
-                          onToggleSettings={() => setSettingsOpen((v) => !v)}
-                          participantCount={participants.length}
-                          canManage={canManage}
-                          presenter={presenter}
-                          onCollapse={collapsePanel}
-                        />
-                      </div>
-                    )}
                   </CallTimerProvider>
                 </WhiteboardProvider>
               </RecordingProvider>

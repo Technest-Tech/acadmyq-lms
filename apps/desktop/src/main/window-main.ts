@@ -32,6 +32,11 @@ export function createMainWindow(): BrowserWindow {
     backgroundColor: "#0f172a", // matches the call client's slate-900 shell — no white flash
     show: false,
     autoHideMenuBar: true,
+    // macOS: hide the title bar so the call + the small floating presenter panel read as clean
+    // borderless cards (traffic lights overlay the content; we hide them entirely in presenter mode).
+    ...(process.platform === "darwin"
+      ? { titleBarStyle: "hidden" as const, trafficLightPosition: { x: 14, y: 16 } }
+      : {}),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,

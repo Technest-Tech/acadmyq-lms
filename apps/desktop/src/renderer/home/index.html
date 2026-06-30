@@ -160,9 +160,20 @@
         color: var(--muted);
         text-align: center;
       }
+      /* Draggable strip so the frameless (macOS title-bar-hidden) window can still be moved. */
+      .dragbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 34px;
+        -webkit-app-region: drag;
+        z-index: 5;
+      }
     </style>
   </head>
   <body>
+    <div class="dragbar"></div>
     <div class="wrap">
       <div class="brand">
         <span class="dot"></span> AcademIQ <span class="tag">Teacher</span>

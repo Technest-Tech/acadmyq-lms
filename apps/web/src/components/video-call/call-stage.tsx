@@ -19,6 +19,7 @@ import { usePin } from "./pin-context";
 import { ScreenAnnotateLayer } from "./screen-annotate-layer";
 import { useRecording } from "./recording-context";
 import { useElementSize } from "./use-element-size";
+import { useIsDesktop } from "./use-is-desktop";
 
 function trackKey(ref: TrackReferenceOrPlaceholder): string {
   return `${ref.participant.identity}:${ref.publication?.trackSid ?? ref.source}`;
@@ -38,6 +39,7 @@ export function CallStage({
   suppressRecording?: boolean;
 }) {
   const t = useTranslations("videoCall");
+  const isDesktop = useIsDesktop();
   const state = useConnectionState();
   const participants = useParticipants();
   const cameras = useTracks(
@@ -74,8 +76,13 @@ export function CallStage({
       className="relative flex-1 overflow-hidden p-3 sm:p-4"
       data-layout={renderMode}
     >
-      {/* Header */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-3 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
+      {/* Header (desktop app: clear the macOS traffic-light overlay + act as the window drag region) */}
+      <div
+        style={isDesktop ? ({ WebkitAppRegion: "drag" } as unknown as React.CSSProperties) : undefined}
+        className={`pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-3 px-4 pt-[calc(env(safe-area-inset-top)+0.75rem)] ${
+          isDesktop ? "ps-[84px]" : ""
+        }`}
+      >
         <h1 className="max-w-[38%] truncate rounded-full bg-black/30 px-3 py-1 text-sm font-semibold text-white/90 ring-1 ring-white/10 backdrop-blur sm:max-w-[45%]">
           {roomTitle}
         </h1>

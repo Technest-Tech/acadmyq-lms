@@ -21,11 +21,12 @@ import { hideShareIndicator, showShareIndicator } from "./window-share-indicator
  * `exitPresenter()` restores the window AND tears down the annotation overlay unconditionally — the
  * fix for the "stuck overlay after a share/call ends" bug (clearShare/armAnnotate were dead code).
  */
-const PANEL_W = 420;
-const PANEL_H = 340;
-const BUBBLE_W = 84;
-const BUBBLE_H = 84;
+const PANEL_W = 384;
+const PANEL_H = 312;
+const BUBBLE_W = 188;
+const BUBBLE_H = 120;
 const MARGIN = 16;
+const isMac = process.platform === "darwin";
 
 let active = false;
 let collapsed = false;
@@ -61,6 +62,7 @@ export function enterPresenter(): void {
 
   collapsed = false;
   if (wasMaximized) win.unmaximize();
+  if (isMac) win.setWindowButtonVisibility(false); // clean borderless card — no traffic lights
   win.setContentProtection(true); // exclude the panel from the shared-screen capture
   win.setMinimumSize(BUBBLE_W, BUBBLE_H); // allow the bubble (normal min is 960×600)
   win.setBounds(panelBounds());
@@ -104,6 +106,7 @@ export function exitPresenter(): void {
   win?.webContents.send("desktop:annotate-control", "off");
 
   if (win && active) {
+    if (isMac) win.setWindowButtonVisibility(true); // restore traffic lights for the full window
     win.setAlwaysOnTop(false);
     win.setVisibleOnAllWorkspaces(false);
     win.setContentProtection(false);
