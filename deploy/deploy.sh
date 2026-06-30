@@ -17,7 +17,13 @@ git checkout "$APP_BRANCH"
 git reset --hard "origin/$APP_BRANCH"
 
 echo "▶ Installing JS workspace deps ..."
-pnpm install --frozen-lockfile
+# --ignore-scripts: the deploy box never runs dependency build scripts. Every native dep here
+# (sharp, esbuild, @swc/core, electron, …) ships prebuilt platform binaries via optional deps, so
+# their install scripts are dead weight. Without this flag pnpm 11 exits non-zero
+# (ERR_PNPM_IGNORED_BUILDS) on any real relink for builds it ignored — even when they're listed in
+# `ignoredBuiltDependencies` — which aborts the deploy. (Old deploys only survived because their
+# install was a no-op that never re-evaluated builds; adding apps/desktop forced a relink.)
+pnpm install --frozen-lockfile --ignore-scripts
 
 echo "▶ Building web (Next.js) ..."
 pnpm --filter web build
