@@ -73,7 +73,7 @@ function ToggleButton({
 }
 
 /** Host-only whiteboard toggle — opens/closes the shared board for everyone (whiteboard-context). */
-function WhiteboardButton() {
+function WhiteboardButton({ compact = false }: { compact?: boolean }) {
   const t = useTranslations("videoCall");
   const { open, toggleBoard } = useWhiteboard();
   return (
@@ -83,11 +83,11 @@ function WhiteboardButton() {
       aria-pressed={open}
       aria-label={t("whiteboard")}
       title={t("whiteboard")}
-      className={`flex size-12 items-center justify-center rounded-full transition ${
+      className={`flex ${compact ? "size-10" : "size-12"} items-center justify-center rounded-full transition ${
         open ? "bg-emerald-500/90 text-white hover:bg-emerald-500" : "bg-white/10 text-white hover:bg-white/20"
       }`}
     >
-      <Presentation className="size-5" />
+      <Presentation className={compact ? "size-[18px]" : "size-5"} />
     </button>
   );
 }
@@ -246,7 +246,7 @@ export function ControlBar({
   // (fullscreen/PiP/whiteboard/chat/settings) stay in the full bar shown when not presenting.
   if (presenter) {
     return (
-      <div className="mx-auto flex w-fit max-w-full items-center justify-center gap-1.5 overflow-x-auto rounded-full bg-slate-800/90 px-2 py-1.5 ring-1 ring-white/10 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-full flex-wrap items-center justify-center gap-1.5 rounded-2xl bg-slate-800/90 px-2 py-1.5 ring-1 ring-white/10 backdrop-blur">
         <ToggleButton
           compact
           on={mic.enabled}
@@ -279,6 +279,7 @@ export function ControlBar({
           <MonitorUp className="size-[18px]" />
         </button>
         <AnnotateButton compact />
+        {canManage && <WhiteboardButton compact />}
         {canManage && <RecordButton compact />}
         <button
           type="button"
@@ -292,6 +293,7 @@ export function ControlBar({
             {participantCount}
           </span>
         </button>
+        <ChatButton compact />
         {onCollapse && (
           <button
             type="button"

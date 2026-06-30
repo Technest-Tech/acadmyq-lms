@@ -36,6 +36,8 @@ declare global {
     collapsePresenter?(): void;
     /** Restore the bubble back to the full floating presenter panel. Optional. */
     expandPresenter?(): void;
+    /** Grow/shrink the floating presenter window when the shared whiteboard opens/closes. Optional. */
+    setPresenterBoard?(on: boolean): void;
     /**
      * Subscribe to strokes the teacher authored on the interactive overlay (their own pen, Phase 5).
      * The web client injects them into the screen-annotation lane like a local stroke. Returns an

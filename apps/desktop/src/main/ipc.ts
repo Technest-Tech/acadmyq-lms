@@ -6,6 +6,7 @@ import {
   enterPresenter,
   exitPresenter,
   expandPresenter,
+  setPresenterBoard,
 } from "./presenter-controller";
 import { getMainWindow } from "./window-main";
 import { postCommandToOverlay, postSceneToOverlay } from "./window-overlay";
@@ -74,6 +75,9 @@ export function registerIpc(): void {
   });
   ipcMain.on("presenter:expand", () => {
     expandPresenter();
+  });
+  ipcMain.on("presenter:board", (_e, on: unknown) => {
+    setPresenterBoard(!!on);
   });
 }
 

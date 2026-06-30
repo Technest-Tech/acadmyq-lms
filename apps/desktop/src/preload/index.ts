@@ -49,6 +49,10 @@ const api = {
   expandPresenter(): void {
     ipcRenderer.send("presenter:expand");
   },
+  /** The host opened/closed the shared whiteboard while presenting — grow/shrink the floating window. */
+  setPresenterBoard(on: boolean): void {
+    ipcRenderer.send("presenter:board", !!on);
+  },
   /**
    * Subscribe to strokes the teacher authored on the interactive overlay (their own pen). The web
    * client injects them into the screen-annotation lane exactly like a local stroke (broadcast to

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useTracks } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import { Minus } from "lucide-react";
@@ -7,6 +8,8 @@ import { useTranslations } from "next-intl";
 import { ControlBar } from "./control-bar";
 import { gridDims } from "./pip-layout";
 import { PipTile } from "./pip-window";
+import { WhiteboardPanel } from "./whiteboard-panel";
+import { useWhiteboard } from "./whiteboard-context";
 
 /** Electron drag regions — let the user move the frameless floating panel by its header. No-op in a
  * browser (presenter mode is desktop-only anyway). */
@@ -33,10 +36,17 @@ export function PresenterShell({
   onToggleSettings: () => void;
 }) {
   const t = useTranslations("videoCall");
+  const { open: boardOpen } = useWhiteboard();
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], {
     onlySubscribed: false,
   });
   const { cols } = gridDims(Math.max(cameras.length, 1));
+
+  // Opening the shared whiteboard while presenting switches everyone to the board; grow the floating
+  // window to a comfortable size so the teacher can actually draw, and shrink back when it closes.
+  useEffect(() => {
+    window.academiqDesktop?.setPresenterBoard?.(boardOpen);
+  }, [boardOpen]);
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-gradient-to-b from-slate-800 to-slate-900">
@@ -47,7 +57,7 @@ export function PresenterShell({
       >
         <span className="flex items-center gap-2 text-xs font-semibold text-white/90">
           <span className="size-2 animate-pulse rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]" />
-          {t("sharingNow")}
+          {boardOpen ? t("whiteboard") : t("sharingNow")}
         </span>
         <button
           type="button"
@@ -61,17 +71,23 @@ export function PresenterShell({
         </button>
       </div>
 
-      {/* Participant grid */}
-      <div className="min-h-0 flex-1 px-2">
-        <div
-          className="grid h-full min-h-0 gap-1.5"
-          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "1fr" }}
-        >
-          {cameras.map((c) => (
-            <PipTile key={`${c.participant.identity}:${c.source}`} trackRef={c} />
-          ))}
+      {/* Whiteboard (when the host opens it) or the live participant grid */}
+      {boardOpen ? (
+        <div className="min-h-0 flex-1">
+          <WhiteboardPanel />
         </div>
-      </div>
+      ) : (
+        <div className="min-h-0 flex-1 px-2">
+          <div
+            className="grid h-full min-h-0 gap-1.5"
+            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "1fr" }}
+          >
+            {cameras.map((c) => (
+              <PipTile key={`${c.participant.identity}:${c.source}`} trackRef={c} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Control bar */}
       <div className="shrink-0 px-2 pb-2 pt-1.5">

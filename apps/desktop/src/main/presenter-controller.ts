@@ -25,11 +25,14 @@ const PANEL_W = 384;
 const PANEL_H = 312;
 const BUBBLE_W = 224;
 const BUBBLE_H = 132;
+const BOARD_W = 880;
+const BOARD_H = 620;
 const MARGIN = 16;
 const isMac = process.platform === "darwin";
 
 let active = false;
 let collapsed = false;
+let boardOpen = false;
 let savedBounds: Electron.Rectangle | null = null;
 let savedMinSize: [number, number] | null = null;
 let wasMaximized = false;
@@ -47,6 +50,16 @@ function anchoredBounds(width: number, height: number): Electron.Rectangle {
   };
 }
 
+/** The current expanded size — a comfortable board window when the whiteboard is open, else the panel. */
+function expandedBounds(): Electron.Rectangle {
+  const display =
+    getSharedDisplay() ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const wa = display.workArea;
+  const w = boardOpen ? Math.min(BOARD_W, wa.width - 2 * MARGIN) : PANEL_W;
+  const h = boardOpen ? Math.min(BOARD_H, wa.height - 2 * MARGIN) : PANEL_H;
+  return anchoredBounds(w, h);
+}
+
 function panelBounds(): Electron.Rectangle {
   return anchoredBounds(PANEL_W, PANEL_H);
 }
@@ -61,6 +74,7 @@ export function enterPresenter(): void {
   savedMinSize = win.getMinimumSize() as [number, number];
 
   collapsed = false;
+  boardOpen = false;
   if (wasMaximized) win.unmaximize();
   if (isMac) win.setWindowButtonVisibility(false); // clean borderless card — no traffic lights
   win.setContentProtection(true); // exclude the panel from the shared-screen capture
@@ -82,12 +96,21 @@ export function collapsePresenter(): void {
   win.setBounds(anchoredBounds(BUBBLE_W, BUBBLE_H));
 }
 
-/** Restore the bubble back to the full floating panel. */
+/** Restore the bubble back to the full floating panel (board-sized if the whiteboard is open). */
 export function expandPresenter(): void {
   const win = getMainWindow();
   if (!win || !active || !collapsed) return;
   collapsed = false;
-  win.setBounds(panelBounds());
+  win.setBounds(expandedBounds());
+}
+
+/** The host opened/closed the shared whiteboard while presenting — grow to a usable board window
+ *  (or shrink back to the compact panel). No-op when collapsed (expand restores the right size). */
+export function setPresenterBoard(on: boolean): void {
+  const win = getMainWindow();
+  if (!win || !active || boardOpen === on) return;
+  boardOpen = on;
+  if (!collapsed) win.setBounds(expandedBounds());
 }
 
 /** Restore the call window and tear down the annotation overlay (also the stuck-overlay bug fix). */
@@ -118,6 +141,7 @@ export function exitPresenter(): void {
   }
   active = false;
   collapsed = false;
+  boardOpen = false;
   savedBounds = null;
   savedMinSize = null;
   wasMaximized = false;
