@@ -36,11 +36,17 @@ export function PresenterBubble({ onExpand }: { onExpand: () => void }) {
     onlySubscribed: false,
   });
 
+  // Prefer the teacher's OWN camera so they get a self-view while collapsed; fall back to the active
+  // speaker (then any remote, then whatever's there) when their camera is off.
+  const local = cameras.find((c) => c.participant.isLocal);
+  const localLive = local && isTrackReference(local) && !local.publication.isMuted;
   const remotes = cameras.filter((c) => !c.participant.isLocal);
-  const focus =
-    remotes.find((r) => speaking.some((s) => s.identity === r.participant.identity)) ??
-    remotes[0] ??
-    cameras[0];
+  const focus = localLive
+    ? local
+    : (remotes.find((r) => speaking.some((s) => s.identity === r.participant.identity)) ??
+      remotes[0] ??
+      local ??
+      cameras[0]);
 
   const p = focus?.participant;
   const showVideo = focus && isTrackReference(focus) && !focus.publication.isMuted;
