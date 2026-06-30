@@ -39,6 +39,7 @@ export default defineConfig({
           overlay: resolve(__dirname, "src/renderer/overlay/index.html"),
           picker: resolve(__dirname, "src/renderer/picker/index.html"),
           toolbar: resolve(__dirname, "src/renderer/toolbar/index.html"),
+          "share-indicator": resolve(__dirname, "src/renderer/share-indicator/index.html"),
         },
       },
     },

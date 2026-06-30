@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sharing</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: transparent;
+        overflow: hidden;
+        cursor: default;
+        -webkit-user-select: none;
+        user-select: none;
+        font: 13px/1 -apple-system, "Segoe UI", system-ui, sans-serif;
+      }
+      /* The Zoom-style green "you are sharing" frame. Content-protected → only the teacher sees it;
+         it never bakes into what students receive. Click-through, so it never blocks the screen. */
+      .frame {
+        position: fixed;
+        inset: 0;
+        border: 3px solid rgba(34, 197, 94, 0.95);
+        box-shadow:
+          inset 0 0 0 1px rgba(34, 197, 94, 0.45),
+          inset 0 0 22px rgba(34, 197, 94, 0.45);
+        box-sizing: border-box;
+        animation: pulse 2.4s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.55;
+        }
+      }
+      .pill {
+        position: fixed;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 5px 12px;
+        border-radius: 999px;
+        background: rgba(6, 40, 29, 0.9);
+        color: #d1fae5;
+        font-weight: 600;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #22c55e;
+        box-shadow: 0 0 8px #22c55e;
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame"></div>
+    <div class="pill"><span class="dot"></span>You're sharing your screen</div>
+  </body>
+</html>

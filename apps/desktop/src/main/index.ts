@@ -7,6 +7,7 @@ import { initOverlayController, toggleAnnotate } from "./overlay-controller";
 import { createMainWindow } from "./window-main";
 import { destroyOverlay } from "./window-overlay";
 import { destroyToolbar } from "./window-toolbar";
+import { destroyShareIndicator } from "./window-share-indicator";
 
 // Arm/disarm annotation. While armed the picker offers screens-only and the overlay rides the
 // shared display. (A web control-bar button replaces this shortcut in Phase 5.)
@@ -59,6 +60,7 @@ if (!gotLock) {
     globalShortcut.unregisterAll();
     destroyOverlay();
     destroyToolbar();
+    destroyShareIndicator();
   });
 
   app.on("window-all-closed", () => {

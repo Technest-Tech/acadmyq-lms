@@ -2,6 +2,7 @@ import { screen } from "electron";
 import { armAnnotate, clearShare, getSharedDisplay } from "./overlay-controller";
 import { getMainWindow } from "./window-main";
 import { hideOverlay, postSceneToOverlay } from "./window-overlay";
+import { hideShareIndicator, showShareIndicator } from "./window-share-indicator";
 
 /**
  * Presenter ("screen-share") mode. When the teacher shares their screen, the big call window shrinks
@@ -65,6 +66,10 @@ export function enterPresenter(): void {
   win.setBounds(panelBounds());
   win.setAlwaysOnTop(true, "screen-saver"); // float above the teacher's other apps
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  // Zoom-style green "you're sharing" frame on the shared display (teacher-only — content-protected).
+  const shared = getSharedDisplay() ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  showShareIndicator(shared);
 }
 
 /** Shrink the floating panel into a small bubble (the web swaps to its compact bubble UI). */
@@ -91,6 +96,7 @@ export function exitPresenter(): void {
   clearShare(); // forget the shared display
   postSceneToOverlay([]); // drop the remembered scene so a later share can't repaint stale marks
   hideOverlay(); // belt-and-suspenders
+  hideShareIndicator(); // drop the green "sharing" frame
 
   const win = getMainWindow();
   // Reset the web Annotate toggle + baking flag so a stopped share never leaves a stale "on" button
