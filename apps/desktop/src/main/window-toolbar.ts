@@ -12,8 +12,8 @@ import { getSharedDisplay } from "./overlay-controller";
  */
 let toolbarWin: BrowserWindow | null = null;
 
-const TOOLBAR_W = 64;
-const TOOLBAR_H = 600;
+const TOOLBAR_W = 60;
+const TOOLBAR_H = 560;
 const MARGIN = 18;
 
 const RENDERER_URL = process.env["ELECTRON_RENDERER_URL"];

@@ -34,20 +34,26 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 4px;
+        gap: 3px;
         height: 100vh;
-        padding: 8px 7px;
+        padding: 6px 0;
         background: var(--bg);
         border: 1px solid var(--border);
         border-radius: 16px;
         box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+        overflow-y: auto; /* never clip a control on a short screen */
+        overflow-x: hidden;
+        scrollbar-width: none;
+      }
+      .bar::-webkit-scrollbar {
+        display: none;
       }
       .grip {
-        width: 26px;
-        height: 5px;
+        width: 24px;
+        height: 4px;
         border-radius: 999px;
         background: var(--panel-hover);
-        margin: 1px 0 5px;
+        margin: 0 0 3px;
         -webkit-app-region: drag; /* drag the toolbar by its handle */
         cursor: grab;
         flex: none;
@@ -57,9 +63,9 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 40px;
-        height: 40px;
-        border-radius: 11px;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
         color: var(--text);
         cursor: pointer;
         transition:
@@ -87,15 +93,15 @@
         pointer-events: none;
       }
       .sep {
-        width: 30px;
+        width: 26px;
         height: 1px;
         background: var(--border);
-        margin: 4px 0;
+        margin: 3px 0;
         flex: none;
       }
       svg {
-        width: 20px;
-        height: 20px;
+        width: 19px;
+        height: 19px;
         stroke: currentColor;
         stroke-width: 2;
         stroke-linecap: round;
@@ -104,17 +110,20 @@
       }
       .swatches {
         display: grid;
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, 16px);
+        justify-content: center;
         gap: 5px;
-        padding: 2px 0;
+        padding: 1px 0;
         flex: none;
       }
       .swatch {
-        width: 17px;
-        height: 17px;
+        width: 16px;
+        height: 16px;
         border-radius: 50%;
         cursor: pointer;
         border: 2px solid transparent;
+        /* a light outer ring so even the black/dark swatches stand out on the dark toolbar */
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
         transition: transform 0.06s;
       }
       .swatch:hover {
@@ -122,14 +131,15 @@
       }
       .swatch.active {
         border-color: #f8fafc;
-        box-shadow: 0 0 0 2px var(--bg);
+        box-shadow: 0 0 0 2px var(--emerald);
       }
       .widths {
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
         align-items: center;
-        gap: 6px;
-        padding: 4px 0;
+        justify-content: center;
+        gap: 7px;
+        padding: 3px 0;
         flex: none;
       }
       .wdot {
@@ -174,7 +184,7 @@
         <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="6.5" /></svg>
       </button>
       <button class="tool" data-tool="eraser" title="Eraser" aria-label="Eraser">
-        <svg viewBox="0 0 24 24"><path d="M4 15l6 6h7" /><path d="M9 10l8 8 4-4-8-8z" /></svg>
+        <svg viewBox="0 0 24 24"><path d="M16 17H8.5L4 12.5a1.5 1.5 0 0 1 0-2L11 4l7 7-5 6" /><path d="M8.5 8.5l7 7" /></svg>
       </button>
 
       <div class="sep"></div>
@@ -191,7 +201,7 @@
         <svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5" /><path d="M20 12H9a5 5 0 0 0 0 10h1" /></svg>
       </button>
       <button id="clear" class="danger" title="Clear all" aria-label="Clear all">
-        <svg viewBox="0 0 24 24"><path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="M6 7l1 13h10l1-13" /></svg>
+        <svg viewBox="0 0 24 24"><path d="M4 7h16" /><path d="M9 7V4h6v3" /><path d="M6 7l1 13h10l1-13" /><path d="M10 11v6M14 11v6" /></svg>
       </button>
 
       <div class="sep"></div>
