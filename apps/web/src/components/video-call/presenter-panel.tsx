@@ -7,7 +7,7 @@ import { Minus } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { ChatPanel } from "./chat-panel";
 import { useChatPanel } from "./chat-context";
-import { ControlBar } from "./control-bar";
+import { PresenterControlBar } from "./presenter-control-bar";
 import { gridDims } from "./pip-layout";
 import { PipTile } from "./pip-window";
 import { WhiteboardPanel } from "./whiteboard-panel";
@@ -34,16 +34,12 @@ const NO_DRAG = { WebkitAppRegion: "no-drag" } as unknown as React.CSSProperties
  */
 export function PresenterShell({
   onCollapse,
-  canManage,
   participantCount,
   onToggleParticipants,
-  onToggleSettings,
 }: {
   onCollapse: () => void;
-  canManage: boolean;
   participantCount: number;
   onToggleParticipants: () => void;
-  onToggleSettings: () => void;
 }) {
   const t = useTranslations("videoCall");
   const { open: boardOpen } = useWhiteboard();
@@ -111,14 +107,11 @@ export function PresenterShell({
         )}
       </div>
 
-      {/* Control strip — kept in its own section and hugged into a centered pill so it never spreads. */}
-      <div className="shrink-0 px-2 pb-2 pt-1.5">
-        <ControlBar
+      {/* Floating control dock — its own detached section (Zoom-style), adaptive so it never wraps. */}
+      <div className="shrink-0 px-3 pb-3 pt-2">
+        <PresenterControlBar
           onToggleParticipants={onToggleParticipants}
-          onToggleSettings={onToggleSettings}
           participantCount={participantCount}
-          canManage={canManage}
-          presenter
         />
       </div>
     </div>

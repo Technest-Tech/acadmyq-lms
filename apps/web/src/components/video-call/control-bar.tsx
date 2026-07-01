@@ -9,7 +9,6 @@ import {
   Mic,
   MicOff,
   Minimize,
-  Minimize2,
   MonitorUp,
   Pencil,
   PhoneOff,
@@ -216,18 +215,12 @@ export function ControlBar({
   onToggleSettings,
   participantCount,
   canManage,
-  presenter = false,
-  onCollapse,
 }: {
   onToggleParticipants: () => void;
   onToggleSettings: () => void;
   participantCount: number;
   /** Host with room.manage → show the record toggle (driven by recording-context). */
   canManage: boolean;
-  /** Compact, single-row layout for the small floating presenter panel (desktop screen-share). */
-  presenter?: boolean;
-  /** Presenter only: collapse the panel into a bubble. */
-  onCollapse?: () => void;
 }) {
   const t = useTranslations("videoCall");
   const room = useRoomContext();
@@ -241,83 +234,8 @@ export function ControlBar({
   const fs = useFullscreen();
   const pip = usePip();
 
-  // Compact presenter bar: a single tidy row of just the controls a teacher needs while sharing —
-  // mic · camera · stop-share · annotate · record · participants · collapse · leave. The rest
-  // (fullscreen/PiP/whiteboard/chat/settings) stay in the full bar shown when not presenting.
-  if (presenter) {
-    return (
-      <div className="mx-auto flex w-fit max-w-full flex-wrap items-center justify-center gap-1.5 rounded-2xl bg-slate-800/90 px-2 py-1.5 ring-1 ring-white/10 backdrop-blur">
-        <ToggleButton
-          compact
-          on={mic.enabled}
-          pending={mic.pending}
-          onClick={() => void mic.toggle()}
-          OnIcon={Mic}
-          OffIcon={MicOff}
-          label={mic.enabled ? t("muteMic") : t("unmuteMic")}
-        />
-        <ToggleButton
-          compact
-          on={cam.enabled}
-          pending={cam.pending}
-          onClick={() => void cam.toggle()}
-          OnIcon={Video}
-          OffIcon={VideoOff}
-          label={cam.enabled ? t("turnCameraOff") : t("turnCameraOn")}
-        />
-        <button
-          type="button"
-          onClick={() => void screen.toggle()}
-          disabled={screen.pending}
-          aria-pressed={screen.enabled}
-          aria-label={screen.enabled ? t("stopShareScreen") : t("shareScreen")}
-          title={screen.enabled ? t("stopShareScreen") : t("shareScreen")}
-          className={`flex size-10 shrink-0 items-center justify-center rounded-full transition disabled:opacity-50 ${
-            screen.enabled ? "bg-emerald-500/90 text-white hover:bg-emerald-500" : "bg-white/10 text-white hover:bg-white/20"
-          }`}
-        >
-          <MonitorUp className="size-[18px]" />
-        </button>
-        <AnnotateButton compact />
-        {canManage && <WhiteboardButton compact />}
-        {canManage && <RecordButton compact />}
-        <button
-          type="button"
-          onClick={onToggleParticipants}
-          aria-label={t("participants")}
-          title={t("participants")}
-          className="relative flex size-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
-        >
-          <Users className="size-[18px]" />
-          <span className="absolute -end-0.5 -top-0.5 flex min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[0.6rem] font-bold text-white">
-            {participantCount}
-          </span>
-        </button>
-        <ChatButton compact />
-        {onCollapse && (
-          <button
-            type="button"
-            onClick={onCollapse}
-            aria-label={t("collapsePanel")}
-            title={t("collapsePanel")}
-            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
-          >
-            <Minimize2 className="size-[18px]" />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => void room.disconnect()}
-          aria-label={t("leave")}
-          title={t("leave")}
-          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-red-600 text-white transition hover:bg-red-700"
-        >
-          <PhoneOff className="size-[18px]" />
-        </button>
-      </div>
-    );
-  }
-
+  // The desktop screen-share ("presenter") layout uses its own adaptive dock — see
+  // presenter-control-bar.tsx. This is the standard in-call bar (browser + non-sharing desktop).
   return (
     <div className="mx-auto flex w-fit max-w-[calc(100vw-1rem)] flex-wrap items-center justify-center gap-2 rounded-3xl bg-slate-800/80 px-3 py-2.5 ring-1 ring-white/10 backdrop-blur sm:gap-3 sm:rounded-full sm:px-4">
       <ToggleButton

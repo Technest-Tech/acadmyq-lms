@@ -162,10 +162,8 @@ function InCall({
                       ) : (
                         <PresenterShell
                           onCollapse={collapsePanel}
-                          canManage={canManage}
                           participantCount={participants.length}
                           onToggleParticipants={() => setPanelOpen((v) => !v)}
-                          onToggleSettings={() => setSettingsOpen((v) => !v)}
                         />
                       )
                     ) : (
