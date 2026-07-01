@@ -61,6 +61,9 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Shown to the host who stopped once the file is truly finalised (a confirmation they can dismiss).
   const [savedOpen, setSavedOpen] = useState(false);
+  // The host asked to stop and we're waiting for egress to actually finalise. Drives the saved modal
+  // and suppresses a late/flapping "active" signal so the button can't flash red before it saves.
+  const stopIntent = useRef(false);
 
   const clearSettle = useCallback(() => {
     if (settle.current) {
@@ -76,44 +79,59 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     clearSettle();
     if (serverRecording) {
       if (phaseRef.current === "starting") toast.success(t("recordingStarted"));
-      setPhase("recording");
+      // While a stop is pending, ignore a late/flapping "active" — otherwise the button flashes back
+      // to the red "recording" state for a moment right before the file finishes saving.
+      if (!stopIntent.current) setPhase("recording");
     } else {
       // Egress stopped → the file has been finalised to the academy's recordings. Confirm with a
-      // dismissible modal (clearer than a toast) — only for the host who actually stopped it.
-      if (phaseRef.current === "stopping") setSavedOpen(true);
+      // dismissible modal (clearer than a toast) to the host who asked to stop — robust even if the
+      // phase was knocked off "stopping" (e.g. a lost stop response).
+      if (stopIntent.current || phaseRef.current === "stopping") setSavedOpen(true);
+      stopIntent.current = false;
       setPhase("idle");
     }
   }, [serverRecording, clearSettle, t, toast]);
 
   useEffect(() => clearSettle, [clearSettle]);
 
-  const armSettle = useCallback(() => {
-    clearSettle();
-    settle.current = setTimeout(() => {
-      // Egress never flipped — fall back to whatever the server currently reports.
-      setPhase(serverRef.current ? "recording" : "idle");
-    }, SETTLE_TIMEOUT);
-  }, [clearSettle]);
+  // Egress never flipped within the grace window → fall back to the server truth. A stuck STOP is a
+  // genuine failure worth reporting (still recording); a stuck start just settles quietly.
+  const armSettle = useCallback(
+    (intent: "start" | "stop") => {
+      clearSettle();
+      settle.current = setTimeout(() => {
+        stopIntent.current = false;
+        if (serverRef.current) {
+          setPhase("recording");
+          if (intent === "stop") toast.error(t("recordingStopFailed"));
+        } else {
+          setPhase("idle");
+        }
+      }, SETTLE_TIMEOUT);
+    },
+    [clearSettle, t, toast],
+  );
 
   const toggle = useCallback(() => {
     const now = phaseRef.current;
     if (now === "starting" || now === "stopping") return;
 
     if (now === "recording") {
+      stopIntent.current = true;
       setPhase("stopping");
       toast.info(t("recordingStopping"));
-      armSettle();
-      stopRoomRecording(roomId, manageToken).catch(() => {
-        clearSettle();
-        setPhase("recording");
-        toast.error(t("recordingStopFailed"));
-      });
+      armSettle("stop");
+      // Deliberately no state change on a rejected request: the egress usually stops even when this
+      // HTTP response is lost, so flipping back to "recording" would just flash the button red. The
+      // SFU signal shows the saved modal; the settle fallback recovers a genuinely stuck stop.
+      stopRoomRecording(roomId, manageToken).catch(() => undefined);
       return;
     }
 
+    stopIntent.current = false;
     setPhase("starting");
     toast.info(t("recordingStarting"));
-    armSettle();
+    armSettle("start");
     startRoomRecording(roomId, manageToken).catch((e) => {
       clearSettle();
       setPhase("idle");

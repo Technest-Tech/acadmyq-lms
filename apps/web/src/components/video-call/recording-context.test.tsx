@@ -95,6 +95,23 @@ describe("RecordingProvider", () => {
     expect(mockToast.success).not.toHaveBeenCalled();
   });
 
+  it("still confirms saved (no red flash) when the stop request is lost but egress stops anyway", async () => {
+    mockStop.mockRejectedValueOnce(new Error("network"));
+    state.serverRecording = true;
+    const { rerender } = render(tree());
+
+    fireEvent.click(screen.getByText("toggle"));
+    // Stays in the "saving" (stopping) window despite the failed request — never flips to recording.
+    await waitFor(() => expect(screen.getByTestId("phase").textContent).toBe("stopping"));
+    expect(mockToast.error).not.toHaveBeenCalled();
+
+    // Egress finalises → the saved modal appears and the button settles to idle.
+    act(() => void (state.serverRecording = false));
+    rerender(tree());
+    await waitFor(() => expect(screen.getByTestId("phase").textContent).toBe("idle"));
+    expect(screen.getByText("Recording saved")).toBeInTheDocument();
+  });
+
   it("reverts to idle and shows the disabled toast on a 403 start", async () => {
     mockStart.mockRejectedValue(new ApiError(403, "recording disabled"));
     render(tree());
