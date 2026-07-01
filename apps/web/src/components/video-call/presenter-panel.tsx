@@ -5,6 +5,8 @@ import { useTracks } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import { Minus } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { ChatPanel } from "./chat-panel";
+import { useChatPanel } from "./chat-context";
 import { ControlBar } from "./control-bar";
 import { gridDims } from "./pip-layout";
 import { PipTile } from "./pip-window";
@@ -17,10 +19,18 @@ const DRAG = { WebkitAppRegion: "drag" } as unknown as React.CSSProperties;
 const NO_DRAG = { WebkitAppRegion: "no-drag" } as unknown as React.CSSProperties;
 
 /**
- * The modern, Zoom-style floating presenter panel shown in the desktop app's small content-protected
- * window while the teacher screen-shares. A single clean card: a draggable header (live status +
- * collapse), a live participant grid, and a compact control bar. The shared screen itself is on the
- * teacher's display; this panel is just the people + controls. Desktop-only; never in a browser.
+ * The modern, Zoom-style floating presenter card shown in the desktop app's small content-protected
+ * window while the teacher screen-shares. The shared screen itself is on the teacher's display; this
+ * card is just the people + tools + controls, laid out in clean, separated sections:
+ *
+ *   ┌ header (drag · live status · collapse) ────────────────┐
+ *   │ main pane (video grid OR whiteboard) │ chat side pane   │
+ *   └ control strip (compact bar) ───────────────────────────┘
+ *
+ * Opening the whiteboard or chat grows the window (setPresenterExpanded) so each has real room; the
+ * chat is DOCKED as its own side section (not the full-window drawer, which looked broken over the
+ * tiny panel). Everything lives in this one window because it's the only one with BOTH the LiveKit
+ * connection and content-protection — a separate OS window can't have both. Desktop-only.
  */
 export function PresenterShell({
   onCollapse,
@@ -37,16 +47,18 @@ export function PresenterShell({
 }) {
   const t = useTranslations("videoCall");
   const { open: boardOpen } = useWhiteboard();
+  const { isOpen: chatOpen } = useChatPanel();
   const cameras = useTracks([{ source: Track.Source.Camera, withPlaceholder: true }], {
     onlySubscribed: false,
   });
   const { cols } = gridDims(Math.max(cameras.length, 1));
 
-  // Opening the shared whiteboard while presenting switches everyone to the board; grow the floating
-  // window to a comfortable size so the teacher can actually draw, and shrink back when it closes.
+  // Opening the whiteboard or chat while presenting needs a comfortable window; grow it and shrink
+  // back when both close, so neither section is crammed into the compact panel.
+  const expanded = boardOpen || chatOpen;
   useEffect(() => {
-    window.academiqDesktop?.setPresenterBoard?.(boardOpen);
-  }, [boardOpen]);
+    window.academiqDesktop?.setPresenterExpanded?.(expanded);
+  }, [expanded]);
 
   return (
     <div className="flex h-[100dvh] flex-col overflow-hidden bg-gradient-to-b from-slate-800 to-slate-900">
@@ -71,25 +83,33 @@ export function PresenterShell({
         </button>
       </div>
 
-      {/* Whiteboard (when the host opens it) or the live participant grid */}
-      {boardOpen ? (
+      {/* Content row: the main pane (whiteboard or video grid) + an optional docked chat section. */}
+      <div className="flex min-h-0 flex-1">
         <div className="min-h-0 flex-1">
-          <WhiteboardPanel />
+          {boardOpen ? (
+            <WhiteboardPanel />
+          ) : (
+            <div className="h-full px-2">
+              <div
+                className="grid h-full min-h-0 gap-1.5"
+                style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "1fr" }}
+              >
+                {cameras.map((c) => (
+                  <PipTile key={`${c.participant.identity}:${c.source}`} trackRef={c} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      ) : (
-        <div className="min-h-0 flex-1 px-2">
-          <div
-            className="grid h-full min-h-0 gap-1.5"
-            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "1fr" }}
-          >
-            {cameras.map((c) => (
-              <PipTile key={`${c.participant.identity}:${c.source}`} trackRef={c} />
-            ))}
-          </div>
-        </div>
-      )}
 
-      {/* Control bar */}
+        {chatOpen && (
+          <div className="min-h-0 w-[19rem] shrink-0 border-s border-white/10">
+            <ChatPanel embedded />
+          </div>
+        )}
+      </div>
+
+      {/* Control strip — kept in its own section and hugged into a centered pill so it never spreads. */}
       <div className="shrink-0 px-2 pb-2 pt-1.5">
         <ControlBar
           onToggleParticipants={onToggleParticipants}

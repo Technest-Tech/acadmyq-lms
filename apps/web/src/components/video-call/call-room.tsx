@@ -193,7 +193,9 @@ function InCall({
                       open={settingsOpen}
                       onClose={() => setSettingsOpen(false)}
                     />
-                    <ChatPanel />
+                    {/* While presenting, chat is docked inside the presenter card (PresenterShell),
+                        so the full-window drawer would just overlay the tiny panel — suppress it. */}
+                    {!presenter && <ChatPanel />}
                   </CallTimerProvider>
                 </WhiteboardProvider>
               </RecordingProvider>

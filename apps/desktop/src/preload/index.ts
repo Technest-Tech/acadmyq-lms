@@ -49,9 +49,9 @@ const api = {
   expandPresenter(): void {
     ipcRenderer.send("presenter:expand");
   },
-  /** The host opened/closed the shared whiteboard while presenting — grow/shrink the floating window. */
-  setPresenterBoard(on: boolean): void {
-    ipcRenderer.send("presenter:board", !!on);
+  /** The host opened/closed a section (whiteboard or chat) while presenting — grow/shrink the window. */
+  setPresenterExpanded(on: boolean): void {
+    ipcRenderer.send("presenter:expanded", !!on);
   },
   /**
    * Subscribe to strokes the teacher authored on the interactive overlay (their own pen). The web

@@ -25,14 +25,15 @@ const PANEL_W = 384;
 const PANEL_H = 312;
 const BUBBLE_W = 224;
 const BUBBLE_H = 132;
-const BOARD_W = 880;
-const BOARD_H = 620;
+const EXPANDED_W = 880;
+const EXPANDED_H = 620;
 const MARGIN = 16;
 const isMac = process.platform === "darwin";
 
 let active = false;
 let collapsed = false;
-let boardOpen = false;
+// Grown to the comfortable board/chat size when the teacher opens the whiteboard or the chat pane.
+let expanded = false;
 let savedBounds: Electron.Rectangle | null = null;
 let savedMinSize: [number, number] | null = null;
 let wasMaximized = false;
@@ -50,13 +51,13 @@ function anchoredBounds(width: number, height: number): Electron.Rectangle {
   };
 }
 
-/** The current expanded size — a comfortable board window when the whiteboard is open, else the panel. */
+/** The current size — a comfortable board/chat window when a section is open, else the compact panel. */
 function expandedBounds(): Electron.Rectangle {
   const display =
     getSharedDisplay() ?? screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   const wa = display.workArea;
-  const w = boardOpen ? Math.min(BOARD_W, wa.width - 2 * MARGIN) : PANEL_W;
-  const h = boardOpen ? Math.min(BOARD_H, wa.height - 2 * MARGIN) : PANEL_H;
+  const w = expanded ? Math.min(EXPANDED_W, wa.width - 2 * MARGIN) : PANEL_W;
+  const h = expanded ? Math.min(EXPANDED_H, wa.height - 2 * MARGIN) : PANEL_H;
   return anchoredBounds(w, h);
 }
 
@@ -74,7 +75,7 @@ export function enterPresenter(): void {
   savedMinSize = win.getMinimumSize() as [number, number];
 
   collapsed = false;
-  boardOpen = false;
+  expanded = false;
   if (wasMaximized) win.unmaximize();
   if (isMac) win.setWindowButtonVisibility(false); // clean borderless card — no traffic lights
   win.setContentProtection(true); // exclude the panel from the shared-screen capture
@@ -104,12 +105,12 @@ export function expandPresenter(): void {
   win.setBounds(expandedBounds());
 }
 
-/** The host opened/closed the shared whiteboard while presenting — grow to a usable board window
+/** The host opened/closed a section (whiteboard or chat) while presenting — grow to a usable window
  *  (or shrink back to the compact panel). No-op when collapsed (expand restores the right size). */
-export function setPresenterBoard(on: boolean): void {
+export function setPresenterExpanded(on: boolean): void {
   const win = getMainWindow();
-  if (!win || !active || boardOpen === on) return;
-  boardOpen = on;
+  if (!win || !active || expanded === on) return;
+  expanded = on;
   if (!collapsed) win.setBounds(expandedBounds());
 }
 
@@ -141,7 +142,7 @@ export function exitPresenter(): void {
   }
   active = false;
   collapsed = false;
-  boardOpen = false;
+  expanded = false;
   savedBounds = null;
   savedMinSize = null;
   wasMaximized = false;

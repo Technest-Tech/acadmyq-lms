@@ -246,7 +246,7 @@ export function ControlBar({
   // (fullscreen/PiP/whiteboard/chat/settings) stay in the full bar shown when not presenting.
   if (presenter) {
     return (
-      <div className="mx-auto flex w-full max-w-full flex-wrap items-center justify-center gap-1.5 rounded-2xl bg-slate-800/90 px-2 py-1.5 ring-1 ring-white/10 backdrop-blur">
+      <div className="mx-auto flex w-fit max-w-full flex-wrap items-center justify-center gap-1.5 rounded-2xl bg-slate-800/90 px-2 py-1.5 ring-1 ring-white/10 backdrop-blur">
         <ToggleButton
           compact
           on={mic.enabled}

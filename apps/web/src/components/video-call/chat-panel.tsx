@@ -24,8 +24,11 @@ function initials(name: string): string {
  * unread badge keeps counting; `inert` + `pointer-events-none` neutralise it while closed. Built on
  * the ChatProvider (one `useChat`), never the stock <Chat/> prefab. RTL-correct via logical props
  * and an `rtl:`-aware slide. Chat is EPHEMERAL (live participants only) — see Phase 2 for persistence.
+ *
+ * `embedded` renders just the pane (no overlay/backdrop/slide) so the desktop presenter card can dock
+ * it as a Zoom-style side section instead of throwing the full-window drawer over the tiny panel.
  */
-export function ChatPanel() {
+export function ChatPanel({ embedded = false }: { embedded?: boolean } = {}) {
   const t = useTranslations("videoCall");
   const locale = useLocale();
   const { messages, send, isSending, connected, isOpen, close } = useChatPanel();
@@ -152,34 +155,27 @@ export function ChatPanel() {
   const remaining = CHAT_MAX_LENGTH - draft.length;
   const canSend = draft.trim().length > 0 && !isSending && connected;
 
-  return (
-    <div className={cn("fixed inset-0 z-40 text-white", !isOpen && "pointer-events-none")}>
-      {/* Backdrop — fades; tapping it closes (overlays the call, doesn't unmount it). */}
-      <button
-        type="button"
-        aria-label={t("close")}
-        tabIndex={isOpen ? 0 : -1}
-        onClick={close}
-        className={cn(
-          "absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-300",
-          isOpen ? "opacity-100" : "opacity-0",
-        )}
-      />
-
+  const aside = (
       <aside
-        inert={!isOpen}
+        inert={embedded ? undefined : !isOpen}
         data-testid="chat-panel"
         data-open={isOpen}
         aria-label={t("chatTitle")}
         className={cn(
-          "absolute flex flex-col bg-slate-900 shadow-2xl ring-1 ring-white/10 transition-transform duration-300 ease-out",
-          // Desktop drawer docked to the END (right in LTR, left in RTL) — same proven inset-y-0/end-0
-          // pattern as participants-panel. On mobile it becomes a full-width bottom sheet (~80dvh).
-          "inset-y-0 end-0 w-full max-w-sm rounded-s-2xl",
-          "max-sm:inset-y-auto max-sm:bottom-0 max-sm:max-w-none max-sm:h-[80dvh] max-sm:rounded-s-none max-sm:rounded-t-3xl",
-          isOpen
-            ? "translate-x-0 translate-y-0"
-            : "translate-x-full rtl:-translate-x-full max-sm:translate-x-0 max-sm:translate-y-full",
+          "flex flex-col bg-slate-900 text-white",
+          embedded
+            ? // Docked pane inside the presenter card — fills its column, no overlay/slide.
+              "h-full w-full"
+            : cn(
+                "absolute shadow-2xl ring-1 ring-white/10 transition-transform duration-300 ease-out",
+                // Desktop drawer docked to the END (right in LTR, left in RTL) — same proven
+                // inset-y-0/end-0 pattern as participants-panel. On mobile it's a bottom sheet (~80dvh).
+                "inset-y-0 end-0 w-full max-w-sm rounded-s-2xl",
+                "max-sm:inset-y-auto max-sm:bottom-0 max-sm:max-w-none max-sm:h-[80dvh] max-sm:rounded-s-none max-sm:rounded-t-3xl",
+                isOpen
+                  ? "translate-x-0 translate-y-0"
+                  : "translate-x-full rtl:-translate-x-full max-sm:translate-x-0 max-sm:translate-y-full",
+              ),
         )}
       >
         {/* Mobile drag affordance. */}
@@ -305,6 +301,26 @@ export function ChatPanel() {
           </div>
         </footer>
       </aside>
+  );
+
+  // Presenter card: return the bare pane (the card supplies its own docked column).
+  if (embedded) return aside;
+
+  // Normal call surface: the end-side slide-over drawer with a tap-to-close backdrop.
+  return (
+    <div className={cn("fixed inset-0 z-40 text-white", !isOpen && "pointer-events-none")}>
+      {/* Backdrop — fades; tapping it closes (overlays the call, doesn't unmount it). */}
+      <button
+        type="button"
+        aria-label={t("close")}
+        tabIndex={isOpen ? 0 : -1}
+        onClick={close}
+        className={cn(
+          "absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-300",
+          isOpen ? "opacity-100" : "opacity-0",
+        )}
+      />
+      {aside}
     </div>
   );
 }
