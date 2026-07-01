@@ -125,6 +125,10 @@ it('starts a recording via the host link with no login', function () {
     $recId = $this->postJson("/api/video/manage/{$room['host_token']}/recording")
         ->assertCreated()->json('recordingId');
 
+    // Record with the "speaker" layout so a screen share is pinned full-frame with the cameras as
+    // thumbnails (not LiveKit's default "grid", which tiles share + camera 50/50).
+    Http::assertSent(fn ($r) => str_contains($r->url(), 'StartRoomCompositeEgress') && $r['layout'] === 'speaker');
+
     $this->asAcademy($this->pro);
     $rec = DB::table('room_recordings')->where('id', $recId)->first();
     expect($rec)->not->toBeNull();

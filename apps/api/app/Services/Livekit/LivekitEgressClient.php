@@ -22,14 +22,19 @@ final class LivekitEgressClient
     /**
      * Start a room-composite recording. $output is a LiveKit EncodedFileOutput (S3) descriptor.
      *
+     * $layout picks the compositor template layout. We default to "speaker" (not LiveKit's default
+     * "grid") so a screen share is pinned full-frame with the cameras as thumbnails alongside — the
+     * teaching view. Grid tiles the share and cameras equally (the 50/50 split we don't want).
+     *
      * @param  array<string,mixed>  $output
      * @return array{ok: bool, egress_id: ?string, error: ?string}
      */
-    public function startRoomComposite(string $room, array $output): array
+    public function startRoomComposite(string $room, array $output, string $layout = 'speaker'): array
     {
         try {
             $res = $this->http()->post('/twirp/livekit.Egress/StartRoomCompositeEgress', [
                 'room_name' => $room,
+                'layout' => $layout,
                 'file_outputs' => [$output],
             ]);
             if (! $res->successful()) {
