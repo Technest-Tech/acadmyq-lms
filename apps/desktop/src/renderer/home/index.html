@@ -7,13 +7,18 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #0b1120;
-        --panel: #111a2e;
-        --border: rgba(148, 163, 184, 0.18);
+        --bg: #070c18;
+        --panel: rgba(20, 30, 52, 0.72);
+        --panel-solid: #0f1a30;
+        --border: rgba(148, 163, 184, 0.16);
+        --border-strong: rgba(148, 163, 184, 0.28);
         --emerald: #34d399;
         --emerald-strong: #10b981;
-        --text: #e2e8f0;
-        --muted: #94a3b8;
+        --text: #eef2f8;
+        --muted: #97a6bd;
+        --danger: #fca5a5;
+        /* Clearance for the frameless window's native controls (macOS traffic lights top-left). */
+        --safe-top: 46px;
       }
       * {
         box-sizing: border-box;
@@ -22,119 +27,213 @@
       body {
         margin: 0;
         height: 100%;
-        background: radial-gradient(1200px 600px at 50% -10%, #14233f 0%, var(--bg) 55%);
         color: var(--text);
-        font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+        font: 15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif;
         user-select: none;
+        background:
+          radial-gradient(900px 500px at 82% -8%, rgba(16, 185, 129, 0.14), transparent 60%),
+          radial-gradient(1000px 620px at 18% 0%, rgba(59, 130, 246, 0.12), transparent 58%),
+          var(--bg);
+      }
+      /* Faint dotted grid for depth. */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: radial-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+        background-size: 26px 26px;
+        mask-image: radial-gradient(1000px 700px at 50% 30%, #000 0%, transparent 75%);
+        pointer-events: none;
+      }
+      /* Draggable strip so the frameless (macOS title-bar-hidden) window can still be moved, and a
+         safe area so the native traffic lights never sit over the card. */
+      .dragbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: var(--safe-top);
+        -webkit-app-region: drag;
+        z-index: 5;
       }
       .wrap {
-        height: 100vh;
+        position: relative;
+        min-height: 100vh;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 22px;
-        padding: 24px;
+        gap: 26px;
+        padding: calc(var(--safe-top) + 12px) 24px 28px;
       }
       .brand {
         display: flex;
         align-items: center;
-        gap: 10px;
-        font-size: 22px;
+        gap: 11px;
+        font-size: 20px;
         font-weight: 800;
         letter-spacing: -0.02em;
       }
-      .brand .dot {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        background: var(--emerald);
-        box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.18);
+      .brand .mark {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 11px;
+        background: linear-gradient(140deg, var(--emerald), var(--emerald-strong));
+        box-shadow: 0 8px 20px rgba(16, 185, 129, 0.35);
+        color: #04140d;
       }
       .brand .tag {
-        font-size: 11px;
+        font-size: 10.5px;
         font-weight: 700;
         color: var(--emerald);
         background: rgba(52, 211, 153, 0.12);
-        border: 1px solid rgba(52, 211, 153, 0.35);
+        border: 1px solid rgba(52, 211, 153, 0.32);
         border-radius: 999px;
-        padding: 2px 8px;
-        letter-spacing: 0.04em;
+        padding: 3px 9px;
+        letter-spacing: 0.05em;
         text-transform: uppercase;
       }
       .card {
         width: 100%;
-        max-width: 420px;
+        max-width: 430px;
         background: var(--panel);
         border: 1px solid var(--border);
-        border-radius: 18px;
-        padding: 26px;
-        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+        border-radius: 22px;
+        padding: 30px 30px 26px;
+        box-shadow:
+          0 30px 70px rgba(0, 0, 0, 0.5),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(18px);
       }
-      h1 {
-        margin: 0 0 4px;
-        font-size: 20px;
-        font-weight: 700;
+      .card h1 {
+        margin: 0 0 6px;
+        font-size: 21px;
+        font-weight: 750;
+        letter-spacing: -0.01em;
       }
-      .sub {
-        margin: 0 0 18px;
+      .card .sub {
+        margin: 0 0 22px;
         color: var(--muted);
-        font-size: 13px;
+        font-size: 13.5px;
       }
       label {
         display: block;
         font-size: 12px;
         font-weight: 600;
         color: var(--muted);
-        margin: 14px 0 6px;
+        margin: 0 0 8px;
+        letter-spacing: 0.01em;
+      }
+      .field {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        border-radius: 13px;
+        border: 1px solid var(--border-strong);
+        background: rgba(7, 13, 26, 0.7);
+        transition: border-color 0.14s, box-shadow 0.14s, background 0.14s;
+      }
+      .field:focus-within {
+        border-color: rgba(52, 211, 153, 0.65);
+        box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.14);
+        background: rgba(7, 13, 26, 0.9);
+      }
+      .field svg {
+        flex: 0 0 auto;
+        color: var(--muted);
+      }
+      .field:focus-within svg {
+        color: var(--emerald);
       }
       input {
+        flex: 1 1 auto;
         width: 100%;
-        padding: 12px 14px;
-        border-radius: 11px;
-        border: 1px solid var(--border);
-        background: #0a1326;
+        padding: 14px 0;
+        border: none;
+        background: transparent;
         color: var(--text);
         font: inherit;
         outline: none;
         user-select: text;
       }
-      input:focus {
-        border-color: rgba(52, 211, 153, 0.6);
-        box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.15);
+      input::placeholder {
+        color: #64748b;
+      }
+      .example {
+        margin: 9px 2px 0;
+        font-size: 12px;
+        color: #64748b;
+      }
+      .example code {
+        color: var(--muted);
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-size: 11.5px;
       }
       button.join {
         margin-top: 20px;
         width: 100%;
-        padding: 13px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        padding: 14px;
         border: none;
-        border-radius: 12px;
-        background: var(--emerald-strong);
+        border-radius: 13px;
+        background: linear-gradient(140deg, var(--emerald), var(--emerald-strong));
         color: #04140d;
         font: inherit;
         font-weight: 800;
         cursor: pointer;
-        transition: background 0.12s, transform 0.06s;
+        box-shadow: 0 12px 26px rgba(16, 185, 129, 0.28);
+        transition: filter 0.14s, transform 0.06s, box-shadow 0.14s;
       }
       button.join:hover {
-        background: var(--emerald);
+        filter: brightness(1.06);
+        box-shadow: 0 14px 30px rgba(16, 185, 129, 0.36);
       }
       button.join:active {
-        transform: scale(0.99);
+        transform: translateY(1px) scale(0.995);
       }
       button.join:disabled {
-        opacity: 0.5;
+        opacity: 0.55;
         cursor: not-allowed;
+        box-shadow: none;
       }
+      /* Inline error banner — only rendered when it has a message (home.ts sets textContent). */
       .err {
-        margin-top: 10px;
+        margin-top: 14px;
         font-size: 12.5px;
-        color: #fca5a5;
-        min-height: 16px;
+        color: var(--danger);
+        display: none;
+      }
+      .err:not(:empty) {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-radius: 11px;
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.28);
+      }
+      .err:not(:empty)::before {
+        content: "!";
+        flex: 0 0 auto;
+        display: grid;
+        place-items: center;
+        width: 17px;
+        height: 17px;
+        border-radius: 50%;
+        background: rgba(239, 68, 68, 0.25);
+        color: #fecaca;
+        font-weight: 800;
+        font-size: 11px;
       }
       .foot {
-        margin-top: 18px;
-        padding-top: 16px;
+        margin-top: 22px;
+        padding-top: 18px;
         border-top: 1px solid var(--border);
         font-size: 13px;
         color: var(--muted);
@@ -144,7 +243,7 @@
       }
       .link {
         color: var(--emerald);
-        font-weight: 600;
+        font-weight: 650;
         background: none;
         border: none;
         cursor: pointer;
@@ -155,20 +254,11 @@
         text-decoration: underline;
       }
       .hint {
-        margin-top: 14px;
+        margin: 0;
         font-size: 12px;
-        color: var(--muted);
+        color: #64748b;
         text-align: center;
-      }
-      /* Draggable strip so the frameless (macOS title-bar-hidden) window can still be moved. */
-      .dragbar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 34px;
-        -webkit-app-region: drag;
-        z-index: 5;
+        max-width: 380px;
       }
     </style>
   </head>
@@ -176,21 +266,50 @@
     <div class="dragbar"></div>
     <div class="wrap">
       <div class="brand">
-        <span class="dot"></span> AcademIQ <span class="tag">Teacher</span>
+        <span class="mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <rect x="2.5" y="6" width="12.5" height="12" rx="3" fill="currentColor" />
+            <path d="M15.5 10.2l4.6-2.6c.7-.4 1.4.1 1.4.9v6.9c0 .8-.7 1.3-1.4.9l-4.6-2.6" fill="currentColor" />
+          </svg>
+        </span>
+        AcademIQ <span class="tag">Teacher</span>
       </div>
+
       <div class="card">
         <h1>Join a meeting</h1>
-        <p class="sub">Paste the meeting link, or enter the meeting code.</p>
+        <p class="sub">Paste your meeting or host link to jump straight into the class.</p>
+
         <label for="meeting">Meeting link or code</label>
-        <input id="meeting" type="text" autocomplete="off" spellcheck="false" placeholder="https://…/r/your-code  ·  or  your-code" />
-        <button class="join" id="join">Join meeting</button>
+        <div class="field">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M9 15l6-6M10.5 6.5l1-1a4 4 0 015.7 5.7l-1 1M13.5 17.5l-1 1a4 4 0 01-5.7-5.7l1-1"
+              stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <input
+            id="meeting"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Paste meeting link, or enter a code"
+          />
+        </div>
+        <p class="example">Example: <code>https://acadmyq.com/r/halaqa-k3p9x</code></p>
+
+        <button class="join" id="join">
+          Join meeting
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M5 12h13M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
         <div class="err" id="err"></div>
+
         <div class="foot">
           <span>Hosting a class?</span>
           <button class="link" id="signin">Sign in to host</button>
         </div>
       </div>
-      <p class="hint">A meeting-only app — no dashboard. Sign in once to host &amp; annotate.</p>
+
+      <p class="hint">A meeting-only app — no dashboard. Sign in once to host &amp; annotate on the shared screen.</p>
     </div>
     <script type="module" src="./home.ts"></script>
   </body>

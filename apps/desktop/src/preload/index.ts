@@ -27,6 +27,13 @@ const api = {
     ipcRenderer.send("annotate:set", !!on);
   },
   /**
+   * The meeting ended for this user (they left, the host ended it, or they were removed) — return to
+   * the native "Join a meeting" lobby so they can paste another link and join again.
+   */
+  returnToLobby(): void {
+    ipcRenderer.send("app:return-to-lobby");
+  },
+  /**
    * Enter presenter mode — reshape the call window into a small, always-on-top, content-protected
    * floating panel so the teacher can use their PC while sharing (students never see the panel). The
    * web renders its desktop-only compact presenter layout in this same window.

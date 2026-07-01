@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DisconnectReason, setLogLevel } from "livekit-client";
 import { useTranslations } from "next-intl";
 import { WifiOff } from "lucide-react";
@@ -16,6 +16,7 @@ import { BrandBackdrop } from "./brand-backdrop";
 import { CallRoom } from "./call-room";
 import { KnockControl } from "./knock-control";
 import { Lobby, type LobbySettings } from "./lobby";
+import { useIsDesktop } from "./use-is-desktop";
 import { WaitingScreen } from "./waiting-screen";
 
 // Keep the browser console clean for this premium surface — surface warnings/errors, drop the
@@ -54,6 +55,17 @@ export function CallExperience(target: CallTarget) {
   const [creds, setCreds] = useState<JoinRoomResponse | null>(null);
   const [knock, setKnock] = useState<KnockingResponse | null>(null);
   const [settings, setSettings] = useState<LobbySettings | null>(null);
+  const isDesktop = useIsDesktop();
+
+  // Desktop app: once the meeting is over for this user (they left, the host ended it, or they were
+  // removed), drop back to the native "Join a meeting" lobby so they can paste another link — after a
+  // short beat on the status screen so the transition doesn't feel abrupt.
+  useEffect(() => {
+    if (!isDesktop) return;
+    if (phase !== "left" && phase !== "ended" && phase !== "removed") return;
+    const id = setTimeout(() => window.academiqDesktop?.returnToLobby?.(), 1500);
+    return () => clearTimeout(id);
+  }, [isDesktop, phase]);
 
   async function handleJoin(s: LobbySettings) {
     setJoining(true);

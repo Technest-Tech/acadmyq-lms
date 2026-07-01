@@ -22,6 +22,11 @@ declare global {
     /** Arm/disarm annotation (overlay visibility + screens-only picker). Added in Phase 5. */
     setAnnotateMode?(on: boolean): void;
     /**
+     * The meeting ended for this user (left / host-ended / removed) → return to the native lobby so
+     * they can join another link. Optional: absent in older desktop builds.
+     */
+    returnToLobby?(): void;
+    /**
      * Presenter mode — reshape the call window into a small, content-protected floating panel while
      * screen-sharing so the teacher can use their PC (students never see the panel). The web renders
      * its compact presenter layout in the same window. Optional: absent in older desktop builds.

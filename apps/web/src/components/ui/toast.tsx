@@ -40,10 +40,17 @@ const DEFAULT_DURATION = 5000;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [mounted, setMounted] = useState(false);
+  // In the desktop app the window is frameless and the macOS traffic lights float over the top-left
+  // corner — where toasts land in RTL (the default locale). Drop the toast column below them so their
+  // dismiss/action buttons are never trapped under the native window controls.
+  const [isDesktop, setIsDesktop] = useState(false);
   const nextId = useRef(0);
 
   // Portals need a real DOM target — only render the host after the client has mounted.
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+    setIsDesktop(!!window.academiqDesktop);
+  }, []);
 
   const dismiss = useCallback((id: number) => {
     setToasts((list) => list.filter((t) => t.id !== id));
@@ -73,7 +80,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {mounted &&
         createPortal(
           <div
-            className="pointer-events-none fixed end-4 top-4 z-[100] flex w-full max-w-sm flex-col gap-2"
+            className={`pointer-events-none fixed end-4 z-[100] flex w-full max-w-sm flex-col gap-2 ${
+              isDesktop ? "top-14" : "top-4"
+            }`}
             role="region"
             aria-label="Notifications"
           >

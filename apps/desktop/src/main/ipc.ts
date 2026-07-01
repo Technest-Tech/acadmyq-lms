@@ -1,5 +1,5 @@
 import { BrowserWindow, ipcMain } from "electron";
-import { loadMeeting, loadSignIn } from "./home";
+import { loadHome, loadMeeting, loadSignIn } from "./home";
 import { armAnnotate, setTool, type AnnotationTool } from "./overlay-controller";
 import {
   collapsePresenter,
@@ -30,6 +30,15 @@ export function registerIpc(): void {
   ipcMain.on("home:signin", (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (win) loadSignIn(win);
+  });
+  // The web meeting reached a terminal state (left / ended / removed) → return to the native lobby so
+  // the teacher can paste another link and join again. Restore the window first in case a share was
+  // still active (content-protection / small presenter bounds).
+  ipcMain.on("app:return-to-lobby", (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? getMainWindow();
+    if (!win) return;
+    exitPresenter();
+    loadHome(win);
   });
   ipcMain.on("annotation:scene", (_e, elements: unknown) => {
     postSceneToOverlay(Array.isArray(elements) ? elements : []);
