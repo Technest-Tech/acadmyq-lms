@@ -83,13 +83,15 @@ export function PresenterShell({
         </button>
       </div>
 
-      {/* Content row: the main pane (whiteboard or video grid) + an optional docked chat section. */}
+      {/* Content row: the main pane (whiteboard or video grid) + an optional docked chat section.
+          The main pane is a flex COLUMN so WhiteboardPanel's own `flex-1 min-h-0` fills it — the same
+          structure CallMain uses in normal mode (a block parent collapses the board to zero height). */}
       <div className="flex min-h-0 flex-1">
-        <div className="min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col">
           {boardOpen ? (
             <WhiteboardPanel />
           ) : (
-            <div className="h-full px-2">
+            <div className="min-h-0 flex-1 px-2">
               <div
                 className="grid h-full min-h-0 gap-1.5"
                 style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "1fr" }}
@@ -103,7 +105,7 @@ export function PresenterShell({
         </div>
 
         {chatOpen && (
-          <div className="min-h-0 w-[19rem] shrink-0 border-s border-white/10">
+          <div className="flex min-h-0 w-[19rem] shrink-0 flex-col border-s border-white/10">
             <ChatPanel embedded />
           </div>
         )}
