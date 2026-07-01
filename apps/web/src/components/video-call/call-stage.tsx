@@ -155,7 +155,9 @@ function RecIndicator({ suppress = false }: { suppress?: boolean }) {
     );
   }
 
-  if (!isRecording) return null;
+  // Show REC on the server signal, but hide it once this host has locally settled to idle (their stop
+  // was confirmed) — the SFU `isRecording` flag lingers ~15s after a room-composite egress stops.
+  if (!isRecording || phase === "idle") return null;
   return (
     <span className="flex items-center gap-1.5 rounded-full bg-red-500/20 px-2.5 py-1 text-xs font-semibold text-red-200 ring-1 ring-red-400/30 backdrop-blur">
       <span className="size-1.5 animate-pulse rounded-full bg-red-500" />

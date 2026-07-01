@@ -171,10 +171,10 @@ function AnnotateButton({ compact = false }: { compact?: boolean }) {
  */
 function RecordButton({ compact = false }: { compact?: boolean }) {
   const t = useTranslations("videoCall");
-  const { phase, isRecording, busy, toggle } = useRecording();
-  // `busy` (starting/stopping) is a transient "working" state — show it amber with a spinner so the
-  // stop window reads as "Saving…", not "still recording" (the red look). Red = actually rolling.
-  const rolling = isRecording && !busy;
+  const { phase, busy, toggle } = useRecording();
+  // Drive the look off `phase`, not the SFU `isRecording` flag (which clears slowly on stop and would
+  // keep the button red after the file's already saved). `busy` (starting/stopping) is amber "Saving…".
+  const rolling = phase === "recording";
   const label =
     phase === "starting"
       ? t("recordingStarting")

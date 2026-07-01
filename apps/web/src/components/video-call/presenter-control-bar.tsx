@@ -137,8 +137,9 @@ export function PresenterControlBar({
     });
   }, [setAllowDraw, setScreenBaking]);
 
-  // `busy` (starting/stopping) reads amber "Saving…"; red is reserved for actually rolling.
-  const recRolling = rec.isRecording && !rec.busy;
+  // Drive off `phase` (the SFU `isRecording` flag clears slowly on stop): starting/stopping = amber
+  // "Saving…", `recording` = red, else idle.
+  const recRolling = rec.phase === "recording";
   const recLabel =
     rec.phase === "starting"
       ? t("recordingStarting")

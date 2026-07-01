@@ -35,9 +35,12 @@ interface RecordingValue {
 
 const RecordingContext = createContext<RecordingValue | null>(null);
 
-// The egress signal never flipped (e.g. it failed to spin up / tear down) — release the optimistic
-// phase back to whatever the server actually reports so the UI never gets stuck on a spinner.
-const SETTLE_TIMEOUT = 15000;
+// Start optimism: if egress never reports active, release the optimistic "starting" to server truth.
+const START_SETTLE_MS = 15000;
+// Stop confirmation: the SFU `isRecording` flag clears slowly/unreliably when a room-composite egress
+// stops (often 15s+), so we DON'T wait on it — the stop is requested and the egress finalises the file
+// async, so we confirm the save on this short timer instead. (An early real "off" signal wins.)
+const STOP_CONFIRM_MS = 5000;
 
 /**
  * Owns the on-demand recording lifecycle for a host and surfaces accurate, professional feedback at
@@ -94,24 +97,6 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => clearSettle, [clearSettle]);
 
-  // Egress never flipped within the grace window → fall back to the server truth. A stuck STOP is a
-  // genuine failure worth reporting (still recording); a stuck start just settles quietly.
-  const armSettle = useCallback(
-    (intent: "start" | "stop") => {
-      clearSettle();
-      settle.current = setTimeout(() => {
-        stopIntent.current = false;
-        if (serverRef.current) {
-          setPhase("recording");
-          if (intent === "stop") toast.error(t("recordingStopFailed"));
-        } else {
-          setPhase("idle");
-        }
-      }, SETTLE_TIMEOUT);
-    },
-    [clearSettle, t, toast],
-  );
-
   const toggle = useCallback(() => {
     const now = phaseRef.current;
     if (now === "starting" || now === "stopping") return;
@@ -120,10 +105,19 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       stopIntent.current = true;
       setPhase("stopping");
       toast.info(t("recordingStopping"));
-      armSettle("stop");
-      // Deliberately no state change on a rejected request: the egress usually stops even when this
-      // HTTP response is lost, so flipping back to "recording" would just flash the button red. The
-      // SFU signal shows the saved modal; the settle fallback recovers a genuinely stuck stop.
+      clearSettle();
+      // Confirm the save on a short timer — the SFU `isRecording` flag is too slow/unreliable to wait
+      // on when stopping. If the real "off" signal arrives first, the effect above shows the modal and
+      // cancels this. (If the stop request is still cancelled below, this is cleared.)
+      settle.current = setTimeout(() => {
+        if (!stopIntent.current) return;
+        stopIntent.current = false;
+        setSavedOpen(true);
+        setPhase("idle");
+      }, STOP_CONFIRM_MS);
+      // Fire-and-forget: we do NOT revert/error on a rejected or lost response. The egress stops and
+      // saves the file regardless, so flashing back to "recording" (and erroring) was the confusing
+      // behaviour users hit — the timer/SFU signal owns the outcome.
       stopRoomRecording(roomId, manageToken).catch(() => undefined);
       return;
     }
@@ -131,14 +125,18 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
     stopIntent.current = false;
     setPhase("starting");
     toast.info(t("recordingStarting"));
-    armSettle("start");
+    clearSettle();
+    // Egress never reported active within the grace window → release the optimistic phase.
+    settle.current = setTimeout(() => {
+      setPhase(serverRef.current ? "recording" : "idle");
+    }, START_SETTLE_MS);
     startRoomRecording(roomId, manageToken).catch((e) => {
       clearSettle();
       setPhase("idle");
       if (e instanceof ApiError && e.status === 403) toast.error(t("recordingDisabled"));
       else toast.error(t("recordingStartFailed"));
     });
-  }, [roomId, manageToken, armSettle, clearSettle, t, toast]);
+  }, [roomId, manageToken, clearSettle, t, toast]);
 
   return (
     <RecordingContext.Provider

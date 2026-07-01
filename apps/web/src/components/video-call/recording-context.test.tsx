@@ -112,6 +112,28 @@ describe("RecordingProvider", () => {
     expect(screen.getByText("Recording saved")).toBeInTheDocument();
   });
 
+  it("confirms saved on the fallback timer when the SFU never reports the stop (laggy isRecording)", async () => {
+    vi.useFakeTimers();
+    try {
+      mockStop.mockResolvedValue({ ok: true });
+      state.serverRecording = true; // stays true — the SFU flag clears slowly after a room-composite stop
+      render(tree());
+
+      fireEvent.click(screen.getByText("toggle"));
+      expect(screen.getByTestId("phase").textContent).toBe("stopping");
+
+      // No "off" signal arrives; the short confirm timer resolves it to saved — never a failure.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000);
+      });
+      expect(screen.getByTestId("phase").textContent).toBe("idle");
+      expect(screen.getByText("Recording saved")).toBeInTheDocument();
+      expect(mockToast.error).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reverts to idle and shows the disabled toast on a 403 start", async () => {
     mockStart.mockRejectedValue(new ApiError(403, "recording disabled"));
     render(tree());
