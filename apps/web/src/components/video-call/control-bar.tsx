@@ -172,13 +172,15 @@ function AnnotateButton({ compact = false }: { compact?: boolean }) {
 function RecordButton({ compact = false }: { compact?: boolean }) {
   const t = useTranslations("videoCall");
   const { phase, isRecording, busy, toggle } = useRecording();
-  const active = isRecording || phase === "stopping";
+  // `busy` (starting/stopping) is a transient "working" state — show it amber with a spinner so the
+  // stop window reads as "Saving…", not "still recording" (the red look). Red = actually rolling.
+  const rolling = isRecording && !busy;
   const label =
     phase === "starting"
       ? t("recordingStarting")
       : phase === "stopping"
         ? t("recordingStopping")
-        : active
+        : rolling
           ? t("stopRecording")
           : t("startRecording");
 
@@ -187,16 +189,20 @@ function RecordButton({ compact = false }: { compact?: boolean }) {
       type="button"
       onClick={toggle}
       disabled={busy}
-      aria-pressed={active}
+      aria-pressed={rolling}
       aria-label={label}
       title={label}
-      className={`flex ${compact ? "size-10" : "size-12"} items-center justify-center rounded-full transition disabled:opacity-60 ${
-        active ? "bg-red-500/90 text-white hover:bg-red-500" : "bg-white/10 text-white hover:bg-white/20"
+      className={`flex ${compact ? "size-10" : "size-12"} items-center justify-center rounded-full transition disabled:opacity-80 ${
+        busy
+          ? "bg-amber-500/90 text-white"
+          : rolling
+            ? "bg-red-500/90 text-white hover:bg-red-500"
+            : "bg-white/10 text-white hover:bg-white/20"
       }`}
     >
       {busy ? (
         <Loader2 className={`${compact ? "size-[18px]" : "size-5"} animate-spin`} />
-      ) : active ? (
+      ) : rolling ? (
         <Square className={`${compact ? "size-3.5" : "size-4"} fill-current`} />
       ) : (
         <span className="size-3.5 rounded-full bg-red-500" />

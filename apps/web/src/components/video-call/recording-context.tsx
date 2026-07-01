@@ -14,6 +14,7 @@ import { useTranslations } from "next-intl";
 import { ApiError, startRoomRecording, stopRoomRecording } from "@/lib/api";
 import { useToast } from "@/components/ui/toast";
 import { useCallControl } from "./call-control-context";
+import { RecordingSavedDialog } from "./recording-saved-dialog";
 
 /**
  * idle → starting → recording → stopping → idle. `starting`/`stopping` are the optimistic windows
@@ -58,6 +59,8 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
   serverRef.current = serverRecording;
   const prevServer = useRef(serverRecording);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Shown to the host who stopped once the file is truly finalised (a confirmation they can dismiss).
+  const [savedOpen, setSavedOpen] = useState(false);
 
   const clearSettle = useCallback(() => {
     if (settle.current) {
@@ -75,8 +78,9 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       if (phaseRef.current === "starting") toast.success(t("recordingStarted"));
       setPhase("recording");
     } else {
-      // Egress stopped → the file has been finalised to the academy's recordings.
-      if (phaseRef.current === "stopping") toast.success(t("recordingSaved"));
+      // Egress stopped → the file has been finalised to the academy's recordings. Confirm with a
+      // dismissible modal (clearer than a toast) — only for the host who actually stopped it.
+      if (phaseRef.current === "stopping") setSavedOpen(true);
       setPhase("idle");
     }
   }, [serverRecording, clearSettle, t, toast]);
@@ -128,6 +132,7 @@ export function RecordingProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      <RecordingSavedDialog open={savedOpen} onClose={() => setSavedOpen(false)} />
     </RecordingContext.Provider>
   );
 }

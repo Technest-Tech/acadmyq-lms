@@ -75,7 +75,7 @@ describe("RecordingProvider", () => {
     expect(mockToast.success).toHaveBeenCalledWith("Recording started");
   });
 
-  it("stops: optimistic 'stopping' → 'idle' + 'saved' toast when egress flips off", async () => {
+  it("stops: optimistic 'stopping' → 'idle' + a saved-confirmation modal when egress flips off", async () => {
     state.serverRecording = true;
     const { rerender } = render(tree());
     expect(screen.getByTestId("phase").textContent).toBe("recording");
@@ -84,11 +84,15 @@ describe("RecordingProvider", () => {
     expect(mockStop).toHaveBeenCalledWith("room-1", null);
     expect(screen.getByTestId("phase").textContent).toBe("stopping");
     expect(mockToast.info).toHaveBeenCalledWith("Stopping recording — saving…");
+    // Not confirmed yet — the file only finalises when egress actually stops.
+    expect(screen.queryByText("Recording saved")).not.toBeInTheDocument();
 
     act(() => void (state.serverRecording = false));
     rerender(tree());
     await waitFor(() => expect(screen.getByTestId("phase").textContent).toBe("idle"));
-    expect(mockToast.success).toHaveBeenCalledWith("Recording saved to your account.");
+    // A dismissible modal confirms the save (clearer than a toast) — and no "saved" toast fires.
+    expect(screen.getByText("Recording saved")).toBeInTheDocument();
+    expect(mockToast.success).not.toHaveBeenCalled();
   });
 
   it("reverts to idle and shows the disabled toast on a 403 start", async () => {

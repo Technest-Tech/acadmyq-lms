@@ -36,7 +36,7 @@ const GAP = 6; // gap-1.5
 const PAD = 12; // px-1.5 both sides
 const STEP = BTN + GAP;
 
-type Variant = "neutral" | "on" | "off" | "leave";
+type Variant = "neutral" | "on" | "off" | "saving" | "leave";
 
 interface Control {
   key: string;
@@ -57,10 +57,26 @@ function variantClass(v: Variant): string {
       return "bg-emerald-500/90 text-white hover:bg-emerald-500";
     case "off":
       return "bg-red-500/90 text-white hover:bg-red-500";
+    case "saving":
+      return "bg-amber-500/90 text-white";
     case "leave":
       return "bg-red-600 text-white hover:bg-red-700";
     default:
       return "bg-white/10 text-white hover:bg-white/20";
+  }
+}
+
+/** Solid fill for the icon chip inside the "More" popover, mirroring the button variant. */
+function menuChipClass(v: Variant): string {
+  switch (v) {
+    case "on":
+      return "bg-emerald-500/90";
+    case "off":
+      return "bg-red-500/90";
+    case "saving":
+      return "bg-amber-500/90";
+    default:
+      return "bg-white/10";
   }
 }
 
@@ -121,13 +137,14 @@ export function PresenterControlBar({
     });
   }, [setAllowDraw, setScreenBaking]);
 
-  const recActive = rec.isRecording || rec.phase === "stopping";
+  // `busy` (starting/stopping) reads amber "Saving…"; red is reserved for actually rolling.
+  const recRolling = rec.isRecording && !rec.busy;
   const recLabel =
     rec.phase === "starting"
       ? t("recordingStarting")
       : rec.phase === "stopping"
         ? t("recordingStopping")
-        : recActive
+        : recRolling
           ? t("stopRecording")
           : t("startRecording");
 
@@ -207,11 +224,11 @@ export function PresenterControlBar({
             icon: Square,
             label: recLabel,
             onClick: () => void rec.toggle(),
-            variant: (recActive ? "off" : "neutral") as Variant,
+            variant: (rec.busy ? "saving" : recRolling ? "off" : "neutral") as Variant,
             pending: rec.busy,
             glyph: rec.busy ? (
               <Loader2 className="size-[18px] animate-spin" />
-            ) : recActive ? (
+            ) : recRolling ? (
               <Square className="size-3.5 fill-current" />
             ) : (
               <span className="size-3.5 rounded-full bg-red-500" />
@@ -334,7 +351,7 @@ export function PresenterControlBar({
                   <span
                     className={cn(
                       "flex size-8 shrink-0 items-center justify-center rounded-full",
-                      c.variant === "on" ? "bg-emerald-500/90" : "bg-white/10",
+                      menuChipClass(c.variant),
                     )}
                   >
                     {c.glyph ?? <c.icon className="size-[18px]" />}
