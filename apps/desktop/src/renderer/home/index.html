@@ -7,9 +7,8 @@
     <style>
       :root {
         color-scheme: dark;
-        --bg: #070c18;
-        --panel: rgba(20, 30, 52, 0.72);
-        --panel-solid: #0f1a30;
+        --bg: #060a14;
+        --panel: rgba(17, 26, 46, 0.62);
         --border: rgba(148, 163, 184, 0.16);
         --border-strong: rgba(148, 163, 184, 0.28);
         --emerald: #34d399;
@@ -30,23 +29,76 @@
         color: var(--text);
         font: 15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif;
         user-select: none;
-        background:
-          radial-gradient(900px 500px at 82% -8%, rgba(16, 185, 129, 0.14), transparent 60%),
-          radial-gradient(1000px 620px at 18% 0%, rgba(59, 130, 246, 0.12), transparent 58%),
-          var(--bg);
+        background: var(--bg);
+        overflow: hidden;
       }
-      /* Faint dotted grid for depth. */
-      body::before {
-        content: "";
+
+      /* ── Modern animated aurora background ─────────────────────────────────────────── */
+      .aurora {
         position: fixed;
+        inset: 0;
+        z-index: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+      .aurora span {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(80px);
+        opacity: 0.55;
+        will-change: transform;
+      }
+      .b1 {
+        width: 560px;
+        height: 560px;
+        top: -170px;
+        left: -140px;
+        background: radial-gradient(circle, #10b981 0%, transparent 68%);
+        animation: drift1 20s ease-in-out infinite;
+      }
+      .b2 {
+        width: 500px;
+        height: 500px;
+        bottom: -190px;
+        right: -140px;
+        background: radial-gradient(circle, #2563eb 0%, transparent 68%);
+        animation: drift2 24s ease-in-out infinite;
+      }
+      .b3 {
+        width: 400px;
+        height: 400px;
+        top: 42%;
+        right: 24%;
+        background: radial-gradient(circle, #8b5cf6 0%, transparent 70%);
+        opacity: 0.4;
+        animation: drift3 28s ease-in-out infinite;
+      }
+      @keyframes drift1 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(70px, 50px) scale(1.08); }
+      }
+      @keyframes drift2 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(-60px, -50px) scale(1.1); }
+      }
+      @keyframes drift3 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        50% { transform: translate(-50px, 40px) scale(0.92); }
+      }
+      /* Faint dotted grid + a soft vignette for depth, above the aurora. */
+      .aurora::after {
+        content: "";
+        position: absolute;
         inset: 0;
         background-image: radial-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px);
         background-size: 26px 26px;
-        mask-image: radial-gradient(1000px 700px at 50% 30%, #000 0%, transparent 75%);
-        pointer-events: none;
+        mask-image: radial-gradient(1100px 760px at 50% 32%, #000 0%, transparent 76%);
       }
-      /* Draggable strip so the frameless (macOS title-bar-hidden) window can still be moved, and a
-         safe area so the native traffic lights never sit over the card. */
+      @media (prefers-reduced-motion: reduce) {
+        .aurora span { animation: none; }
+      }
+
+      /* Draggable strip + safe area so the native traffic lights never overlap the card. */
       .dragbar {
         position: fixed;
         top: 0;
@@ -54,19 +106,23 @@
         right: 0;
         height: var(--safe-top);
         -webkit-app-region: drag;
-        z-index: 5;
+        z-index: 6;
       }
       .wrap {
         position: relative;
+        z-index: 1;
         min-height: 100vh;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: 26px;
-        padding: calc(var(--safe-top) + 12px) 24px 28px;
+        padding: calc(var(--safe-top) + 12px) 24px 30px;
       }
+
+      /* ── Brand / title ────────────────────────────────────────────────────────────── */
       .brand {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 11px;
@@ -74,14 +130,21 @@
         font-weight: 800;
         letter-spacing: -0.02em;
       }
+      .brand::before {
+        content: "";
+        position: absolute;
+        inset: -26px -40px;
+        background: radial-gradient(closest-side, rgba(16, 185, 129, 0.2), transparent 75%);
+        z-index: -1;
+      }
       .brand .mark {
         display: grid;
         place-items: center;
-        width: 34px;
-        height: 34px;
-        border-radius: 11px;
+        width: 36px;
+        height: 36px;
+        border-radius: 12px;
         background: linear-gradient(140deg, var(--emerald), var(--emerald-strong));
-        box-shadow: 0 8px 20px rgba(16, 185, 129, 0.35);
+        box-shadow: 0 10px 24px rgba(16, 185, 129, 0.4);
         color: #04140d;
       }
       .brand .tag {
@@ -95,23 +158,42 @@
         letter-spacing: 0.05em;
         text-transform: uppercase;
       }
+
+      /* ── Card ─────────────────────────────────────────────────────────────────────── */
       .card {
+        position: relative;
         width: 100%;
         max-width: 430px;
         background: var(--panel);
         border: 1px solid var(--border);
         border-radius: 22px;
-        padding: 30px 30px 26px;
+        padding: 30px 30px 28px;
         box-shadow:
-          0 30px 70px rgba(0, 0, 0, 0.5),
-          inset 0 1px 0 rgba(255, 255, 255, 0.04);
-        backdrop-filter: blur(18px);
+          0 30px 80px rgba(0, 0, 0, 0.55),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(22px);
+        overflow: hidden;
+      }
+      /* Gradient accent strip along the top edge of the card. */
+      .card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: linear-gradient(90deg, transparent, var(--emerald) 20%, #38bdf8 55%, #8b5cf6 85%, transparent);
+        opacity: 0.85;
       }
       .card h1 {
         margin: 0 0 6px;
-        font-size: 21px;
+        font-size: 22px;
         font-weight: 750;
-        letter-spacing: -0.01em;
+        letter-spacing: -0.015em;
+        background: linear-gradient(100deg, #eef2f8, #a7f3d0 58%, #7dd3fc);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
       }
       .card .sub {
         margin: 0 0 22px;
@@ -133,13 +215,13 @@
         padding: 0 14px;
         border-radius: 13px;
         border: 1px solid var(--border-strong);
-        background: rgba(7, 13, 26, 0.7);
+        background: rgba(7, 13, 26, 0.72);
         transition: border-color 0.14s, box-shadow 0.14s, background 0.14s;
       }
       .field:focus-within {
         border-color: rgba(52, 211, 153, 0.65);
         box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.14);
-        background: rgba(7, 13, 26, 0.9);
+        background: rgba(7, 13, 26, 0.92);
       }
       .field svg {
         flex: 0 0 auto;
@@ -187,12 +269,12 @@
         font: inherit;
         font-weight: 800;
         cursor: pointer;
-        box-shadow: 0 12px 26px rgba(16, 185, 129, 0.28);
+        box-shadow: 0 12px 28px rgba(16, 185, 129, 0.3);
         transition: filter 0.14s, transform 0.06s, box-shadow 0.14s;
       }
       button.join:hover {
         filter: brightness(1.06);
-        box-shadow: 0 14px 30px rgba(16, 185, 129, 0.36);
+        box-shadow: 0 16px 34px rgba(16, 185, 129, 0.4);
       }
       button.join:active {
         transform: translateY(1px) scale(0.995);
@@ -231,28 +313,6 @@
         font-weight: 800;
         font-size: 11px;
       }
-      .foot {
-        margin-top: 22px;
-        padding-top: 18px;
-        border-top: 1px solid var(--border);
-        font-size: 13px;
-        color: var(--muted);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      }
-      .link {
-        color: var(--emerald);
-        font-weight: 650;
-        background: none;
-        border: none;
-        cursor: pointer;
-        font: inherit;
-        padding: 0;
-      }
-      .link:hover {
-        text-decoration: underline;
-      }
       .hint {
         margin: 0;
         font-size: 12px;
@@ -263,11 +323,17 @@
     </style>
   </head>
   <body>
+    <div class="aurora">
+      <span class="b1"></span>
+      <span class="b2"></span>
+      <span class="b3"></span>
+    </div>
     <div class="dragbar"></div>
+
     <div class="wrap">
       <div class="brand">
         <span class="mark" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
             <rect x="2.5" y="6" width="12.5" height="12" rx="3" fill="currentColor" />
             <path d="M15.5 10.2l4.6-2.6c.7-.4 1.4.1 1.4.9v6.9c0 .8-.7 1.3-1.4.9l-4.6-2.6" fill="currentColor" />
           </svg>
@@ -302,14 +368,9 @@
           </svg>
         </button>
         <div class="err" id="err"></div>
-
-        <div class="foot">
-          <span>Hosting a class?</span>
-          <button class="link" id="signin">Sign in to host</button>
-        </div>
       </div>
 
-      <p class="hint">A meeting-only app — no dashboard. Sign in once to host &amp; annotate on the shared screen.</p>
+      <p class="hint">A meeting-only app — everything runs off the link. Your host link gives you full control &amp; annotation.</p>
     </div>
     <script type="module" src="./home.ts"></script>
   </body>

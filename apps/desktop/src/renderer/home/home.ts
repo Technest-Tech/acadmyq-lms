@@ -1,5 +1,6 @@
 // The native "Join a meeting" home screen (Zoom-style). This is a MEETING-ONLY app — it never shows
-// the AcademIQ dashboard. Join → main loads the chrome-free /r/<code> meeting; Sign in → /login.
+// the AcademIQ dashboard. The ONLY way in is a link/code: Join → main loads the chrome-free /r/<code>
+// meeting. A host link (host_token) grants full control with no login, so there's no sign-in here.
 
 declare global {
   interface Window {
@@ -9,7 +10,6 @@ declare global {
 
 const input = document.getElementById("meeting") as HTMLInputElement;
 const joinBtn = document.getElementById("join") as HTMLButtonElement;
-const signinBtn = document.getElementById("signin") as HTMLButtonElement;
 const err = document.getElementById("err") as HTMLDivElement;
 
 function join(): void {
@@ -29,7 +29,6 @@ joinBtn.addEventListener("click", join);
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter") join();
 });
-signinBtn.addEventListener("click", () => window.academiqHome?.signIn());
 
 input.focus();
 
