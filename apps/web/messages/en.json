@@ -3087,6 +3087,7 @@
   "videoCall": {
     "lobbyTitle": "Ready to join?",
     "lobbySubtitle": "Check your camera and microphone first.",
+    "backToLink": "Back",
     "nameLabel": "Your name",
     "namePlaceholder": "e.g. Sara",
     "nameRequired": "Please enter your name to join.",

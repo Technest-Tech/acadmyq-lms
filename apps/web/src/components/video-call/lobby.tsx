@@ -12,6 +12,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  ArrowLeft,
   Loader2,
   Mic,
   MicOff,
@@ -24,6 +25,7 @@ import { LOCALE_COOKIE, locales } from "@/i18n/config";
 import { BrandBackdrop } from "./brand-backdrop";
 import { DevicePicker } from "./device-picker";
 import { MicMeter } from "./mic-meter";
+import { useIsDesktop } from "./use-is-desktop";
 
 /** The device + identity choices the lobby hands to the call on Join. */
 export interface LobbySettings {
@@ -52,6 +54,7 @@ export function Lobby({
   passwordRequired?: boolean;
 }) {
   const t = useTranslations("videoCall");
+  const isDesktop = useIsDesktop();
 
   const secure = typeof window === "undefined" ? true : window.isSecureContext;
 
@@ -216,6 +219,17 @@ export function Lobby({
 
         {/* ── Join panel ── */}
         <div className="flex flex-col">
+          {/* Desktop app: a clear way back to the native "Join a meeting" link screen. */}
+          {isDesktop && (
+            <button
+              type="button"
+              onClick={() => window.academiqDesktop?.returnToLobby?.()}
+              className="mb-4 flex w-fit items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-sm font-medium text-slate-200 ring-1 ring-white/10 transition hover:bg-white/10 hover:text-white"
+            >
+              <ArrowLeft className="size-4 rtl:-scale-x-100" />
+              {t("backToLink")}
+            </button>
+          )}
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300/80">
             {roomTitle ?? "AcademIQ"}
           </p>

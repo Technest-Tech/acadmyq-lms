@@ -3087,6 +3087,7 @@
   "videoCall": {
     "lobbyTitle": "جاهز للانضمام؟",
     "lobbySubtitle": "تحقّق من الكاميرا والميكروفون أولاً.",
+    "backToLink": "رجوع",
     "nameLabel": "اسمك",
     "namePlaceholder": "مثال: سارة",
     "nameRequired": "الرجاء إدخال اسمك للانضمام.",
