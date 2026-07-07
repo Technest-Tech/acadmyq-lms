@@ -7,6 +7,7 @@ import {
   showOverlayOnDisplay,
 } from "./window-overlay";
 import { hideToolbar, showToolbar } from "./window-toolbar";
+import { hideExitDraw, showExitDraw } from "./window-exit-draw";
 
 /** The teacher's current authoring tool/style — pushed to the overlay; drives its interactivity. */
 export interface AnnotationTool {
@@ -86,11 +87,13 @@ function reconcile(): void {
   if (annotateArmed && display) {
     showOverlayOnDisplay(display);
     showToolbar();
+    showExitDraw(); // an always-visible, always-clickable way out of drawing mode
     // Re-assert interactivity for the current tool whenever we (re)show the overlay.
     setOverlayInteractive(currentTool.tool !== "select");
   } else {
     setOverlayInteractive(false); // never leave the overlay capturing the pointer once disarmed
     hideOverlay();
     hideToolbar();
+    hideExitDraw();
   }
 }
