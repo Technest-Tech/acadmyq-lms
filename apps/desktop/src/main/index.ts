@@ -7,7 +7,6 @@ import { initOverlayController, toggleAnnotate } from "./overlay-controller";
 import { createMainWindow } from "./window-main";
 import { destroyOverlay } from "./window-overlay";
 import { destroyToolbar } from "./window-toolbar";
-import { destroyExitDraw } from "./window-exit-draw";
 import { destroyShareIndicator } from "./window-share-indicator";
 
 // Arm/disarm annotation. While armed the picker offers screens-only and the overlay rides the
@@ -61,7 +60,6 @@ if (!gotLock) {
     globalShortcut.unregisterAll();
     destroyOverlay();
     destroyToolbar();
-    destroyExitDraw();
     destroyShareIndicator();
   });
 

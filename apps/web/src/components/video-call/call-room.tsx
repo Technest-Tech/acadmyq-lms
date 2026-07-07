@@ -27,6 +27,7 @@ import { PinContext, nextPinned } from "./pin-context";
 import { PresenterBubble } from "./presenter-bubble";
 import { PresenterShell } from "./presenter-panel";
 import { RecordingProvider } from "./recording-context";
+import { CLASSROOM_ROOM_OPTIONS } from "./room-options";
 import { SettingsDialog } from "./settings-dialog";
 import { usePresenterMode } from "./use-presenter-mode";
 import { WhiteboardProvider } from "./whiteboard-context";
@@ -70,7 +71,7 @@ export function CallRoom({
       audio={audio}
       video={video}
       onDisconnected={(reason) => onLeave(reason)}
-      options={{ adaptiveStream: true, dynacast: true }}
+      options={CLASSROOM_ROOM_OPTIONS}
       className="flex h-[100dvh] flex-col bg-slate-900 text-white"
     >
       <InCall

@@ -82,6 +82,12 @@ export function hideToolbar(): void {
   if (toolbarWin && !toolbarWin.isDestroyed()) toolbarWin.hide();
 }
 
+/** The toolbar's on-screen rect while it's visible (for the overlay's hover pass-through), else null. */
+export function getToolbarBounds(): Electron.Rectangle | null {
+  if (toolbarWin && !toolbarWin.isDestroyed() && toolbarWin.isVisible()) return toolbarWin.getBounds();
+  return null;
+}
+
 export function destroyToolbar(): void {
   if (toolbarWin && !toolbarWin.isDestroyed()) toolbarWin.destroy();
   toolbarWin = null;
