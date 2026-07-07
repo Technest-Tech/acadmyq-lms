@@ -26,6 +26,7 @@ into the existing AcademIQ system (`apps/api` Laravel + `apps/web` Next.js + Pos
 | [06-WEB-CALL-CLIENT.md](06-WEB-CALL-CLIENT.md) | **PRIORITY** — browser call client + shareable per-room join links (Zoom-style), premium responsive UI, mobile web | 📋 Spec (next build) |
 | [09-WHITEBOARD-AND-ANNOTATION.md](09-WHITEBOARD-AND-ANNOTATION.md) | Shared Excalidraw whiteboard + PDF/document annotation over the LiveKit data channel | ✅ Written |
 | [10-DESKTOP-CLIENT.md](10-DESKTOP-CLIENT.md) | Teacher Electron app (`apps/desktop`) — baked-into-screen annotation, native picker, deep-link (`V-DESK-*`) | 🚧 In progress |
+| [11-DESKTOP-BUILD.md](11-DESKTOP-BUILD.md) | Building & distributing the Windows `.exe` (unsigned) — build command, SmartScreen/AV notes for academies, icon, versioning, future signing (Azure Trusted Signing) | ✅ Written |
 
 **Status legend:** ✅ written · ⏳ to be written next · 🚧 in progress
 

@@ -1,5 +1,7 @@
-# Phase 1 packaging — Windows NSIS, UNSIGNED (no code-signing certificate yet; the build is usable
-# locally and with friends). macOS dmg + notarization and Windows code-signing come in Phase 6.
+# Windows packaging — UNSIGNED (no code-signing certificate yet). The build is fully usable; Windows
+# SmartScreen will show an "unknown publisher" prompt that academies dismiss with "More info → Run
+# anyway" (see docs/video-platform/11-DESKTOP-BUILD.md). A proper icon + metadata keeps it out of most
+# antivirus false-positives. macOS dmg/notarize + real Windows signing come later.
 appId: com.academiq.teacher
 productName: AcademIQ Teacher
 copyright: © AcademIQ
@@ -9,17 +11,30 @@ directories:
 files:
   - out/**/*
   - package.json
+# Deep link: academiq://room/<token> opens straight into a meeting.
 protocols:
   - name: AcademIQ Room
     schemes:
       - academiq
 win:
+  icon: resources/icon.ico
+  # Two artifacts from one build: an installer (recommended) and a no-install portable exe.
+  # (Publisher name / signing live under `signtoolOptions` once a certificate exists — see the doc.)
   target:
     - target: nsis
+      arch:
+        - x64
+    - target: portable
       arch:
         - x64
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: AcademIQ Teacher
+  # Human, versioned filenames the academy can recognise.
   artifactName: ${productName}-Setup-${version}.${ext}
+portable:
+  artifactName: ${productName}-Portable-${version}.${ext}
