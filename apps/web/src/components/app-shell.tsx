@@ -8,6 +8,7 @@ import {
   Building2,
   CalendarClock,
   CalendarDays,
+  ChevronDown,
   ClipboardCheck,
   CreditCard,
   FileCheck2,
@@ -315,6 +316,38 @@ const NAV: ReadonlyArray<{
 const NAV_GROUPS = ["general", "management", "financial", "system"] as const;
 
 /**
+ * Super Admin panel modules (docs/superadmin-modules Phase 4). On the platform view (a SUPER_ADMIN
+ * with no entered academy) the sidebar renders these as collapsible dropdowns instead of the flat
+ * groups — one section per product line. Each admin nav item is mapped to its module by NAV_MODULE;
+ * items with no module (the tenant nav) never show on the platform view.
+ */
+type AdminModuleKey = "platform" | "management" | "whatsapp" | "video";
+
+const ADMIN_MODULES: ReadonlyArray<{
+  key: AdminModuleKey;
+  icon: ComponentType<{ className?: string }>;
+}> = [
+  { key: "platform", icon: LayoutDashboard },
+  { key: "management", icon: GraduationCap },
+  { key: "whatsapp", icon: MessageCircle },
+  { key: "video", icon: MonitorPlay },
+];
+
+const NAV_MODULE: Partial<Record<NavKey, AdminModuleKey>> = {
+  adminHome: "platform",
+  academies: "platform",
+  users: "platform",
+  billing: "platform",
+  roles: "platform",
+  platformSettings: "platform",
+  audit: "platform",
+  plans: "management",
+  staffDepartments: "management",
+  adminAutomation: "whatsapp",
+  adminVideo: "video",
+};
+
+/**
  * Plan-gated nav items → the entitlement capability that unlocks them (Sprint 9 §3). Unlike
  * `permission` (which HIDES an item the role can't use), a missing capability keeps the item
  * visible but renders it disabled with an "Upgrade" badge that links to /plan — so an academy
@@ -352,6 +385,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // retries and never flashes.
   const [capabilities, setCapabilities] = useState<string[] | null>(null);
   const [entitlementsFailed, setEntitlementsFailed] = useState(false);
+  // Which Super Admin module sections are expanded (platform view only). Default all open; the
+  // user's toggles persist in localStorage. Loaded after mount to avoid a hydration mismatch.
+  const [openModules, setOpenModules] = useState<Record<string, boolean>>({
+    platform: true,
+    management: true,
+    whatsapp: true,
+    video: true,
+  });
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("adminModulesOpen");
+      if (saved) setOpenModules((prev) => ({ ...prev, ...JSON.parse(saved) }));
+    } catch {
+      // ignore malformed / unavailable storage
+    }
+  }, []);
+
+  const toggleModule = (key: AdminModuleKey) =>
+    setOpenModules((prev) => {
+      const next = { ...prev, [key]: !(prev[key] ?? true) };
+      try {
+        localStorage.setItem("adminModulesOpen", JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
 
   useEffect(() => {
     setOpen(false);
@@ -494,7 +555,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     session.role === "SUPER_ADMIN" && session.academyId === null;
   // A "Meet Plan" academy (the `video.only` capability) manages the video classroom and nothing
   // else — collapse the whole nav to just that. Only applies once the plan entitlements resolve.
-  const videoOnly = capabilities !== null && capabilities.includes("video.only");
+  const videoOnly =
+    capabilities !== null && capabilities.includes("video.only");
   const items = NAV.filter((item) => {
     if (item.permission !== null && !can(item.permission)) return false;
     if (item.key === "dashboard" && isPlatformAdmin) return false;
@@ -517,12 +579,105 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // `/dashboard` and `/admin` are exact-match only — otherwise `/admin` would greedily
   // claim the `/admin/plans` and `/admin/staff-departments` routes via startsWith.
-  const isExactOnly = (href: string) => href === "/dashboard" || href === "/admin";
+  const isExactOnly = (href: string) =>
+    href === "/dashboard" || href === "/admin";
   const activeItem = items.find(
     (item) =>
       pathname === item.href ||
       (!isExactOnly(item.href) && pathname.startsWith(item.href)),
   );
+
+  // One sidebar link — shared by the flat group layout (tenant / entered admin) and the collapsible
+  // module layout (platform Super Admin). Preserves the plan-lock, unread badges, and active dot.
+  const renderNavItem = ({ key, icon: Icon, href }: (typeof NAV)[number]) => {
+    const requiredCap = NAV_CAPABILITY[key];
+    const locked =
+      requiredCap !== undefined &&
+      capabilities !== null &&
+      !capabilities.includes(requiredCap);
+    const isActive =
+      !locked &&
+      (pathname === href || (!isExactOnly(href) && pathname.startsWith(href)));
+    return (
+      <Link
+        // A locked item still renders, but routes to /plan (the upgrade page)
+        // instead of the gated feature — the server would 402 it anyway.
+        key={key}
+        href={locked ? "/plan" : href}
+        data-nav={key}
+        data-locked={locked || undefined}
+        title={locked ? t("nav.upgradeHint") : undefined}
+        className={cn(
+          "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-150",
+          isActive
+            ? "bg-primary/[0.12] font-semibold text-primary"
+            : locked
+              ? "font-medium text-sidebar-foreground/40 hover:bg-sidebar-accent/60"
+              : "font-medium text-sidebar-foreground hover:bg-sidebar-accent",
+        )}
+      >
+        <Icon
+          className={cn(
+            "size-4 shrink-0 transition-colors",
+            isActive
+              ? "text-primary"
+              : locked
+                ? "text-sidebar-foreground/30"
+                : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
+          )}
+          aria-hidden
+        />
+        <span className="flex-1">{t(`nav.${key}`)}</span>
+        {locked ? (
+          <span
+            data-testid="nav-upgrade-badge"
+            className="ms-auto inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+          >
+            <Lock className="size-2.5" aria-hidden />
+            {t("nav.upgradeBadge")}
+          </span>
+        ) : (
+          <>
+            {key === "notifications" && notifCount > 0 && (
+              <span
+                data-testid="nav-notif-badge"
+                aria-label={`${notifCount} new notifications`}
+                className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+              >
+                {notifCount > 99 ? "99+" : notifCount}
+              </span>
+            )}
+            {key === "attendance" && attnCount > 0 && (
+              <span
+                data-testid="nav-attendance-badge"
+                aria-label={`${attnCount} sessions awaiting attendance today`}
+                className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+              >
+                {attnCount > 99 ? "99+" : attnCount}
+              </span>
+            )}
+            {key === "studentReportReviews" && srCount > 0 && (
+              <span
+                data-testid="nav-student-reports-badge"
+                aria-label={`${srCount} student reports awaiting review`}
+                className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+              >
+                {srCount > 99 ? "99+" : srCount}
+              </span>
+            )}
+            {isActive &&
+              key !== "notifications" &&
+              !(key === "attendance" && attnCount > 0) &&
+              !(key === "studentReportReviews" && srCount > 0) && (
+                <span className="bg-primary ms-auto size-1.5 rounded-full" />
+              )}
+          </>
+        )}
+      </Link>
+    );
+  };
+
+  const activeModule = activeItem ? NAV_MODULE[activeItem.key] : undefined;
 
   return (
     <div className="bg-background flex h-dvh w-full overflow-hidden">
@@ -575,114 +730,65 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* ── Nav ────────────────────────────────────────────── */}
-        <nav
-          className="flex-1 overflow-y-auto px-3 py-3"
-          data-testid="nav"
-        >
+        <nav className="flex-1 overflow-y-auto px-3 py-3" data-testid="nav">
           <div className="space-y-5">
-            {NAV_GROUPS.map((group) => {
-              const groupItems = items.filter((item) => item.group === group);
-              if (groupItems.length === 0) return null;
-              return (
-                <div key={group}>
-                  <p className="text-sidebar-foreground/40 mb-1.5 select-none px-2.5 text-[10px] font-bold uppercase tracking-[0.1em]">
-                    {t(`navGroup.${group}`)}
-                  </p>
-                  <div className="space-y-0.5">
-                    {groupItems.map(({ key, icon: Icon, href }) => {
-                      const requiredCap = NAV_CAPABILITY[key];
-                      const locked =
-                        requiredCap !== undefined &&
-                        capabilities !== null &&
-                        !capabilities.includes(requiredCap);
-                      const isActive =
-                        !locked &&
-                        (pathname === href ||
-                          (!isExactOnly(href) && pathname.startsWith(href)));
-                      return (
-                        <Link
-                          // A locked item still renders, but routes to /plan (the upgrade page)
-                          // instead of the gated feature — the server would 402 it anyway.
-                          key={key}
-                          href={locked ? "/plan" : href}
-                          data-nav={key}
-                          data-locked={locked || undefined}
-                          title={locked ? t("nav.upgradeHint") : undefined}
+            {isPlatformAdmin
+              ? // Platform Super Admin: collapsible module dropdowns (docs/superadmin-modules Phase 4).
+                ADMIN_MODULES.map((mod) => {
+                  const modItems = items.filter(
+                    (item) => NAV_MODULE[item.key] === mod.key,
+                  );
+                  if (modItems.length === 0) return null;
+                  // The module owning the active route is always shown expanded.
+                  const isOpen =
+                    (openModules[mod.key] ?? true) || activeModule === mod.key;
+                  const ModIcon = mod.icon;
+                  return (
+                    <div key={mod.key}>
+                      <button
+                        type="button"
+                        data-module={mod.key}
+                        aria-expanded={isOpen}
+                        onClick={() => toggleModule(mod.key)}
+                        className="text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors"
+                      >
+                        <ModIcon className="size-3.5 shrink-0" aria-hidden />
+                        <span className="flex-1 text-start text-[10px] font-bold uppercase tracking-[0.1em]">
+                          {t(`adminModule.${mod.key}`)}
+                        </span>
+                        <ChevronDown
                           className={cn(
-                            "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-150",
-                            isActive
-                              ? "bg-primary/[0.12] font-semibold text-primary"
-                              : locked
-                                ? "font-medium text-sidebar-foreground/40 hover:bg-sidebar-accent/60"
-                                : "font-medium text-sidebar-foreground hover:bg-sidebar-accent",
+                            "size-3.5 shrink-0 transition-transform duration-200",
+                            !isOpen && "-rotate-90 rtl:rotate-90",
                           )}
-                        >
-                          <Icon
-                            className={cn(
-                              "size-4 shrink-0 transition-colors",
-                              isActive
-                                ? "text-primary"
-                                : locked
-                                  ? "text-sidebar-foreground/30"
-                                  : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
-                            )}
-                            aria-hidden
-                          />
-                          <span className="flex-1">{t(`nav.${key}`)}</span>
-                          {locked ? (
-                            <span
-                              data-testid="nav-upgrade-badge"
-                              className="ms-auto inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
-                            >
-                              <Lock className="size-2.5" aria-hidden />
-                              {t("nav.upgradeBadge")}
-                            </span>
-                          ) : (
-                            <>
-                              {key === "notifications" && notifCount > 0 && (
-                                <span
-                                  data-testid="nav-notif-badge"
-                                  aria-label={`${notifCount} new notifications`}
-                                  className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
-                                >
-                                  {notifCount > 99 ? "99+" : notifCount}
-                                </span>
-                              )}
-                              {key === "attendance" && attnCount > 0 && (
-                                <span
-                                  data-testid="nav-attendance-badge"
-                                  aria-label={`${attnCount} sessions awaiting attendance today`}
-                                  className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
-                                >
-                                  {attnCount > 99 ? "99+" : attnCount}
-                                </span>
-                              )}
-                              {key === "studentReportReviews" && srCount > 0 && (
-                                <span
-                                  data-testid="nav-student-reports-badge"
-                                  aria-label={`${srCount} student reports awaiting review`}
-                                  className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
-                                >
-                                  {srCount > 99 ? "99+" : srCount}
-                                </span>
-                              )}
-                              {isActive &&
-                                key !== "notifications" &&
-                                !(key === "attendance" && attnCount > 0) &&
-                                !(
-                                  key === "studentReportReviews" && srCount > 0
-                                ) && (
-                                  <span className="bg-primary ms-auto size-1.5 rounded-full" />
-                                )}
-                            </>
-                          )}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+                          aria-hidden
+                        />
+                      </button>
+                      {isOpen && (
+                        <div className="space-y-0.5">
+                          {modItems.map(renderNavItem)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              : // Tenant (or an admin acting inside an academy): the flat labelled groups.
+                NAV_GROUPS.map((group) => {
+                  const groupItems = items.filter(
+                    (item) => item.group === group,
+                  );
+                  if (groupItems.length === 0) return null;
+                  return (
+                    <div key={group}>
+                      <p className="text-sidebar-foreground/40 mb-1.5 select-none px-2.5 text-[10px] font-bold uppercase tracking-[0.1em]">
+                        {t(`navGroup.${group}`)}
+                      </p>
+                      <div className="space-y-0.5">
+                        {groupItems.map(renderNavItem)}
+                      </div>
+                    </div>
+                  );
+                })}
           </div>
         </nav>
 

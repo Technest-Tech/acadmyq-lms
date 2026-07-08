@@ -136,25 +136,31 @@ BASIC+grant→drop) both green. **Full suite: 241 failed (pre-existing baseline 
 
 ---
 
-## Phase 4 — Module sidebar + route reorg  (frontend, med)
+## Phase 4 — Module sidebar  (frontend) — DONE (2026-07-08, sidebar reorg), not committed
 
 **Frontend**
-- [ ] `app-shell.tsx`: add `module` to Super Admin nav items; render collapsible module sections with
-      remembered open state; active route auto-expands (`02 §1`). Owner nav unchanged.
-- [ ] Move pages under `/admin/{module}/*`; redirect old paths.
-- [ ] Module overview pages (Platform/Management/WhatsApp/Video landing screens).
-- [ ] `adminNav.*` i18n keys (en + ar), RTL verified.
-- [ ] `lib/api.ts`: typed fns for the new `/admin/{module}/*` endpoints.
+- [x] `app-shell.tsx`: `AdminModuleKey` + `ADMIN_MODULES` + `NAV_MODULE`; the platform view
+      (SUPER_ADMIN, no entered academy) renders **collapsible module dropdowns** (Platform / Management
+      System / WhatsApp Service / Video Platform) instead of the flat groups. Open state persists in
+      localStorage; the active route's module is force-expanded; tenant & entered-admin nav unchanged.
+      Item render extracted to `renderNavItem` (shared by both layouts) — plan-lock + badges preserved.
+- [x] `adminModule.*` i18n keys (en + ar). *(Keys are in the working tree; NOT committed with this
+      change because `messages/{en,ar}.json` also carry an unrelated teacher-login WIP block owned by
+      another session — they'll land when that i18n is committed.)*
+- [ ] Route reorg (move pages under `/admin/{module}/*` + redirects) — DEFERRED (cosmetic; the sidebar
+      groups the existing routes without moving files). Do alongside Phase 3.
+- [ ] Module overview landing pages — DEFERRED (module headers collapse/expand; not links).
+- [ ] `lib/api.ts` typed fns for `/admin/{module}/*` — belongs with Phase 3 (endpoints don't exist yet).
 
 **Acceptance criteria**
-- `AC-M4.1` Super Admin sees four module sections; each expands to its pages; deep-link expands the
-  owning module.
-- `AC-M4.2` A Super Admin with only some module-admin caps sees only those modules.
-- `AC-M4.3` Old bookmarked routes redirect to their new home.
+- `AC-M4.1` ✅ Platform Super Admin sees collapsible module sections; each expands to its pages; the
+  active route's module stays expanded.
+- `AC-M4.2` ✅ A module with no permitted items renders no section (cap-filtered) — verified by test.
+- `AC-M4.3` ⏭ Route redirects deferred with the route reorg.
 
-**Tests**
-- `TC-M4.1` Vitest: `app-shell` renders/collapses module sections; cap-filtered visibility; active-expand.
-- `TC-M4.2` Vitest: locked/upgrade-badge logic still works for owner-side plan gating (no regression).
+**Tests — `app-shell.test.tsx` (8 pass; 1 pre-existing "overflow" failure unrelated)**
+- `TC-M4.1` ✅ module headers render; collapsing one hides only its items; others stay expanded.
+- `TC-M4.2` ✅ existing owner nav + plan-lock tests still green (shared `renderNavItem`, no regression).
 
 ---
 

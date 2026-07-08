@@ -116,6 +116,25 @@ describe("AppShell role-aware navigation (AC-2.12 / TC-2.23)", () => {
     await ready();
     expect(navKeys()).toContain("academies");
   });
+
+  it("groups the platform Super Admin sidebar into collapsible modules (Phase 4)", async () => {
+    renderShell("SUPER_ADMIN");
+    await ready();
+
+    // Module headers render for the modules this admin has items in (Platform + Management here);
+    // items live under their module (academies → Platform, plans → Management).
+    expect(document.querySelector('[data-module="platform"]')).not.toBeNull();
+    expect(document.querySelector('[data-module="management"]')).not.toBeNull();
+    expect(navKeys()).toContain("academies");
+    expect(navKeys()).toContain("plans");
+
+    // Collapsing one module hides only its items; the others stay expanded.
+    await userEvent.click(
+      document.querySelector('[data-module="platform"]') as HTMLElement,
+    );
+    expect(navKeys()).not.toContain("academies");
+    expect(navKeys()).toContain("plans");
+  });
 });
 
 describe("AppShell header (TC-2.26)", () => {
