@@ -62,7 +62,7 @@ function assertParity(string $academyId, string $label): void
     DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
     DB::statement('select set_config(?, ?, true)', ['app.current_academy_id', $academyId]);
 
-    $old = Entitlement::resolve($academyId);
+    $old = Entitlement::resolveLegacy($academyId);
     $new = Entitlement::resolveFromModules($academyId);
 
     $oldCaps = $old['capabilities'];
@@ -111,4 +111,35 @@ it('resolves byte-identically to the single-plan resolver for every academy shap
     foreach ($cases as $label => $id) {
         assertParity($id, $label);
     }
+});
+
+it('reconcile keeps the resolver correct across plan and video changes (Phase 2b write-path sync)', function () {
+    $meetId = DB::table('plans')->where('code', 'MEET')->value('id');
+    $basicId = DB::table('plans')->where('code', 'BASIC')->value('id');
+
+    $id = pAcademy('PRO');
+    ModuleSubscriptionBackfill::run(); // initial module subs (PRO → MANAGEMENT + WHATSAPP)
+    assertParity($id, 'PRO initial');
+
+    $change = function (array $update) use ($id) {
+        DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+        DB::statement('select set_config(?, ?, true)', ['app.current_academy_id', $id]);
+        if (isset($update['video_overrides']) && is_array($update['video_overrides'])) {
+            $update['video_overrides'] = json_encode($update['video_overrides']);
+        }
+        DB::table('academies')->where('id', $id)->update($update);
+        ModuleSubscriptionBackfill::reconcile($id);
+    };
+
+    // PRO → MEET: MANAGEMENT + WHATSAPP end, VIDEO becomes the primary sub.
+    $change(['plan_id' => $meetId]);
+    assertParity($id, 'switched to MEET');
+
+    // MEET → BASIC + a video grant: MANAGEMENT + WHATSAPP return, the VIDEO sub becomes an override.
+    $change(['plan_id' => $basicId, 'video_access' => 'ENABLED', 'video_trial_ends_at' => null]);
+    assertParity($id, 'BASIC + video grant');
+
+    // Drop the video grant: the VIDEO sub is ended.
+    $change(['video_access' => null]);
+    assertParity($id, 'BASIC, video removed');
 });

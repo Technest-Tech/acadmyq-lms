@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Services\AcademyBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\ModuleSubscriptionBackfill;
 use App\Support\Tenancy;
 use DateTimeZone;
 use Illuminate\Http\JsonResponse;
@@ -172,6 +173,9 @@ final class AcademyController extends Controller
                 // 5-day trial has real start/end dates from minute one, rather than being lazily
                 // backfilled on first read or by the nightly expiry job. Idempotent (TC-3.x).
                 app(AcademyBilling::class)->ensureSubscription($academyId);
+                // Phase 2b: derive the new academy's per-module subscriptions from its plan so the
+                // module-subscription resolver reads current state (docs/superadmin-modules).
+                ModuleSubscriptionBackfill::reconcile($academyId);
             });
         } catch (Throwable $e) {
             // A unique violation (owner email / subdomain) surfaces as a clean 422; the
@@ -467,6 +471,9 @@ final class AcademyController extends Controller
 
             // Keep the subscription's snapshot cost (base + add-ons) in sync with the new plan.
             app(AcademyBilling::class)->recomputeTotals($id);
+            // Phase 2b: keep the per-module subscriptions in sync with the new plan (may add/remove a
+            // MANAGEMENT / VIDEO / WHATSAPP sub, e.g. switching to/from the video-only MEET plan).
+            ModuleSubscriptionBackfill::reconcile($id);
         });
 
         return response()->json(['ok' => true, 'changed' => true]);

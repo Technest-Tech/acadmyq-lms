@@ -75,19 +75,24 @@ The old `Entitlement::resolve` still runs; the new rows are written but not yet 
 - [x] Parity harness `tests/Feature/Modules/EntitlementParityTest.php` — 13 academy shapes, 52
       assertions, `resolve()` == `resolveFromModules()` byte-for-byte. **`AC-M2.1` GREEN.**
 
-**Phase 2b — the cutover (NEXT, riskier) — the write-path sync is the crux**
-- [ ] Make every entitlement-affecting WRITE keep `module_subscriptions` in sync so the new resolver
-      reads current state: `AcademyController::setPlan` (→ MANAGEMENT sub plan), academy creation,
-      `VideoOversightController::setAccess` (→ VIDEO sub `overrides`). Add-ons stay on the
-      `academy_addons` path (the resolver still reads it directly — no sync needed). Needs an
-      UPSERT/reconcile (the Phase-1 backfill only inserts-if-missing).
-- [ ] Switch `resolve()` to delegate to `resolveFromModules()`; keep
-      `check/withinLimit/limit/limitFor/flag/flagFor` signatures.
-- [ ] Add `modules: string[]` to `GET /api/entitlements`.
-- [ ] Simplify `FeatureCatalog` video.only handling (optional; parity holds with MEET's stored
-      `video.only`, so not required for cutover).
-- [ ] Read video overrides from the VIDEO sub `overrides` in the live path (dual-read shim so Phase 6
-      can drop `academies.video_*`).
+**Phase 2b — the cutover — DONE (2026-07-08), not committed. Live resolver now reads module subs.**
+- [x] `ModuleSubscriptionBackfill::reconcile($academyId)` — UPSERT/end each module sub to the current
+      single-plan state (handles plan switches incl. to/from video-only MEET). Wired into
+      `AcademyController::store` + `::setPlan` and `VideoOversightController::setAccess` (each already in
+      the academy's context). Add-ons stay on the `academy_addons` path — the resolver reads it directly.
+- [x] `Entitlement::resolve()` is now a DISPATCHER: reads module subs when the academy has them, else
+      falls back to `resolveLegacy()` (the old body, renamed). A **dual-read shim** so a not-yet-
+      reconciled academy (test-inserted, or missed by backfill) still resolves correctly. All
+      `check/withinLimit/limit/limitFor/flag/flagFor` signatures unchanged (they call `resolve`).
+      `resolveFromModules` reads only LIVE (non-ENDED) subs.
+- [x] `modules: string[]` added to `GET /api/entitlements`.
+- [ ] Simplify `FeatureCatalog` video.only handling — SKIPPED (parity holds with MEET's stored
+      `video.only`; not needed).
+- [ ] Drop `academies.video_*` reads from the live path — deferred to **Phase 6** (the fallback still
+      needs them; the shim reads the folded VIDEO-sub `overrides` on the module path).
+
+**AC-M2.1 met + reconcile proven** — `EntitlementParityTest` (13 shapes) + a reconcile test (PRO→MEET→
+BASIC+grant→drop) both green. **Full suite: 241 failed (pre-existing baseline UNCHANGED), no regressions.**
 
 **Phase 2c — per-module billing (can follow 2b)**
 - [ ] Rewrite `AcademyBilling`/`Invoicing` to per-module lifecycle + consolidated invoice (`01 §4`,

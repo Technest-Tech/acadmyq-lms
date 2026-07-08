@@ -32,6 +32,7 @@ final class EntitlementController extends Controller
                 'capabilities' => [],
                 'limits' => [],
                 'addOns' => [],
+                'modules' => [],
                 'usage' => [],
             ]);
         }
@@ -48,6 +49,8 @@ final class EntitlementController extends Controller
             'capabilities' => $resolved['capabilities'],
             'limits' => $resolved['limits'],
             'addOns' => $resolved['addOns'],
+            // Phase 2b: which product modules this client has (empty on the legacy fallback path).
+            'modules' => $resolved['modules'] ?? [],
             'usage' => $usage,
         ]);
     }

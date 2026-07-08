@@ -107,13 +107,35 @@ final class Entitlement
     }
 
     /**
-     * The fully-resolved entitlement for an academy: the union of capabilities and the plan's
-     * limit map, plus the plan code for display. Shape consumed by GET /api/entitlements and
-     * the UI gating layer.
+     * The fully-resolved entitlement for an academy. Phase 2b cutover: prefer the module-subscription
+     * model (`resolveFromModules`) when the academy has module subs; fall back to the legacy
+     * single-plan path otherwise (`resolveLegacy`) — a dual-read shim so a not-yet-reconciled academy
+     * (e.g. a test that inserts an academy directly, or any row Phase-1's backfill missed) still
+     * resolves correctly. Parity between the two paths is proven by EntitlementParityTest (AC-M2.1),
+     * and the write paths (create / setPlan / video setAccess) call
+     * ModuleSubscriptionBackfill::reconcile so the module subs stay current. Phase 6 removes the
+     * fallback once every academy is guaranteed to carry module subs.
      *
      * @return array{plan: ?string, capabilities: list<string>, limits: array<string,mixed>, addOns: list<string>}
      */
     public static function resolve(string $academyId): array
+    {
+        $hasModuleSubs = DB::table('module_subscriptions')
+            ->where('academy_id', $academyId)
+            ->where('status', '<>', 'ENDED')
+            ->exists();
+
+        return $hasModuleSubs ? self::resolveFromModules($academyId) : self::resolveLegacy($academyId);
+    }
+
+    /**
+     * The legacy single-plan resolver (pre-modules): reads `academies.plan_id` ∪ add-ons, applies the
+     * per-academy video override from the `academies.video_*` columns, then the feature-flag
+     * kill-switch. Retained as the dual-read fallback (see resolve()) + the parity baseline.
+     *
+     * @return array{plan: ?string, capabilities: list<string>, limits: array<string,mixed>, addOns: list<string>}
+     */
+    public static function resolveLegacy(string $academyId): array
     {
         $plan = DB::table('academies as a')
             ->leftJoin('plans as p', 'p.id', '=', 'a.plan_id')
@@ -311,9 +333,13 @@ final class Entitlement
     // @return array{plan: ?string, capabilities: list<string>, limits: array<string,mixed>, addOns: list<string>, modules: list<string>}
     public static function resolveFromModules(string $academyId): array
     {
+        // Live (non-ENDED) subs only — ENDED rows are replaced history. Note this includes PAUSED, so
+        // (like resolveLegacy) capabilities follow the PLAN, not the billing lifecycle; per-module
+        // suspension (M-BILL-2) is a later deliberate change, not part of the parity cutover.
         $subs = DB::table('module_subscriptions as ms')
             ->leftJoin('plans as p', 'p.id', '=', 'ms.plan_id')
             ->where('ms.academy_id', $academyId)
+            ->where('ms.status', '<>', 'ENDED')
             ->get(['ms.module', 'ms.overrides', 'p.code as plan_code', 'p.features']);
 
         $mgmt = $subs->firstWhere('module', 'MANAGEMENT');

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Support;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Phase 1 (docs/superadmin-modules) — derive `module_subscriptions` rows from the CURRENT
@@ -60,6 +61,129 @@ final class ModuleSubscriptionBackfill
         DB::statement(self::primaryInsertSql(' and a.id = ?'), [$academyId]);
         DB::statement(self::videoInsertSql(' and a.id = ?'), [$academyId]);
         DB::statement(self::whatsappInsertSql(' and a.id = ?'), [$academyId]);
+    }
+
+    /**
+     * Reconcile ONE academy's module subs to its CURRENT single-plan state — the write-path keeper
+     * (Phase 2b). Called by academy create / setPlan / video setAccess (each already inside the
+     * academy's tenant context) so `Entitlement::resolveFromModules` reads current state after a
+     * change. Upserts the subs that should exist and ENDs those that shouldn't (per-module, no DDL).
+     * Unlike runForAcademy (insert-if-missing), this UPDATES an existing live sub in place, so a plan
+     * or video change is reflected, and a module dropped by the change is ended.
+     */
+    public static function reconcile(string $academyId): void
+    {
+        $a = DB::table('academies')->where('id', $academyId)->first([
+            'plan_id', 'video_access', 'video_trial_ends_at', 'video_plan_id', 'video_overrides', 'default_currency',
+        ]);
+        if ($a === null) {
+            return;
+        }
+
+        $plan = $a->plan_id !== null
+            ? DB::table('plans')->where('id', $a->plan_id)->first(['module', 'currency', 'features'])
+            : null;
+        $planModule = $plan->module ?? 'MANAGEMENT';
+        $currency = $plan->currency ?? $a->default_currency ?? 'EGP';
+        $videoIsPrimary = $planModule === 'VIDEO';
+        $hasVideoOverride = $a->video_access !== null || $a->video_plan_id !== null || $a->video_overrides !== null;
+
+        // MANAGEMENT — the primary sub unless the plan is a VIDEO-module (MEET) plan.
+        self::upsertOrEnd($academyId, 'MANAGEMENT', ! $videoIsPrimary, $a->plan_id, null, $currency);
+
+        // VIDEO — primary for a MEET client, else an override container.
+        $videoTarget = $videoIsPrimary || $hasVideoOverride;
+        self::upsertOrEnd(
+            $academyId,
+            'VIDEO',
+            $videoTarget,
+            $videoIsPrimary ? $a->plan_id : $a->video_plan_id,
+            $videoTarget ? self::foldVideoOverrides($a) : null,
+            $currency,
+        );
+
+        // WHATSAPP — on WA_BUNDLED whenever the plan bundles whatsapp.automation.
+        $whatsappTarget = in_array('whatsapp.automation', self::capabilitiesOf($plan->features ?? null), true);
+        self::upsertOrEnd(
+            $academyId,
+            'WHATSAPP',
+            $whatsappTarget,
+            $whatsappTarget ? DB::table('plans')->where('code', 'WA_BUNDLED')->value('id') : null,
+            null,
+            $currency,
+        );
+    }
+
+    /** Upsert the live sub for a module (create/update) when it should exist, else END it. */
+    private static function upsertOrEnd(string $academyId, string $module, bool $should, ?string $planId, ?array $overrides, string $currency): void
+    {
+        $live = DB::table('module_subscriptions')
+            ->where('academy_id', $academyId)->where('module', $module)->where('status', '<>', 'ENDED')
+            ->first(['id']);
+
+        if (! $should) {
+            if ($live !== null) {
+                DB::table('module_subscriptions')->where('id', $live->id)
+                    ->update(['status' => 'ENDED', 'updated_at' => now()]);
+            }
+
+            return;
+        }
+
+        $payload = [
+            'plan_id' => $planId,
+            'overrides' => $overrides !== null ? json_encode($overrides) : null,
+            'updated_at' => now(),
+        ];
+
+        if ($live !== null) {
+            DB::table('module_subscriptions')->where('id', $live->id)->update($payload);
+
+            return;
+        }
+
+        DB::table('module_subscriptions')->insert(array_merge($payload, [
+            'id' => (string) Str::uuid(),
+            'academy_id' => $academyId,
+            'module' => $module,
+            'status' => 'ACTIVE',
+            'is_trial' => false,
+            'billing_interval' => 'MONTHLY',
+            'base_price_minor' => 0,
+            'addons_price_minor' => 0,
+            'total_cost_minor' => 0,
+            'currency' => $currency,
+            'created_at' => now(),
+        ]));
+    }
+
+    /** Fold the academy's `video_*` columns into the VIDEO sub `overrides` shape (null when empty). */
+    private static function foldVideoOverrides(object $a): ?array
+    {
+        $limits = null;
+        if ($a->video_overrides !== null) {
+            $decoded = is_string($a->video_overrides) ? json_decode($a->video_overrides, true) : $a->video_overrides;
+            $limits = is_array($decoded) ? ($decoded['limits'] ?? null) : null;
+        }
+
+        $overrides = array_filter([
+            'access' => $a->video_access,
+            'trialEnd' => $a->video_trial_ends_at,
+            'tierPlanId' => $a->video_plan_id,
+            'limits' => $limits,
+        ], static fn ($v): bool => $v !== null);
+
+        return $overrides === [] ? null : $overrides;
+    }
+
+    /** The capability list from a plan.features jsonb (empty when absent/blank). */
+    private static function capabilitiesOf(mixed $features): array
+    {
+        $decoded = is_string($features) ? json_decode($features, true) : (is_array($features) ? $features : null);
+
+        return is_array($decoded) && isset($decoded['capabilities']) && is_array($decoded['capabilities'])
+            ? array_map('strval', $decoded['capabilities'])
+            : [];
     }
 
     /** (1) PRIMARY sub: clone the live academy_subscriptions row (MANAGEMENT, or VIDEO for MEET). */

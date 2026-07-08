@@ -10,9 +10,11 @@ use App\Services\Livekit\LivekitRoomClient;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\FeatureCatalog;
+use App\Support\ModuleSubscriptionBackfill;
 use App\Support\Tenancy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
@@ -184,7 +186,7 @@ final class VideoOversightController extends Controller
                 // Extend from the later of now and the current trial end (so extending an active
                 // trial adds days; extending a lapsed one restarts from today).
                 $base = ($current->video_trial_ends_at !== null && now()->lt($current->video_trial_ends_at))
-                    ? \Illuminate\Support\Carbon::parse($current->video_trial_ends_at)
+                    ? Carbon::parse($current->video_trial_ends_at)
                     : now();
                 $update['video_access'] = 'ENABLED';
                 $update['video_trial_ends_at'] = $base->addDays((int) $data['trial_days']);
@@ -229,6 +231,10 @@ final class VideoOversightController extends Controller
         $ctx = app(AuthContext::class);
         $this->inAcademyContext($id, function () use ($id, $update, $current, $action, $ctx) {
             DB::table('academies')->where('id', $id)->update($update);
+
+            // Phase 2b: fold the changed video access/tier/override into the academy's VIDEO module
+            // subscription so the module-subscription resolver reads current state.
+            ModuleSubscriptionBackfill::reconcile($id);
 
             Audit::log('video.academy_access', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN',
                 after: [
