@@ -285,4 +285,133 @@ final class Entitlement
 
         return ['capabilities' => $capabilities, 'limits' => $limits];
     }
+
+    // ── Phase 2 (docs/superadmin-modules): the module-subscription resolver ─────────────────────
+    //
+    // Resolves the SAME shape as resolve() but from `module_subscriptions` (the union across a
+    // client's per-module subs) instead of the single `academies.plan_id`. Built alongside the old
+    // resolver and proven byte-identical by the parity harness (M-ENT-1 / AC-M2.1) BEFORE any cutover.
+    //
+    // Parity design (mirrors resolve() exactly):
+    //   - PRIMARY plan = the MANAGEMENT sub's plan, or the VIDEO sub's for a video-only (MEET) client
+    //     with no MANAGEMENT sub — i.e. whatever `academies.plan_id` pointed at. It provides the base
+    //     capabilities AND base limits.
+    //   - The WHATSAPP sub contributes its capability (redundant for a bundled academy; the source of
+    //     truth for a future standalone WhatsApp client).
+    //   - The VIDEO sub is an OVERRIDE container when it is not primary: its `overrides` jsonb (folded
+    //     from the old `academies.video_*` columns) drives applyVideoOverride + the video limit keys;
+    //     its plan is a TIER read for VIDEO_LIMIT_KEYS only, never for capabilities — exactly as the
+    //     old `video_plan_id` behaved.
+    //   - Add-ons and the feature-flag kill-switch are unchanged.
+    //
+    // Like resolve(), this does NOT gate on subscription status/trial — capabilities follow the PLAN,
+    // not the billing lifecycle (suspension is enforced elsewhere). Per-module suspension (M-BILL-2)
+    // is a deliberate LATER behaviour change, not part of the parity cutover.
+    //
+    // @return array{plan: ?string, capabilities: list<string>, limits: array<string,mixed>, addOns: list<string>, modules: list<string>}
+    public static function resolveFromModules(string $academyId): array
+    {
+        $subs = DB::table('module_subscriptions as ms')
+            ->leftJoin('plans as p', 'p.id', '=', 'ms.plan_id')
+            ->where('ms.academy_id', $academyId)
+            ->get(['ms.module', 'ms.overrides', 'p.code as plan_code', 'p.features']);
+
+        $mgmt = $subs->firstWhere('module', 'MANAGEMENT');
+        $video = $subs->firstWhere('module', 'VIDEO');
+        $whatsapp = $subs->firstWhere('module', 'WHATSAPP');
+        $primary = $mgmt ?? $video; // the sub whose plan == the old academies.plan_id
+
+        $primaryFeatures = self::decodeFeatures($primary->features ?? null);
+        $capabilities = $primaryFeatures['capabilities'];
+
+        if ($whatsapp !== null) {
+            $capabilities = array_merge(
+                $capabilities,
+                self::decodeFeatures($whatsapp->features ?? null)['capabilities'],
+            );
+        }
+        $capabilities = array_values(array_unique($capabilities));
+
+        // Active add-ons unlock their feature_key (identical to resolve()).
+        $addOnKeys = DB::table('academy_addons as aa')
+            ->join('add_ons as ao', 'ao.id', '=', 'aa.add_on_id')
+            ->where('aa.academy_id', $academyId)
+            ->where('aa.is_active', true)
+            ->pluck('ao.feature_key')
+            ->all();
+
+        $capabilities = array_values(array_unique(array_merge(
+            $capabilities,
+            array_map('strval', $addOnKeys),
+        )));
+
+        // Per-academy video override — now from the VIDEO sub's `overrides` (was academies.video_*).
+        $videoOverrides = $video !== null ? self::decodeOverrides($video->overrides) : null;
+        $capabilities = self::applyVideoOverrideFromArray($capabilities, $videoOverrides);
+
+        // Platform kill-switch (identical to resolve()).
+        $disabled = DB::table('feature_flags')->where('enabled', false)->pluck('key')->all();
+        if ($disabled !== []) {
+            $capabilities = array_values(array_diff($capabilities, $disabled));
+        }
+
+        // Base limits from the primary plan; video keys from the VIDEO sub's tier + override only.
+        $limits = $primaryFeatures['limits'];
+        if ($videoOverrides !== null) {
+            if (! empty($videoOverrides['tierPlanId'])) {
+                $limits = self::mergeVideoLimits($limits, (string) $videoOverrides['tierPlanId']);
+            }
+            $limits = self::applyOverrideLimits($limits, ['limits' => $videoOverrides['limits'] ?? []]);
+        }
+
+        return [
+            'plan' => $primary->plan_code ?? null,
+            'capabilities' => $capabilities,
+            'limits' => $limits,
+            'addOns' => array_values(array_map('strval', $addOnKeys)),
+            'modules' => $subs->pluck('module')->unique()->values()->all(),
+        ];
+    }
+
+    /** Decode a module_subscriptions.overrides jsonb column to an array (null when absent/blank). */
+    private static function decodeOverrides(mixed $raw): ?array
+    {
+        $decoded = is_string($raw) ? json_decode($raw, true) : (is_array($raw) ? $raw : null);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * applyVideoOverride, reading from the VIDEO sub's `overrides` array instead of the academy row.
+     * Identical semantics to applyVideoOverride(): ENABLED (+ future/no trial) forces video.conferencing
+     * on; DISABLED / expired forces it off; a video-only plan (video.only present) can never be forced
+     * off; NULL access ⇒ no change.
+     *
+     * @param  list<string>  $capabilities
+     * @return list<string>
+     */
+    private static function applyVideoOverrideFromArray(array $capabilities, ?array $overrides): array
+    {
+        $access = $overrides['access'] ?? null;
+        if ($access === null) {
+            return $capabilities;
+        }
+
+        $on = false;
+        if ($access === 'ENABLED') {
+            $trialEnd = $overrides['trialEnd'] ?? null;
+            $on = $trialEnd === null || Carbon::parse($trialEnd)->isFuture();
+        }
+
+        if (in_array('video.only', $capabilities, true)) {
+            $on = true;
+        }
+
+        $capabilities = array_values(array_filter($capabilities, static fn (string $c): bool => $c !== 'video.conferencing'));
+        if ($on) {
+            $capabilities[] = 'video.conferencing';
+        }
+
+        return array_values($capabilities);
+    }
 }

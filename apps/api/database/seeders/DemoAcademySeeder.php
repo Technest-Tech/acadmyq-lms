@@ -6,11 +6,13 @@ namespace Database\Seeders;
 
 use App\Services\AcademyBilling;
 use App\Support\FeatureCatalog;
+use App\Support\ModuleSubscriptionBackfill;
 use App\Support\PermissionCatalog;
 use App\Support\TenantContext;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
@@ -68,6 +70,14 @@ class DemoAcademySeeder extends Seeder
             // Sync the demo academy's subscription snapshot to its (PRO) plan price so a re-seed
             // after a plan-price change never leaves a stale total.
             app(AcademyBilling::class)->recomputeTotals(self::ACADEMY_ID);
+            // Phase 1 (docs/superadmin-modules): derive the demo academy's per-module subscriptions
+            // from its plan, so a freshly-seeded DB matches a migrated legacy one (AC-M1.3). Guarded
+            // on the table existing: MigrationsRollbackTest can leave the schema partially rolled back
+            // (it fails on an unrelated WIP migration and doesn't use RefreshDatabase), and inserting
+            // into a dropped table would abort the transaction and poison later tests.
+            if (Schema::hasTable('module_subscriptions')) {
+                ModuleSubscriptionBackfill::runForAcademy(self::ACADEMY_ID);
+            }
         } finally {
             TenantContext::clear();
         }
