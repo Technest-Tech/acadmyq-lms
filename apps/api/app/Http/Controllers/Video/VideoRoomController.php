@@ -51,6 +51,149 @@ final class VideoRoomController extends Controller
         return response()->json(['rooms' => $rooms]);
     }
 
+    /**
+     * GET /api/video/rooms/presence — live occupancy for the academy's rooms, keyed by room id.
+     *
+     * A single ListRooms probe tells us which of this academy's rooms are live on the SFU; each
+     * occupied room then gets ONE ListParticipants call for detail (per-person camera/mic/screen +
+     * aggregate tallies). Hidden supervisors (monitors) never appear in the occupant list or the
+     * count — they surface only as a `monitors` tally, and only to viewers holding room.monitor.
+     * Fail-open: any SFU hiccup yields an empty map so the room list still renders. Empty rooms are
+     * omitted, so the frontend can poll this cheaply and only paint the rooms that have someone in.
+     */
+    public function presence(): JsonResponse
+    {
+        Gate::authorize('room.read');
+        $canMonitor = $this->ctx()->can('room.monitor');
+
+        // livekit_name → room id for this academy's non-archived rooms (RLS scopes to the caller).
+        $roomsByLivekitName = DB::table('video_rooms')
+            ->whereNull('deleted_at')
+            ->pluck('id', 'livekit_name');
+
+        if ($roomsByLivekitName->isEmpty()) {
+            return response()->json(['presence' => (object) []]);
+        }
+
+        // One cheap ListRooms call → live SFU room names with their participant counts. Only rooms
+        // the SFU reports as occupied are worth a per-room detail call.
+        $live = $this->rooms->listRooms();
+        $liveCounts = [];
+        if ($live['ok']) {
+            foreach ($live['rooms'] as $r) {
+                $r = (array) $r;
+                $name = (string) ($r['name'] ?? '');
+                if ($name !== '') {
+                    $liveCounts[$name] = (int) ($r['numParticipants'] ?? $r['num_participants'] ?? 0);
+                }
+            }
+        }
+
+        $presence = [];
+        foreach ($roomsByLivekitName as $livekitName => $roomId) {
+            if (($liveCounts[(string) $livekitName] ?? 0) <= 0) {
+                continue; // empty (or unreachable) → omit
+            }
+            $list = $this->rooms->listParticipants((string) $livekitName);
+            if (! $list['ok']) {
+                continue;
+            }
+            $summary = $this->summarizePresence($list['participants'], $canMonitor);
+            if ($summary['count'] > 0 || $summary['monitors'] > 0) {
+                $presence[(string) $roomId] = $summary;
+            }
+        }
+
+        return response()->json(['presence' => $presence ?: (object) []]);
+    }
+
+    /**
+     * Reduce a raw LiveKit participant list to a card-ready presence summary. A track counts as "on"
+     * only when it is published AND unmuted (camera/mic); a screen-share counts whenever the track is
+     * present. Monitors are dropped from the occupant list + counts, contributing only to `monitors`.
+     * Occupants are ordered host-first, then by join time.
+     *
+     * @param  array<int,mixed>  $participants
+     * @return array{count:int,monitors:int,camerasOn:int,micsOn:int,screenSharing:int,participants:array<int,array<string,mixed>>}
+     */
+    private function summarizePresence(array $participants, bool $canMonitor): array
+    {
+        $people = [];
+        $monitors = 0;
+
+        foreach ($participants as $p) {
+            $p = (array) $p;
+            // A lingering DISCONNECTED entry can briefly appear — only count the truly connected.
+            $state = strtoupper((string) ($p['state'] ?? ''));
+            if ($state !== '' && ! in_array($state, ['ACTIVE', 'JOINED'], true)) {
+                continue;
+            }
+            if ($this->participantRole($p) === 'monitor') {
+                $monitors++;
+
+                continue;
+            }
+
+            $camera = false;
+            $mic = false;
+            $screen = false;
+            foreach ((array) ($p['tracks'] ?? []) as $track) {
+                $track = (array) $track;
+                $type = strtoupper((string) ($track['type'] ?? ''));
+                $source = strtoupper((string) ($track['source'] ?? ''));
+                $muted = (bool) ($track['muted'] ?? false);
+                if (str_contains($source, 'SCREEN')) {
+                    $screen = true;
+                } elseif ($source === 'CAMERA' || ($source === '' && $type === 'VIDEO')) {
+                    $camera = $camera || ! $muted;
+                } elseif ($source === 'MICROPHONE' || ($source === '' && $type === 'AUDIO')) {
+                    $mic = $mic || ! $muted;
+                }
+            }
+
+            $joinedAt = $p['joinedAt'] ?? $p['joined_at'] ?? null;
+            $identity = (string) ($p['identity'] ?? '');
+            $people[] = [
+                'identity' => $identity,
+                'name' => ((string) ($p['name'] ?? '')) ?: $identity,
+                'role' => $this->participantRole($p) === 'host' ? 'host' : 'guest',
+                'camera' => $camera,
+                'mic' => $mic,
+                'screen' => $screen,
+                'joinedAt' => $joinedAt !== null ? (int) $joinedAt : null,
+            ];
+        }
+
+        usort($people, function (array $a, array $b): int {
+            if ($a['role'] !== $b['role']) {
+                return $a['role'] === 'host' ? -1 : 1;
+            }
+
+            return ($a['joinedAt'] ?? 0) <=> ($b['joinedAt'] ?? 0);
+        });
+
+        return [
+            'count' => count($people),
+            'monitors' => $canMonitor ? $monitors : 0,
+            'camerasOn' => count(array_filter($people, static fn (array $x): bool => $x['camera'])),
+            'micsOn' => count(array_filter($people, static fn (array $x): bool => $x['mic'])),
+            'screenSharing' => count(array_filter($people, static fn (array $x): bool => $x['screen'])),
+            'participants' => $people,
+        ];
+    }
+
+    /** The `role` (host|guest|monitor) carried in a participant's LiveKit metadata, or null. */
+    private function participantRole(array $participant): ?string
+    {
+        $meta = (string) ($participant['metadata'] ?? '');
+        if ($meta === '') {
+            return null;
+        }
+        $decoded = json_decode($meta, true);
+
+        return is_array($decoded) && isset($decoded['role']) ? (string) $decoded['role'] : null;
+    }
+
     /** POST /api/video/rooms — provision a room (owner action; V-CTL-1). */
     public function store(Request $request): JsonResponse
     {

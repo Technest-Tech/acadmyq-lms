@@ -1,20 +1,22 @@
 "use client";
 
-import { Activity, BookOpen, LayoutGrid, MessageCircle, Server, type LucideIcon } from "lucide-react";
+import { Activity, BookOpen, KeyRound, LayoutGrid, MessageCircle, Server, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { cn } from "@/lib/utils";
 import { OverviewTab } from "./overview-tab";
 import { ActivityTab } from "./activity-tab";
+import { ApiClientsTab } from "./api-clients-tab";
 import { SystemTab } from "./system-tab";
 import { GuideTab } from "./guide-tab";
 
-type Tab = "overview" | "activity" | "system" | "guide";
+type Tab = "overview" | "activity" | "apiClients" | "system" | "guide";
 
 const TABS: Array<{ key: Tab; icon: LucideIcon }> = [
   { key: "overview", icon: LayoutGrid },
   { key: "activity", icon: Activity },
+  { key: "apiClients", icon: KeyRound },
   { key: "system", icon: Server },
   { key: "guide", icon: BookOpen },
 ];
@@ -65,6 +67,7 @@ export function AutomationOverviewScreen() {
 
       {tab === "overview" && <OverviewTab />}
       {tab === "activity" && <ActivityTab />}
+      {tab === "apiClients" && <ApiClientsTab />}
       {tab === "system" && <SystemTab />}
       {tab === "guide" && <GuideTab />}
     </div>

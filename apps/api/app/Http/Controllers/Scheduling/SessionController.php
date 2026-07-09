@@ -227,14 +227,18 @@ final class SessionController extends Controller
         $report = DB::table('session_reports')->where('session_id', $sessionId)->first();
         $values = $report !== null ? (json_decode($report->values, true) ?: []) : [];
 
-        // A teacher's cancel goes through approval, not a direct status change — the session
-        // stays SCHEDULED while the request is PENDING. Surface that request so the UI can show
-        // an "awaiting approval" indicator instead of looking like nothing happened (§9).
-        $pendingCancellation = DB::table('session_cancellation_requests')
+        // A teacher's cancel OR free request goes through approval, not a direct status change — the
+        // session stays SCHEDULED while the request is PENDING. Surface it so the UI can show an
+        // "awaiting approval" indicator instead of looking like nothing happened (§9). There is at
+        // most one PENDING request per session; split it by type for the two UI affordances.
+        $pending = DB::table('session_cancellation_requests')
             ->where('session_id', $sessionId)
             ->where('status', 'PENDING')
             ->orderByDesc('created_at')
-            ->first(['id', 'cancel_type', 'reason', 'created_at']);
+            ->first(['id', 'request_type', 'cancel_type', 'reason', 'created_at']);
+        $pendingIsFree = $pending !== null && ($pending->request_type ?? 'CANCEL') === 'FREE';
+        $pendingCancellation = ($pending !== null && ! $pendingIsFree) ? $pending : null;
+        $pendingFree = $pendingIsFree ? $pending : null;
 
         return response()->json([
             'session' => [
@@ -260,6 +264,11 @@ final class SessionController extends Controller
                     'cancel_type' => (string) $pendingCancellation->cancel_type,
                     'reason' => $pendingCancellation->reason,
                     'requested_at' => Carbon::parse($pendingCancellation->created_at)->utc()->toIso8601String(),
+                ] : null,
+                'pending_free' => $pendingFree !== null ? [
+                    'id' => (string) $pendingFree->id,
+                    'reason' => $pendingFree->reason,
+                    'requested_at' => Carbon::parse($pendingFree->created_at)->utc()->toIso8601String(),
                 ] : null,
             ],
             'report' => $report !== null ? [

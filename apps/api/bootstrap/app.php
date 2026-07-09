@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\AuthenticateWhatsAppApiKey;
 use App\Http\Middleware\EnsureEntitled;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\TenantContextMiddleware;
@@ -39,6 +40,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'wa.webhook' => VerifyWhatsAppWebhook::class,
             // JWT/body-hash guard for the public inbound webhook from the self-hosted LiveKit server.
             'livekit.webhook' => VerifyLivekitWebhook::class,
+            // Per-academy API-key auth for the external WhatsApp API (docs/whatsapp-api).
+            'wa.apikey' => AuthenticateWhatsAppApiKey::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

@@ -49,26 +49,33 @@ function YesNo({
 }
 
 /**
- * Asked whenever an owner cancels a class (directly or by approving a teacher's request): the
- * academy decides, per cancellation, whether to still charge the student (a late-cancel fee, at
- * the full session price) and/or pay the teacher, plus a reason the parent sees on the invoice.
+ * Asked whenever an owner records an outcome that carries a per-academy billing decision — a
+ * cancellation OR a free lesson (`variant`), directly or by approving a teacher's request: the
+ * academy decides whether to still charge the student (at the full session price) and/or pay the
+ * teacher, plus a reason the parent sees on the invoice. The two toggles are identical for both
+ * variants; only the title/subtitle differ.
  */
 export function CancellationBillingModal({
   open,
   onClose,
-  cancelType,
+  variant = "cancel",
+  cancelType = "teacher",
   defaultReason = "",
   busy = false,
   onConfirm,
 }: {
   open: boolean;
   onClose: () => void;
-  cancelType: "teacher" | "student";
+  /** "cancel" (default) → cancellation billing; "free" → free-lesson billing. */
+  variant?: "cancel" | "free";
+  /** Only used to phrase the cancellation subtitle; ignored for the free variant. */
+  cancelType?: "teacher" | "student";
   defaultReason?: string;
   busy?: boolean;
   onConfirm: (values: CancellationBillingValues) => void | Promise<void>;
 }) {
   const t = useTranslations("attendance.cancelBilling");
+  const isFree = variant === "free";
   const [chargeStudent, setChargeStudent] = useState(false);
   const [payTeacher, setPayTeacher] = useState(false);
   const [reason, setReason] = useState(defaultReason);
@@ -86,8 +93,8 @@ export function CancellationBillingModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={t("title")}
-      description={t(`subtitle.${cancelType}`)}
+      title={isFree ? t("freeTitle") : t("title")}
+      description={isFree ? t("freeSubtitle") : t(`subtitle.${cancelType}`)}
       size="md"
       footer={
         <div className="flex w-full items-center justify-end gap-2">

@@ -24,7 +24,7 @@ use Throwable;
  * before and after the automation tables exist — it simply "lights up" the WASENDER path and
  * logging once academy_automation_settings / automation_send_log are migrated and a token is set.
  *
- * @phpstan-type SendResult array{transport: string, sent: bool, duplicate: bool, phone: string, message: string, deeplink: string, error: ?string}
+ * @phpstan-type SendResult array{transport: string, sent: bool, duplicate: bool, phone: string, message: string, deeplink: string, error: ?string, message_id: ?string}
  */
 final class WhatsAppSender
 {
@@ -59,7 +59,7 @@ final class WhatsAppSender
             $res = $this->wasender->sendMessage($token, $toPhone, $message);
             $this->record($academyId, $toPhone, $meta, $res['ok'] ? 'SENT' : 'FAILED', 'WASENDER', $res['error'], $res['message_id']);
 
-            return $this->result('WASENDER', sent: $res['ok'], duplicate: false, phone: $toPhone, message: $message, deeplink: $deeplink, error: $res['error']);
+            return $this->result('WASENDER', sent: $res['ok'], duplicate: false, phone: $toPhone, message: $message, deeplink: $deeplink, error: $res['error'], messageId: $res['message_id']);
         }
 
         // Fallback: no active token (or no phone on file) → produce the wa.me link for manual send.
@@ -68,12 +68,56 @@ final class WhatsAppSender
         return $this->result('DEEPLINK', sent: false, duplicate: false, phone: $toPhone, message: $message, deeplink: $deeplink, error: null);
     }
 
+    /**
+     * Deliver an image (by public https URL, optional caption) to $toPhone for $academyId via the
+     * gateway. Unlike sendOrLink there is NO deep-link fallback — a wa.me link cannot carry media —
+     * so with no active session this records a FAILED row and returns an error result. Used by the
+     * external WhatsApp API; idempotency + logging mirror sendOrLink.
+     *
+     * @param  array<string,mixed>  $meta
+     * @return SendResult
+     */
+    public function sendImage(string $academyId, string $toPhone, string $imageUrl, ?string $caption = null, array $meta = []): array
+    {
+        $meta['media_url'] = $imageUrl;
+        $meta['media_type'] = 'image';
+        $caption ??= '';
+
+        $dedupeKey = isset($meta['dedupe_key']) ? (string) $meta['dedupe_key'] : null;
+        if ($dedupeKey !== null && $this->alreadySent($academyId, $dedupeKey)) {
+            return $this->result('WASENDER', sent: false, duplicate: true, phone: $toPhone, message: $caption, deeplink: '', error: null);
+        }
+
+        $token = $this->activeTokenFor($academyId);
+
+        if ($token === null || $toPhone === '') {
+            $error = $token === null ? 'no_active_session' : 'no_recipient';
+            $this->record($academyId, $toPhone, $meta, 'FAILED', 'WASENDER', $error, null);
+
+            return $this->result('WASENDER', sent: false, duplicate: false, phone: $toPhone, message: $caption, deeplink: '', error: $error);
+        }
+
+        $res = $this->wasender->sendImage($token, $toPhone, $imageUrl, $caption);
+        $this->record($academyId, $toPhone, $meta, $res['ok'] ? 'SENT' : 'FAILED', 'WASENDER', $res['error'], $res['message_id']);
+
+        return $this->result('WASENDER', sent: $res['ok'], duplicate: false, phone: $toPhone, message: $caption, deeplink: '', error: $res['error'], messageId: $res['message_id']);
+    }
+
     /** Build a wa.me deep link from an E.164 phone + message (matches WhatsAppReportBuilder). */
     public function deeplink(string $phone, string $message): string
     {
         $digits = preg_replace('/\D+/', '', $phone) ?? '';
 
         return 'https://wa.me/'.$digits.'?text='.rawurlencode($message);
+    }
+
+    /**
+     * The academy's decrypted, active gateway token, or null when none is configured. Public accessor
+     * for the callers that talk to the gateway directly (number-check / status on the external API).
+     */
+    public function tokenFor(string $academyId): ?string
+    {
+        return $this->activeTokenFor($academyId);
     }
 
     /**
@@ -150,6 +194,8 @@ final class WhatsAppSender
                 'error' => $error,
                 'provider_message_id' => $providerMessageId,
                 'dedupe_key' => $meta['dedupe_key'] ?? null,
+                'media_url' => $meta['media_url'] ?? null,
+                'media_type' => $meta['media_type'] ?? null,
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
@@ -166,7 +212,7 @@ final class WhatsAppSender
     /**
      * @return SendResult
      */
-    private function result(string $transport, bool $sent, bool $duplicate, string $phone, string $message, string $deeplink, ?string $error): array
+    private function result(string $transport, bool $sent, bool $duplicate, string $phone, string $message, string $deeplink, ?string $error, ?string $messageId = null): array
     {
         return [
             'transport' => $transport,
@@ -176,6 +222,7 @@ final class WhatsAppSender
             'message' => $message,
             'deeplink' => $deeplink,
             'error' => $error,
+            'message_id' => $messageId,
         ];
     }
 }

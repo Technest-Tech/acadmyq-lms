@@ -15,6 +15,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   putSessionReport: vi.fn(),
   markWhatsappSent: vi.fn(),
   getStudentReports: vi.fn(),
+  requestFree: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -37,6 +38,7 @@ function detail(overrides: Partial<api.SessionDetailResponse> = {}): api.Session
       outcome_set_at: null,
       classification: { billableToStudent: false, countsForTeacher: false },
       pending_cancellation: null,
+      pending_free: null,
     },
     report: null,
     reportFields: [
@@ -201,5 +203,62 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
     // No write capabilities → the outcome buttons are disabled and the save button is absent.
     expect(screen.getByTestId("outcome-ATTENDED")).toBeDisabled();
     expect(screen.queryByTestId("save-report")).not.toBeInTheDocument();
+  });
+
+  // ── FREE lesson: admin gets the billing popup; teacher goes through approval ──
+
+  it("opens the billing popup when an OWNER marks a lesson free (like cancel)", async () => {
+    const user = userEvent.setup();
+    renderPanel(
+      makeSession("ACADEMY_OWNER", {
+        permissions: [
+          "session.read",
+          "session.mark_attendance",
+          "session.write_report",
+          "session.free",
+        ],
+      }),
+    );
+
+    await user.click(await screen.findByTestId("outcome-FREE"));
+
+    // The shared charge-student / pay-teacher popup appears — same as a cancellation.
+    expect(await screen.findByTestId("cancel-billing-confirm")).toBeInTheDocument();
+    // Nothing is applied until the owner confirms the billing decision.
+    expect(api.markAttendance).not.toHaveBeenCalled();
+    expect(api.requestFree).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId("cancel-billing-confirm"));
+    expect(api.markAttendance).toHaveBeenCalledWith(
+      "se1",
+      expect.objectContaining({ status: "FREE" }),
+    );
+  });
+
+  it("routes a TEACHER's free mark through the approval request flow", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.requestFree).mockResolvedValue({
+      requestId: "r1",
+      status: "PENDING",
+    });
+    renderPanel(
+      makeSession("TEACHER", {
+        permissions: [
+          "session.read",
+          "session.mark_attendance",
+          "session.write_report",
+          "session.free_request",
+        ],
+      }),
+    );
+
+    // Picking FREE never opens the billing popup for a teacher…
+    await user.click(await screen.findByTestId("outcome-FREE"));
+    expect(screen.queryByTestId("cancel-billing-confirm")).not.toBeInTheDocument();
+
+    // …saving raises a free request for the owner to approve, not a direct mark.
+    await user.click(await screen.findByTestId("save-report"));
+    expect(api.requestFree).toHaveBeenCalledWith("se1", {});
+    expect(api.markAttendance).not.toHaveBeenCalled();
   });
 });

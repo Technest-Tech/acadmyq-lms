@@ -133,7 +133,94 @@ final class TeacherController extends Controller
             ->orderBy('s.full_name')
             ->get(['s.id', 's.full_name', 'a.started_at']);
 
-        return response()->json(['teacher' => $teacher, 'students' => $students]);
+        // The teacher's linked sign-in login (optional). Surfaced so the detail page can show the
+        // current email and let an owner set/change the account (see updateLogin).
+        $login = ['has_login' => false, 'email' => null, 'is_active' => null];
+        if ($teacher->user_id !== null) {
+            $user = DB::table('users')->where('id', $teacher->user_id)->first(['email', 'is_active']);
+            if ($user !== null) {
+                $login = ['has_login' => true, 'email' => $user->email, 'is_active' => (bool) $user->is_active];
+            }
+        }
+
+        return response()->json(['teacher' => $teacher, 'students' => $students, 'login' => $login]);
+    }
+
+    /**
+     * PATCH /api/teachers/{id}/login — set or change a teacher's sign-in login (email + password).
+     *
+     * A teacher's login is optional. When one does NOT exist yet, this provisions it (email +
+     * password both required) — an owner-only sub-action guarded by the same caps as creating a
+     * teacher login on the create form (user.invite + role.assign). When one DOES exist, it updates
+     * the email and/or password directly (at least one required), mirroring the academy-owner editor.
+     */
+    public function updateLogin(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('teacher.update');
+
+        $teacher = DB::table('teachers')->where('id', $id)->first();
+        if ($teacher === null) {
+            abort(404, 'Teacher not found.');
+        }
+
+        $academyId = $this->currentAcademyId();
+        $creating = $teacher->user_id === null;
+        $req = $creating ? 'required' : 'sometimes';
+
+        $data = $request->validate([
+            'email' => [$req, 'email', 'max:255'],
+            'password' => [$req, 'string', 'min:8', 'max:255'],
+        ]);
+
+        if ($creating) {
+            // Minting a new login is the same authority as provisioning one on the create form.
+            Gate::authorize('user.invite');
+            Gate::authorize('role.assign');
+
+            $userId = $this->provisionLogin($academyId, (string) $teacher->full_name, strtolower((string) $data['email']), (string) $data['password']);
+            DB::table('teachers')->where('id', $id)->update(['user_id' => $userId, 'updated_at' => now()]);
+
+            Audit::log('teacher.login_created', 'teacher', $id, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
+                'user_id' => $userId,
+                'email' => strtolower((string) $data['email']),
+            ]);
+
+            return response()->json(['ok' => true, 'created' => true, 'changed' => ['email', 'password']], 201);
+        }
+
+        if (! array_key_exists('email', $data) && ! array_key_exists('password', $data)) {
+            throw ValidationException::withMessages([
+                'email' => ['Provide a new email or password to update. / أدخل بريدًا أو كلمة مرور جديدة للتحديث.'],
+            ]);
+        }
+
+        $update = [];
+        $changed = [];
+        if (array_key_exists('email', $data)) {
+            $update['email'] = strtolower((string) $data['email']);
+            $changed[] = 'email';
+        }
+        if (array_key_exists('password', $data)) {
+            $update['password'] = Hash::make((string) $data['password']);
+            $changed[] = 'password';
+        }
+        $update['updated_at'] = now();
+
+        try {
+            DB::table('users')->where('id', $teacher->user_id)->update($update);
+        } catch (\Throwable $e) {
+            if (($e->getCode() === '23505') || ($e->getPrevious() !== null && $e->getPrevious()->getCode() === '23505')) {
+                throw ValidationException::withMessages(['email' => ['That email is already in use.']]);
+            }
+            throw $e;
+        }
+
+        Audit::log('user.update', 'user', (string) $teacher->user_id, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
+            'changed' => $changed,
+            'email' => $update['email'] ?? null,
+        ]);
+
+        return response()->json(['ok' => true, 'created' => false, 'changed' => $changed]);
     }
 
     /** PATCH /api/teachers/{id} — edit; a rate change is captured in the before/after audit. */

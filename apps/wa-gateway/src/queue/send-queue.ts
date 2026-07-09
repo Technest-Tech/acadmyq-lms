@@ -25,10 +25,16 @@ export interface SendQueueDeps {
   touch: () => void
 }
 
+export interface SendPayload {
+  text?: string
+  imageUrl?: string
+  caption?: string
+}
+
 interface QueueItem {
   jid: string
-  text: string
   messageId: string
+  payload: SendPayload
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -57,8 +63,8 @@ export class SendQueue {
     return this.sentToday
   }
 
-  enqueue(jid: string, text: string, messageId: string): void {
-    this.items.push({ jid, text, messageId })
+  enqueue(jid: string, messageId: string, payload: SendPayload): void {
+    this.items.push({ jid, messageId, payload })
     void this.drain()
   }
 
@@ -120,15 +126,20 @@ export class SendQueue {
         if (!sock) break
 
         try {
-          // Typing presence makes automated sends look less robotic.
+          // Typing presence makes automated sends look less robotic. Length drives the delay; for
+          // image sends the caption (or a small default) stands in for the text length.
+          const typingLen = (item.payload.text ?? item.payload.caption ?? '').length || 8
           try {
             await sock.sendPresenceUpdate('composing', item.jid)
-            await sleep(Math.min(3_000, 400 + item.text.length * 30))
+            await sleep(Math.min(3_000, 400 + typingLen * 30))
             await sock.sendPresenceUpdate('paused', item.jid)
           } catch {
             /* presence is best-effort */
           }
-          await sock.sendMessage(item.jid, { text: item.text }, { messageId: item.messageId })
+          const content = item.payload.imageUrl
+            ? { image: { url: item.payload.imageUrl }, caption: item.payload.caption }
+            : { text: item.payload.text ?? '' }
+          await sock.sendMessage(item.jid, content, { messageId: item.messageId })
           this.items.shift()
           this.sentToday += 1
           this.lastSentAt = Date.now()

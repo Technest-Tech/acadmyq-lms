@@ -91,9 +91,62 @@ final class CancellationRequestController extends Controller
     }
 
     /**
-     * GET /api/cancellation-requests — the owner's approval queue: every request in the academy.
-     * Optional ?status= filter. notification.read (owner-only — teachers have no Notifications
-     * page, they only raise requests via session.cancel_request).
+     * POST /api/sessions/{id}/free-request — a teacher asks to mark one occurrence FREE. Like a
+     * cancellation the session is NOT changed; a PENDING request is created for the owner to decide
+     * (the academy's free-lesson billing logic — charge the student? pay the teacher? — is the
+     * owner's call, made in the approval popup). session.free_request (+ own-session filter).
+     */
+    public function storeFree(Request $request, string $sessionId): JsonResponse
+    {
+        Gate::authorize('session.free_request');
+
+        $academyId = $this->currentAcademyId();
+        $session = $this->findOwnedSession($sessionId);
+
+        if ($session->status !== 'SCHEDULED') {
+            throw ValidationException::withMessages([
+                'session' => ['Only a scheduled class can be requested to be made free. / لا يمكن طلب جعل حصة مجانية سوى لحصة مجدولة.'],
+            ]);
+        }
+
+        $data = $request->validate([
+            'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
+        ]);
+
+        // One PENDING request per session at a time, across both types (a session shouldn't be both
+        // pending-cancel and pending-free) — the partial unique index enforces this too.
+        if (DB::table('session_cancellation_requests')
+            ->where('session_id', $sessionId)->where('status', 'PENDING')->exists()) {
+            throw ValidationException::withMessages([
+                'session' => ['A request for this class is already pending. / يوجد طلب معلّق لهذه الحصة بالفعل.'],
+            ]);
+        }
+
+        $id = (string) Str::uuid();
+        DB::table('session_cancellation_requests')->insert([
+            'id' => $id,
+            'academy_id' => $academyId,
+            'session_id' => $sessionId,
+            'teacher_id' => (string) $session->teacher_id,
+            'requested_by_user_id' => $this->ctx()->userId,
+            'request_type' => 'FREE',
+            'cancel_type' => null,               // meaningless for a free request
+            'reason' => $data['reason'] ?? null,
+            'status' => 'PENDING',
+        ]);
+
+        Audit::log('session.free_requested', 'session_cancellation_request', $id, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
+            'session_id' => $sessionId,
+            'reason' => $data['reason'] ?? null,
+        ]);
+
+        return response()->json(['requestId' => $id, 'status' => 'PENDING'], 201);
+    }
+
+    /**
+     * GET /api/cancellation-requests — the owner's approval queue: every request in the academy
+     * (both cancellation and free-lesson requests). Optional ?status= filter. notification.read
+     * (owner-only — teachers have no Notifications page, they only raise requests).
      */
     public function index(Request $request): JsonResponse
     {
@@ -109,7 +162,7 @@ final class CancellationRequestController extends Controller
             ->leftJoin('teachers as te', 'te.id', '=', 'r.teacher_id')
             ->leftJoin('users as du', 'du.id', '=', 'r.decided_by_user_id')
             ->select([
-                'r.id', 'r.session_id', 'r.teacher_id', 'r.cancel_type', 'r.reason',
+                'r.id', 'r.session_id', 'r.teacher_id', 'r.request_type', 'r.cancel_type', 'r.reason',
                 'r.status', 'r.decided_at', 'r.decision_note', 'r.seen_by_teacher_at', 'r.created_at',
                 'se.scheduled_at_utc', 'se.duration_minutes', 'se.status as session_status',
                 'st.full_name as student_name', 'te.full_name as teacher_name',
@@ -144,8 +197,8 @@ final class CancellationRequestController extends Controller
      */
     public function approve(Request $request, AttendanceService $service, string $requestId): JsonResponse
     {
-        Gate::authorize('session.cancel_approve');
-
+        // Authorization depends on the request type (cancel vs free) and is enforced in decide()
+        // once the row is loaded — the owner holds both approve capabilities.
         $data = $request->validate([
             'note' => ['sometimes', 'nullable', 'string', 'max:500'],
             'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
@@ -170,8 +223,7 @@ final class CancellationRequestController extends Controller
      */
     public function reject(Request $request, string $requestId): JsonResponse
     {
-        Gate::authorize('session.cancel_approve');
-
+        // Authorization (cancel vs free) is enforced in decide() once the row's type is known.
         $data = $request->validate(['note' => ['sometimes', 'nullable', 'string', 'max:500']]);
 
         return $this->decide($requestId, approve: false, note: $data['note'] ?? null);
@@ -201,6 +253,10 @@ final class CancellationRequestController extends Controller
                 ]);
             }
 
+            // The two request types have distinct approve capabilities (the owner holds both).
+            $isFree = ($req->request_type ?? 'CANCEL') === 'FREE';
+            Gate::authorize($isFree ? 'session.free_approve' : 'session.cancel_approve');
+
             $status = $approve ? 'APPROVED' : 'REJECTED';
             DB::table('session_cancellation_requests')->where('id', $requestId)->update([
                 'status' => $status,
@@ -213,11 +269,12 @@ final class CancellationRequestController extends Controller
 
             $sessionStatus = null;
             if ($approve) {
-                // Perform the actual cancel through the billing engine — identical path to a direct
-                // cancel (SessionController::cancel), but only ever reached through owner approval.
-                // The owner's billing decision (charge_student / pay_teacher) and reason apply here.
+                // Perform the actual outcome through the billing engine — identical path to a direct
+                // owner action (SessionController::cancel / AttendanceController FREE), but only ever
+                // reached through owner approval. The owner's billing decision (charge_student /
+                // pay_teacher) and reason apply here for both request types.
                 $session = DB::table('sessions')->where('id', $req->session_id)->first();
-                $sessionStatus = self::CANCEL_STATUS[$req->cancel_type];
+                $sessionStatus = $isFree ? 'FREE' : self::CANCEL_STATUS[$req->cancel_type];
                 $reason = $reasonOverride ?? $req->reason;
 
                 $service?->record(
@@ -230,7 +287,7 @@ final class CancellationRequestController extends Controller
                     $teacherOverride,
                 );
 
-                Audit::log('session.cancelled', 'session', (string) $req->session_id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                Audit::log($isFree ? 'session.marked_free' : 'session.cancelled', 'session', (string) $req->session_id, $academyId, $this->ctx()->userId, $this->ctx()->role,
                     before: ['status' => $session?->status],
                     after: ['status' => $sessionStatus, 'cancelled_by' => $req->cancel_type, 'reason' => $reason, 'charge_student' => $billOverride, 'pay_teacher' => $teacherOverride, 'via' => 'approval']);
             }

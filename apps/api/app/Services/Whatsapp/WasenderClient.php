@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Whatsapp;
 
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
@@ -24,7 +25,7 @@ final class WasenderClient
      * Send a plain-text WhatsApp message via Wasender.
      *
      * @param  string  $token  the academy's Wasender API token (decrypted, never logged)
-     * @param  string  $to     recipient — E.164 (e.g. +201234567890) or a Wasender JID
+     * @param  string  $to  recipient — E.164 (e.g. +201234567890) or a Wasender JID
      * @return array{ok: bool, message_id: ?string, error: ?string}
      */
     public function sendMessage(string $token, string $to, string $text): array
@@ -45,6 +46,38 @@ final class WasenderClient
             return ['ok' => true, 'message_id' => $messageId !== null ? (string) $messageId : null, 'error' => null];
         } catch (Throwable $e) {
             // Never surface the token or a stack trace to the caller; just a short reason.
+            return ['ok' => false, 'message_id' => null, 'error' => 'transport_error'];
+        }
+    }
+
+    /**
+     * Send an image message (by public https URL) via the gateway, with an optional caption. The
+     * gateway fetches the URL server-side and rejects non-public targets (SSRF guard), so a bad URL
+     * surfaces here as a 4xx {ok:false,error} rather than an exception.
+     *
+     * @param  string  $token  the academy's gateway token (decrypted, never logged)
+     * @param  string  $to  recipient — E.164 or a JID
+     * @param  string  $imageUrl  public https URL of the image
+     * @return array{ok: bool, message_id: ?string, error: ?string}
+     */
+    public function sendImage(string $token, string $to, string $imageUrl, ?string $caption = null): array
+    {
+        try {
+            $payload = ['to' => $to, 'imageUrl' => $imageUrl];
+            if ($caption !== null && $caption !== '') {
+                $payload['caption'] = $caption;
+            }
+            $res = $this->http($token)->post('/api/send-message', $payload);
+
+            if (! $res->successful()) {
+                return ['ok' => false, 'message_id' => null, 'error' => $this->errorFrom($res->status(), $res->json())];
+            }
+
+            $body = $res->json();
+            $messageId = $body['data']['msgId'] ?? $body['data']['id'] ?? $body['msgId'] ?? $body['id'] ?? null;
+
+            return ['ok' => true, 'message_id' => $messageId !== null ? (string) $messageId : null, 'error' => null];
+        } catch (Throwable) {
             return ['ok' => false, 'message_id' => null, 'error' => 'transport_error'];
         }
     }
@@ -90,7 +123,7 @@ final class WasenderClient
     /**
      * A pre-configured PendingRequest: bearer auth, JSON, the configured base URL + timeout.
      */
-    private function http(string $token): \Illuminate\Http\Client\PendingRequest
+    private function http(string $token): PendingRequest
     {
         return Http::withToken($token)
             ->acceptJson()

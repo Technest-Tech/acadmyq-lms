@@ -55,6 +55,27 @@ final class LivekitRoomClient
         }
     }
 
+    /**
+     * All live rooms currently on the SFU (each carries `name` + `numParticipants`), in one call.
+     * Used by the presence endpoint to find which of an academy's rooms are occupied before spending
+     * a per-room ListParticipants call. Structured ['ok' => ...] like the rest; empty on any error.
+     *
+     * @return array{ok: bool, rooms: array<int,mixed>}
+     */
+    public function listRooms(): array
+    {
+        try {
+            $res = $this->http()->post('/twirp/livekit.RoomService/ListRooms', []);
+            if (! $res->successful()) {
+                return ['ok' => false, 'rooms' => []];
+            }
+
+            return ['ok' => true, 'rooms' => (array) ($res->json('rooms') ?? [])];
+        } catch (Throwable) {
+            return ['ok' => false, 'rooms' => []];
+        }
+    }
+
     /** Best-effort delete of a room on the SFU (kicks participants). */
     public function deleteRoom(string $name): bool
     {

@@ -48,6 +48,7 @@ describe("TeacherDetail (Sprint 4 §7)", () => {
         created_at: "",
       },
       students: [{ id: "s1", full_name: "Yusuf", started_at: "2026-06-01" }],
+      login: { has_login: false, email: null, is_active: null },
     });
     vi.mocked(api.updateTeacher).mockResolvedValue({ ok: true, changed: [] });
   });

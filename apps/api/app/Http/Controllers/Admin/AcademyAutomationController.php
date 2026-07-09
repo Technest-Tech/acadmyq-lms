@@ -382,6 +382,118 @@ final class AcademyAutomationController extends Controller
         return response()->json(['exists' => $exists]);
     }
 
+    // ── external API access: per-academy API keys + public connect link (docs/whatsapp-api) ────
+
+    /** GET /admin/academies/{id}/api-keys — the academy's API keys (never the hash or plaintext). */
+    public function listApiKeys(string $id): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+        $this->assertAcademy($id);
+
+        $keys = $this->inAcademyContext($id, fn () => DB::table('whatsapp_api_keys')
+            ->where('academy_id', $id)
+            ->orderByDesc('created_at')
+            ->get(['id', 'name', 'key_prefix', 'last_used_at', 'revoked_at', 'created_at']));
+
+        return response()->json(['keys' => $keys]);
+    }
+
+    /**
+     * POST /admin/academies/{id}/api-keys — mint a new API key. The plaintext is returned ONCE here
+     * and never again; only its SHA-256 hash + a display prefix are stored.
+     */
+    public function createApiKey(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+        $this->assertAcademy($id);
+
+        $data = $request->validate(['name' => ['required', 'string', 'min:1', 'max:80']]);
+        $ctx = app(AuthContext::class);
+
+        $plain = 'wa_'.Str::random(48);
+        $prefix = substr($plain, 0, 11);
+        $keyId = (string) Str::uuid();
+
+        $this->inAcademyContext($id, function () use ($id, $data, $plain, $prefix, $keyId, $ctx) {
+            DB::table('whatsapp_api_keys')->insert([
+                'id' => $keyId,
+                'academy_id' => $id,
+                'name' => $data['name'],
+                'key_prefix' => $prefix,
+                'key_hash' => hash('sha256', $plain),
+                'created_by' => $ctx->userId,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            Audit::log('whatsapp.api_key_create', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: ['key_id' => $keyId, 'name' => $data['name']]);
+        });
+
+        return response()->json([
+            'id' => $keyId,
+            'name' => $data['name'],
+            'key_prefix' => $prefix,
+            // The one and only time the full key is exposed. The client must copy it now.
+            'key' => $plain,
+        ], 201);
+    }
+
+    /** DELETE /admin/academies/{id}/api-keys/{keyId} — revoke a key (soft; keeps the audit trail). */
+    public function revokeApiKey(string $id, string $keyId): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+        $this->assertAcademy($id);
+        $ctx = app(AuthContext::class);
+
+        $updated = $this->inAcademyContext($id, function () use ($id, $keyId, $ctx) {
+            $n = DB::table('whatsapp_api_keys')
+                ->where('academy_id', $id)
+                ->where('id', $keyId)
+                ->whereNull('revoked_at')
+                ->update(['revoked_at' => now(), 'updated_at' => now()]);
+            if ($n > 0) {
+                Audit::log('whatsapp.api_key_revoke', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: ['key_id' => $keyId]);
+            }
+
+            return $n;
+        });
+
+        if ($updated === 0) {
+            abort(404, 'API key not found.');
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * POST /admin/academies/{id}/connect-link — mint a fresh, expiring public QR-connect link. Only
+     * the token hash + expiry are stored, so regenerating invalidates the previous link. Returns the
+     * relative path; the web app prepends its own origin.
+     */
+    public function createConnectLink(string $id): JsonResponse
+    {
+        Gate::authorize('automation.manage');
+        $this->assertAcademy($id);
+        $ctx = app(AuthContext::class);
+
+        $token = Str::random(40);
+        $expiresAt = now()->addHours(48);
+
+        $this->inAcademyContext($id, function () use ($id, $token, $expiresAt, $ctx) {
+            $this->ensureRow($id);
+            DB::table('academy_automation_settings')->where('academy_id', $id)->update([
+                'connect_token_hash' => hash('sha256', $token),
+                'connect_token_expires_at' => $expiresAt,
+                'updated_at' => now(),
+            ]);
+            Audit::log('whatsapp.connect_link_create', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: ['expires_at' => $expiresAt->toIso8601String()]);
+        });
+
+        return response()->json([
+            'path' => '/wa-connect/'.$token,
+            'expires_at' => $expiresAt->toIso8601String(),
+        ], 201);
+    }
+
     // ── internals ────────────────────────────────────────────────────────────
 
     /** The academy's gateway session id (read within tenant context), or null when not connected. */

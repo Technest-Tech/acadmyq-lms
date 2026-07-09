@@ -7,6 +7,7 @@ import {
   Check,
   CheckCheck,
   ClipboardX,
+  Gift,
   GraduationCap,
   Inbox,
   RefreshCw,
@@ -175,7 +176,6 @@ export function NotificationsScreen() {
       ) : tab === "classes" ? (
         <ClassesTab
           requests={requests}
-          isOwner={can("session.cancel_approve")}
           fmt={fmt}
           onChanged={load}
           onError={setError}
@@ -196,13 +196,11 @@ export function NotificationsScreen() {
 
 function ClassesTab({
   requests,
-  isOwner,
   fmt,
   onChanged,
   onError,
 }: {
   requests: CancellationRequestRow[];
-  isOwner: boolean;
   fmt: (iso: string) => string;
   onChanged: () => Promise<void>;
   onError: (msg: string) => void;
@@ -219,7 +217,6 @@ function ClassesTab({
         <RequestCard
           key={r.id}
           request={r}
-          isOwner={isOwner}
           fmt={fmt}
           onChanged={onChanged}
           onError={onError}
@@ -231,22 +228,25 @@ function ClassesTab({
 
 function RequestCard({
   request: r,
-  isOwner,
   fmt,
   onChanged,
   onError,
 }: {
   request: CancellationRequestRow;
-  isOwner: boolean;
   fmt: (iso: string) => string;
   onChanged: () => Promise<void>;
   onError: (msg: string) => void;
 }) {
   const t = useTranslations("notifications");
+  const { can } = useAuth();
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   // Approving opens the billing decision popup; rejecting is immediate.
   const [billingOpen, setBillingOpen] = useState(false);
+
+  const isFree = r.request_type === "FREE";
+  // The approver capability differs by request type (the owner holds both).
+  const isOwner = can(isFree ? "session.free_approve" : "session.cancel_approve");
 
   async function reject() {
     setBusy(true);
@@ -288,14 +288,28 @@ function RequestCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="bg-destructive/10 ring-destructive/15 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1">
-            <Ban className="text-destructive/80 size-5" aria-hidden />
-          </div>
+          {isFree ? (
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-teal-100 ring-1 ring-teal-200/60 dark:bg-teal-950/40">
+              <Gift
+                className="size-5 text-teal-600 dark:text-teal-400"
+                aria-hidden
+              />
+            </div>
+          ) : (
+            <div className="bg-destructive/10 ring-destructive/15 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1">
+              <Ban className="text-destructive/80 size-5" aria-hidden />
+            </div>
+          )}
           <div className="min-w-0">
             <p className="font-semibold leading-tight">
-              {t(`cancelType.${r.cancel_type}`, {
-                student: r.student_name ?? "—",
-              })}
+              {isFree
+                ? t("freeType", {
+                    teacher: r.teacher_name ?? "—",
+                    student: r.student_name ?? "—",
+                  })
+                : t(`cancelType.${r.cancel_type}`, {
+                    student: r.student_name ?? "—",
+                  })}
             </p>
             <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
               <span className="inline-flex items-center gap-1.5">
@@ -382,9 +396,10 @@ function RequestCard({
 
       {/* Approval → billing decision (charge student / pay teacher + reason for the parent). */}
       <CancellationBillingModal
+        variant={isFree ? "free" : "cancel"}
         open={billingOpen}
         onClose={() => setBillingOpen(false)}
-        cancelType={r.cancel_type}
+        cancelType={r.cancel_type ?? "teacher"}
         defaultReason={r.reason ?? ""}
         busy={busy}
         onConfirm={confirmApprove}

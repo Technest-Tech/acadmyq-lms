@@ -74,6 +74,7 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
         outcome_set_at: null,
         classification: { billableToStudent: false, countsForTeacher: false },
         pending_cancellation: null,
+        pending_free: null,
       },
       report: null,
       reportFields: [],

@@ -73,6 +73,7 @@ final class AttendanceController extends Controller
         ]);
 
         $isCancel = in_array($data['status'], self::CANCEL_STATUSES, true);
+        $isFree = $data['status'] === 'FREE';
 
         // A cancel is not an attendance outcome: an actor without session.cancel (a Teacher) may
         // not cancel directly here — they must raise a cancellation request for the owner to
@@ -83,13 +84,24 @@ final class AttendanceController extends Controller
             ]);
         }
 
+        // Marking a lesson FREE carries the same per-academy billing decision as a cancellation, so
+        // it follows the same rule: a Teacher (session.free_request, not session.free) can't apply
+        // it directly — they raise a free request for the owner to approve. Block the back door.
+        if ($isFree && ! Gate::allows('session.free')) {
+            throw ValidationException::withMessages([
+                'status' => ['You can’t mark a lesson free directly — send a request for the owner to approve. / لا يمكنك جعل الحصة مجانية مباشرة — أرسل طلبًا ليوافق عليه المالك.'],
+            ]);
+        }
+
         $next = SessionStatus::from($data['status']);
         $this->assertTimingAllowed($session, (bool) ($data['override_timing'] ?? false), $academyId);
 
-        // The billing override only applies to a cancellation; a normal attended/free outcome keeps
-        // the status-derived verdict (null overrides).
-        $billOverride = $isCancel ? (bool) ($data['charge_student'] ?? false) : null;
-        $teacherOverride = $isCancel ? (bool) ($data['pay_teacher'] ?? false) : null;
+        // Charge-student / pay-teacher overrides apply to a cancellation OR a free lesson (both let
+        // the academy decide the billing per occurrence); a plain ATTENDED outcome keeps the
+        // status-derived verdict (null overrides).
+        $overridable = $isCancel || $isFree;
+        $billOverride = $overridable ? (bool) ($data['charge_student'] ?? false) : null;
+        $teacherOverride = $overridable ? (bool) ($data['pay_teacher'] ?? false) : null;
 
         $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride);
 

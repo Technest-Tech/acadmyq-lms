@@ -8,6 +8,7 @@ use App\Billing\BillingHook;
 use App\Support\Audit;
 use App\Support\PublicInvoiceToken;
 use App\Support\StudentStatus;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -52,9 +53,9 @@ final class Invoicing implements BillingHook
             return;
         }
 
-        $tz    = $academy->timezone ?: 'UTC';
+        $tz = $academy->timezone ?: 'UTC';
         $local = Carbon::parse($session->scheduled_at_utc)->setTimezone($tz);
-        $year  = (int) $local->year;
+        $year = (int) $local->year;
         $month = (int) $local->month;
 
         [$guardianId, $studentId, $currency] = $this->resolvePayerAndCurrency($academy, $session);
@@ -73,31 +74,31 @@ final class Invoicing implements BillingHook
         // A free-trial lesson is on the house: the student is never charged for it (the academy
         // absorbs it as customer acquisition). The line is still recorded — at zero — so the
         // trial appears on the invoice as "Free trial" rather than vanishing silently.
-        $isFreeTrial   = $this->isFreeTrial((string) $session->id);
-        $subscription  = $this->getActiveSubscription((string) $session->student_id);
-        $amountMinor   = $isFreeTrial
+        $isFreeTrial = $this->isFreeTrial((string) $session->id);
+        $subscription = $this->getActiveSubscription((string) $session->student_id);
+        $amountMinor = $isFreeTrial
             ? 0
             : ($subscription !== null
                 ? $this->resolvePerSessionAmount($subscription, $invoiceId, (string) $session->student_id, (int) $session->duration_minutes)
                 : 0);
-        $description   = $isFreeTrial
-            ? 'Free trial — ' . $local->format('Y-m-d')
+        $description = $isFreeTrial
+            ? 'Free trial — '.$local->format('Y-m-d')
             : $this->buildDescription($session, $academy);
-        $sessionDate   = $local->format('Y-m-d');
+        $sessionDate = $local->format('Y-m-d');
 
         // insertOrIgnore is the concurrency backstop for the unique (invoice_id, session_id)
         // constraint — even in a race condition a duplicate line cannot be created (R-BIL-1).
         $inserted = DB::table('invoice_line_items')->insertOrIgnore([
-            'id'           => (string) Str::uuid(),
-            'academy_id'   => $session->academy_id,
-            'invoice_id'   => $invoiceId,
-            'session_id'   => $session->id,
-            'student_id'   => $session->student_id,
-            'description'  => $description,
+            'id' => (string) Str::uuid(),
+            'academy_id' => $session->academy_id,
+            'invoice_id' => $invoiceId,
+            'session_id' => $session->id,
+            'student_id' => $session->student_id,
+            'description' => $description,
             'amount_minor' => $amountMinor,
-            'currency'     => $currency,
+            'currency' => $currency,
             'session_date' => $sessionDate,
-            'created_at'   => now(),
+            'created_at' => now(),
         ]);
 
         if ($inserted) {
@@ -105,8 +106,8 @@ final class Invoicing implements BillingHook
                 ->where('id', $invoiceId)
                 ->update([
                     'subtotal_minor' => DB::raw("subtotal_minor + {$amountMinor}"),
-                    'total_minor'    => DB::raw("subtotal_minor + {$amountMinor}"),
-                    'updated_at'     => now(),
+                    'total_minor' => DB::raw("subtotal_minor + {$amountMinor}"),
+                    'updated_at' => now(),
                 ]);
 
             Audit::log(
@@ -117,9 +118,9 @@ final class Invoicing implements BillingHook
                 null,
                 'SUPER_ADMIN',
                 after: [
-                    'session_id'   => $session->id,
+                    'session_id' => $session->id,
                     'amount_minor' => $amountMinor,
-                    'currency'     => $currency,
+                    'currency' => $currency,
                 ],
             );
         }
@@ -139,9 +140,9 @@ final class Invoicing implements BillingHook
             return; // Already gone — idempotent.
         }
 
-        $invoiceId   = (string) $line->invoice_id;
+        $invoiceId = (string) $line->invoice_id;
         $amountMinor = (int) $line->amount_minor;
-        $academyId   = (string) $line->academy_id;
+        $academyId = (string) $line->academy_id;
 
         $invoice = DB::table('invoices')->where('id', $invoiceId)->first();
 
@@ -159,8 +160,8 @@ final class Invoicing implements BillingHook
             ->where('id', $invoiceId)
             ->update([
                 'subtotal_minor' => DB::raw("subtotal_minor - {$amountMinor}"),
-                'total_minor'    => DB::raw("subtotal_minor - {$amountMinor}"),
-                'updated_at'     => now(),
+                'total_minor' => DB::raw("subtotal_minor - {$amountMinor}"),
+                'updated_at' => now(),
             ]);
 
         Audit::log(
@@ -171,7 +172,7 @@ final class Invoicing implements BillingHook
             null,
             'SUPER_ADMIN',
             before: [
-                'session_id'   => $session->id,
+                'session_id' => $session->id,
                 'amount_minor' => $amountMinor,
             ],
         );
@@ -184,8 +185,8 @@ final class Invoicing implements BillingHook
     /**
      * Close a single OPEN invoice, verifying its total integrity first.
      *
-     * @throws \RuntimeException          if total_minor ≠ sum of line items
-     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException (implicit) if not found
+     * @throws \RuntimeException if total_minor ≠ sum of line items
+     * @throws ModelNotFoundException (implicit) if not found
      */
     public function closeInvoice(
         string $invoiceId,
@@ -215,7 +216,7 @@ final class Invoicing implements BillingHook
         if ((int) $invoice->total_minor !== $lineSum) {
             throw new \RuntimeException(
                 "Invoice {$invoiceId} integrity failure: "
-                . "total_minor={$invoice->total_minor} but line items sum to {$lineSum}."
+                ."total_minor={$invoice->total_minor} but line items sum to {$lineSum}."
             );
         }
 
@@ -224,8 +225,8 @@ final class Invoicing implements BillingHook
         DB::table('invoices')
             ->where('id', $invoiceId)
             ->update([
-                'status'     => 'CLOSED',
-                'closed_at'  => $closedAt,
+                'status' => 'CLOSED',
+                'closed_at' => $closedAt,
                 'updated_at' => $closedAt,
             ]);
 
@@ -237,8 +238,8 @@ final class Invoicing implements BillingHook
             $actorUserId,
             $actorRole,
             after: [
-                'status'      => 'CLOSED',
-                'closed_at'   => $closedAt->toIso8601String(),
+                'status' => 'CLOSED',
+                'closed_at' => $closedAt->toIso8601String(),
                 'total_minor' => (int) $invoice->total_minor,
             ],
         );
@@ -303,34 +304,34 @@ final class Invoicing implements BillingHook
         $invoiceId = (string) Str::uuid();
 
         DB::table('invoices')->insert([
-            'id'             => $invoiceId,
-            'academy_id'     => $academyId,
-            'kind'           => 'MANUAL',
-            'guardian_id'    => $guardianId,
-            'student_id'     => $studentId,
-            'period_year'    => $year,
-            'period_month'   => $month,
-            'status'         => 'OPEN',
-            'currency'       => $currency,
+            'id' => $invoiceId,
+            'academy_id' => $academyId,
+            'kind' => 'MANUAL',
+            'guardian_id' => $guardianId,
+            'student_id' => $studentId,
+            'period_year' => $year,
+            'period_month' => $month,
+            'status' => 'OPEN',
+            'currency' => $currency,
             'subtotal_minor' => $total,
-            'total_minor'    => $total,
-            'public_token'   => PublicInvoiceToken::forAcademyId($academyId),
-            'created_at'     => now(),
-            'updated_at'     => now(),
+            'total_minor' => $total,
+            'public_token' => PublicInvoiceToken::forAcademyId($academyId),
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         foreach ($lines as $line) {
             DB::table('invoice_line_items')->insert([
-                'id'           => (string) Str::uuid(),
-                'academy_id'   => $academyId,
-                'invoice_id'   => $invoiceId,
-                'session_id'   => null,
-                'student_id'   => $line['student_id'] ?? null,
-                'description'  => $line['description'],
+                'id' => (string) Str::uuid(),
+                'academy_id' => $academyId,
+                'invoice_id' => $invoiceId,
+                'session_id' => null,
+                'student_id' => $line['student_id'] ?? null,
+                'description' => $line['description'],
                 'amount_minor' => (int) $line['amount_minor'],
-                'currency'     => $currency,
+                'currency' => $currency,
                 'session_date' => null,
-                'created_at'   => now(),
+                'created_at' => now(),
             ]);
         }
 
@@ -342,10 +343,10 @@ final class Invoicing implements BillingHook
             $actorUserId,
             $actorRole,
             after: [
-                'kind'        => 'MANUAL',
+                'kind' => 'MANUAL',
                 'total_minor' => $total,
-                'currency'    => $currency,
-                'lines'       => count($lines),
+                'currency' => $currency,
+                'lines' => count($lines),
             ],
         );
 
@@ -384,7 +385,7 @@ final class Invoicing implements BillingHook
         // Window: [start-of-day(start_date) .. end-of-month] expressed in the academy timezone,
         // converted to UTC for the scheduled_at_utc comparison.
         $start = Carbon::parse($startDate, $tz)->startOfDay();
-        $end   = $start->copy()->endOfMonth()->endOfDay();
+        $end = $start->copy()->endOfMonth()->endOfDay();
 
         $sessions = DB::table('sessions')
             ->where('student_id', $studentId)
@@ -402,21 +403,21 @@ final class Invoicing implements BillingHook
                 : 0;
             $localDate = Carbon::parse($session->scheduled_at_utc)->setTimezone($tz)->format('Y-m-d');
             $lines[] = [
-                'session_id'   => (string) $session->id,
+                'session_id' => (string) $session->id,
                 'session_date' => $localDate,
-                'description'  => "Advance — session {$localDate}",
+                'description' => "Advance — session {$localDate}",
                 'amount_minor' => $amount,
             ];
             $total += $amount;
         }
 
         return [
-            'currency'         => $currency,
-            'total_minor'      => $total,
-            'count'            => count($lines),
-            'price_basis'      => $subscription?->price_basis,
+            'currency' => $currency,
+            'total_minor' => $total,
+            'count' => count($lines),
+            'price_basis' => $subscription?->price_basis,
             'has_subscription' => $subscription !== null,
-            'lines'            => $lines,
+            'lines' => $lines,
         ];
     }
 
@@ -425,7 +426,7 @@ final class Invoicing implements BillingHook
      * quote. The covered sessions are flagged billed=true so the automatic billing hook never
      * re-bills them when they are later attended (R-BIL-1 double-bill guard).
      *
-     * @return array{invoice_id: ?string, count: int}  invoice_id is null when nothing is billable.
+     * @return array{invoice_id: ?string, count: int} invoice_id is null when nothing is billable.
      */
     public function createAdvanceInvoice(
         string $studentId,
@@ -439,43 +440,43 @@ final class Invoicing implements BillingHook
             return ['invoice_id' => null, 'count' => 0];
         }
 
-        $student   = DB::table('students')->where('id', $studentId)->first();
+        $student = DB::table('students')->where('id', $studentId)->first();
         $academyId = (string) $student->academy_id;
-        $period    = Carbon::parse($startDate);
+        $period = Carbon::parse($startDate);
         $invoiceId = (string) Str::uuid();
-        $total     = (int) $quote['total_minor'];
-        $currency  = (string) $quote['currency'];
+        $total = (int) $quote['total_minor'];
+        $currency = (string) $quote['currency'];
 
         DB::table('invoices')->insert([
-            'id'             => $invoiceId,
-            'academy_id'     => $academyId,
-            'kind'           => 'MANUAL',
-            'guardian_id'    => null,
-            'student_id'     => $studentId,
-            'period_year'    => (int) $period->year,
-            'period_month'   => (int) $period->month,
-            'status'         => 'OPEN',
-            'currency'       => $currency,
+            'id' => $invoiceId,
+            'academy_id' => $academyId,
+            'kind' => 'MANUAL',
+            'guardian_id' => null,
+            'student_id' => $studentId,
+            'period_year' => (int) $period->year,
+            'period_month' => (int) $period->month,
+            'status' => 'OPEN',
+            'currency' => $currency,
             'subtotal_minor' => $total,
-            'total_minor'    => $total,
-            'public_token'   => PublicInvoiceToken::forAcademyId($academyId),
-            'created_at'     => now(),
-            'updated_at'     => now(),
+            'total_minor' => $total,
+            'public_token' => PublicInvoiceToken::forAcademyId($academyId),
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         $sessionIds = [];
         foreach ($quote['lines'] as $line) {
             DB::table('invoice_line_items')->insert([
-                'id'           => (string) Str::uuid(),
-                'academy_id'   => $academyId,
-                'invoice_id'   => $invoiceId,
-                'session_id'   => $line['session_id'],
-                'student_id'   => $studentId,
-                'description'  => $line['description'],
+                'id' => (string) Str::uuid(),
+                'academy_id' => $academyId,
+                'invoice_id' => $invoiceId,
+                'session_id' => $line['session_id'],
+                'student_id' => $studentId,
+                'description' => $line['description'],
                 'amount_minor' => (int) $line['amount_minor'],
-                'currency'     => $currency,
+                'currency' => $currency,
                 'session_date' => $line['session_date'],
-                'created_at'   => now(),
+                'created_at' => now(),
             ]);
             $sessionIds[] = $line['session_id'];
         }
@@ -493,11 +494,11 @@ final class Invoicing implements BillingHook
             $actorUserId,
             $actorRole,
             after: [
-                'kind'        => 'MANUAL',
-                'mode'        => 'ADVANCE',
+                'kind' => 'MANUAL',
+                'mode' => 'ADVANCE',
                 'total_minor' => $total,
-                'currency'    => $currency,
-                'sessions'    => count($sessionIds),
+                'currency' => $currency,
+                'sessions' => count($sessionIds),
             ],
         );
 
@@ -555,11 +556,11 @@ final class Invoicing implements BillingHook
      */
     private function resolvePayerAndCurrency(object $academy, object $session): array
     {
-        $grouping        = $academy->invoice_grouping ?? 'PER_GUARDIAN';
+        $grouping = $academy->invoice_grouping ?? 'PER_GUARDIAN';
         $defaultCurrency = (string) $academy->default_currency;
 
         // Currency always follows the student's own subscription.
-        $sub      = $this->getActiveSubscription((string) $session->student_id);
+        $sub = $this->getActiveSubscription((string) $session->student_id);
         $currency = $sub?->currency !== null ? (string) $sub->currency : $defaultCurrency;
 
         if ($grouping === 'PER_STUDENT') {
@@ -608,19 +609,19 @@ final class Invoicing implements BillingHook
         $id = (string) Str::uuid();
 
         DB::table('invoices')->insert([
-            'id'             => $id,
-            'academy_id'     => $academy->id,
-            'guardian_id'    => $guardianId,
-            'student_id'     => $studentId,
-            'period_year'    => $year,
-            'period_month'   => $month,
-            'status'         => 'OPEN',
-            'currency'       => $currency,
+            'id' => $id,
+            'academy_id' => $academy->id,
+            'guardian_id' => $guardianId,
+            'student_id' => $studentId,
+            'period_year' => $year,
+            'period_month' => $month,
+            'status' => 'OPEN',
+            'currency' => $currency,
             'subtotal_minor' => 0,
-            'total_minor'    => 0,
-            'public_token'   => PublicInvoiceToken::forName($academy->name ?? null),
-            'created_at'     => now(),
-            'updated_at'     => now(),
+            'total_minor' => 0,
+            'public_token' => PublicInvoiceToken::forName($academy->name ?? null),
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         return $id;
@@ -702,7 +703,7 @@ final class Invoicing implements BillingHook
      */
     private function buildDescription(object $session, object $academy): string
     {
-        $tz        = $academy->timezone ?: 'UTC';
+        $tz = $academy->timezone ?: 'UTC';
         $localDate = Carbon::parse($session->scheduled_at_utc)->setTimezone($tz)->format('Y-m-d');
 
         // A charged cancellation (the academy chose to bill a late-cancel fee) reads as a cancelled
@@ -710,10 +711,19 @@ final class Invoicing implements BillingHook
         // never the session report (a cancelled lesson has none).
         $status = (string) ($session->status ?? '');
         if (in_array($status, ['CANCELLED_BY_TEACHER', 'CANCELLED_BY_STUDENT'], true)) {
-            $base   = "Cancelled lesson {$localDate}";
+            $base = "Cancelled lesson {$localDate}";
             $reason = isset($session->status_reason) ? trim((string) $session->status_reason) : '';
 
-            return $reason !== '' ? $base . ' — ' . $reason : $base;
+            return $reason !== '' ? $base.' — '.$reason : $base;
+        }
+
+        // A FREE lesson only reaches billing when the academy chose to charge it anyway (bill
+        // override) — surface the reason the owner gave in the billing popup, as for a cancellation.
+        if ($status === 'FREE') {
+            $base = "Session {$localDate}";
+            $reason = isset($session->status_reason) ? trim((string) $session->status_reason) : '';
+
+            return $reason !== '' ? $base.' — '.$reason : $base;
         }
 
         $base = "Session {$localDate}";
@@ -753,7 +763,7 @@ final class Invoicing implements BillingHook
             return $base;
         }
 
-        return $base . ' — ' . (string) $fieldValue;
+        return $base.' — '.(string) $fieldValue;
     }
 
     /**

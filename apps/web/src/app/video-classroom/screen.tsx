@@ -30,6 +30,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { RecordingPlayer } from "@/components/video-classroom/recording-player";
 import { RoomModal } from "@/components/video-classroom/room-modal";
+import {
+  LiveBadge,
+  PresenceCell,
+  RoomLivePresence,
+} from "@/components/video-classroom/room-presence";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -37,9 +42,11 @@ import {
   deleteRecording,
   deleteVideoRoom,
   getRecordingUrl,
+  getRoomPresence,
   listVideoRecordings,
   listVideoRooms,
   roomShareUrl,
+  type RoomPresence,
   type RoomRecording,
   type VideoRoom,
 } from "@/lib/api";
@@ -169,6 +176,7 @@ export function VideoClassroomScreen() {
   const { can } = useAuth();
 
   const [rooms, setRooms] = useState<VideoRoom[] | null>(null);
+  const [presence, setPresence] = useState<Record<string, RoomPresence>>({});
   const [recordings, setRecordings] = useState<RoomRecording[] | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<VideoRoom | null>(null);
@@ -207,6 +215,29 @@ export function VideoClassroomScreen() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Live occupancy: poll the SFU-backed presence endpoint while the Rooms tab is open (every 12s),
+  // so the cards show who's actually in each room right now. Fails soft — a hiccup keeps the last
+  // known state rather than blanking the cards. Only the occupied rooms come back (keyed by id).
+  useEffect(() => {
+    if (!canRead || tab !== "rooms") return;
+    let cancelled = false;
+    const tick = () => {
+      getRoomPresence()
+        .then((r) => {
+          if (!cancelled) setPresence(r.presence);
+        })
+        .catch(() => {
+          /* keep last-known presence on a transient failure */
+        });
+    };
+    tick();
+    const id = window.setInterval(tick, 12_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [canRead, tab]);
 
   // Room ids that have at least one recording (for the "has recordings" filter + chip).
   const recordingRoomIds = useMemo(
@@ -252,6 +283,12 @@ export function VideoClassroomScreen() {
   const activeCount = useMemo(
     () => (rooms ?? []).filter((r) => r.status === "ACTIVE").length,
     [rooms],
+  );
+
+  // People currently connected across all rooms (drives the "in call now" hero stat + live dot).
+  const liveCount = useMemo(
+    () => Object.values(presence).reduce((n, p) => n + p.count, 0),
+    [presence],
   );
 
   if (!canRead) {
@@ -627,6 +664,9 @@ export function VideoClassroomScreen() {
           <div className="relative mt-5 flex flex-wrap gap-2.5">
             <StatPill icon={LayoutGrid} value={rooms.length} label={t("statRooms")} />
             <StatPill icon={Radio} value={activeCount} label={t("statActive")} accent />
+            {liveCount > 0 && (
+              <StatPill icon={Users} value={liveCount} label={t("statInCall")} live />
+            )}
             {canViewRecordings && (
               <StatPill icon={Film} value={recordings?.length ?? 0} label={t("statRecordings")} />
             )}
@@ -790,9 +830,13 @@ export function VideoClassroomScreen() {
                         </p>
                       </div>
                     </div>
-                    <RoomStatusBadge status={room.status} />
+                    <div className="flex shrink-0 flex-col items-end gap-1.5">
+                      <RoomStatusBadge status={room.status} />
+                      <LiveBadge presence={presence[room.id]} />
+                    </div>
                   </div>
                   <SettingChips room={room} hasRecording={recordingRoomIds.has(room.id)} />
+                  <RoomLivePresence presence={presence[room.id]} />
                   <RoomLinks room={room} />
                   <div className="mt-auto flex items-center gap-1.5 border-t pt-3.5">
                     <RoomActions room={room} />
@@ -808,6 +852,7 @@ export function VideoClassroomScreen() {
                 <tr className="bg-muted/30 text-muted-foreground border-b text-xs uppercase tracking-wide">
                   <th className="px-4 py-3 text-start font-semibold"><SortHeader label={t("colName")} sortKey="name" /></th>
                   <th className="px-4 py-3 text-start font-semibold"><SortHeader label={t("colStatus")} sortKey="status" /></th>
+                  <th className="px-4 py-3 text-start font-semibold">{t("colLive")}</th>
                   <th className="px-4 py-3 text-start font-semibold">{t("colSettings")}</th>
                   <th className="px-4 py-3 text-start font-semibold">{t("colLink")}</th>
                   <th className="px-4 py-3 text-start font-semibold"><SortHeader label={t("colCreated")} sortKey="created" /></th>
@@ -824,6 +869,7 @@ export function VideoClassroomScreen() {
                       </div>
                     </td>
                     <td className="px-4 py-3"><RoomStatusBadge status={room.status} /></td>
+                    <td className="px-4 py-3"><PresenceCell presence={presence[room.id]} /></td>
                     <td className="px-4 py-3"><SettingChips room={room} hasRecording={recordingRoomIds.has(room.id)} /></td>
                     <td className="px-4 py-3 min-w-[220px]"><LinkPreview room={room} /></td>
                     <td className="text-muted-foreground px-4 py-3 whitespace-nowrap">
@@ -993,18 +1039,35 @@ function StatPill({
   value,
   label,
   accent,
+  live,
 }: {
   icon: typeof Users;
   value: number;
   label: string;
   accent?: boolean;
+  /** Render a pulsing dot + emerald ring — for the "in call now" live occupancy stat. */
+  live?: boolean;
 }) {
   return (
-    <div className="bg-background/70 inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 backdrop-blur">
-      <Icon
-        className={cn("size-4", accent ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}
-        aria-hidden
-      />
+    <div
+      className={cn(
+        "inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 backdrop-blur",
+        live
+          ? "border-emerald-500/30 bg-emerald-500/10"
+          : "bg-background/70",
+      )}
+    >
+      {live ? (
+        <span className="relative flex size-2.5" aria-hidden>
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
+        </span>
+      ) : (
+        <Icon
+          className={cn("size-4", accent ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground")}
+          aria-hidden
+        />
+      )}
       <span className="text-sm font-semibold tabular-nums">{value}</span>
       <span className="text-muted-foreground text-xs">{label}</span>
     </div>

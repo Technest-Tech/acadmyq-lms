@@ -639,6 +639,72 @@ export function whatsappCheckNumber(
   });
 }
 
+// ── External WhatsApp API: per-academy API keys + public connect link (Super Admin) ──
+
+export interface WhatsAppApiKey {
+  id: string;
+  name: string;
+  key_prefix: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+}
+
+/** The academy's API keys (never the secret — only prefix + metadata). */
+export function getApiKeys(academyId: string): Promise<{ keys: WhatsAppApiKey[] }> {
+  return apiFetch(`/api/admin/academies/${academyId}/api-keys`);
+}
+
+/** Mint a new API key. The `key` (plaintext) is returned ONCE here and never again. */
+export function createApiKey(
+  academyId: string,
+  name: string,
+): Promise<{ id: string; name: string; key_prefix: string; key: string }> {
+  return apiFetch(`/api/admin/academies/${academyId}/api-keys`, {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+/** Revoke a key (irreversible). */
+export function revokeApiKey(academyId: string, keyId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/academies/${academyId}/api-keys/${keyId}`, {
+    method: "DELETE",
+  });
+}
+
+/** Mint a fresh, expiring public QR-connect link. Returns a relative path (prepend the app origin). */
+export function createConnectLink(
+  academyId: string,
+): Promise<{ path: string; expires_at: string }> {
+  return apiFetch(`/api/admin/academies/${academyId}/connect-link`, {
+    method: "POST",
+  });
+}
+
+// ── Public QR-connect flow (no login; token-in-path). Uses apiFetch so the XSRF token is primed
+// like every other public POST in the app (a raw fetch 419s under Sanctum's stateful CSRF guard).
+
+export interface WhatsAppConnectState {
+  state: string;
+  qr?: string | null;
+}
+
+/** Start a gateway session for a shared connect token and return the first QR. */
+export function waConnectStart(token: string): Promise<WhatsAppConnectState> {
+  return apiFetch(`/api/wa/connect/${token}/start`, { method: "POST" });
+}
+
+/** Poll the current pairing QR + state. */
+export function waConnectQr(token: string): Promise<WhatsAppConnectState> {
+  return apiFetch(`/api/wa/connect/${token}/qr`);
+}
+
+/** Poll the connection status. */
+export function waConnectStatus(token: string): Promise<{ state: string }> {
+  return apiFetch(`/api/wa/connect/${token}/status`);
+}
+
 // ── Cross-academy Super Admin overviews (sidebar pages) ──────────────────────
 
 export interface SubscriptionOverviewRow {
@@ -691,6 +757,7 @@ export interface AutomationOverviewRow {
   sent_count: number;
   failed_count: number;
   skipped_count: number;
+  api_key_count: number;
 }
 
 export function getAutomationOverview(): Promise<{
@@ -1189,6 +1256,13 @@ export interface TeacherStudent {
   started_at: string;
 }
 
+/** The teacher's optional sign-in login (GET /api/teachers/{id}). */
+export interface TeacherLogin {
+  has_login: boolean;
+  email: string | null;
+  is_active: boolean | null;
+}
+
 export interface TeacherInput {
   full_name?: string;
   phone?: string | null;
@@ -1210,8 +1284,27 @@ export function listTeachers(
 
 export function getTeacher(
   id: string,
-): Promise<{ teacher: TeacherRow; students: TeacherStudent[] }> {
+): Promise<{
+  teacher: TeacherRow;
+  students: TeacherStudent[];
+  login: TeacherLogin;
+}> {
   return apiFetch(`/api/teachers/${id}`);
+}
+
+/**
+ * PATCH /api/teachers/{id}/login — set or change a teacher's sign-in login (email + password).
+ * Creates the login when the teacher has none yet (both fields required), otherwise updates the
+ * given field(s). Owner-only server-side.
+ */
+export function updateTeacherLogin(
+  id: string,
+  input: { email?: string; password?: string },
+): Promise<{ ok: boolean; created: boolean; changed: string[] }> {
+  return apiFetch(`/api/teachers/${id}/login`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export function createTeacher(
@@ -1939,6 +2032,21 @@ export function requestCancellation(
   });
 }
 
+/**
+ * POST /api/sessions/{id}/free-request — a teacher asks to mark a lesson FREE. Like a cancellation
+ * the session stays SCHEDULED; the owner approves it (deciding the billing) from the Notifications
+ * "Classes" queue.
+ */
+export function requestFree(
+  sessionId: string,
+  input: { reason?: string } = {},
+): Promise<{ requestId: string; status: "PENDING" }> {
+  return apiFetch(`/api/sessions/${sessionId}/free-request`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function generateSessions(
   input: { from?: string; to?: string } = {},
 ): Promise<{ generated: GenerateCounts }> {
@@ -1980,6 +2088,13 @@ export interface SessionDetail {
   pending_cancellation: {
     id: string;
     cancel_type: "teacher" | "student";
+    reason: string | null;
+    requested_at: string;
+  } | null;
+  /** A teacher-raised request to mark this lesson FREE, awaiting owner approval. Same shape/lifecycle
+   *  as pending_cancellation; the session stays SCHEDULED until the owner decides. */
+  pending_free: {
+    id: string;
     reason: string | null;
     requested_at: string;
   } | null;
@@ -2964,12 +3079,14 @@ export function updateAcademyOwner(
 
 export type CancellationStatus = "PENDING" | "APPROVED" | "REJECTED";
 
-/** One row of the cancellation-approval queue (Notifications "Classes" tab). */
+/** One row of the approval queue (Notifications "Classes" tab): a cancellation OR a free-lesson
+ *  request. `cancel_type` is null for free requests. */
 export interface CancellationRequestRow {
   id: string;
   session_id: string;
   teacher_id: string;
-  cancel_type: "teacher" | "student";
+  request_type: "CANCEL" | "FREE";
+  cancel_type: "teacher" | "student" | null;
   reason: string | null;
   status: CancellationStatus;
   decided_at: string | null;
@@ -3395,6 +3512,41 @@ export interface VideoRoomInput {
 
 export function listVideoRooms(): Promise<{ rooms: VideoRoom[] }> {
   return apiFetch("/api/video/rooms");
+}
+
+/** One live occupant of a room (hidden monitors are never included here). */
+export interface RoomOccupant {
+  identity: string;
+  name: string;
+  role: "host" | "guest";
+  /** Camera published AND unmuted. */
+  camera: boolean;
+  /** Microphone published AND unmuted. */
+  mic: boolean;
+  /** Currently sharing a screen. */
+  screen: boolean;
+  /** Unix seconds when they joined, or null. */
+  joinedAt: number | null;
+}
+
+/** Live occupancy summary for one room (present only while someone is in it). */
+export interface RoomPresence {
+  /** Joinable occupants (hosts + guests; excludes hidden monitors). */
+  count: number;
+  /** Hidden supervisors watching — only populated for viewers with room.monitor. */
+  monitors: number;
+  camerasOn: number;
+  micsOn: number;
+  screenSharing: number;
+  participants: RoomOccupant[];
+}
+
+/**
+ * Live occupancy across the academy's rooms, keyed by room id. Rooms with nobody in them are
+ * omitted (an absent id = empty room). Polled by the classroom panel; fails soft to `{}`.
+ */
+export function getRoomPresence(): Promise<{ presence: Record<string, RoomPresence> }> {
+  return apiFetch("/api/video/rooms/presence");
 }
 
 export function createVideoRoom(

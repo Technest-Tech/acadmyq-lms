@@ -11,6 +11,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/api")>()),
   listVideoRooms: vi.fn(),
   listVideoRecordings: vi.fn(),
+  getRoomPresence: vi.fn(),
   createVideoRoom: vi.fn(),
   updateVideoRoom: vi.fn(),
   deleteVideoRoom: vi.fn(),
@@ -64,6 +65,7 @@ describe("VideoClassroomScreen (Phase 2)", () => {
       ],
     });
     vi.mocked(api.listVideoRecordings).mockResolvedValue({ recordings: [] });
+    vi.mocked(api.getRoomPresence).mockResolvedValue({ presence: {} });
     vi.mocked(api.createVideoRoom).mockResolvedValue({ roomId: "r3" });
   });
 
@@ -73,6 +75,35 @@ describe("VideoClassroomScreen (Phase 2)", () => {
     expect(await screen.findByText("Halaqa 1")).toBeInTheDocument();
     expect(screen.getByText("Halaqa 2")).toBeInTheDocument();
     expect(screen.getAllByTestId("video-room-card")).toHaveLength(2);
+  });
+
+  // Live presence: occupied rooms show who's in + their camera/mic/screen state.
+  it("shows live occupancy on a room card", async () => {
+    vi.mocked(api.getRoomPresence).mockResolvedValue({
+      presence: {
+        r1: {
+          count: 2,
+          monitors: 0,
+          camerasOn: 1,
+          micsOn: 2,
+          screenSharing: 1,
+          participants: [
+            { identity: "h1", name: "Ustadh Ali", role: "host", camera: true, mic: true, screen: true, joinedAt: 1 },
+            { identity: "g1", name: "Sara", role: "guest", camera: false, mic: true, screen: false, joinedAt: 2 },
+          ],
+        },
+      },
+    });
+    renderScreen();
+    await screen.findByText("Halaqa 1");
+
+    // The occupied card carries a live badge, the occupant names, and the "in call now" hero stat.
+    expect(await screen.findByTestId("room-live-badge")).toBeInTheDocument();
+    expect(screen.getByText("Ustadh Ali")).toBeInTheDocument();
+    expect(screen.getByText("Sara")).toBeInTheDocument();
+    expect(screen.getByText("In call now")).toBeInTheDocument();
+    // The empty room (Halaqa 2) shows no live block.
+    expect(screen.getAllByTestId("room-presence")).toHaveLength(1);
   });
 
   // S2: the private host link copy is room.manage-only.

@@ -13,6 +13,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AvailabilityEditor } from "@/components/teachers/availability-editor";
+import { TeacherLoginSection } from "@/components/teachers/teacher-login-section";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +28,7 @@ import {
   getTeacher,
   listSpecializations,
   type Specialization,
+  type TeacherLogin,
   type TeacherRow,
   type TeacherStudent,
   updateTeacher,
@@ -137,6 +139,7 @@ export function TeacherDetail({
 
   const [teacher, setTeacher] = useState<TeacherRow | null>(null);
   const [students, setStudents] = useState<TeacherStudent[]>([]);
+  const [login, setLogin] = useState<TeacherLogin | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -179,6 +182,7 @@ export function TeacherDetail({
     const res = await getTeacher(teacherId);
     setTeacher(res.teacher);
     setStudents(res.students);
+    setLogin(res.login);
     setRate((res.teacher.session_rate_minor / 100).toString());
     setCurrency(res.teacher.currency);
     setFullName(res.teacher.full_name);
@@ -422,6 +426,15 @@ export function TeacherDetail({
           </div>
         )}
       </section>
+
+      {/* ── Account / login section ──────────────────────────────────── */}
+      {login && (
+        <TeacherLoginSection
+          teacherId={teacherId}
+          login={login}
+          onChanged={refresh}
+        />
+      )}
 
       {/* ── Students section ─────────────────────────────────────────── */}
       <section className="space-y-3" data-testid="teacher-students">

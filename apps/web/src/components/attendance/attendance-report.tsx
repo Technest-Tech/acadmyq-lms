@@ -21,13 +21,13 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
-  ApiError,
   type AttendanceOutcome,
   getSession,
   markAttendance,
   markWhatsappSent,
   putSessionReport,
   requestCancellation,
+  requestFree,
   type SessionDetailResponse,
   type WhatsAppMessage,
 } from "@/lib/api";
@@ -142,6 +142,8 @@ export function AttendanceReport({
     status: LocalOutcome;
     type: "teacher" | "student";
   } | null>(null);
+  // An owner marking a lesson FREE awaiting the same billing decision.
+  const [freeModalOpen, setFreeModalOpen] = useState(false);
   // The composed WhatsApp report (deep link + text) after the admin taps Send WhatsApp.
   const [waResult, setWaResult] = useState<WhatsAppMessage | null>(null);
   const [waBusy, setWaBusy] = useState(false);
@@ -188,6 +190,9 @@ export function AttendanceReport({
   // cancellation request for the owner to approve instead of applying the cancel. Owners
   // (session.cancel) still cancel immediately. Mirrors session-actions.tsx.
   const requestMode = !can("session.cancel") && can("session.cancel_request");
+  // Same split for FREE: a teacher (session.free_request, not session.free) can't apply it directly
+  // — picking FREE raises a request for the owner to approve. Owners open the billing popup.
+  const freeRequestMode = !can("session.free") && can("session.free_request");
   const { session, report } = data;
   const dateText = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
@@ -217,6 +222,12 @@ export function AttendanceReport({
         status,
         type: status === "CANCELLED_BY_TEACHER" ? "teacher" : "student",
       });
+      return;
+    }
+    // Marking FREE carries the same billing decision. Owner → free billing popup; a teacher's pick
+    // is staged and turned into a free request in save().
+    if (status === "FREE" && !freeRequestMode && canMark) {
+      setFreeModalOpen(true);
       return;
     }
     setSelectedStatus(status);
@@ -252,6 +263,29 @@ export function AttendanceReport({
     }
   }
 
+  /** Apply an owner's FREE outcome with its billing decision, then persist any report text. */
+  async function confirmFreeBilling(values: CancellationBillingValues) {
+    setBusy(true);
+    try {
+      await markAttendance(sessionId, {
+        status: "FREE",
+        override_timing: true,
+        charge_student: values.charge_student,
+        pay_teacher: values.pay_teacher,
+        reason: values.reason || undefined,
+      });
+      await putSessionReport(sessionId, { report_text: reportText });
+      setFreeModalOpen(false);
+      await load();
+      flash("success", t("saved"));
+      onChange?.("FREE");
+    } catch (error) {
+      flash("error", error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /** Applies the selected outcome + report in one round-trip. */
   async function save() {
     setBusy(true);
@@ -269,6 +303,15 @@ export function AttendanceReport({
         });
         await load();
         flash("success", t("cancelRequestSent"));
+        return;
+      }
+
+      // Teacher chose FREE: route through the free-request approval flow (session stays SCHEDULED
+      // until the owner approves and decides the billing).
+      if (freeRequestMode && target === "FREE") {
+        await requestFree(sessionId, {});
+        await load();
+        flash("success", t("freeRequestSent"));
         return;
       }
 
@@ -483,6 +526,23 @@ export function AttendanceReport({
         </div>
       )}
 
+      {/* A teacher's request to mark the lesson FREE is pending the owner's approval + billing call. */}
+      {session.pending_free && (
+        <div
+          role="status"
+          data-testid="pending-free"
+          className="flex items-start gap-2.5 rounded-xl border border-teal-300 bg-teal-50 px-3.5 py-2.5 text-sm text-teal-900 dark:border-teal-800/50 dark:bg-teal-950/20 dark:text-teal-200"
+        >
+          <Clock className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-400" aria-hidden />
+          <div className="space-y-0.5">
+            <p className="font-medium">{t("pendingFreeTitle")}</p>
+            <p className="text-xs text-teal-800 dark:text-teal-300">
+              {t("pendingFreeHint")}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── Outcome picker ────────────────────────────────────────────── */}
       <section>
         <h3 className="mb-3 text-sm font-semibold">{t("outcome")}</h3>
@@ -496,7 +556,12 @@ export function AttendanceReport({
             const isCancelOutcome =
               status === "CANCELLED_BY_TEACHER" || status === "CANCELLED_BY_STUDENT";
             const blockedByPending =
-              requestMode && isCancelOutcome && session.pending_cancellation !== null;
+              (requestMode &&
+                isCancelOutcome &&
+                session.pending_cancellation !== null) ||
+              (freeRequestMode &&
+                status === "FREE" &&
+                session.pending_free !== null);
             return (
               <button
                 key={status}
@@ -742,6 +807,15 @@ export function AttendanceReport({
         cancelType={cancelModal?.type ?? "teacher"}
         busy={busy}
         onConfirm={confirmCancelBilling}
+      />
+
+      {/* Owner FREE lesson → same billing decision (every academy prices free lessons differently). */}
+      <CancellationBillingModal
+        variant="free"
+        open={freeModalOpen}
+        onClose={() => setFreeModalOpen(false)}
+        busy={busy}
+        onConfirm={confirmFreeBilling}
       />
     </div>
   );

@@ -160,6 +160,12 @@
     "financial": "Financial",
     "system": "System"
   },
+  "adminModule": {
+    "platform": "Platform",
+    "management": "Management System",
+    "whatsapp": "WhatsApp Service",
+    "video": "Video Platform"
+  },
   "header": {
     "menu": "Menu",
     "language": "Language",
@@ -388,7 +394,25 @@
     "back": "Back",
     "manage": "Open",
     "edit": "Edit",
+    "whatsapp": "WhatsApp",
     "subtitle": "Roster, rates, availability & student load",
+    "account": {
+      "title": "Account & login",
+      "hint": "Change the teacher's sign-in email or reset their password.",
+      "createHint": "This teacher has no login yet. Set an email and password to create one.",
+      "email": "Sign-in email",
+      "password": "Password",
+      "newPassword": "New password",
+      "passwordPlaceholder": "Leave blank to keep current",
+      "passwordHint": "Min. 8 characters",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "create": "Create login",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "created": "Login created.",
+      "updated": "Login updated."
+    },
     "colName": "Name",
     "colSpecialization": "Specialization",
     "colRate": "Hourly rate",
@@ -1035,7 +1059,7 @@
       "studentReports": "Student Reports"
     },
     "empty": {
-      "classes": "No cancellation requests.",
+      "classes": "No pending class requests.",
       "reports": "No report alerts. You're all caught up.",
       "studentReports": "No student reports to review."
     },
@@ -1048,6 +1072,7 @@
       "teacher": "Teacher requests to cancel {student}'s class",
       "student": "{student} cancelled the class"
     },
+    "freeType": "{teacher} requests to mark {student}'s lesson free",
     "reasonLabel": "Reason",
     "decisionNote": "{who}: {note}",
     "notePlaceholder": "Add a note (optional)",
@@ -1156,7 +1181,23 @@
     "openLink": "Open link",
     "statRooms": "Rooms",
     "statActive": "Active now",
+    "statInCall": "In call now",
     "statRecordings": "Recordings",
+    "presence": {
+      "live": "Live",
+      "empty": "No one in the room",
+      "inRoom": "{count, plural, =1 {1 in room} other {# in room}}",
+      "watching": "{count, plural, =1 {1 supervisor watching} other {# supervisors watching}}",
+      "more": "+{count} more",
+      "sharing": "Sharing screen",
+      "micOn": "Mic on",
+      "micOff": "Mic off",
+      "camOn": "Camera on",
+      "camOff": "Camera off",
+      "screensTitle": "{count, plural, =1 {1 sharing screen} other {# sharing screen}}",
+      "camerasTitle": "{count, plural, =1 {1 camera on} other {# cameras on}}",
+      "micsTitle": "{count, plural, =1 {1 mic on} other {# mics on}}"
+    },
     "sectionDetails": "Room details",
     "sectionAccess": "Access & security",
     "sectionOptions": "Options",
@@ -1188,6 +1229,7 @@
     "noResults": "No rooms match your search.",
     "colName": "Room",
     "colStatus": "Status",
+    "colLive": "Live",
     "colSettings": "Settings",
     "colLink": "Link",
     "colCreated": "Created",
@@ -1432,10 +1474,15 @@
     "saved": "Report saved.",
     "savedNoOutcome": "Report saved — remember to record the attendance outcome.",
     "cancelRequestSent": "Cancellation request sent — awaiting the owner’s approval. The class stays scheduled until then.",
+    "freeRequestSent": "Free-lesson request sent — awaiting the owner’s approval. The class stays scheduled until then.",
     "pendingCancellationTitle": "Cancellation awaiting approval",
     "pendingCancellationHint": "You requested to cancel this class ({by}). It stays scheduled until the owner approves.",
+    "pendingFreeTitle": "Free lesson awaiting approval",
+    "pendingFreeHint": "You requested to mark this lesson free. It stays scheduled until the owner approves and decides the billing.",
     "cancelBilling": {
       "title": "Cancellation billing",
+      "freeTitle": "Free-lesson billing",
+      "freeSubtitle": "Marking this lesson free — decide how it affects billing.",
       "subtitle": {
         "teacher": "Cancelled by the teacher — decide how it affects billing.",
         "student": "Cancelled by the student — decide how it affects billing."
@@ -2462,6 +2509,23 @@
       }
     }
   },
+  "waConnect": {
+    "title": "Connect WhatsApp",
+    "subtitle": "Link your WhatsApp number to start sending.",
+    "starting": "Preparing your connection…",
+    "generating": "Generating QR code…",
+    "step1": "1. Open WhatsApp on your phone.",
+    "step2": "2. Go to Settings → Linked devices → Link a device.",
+    "step3": "3. Scan the QR code below.",
+    "waiting": "Waiting for you to scan… keep this page open.",
+    "connectedTitle": "Connected!",
+    "connectedBody": "Your WhatsApp is now linked. You can close this page.",
+    "invalidTitle": "Link expired",
+    "invalidBody": "This connect link is invalid or has expired. Ask for a new link.",
+    "errorTitle": "Something went wrong",
+    "errorBody": "We couldn't start the connection. Please try again.",
+    "retry": "Try again"
+  },
   "adminAutomation": {
     "title": "WhatsApp Automation",
     "subtitle": "Each academy's WhatsApp connection and automation toggles.",
@@ -2555,13 +2619,43 @@
       "logTime": "When",
       "qrInstructions": "On the academy's phone open WhatsApp → Linked devices → Link a device, then scan.",
       "qrGenerating": "Generating QR…",
-      "connectedFlash": "Connected!"
+      "connectedFlash": "Connected!",
+      "apiAccess": {
+        "title": "API access",
+        "desc": "Let this client's systems send WhatsApp messages over the API, and share a link so they can connect their own phone.",
+        "connectLink": "Public connect link",
+        "connectLinkHint": "Send this link to the client — they open it and scan the QR to connect their phone. No login needed. The link expires.",
+        "generate": "Generate link",
+        "regenerate": "Regenerate",
+        "copy": "Copy",
+        "copied": "Copied!",
+        "expiresAt": "Expires {time}",
+        "newKeyWarning": "Copy this key now — it won't be shown again.",
+        "done": "Done",
+        "keyNamePlaceholder": "Key name (e.g. Billing system)",
+        "createKey": "Create key",
+        "noKeys": "No API keys yet.",
+        "revoked": "Revoked",
+        "revoke": "Revoke",
+        "lastUsed": "last used {time}"
+      }
     },
     "tabs": {
       "overview": "Academies",
       "activity": "Activity",
+      "apiClients": "API Clients",
       "system": "System",
       "guide": "Guide"
+    },
+    "apiClients": {
+      "intro": "Academies whose systems can use the WhatsApp service over the API. Open a client to issue API keys or a public connect link.",
+      "onlyWithKeys": "Only clients with keys",
+      "colClient": "Client",
+      "colConnection": "Connection",
+      "colKeys": "API keys",
+      "colAction": "",
+      "empty": "No academies match.",
+      "manageAccess": "Manage access"
     },
     "system": {
       "title": "Gateway system",
@@ -2643,6 +2737,9 @@
       "step4": "Use Send a test message to verify delivery.",
       "reliabilityTitle": "Reliability",
       "reliability": "A connected session reconnects automatically after restarts and network drops. WhatsApp can still force a logout or ban a number — those require re-scanning the QR and are flagged as Needs attention.",
+      "apiTitle": "External API (for developers)",
+      "apiIntro": "A client's own systems can send messages over the API using a key from the API Clients tab. Full reference: docs/whatsapp-api.",
+      "apiAuth": "Authenticate with the academy's API key",
       "sConnected": "Linked and ready to send.",
       "sQr": "Waiting for the QR to be scanned.",
       "sDisconnected": "Temporarily offline; auto-reconnecting.",

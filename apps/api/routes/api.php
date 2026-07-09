@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VideoOversightController;
+use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CertificateTemplateController;
@@ -29,6 +30,7 @@ use App\Http\Controllers\People\StaffController;
 use App\Http\Controllers\People\StudentController;
 use App\Http\Controllers\People\TeacherController;
 use App\Http\Controllers\Public\AcademyPaymentController;
+use App\Http\Controllers\Public\WhatsAppConnectController;
 use App\Http\Controllers\ReportFieldController;
 use App\Http\Controllers\Scheduling\AttendanceController;
 use App\Http\Controllers\Scheduling\CalendarController;
@@ -140,6 +142,25 @@ Route::middleware(['throttle:60,1'])->group(function () {
     // Sanctum; `/a/` prefix avoids clashing with the student `/i/` invoice page.
     Route::get('/a/{token}', [AcademyPaymentController::class, 'show']);
     Route::post('/a/{token}/submit', [AcademyPaymentController::class, 'submit']);
+
+    // Public "connect your WhatsApp" page (docs/whatsapp-api). The Super Admin generates a link for
+    // an academy and hands it to the client; the client opens /wa-connect/{token} (no login), starts a
+    // gateway session, and scans the QR. The token → academy resolution is a SECURITY DEFINER reader.
+    Route::post('/wa/connect/{token}/start', [WhatsAppConnectController::class, 'start'])->where('token', '[A-Za-z0-9_-]+');
+    Route::get('/wa/connect/{token}/qr', [WhatsAppConnectController::class, 'qr'])->where('token', '[A-Za-z0-9_-]+');
+    Route::get('/wa/connect/{token}/status', [WhatsAppConnectController::class, 'status'])->where('token', '[A-Za-z0-9_-]+');
+});
+
+/*
+| External WhatsApp API (docs/whatsapp-api). Per-academy API-key auth (Authorization: Bearer <key>),
+| resolved to a tenant context by `wa.apikey` — NOT Sanctum. Registered BEFORE the authenticated group
+| so it never picks up the session/CSRF stack. A coarse per-IP throttle blunts invalid-key floods; the
+| inner `wa-api` limiter is keyed per resolved API key (AppServiceProvider).
+*/
+Route::middleware(['throttle:120,1', 'wa.apikey', 'throttle:wa-api'])->prefix('wa/v1')->group(function () {
+    Route::post('/messages', [WhatsAppApiController::class, 'send']);
+    Route::get('/contacts/{phone}', [WhatsAppApiController::class, 'checkNumber'])->where('phone', '[0-9+ ]+');
+    Route::get('/status', [WhatsAppApiController::class, 'status']);
 });
 
 /*
@@ -232,6 +253,13 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // Manual test send + number-on-WhatsApp check (Super Admin sanity tools).
     Route::post('/admin/academies/{id}/whatsapp/send-test', [AcademyAutomationController::class, 'whatsappSendTest']);
     Route::post('/admin/academies/{id}/whatsapp/check', [AcademyAutomationController::class, 'whatsappCheck']);
+
+    // External WhatsApp API access (docs/whatsapp-api): per-academy API keys + a shareable, expiring
+    // public QR-connect link the admin hands to the client. Keys are shown in plaintext once, at create.
+    Route::get('/admin/academies/{id}/api-keys', [AcademyAutomationController::class, 'listApiKeys']);
+    Route::post('/admin/academies/{id}/api-keys', [AcademyAutomationController::class, 'createApiKey']);
+    Route::delete('/admin/academies/{id}/api-keys/{keyId}', [AcademyAutomationController::class, 'revokeApiKey']);
+    Route::post('/admin/academies/{id}/connect-link', [AcademyAutomationController::class, 'createConnectLink']);
 
     // Plan gating surface for the UI (Sprint 9 §8). Resolved capabilities + limits for the
     // current academy; authenticated, no special capability.
@@ -371,6 +399,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/teachers', [TeacherController::class, 'store']);
     Route::get('/teachers/{id}', [TeacherController::class, 'show']);
     Route::patch('/teachers/{id}', [TeacherController::class, 'update']);
+    // Set or change a teacher's sign-in login (email + password). Creates one if absent.
+    Route::patch('/teachers/{id}/login', [TeacherController::class, 'updateLogin']);
     Route::post('/teachers/{id}/deactivate', [TeacherController::class, 'deactivate']);
     Route::delete('/teachers/{id}', [TeacherController::class, 'destroy']);
 
@@ -458,6 +488,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // (session.cancel_approve) and reads the queue + report-overdue feed via notification.read.
     // Literal segments (`summary`, `read-all`) are declared before `{id}` so they aren't captured.
     Route::post('/sessions/{id}/cancellation-request', [CancellationRequestController::class, 'store']);
+    // A teacher requests a lesson be marked FREE (session.free_request); the owner approves it from
+    // the same "Classes" queue (session.free_approve), deciding the billing in the approval popup.
+    Route::post('/sessions/{id}/free-request', [CancellationRequestController::class, 'storeFree']);
     Route::get('/cancellation-requests', [CancellationRequestController::class, 'index']);
     Route::post('/cancellation-requests/{id}/approve', [CancellationRequestController::class, 'approve']);
     Route::post('/cancellation-requests/{id}/reject', [CancellationRequestController::class, 'reject']);
@@ -520,6 +553,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // teachers join; recordings are on-demand (V-REC-1) and the token endpoint mints a scoped JWT.
     Route::middleware('entitled:video.conferencing')->group(function () {
         Route::get('/video/rooms', [VideoRoomController::class, 'index']);
+        // Live occupancy across the academy's rooms (polled by the classroom panel). MUST precede the
+        // `/video/rooms/{id}` routes below so "presence" isn't captured as a room id.
+        Route::get('/video/rooms/presence', [VideoRoomController::class, 'presence']);
         Route::post('/video/rooms', [VideoRoomController::class, 'store']);
         Route::get('/video/recordings', [VideoRecordingController::class, 'index']);
         Route::get('/video/recordings/{id}/url', [VideoRecordingController::class, 'url']);

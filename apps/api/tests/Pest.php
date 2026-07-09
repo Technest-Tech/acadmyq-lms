@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /*
@@ -48,4 +51,43 @@ expect()->extend('toBeOne', function () {
 function something()
 {
     // ..
+}
+
+/**
+ * Insert a WhatsApp external API key for an academy (in its RLS context) and return the plaintext.
+ * Requires the calling test to use InteractsWithTenancy. See docs/whatsapp-api.
+ */
+function makeWhatsAppApiKey(string $academyId, array $overrides = []): string
+{
+    $plain = 'wa_'.Str::random(48);
+    test()->enterAcademyAsSuperAdmin($academyId);
+    DB::table('whatsapp_api_keys')->insert(array_merge([
+        'id' => (string) Str::uuid(),
+        'academy_id' => $academyId,
+        'name' => 'Test key',
+        'key_prefix' => substr($plain, 0, 11),
+        'key_hash' => hash('sha256', $plain),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ], $overrides));
+    test()->clearTenantContext();
+
+    return $plain;
+}
+
+/** Give an academy a connected gateway token (encrypted) so the WhatsAppSender uses the WASENDER path. */
+function giveWhatsAppToken(string $academyId, string $token = 'gw-token'): void
+{
+    test()->enterAcademyAsSuperAdmin($academyId);
+    DB::table('academy_automation_settings')->updateOrInsert(
+        ['academy_id' => $academyId],
+        [
+            'id' => (string) Str::uuid(),
+            'wasender_token' => Crypt::encryptString($token),
+            'wa_session_id' => 'sess-'.substr($academyId, 0, 8),
+            'wasender_session_status' => 'connected',
+            'updated_at' => now(),
+        ],
+    );
+    test()->clearTenantContext();
 }

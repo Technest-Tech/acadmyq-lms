@@ -3,7 +3,7 @@ import { proto, type BaileysEventMap, type WASocket } from 'baileys'
 import { usePostgresAuthState, clearAuthState } from '../auth-store/postgres-auth-state.js'
 import { createSocket } from './socket-factory.js'
 import { decideReconnect, backoffDelay } from './reconnect.js'
-import { SendQueue } from '../queue/send-queue.js'
+import { SendQueue, type SendPayload } from '../queue/send-queue.js'
 import type { SettingsStore } from '../settings.js'
 import type { WebhookClient } from '../webhook/webhook-client.js'
 import { qrToDataUrl } from '../qr/qr.js'
@@ -170,8 +170,8 @@ export class ManagedSession {
 
   // ── send surface ─────────────────────────────────────────────────────────
 
-  enqueueSend(jid: string, text: string, messageId: string): void {
-    this.queue.enqueue(jid, text, messageId)
+  enqueueSend(jid: string, messageId: string, payload: SendPayload): void {
+    this.queue.enqueue(jid, messageId, payload)
   }
 
   async onWhatsApp(jid: string): Promise<boolean> {

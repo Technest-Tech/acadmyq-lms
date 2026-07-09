@@ -8,6 +8,9 @@ use App\Billing\BillingHook;
 use App\Payroll\PayoutHook;
 use App\Services\Invoicing;
 use App\Services\Payroll;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -37,6 +40,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Per-key throttle for the external WhatsApp API (docs/whatsapp-api). Keyed by the resolved
+        // API-key id (set on the request by AuthenticateWhatsAppApiKey) so one client's volume can't
+        // starve another's; falls back to the client IP before the key is resolved.
+        RateLimiter::for('wa-api', function (Request $request) {
+            $keyId = $request->attributes->get('wa_api_key_id');
+
+            return Limit::perMinute(120)->by(is_string($keyId) ? $keyId : (string) $request->ip());
+        });
     }
 }

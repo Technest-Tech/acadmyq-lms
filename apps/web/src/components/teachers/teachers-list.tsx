@@ -11,7 +11,7 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   type ColumnDef,
   DataTable,
@@ -20,6 +20,12 @@ import {
 import { listTeachers, type TeacherRow } from "@/lib/api";
 import { type ExcelColumn } from "@/lib/export-excel";
 import { formatMoney } from "@/lib/money";
+import { cn } from "@/lib/utils";
+
+/** Digits-only wa.me deep link for a teacher's phone (drops +, spaces, dashes). */
+function waLink(phone: string): string {
+  return `https://wa.me/${phone.replace(/\D/g, "")}`;
+}
 
 // ── Avatar ─────────────────────────────────────────────────────────────────────
 
@@ -231,6 +237,25 @@ export function TeachersList({
           onRowClick={(r) => onOpen(r.id, r.full_name)}
           rowActions={(r) => (
             <div className="flex items-center justify-end gap-1.5">
+              {/* Open a WhatsApp chat with the teacher via a wa.me deep link (own-tab, new window). */}
+              {r.phone && (
+                <a
+                  href={waLink(r.phone)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={t("whatsapp")}
+                  title={t("whatsapp")}
+                  data-testid="teacher-whatsapp"
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "xs" }),
+                    "gap-1 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400",
+                  )}
+                >
+                  <MessageCircle className="size-3.5" />
+                  {t("whatsapp")}
+                </a>
+              )}
               <Button
                 type="button"
                 variant="outline"
@@ -240,6 +265,7 @@ export function TeachersList({
                   onOpen(r.id, r.full_name);
                 }}
                 className="gap-1"
+                data-testid="teacher-view"
               >
                 <Pencil className="size-3" />
                 {t("edit")}

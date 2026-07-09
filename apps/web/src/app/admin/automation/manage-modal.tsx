@@ -2,13 +2,18 @@
 
 import {
   CheckCircle2,
+  Copy,
+  Key,
+  Link2,
   Loader2,
   LogOut,
   MessageSquare,
   Phone,
+  Plus,
   QrCode,
   RefreshCw,
   Send,
+  Trash2,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -18,7 +23,11 @@ import { Modal } from "@/components/ui/modal";
 import { AlertBanner } from "@/components/ui/alert";
 import {
   ApiError,
+  createApiKey,
+  createConnectLink,
+  getApiKeys,
   getAutomationLog,
+  revokeApiKey,
   updateAcademyAutomation,
   whatsappCheckNumber,
   whatsappConnect,
@@ -28,6 +37,7 @@ import {
   whatsappStatus,
   type AutomationLogRow,
   type AutomationOverviewRow,
+  type WhatsAppApiKey,
   type WhatsAppStatus,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -124,6 +134,15 @@ export function ManageModal({
   const [checkBusy, setCheckBusy] = useState(false);
   const [checkResult, setCheckResult] = useState<"yes" | "no" | "nosession" | null>(null);
 
+  // API access
+  const [keys, setKeys] = useState<WhatsAppApiKey[] | null>(null);
+  const [newKeyName, setNewKeyName] = useState("");
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [connectLink, setConnectLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+
   const connected = isConnectedState(status?.state);
 
   const refreshStatus = useCallback(async () => {
@@ -142,6 +161,14 @@ export function ManageModal({
     }
   }, [id]);
 
+  const loadKeys = useCallback(async () => {
+    try {
+      setKeys((await getApiKeys(id)).keys);
+    } catch {
+      setKeys([]);
+    }
+  }, [id]);
+
   const stopQrPoll = useCallback(() => {
     if (qrPoll.current) {
       clearInterval(qrPoll.current);
@@ -152,12 +179,13 @@ export function ManageModal({
   useEffect(() => {
     void refreshStatus();
     void loadLog();
+    void loadKeys();
     const iv = setInterval(() => void refreshStatus(), 5000);
     return () => {
       clearInterval(iv);
       stopQrPoll();
     };
-  }, [refreshStatus, loadLog, stopQrPoll]);
+  }, [refreshStatus, loadLog, loadKeys, stopQrPoll]);
 
   function startQrPoll() {
     stopQrPoll();
@@ -257,6 +285,56 @@ export function ManageModal({
       setTestResult({ ok: false, transport: "ERROR", error: err instanceof ApiError ? err.message : String(err), deeplink: "" });
     } finally {
       setTestBusy(false);
+    }
+  }
+
+  async function generateKey() {
+    if (!newKeyName.trim()) return;
+    setKeyBusy(true);
+    setError(null);
+    try {
+      const res = await createApiKey(id, newKeyName.trim());
+      setRevealedKey(res.key);
+      setNewKeyName("");
+      await loadKeys();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
+  async function revoke(keyId: string) {
+    setError(null);
+    try {
+      await revokeApiKey(id, keyId);
+      await loadKeys();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+
+  async function generateLink() {
+    setLinkBusy(true);
+    setError(null);
+    try {
+      const res = await createConnectLink(id);
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      setConnectLink({ url: origin + res.path, expiresAt: res.expires_at });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
+  async function copy(value: string, tag: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(tag);
+      setTimeout(() => setCopied((c) => (c === tag ? null : c)), 1500);
+    } catch {
+      /* clipboard unavailable */
     }
   }
 
@@ -392,6 +470,112 @@ export function ManageModal({
               </div>
             )}
           </div>
+        </section>
+
+        {/* API access — external API keys + public connect link */}
+        <section className="rounded-xl border p-4">
+          <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold">
+            <Key className="size-3.5" aria-hidden />
+            {t("manage.apiAccess.title")}
+          </h3>
+          <p className="text-muted-foreground mb-3 text-xs">{t("manage.apiAccess.desc")}</p>
+
+          {/* Public connect link */}
+          <div className="bg-muted/40 mb-4 rounded-lg p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="flex items-center gap-1.5 text-xs font-medium">
+                <Link2 className="size-3.5" aria-hidden />
+                {t("manage.apiAccess.connectLink")}
+              </p>
+              <button
+                type="button"
+                disabled={linkBusy}
+                onClick={() => void generateLink()}
+                className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors hover:bg-muted disabled:opacity-40"
+              >
+                {linkBusy ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <RefreshCw className="size-3" aria-hidden />}
+                {connectLink ? t("manage.apiAccess.regenerate") : t("manage.apiAccess.generate")}
+              </button>
+            </div>
+            <p className="text-muted-foreground mt-1 text-[11px]">{t("manage.apiAccess.connectLinkHint")}</p>
+            {connectLink && (
+              <div className="mt-2 space-y-1">
+                <div className="flex items-center gap-2">
+                  <input readOnly value={connectLink.url} dir="ltr" className="bg-background w-full rounded-md border px-2 py-1 font-mono text-[11px]" />
+                  <button type="button" onClick={() => void copy(connectLink.url, "link")} className="text-muted-foreground hover:text-foreground rounded-md border p-1.5" aria-label={t("manage.apiAccess.copy")}>
+                    <Copy className="size-3.5" aria-hidden />
+                  </button>
+                </div>
+                <p className="text-muted-foreground text-[11px]">
+                  {copied === "link" ? t("manage.apiAccess.copied") : t("manage.apiAccess.expiresAt", { time: fmtTime(connectLink.expiresAt) })}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Freshly-minted key (shown once) */}
+          {revealedKey && (
+            <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+              <p className="text-xs font-medium text-amber-800">{t("manage.apiAccess.newKeyWarning")}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <input readOnly value={revealedKey} dir="ltr" className="w-full rounded-md border bg-white px-2 py-1 font-mono text-[11px]" />
+                <button type="button" onClick={() => void copy(revealedKey, "key")} className="rounded-md border bg-white p-1.5 text-slate-600 hover:text-slate-900" aria-label={t("manage.apiAccess.copy")}>
+                  <Copy className="size-3.5" aria-hidden />
+                </button>
+                <button type="button" onClick={() => setRevealedKey(null)} className="rounded-md border bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900">
+                  {t("manage.apiAccess.done")}
+                </button>
+              </div>
+              {copied === "key" && <p className="mt-1 text-[11px] text-amber-800">{t("manage.apiAccess.copied")}</p>}
+            </div>
+          )}
+
+          {/* Create key */}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <input
+              value={newKeyName}
+              onChange={(e) => setNewKeyName(e.target.value)}
+              placeholder={t("manage.apiAccess.keyNamePlaceholder")}
+              className="bg-background min-w-0 flex-1 rounded-lg border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+            />
+            <button
+              type="button"
+              disabled={keyBusy || !newKeyName.trim()}
+              onClick={() => void generateKey()}
+              className="bg-primary text-primary-foreground inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {keyBusy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Plus className="size-3.5" aria-hidden />}
+              {t("manage.apiAccess.createKey")}
+            </button>
+          </div>
+
+          {/* Key list */}
+          {keys === null ? (
+            <div className="bg-muted h-12 animate-pulse rounded" aria-hidden />
+          ) : keys.length === 0 ? (
+            <p className="text-muted-foreground py-2 text-center text-xs">{t("manage.apiAccess.noKeys")}</p>
+          ) : (
+            <ul className="divide-y">
+              {keys.map((k) => (
+                <li key={k.id} className="flex items-center justify-between gap-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {k.name}
+                      {k.revoked_at && <span className="ml-2 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-medium text-rose-700">{t("manage.apiAccess.revoked")}</span>}
+                    </p>
+                    <p className="text-muted-foreground font-mono text-[11px]" dir="ltr">
+                      {k.key_prefix}… · {t("manage.apiAccess.lastUsed", { time: fmtTime(k.last_used_at) })}
+                    </p>
+                  </div>
+                  {!k.revoked_at && (
+                    <button type="button" onClick={() => void revoke(k.id)} className="text-muted-foreground hover:text-rose-600 rounded-md p-1.5 transition-colors" aria-label={t("manage.apiAccess.revoke")}>
+                      <Trash2 className="size-3.5" aria-hidden />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         {/* Recent activity */}
