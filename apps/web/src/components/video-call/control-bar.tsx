@@ -1,6 +1,6 @@
 "use client";
 
-import { useRoomContext, useTrackToggle } from "@livekit/components-react";
+import { useTrackToggle } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import {
   Eraser,
@@ -24,6 +24,7 @@ import { useTranslations } from "next-intl";
 import type { LucideIcon } from "lucide-react";
 import { ChatButton } from "./chat-button";
 import { usePip } from "./composite-pip";
+import { useLeaveConfirm } from "./leave-confirm-dialog";
 import { useRecording } from "./recording-context";
 import { useWhiteboard } from "./whiteboard-context";
 import { useFullscreen } from "./use-fullscreen";
@@ -229,7 +230,7 @@ export function ControlBar({
   canManage: boolean;
 }) {
   const t = useTranslations("videoCall");
-  const room = useRoomContext();
+  const leave = useLeaveConfirm();
   const mic = useTrackToggle({ source: Track.Source.Microphone });
   const cam = useTrackToggle({ source: Track.Source.Camera });
   const screen = useTrackToggle({
@@ -333,13 +334,14 @@ export function ControlBar({
       </button>
       <button
         type="button"
-        onClick={() => void room.disconnect()}
+        onClick={leave.requestLeave}
         aria-label={t("leave")}
         className="flex h-12 items-center gap-2 rounded-full bg-red-600 px-5 font-medium text-white transition hover:bg-red-700"
       >
         <PhoneOff className="size-5" />
         <span className="hidden sm:inline">{t("leave")}</span>
       </button>
+      {leave.dialog}
     </div>
   );
 }

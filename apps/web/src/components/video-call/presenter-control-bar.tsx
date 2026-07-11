@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 // useLayoutEffect avoids a first-paint flash while measuring, but warns during SSR; the call UI is
 // client-only, yet fall back to useEffect on the server to stay quiet.
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
-import { useRoomContext, useTrackToggle } from "@livekit/components-react";
+import { useTrackToggle } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import {
   Loader2,
@@ -26,6 +26,7 @@ import {
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import { useChatPanel } from "./chat-context";
+import { useLeaveConfirm } from "./leave-confirm-dialog";
 import { useRecording } from "./recording-context";
 import { useWhiteboard } from "./whiteboard-context";
 import { useIsDesktop } from "./use-is-desktop";
@@ -95,7 +96,7 @@ export function PresenterControlBar({
   participantCount: number;
 }) {
   const t = useTranslations("videoCall");
-  const room = useRoomContext();
+  const leave = useLeaveConfirm();
   const isDesktop = useIsDesktop();
   const mic = useTrackToggle({ source: Track.Source.Microphone });
   const cam = useTrackToggle({ source: Track.Source.Camera });
@@ -244,7 +245,7 @@ export function PresenterControlBar({
       key: "leave",
       icon: PhoneOff,
       label: t("leave"),
-      onClick: () => void room.disconnect(),
+      onClick: leave.requestLeave,
       variant: "leave",
     },
   ];
@@ -379,6 +380,7 @@ export function PresenterControlBar({
       {back.map((c) => (
         <DockButton key={c.key} control={c} />
       ))}
+      {leave.dialog}
     </div>
   );
 }

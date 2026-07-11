@@ -4,43 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Check, Hand, X } from "lucide-react";
 import { decideKnock, listKnocks, type PendingKnock } from "@/lib/api";
+import { useKnockChime } from "./knock-chime";
 
 /** How often the host re-polls the pending-knock queue. */
 const POLL_MS = 3000;
-
-/**
- * A short two-tone chime played when a NEW knocker arrives, synthesised with the Web Audio API so it
- * needs no asset. Best-effort: if the browser blocks audio (autoplay policy, no AudioContext) the
- * visual panel is the fallback. The shared context is created lazily on the first ping.
- */
-function useKnockChime() {
-  const ctxRef = useRef<AudioContext | null>(null);
-  return useCallback(() => {
-    try {
-      const Ctx =
-        window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctx) return;
-      const ctx = (ctxRef.current ??= new Ctx());
-      if (ctx.state === "suspended") void ctx.resume();
-      const t0 = ctx.currentTime;
-      [880, 1318.5].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.value = freq;
-        const start = t0 + i * 0.16;
-        gain.gain.setValueAtTime(0.0001, start);
-        gain.gain.exponentialRampToValueAtTime(0.2, start + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(start);
-        osc.stop(start + 0.18);
-      });
-    } catch {
-      // audio unavailable — the panel is the fallback
-    }
-  }, []);
-}
+/** While anyone is still waiting, ring again on this cadence — a single chime is easy to talk over. */
+const REMIND_MS = 12000;
+/** …but stop nagging eventually; past this the pulsing panel carries it on its own. */
+const MAX_REMINDERS = 10;
 
 /**
  * The host's waiting-room queue (docs/video-platform/08-ROOM-ACCESS §13.8). A prominent floating
@@ -54,18 +25,34 @@ export function KnockControl({ manageToken }: { manageToken: string }) {
   const [knocks, setKnocks] = useState<PendingKnock[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const seenIds = useRef<Set<string>>(new Set());
+  /**
+   * Knocks this host has already admitted/denied. A decision and a poll can overlap — the poll that
+   * was in flight when the host clicked still answers with the pre-decision queue — so without this
+   * the row springs back for a poll cycle and the host clicks a second time on someone who is
+   * already in the room. Ids are unique per knock (a denied guest who re-knocks gets a fresh one),
+   * so entries can never suppress a legitimate new arrival, and it only ever holds one uuid per
+   * decision made during this call.
+   */
+  const decidedIds = useRef<Set<string>>(new Set());
+  /** Guards against two polls in flight at once, where the older response could land last. */
+  const polling = useRef(false);
   const chime = useKnockChime();
 
   const refresh = useCallback(async () => {
+    if (polling.current) return;
+    polling.current = true;
     try {
       const res = await listKnocks(manageToken);
+      const pending = res.knocks.filter((k) => !decidedIds.current.has(k.id));
       // Chime + pulse whenever an id we haven't seen before shows up (a fresh knocker).
-      const hasNew = res.knocks.some((k) => !seenIds.current.has(k.id));
-      seenIds.current = new Set(res.knocks.map((k) => k.id));
+      const hasNew = pending.some((k) => !seenIds.current.has(k.id));
+      seenIds.current = new Set(pending.map((k) => k.id));
       if (hasNew) chime();
-      setKnocks(res.knocks);
+      setKnocks(pending);
     } catch {
       // transient — keep the last known queue
+    } finally {
+      polling.current = false;
     }
   }, [manageToken, chime]);
 
@@ -81,16 +68,31 @@ export function KnockControl({ manageToken }: { manageToken: string }) {
     };
   }, [refresh]);
 
+  // Keep ringing while the queue is non-empty. Re-armed on every change to the queue, so admitting
+  // one of three resets the countdown rather than chiming right on the heels of the last decision.
+  useEffect(() => {
+    if (knocks.length === 0) return;
+    let fired = 0;
+    const id = setInterval(() => {
+      fired += 1;
+      chime();
+      if (fired >= MAX_REMINDERS) clearInterval(id);
+    }, REMIND_MS);
+    return () => clearInterval(id);
+  }, [knocks.length, chime]);
+
   const decide = useCallback(
     async (id: string, decision: "admit" | "deny") => {
       setBusyId(id);
+      decidedIds.current.add(id);
       setKnocks((cur) => cur.filter((k) => k.id !== id)); // optimistic drop
       try {
         await decideKnock(manageToken, id, decision);
       } catch {
-        void refresh(); // restore the queue if the decision failed
+        decidedIds.current.delete(id); // it never landed — let the next poll bring the row back
       } finally {
         setBusyId(null);
+        void refresh(); // converge on the server's queue now rather than up to POLL_MS later
       }
     },
     [manageToken, refresh],
@@ -98,8 +100,14 @@ export function KnockControl({ manageToken }: { manageToken: string }) {
 
   const admitAll = useCallback(() => {
     const ids = knocks.map((k) => k.id);
-    setKnocks([]); // optimistic clear
-    void Promise.allSettled(ids.map((id) => decideKnock(manageToken, id, "admit"))).then(() => refresh());
+    ids.forEach((id) => decidedIds.current.add(id));
+    setKnocks((cur) => cur.filter((k) => !ids.includes(k.id))); // optimistic clear
+    void Promise.allSettled(ids.map((id) => decideKnock(manageToken, id, "admit"))).then((results) => {
+      ids.forEach((id, i) => {
+        if (results[i]?.status === "rejected") decidedIds.current.delete(id);
+      });
+      void refresh();
+    });
   }, [knocks, manageToken, refresh]);
 
   if (knocks.length === 0) return null;
