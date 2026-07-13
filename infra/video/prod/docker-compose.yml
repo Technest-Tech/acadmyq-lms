@@ -117,6 +117,17 @@ services:
     volumes:
       - ./config/egress.yaml:/etc/egress.yaml:ro
     cap_add: ["SYS_ADMIN"]             # headless Chrome (room-composite recording)
+    # Room-composite egress is headless Chrome + ffmpeg, and left unbounded it will take every core
+    # it can get — on this 4-vCPU *shared* box that starves the SFU's real-time threads and the whole
+    # room stutters (07-DEPLOYMENT.md §"the recording caveat": "one headless-Chrome recording can eat
+    # half this box"). A live class must always beat a recording, so the recorder is boxed in:
+    #   cpus       — a hard quota; the SFU keeps >=2 vCPU no matter what the recorder is doing.
+    #   cpu_shares — below the 1024 default, so it also loses every scheduling tie against livekit.
+    # Trade-off, deliberately: a recording may drop frames under load. The class won't.
+    # This is a stopgap until Egress moves to its own node (Stage 1 — 05-ROADMAP.md Phase 6).
+    cpus: 2.0
+    cpu_shares: 512
+    mem_limit: 3g
     depends_on:
       redis:
         condition: service_healthy

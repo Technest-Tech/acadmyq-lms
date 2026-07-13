@@ -93,11 +93,22 @@ export function saveSettings(s: CallSettings): void {
   }
 }
 
-/** Capture constraints for a chosen resolution ("auto" imposes none). */
+/**
+ * Capture constraints for a chosen resolution — never empty, not even for "auto".
+ *
+ * These feed `LocalVideoTrack.restartTrack()`, and an empty object there does NOT mean "keep the
+ * current capture format". `LocalTrack.restart()` rebuilds getUserMedia from `{deviceId, facingMode}`
+ * alone and hands everything else to `applyConstraints()`, then overwrites the track's stored
+ * constraints with what it was given — so `{}` re-acquires the camera with no size constraint at all
+ * (Chrome falls back to 640x480) and the 720p the call joined with is gone for the rest of the
+ * session, along with the simulcast ladder that was sized for it. "auto" therefore resolves to the
+ * same 720p ideal LiveKit captures with at join (`videoCaptureDefaults`), which keeps switching
+ * camera mid-call quality-neutral. These are `ideal` constraints, so a webcam that can't do 720p
+ * still negotiates its best mode.
+ */
 export function resolutionConstraints(resolution: VideoResolution): VideoCaptureOptions {
-  if (resolution === "h720") return { resolution: VideoPresets.h720.resolution };
   if (resolution === "h360") return { resolution: VideoPresets.h360.resolution };
-  return {};
+  return { resolution: VideoPresets.h720.resolution }; // "h720" | "auto"
 }
 
 export interface CallSettingsContextValue {

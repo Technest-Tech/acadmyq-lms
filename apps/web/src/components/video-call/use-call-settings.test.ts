@@ -60,9 +60,17 @@ describe("persistence", () => {
 });
 
 describe("resolutionConstraints", () => {
-  it("maps presets; auto imposes none", () => {
-    expect(resolutionConstraints("auto")).toEqual({});
+  it("maps presets, and resolves auto to the 720p capture default", () => {
     expect(resolutionConstraints("h720")).toEqual({ resolution: { width: 1280, height: 720 } });
     expect(resolutionConstraints("h360")).toEqual({ resolution: { width: 640, height: 360 } });
+    expect(resolutionConstraints("auto")).toEqual({ resolution: { width: 1280, height: 720 } });
+  });
+
+  it("never returns empty constraints", () => {
+    // An empty object would make restartTrack() re-acquire the camera with no size constraint —
+    // Chrome hands back 640x480 and the call never recovers its 720p. Every mode must carry one.
+    for (const r of ["auto", "h720", "h360"] as const) {
+      expect(resolutionConstraints(r).resolution).toBeDefined();
+    }
   });
 });

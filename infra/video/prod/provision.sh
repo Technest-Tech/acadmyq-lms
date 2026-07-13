@@ -2,6 +2,7 @@
 # AcademIQ media — idempotent provisioner. Run as root from /opt/academiq-video.
 #   - generates strong secrets into .env on first run (never overwrites an existing .env)
 #   - renders secret-bearing configs from *.template via envsubst
+#   - applies the kernel/UDP-buffer tuning + ufw media-port rules (§7 — these used to be manual)
 #   - pulls pinned images and brings up the core stack
 #   - waits for Caddy to issue the TURN cert, syncs it into coturn, starts coturn
 # Recording/egress is NOT started here (needs S3 storage): docker compose --profile recording up -d
@@ -49,6 +50,40 @@ chmod 600 config/livekit.yaml coturn/turnserver.conf
 # its own config — keep it non-world-readable (640) but owned by the egress uid.
 chmod 640 config/egress.yaml
 chown 1001:root config/egress.yaml 2>/dev/null || true
+
+# ---------- host tuning (07-DEPLOYMENT.md §7) ----------
+# These were hand-run steps, so nothing guaranteed they survived a rebuild/resize — and a box that
+# comes up on Ubuntu's default net.core.rmem_max (212992, ~125x too small) makes Pion silently drop
+# inbound UDP under load: video stutters while audio, being tiny and loss-tolerant, sounds fine.
+# Provisioning them here makes the kernel config reproducible instead of remembered.
+install -m 0644 sysctl/99-livekit.conf /etc/sysctl.d/99-livekit.conf
+install -m 0644 limits/99-academiq-nofile.conf /etc/security/limits.d/99-academiq-nofile.conf
+# nf_conntrack_max is unsettable until the module is loaded — load it now, and on every boot.
+modprobe nf_conntrack 2>/dev/null || true
+echo nf_conntrack > /etc/modules-load.d/academiq.conf
+sysctl --system >/dev/null
+echo "host tuning applied — net.core.rmem_max=$(sysctl -n net.core.rmem_max) (want 26214400)"
+
+# ---------- firewall (07-DEPLOYMENT.md §7) ----------
+# `ufw allow` is idempotent, so this just re-asserts the media ports every run. We deliberately do
+# NOT run `ufw enable`: turning the firewall on non-interactively on a live box is how you lock
+# yourself out of SSH. If it's inactive the ports are open anyway — we say so and move on.
+if command -v ufw >/dev/null 2>&1; then
+  ufw allow OpenSSH          >/dev/null 2>&1 || true   # first, always — before any other rule
+  ufw allow 80,443/tcp       >/dev/null   # Caddy: ACME + WSS signaling
+  ufw allow 7881/tcp         >/dev/null   # LiveKit ICE/TCP fallback
+  ufw allow 50000:60000/udp  >/dev/null   # LiveKit RTC media — the one that actually carries video
+  ufw allow 3478             >/dev/null   # coturn STUN/TURN
+  ufw allow 5349             >/dev/null   # coturn TURN/TLS
+  ufw allow 49160:49200/udp  >/dev/null   # coturn relay range
+  if ufw status | grep -q '^Status: active'; then
+    echo "ufw rules ensured (media UDP 50000-60000 open)."
+  else
+    echo "ufw rules staged, but ufw is INACTIVE — ports are open regardless; 'ufw enable' to turn it on."
+  fi
+else
+  echo "ufw not installed — skipping firewall rules (ports are open)."
+fi
 
 # ---------- core stack (coturn started last, once its cert exists) ----------
 docker compose pull redis livekit caddy node-exporter prometheus grafana
