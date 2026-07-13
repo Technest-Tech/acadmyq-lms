@@ -27,12 +27,14 @@ import {
   ApiError,
   deactivateStudent,
   deleteStudent,
+  getRepricePreview,
   getStudent,
   getStudentSchedule,
   getTeacherHistory,
   listTeachers,
   reactivateStudent,
   reassignTeacher,
+  type RepricePreview,
   setSubscription,
   type StudentDetail as StudentDetailData,
   type TeacherAssignmentHistoryItem,
@@ -580,6 +582,12 @@ export function SubscriptionSection({
   const [currency, setCurrency] = useState("");
   const [startDate, setStartDate] = useState("");
 
+  // Correcting a mistyped rate must also fix the bills it already produced; a real rate change
+  // must not. Only the person editing knows which this is, so they choose — and the preview tells
+  // them exactly what is at stake before they do.
+  const [repriceOpen, setRepriceOpen] = useState(false);
+  const [preview, setPreview] = useState<RepricePreview | null>(null);
+
   // Whether the student has a weekly timetable (drives the no-timetable indicator).
   const [hasSchedule, setHasSchedule] = useState<boolean | null>(null);
 
@@ -603,12 +611,17 @@ export function SubscriptionSection({
       setCurrency(sub.currency);
       setStartDate(sub.start_date);
     }
+    setRepriceOpen(false);
+    setPreview(null);
+    void getRepricePreview(studentId)
+      .then(setPreview)
+      .catch(() => {});
     setShowSet(true);
   }
 
   async function save() {
     try {
-      await setSubscription(studentId, {
+      const res = await setSubscription(studentId, {
         // The package is always hourly now; derive a display label from the quota.
         plan_label: sessions ? `${sessions} hrs/month` : "Hourly",
         sessions_per_month: sessions ? Number(sessions) : null,
@@ -616,9 +629,17 @@ export function SubscriptionSection({
         currency: currency || undefined,
         price_basis: "PER_HOUR",
         start_date: startDate,
+        reprice_open: repriceOpen,
       });
       setShowSet(false);
-      onChanged(t("subscription.saved"));
+      onChanged(
+        res.repriced.sessions > 0
+          ? t("subscription.savedRepriced", {
+              sessions: res.repriced.sessions,
+              invoices: res.repriced.invoices,
+            })
+          : t("subscription.saved"),
+      );
     } catch (err) {
       onError(err instanceof ApiError ? err.message : String(err));
     }
@@ -804,6 +825,33 @@ export function SubscriptionSection({
               </div>
             </Field>
           </div>
+
+          {/* Only offered when there is something to correct: sessions already billed onto an
+              invoice that is still open. Nothing billed yet → the new rate applies anyway. */}
+          {preview && preview.sessions > 0 && (
+            <label
+              className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-300/60 bg-gradient-to-br from-amber-500/[0.08] to-transparent p-3.5 dark:border-amber-700/40"
+              data-testid="reprice-open-toggle"
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 shrink-0 accent-amber-500"
+                checked={repriceOpen}
+                onChange={(e) => setRepriceOpen(e.target.checked)}
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                  {t("subscription.repriceOpenLabel")}
+                </p>
+                <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-400/70">
+                  {t("subscription.repriceOpenHint", {
+                    sessions: preview.sessions,
+                    invoices: preview.invoices,
+                  })}
+                </p>
+              </div>
+            </label>
+          )}
 
           <div className="flex justify-end gap-2">
             <Button

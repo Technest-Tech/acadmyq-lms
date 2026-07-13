@@ -15,6 +15,7 @@ import {
   GraduationCap,
   History,
   LayoutDashboard,
+  LifeBuoy,
   Lock,
   LogOut,
   Menu,
@@ -22,6 +23,8 @@ import {
   MonitorPlay,
   NotebookPen,
   Package,
+  PanelLeftClose,
+  PanelLeftOpen,
   ReceiptText,
   Settings,
   ShieldCheck,
@@ -39,12 +42,19 @@ import { useTranslations } from "next-intl";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { CommandPalette, type CommandItem } from "@/components/command-palette";
 import { LocaleSwitcher } from "@/components/locale-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
-  getDaySessionCount,
-  getEntitlements,
-  getNotificationsSummary,
-} from "@/lib/api";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
+import { getDaySessionCount, getNotificationsSummary } from "@/lib/api";
 import { applyBranding, loadBranding } from "@/lib/branding";
 import { cn } from "@/lib/utils";
 
@@ -52,7 +62,7 @@ type NavKey =
   | "dashboard"
   | "notifications"
   | "adminHome"
-  | "academies"
+  | "clients"
   | "users"
   | "plans"
   | "staffDepartments"
@@ -82,17 +92,43 @@ type NavKey =
   | "academyRoles";
 
 /**
- * Nav items gated by capability code (Sprint 2 §6.3). `dashboard` is always shown;
- * others appear only when the resolved session grants the permission — a hidden link
- * is UX, not security (server Gate::authorize is the real control). Each item belongs
- * to a nav group so the sidebar can render labelled sections.
+ * The sidebar's nav groups. `management` used to be a single bucket of fourteen items — long enough
+ * to scroll on a laptop and impossible to scan. It is now split by what the user is actually trying
+ * to do (people / academics / scheduling), which is what makes the list skimmable.
+ *
+ * `platform` holds the Super-Admin links. On the platform view they are rendered as module dropdowns
+ * instead (see ADMIN_MODULES); this group is what an admin sees once they've entered an academy.
+ */
+type NavGroup =
+  | "general"
+  | "people"
+  | "academics"
+  | "scheduling"
+  | "financial"
+  | "platform"
+  | "system";
+
+const NAV_GROUPS: readonly NavGroup[] = [
+  "general",
+  "people",
+  "academics",
+  "scheduling",
+  "financial",
+  "platform",
+  "system",
+];
+
+/**
+ * Nav items gated by capability code (Sprint 2 §6.3). `dashboard` is always shown; others appear
+ * only when the resolved session grants the permission — a hidden link is UX, not security (server
+ * Gate::authorize is the real control).
  */
 const NAV: ReadonlyArray<{
   key: NavKey;
   icon: ComponentType<{ className?: string }>;
   permission: string | null;
   href: string;
-  group: "general" | "management" | "financial" | "system";
+  group: NavGroup;
 }> = [
   {
     key: "dashboard",
@@ -108,146 +144,98 @@ const NAV: ReadonlyArray<{
     href: "/notifications",
     group: "general",
   },
+
+  // ── People ──────────────────────────────────────────────────────────────
   {
-    key: "adminHome",
-    icon: LayoutDashboard,
-    permission: "academy.read",
-    href: "/admin",
-    group: "management",
-  },
-  {
-    key: "academies",
-    icon: Building2,
-    permission: "academy.read",
-    href: "/academies",
-    group: "management",
-  },
-  {
-    key: "users",
-    icon: Users,
-    permission: "user.read_platform",
-    href: "/admin/users",
-    group: "management",
-  },
-  {
-    key: "plans",
-    icon: Package,
-    permission: "plan.manage",
-    href: "/admin/plans",
-    group: "management",
-  },
-  {
-    key: "staffDepartments",
-    icon: Briefcase,
-    permission: "staff_department.manage",
-    href: "/admin/staff-departments",
-    group: "management",
-  },
-  {
-    key: "adminAutomation",
-    icon: MessageCircle,
-    permission: "automation.manage",
-    href: "/admin/automation",
-    group: "management",
-  },
-  {
-    key: "adminVideo",
-    icon: MonitorPlay,
-    permission: "platform.manage",
-    href: "/admin/video",
-    group: "management",
+    key: "students",
+    icon: GraduationCap,
+    permission: "student.read",
+    href: "/students",
+    group: "people",
   },
   {
     key: "guardians",
     icon: UserCheck,
     permission: "guardian.read",
     href: "/guardians",
-    group: "management",
-  },
-  {
-    key: "students",
-    icon: GraduationCap,
-    permission: "student.read",
-    href: "/students",
-    group: "management",
+    group: "people",
   },
   {
     key: "teachers",
     icon: UserCog,
     permission: "teacher.read",
     href: "/teachers",
-    group: "management",
+    group: "people",
   },
   {
     key: "staff",
     icon: Users,
     permission: "staff.read",
     href: "/staff",
-    group: "management",
+    group: "people",
   },
   {
     key: "academyRoles",
     icon: ShieldCheck,
     permission: "role.manage",
     href: "/roles",
-    group: "management",
+    group: "people",
   },
-  {
-    key: "schedule",
-    icon: CalendarDays,
-    permission: "schedule.read",
-    href: "/calendar",
-    group: "management",
-  },
-  {
-    key: "videoClassroom",
-    icon: Video,
-    permission: "room.read",
-    href: "/video-classroom",
-    group: "management",
-  },
-  {
-    key: "trials",
-    icon: CalendarClock,
-    permission: "trial.read",
-    href: "/trials",
-    group: "management",
-  },
+
+  // ── Academics ───────────────────────────────────────────────────────────
   {
     key: "attendance",
     icon: ClipboardCheck,
     permission: "session.read",
     href: "/attendance",
-    group: "management",
+    group: "academics",
   },
   {
     key: "studentReports",
     icon: NotebookPen,
     permission: "student_report.submit",
     href: "/student-reports",
-    group: "management",
+    group: "academics",
   },
   {
     key: "studentReportReviews",
     icon: FileCheck2,
     permission: "student_report.review",
     href: "/student-report-reviews",
-    group: "management",
+    group: "academics",
   },
   {
     key: "certificates",
     icon: Award,
     permission: "certificate.read",
     href: "/certificates",
-    group: "management",
+    group: "academics",
+  },
+
+  // ── Scheduling ──────────────────────────────────────────────────────────
+  {
+    key: "schedule",
+    icon: CalendarDays,
+    permission: "schedule.read",
+    href: "/calendar",
+    group: "scheduling",
   },
   {
-    key: "billing",
-    icon: CreditCard,
-    permission: "academy_billing.manage",
-    href: "/admin/billing",
-    group: "financial",
+    key: "videoClassroom",
+    icon: Video,
+    permission: "room.read",
+    href: "/video-classroom",
+    group: "scheduling",
   },
+  {
+    key: "trials",
+    icon: CalendarClock,
+    permission: "trial.read",
+    href: "/trials",
+    group: "scheduling",
+  },
+
+  // ── Financial ───────────────────────────────────────────────────────────
   {
     key: "invoices",
     icon: ReceiptText,
@@ -270,13 +258,6 @@ const NAV: ReadonlyArray<{
     group: "financial",
   },
   {
-    key: "plan",
-    icon: Sparkles,
-    permission: "invoice.read",
-    href: "/plan",
-    group: "financial",
-  },
-  {
     key: "financialStats",
     icon: BarChart3,
     permission: "invoice.read",
@@ -284,17 +265,84 @@ const NAV: ReadonlyArray<{
     group: "financial",
   },
   {
-    key: "audit",
-    icon: History,
-    permission: "audit.read",
-    href: "/audit",
-    group: "system",
+    key: "plan",
+    icon: Sparkles,
+    permission: "invoice.read",
+    href: "/plan",
+    group: "financial",
   },
+  {
+    key: "billing",
+    icon: CreditCard,
+    permission: "academy_billing.manage",
+    href: "/admin/billing",
+    group: "financial",
+  },
+
+  // ── Platform (Super Admin) ──────────────────────────────────────────────
+  {
+    key: "adminHome",
+    icon: LayoutDashboard,
+    permission: "academy.read",
+    href: "/admin",
+    group: "platform",
+  },
+  {
+    key: "clients",
+    icon: Building2,
+    permission: "academy.read",
+    href: "/admin/clients",
+    group: "platform",
+  },
+  {
+    key: "users",
+    icon: Users,
+    permission: "user.read_platform",
+    href: "/admin/users",
+    group: "platform",
+  },
+  {
+    key: "plans",
+    icon: Package,
+    permission: "plan.manage",
+    href: "/admin/plans",
+    group: "platform",
+  },
+  {
+    key: "staffDepartments",
+    icon: Briefcase,
+    permission: "staff_department.manage",
+    href: "/admin/staff-departments",
+    group: "platform",
+  },
+  {
+    key: "adminAutomation",
+    icon: MessageCircle,
+    permission: "automation.manage",
+    href: "/admin/automation",
+    group: "platform",
+  },
+  {
+    key: "adminVideo",
+    icon: MonitorPlay,
+    permission: "platform.manage",
+    href: "/admin/video",
+    group: "platform",
+  },
+
+  // ── System ──────────────────────────────────────────────────────────────
   {
     key: "settings",
     icon: Settings,
     permission: "specialization.manage",
     href: "/settings",
+    group: "system",
+  },
+  {
+    key: "audit",
+    icon: History,
+    permission: "audit.read",
+    href: "/audit",
     group: "system",
   },
   {
@@ -313,39 +361,24 @@ const NAV: ReadonlyArray<{
   },
 ];
 
-const NAV_GROUPS = ["general", "management", "financial", "system"] as const;
-
 /**
- * Super Admin panel modules (docs/superadmin-modules Phase 4). On the platform view (a SUPER_ADMIN
- * with no entered academy) the sidebar renders these as collapsible dropdowns instead of the flat
- * groups — one section per product line. Each admin nav item is mapped to its module by NAV_MODULE;
- * items with no module (the tenant nav) never show on the platform view.
+ * The platform Super Admin sidebar (R2, docs/superadmin-modules/04-CLIENT-FIRST-REDESIGN §3): a
+ * SHORT FLAT list — one item per job, ordered by how often the owner needs it. The Phase-4 module
+ * dropdowns are gone: "module" is a property of a CLIENT (chips on /admin/clients, three rows on
+ * the client page), not a section of the sidebar. Items missing from this list never render on
+ * the platform view (the tenant nav is untouched).
  */
-type AdminModuleKey = "platform" | "management" | "whatsapp" | "video";
-
-const ADMIN_MODULES: ReadonlyArray<{
-  key: AdminModuleKey;
-  icon: ComponentType<{ className?: string }>;
-}> = [
-  { key: "platform", icon: LayoutDashboard },
-  { key: "management", icon: GraduationCap },
-  { key: "whatsapp", icon: MessageCircle },
-  { key: "video", icon: MonitorPlay },
+const PLATFORM_NAV: readonly NavKey[] = [
+  "adminHome", // Overview
+  "clients", // THE hub — roster, client pages, wizard
+  "billing", // money only: proof review, dues, MRR per module
+  "plans", // catalog, one tab per module + add-ons
+  "adminVideo", // Video Ops (platform-wide health/usage)
+  "adminAutomation", // WhatsApp Ops (gateway health/activity)
+  "users",
+  "platformSettings", // + tabs: roles matrix, staff departments (R3)
+  "audit",
 ];
-
-const NAV_MODULE: Partial<Record<NavKey, AdminModuleKey>> = {
-  adminHome: "platform",
-  academies: "platform",
-  users: "platform",
-  billing: "platform",
-  roles: "platform",
-  platformSettings: "platform",
-  audit: "platform",
-  plans: "management",
-  staffDepartments: "management",
-  adminAutomation: "whatsapp",
-  adminVideo: "video",
-};
 
 /**
  * Plan-gated nav items → the entitlement capability that unlocks them (Sprint 9 §3). Unlike
@@ -367,6 +400,20 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   myPayroll: "payroll",
 };
 
+const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
+
+/** The unread pill. One component, because three hand-rolled copies drift. */
+function NavBadge({ count, label }: { count: number; label: string }) {
+  return (
+    <span
+      aria-label={label}
+      className="bg-destructive text-white ms-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums shadow-sm"
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations();
   const { session, loading, can, signOut, exitAcademy, changeLocale } =
@@ -374,40 +421,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [notifCount, setNotifCount] = useState(0);
   const [srCount, setSrCount] = useState(0);
   const [attnCount, setAttnCount] = useState(0);
-  // The academy's resolved plan capabilities. `null` = not yet known (still loading) — we must NOT
-  // render the nav while unknown, or a video-only ("Meet Plan") academy flashes the full academy
-  // chrome before collapsing to the video classroom. `entitlementsFailed` flips true only after the
-  // fetch has exhausted its retries, so a genuine outage falls back to the full nav (fail-open)
-  // instead of spinning forever — a transient abort (e.g. React StrictMode's dev double-mount) just
-  // retries and never flashes.
-  const [capabilities, setCapabilities] = useState<string[] | null>(null);
-  const [entitlementsFailed, setEntitlementsFailed] = useState(false);
-  // Which Super Admin module sections are expanded (platform view only). Default all open; the
-  // user's toggles persist in localStorage. Loaded after mount to avoid a hydration mismatch.
-  const [openModules, setOpenModules] = useState<Record<string, boolean>>({
-    platform: true,
-    management: true,
-    whatsapp: true,
-    video: true,
-  });
+  // The academy's resolved plan capabilities, used to lock nav items the plan doesn't include.
+  // They arrive with the session itself, so by the time we have a session we have these too — there
+  // is no separate loading state to guard, and no window in which a video-only ("Meet Plan") academy
+  // could flash the full academy chrome. `null` = a platform Super Admin, who has no plan.
+  const capabilities = session?.capabilities ?? null;
 
+  // The preference is read after mount, never during render — reading localStorage while
+  // rendering would make the server and client markup disagree.
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("adminModulesOpen");
-      if (saved) setOpenModules((prev) => ({ ...prev, ...JSON.parse(saved) }));
+      setCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true");
     } catch {
       // ignore malformed / unavailable storage
     }
   }, []);
 
-  const toggleModule = (key: AdminModuleKey) =>
-    setOpenModules((prev) => {
-      const next = { ...prev, [key]: !(prev[key] ?? true) };
+  const toggleCollapsed = () =>
+    setCollapsed((prev) => {
+      const next = !prev;
       try {
-        localStorage.setItem("adminModulesOpen", JSON.stringify(next));
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
       } catch {
         // ignore
       }
@@ -472,41 +510,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [session, can, pathname]);
 
-  // Resolve the academy's plan entitlements so the sidebar can lock features the plan doesn't
-  // include (renders them disabled + "Upgrade" badge). Only meaningful inside an academy; a
-  // platform Super Admin (academyId null) has no plan, so leave capabilities unresolved.
-  useEffect(() => {
-    if (session === null || session.academyId === null) {
-      setCapabilities(null);
-      setEntitlementsFailed(false);
-      return;
-    }
-    let alive = true;
-    setCapabilities(null);
-    setEntitlementsFailed(false);
-    void (async () => {
-      for (let attempt = 0; attempt < 3 && alive; attempt++) {
-        try {
-          const e = await getEntitlements();
-          if (alive) {
-            setCapabilities(e.capabilities);
-            setEntitlementsFailed(false);
-          }
-          return;
-        } catch {
-          if (attempt === 2) {
-            if (alive) setEntitlementsFailed(true); // give up → fail-open to the full nav
-          } else {
-            await new Promise((r) => setTimeout(r, 150));
-          }
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [session]);
-
   useEffect(() => {
     applyBranding(loadBranding());
   }, []);
@@ -518,21 +521,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [loading, session, router]);
 
   // A video-only ("Meet Plan") academy has no general dashboard — send it to the video classroom,
-  // its only surface. Runs once entitlements resolve; harmless for every other academy.
+  // its only surface.
   useEffect(() => {
     if (capabilities?.includes("video.only") && pathname === "/dashboard") {
       router.replace("/video-classroom");
     }
   }, [capabilities, pathname, router]);
 
-  // Inside an academy, hold the chrome until the plan capabilities are known (or the fetch has
-  // definitively failed) — otherwise a video-only academy briefly paints the full nav.
-  const entitlementsPending =
-    session !== null &&
-    session.academyId !== null &&
-    capabilities === null &&
-    !entitlementsFailed;
-  if (loading || session === null || entitlementsPending) {
+  // Cold start only. The shell lives in the (app) layout, so it mounts once per session and stays
+  // mounted across every navigation — this full-screen state is what a hard load or a sign-in
+  // transition looks like, never what clicking a nav link looks like.
+  if (loading || session === null) {
     return (
       <div
         className="bg-background flex min-h-dvh items-center justify-center"
@@ -554,7 +553,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isPlatformAdmin =
     session.role === "SUPER_ADMIN" && session.academyId === null;
   // A "Meet Plan" academy (the `video.only` capability) manages the video classroom and nothing
-  // else — collapse the whole nav to just that. Only applies once the plan entitlements resolve.
+  // else — collapse the whole nav to just that.
   const videoOnly =
     capabilities !== null && capabilities.includes("video.only");
   const items = NAV.filter((item) => {
@@ -581,24 +580,63 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // claim the `/admin/plans` and `/admin/staff-departments` routes via startsWith.
   const isExactOnly = (href: string) =>
     href === "/dashboard" || href === "/admin";
-  const activeItem = items.find(
-    (item) =>
-      pathname === item.href ||
-      (!isExactOnly(item.href) && pathname.startsWith(item.href)),
-  );
+  const matches = (href: string) =>
+    pathname === href || (!isExactOnly(href) && pathname.startsWith(href));
+  const activeItem = items.find((item) => matches(item.href));
 
-  // One sidebar link — shared by the flat group layout (tenant / entered admin) and the collapsible
-  // module layout (platform Super Admin). Preserves the plan-lock, unread badges, and active dot.
-  const renderNavItem = ({ key, icon: Icon, href }: (typeof NAV)[number]) => {
+  const isLocked = (key: NavKey) => {
     const requiredCap = NAV_CAPABILITY[key];
-    const locked =
+    return (
       requiredCap !== undefined &&
       capabilities !== null &&
-      !capabilities.includes(requiredCap);
-    const isActive =
-      !locked &&
-      (pathname === href || (!isExactOnly(href) && pathname.startsWith(href)));
-    return (
+      !capabilities.includes(requiredCap)
+    );
+  };
+
+  /** The unread count owned by a nav item, if any. */
+  const badgeFor = (key: NavKey): { count: number; label: string } | null => {
+    if (key === "notifications" && notifCount > 0) {
+      return { count: notifCount, label: `${notifCount} new notifications` };
+    }
+    if (key === "attendance" && attnCount > 0) {
+      return {
+        count: attnCount,
+        label: `${attnCount} sessions awaiting attendance today`,
+      };
+    }
+    if (key === "studentReportReviews" && srCount > 0) {
+      return {
+        count: srCount,
+        label: `${srCount} student reports awaiting review`,
+      };
+    }
+    return null;
+  };
+
+  const commandItems: CommandItem[] = items.map((item) => ({
+    key: item.key,
+    label: t(`nav.${item.key}`),
+    href: item.href,
+    icon: item.icon,
+    group: t(`navGroup.${item.group}`),
+    locked: isLocked(item.key),
+  }));
+
+  /**
+   * One sidebar link — shared by the flat group layout (tenant / entered admin) and the collapsible
+   * module layout (platform Super Admin).
+   *
+   * Active state is a single signal: an accent bar on the inline-start edge plus a tint. The old
+   * design used a tint AND a trailing dot, and then suppressed the dot whenever a badge was present
+   * — so "active" looked like a different thing depending on your unread count.
+   */
+  const renderNavItem = ({ key, icon: Icon, href }: (typeof NAV)[number]) => {
+    const locked = isLocked(key);
+    const isActive = !locked && matches(href);
+    const badge = locked ? null : badgeFor(key);
+    const label = t(`nav.${key}`);
+
+    const link = (
       <Link
         // A locked item still renders, but routes to /plan (the upgrade page)
         // instead of the gated feature — the server would 402 it anyway.
@@ -606,16 +644,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         href={locked ? "/plan" : href}
         data-nav={key}
         data-locked={locked || undefined}
-        title={locked ? t("nav.upgradeHint") : undefined}
+        data-active={isActive || undefined}
+        aria-current={isActive ? "page" : undefined}
+        title={locked && !collapsed ? t("nav.upgradeHint") : undefined}
         className={cn(
-          "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-all duration-150",
+          "group relative flex items-center rounded-lg text-sm font-medium transition-colors duration-150",
+          "focus-visible:ring-ring/50 outline-none focus-visible:ring-2",
+          collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
           isActive
-            ? "bg-primary/[0.12] font-semibold text-primary"
+            ? "bg-primary/[0.12] text-primary font-semibold"
             : locked
-              ? "font-medium text-sidebar-foreground/40 hover:bg-sidebar-accent/60"
-              : "font-medium text-sidebar-foreground hover:bg-sidebar-accent",
+              ? "text-sidebar-foreground/40 hover:bg-sidebar-accent/60"
+              : "text-sidebar-foreground hover:bg-sidebar-accent",
         )}
       >
+        {/* The accent bar. Absolutely positioned so it never shifts the label. */}
+        {isActive && (
+          <span
+            className="bg-primary absolute inset-y-1.5 start-0 w-[3px] rounded-full"
+            aria-hidden
+          />
+        )}
         <Icon
           className={cn(
             "size-4 shrink-0 transition-colors",
@@ -627,276 +676,395 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
           aria-hidden
         />
-        <span className="flex-1">{t(`nav.${key}`)}</span>
-        {locked ? (
-          <span
-            data-testid="nav-upgrade-badge"
-            className="ms-auto inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
-          >
-            <Lock className="size-2.5" aria-hidden />
-            {t("nav.upgradeBadge")}
-          </span>
+        {collapsed ? (
+          <>
+            <span className="sr-only">{label}</span>
+            {/* No room for a pill on the rail — a dot still says "something is waiting here". */}
+            {badge !== null && (
+              <span
+                className="bg-destructive absolute end-1.5 top-1.5 size-2 rounded-full"
+                aria-hidden
+              />
+            )}
+          </>
         ) : (
           <>
-            {key === "notifications" && notifCount > 0 && (
+            <span className="flex-1 truncate">{label}</span>
+            {locked ? (
               <span
-                data-testid="nav-notif-badge"
-                aria-label={`${notifCount} new notifications`}
-                className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
+                data-testid="nav-upgrade-badge"
+                className="ms-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
               >
-                {notifCount > 99 ? "99+" : notifCount}
+                <Lock className="size-2.5" aria-hidden />
+                {t("nav.upgradeBadge")}
               </span>
+            ) : (
+              badge !== null && (
+                <NavBadge count={badge.count} label={badge.label} />
+              )
             )}
-            {key === "attendance" && attnCount > 0 && (
-              <span
-                data-testid="nav-attendance-badge"
-                aria-label={`${attnCount} sessions awaiting attendance today`}
-                className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
-              >
-                {attnCount > 99 ? "99+" : attnCount}
-              </span>
-            )}
-            {key === "studentReportReviews" && srCount > 0 && (
-              <span
-                data-testid="nav-student-reports-badge"
-                aria-label={`${srCount} student reports awaiting review`}
-                className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold tabular-nums text-white shadow-sm shadow-red-500/30"
-              >
-                {srCount > 99 ? "99+" : srCount}
-              </span>
-            )}
-            {isActive &&
-              key !== "notifications" &&
-              !(key === "attendance" && attnCount > 0) &&
-              !(key === "studentReportReviews" && srCount > 0) && (
-                <span className="bg-primary ms-auto size-1.5 rounded-full" />
-              )}
           </>
         )}
       </Link>
     );
+
+    // Collapsed to the rail, the icon is all that's left — the tooltip is what names it.
+    return collapsed ? (
+      <Tooltip key={key} content={label} side="right">
+        {link}
+      </Tooltip>
+    ) : (
+      link
+    );
   };
 
-  const activeModule = activeItem ? NAV_MODULE[activeItem.key] : undefined;
+  /** A labelled section header; on the rail it degrades to a plain rule. */
+  const groupLabel = (label: string) =>
+    collapsed ? (
+      <div className="bg-sidebar-border mx-auto mb-1.5 h-px w-6" aria-hidden />
+    ) : (
+      <p className="text-sidebar-foreground/40 mb-1.5 select-none px-2.5 text-[10px] font-bold uppercase tracking-[0.1em]">
+        {label}
+      </p>
+    );
 
   return (
-    <div className="bg-background flex h-dvh w-full overflow-hidden">
-      {/* Mobile overlay */}
-      {open && (
-        <div
-          className="fixed inset-0 z-20 bg-black/50 backdrop-blur-sm md:hidden"
-          aria-hidden
-          onClick={() => setOpen(false)}
-        />
-      )}
-
-      {/* ── Sidebar ─────────────────────────────────────────────────── */}
-      <aside
-        data-testid="sidebar"
-        data-open={open}
-        className={cn(
-          "bg-sidebar text-sidebar-foreground border-sidebar-border fixed inset-y-0 z-30 flex w-60 shrink-0 flex-col border-e transition-transform duration-200 md:static md:h-full md:translate-x-0",
-          open
-            ? "translate-x-0"
-            : "max-md:-translate-x-full max-md:rtl:translate-x-full",
-        )}
-      >
-        {/* ── Brand ──────────────────────────────────────────── */}
-        <div className="border-sidebar-border flex h-14 shrink-0 items-center justify-between border-b px-4">
-          <div className="flex items-center gap-2.5">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo.png"
-              alt="Acadmyq"
-              className="size-8 shrink-0 object-contain"
-            />
-            <div>
-              <div className="text-sidebar-foreground text-[13px] font-semibold leading-tight">
-                Acadmyq
-              </div>
-              <div className="text-sidebar-foreground/35 text-[10px] leading-tight tracking-wide">
-                Management
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="text-sidebar-foreground/40 hover:bg-sidebar-accent hover:text-sidebar-foreground rounded-lg p-1.5 transition-colors md:hidden"
-            onClick={() => setOpen(false)}
-            aria-label="Close"
-          >
-            <X className="size-4" aria-hidden />
-          </button>
-        </div>
-
-        {/* ── Nav ────────────────────────────────────────────── */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3" data-testid="nav">
-          <div className="space-y-5">
-            {isPlatformAdmin
-              ? // Platform Super Admin: collapsible module dropdowns (docs/superadmin-modules Phase 4).
-                ADMIN_MODULES.map((mod) => {
-                  const modItems = items.filter(
-                    (item) => NAV_MODULE[item.key] === mod.key,
-                  );
-                  if (modItems.length === 0) return null;
-                  // The module owning the active route is always shown expanded.
-                  const isOpen =
-                    (openModules[mod.key] ?? true) || activeModule === mod.key;
-                  const ModIcon = mod.icon;
-                  return (
-                    <div key={mod.key}>
-                      <button
-                        type="button"
-                        data-module={mod.key}
-                        aria-expanded={isOpen}
-                        onClick={() => toggleModule(mod.key)}
-                        className="text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 mb-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors"
-                      >
-                        <ModIcon className="size-3.5 shrink-0" aria-hidden />
-                        <span className="flex-1 text-start text-[10px] font-bold uppercase tracking-[0.1em]">
-                          {t(`adminModule.${mod.key}`)}
-                        </span>
-                        <ChevronDown
-                          className={cn(
-                            "size-3.5 shrink-0 transition-transform duration-200",
-                            !isOpen && "-rotate-90 rtl:rotate-90",
-                          )}
-                          aria-hidden
-                        />
-                      </button>
-                      {isOpen && (
-                        <div className="space-y-0.5">
-                          {modItems.map(renderNavItem)}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              : // Tenant (or an admin acting inside an academy): the flat labelled groups.
-                NAV_GROUPS.map((group) => {
-                  const groupItems = items.filter(
-                    (item) => item.group === group,
-                  );
-                  if (groupItems.length === 0) return null;
-                  return (
-                    <div key={group}>
-                      <p className="text-sidebar-foreground/40 mb-1.5 select-none px-2.5 text-[10px] font-bold uppercase tracking-[0.1em]">
-                        {t(`navGroup.${group}`)}
-                      </p>
-                      <div className="space-y-0.5">
-                        {groupItems.map(renderNavItem)}
-                      </div>
-                    </div>
-                  );
-                })}
-          </div>
-        </nav>
-
-        {/* ── User footer ────────────────────────────────────── */}
-        <div className="border-sidebar-border border-t p-3">
-          {inEnteredAcademy && (
-            <div
-              className="mb-2 flex items-center justify-between rounded-lg border border-amber-300/40 bg-amber-50/80 px-3 py-2 text-xs dark:border-amber-700/30 dark:bg-amber-950/30"
-              data-testid="entered-academy"
-            >
-              <span className="text-amber-700 dark:text-amber-400">
-                {t("header.enteredAcademy")}
-              </span>
-              <button
-                type="button"
-                className="font-semibold text-amber-700 transition-colors hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-200"
-                onClick={() => void exitAcademy()}
-              >
-                {t("header.exit")}
-              </button>
-            </div>
-          )}
-
+    <TooltipProvider>
+      <div className="bg-background flex h-dvh w-full overflow-hidden">
+        {/* Mobile overlay */}
+        {open && (
           <div
-            className="hover:bg-sidebar-accent group flex cursor-default items-center gap-2.5 rounded-lg px-2 py-2 transition-colors"
-            data-testid="current-user"
+            className="fixed inset-0 z-20 bg-black/50 backdrop-blur-sm md:hidden"
+            aria-hidden
+            onClick={() => setOpen(false)}
+          />
+        )}
+
+        {/* ── Sidebar ─────────────────────────────────────────────────── */}
+        <aside
+          data-testid="sidebar"
+          data-open={open}
+          data-collapsed={collapsed}
+          className={cn(
+            "bg-sidebar text-sidebar-foreground border-sidebar-border fixed inset-y-0 z-30 flex shrink-0 flex-col border-e transition-[width,transform] duration-200 md:static md:h-full md:translate-x-0",
+            // The rail keeps the icons on the same optical axis as the expanded list.
+            collapsed ? "w-[4.5rem]" : "w-60",
+            open
+              ? "translate-x-0"
+              : "max-md:-translate-x-full max-md:rtl:translate-x-full",
+          )}
+        >
+          {/* ── Brand ──────────────────────────────────────────────────── */}
+          <div
+            className={cn(
+              "border-sidebar-border flex h-14 shrink-0 items-center border-b",
+              collapsed ? "justify-center px-2" : "justify-between px-4",
+            )}
           >
-            <div className="from-primary/20 to-primary/[0.08] ring-primary/20 flex size-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-[11px] font-bold text-primary ring-1">
-              {initials}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sidebar-foreground truncate text-[12px] font-semibold leading-tight">
-                {session.user.fullName}
-              </div>
-              <div className="text-sidebar-foreground/40 truncate text-[11px] leading-tight">
-                {t(`roles.${session.role}`)}
-              </div>
+            <div className="flex min-w-0 items-center gap-2.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo.png"
+                alt="Acadmyq"
+                className="size-8 shrink-0 object-contain"
+              />
+              {!collapsed && (
+                <div className="min-w-0">
+                  <div className="text-sidebar-foreground truncate text-[13px] font-semibold leading-tight">
+                    Acadmyq
+                  </div>
+                  <div className="text-sidebar-foreground/35 truncate text-[10px] leading-tight tracking-wide">
+                    {t(`roles.${session.role}`)}
+                  </div>
+                </div>
+              )}
             </div>
             <button
               type="button"
-              className="text-sidebar-foreground/30 hover:bg-sidebar-border hover:text-sidebar-foreground/70 shrink-0 rounded-md p-1 transition-colors"
-              aria-label={t("auth.signOut")}
-              onClick={() => void signOut()}
+              className="text-sidebar-foreground/40 hover:bg-sidebar-accent hover:text-sidebar-foreground rounded-lg p-1.5 transition-colors md:hidden"
+              onClick={() => setOpen(false)}
+              aria-label={t("header.close")}
             >
-              <LogOut className="size-3.5" aria-hidden />
+              <X className="size-4" aria-hidden />
             </button>
           </div>
-        </div>
-      </aside>
 
-      {/* ── Main area ───────────────────────────────────────────────── */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* ── Header ─────────────────────────────────────────── */}
-        <header className="bg-background/80 supports-[backdrop-filter]:bg-background/60 border-border flex h-14 shrink-0 items-center gap-3 border-b px-5 backdrop-blur-xl">
-          {/* Mobile menu toggle */}
-          <button
-            type="button"
-            className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-lg p-1.5 transition-colors md:hidden"
-            aria-label={t("header.menu")}
-            aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
+          {/* ── Nav ────────────────────────────────────────────────────── */}
+          <nav
+            className={cn(
+              "flex-1 overflow-y-auto py-3",
+              collapsed ? "px-2.5" : "px-3",
+            )}
+            data-testid="nav"
           >
-            <Menu className="size-5" aria-hidden />
-          </button>
-
-          {/* Page title */}
-          {activeItem && (
-            <div className="hidden items-center gap-1.5 md:flex">
-              <activeItem.icon
-                className="text-muted-foreground/50 size-3.5"
-                aria-hidden
-              />
-              <span className="text-muted-foreground/40 select-none text-sm">
-                /
-              </span>
-              <span className="text-foreground text-sm font-semibold">
-                {t(`nav.${activeItem.key}`)}
-              </span>
+            <div className="space-y-5">
+              {isPlatformAdmin ? (
+                // Platform Super Admin: ONE short flat list, no groups to decode (R2,
+                // 04-CLIENT-FIRST-REDESIGN §3) — the module idea lives on the client, not here.
+                <div className="space-y-0.5" data-testid="platform-nav">
+                  {PLATFORM_NAV.map((key) =>
+                    items.find((item) => item.key === key),
+                  )
+                    .filter((item) => item !== undefined)
+                    .map((item) => renderNavItem(item))}
+                </div>
+              ) : (
+                // Tenant (or an admin acting inside an academy): the flat labelled groups.
+                NAV_GROUPS.map((group) => {
+                    const groupItems = items.filter(
+                      (item) => item.group === group,
+                    );
+                    if (groupItems.length === 0) return null;
+                    return (
+                      <div key={group}>
+                        {groupLabel(t(`navGroup.${group}`))}
+                        <div className="space-y-0.5">
+                          {groupItems.map(renderNavItem)}
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
             </div>
-          )}
+          </nav>
 
-          {/* Right-side actions */}
-          <div className="ms-auto flex items-center gap-2">
-            <LocaleSwitcher onSwitch={changeLocale} />
+          {/* ── Footer ─────────────────────────────────────────────────── */}
+          <div className="border-sidebar-border border-t p-3">
+            {inEnteredAcademy &&
+              (collapsed ? (
+                <Tooltip content={t("header.enteredAcademy")} side="right">
+                  <button
+                    type="button"
+                    data-testid="entered-academy"
+                    onClick={() => void exitAcademy()}
+                    aria-label={t("header.exit")}
+                    className="mb-2 flex w-full items-center justify-center rounded-lg border border-amber-300/40 bg-amber-50/80 py-2 text-amber-700 transition-colors hover:bg-amber-100/80 dark:border-amber-700/30 dark:bg-amber-950/30 dark:text-amber-400"
+                  >
+                    <LogOut className="size-3.5" aria-hidden />
+                  </button>
+                </Tooltip>
+              ) : (
+                <div
+                  className="mb-2 flex items-center justify-between rounded-lg border border-amber-300/40 bg-amber-50/80 px-3 py-2 text-xs dark:border-amber-700/30 dark:bg-amber-950/30"
+                  data-testid="entered-academy"
+                >
+                  <span className="text-amber-700 dark:text-amber-400">
+                    {t("header.enteredAcademy")}
+                  </span>
+                  <button
+                    type="button"
+                    className="font-semibold text-amber-700 transition-colors hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-200"
+                    onClick={() => void exitAcademy()}
+                  >
+                    {t("header.exit")}
+                  </button>
+                </div>
+              ))}
 
-            <div className="bg-border h-5 w-px" aria-hidden />
-
-            {/* User chip */}
-            <div
-              className="hover:bg-muted flex cursor-default items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors"
-              data-testid="header-user"
+            {/* The rail's collapse control. On the expanded sidebar it lives in the header, next
+                to the breadcrumb — but there is no room for a label out here. */}
+            <Tooltip
+              content={collapsed ? t("header.expand") : t("header.collapse")}
+              side="right"
             >
-              <div className="from-primary/20 to-primary/[0.08] ring-primary/20 flex size-6 shrink-0 items-center justify-center rounded-md bg-gradient-to-br text-[10px] font-bold text-primary ring-1">
-                {initials}
-              </div>
-              <span className="text-foreground hidden text-[13px] font-medium leading-none sm:block">
-                {session.user.fullName.split(" ")[0]}
-              </span>
-            </div>
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                data-testid="sidebar-collapse"
+                aria-label={
+                  collapsed ? t("header.expand") : t("header.collapse")
+                }
+                aria-pressed={collapsed}
+                className={cn(
+                  "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-ring/50 hidden w-full items-center rounded-lg px-2 py-2 text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 md:flex",
+                  collapsed ? "justify-center" : "gap-2.5",
+                )}
+              >
+                {collapsed ? (
+                  <PanelLeftOpen
+                    className="size-4 shrink-0 rtl:-scale-x-100"
+                    aria-hidden
+                  />
+                ) : (
+                  <>
+                    <PanelLeftClose
+                      className="size-4 shrink-0 rtl:-scale-x-100"
+                      aria-hidden
+                    />
+                    <span>{t("header.collapse")}</span>
+                  </>
+                )}
+              </button>
+            </Tooltip>
           </div>
-        </header>
+        </aside>
 
-        <main className="min-w-0 flex-1 overflow-auto p-6">
-          <div key={pathname} className="animate-page-enter">
-            {children}
-          </div>
-        </main>
+        {/* ── Main area ───────────────────────────────────────────────── */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* ── Header ───────────────────────────────────────────────── */}
+          <header className="bg-background border-border flex h-14 shrink-0 items-center gap-3 border-b px-4 md:px-5">
+            {/* Mobile menu toggle */}
+            <button
+              type="button"
+              className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/50 rounded-lg p-1.5 transition-colors outline-none focus-visible:ring-2 md:hidden"
+              aria-label={t("header.menu")}
+              aria-expanded={open}
+              onClick={() => setOpen((v) => !v)}
+            >
+              <Menu className="size-5" aria-hidden />
+            </button>
+
+            {/* Breadcrumb. The group is context, the page is the anchor, and on a detail route the
+                page name becomes a link back to its list — which is the one thing the old header
+                (an icon, a slash, and a page name that never changed) could not do. */}
+            {activeItem && (
+              <nav
+                aria-label={t("header.breadcrumb")}
+                data-testid="breadcrumb"
+                className="hidden min-w-0 items-center gap-1.5 text-sm md:flex"
+              >
+                <span className="text-muted-foreground/70 select-none">
+                  {t(`navGroup.${activeItem.group}`)}
+                </span>
+                <span className="text-muted-foreground/40 select-none">/</span>
+                {pathname === activeItem.href ? (
+                  <span className="text-foreground font-semibold">
+                    {t(`nav.${activeItem.key}`)}
+                  </span>
+                ) : (
+                  <>
+                    <Link
+                      href={activeItem.href}
+                      className="text-muted-foreground hover:text-foreground font-medium transition-colors"
+                    >
+                      {t(`nav.${activeItem.key}`)}
+                    </Link>
+                    <span className="text-muted-foreground/40 select-none">
+                      /
+                    </span>
+                    <span className="text-foreground truncate font-semibold">
+                      {t("header.details")}
+                    </span>
+                  </>
+                )}
+              </nav>
+            )}
+
+            {/* Right-side actions */}
+            <div className="ms-auto flex items-center gap-1.5">
+              <CommandPalette items={commandItems} />
+
+              {can("notification.read") && (
+                <Tooltip content={t("nav.notifications")} side="bottom">
+                  <Link
+                    href="/notifications"
+                    data-testid="header-notifications"
+                    aria-label={t("nav.notifications")}
+                    className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/50 relative rounded-lg p-2 transition-colors outline-none focus-visible:ring-2"
+                  >
+                    <BellRing className="size-4" aria-hidden />
+                    {notifCount > 0 && (
+                      <span className="bg-destructive text-white absolute -end-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums">
+                        {notifCount > 9 ? "9+" : notifCount}
+                      </span>
+                    )}
+                  </Link>
+                </Tooltip>
+              )}
+
+              <ThemeToggle />
+
+              <LocaleSwitcher onSwitch={changeLocale} />
+
+              <div className="bg-border mx-1 h-5 w-px" aria-hidden />
+
+              {/* The user chip is a real menu now. It used to be `cursor-default` — an avatar and a
+                  name that looked clickable, did nothing, and duplicated the sidebar footer. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger>
+                  <button
+                    type="button"
+                    data-testid="header-user"
+                    className="hover:bg-muted focus-visible:ring-ring/50 flex items-center gap-2 rounded-lg px-1.5 py-1.5 transition-colors outline-none focus-visible:ring-2"
+                  >
+                    <span className="from-primary/20 to-primary/[0.08] ring-primary/20 text-primary flex size-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-[11px] font-bold ring-1">
+                      {initials}
+                    </span>
+                    <span className="text-foreground hidden text-[13px] font-medium leading-none sm:block">
+                      {session.user.fullName.split(" ")[0]}
+                    </span>
+                    <ChevronDown
+                      className="text-muted-foreground/50 hidden size-3.5 sm:block"
+                      aria-hidden
+                    />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuLabel>
+                    <div data-testid="current-user">
+                      <p className="text-foreground truncate text-sm font-semibold">
+                        {session.user.fullName}
+                      </p>
+                      <p className="text-muted-foreground truncate text-xs">
+                        {session.user.email}
+                      </p>
+                      <p className="text-muted-foreground/70 mt-1 text-[11px]">
+                        {t(`roles.${session.role}`)}
+                      </p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {can("specialization.manage") && (
+                    <DropdownMenuItem
+                      onClick={() => router.push("/settings")}
+                      closeOnClick
+                    >
+                      <Settings aria-hidden />
+                      {t("nav.settings")}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    onClick={() => router.push("/docs/teacher-guide")}
+                    closeOnClick
+                  >
+                    <LifeBuoy aria-hidden />
+                    {t("header.help")}
+                  </DropdownMenuItem>
+                  {inEnteredAcademy && (
+                    <DropdownMenuItem
+                      onClick={() => void exitAcademy()}
+                      closeOnClick
+                    >
+                      <Building2 aria-hidden />
+                      {t("header.exitAcademy")}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => void signOut()}
+                    destructive
+                    closeOnClick
+                  >
+                    <LogOut aria-hidden />
+                    {t("auth.signOut")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </header>
+
+          {/* The width cap stops tables from stretching to the far edge of a 27" display, where the
+              eye has to travel the whole desk to tie a row back to its header. */}
+          <main className="min-w-0 flex-1 overflow-auto">
+            <div
+              key={pathname}
+              className="animate-page-enter mx-auto max-w-[1600px] p-4 md:p-6"
+            >
+              {children}
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 }

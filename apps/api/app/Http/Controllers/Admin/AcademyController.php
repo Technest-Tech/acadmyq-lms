@@ -6,9 +6,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Services\AcademyBilling;
+use App\Services\ModuleBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
-use App\Support\ModuleSubscriptionBackfill;
 use App\Support\Tenancy;
 use DateTimeZone;
 use Illuminate\Http\JsonResponse;
@@ -169,13 +169,17 @@ final class AcademyController extends Controller
                     'role' => 'ACADEMY_OWNER',
                 ]);
 
-                // Open the subscription now (mirrored from the just-set status/plan) so a paid tier's
-                // 5-day trial has real start/end dates from minute one, rather than being lazily
-                // backfilled on first read or by the nightly expiry job. Idempotent (TC-3.x).
-                app(AcademyBilling::class)->ensureSubscription($academyId);
-                // Phase 2b: derive the new academy's per-module subscriptions from its plan so the
-                // module-subscription resolver reads current state (docs/superadmin-modules).
-                ModuleSubscriptionBackfill::reconcile($academyId);
+                // R1 (04-CLIENT-FIRST-REDESIGN §5): the module engine is the source of truth from
+                // minute one — bootstrap the client's module subs from the chosen plan (primary
+                // MANAGEMENT/VIDEO + bundled WhatsApp), start the trial or open the paid period per
+                // the requested status, and write the legacy mirror rows through it.
+                $engine = app(ModuleBilling::class);
+                $engine->setPrimaryPlan($academyId, $data['plan_id'] ?? null);
+                if (($data['status'] ?? 'ACTIVE') === 'TRIAL') {
+                    $engine->startTrial($academyId, $engine->primaryModule($academyId));
+                } else {
+                    $engine->activate($academyId, $engine->primaryModule($academyId));
+                }
             });
         } catch (Throwable $e) {
             // A unique violation (owner email / subdomain) surfaces as a clean 422; the
@@ -469,11 +473,9 @@ final class AcademyController extends Controller
                 after: ['plan_id' => $data['plan_id']],
                 before: ['plan_id' => $existing->plan_id]);
 
-            // Keep the subscription's snapshot cost (base + add-ons) in sync with the new plan.
-            app(AcademyBilling::class)->recomputeTotals($id);
-            // Phase 2b: keep the per-module subscriptions in sync with the new plan (may add/remove a
-            // MANAGEMENT / VIDEO / WHATSAPP sub, e.g. switching to/from the video-only MEET plan).
-            ModuleSubscriptionBackfill::reconcile($id);
+            // R1: the module engine owns the change — re-point the primary module sub (handles the
+            // MANAGEMENT↔MEET module switch + bundled WhatsApp), reprice, mirror the legacy rows.
+            app(ModuleBilling::class)->setPrimaryPlan($id, $data['plan_id']);
         });
 
         return response()->json(['ok' => true, 'changed' => true]);
@@ -521,8 +523,15 @@ final class AcademyController extends Controller
             Audit::log('academy.addon_changed', 'add_on', $data['add_on_id'], $id, $ctx->userId, 'SUPER_ADMIN',
                 after: ['add_on_id' => $data['add_on_id'], 'is_active' => $isActive]);
 
-            // Add-on grants/revocations change the subscription's total cost.
-            app(AcademyBilling::class)->recomputeTotals($id);
+            // Add-on grants/revocations change the subscription's total cost. Module-engine
+            // academies reprice per module (the add-on lands on its module's sub); legacy-only
+            // academies keep the old single-row recompute.
+            $engine = app(ModuleBilling::class);
+            if ($engine->all($id)->isEmpty()) {
+                app(AcademyBilling::class)->recomputeTotals($id);
+            } else {
+                $engine->recompute($id);
+            }
         });
 
         return response()->json(['ok' => true, 'isActive' => $isActive]);

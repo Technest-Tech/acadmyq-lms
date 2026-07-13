@@ -11,12 +11,10 @@ import {
 } from "react";
 import type { SessionStatus } from "@academiq/contracts";
 import { useAuth } from "@/components/auth-provider";
+import { AgendaView } from "@/components/scheduling/calendar/agenda-view";
 import { CalendarFilters } from "@/components/scheduling/calendar/calendar-filters";
 import { MonthView } from "@/components/scheduling/calendar/month-view";
-import {
-  CalendarSummary,
-  TimetablesSummary,
-} from "@/components/scheduling/calendar/summary";
+import { TimetablesSummary } from "@/components/scheduling/calendar/summary";
 import { TimeGridView } from "@/components/scheduling/calendar/time-grid-view";
 import { CalendarToolbar } from "@/components/scheduling/calendar/toolbar";
 import { TimetablesView } from "@/components/scheduling/calendar/timetables-view";
@@ -25,13 +23,12 @@ import {
   addMonths,
   type CalendarView,
   dayLongLabel,
-  endUtc,
+  minutesIntoDay,
   monthGridDays,
   monthYearLabel,
   startOfMonth,
   startOfWeek,
   todayInTz,
-  timeInTz,
   weekRangeLabel,
 } from "@/components/scheduling/calendar/utils";
 import { AddTimetableModal } from "@/components/scheduling/add-timetable-modal";
@@ -95,9 +92,9 @@ export function WeeklyCalendar({
   const canDrag = !isTeacher && can("session.reschedule");
   const canQuickCreate = !isTeacher && canManage;
 
-  // The recurring-timetable roster lives in its own tab; the calendar feed is always
-  // Month/Week/Day. Teachers only ever see the Calendar tab (their own sessions).
-  const allowedViews: CalendarView[] = ["month", "week", "day"];
+  // The recurring-timetable roster lives in its own tab; the calendar feed itself can be read
+  // four ways. List is the readable one on a phone, so everyone — teachers included — gets it.
+  const allowedViews: CalendarView[] = ["month", "week", "day", "list"];
 
   const today = todayInTz(tz);
   // Top-level tab. Teachers never get the timetables tab, so they're pinned to "calendar".
@@ -141,7 +138,10 @@ export function WeeklyCalendar({
   // The fetch window + the title both follow the active view.
   const { from, to, title } = useMemo(() => {
     switch (view) {
-      case "month": {
+      case "month":
+      // The List view is the month's agenda — the same window as Month, read as a feed. Both
+      // fetch the whole 6-week grid so a session in a leading/trailing week is never missing.
+      case "list": {
         const grid = monthGridDays(anchor);
         return {
           from: grid[0]!,
@@ -258,7 +258,8 @@ export function WeeklyCalendar({
       setSelected(null);
       setAnchor((a) => {
         if (view === "day") return addDays(a, dir);
-        if (view === "month") return addMonths(a, dir);
+        // List shares Month's window, so it has to share Month's stride too.
+        if (view === "month" || view === "list") return addMonths(a, dir);
         return addDays(a, dir * 7);
       });
     },
@@ -328,6 +329,31 @@ export function WeeklyCalendar({
     const mm = String(startMin % 60).padStart(2, "0");
     setQuickCreate({ date: day, time: `${hh}:${mm}` });
   }, []);
+
+  // The toolbar's New-session button has no slot to read a time from, so it defaults to the
+  // next half-hour boundary on the day the user is looking at. Clicking the grid (or a month
+  // cell) still wins — that carries a real intent about when.
+  const openQuickCreateDefault = useCallback(
+    (day?: string) => {
+      const target = day ?? (view === "day" ? anchor : today);
+      // On any day other than today, "the next half hour" is meaningless — open at 09:00.
+      const nowMin = minutesIntoDay(new Date().toISOString(), tz);
+      const startMin =
+        target === today
+          ? Math.min(Math.ceil(nowMin / 30) * 30, 23 * 60)
+          : 9 * 60;
+      openQuickCreate(target, startMin);
+    },
+    [view, anchor, today, tz, openQuickCreate],
+  );
+
+  // The selected teacher's weekly availability, painted behind the Week/Day grid so an owner
+  // can see at a glance whether they're dropping a lesson into a window the teacher works.
+  // With "All teachers" picked there is no single set of windows to draw, so none are.
+  const availability = useMemo(
+    () => teachers.find((tch) => tch.id === teacherId)?.availability ?? [],
+    [teachers, teacherId],
+  );
 
   return (
     <div className="space-y-4" data-testid="weekly-calendar">
@@ -422,6 +448,9 @@ export function WeeklyCalendar({
               setSelected(null);
             }}
             allowedViews={allowedViews}
+            onCreate={
+              canQuickCreate ? () => openQuickCreateDefault() : undefined
+            }
           />
 
           <CalendarFilters
@@ -431,44 +460,66 @@ export function WeeklyCalendar({
             statuses={statuses}
             onToggleStatus={toggleStatus}
             onClear={() => setStatuses(new Set())}
+            shown={visibleSessions.length}
+            total={sessions.length}
           />
 
-          <CalendarSummary sessions={visibleSessions} />
-
-          <div
-            className={
-              loading ? "opacity-60 transition-opacity" : "transition-opacity"
-            }
-            aria-busy={loading}
-          >
-            {view === "month" && (
-              <MonthView
-                anchor={anchor}
-                sessions={visibleSessions}
-                tz={tz}
-                today={today}
-                onSelect={(s) => canOpenDetails && setSelected(s)}
-                onDrillDay={openDay}
-              />
-            )}
-            {(view === "week" || view === "day") && (
-              <TimeGridView
-                days={days}
-                sessions={visibleSessions}
-                tz={tz}
-                today={today}
-                onSelect={(s) => canOpenDetails && setSelected(s)}
-                onReschedule={
-                  canDrag
-                    ? (s, day, min) => void rescheduleTo(s, day, min)
-                    : undefined
-                }
-                onCreateAt={canQuickCreate ? openQuickCreate : undefined}
-                canDrag={canDrag}
-                canCreate={canQuickCreate}
-              />
-            )}
-          </div>
+          {/* The first load has nothing to show yet, so it gets a skeleton rather than an empty
+              grid that would flash "no sessions" before the feed lands. A refetch (navigating a
+              week, switching teacher) keeps the current grid and just dims it. */}
+          {loading && sessions.length === 0 ? (
+            <CalendarSkeleton view={view} />
+          ) : (
+            <div
+              className={cn(
+                "transition-opacity",
+                loading && "pointer-events-none opacity-50",
+              )}
+              aria-busy={loading}
+            >
+              {view === "month" && (
+                <MonthView
+                  anchor={anchor}
+                  sessions={visibleSessions}
+                  tz={tz}
+                  today={today}
+                  onSelect={(s) => canOpenDetails && setSelected(s)}
+                  onDrillDay={openDay}
+                  onCreateOn={
+                    canQuickCreate
+                      ? (day) => openQuickCreateDefault(day)
+                      : undefined
+                  }
+                />
+              )}
+              {(view === "week" || view === "day") && (
+                <TimeGridView
+                  days={days}
+                  sessions={visibleSessions}
+                  tz={tz}
+                  today={today}
+                  availability={availability}
+                  onSelect={(s) => canOpenDetails && setSelected(s)}
+                  onReschedule={
+                    canDrag
+                      ? (s, day, min) => void rescheduleTo(s, day, min)
+                      : undefined
+                  }
+                  onCreateAt={canQuickCreate ? openQuickCreate : undefined}
+                  canDrag={canDrag}
+                  canCreate={canQuickCreate}
+                />
+              )}
+              {view === "list" && (
+                <AgendaView
+                  sessions={visibleSessions}
+                  tz={tz}
+                  today={today}
+                  onSelect={(s) => canOpenDetails && setSelected(s)}
+                />
+              )}
+            </div>
+          )}
         </>
       ) : (
         <>
@@ -518,17 +569,11 @@ export function WeeklyCalendar({
         <Modal
           open
           onClose={() => setSelected(null)}
-          title={selected.student_name ?? t("calendar.title")}
-          description={`${dayLongLabel(
-            new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(
-              new Date(selected.scheduled_at_utc),
-            ),
-            locale,
-          )} · ${timeInTz(selected.scheduled_at_utc, tz, locale)} – ${timeInTz(
-            endUtc(selected),
-            tz,
-            locale,
-          )}`}
+          // The date, time and duration are the detail card's job now — repeating them in the
+          // modal's subtitle just said the same thing twice.
+          title={t("actions.title", {
+            name: selected.student_name ?? t("calendar.unnamedStudent"),
+          })}
           size="md"
         >
           <SessionActions
@@ -613,6 +658,102 @@ export function WeeklyCalendar({
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ── Loading skeleton ──────────────────────────────────────────────────────────
+
+/**
+ * The first-load placeholder. It mirrors the shape of the view it's standing in for — a 6×7 grid
+ * of cells for Month, stacked rows for List, a column-and-gutter frame for Week/Day — so the
+ * layout doesn't jump when the real feed lands.
+ */
+function CalendarSkeleton({ view }: { view: CalendarView }) {
+  const bar = "bg-muted animate-pulse rounded-md";
+
+  if (view === "list") {
+    return (
+      <div
+        className="bg-card divide-y overflow-hidden rounded-2xl border shadow-sm"
+        data-testid="calendar-skeleton"
+        aria-busy
+      >
+        {Array.from({ length: 6 }, (_, i) => (
+          <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+            <div className={cn(bar, "h-10 w-1 rounded-full")} />
+            <div className={cn(bar, "h-9 w-14")} />
+            <div className="flex flex-1 flex-col gap-1.5">
+              <div className={cn(bar, "h-3.5 w-32")} />
+              <div className={cn(bar, "h-3 w-20")} />
+            </div>
+            <div className={cn(bar, "h-6 w-20 rounded-full")} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (view === "month") {
+    return (
+      <div
+        className="bg-card overflow-hidden rounded-2xl border shadow-sm"
+        data-testid="calendar-skeleton"
+        aria-busy
+      >
+        <div className="grid grid-cols-7 [&>*]:border-t [&>*]:border-s [&>*:nth-child(7n+1)]:border-s-0">
+          {Array.from({ length: 42 }, (_, i) => (
+            <div key={i} className="min-h-28 space-y-1.5 p-1.5 sm:min-h-32">
+              <div className={cn(bar, "size-6 rounded-full")} />
+              {i % 3 === 0 && <div className={cn(bar, "h-4 w-full")} />}
+              {i % 4 === 0 && <div className={cn(bar, "h-4 w-4/5")} />}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const cols = view === "day" ? 1 : 7;
+  return (
+    <div
+      className="bg-card overflow-hidden rounded-2xl border shadow-sm"
+      data-testid="calendar-skeleton"
+      aria-busy
+    >
+      <div
+        className="grid border-b"
+        style={{ gridTemplateColumns: `4rem repeat(${cols}, minmax(0, 1fr))` }}
+      >
+        <div className="border-e" />
+        {Array.from({ length: cols }, (_, i) => (
+          <div key={i} className="flex flex-col items-center gap-1 border-s py-2.5">
+            <div className={cn(bar, "h-3 w-8")} />
+            <div className={cn(bar, "size-8 rounded-full")} />
+          </div>
+        ))}
+      </div>
+      <div
+        className="grid"
+        style={{ gridTemplateColumns: `4rem repeat(${cols}, minmax(0, 1fr))` }}
+      >
+        <div className="space-y-6 border-e p-2 pt-3">
+          {Array.from({ length: 8 }, (_, i) => (
+            <div key={i} className={cn(bar, "h-2.5 w-9")} />
+          ))}
+        </div>
+        {Array.from({ length: cols }, (_, c) => (
+          <div key={c} className="space-y-3 border-s p-2 pt-3">
+            {Array.from({ length: 3 }, (_, i) => (
+              <div
+                key={i}
+                className={cn(bar, "w-full")}
+                style={{ height: `${[52, 34, 68][(c + i) % 3]}px` }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

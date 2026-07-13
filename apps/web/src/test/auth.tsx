@@ -1,6 +1,7 @@
 import { NextIntlClientProvider } from "next-intl";
 import { vi } from "vitest";
 import { AuthContext } from "@/components/auth-provider";
+import { ThemeProvider } from "@/components/theme-provider";
 import type { AppRole, Session } from "@/lib/api";
 import arMessages from "../../messages/ar.json";
 
@@ -45,14 +46,25 @@ export function makeSession(
   role: AppRole,
   overrides: Partial<Session> = {},
 ): Session {
-  return {
+  const session: Session = {
     user: { id: "u1", fullName: "Test User", email: "test@example.com" },
     role,
     academyId: role === "SUPER_ADMIN" ? null : "academy-1",
     permissions: PERMISSIONS_BY_ROLE[role],
     locale: "ar",
+    capabilities: null,
     ...overrides,
   };
+
+  // Plan capabilities ship with the session (GET /auth/me), so they follow the academy scope:
+  // an academy resolves a plan, a platform Super Admin has none. A test that cares about a
+  // specific plan — a locked feature, a video-only academy — passes `capabilities` explicitly.
+  if (!("capabilities" in overrides)) {
+    session.capabilities =
+      session.academyId === null ? null : ["video.conferencing"];
+  }
+
+  return session;
 }
 
 export function authValue(session: Session | null, overrides = {}) {
@@ -69,16 +81,23 @@ export function authValue(session: Session | null, overrides = {}) {
   };
 }
 
+/**
+ * Renders `children` inside the same providers the real tree gives them. ThemeProvider is part of
+ * that contract: the root layout always supplies it, and the header's theme toggle calls useTheme(),
+ * which throws without one — so a harness that omits it would fail for a reason the app never hits.
+ */
 export function withAuth(
   session: Session | null,
   children: React.ReactNode,
   overrides = {},
 ) {
   return (
-    <NextIntlClientProvider locale="ar" messages={arMessages}>
-      <AuthContext.Provider value={authValue(session, overrides)}>
-        {children}
-      </AuthContext.Provider>
-    </NextIntlClientProvider>
+    <ThemeProvider>
+      <NextIntlClientProvider locale="ar" messages={arMessages}>
+        <AuthContext.Provider value={authValue(session, overrides)}>
+          {children}
+        </AuthContext.Provider>
+      </NextIntlClientProvider>
+    </ThemeProvider>
   );
 }

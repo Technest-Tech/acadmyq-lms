@@ -104,7 +104,7 @@ it('expires a lapsed trial: pauses the subscription and suspends the academy (id
     ]);
 
     $job = new ExpireAcademyTrialsJob($academyId);
-    $out = $job->handle(app(AcademyBilling::class));
+    $out = $job->handle(app(AcademyBilling::class), app(\App\Services\ModuleBilling::class));
     expect($out[$academyId]['expired'])->toBeTrue();
     expect($out[$academyId]['suspended'])->toBeTrue();
 
@@ -114,7 +114,7 @@ it('expires a lapsed trial: pauses the subscription and suspends the academy (id
     expect(DB::table('academies')->where('id', $academyId)->value('status'))->toBe('SUSPENDED');
 
     // Idempotent: a second run is a no-op (no error, still paused/suspended).
-    $out2 = (new ExpireAcademyTrialsJob($academyId))->handle(app(AcademyBilling::class));
+    $out2 = (new ExpireAcademyTrialsJob($academyId))->handle(app(AcademyBilling::class), app(\App\Services\ModuleBilling::class));
     expect($out2[$academyId]['expired'])->toBeFalse();
 });
 

@@ -1,43 +1,53 @@
 "use client";
 
 import {
-  CalendarCheck,
   CalendarClock,
-  CalendarX,
   Clock,
   GraduationCap,
-  Layers,
   type LucideIcon,
   Users,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useMemo } from "react";
-import type { CalendarSession, TimetableSummary } from "@/lib/api";
+import type { TimetableSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { STATUS_DOT, STATUS_ORDER } from "./utils";
 
-/** Shared tile shape for both summary strips. */
+/** Shared tile shape for the summary strip. */
 interface Tile {
   key: string;
   label: string;
   value: number | string;
   Icon: LucideIcon;
+  /** Text colour for the glyph. */
   tint: string;
+  /** Matching wash for the glyph's plate. */
+  plate: string;
 }
 
 function SummaryTiles({ tiles }: { tiles: Tile[] }) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-      {tiles.map(({ key, label, value, Icon, tint }) => (
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+      {tiles.map(({ key, label, value, Icon, tint, plate }) => (
         <div
           key={key}
           data-testid={`summary-${key}`}
-          className="bg-card flex items-center gap-3 rounded-xl border px-3.5 py-2.5 shadow-sm"
+          className="bg-card flex items-center gap-3 rounded-2xl border px-3.5 py-3 shadow-sm transition-shadow hover:shadow-md"
         >
-          <Icon className={cn("size-5 shrink-0", tint)} aria-hidden />
+          <span
+            className={cn(
+              "flex size-9 shrink-0 items-center justify-center rounded-xl ring-1",
+              plate,
+            )}
+          >
+            <Icon className={cn("size-4.5", tint)} aria-hidden />
+          </span>
           <div className="min-w-0">
-            <div className="text-xl leading-none font-bold tabular-nums">{value}</div>
-            <div className="text-muted-foreground truncate text-xs">{label}</div>
+            <div className="text-xl leading-none font-bold tabular-nums">
+              {value}
+            </div>
+            <div className="text-muted-foreground mt-1 truncate text-xs font-medium">
+              {label}
+            </div>
           </div>
         </div>
       ))}
@@ -46,74 +56,12 @@ function SummaryTiles({ tiles }: { tiles: Tile[] }) {
 }
 
 /**
- * A premium at-a-glance strip: four summary tiles (total / scheduled / attended / cancelled)
- * computed from the sessions in the current range, plus the status colour legend. Purely a
- * read-out — it never refetches; it derives everything from the feed already on screen.
- */
-export function CalendarSummary({ sessions }: { sessions: CalendarSession[] }) {
-  const t = useTranslations("scheduling");
-
-  const counts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const s of sessions) c[s.status] = (c[s.status] ?? 0) + 1;
-    return c;
-  }, [sessions]);
-
-  const cancelled =
-    (counts.CANCELLED_BY_TEACHER ?? 0) + (counts.CANCELLED_BY_STUDENT ?? 0);
-
-  const tiles: Tile[] = [
-    {
-      key: "total",
-      label: t("calendar.summary.total"),
-      value: sessions.length,
-      Icon: Layers,
-      tint: "text-foreground",
-    },
-    {
-      key: "scheduled",
-      label: t("status.SCHEDULED"),
-      value: counts.SCHEDULED ?? 0,
-      Icon: CalendarClock,
-      tint: "text-blue-500",
-    },
-    {
-      key: "attended",
-      label: t("status.ATTENDED"),
-      value: counts.ATTENDED ?? 0,
-      Icon: CalendarCheck,
-      tint: "text-emerald-500",
-    },
-    {
-      key: "cancelled",
-      label: t("calendar.summary.cancelled"),
-      value: cancelled,
-      Icon: CalendarX,
-      tint: "text-red-500",
-    },
-  ];
-
-  return (
-    <div className="space-y-3">
-      <SummaryTiles tiles={tiles} />
-
-      {/* Status legend */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-0.5">
-        {STATUS_ORDER.map((status) => (
-          <span key={status} className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
-            <span className={cn("size-2 rounded-full", STATUS_DOT[status])} aria-hidden />
-            {t(`status.${status}`)}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/**
- * The summary strip for the List/Timetables section: four tiles describing the recurring
- * weekly load — how many timetables, how many weekly sessions, the total weekly hours, and how
- * many distinct teachers carry them. Period-independent; derived from the timetable roster.
+ * The summary strip for the Timetables tab: four tiles describing the recurring weekly load —
+ * how many timetables, how many weekly sessions, the total weekly hours, and how many distinct
+ * teachers carry them. Period-independent; derived from the timetable roster.
+ *
+ * The Calendar tab has no such strip: its numbers only ever restated what the grid already
+ * showed, and the status dropdown carries the filtering they used to hint at.
  */
 export function TimetablesSummary({
   timetables,
@@ -142,34 +90,34 @@ export function TimetablesSummary({
       label: t("timetables.summary.count"),
       value: timetables.length,
       Icon: Users,
-      tint: "text-violet-500",
+      tint: "text-violet-600 dark:text-violet-400",
+      plate: "bg-violet-500/10 ring-violet-500/20",
     },
     {
       key: "weekly-sessions",
       label: t("timetables.summary.weeklySessions"),
       value: slots,
       Icon: CalendarClock,
-      tint: "text-blue-500",
+      tint: "text-blue-600 dark:text-blue-400",
+      plate: "bg-blue-500/10 ring-blue-500/20",
     },
     {
       key: "weekly-hours",
       label: t("timetables.summary.weeklyHours"),
       value: Math.round((minutes / 60) * 10) / 10,
       Icon: Clock,
-      tint: "text-emerald-500",
+      tint: "text-emerald-600 dark:text-emerald-400",
+      plate: "bg-emerald-500/10 ring-emerald-500/20",
     },
     {
       key: "teachers",
       label: t("timetables.summary.teachers"),
       value: teachers,
       Icon: GraduationCap,
-      tint: "text-amber-500",
+      tint: "text-amber-600 dark:text-amber-400",
+      plate: "bg-amber-500/10 ring-amber-500/20",
     },
   ];
 
-  return (
-    <div className="space-y-3">
-      <SummaryTiles tiles={tiles} />
-    </div>
-  );
+  return <SummaryTiles tiles={tiles} />;
 }

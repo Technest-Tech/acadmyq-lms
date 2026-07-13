@@ -12,9 +12,11 @@ export const metadata: Metadata = {
 };
 
 interface PageProps {
-  params: { token: string };
+  params: Promise<{ token: string }>;
 }
 
-export default function RoomJoinPage({ params }: PageProps) {
-  return <CallExperience token={params.token} />;
+export default async function RoomJoinPage({ params }: PageProps) {
+  const { token } = await params;
+
+  return <CallExperience token={token} />;
 }

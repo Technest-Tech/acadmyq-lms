@@ -138,6 +138,13 @@ export interface Session {
   academyId: string | null;
   permissions: string[];
   locale: "ar" | "en";
+  /**
+   * The academy's resolved plan capabilities, delivered with the session so the shell can gate the
+   * nav without a second round-trip. `null` = no academy scope (a platform Super Admin has no plan)
+   * — distinct from `[]`, an academy whose plan grants nothing. For limits/usage/add-ons, the
+   * fuller `getEntitlements()` payload is still the source.
+   */
+  capabilities: string[] | null;
 }
 
 export interface LoginResult {
@@ -241,6 +248,8 @@ export interface Plan {
   name: string;
   price_minor: number;
   currency: string;
+  /** The sellable module this plan belongs to (R1, plans.module). */
+  module?: "MANAGEMENT" | "VIDEO" | "WHATSAPP";
   is_active: boolean;
 }
 
@@ -396,6 +405,192 @@ export function getMySubscription(): Promise<{
   return apiFetch("/api/my-subscription");
 }
 
+// ── Client-first Super Admin surface (R1/R2, docs/superadmin-modules/04) ─────
+// One client (academies row) holds up to three module subscriptions — MANAGEMENT / VIDEO /
+// WHATSAPP — each with its own plan, trial clock and lifecycle. These endpoints are THE one
+// writer for module on/off / plan / trial / activate / pause ("one writer per fact").
+
+export type ModuleCode = "MANAGEMENT" | "VIDEO" | "WHATSAPP";
+
+export const MODULE_CODES: readonly ModuleCode[] = [
+  "MANAGEMENT",
+  "VIDEO",
+  "WHATSAPP",
+];
+
+/** One module's live subscription as returned by the client endpoints. */
+export interface ModuleSubscription {
+  id: string;
+  module: ModuleCode;
+  status: "ACTIVE" | "PAUSED" | "ENDED";
+  is_trial: boolean;
+  trial_start: string | null;
+  trial_end: string | null;
+  activated_at: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  billing_interval: "MONTHLY" | "YEARLY";
+  base_price_minor: number;
+  addons_price_minor: number;
+  total_cost_minor: number;
+  currency: string;
+  overrides: Record<string, unknown> | string | null;
+  plan_id: string | null;
+  plan_code?: string | null;
+  plan_name?: string | null;
+}
+
+/** The per-module chip summary each directory row carries. */
+export interface ClientModuleChip {
+  module: ModuleCode;
+  status: "ACTIVE" | "PAUSED";
+  is_trial: boolean;
+  trial_end: string | null;
+  plan_id: string | null;
+  plan_code: string | null;
+  plan_name: string | null;
+  billing_interval: "MONTHLY" | "YEARLY";
+  current_period_end: string | null;
+  total_cost_minor: number;
+  currency: string;
+}
+
+export interface ClientDirectoryEntry {
+  id: string;
+  name: string;
+  status: "ACTIVE" | "TRIAL" | "SUSPENDED";
+  suspended_reason: string | null;
+  default_currency: string;
+  timezone: string;
+  subdomain: string | null;
+  created_at: string;
+  owner_email: string | null;
+  student_count: number;
+  teacher_count: number;
+  modules: ClientModuleChip[];
+}
+
+export interface ClientDetail {
+  client: {
+    id: string;
+    name: string;
+    status: "ACTIVE" | "TRIAL" | "SUSPENDED";
+    suspended_at: string | null;
+    suspended_reason: string | null;
+    plan_id: string | null;
+    default_currency: string;
+    timezone: string;
+    invoice_grouping: string;
+    billing_day: number;
+    brand_display_name: string | null;
+    brand_logo_url: string | null;
+    subdomain: string | null;
+    created_at: string;
+  };
+  modules: ModuleSubscription[];
+  addOns: {
+    code: string;
+    name: string;
+    feature_key: string;
+    price_minor: number;
+    currency: string;
+  }[];
+}
+
+export function listClients(): Promise<{ clients: ClientDirectoryEntry[] }> {
+  return apiFetch("/api/admin/clients");
+}
+
+export function getClient(id: string): Promise<ClientDetail> {
+  return apiFetch(`/api/admin/clients/${id}`);
+}
+
+/**
+ * Provision a WHATSAPP-ONLY external client (R4, M-CLI-2): a lightweight client with NO owner
+ * login — connected by QR from its client page and served over the external API.
+ */
+export function createWhatsappOnlyClient(input: {
+  name: string;
+  plan_id?: string | null;
+  mode: "trial" | "active";
+  trial_days?: number;
+}): Promise<{ clientId: string }> {
+  return apiFetch("/api/admin/clients", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Enable a module: attach a plan and start a trial or an immediately-active paid period. */
+export function enableClientModule(
+  clientId: string,
+  module: ModuleCode,
+  input: { plan_id?: string | null; mode: "trial" | "active"; trial_days?: number },
+): Promise<{ subscription: ModuleSubscription }> {
+  return apiFetch(
+    `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/subscription`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function updateClientModule(
+  clientId: string,
+  module: ModuleCode,
+  patch: {
+    plan_id?: string | null;
+    billing_interval?: "MONTHLY" | "YEARLY";
+    activated_at?: string | null;
+    current_period_start?: string | null;
+    current_period_end?: string | null;
+  },
+): Promise<{ subscription: ModuleSubscription }> {
+  return apiFetch(
+    `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/subscription`,
+    { method: "PUT", body: JSON.stringify(patch) },
+  );
+}
+
+export function extendClientModuleTrial(
+  clientId: string,
+  module: ModuleCode,
+  days: number,
+): Promise<{ subscription: ModuleSubscription }> {
+  return apiFetch(
+    `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/subscription/trial`,
+    { method: "POST", body: JSON.stringify({ days }) },
+  );
+}
+
+export function activateClientModule(
+  clientId: string,
+  module: ModuleCode,
+): Promise<{ subscription: ModuleSubscription }> {
+  return apiFetch(
+    `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/subscription/activate`,
+    { method: "POST" },
+  );
+}
+
+export function pauseClientModule(
+  clientId: string,
+  module: ModuleCode,
+): Promise<{ subscription: ModuleSubscription }> {
+  return apiFetch(
+    `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/subscription/pause`,
+    { method: "POST" },
+  );
+}
+
+export function endClientModule(
+  clientId: string,
+  module: ModuleCode,
+): Promise<{ ok: boolean }> {
+  return apiFetch(
+    `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/subscription/end`,
+    { method: "POST" },
+  );
+}
+
 /** A platform bill issued to an academy for its SaaS subscription. */
 export interface AcademyBill {
   id: string;
@@ -413,6 +608,11 @@ export interface AcademyBill {
   public_token: string;
   sent_at: string | null;
   reminder_count: number;
+  /** Per-module composition snapshot at generation (R3, M-BILL-1); jsonb may arrive stringified. */
+  module_breakdown?:
+    | { module: ModuleCode; total_minor: number; currency: string }[]
+    | string
+    | null;
 }
 
 export function listAcademyBills(
@@ -1709,6 +1909,19 @@ export interface SubscriptionInput {
   currency?: string | null;
   price_basis?: "PER_SESSION" | "PER_MONTH" | "PER_HOUR";
   start_date: string;
+  /**
+   * Also re-price the sessions already billed onto this student's OPEN invoices at the new
+   * rate — the correction path for a price that was entered wrong. Off by default so a genuine
+   * mid-term rate change never retroactively re-bills lessons taught at the old rate. Closed and
+   * paid invoices are never touched.
+   */
+  reprice_open?: boolean;
+}
+
+/** What a reprice would recalculate (GET /api/students/{id}/subscription/reprice-preview). */
+export interface RepricePreview {
+  sessions: number;
+  invoices: number;
 }
 
 export interface StudentInput {
@@ -1819,11 +2032,16 @@ export function deleteStudent(
 export function setSubscription(
   studentId: string,
   input: SubscriptionInput,
-): Promise<{ subscriptionId: string }> {
+): Promise<{ subscriptionId: string; repriced: RepricePreview }> {
   return apiFetch(`/api/students/${studentId}/subscription`, {
     method: "PUT",
     body: JSON.stringify(input),
   });
+}
+
+/** How many billed sessions on how many OPEN invoices a reprice would recalculate. */
+export function getRepricePreview(studentId: string): Promise<RepricePreview> {
+  return apiFetch(`/api/students/${studentId}/subscription/reprice-preview`);
 }
 
 export function changeSubscriptionPrice(
@@ -1832,8 +2050,9 @@ export function changeSubscriptionPrice(
     price_minor: number;
     currency?: string;
     price_basis?: "PER_SESSION" | "PER_MONTH" | "PER_HOUR";
+    reprice_open?: boolean;
   },
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; repriced: RepricePreview }> {
   return apiFetch(`/api/students/${studentId}/subscription/price`, {
     method: "PATCH",
     body: JSON.stringify(input),
@@ -2944,6 +3163,8 @@ export interface PlanInput {
   name: string;
   price_minor: number;
   currency: string;
+  /** The sellable module this plan belongs to (R3; defaults to MANAGEMENT server-side). */
+  module?: "MANAGEMENT" | "VIDEO" | "WHATSAPP";
   features: PlanFeatures;
   is_active: boolean;
 }

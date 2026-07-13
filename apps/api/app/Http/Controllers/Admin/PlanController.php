@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Services\AcademyBilling;
+use App\Services\ModuleBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\FeatureCatalog;
@@ -67,6 +68,8 @@ final class PlanController extends Controller
             'name' => ['required', 'string', 'max:255'],
             'price_minor' => ['required', 'integer', 'min:0'],
             'currency' => ['required', 'string', 'size:3'],
+            // R1: a plan belongs to exactly one sellable module (plans.module, M-UI-2).
+            'module' => ['sometimes', Rule::in(['MANAGEMENT', 'WHATSAPP', 'VIDEO'])],
             'features' => ['nullable', 'array'],
             'is_active' => ['sometimes', 'boolean'],
         ]);
@@ -78,6 +81,7 @@ final class PlanController extends Controller
             'name' => $data['name'],
             'price_minor' => $data['price_minor'],
             'currency' => strtoupper($data['currency']),
+            'module' => $data['module'] ?? 'MANAGEMENT',
             'features' => json_encode($data['features'] ?? (object) []),
             'is_active' => $data['is_active'] ?? true,
         ]);
@@ -100,6 +104,7 @@ final class PlanController extends Controller
             'name' => ['sometimes', 'string', 'max:255'],
             'price_minor' => ['sometimes', 'integer', 'min:0'],
             'currency' => ['sometimes', 'string', 'size:3'],
+            'module' => ['sometimes', Rule::in(['MANAGEMENT', 'WHATSAPP', 'VIDEO'])],
             'features' => ['sometimes', 'array'],
             'is_active' => ['sometimes', 'boolean'],
         ]);
@@ -133,20 +138,39 @@ final class PlanController extends Controller
     /**
      * Recompute the snapshot cost of every academy currently on $planId, each inside its own
      * tenant context (RLS `with check`). Keeps subscriptions in sync after a plan-catalog edit.
+     * R1: module-engine academies reprice per module sub (which refreshes the legacy mirror);
+     * legacy-only academies keep the old single-row recompute. Module subs on this plan are found
+     * under a platform-level SUPER_ADMIN read (module_subscriptions is tenant-RLS'd).
      */
     private function resyncSubscriptionsForPlan(string $planId): void
     {
         $billing = app(AcademyBilling::class);
+        $engine = app(ModuleBilling::class);
         $actorId = app(AuthContext::class)->userId;
 
-        foreach (DB::table('academies')->where('plan_id', $planId)->pluck('id') as $academyId) {
+        // module_subscriptions is tenant-RLS'd (hidden from a contextless Super Admin), so the plan's
+        // users can only be found inside each academy's own context — enumerate academies (the
+        // academies policy admits a Super Admin) and check per academy. Plan edits are rare; the
+        // platform roster is small.
+        foreach (DB::table('academies')->pluck('id') as $academyId) {
+            $academyId = (string) $academyId;
             $ctx = new AuthContext(
                 userId: $actorId,
-                academyId: (string) $academyId,
+                academyId: $academyId,
                 role: 'SUPER_ADMIN',
                 permissions: [],
             );
-            Tenancy::withContext($ctx, fn () => $billing->recomputeTotals((string) $academyId));
+            Tenancy::withContext($ctx, function () use ($academyId, $planId, $billing, $engine) {
+                $subs = $engine->all($academyId);
+                $onModulePlan = $subs->contains(fn (object $s): bool => (string) $s->plan_id === $planId);
+                $onLegacyPlan = (string) DB::table('academies')->where('id', $academyId)->value('plan_id') === $planId;
+
+                if (! $onModulePlan && ! $onLegacyPlan) {
+                    return;
+                }
+
+                $subs->isEmpty() ? $billing->recomputeTotals($academyId) : $engine->recompute($academyId);
+            });
         }
     }
 

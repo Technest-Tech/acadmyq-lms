@@ -1,5 +1,11 @@
 # 03 — Roadmap (phased, test-gated)
 
+> **⚠️ SUPERSEDED for the remaining phases (2026-07-12):** after owner feedback, the panel took the
+> **client-first** track — see [04-CLIENT-FIRST-REDESIGN.md](04-CLIENT-FIRST-REDESIGN.md), which
+> replaces Phases 2c/3/4-route-reorg/5/6 with R1–R5 (R1+R2 done). Phases 0–2b and the Phase-4
+> sidebar work below remain accurate history (the module-dropdown sidebar was replaced by the flat
+> list in R2).
+
 > Living plan. We build **one phase at a time, in order** (`M-PROC-1`). Each phase lists scope,
 > backend/frontend work, acceptance criteria (`AC-M*`), test cases (`TC-M*`), and checkboxes. The
 > hard gate is **Phase 2 parity** (`M-ENT-1`) — do not remove the old resolver until it is green.

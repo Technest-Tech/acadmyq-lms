@@ -65,6 +65,23 @@ export function timeInTz(utcIso: string, tz: string, locale: string): string {
   }).format(new Date(utcIso));
 }
 
+/** Trim a UTC ISO instant to the "YYYY-MM-DDTHH:mm" a datetime-local input expects, in tz. */
+export function toLocalInput(utcIso: string, tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(utcIso));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  // Intl renders midnight as "24" in some engines; fold it back to 00.
+  const hour = String(Number(get("hour")) % 24).padStart(2, "0");
+  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}`;
+}
+
 /** Minutes past local midnight for an instant, in the viewer timezone. */
 export function minutesIntoDay(utcIso: string, tz: string): number {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -120,6 +137,33 @@ export const STATUS_DOT: Record<SessionStatus, string> = {
   RESCHEDULED: "bg-purple-500",
 };
 
+/**
+ * The solid accent rail drawn down the leading edge of an event block. A saturated bar reads
+ * the status at a glance even when the block is too short to show its status text — which is
+ * the common case for a 30-minute lesson.
+ */
+export const STATUS_RAIL: Record<SessionStatus, string> = {
+  SCHEDULED: "bg-blue-500",
+  ATTENDED: "bg-emerald-500",
+  FREE: "bg-teal-500",
+  ABSENT_UNEXCUSED: "bg-amber-500",
+  ABSENT_EXCUSED: "bg-slate-400",
+  CANCELLED_BY_TEACHER: "bg-red-500",
+  CANCELLED_BY_STUDENT: "bg-red-500",
+  RESCHEDULED: "bg-purple-500",
+};
+
+/** Statuses that read as "this lesson did not happen" — rendered struck-through / faded. */
+const VOID_STATUSES = new Set<SessionStatus>([
+  "CANCELLED_BY_TEACHER",
+  "CANCELLED_BY_STUDENT",
+  "RESCHEDULED",
+]);
+
+export function isVoided(status: SessionStatus): boolean {
+  return VOID_STATUSES.has(status);
+}
+
 /** Every status, in the order legends and summaries read them. */
 export const STATUS_ORDER: SessionStatus[] = [
   "SCHEDULED",
@@ -174,6 +218,51 @@ export function weekRangeLabel(start: string, locale: string): string {
     timeZone: "UTC",
   }).format(atNoon(end));
   return `${startFmt} – ${endFmt}`;
+}
+
+// ── The visible hour window ─────────────────────────────────────────────────
+
+/** The hours a grid falls back to when it has nothing to show (a normal teaching day). */
+export const DEFAULT_DAY_START = 8;
+export const DEFAULT_DAY_END = 21;
+
+/**
+ * The band of hours the time grid actually paints. Rendering a full 24 hours means most of what
+ * the user scrolls through is empty night — and it squeezes every event block down to where a
+ * 30-minute lesson can no longer fit its own text. So the window is derived from the feed:
+ * every session is guaranteed to be inside it, padded by an hour on each side, and it never
+ * shrinks below the default teaching day. `full` opts back into the whole 24 hours.
+ */
+export function hourWindow(
+  sessions: CalendarSession[],
+  tz: string,
+  full = false,
+): { startHour: number; endHour: number } {
+  if (full) return { startHour: 0, endHour: 24 };
+
+  let lo = DEFAULT_DAY_START;
+  let hi = DEFAULT_DAY_END;
+  for (const s of sessions) {
+    const start = minutesIntoDay(s.scheduled_at_utc, tz);
+    // A session that runs past midnight is clamped to the end of the day — its block is drawn
+    // to 24:00 rather than wrapping onto the next column.
+    const end = Math.min(start + s.duration_minutes, 24 * 60);
+    lo = Math.min(lo, Math.floor(start / 60));
+    hi = Math.max(hi, Math.ceil(end / 60));
+  }
+  return {
+    startHour: Math.max(0, lo - 1),
+    endHour: Math.min(24, hi + 1),
+  };
+}
+
+/** "9:00 AM – 9:30 AM" — the full span of a session in the viewer's timezone. */
+export function rangeInTz(
+  s: CalendarSession,
+  tz: string,
+  locale: string,
+): string {
+  return `${timeInTz(s.scheduled_at_utc, tz, locale)} – ${timeInTz(endUtc(s), tz, locale)}`;
 }
 
 /** Group sessions by their local calendar date (viewer tz), each list time-sorted. */

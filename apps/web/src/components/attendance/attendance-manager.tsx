@@ -3,21 +3,30 @@
 import { SESSION_STATUS } from "@academiq/contracts";
 import {
   CalendarClock,
+  CalendarPlus,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Clock,
   FileSpreadsheet,
   Loader2,
   MessageCircle,
+  RotateCcw,
   Search,
   Sparkles,
   UserX,
   X,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+} from "react";
 import { AttendanceReportModal } from "@/components/attendance/attendance-report-modal";
+import { CreateClassModal } from "@/components/attendance/create-class-modal";
+import { RescheduleModal } from "@/components/attendance/reschedule-modal";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
@@ -44,27 +53,6 @@ function dayBounds(dateStr: string): { from: string; to: string } {
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
   return { from: start.toISOString(), to: end.toISOString() };
-}
-
-function shiftDay(dateStr: string, delta: number): string {
-  const d = new Date(`${dateStr}T00:00:00`);
-  d.setDate(d.getDate() + delta);
-  const off = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - off).toISOString().slice(0, 10);
-}
-
-/** The 7 YYYY-MM-DD strings for the ISO week (Mon–Sun) containing `dateStr`. */
-function weekDays(dateStr: string): string[] {
-  const d = new Date(`${dateStr}T00:00:00`);
-  const dow = d.getDay(); // 0 = Sun
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - ((dow + 6) % 7));
-  return Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(monday);
-    day.setDate(monday.getDate() + i);
-    const off = day.getTimezoneOffset() * 60000;
-    return new Date(day.getTime() - off).toISOString().slice(0, 10);
-  });
 }
 
 // ── Status → subtle row tint ────────────────────────────────────────────────
@@ -94,8 +82,14 @@ export function AttendanceManager() {
   const tSched = useTranslations("scheduling");
   const tDt = useTranslations("datatable");
   const locale = useLocale();
-  const { session: auth } = useAuth();
+  const { session: auth, can } = useAuth();
   const isTeacher = auth?.role === "TEACHER";
+  // A session can only be moved while it is still SCHEDULED (the server marks the origin
+  // RESCHEDULED and mints the successor), so the action only appears on those rows.
+  const canReschedule = can("session.reschedule");
+  // Owners and teachers alike may log a one-off class the timetable never produced; the API
+  // confines a teacher to their own roster.
+  const canCreateClass = can("session.create");
 
   const [date, setDate] = useState<string>(() => todayStr());
   const [teacherId, setTeacherId] = useState("");
@@ -107,6 +101,8 @@ export function AttendanceManager() {
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selected>(null);
+  const [rescheduling, setRescheduling] = useState<DaySession | null>(null);
+  const [creating, setCreating] = useState(false);
   // Optimistic status overrides: updated immediately when attendance is recorded so
   // the row reflects the new status before the next full reload.
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
@@ -117,27 +113,25 @@ export function AttendanceManager() {
     () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
     [locale],
   );
-  const dayNameFmt = useMemo(
-    () => new Intl.DateTimeFormat(locale, { weekday: "short" }),
-    [locale],
-  );
-  const dayNumFmt = useMemo(
-    () => new Intl.DateTimeFormat(locale, { day: "numeric" }),
-    [locale],
-  );
 
-  // Honour a deep link from the calendar — /attendance?session=<id>&date=<d>&name=<n> —
-  // by jumping to that day and opening the session's attendance report straight away. Read
-  // once on mount, then strip the query so a refresh or modal close doesn't reopen it.
+  // Honour a deep link from the calendar — /attendance?session=<id>&date=<d>&name=<n> — by
+  // jumping to that day and opening the session's attendance report straight away.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const sid = params.get("session");
-    if (!sid) return;
     const linkedDate = params.get("date");
+    const sid = params.get("session");
     if (linkedDate) setDate(linkedDate);
-    setSelected({ id: sid, name: params.get("name") });
-    window.history.replaceState(null, "", "/attendance");
+    if (sid) setSelected({ id: sid, name: params.get("name") });
   }, []);
+
+  // The day on screen IS the URL. Keeping ?date there means a refresh (or a shared link) lands
+  // back on the same day instead of silently snapping to today and appearing to lose rows —
+  // which is invisible now that the day navigator is gone. `session`/`name` are deliberately
+  // NOT carried over: they mean "open this report once", so a refresh must not reopen it.
+  useEffect(() => {
+    const url = date === todayStr() ? "/attendance" : `/attendance?date=${date}`;
+    window.history.replaceState(null, "", url);
+  }, [date]);
 
   useEffect(() => {
     if (isTeacher) return;
@@ -146,7 +140,13 @@ export function AttendanceManager() {
       .catch(() => setTeachers([]));
   }, [isTeacher]);
 
+  // A deep link fires two loads back to back (today on mount, then the linked day), and the
+  // filters can outrun each other too. Stamp each request and let only the newest one land, so
+  // a slow response for the day you just left can never overwrite the day you are looking at.
+  const reqSeq = useRef(0);
+
   const load = useCallback(async () => {
+    const seq = ++reqSeq.current;
     setSessions(null);
     setStatusOverrides({});
     setError(null);
@@ -159,8 +159,10 @@ export function AttendanceManager() {
         status: status || undefined,
         trial_only: trialOnly || undefined,
       });
+      if (seq !== reqSeq.current) return; // superseded
       setSessions(res.sessions);
     } catch (err) {
+      if (seq !== reqSeq.current) return; // superseded
       setError(err instanceof Error ? err.message : String(err));
     }
   }, [date, teacherId, status, trialOnly]);
@@ -169,9 +171,10 @@ export function AttendanceManager() {
     void load();
   }, [load]);
 
+  // With the day navigator gone the page sits on today, except when the calendar deep-links a
+  // past/future session — hence the "today" escape hatch in the header still has a job to do.
   const today = todayStr();
   const isToday = date === today;
-  const week = useMemo(() => weekDays(date), [date]);
 
   // Client-side text search over student / teacher name
   const filteredSessions = useMemo(() => {
@@ -289,91 +292,24 @@ export function AttendanceManager() {
           <h1 className="text-2xl font-bold tracking-tight">{t("managerTitle")}</h1>
           <p className="text-muted-foreground mt-0.5 text-sm">{t("managerSubtitle")}</p>
         </div>
-        {!isToday && (
-          <Button type="button" variant="outline" size="sm" onClick={() => setDate(today)}>
-            {t("today")}
-          </Button>
-        )}
-      </div>
-
-      {/* ── Date navigator + week strip ───────────────────────────────────── */}
-      <div className="bg-card rounded-2xl border p-4 shadow-sm">
-        <div className="mb-3 flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            aria-label={t("prevDay")}
-            onClick={() => setDate((d) => shiftDay(d, -1))}
-          >
-            <ChevronLeft className="size-4 rtl:rotate-180" />
-          </Button>
-          <input
-            type="date"
-            aria-label={t("date")}
-            value={date}
-            onChange={(e) => setDate(e.target.value || today)}
-            className="border-input bg-background focus:border-primary focus:ring-primary/15 h-9 flex-1 rounded-xl border px-3 text-sm outline-none focus:ring-3 sm:flex-none"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            aria-label={t("nextDay")}
-            onClick={() => setDate((d) => shiftDay(d, 1))}
-          >
-            <ChevronRight className="size-4 rtl:rotate-180" />
-          </Button>
-          <span className="text-muted-foreground hidden truncate text-sm sm:block">
-            {dayLabel}
-          </span>
-        </div>
-
-        {/* Week strip — Mon through Sun */}
-        <div className="grid grid-cols-7 gap-1">
-          {week.map((d) => {
-            const isSelected = d === date;
-            const isCurrentDay = d === today;
-            const dDate = new Date(`${d}T00:00:00`);
-            return (
-              <button
-                key={d}
-                type="button"
-                onClick={() => setDate(d)}
-                className={cn(
-                  "flex flex-col items-center rounded-xl px-1 py-2 text-center transition-colors",
-                  isSelected
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "hover:bg-muted/50",
-                )}
-              >
-                <span
-                  className={cn(
-                    "text-[10px] font-medium uppercase",
-                    isSelected ? "opacity-80" : "text-muted-foreground",
-                  )}
-                >
-                  {dayNameFmt.format(dDate)}
-                </span>
-                <span
-                  className={cn(
-                    "mt-0.5 text-sm font-bold tabular-nums",
-                    isCurrentDay && !isSelected && "text-primary",
-                  )}
-                >
-                  {dayNumFmt.format(dDate)}
-                </span>
-                {isCurrentDay && (
-                  <span
-                    className={cn(
-                      "mt-1 size-1.5 rounded-full",
-                      isSelected ? "bg-primary-foreground/60" : "bg-primary",
-                    )}
-                  />
-                )}
-              </button>
-            );
-          })}
+        <div className="flex items-center gap-2">
+          {!isToday && (
+            <Button type="button" variant="outline" size="sm" onClick={() => setDate(today)}>
+              {t("today")}
+            </Button>
+          )}
+          {canCreateClass && (
+            <Button
+              type="button"
+              size="sm"
+              data-testid="create-class"
+              className="gap-1.5"
+              onClick={() => setCreating(true)}
+            >
+              <CalendarPlus className="size-4" />
+              {t("createClass")}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -708,6 +644,22 @@ export function AttendanceManager() {
                                 {t("sendWhatsapp")}
                               </Button>
                             )}
+                            {canReschedule && displayStatus === "SCHEDULED" && (
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="outline"
+                                data-testid="row-reschedule"
+                                className="gap-1.5"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setRescheduling(s);
+                                }}
+                              >
+                                <RotateCcw className="size-3.5" />
+                                {tSched("actions.reschedule")}
+                              </Button>
+                            )}
                             <Button
                               type="button"
                               size="xs"
@@ -798,6 +750,22 @@ export function AttendanceManager() {
                           {t("sendWhatsapp")}
                         </Button>
                       )}
+                      {canReschedule && displayStatus === "SCHEDULED" && (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          data-testid="row-reschedule"
+                          className="gap-1.5"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRescheduling(s);
+                          }}
+                        >
+                          <RotateCcw className="size-3.5" />
+                          {tSched("actions.reschedule")}
+                        </Button>
+                      )}
                       <Button
                         type="button"
                         size="xs"
@@ -844,6 +812,28 @@ export function AttendanceManager() {
         }
         onClose={() => {
           setSelected(null);
+          void load();
+        }}
+      />
+
+      {/* Move a single scheduled class to a new time */}
+      <RescheduleModal
+        session={rescheduling}
+        open={rescheduling !== null}
+        onClose={() => setRescheduling(null)}
+        onDone={() => {
+          setRescheduling(null);
+          void load();
+        }}
+      />
+
+      {/* Log a one-off class the timetable never produced */}
+      <CreateClassModal
+        day={date}
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={() => {
+          setCreating(false);
           void load();
         }}
       />

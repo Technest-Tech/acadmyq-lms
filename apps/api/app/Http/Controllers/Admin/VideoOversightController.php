@@ -7,14 +7,13 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\Livekit\LivekitEgressClient;
 use App\Services\Livekit\LivekitRoomClient;
+use App\Services\ModuleBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\FeatureCatalog;
-use App\Support\ModuleSubscriptionBackfill;
 use App\Support\Tenancy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
@@ -171,47 +170,10 @@ final class VideoOversightController extends Controller
         ]);
 
         $action = $data['action'];
-        $update = ['updated_at' => now()];
 
-        switch ($action) {
-            case 'enable':
-                $update['video_access'] = 'ENABLED';
-                $update['video_trial_ends_at'] = null; // permanent
-                break;
-            case 'trial':
-                $update['video_access'] = 'ENABLED';
-                $update['video_trial_ends_at'] = now()->addDays((int) $data['trial_days']);
-                break;
-            case 'extend_trial':
-                // Extend from the later of now and the current trial end (so extending an active
-                // trial adds days; extending a lapsed one restarts from today).
-                $base = ($current->video_trial_ends_at !== null && now()->lt($current->video_trial_ends_at))
-                    ? Carbon::parse($current->video_trial_ends_at)
-                    : now();
-                $update['video_access'] = 'ENABLED';
-                $update['video_trial_ends_at'] = $base->addDays((int) $data['trial_days']);
-                break;
-            case 'disable':
-                $update['video_access'] = 'DISABLED';
-                $update['video_trial_ends_at'] = null;
-                break;
-            case 'follow_plan':
-                $update['video_access'] = null;
-                $update['video_trial_ends_at'] = null;
-                break;
-            case 'set_tier':
-                // Only the tier changes; access/trial untouched.
-                break;
-        }
-
-        // The video tier (options) is applied whenever the request carries the key — covers both the
-        // "add academy to video with a tier" flow and a standalone set_tier.
-        if ($request->has('video_plan_id')) {
-            $update['video_plan_id'] = $data['video_plan_id'] ?? null;
-        }
-
-        // Per-academy meet-option override → academies.video_overrides ({ "limits": {...} }). Only the
-        // video limit/flag keys are kept; an all-empty payload clears the override.
+        // Per-academy meet-option override — only the video limit/flag keys are kept; an all-empty
+        // payload clears the override (null limits = "clear" for the engine, absent = untouched).
+        $limits = null;
         if ($request->has('overrides')) {
             $ov = (array) ($data['overrides'] ?? []);
             $limits = [];
@@ -225,25 +187,32 @@ final class VideoOversightController extends Controller
                     $limits[$k] = filter_var($ov[$k], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
                 }
             }
-            $update['video_overrides'] = $limits === [] ? null : json_encode(['limits' => $limits]);
         }
 
         $ctx = app(AuthContext::class);
-        $this->inAcademyContext($id, function () use ($id, $update, $current, $action, $ctx) {
-            DB::table('academies')->where('id', $id)->update($update);
+        $this->inAcademyContext($id, function () use ($request, $id, $data, $action, $limits, $current, $ctx) {
+            // R1 (04-CLIENT-FIRST-REDESIGN §5): the VIDEO module sub is the source of truth — the
+            // engine writes the sub's trial clock + overrides and mirrors academies.video_* for the
+            // not-yet-rewired reads (app.admin_video_stats / app.admin_video_academy).
+            app(ModuleBilling::class)->videoAccess(
+                $id,
+                $action,
+                trialDays: isset($data['trial_days']) ? (int) $data['trial_days'] : null,
+                tierProvided: $request->has('video_plan_id'),
+                tierPlanId: $data['video_plan_id'] ?? null,
+                overridesProvided: $request->has('overrides'),
+                limits: $limits,
+            );
 
-            // Phase 2b: fold the changed video access/tier/override into the academy's VIDEO module
-            // subscription so the module-subscription resolver reads current state.
-            ModuleSubscriptionBackfill::reconcile($id);
+            $fresh = DB::table('academies')->where('id', $id)
+                ->first(['video_access', 'video_trial_ends_at', 'video_plan_id']);
 
             Audit::log('video.academy_access', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN',
                 after: [
                     'action' => $action,
-                    'video_access' => $update['video_access'] ?? $current->video_access,
-                    'video_trial_ends_at' => array_key_exists('video_trial_ends_at', $update)
-                        ? ($update['video_trial_ends_at']?->toIso8601String())
-                        : $current->video_trial_ends_at,
-                    'video_plan_id' => array_key_exists('video_plan_id', $update) ? $update['video_plan_id'] : $current->video_plan_id,
+                    'video_access' => $fresh->video_access,
+                    'video_trial_ends_at' => $fresh->video_trial_ends_at,
+                    'video_plan_id' => $fresh->video_plan_id,
                 ],
                 before: [
                     'video_access' => $current->video_access,

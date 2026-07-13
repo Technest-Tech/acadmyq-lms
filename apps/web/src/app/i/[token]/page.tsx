@@ -346,11 +346,12 @@ function Fact({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 interface PageProps {
-  params: { token: string };
+  params: Promise<{ token: string }>;
 }
 
 export default async function PublicInvoicePage({ params }: PageProps) {
-  const invoice = await fetchInvoice(params.token);
+  const { token } = await params;
+  const invoice = await fetchInvoice(token);
   if (!invoice) notFound();
 
   const isPaid = invoice.status === "PAID";
@@ -665,7 +666,7 @@ export default async function PublicInvoicePage({ params }: PageProps) {
               <PaymentOptions
                 currency={invoice.currency}
                 methods={invoice.payment_methods ?? []}
-                invoiceToken={params.token}
+                invoiceToken={token}
               />
             </section>
           )}

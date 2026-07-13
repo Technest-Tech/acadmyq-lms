@@ -326,25 +326,30 @@ final class Entitlement
     //     old `video_plan_id` behaved.
     //   - Add-ons and the feature-flag kill-switch are unchanged.
     //
-    // Like resolve(), this does NOT gate on subscription status/trial — capabilities follow the PLAN,
-    // not the billing lifecycle (suspension is enforced elsewhere). Per-module suspension (M-BILL-2)
-    // is a deliberate LATER behaviour change, not part of the parity cutover.
+    // R1 (04-CLIENT-FIRST-REDESIGN §5) — SCOPED SUSPENSION (M-BILL-2, the deliberate post-parity
+    // change): only an ACTIVE sub still inside its trial window GRANTS its plan's capabilities. A
+    // PAUSED or trial-lapsed module contributes nothing while the client's other modules keep
+    // working; the VIDEO sub stays the override CONTAINER regardless of status (a DISABLED
+    // force-off must survive a pause; tier/limit overrides are harmless without the capability).
     //
     // @return array{plan: ?string, capabilities: list<string>, limits: array<string,mixed>, addOns: list<string>, modules: list<string>}
     public static function resolveFromModules(string $academyId): array
     {
-        // Live (non-ENDED) subs only — ENDED rows are replaced history. Note this includes PAUSED, so
-        // (like resolveLegacy) capabilities follow the PLAN, not the billing lifecycle; per-module
-        // suspension (M-BILL-2) is a later deliberate change, not part of the parity cutover.
+        // Live (non-ENDED) subs — ENDED rows are replaced history.
         $subs = DB::table('module_subscriptions as ms')
             ->leftJoin('plans as p', 'p.id', '=', 'ms.plan_id')
             ->where('ms.academy_id', $academyId)
             ->where('ms.status', '<>', 'ENDED')
-            ->get(['ms.module', 'ms.overrides', 'p.code as plan_code', 'p.features']);
+            ->get(['ms.module', 'ms.status', 'ms.is_trial', 'ms.trial_end', 'ms.overrides', 'p.code as plan_code', 'p.features']);
 
-        $mgmt = $subs->firstWhere('module', 'MANAGEMENT');
-        $video = $subs->firstWhere('module', 'VIDEO');
-        $whatsapp = $subs->firstWhere('module', 'WHATSAPP');
+        // Grants come only from ACTIVE subs whose trial (when one is running) hasn't lapsed — an
+        // expired trial stops granting the moment it ends, not when the nightly job pauses it.
+        $grantable = $subs->filter(fn (object $s): bool => self::subGrants($s));
+
+        $mgmt = $grantable->firstWhere('module', 'MANAGEMENT');
+        $video = $grantable->firstWhere('module', 'VIDEO');
+        $whatsapp = $grantable->firstWhere('module', 'WHATSAPP');
+        $videoContainer = $subs->firstWhere('module', 'VIDEO'); // overrides apply from ANY live sub
         $primary = $mgmt ?? $video; // the sub whose plan == the old academies.plan_id
 
         $primaryFeatures = self::decodeFeatures($primary->features ?? null);
@@ -371,9 +376,15 @@ final class Entitlement
             array_map('strval', $addOnKeys),
         )));
 
-        // Per-academy video override — now from the VIDEO sub's `overrides` (was academies.video_*).
-        $videoOverrides = $video !== null ? self::decodeOverrides($video->overrides) : null;
-        $capabilities = self::applyVideoOverrideFromArray($capabilities, $videoOverrides);
+        // Per-academy video override — from the VIDEO sub's `overrides` (was academies.video_*).
+        // The force-OFF direction applies from any live sub; the ENABLED grant additionally needs
+        // the sub itself to be grantable (ACTIVE + trial window), so pausing VIDEO cuts the rooms.
+        $videoOverrides = $videoContainer !== null ? self::decodeOverrides($videoContainer->overrides) : null;
+        $capabilities = self::applyVideoOverrideFromArray(
+            $capabilities,
+            $videoOverrides,
+            grantAllowed: $videoContainer !== null && self::subGrants($videoContainer),
+        );
 
         // Platform kill-switch (identical to resolve()).
         $disabled = DB::table('feature_flags')->where('enabled', false)->pluck('key')->all();
@@ -395,8 +406,24 @@ final class Entitlement
             'capabilities' => $capabilities,
             'limits' => $limits,
             'addOns' => array_values(array_map('strval', $addOnKeys)),
-            'modules' => $subs->pluck('module')->unique()->values()->all(),
+            'modules' => $grantable->pluck('module')->unique()->values()->all(),
         ];
+    }
+
+    /**
+     * Does this sub GRANT its plan's capabilities right now? ACTIVE and, when a trial is running,
+     * still inside the window (R1 scoped suspension, M-BILL-2). A missing trial_end never expires.
+     */
+    private static function subGrants(object $sub): bool
+    {
+        if ($sub->status !== 'ACTIVE') {
+            return false;
+        }
+        if (! $sub->is_trial || $sub->trial_end === null) {
+            return true;
+        }
+
+        return Carbon::parse($sub->trial_end)->isFuture();
     }
 
     /** Decode a module_subscriptions.overrides jsonb column to an array (null when absent/blank). */
@@ -408,15 +435,16 @@ final class Entitlement
     }
 
     /**
-     * applyVideoOverride, reading from the VIDEO sub's `overrides` array instead of the academy row.
-     * Identical semantics to applyVideoOverride(): ENABLED (+ future/no trial) forces video.conferencing
-     * on; DISABLED / expired forces it off; a video-only plan (video.only present) can never be forced
-     * off; NULL access ⇒ no change.
+     * applyVideoOverride, reading from the VIDEO sub's `overrides` array instead of the academy row:
+     * ENABLED (+ future/no trial, + a grantable sub) forces video.conferencing on; DISABLED / expired
+     * forces it off; a video-only plan (video.only present) can never be forced off; NULL access ⇒ no
+     * change. $grantAllowed carries the sub's own lifecycle (R1 scoped suspension): a PAUSED or
+     * trial-lapsed VIDEO sub can no longer grant, but its DISABLED force-off still applies.
      *
      * @param  list<string>  $capabilities
      * @return list<string>
      */
-    private static function applyVideoOverrideFromArray(array $capabilities, ?array $overrides): array
+    private static function applyVideoOverrideFromArray(array $capabilities, ?array $overrides, bool $grantAllowed = true): array
     {
         $access = $overrides['access'] ?? null;
         if ($access === null) {
@@ -424,7 +452,7 @@ final class Entitlement
         }
 
         $on = false;
-        if ($access === 'ENABLED') {
+        if ($access === 'ENABLED' && $grantAllowed) {
             $trialEnd = $overrides['trialEnd'] ?? null;
             $on = $trialEnd === null || Carbon::parse($trialEnd)->isFuture();
         }

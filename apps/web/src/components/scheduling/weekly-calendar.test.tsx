@@ -16,6 +16,14 @@ vi.mock("@/lib/api", async (importActual) => ({
   cancelSession: vi.fn(),
 }));
 
+// SessionActions deep-links to the Attendance page, so it holds a router. There's no app router
+// mounted in jsdom — without this the details modal throws on render.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => "/calendar",
+}));
+
 import * as api from "@/lib/api";
 
 const TZ = "Africa/Cairo";
@@ -131,6 +139,8 @@ describe("WeeklyCalendar (Sprint 5 §5.5)", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByTestId("session-se1"));
 
+    // The details modal opens on the lesson; the form is behind its action.
+    await user.click(screen.getByTestId("open-reschedule"));
     await user.click(screen.getByTestId("do-reschedule"));
 
     await waitFor(() =>
@@ -146,6 +156,7 @@ describe("WeeklyCalendar (Sprint 5 §5.5)", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByTestId("session-se1"));
 
+    await user.click(screen.getByTestId("open-cancel"));
     await user.click(screen.getByTestId("cancel-by-teacher"));
 
     await waitFor(() =>
@@ -154,6 +165,25 @@ describe("WeeklyCalendar (Sprint 5 §5.5)", () => {
         expect.objectContaining({ cancelled_by: "teacher" }),
       ),
     );
+  });
+
+  it("keeps the destructive path behind a deliberate choice", async () => {
+    renderCalendar();
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("session-se1"));
+
+    // Opening a lesson must not put "cancel" under the cursor.
+    expect(screen.queryByTestId("cancel-by-teacher")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("do-reschedule")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("open-cancel"));
+    expect(screen.getByTestId("cancel-by-teacher")).toBeInTheDocument();
+
+    // ...and Back returns to the picker without cancelling anything.
+    await user.click(screen.getByTestId("action-back"));
+    expect(screen.queryByTestId("cancel-by-teacher")).not.toBeInTheDocument();
+    expect(screen.getByTestId("open-cancel")).toBeInTheDocument();
+    expect(api.cancelSession).not.toHaveBeenCalled();
   });
 
   it("navigates to the next week and refetches a shifted range", async () => {

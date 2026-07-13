@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   List,
+  Plus,
   Square,
 } from "lucide-react";
 import type { useTranslations } from "next-intl";
@@ -26,10 +27,10 @@ const VIEW_ICON = {
 const ALL_VIEWS: CalendarView[] = ["month", "week", "day", "list"];
 
 /**
- * The premium header bar: a date title, Today/prev/next navigation, an optional teacher
- * filter (Owners only) and a segmented Month·Week·Day·List view switcher. Navigation keeps
- * the `prev-week`/`next-week` test ids regardless of the active view — "next" advances by
- * whatever period the current view spans.
+ * The header bar: a date title with Today/prev/next navigation on the leading side, and the
+ * filters, view switcher and the New-session action on the trailing side. Navigation keeps the
+ * `prev-week`/`next-week` test ids regardless of the active view — "next" advances by whatever
+ * period the current view spans.
  */
 export function CalendarToolbar({
   t,
@@ -48,6 +49,7 @@ export function CalendarToolbar({
   studentId,
   onStudent,
   allowedViews = ALL_VIEWS,
+  onCreate,
 }: {
   t: T;
   title: string;
@@ -66,21 +68,14 @@ export function CalendarToolbar({
   onStudent: (id: string) => void;
   /** Subset of views to show in the switcher. Defaults to all four. */
   allowedViews?: CalendarView[];
+  /** Opens quick-create at a sensible default time. Omitted for read-only viewers. */
+  onCreate?: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-      {/* Left cluster — navigation + current period */}
+    <div className="bg-card flex flex-col gap-3 rounded-2xl border p-3 shadow-sm xl:flex-row xl:items-center xl:justify-between">
+      {/* Leading cluster — navigation + current period */}
       <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          data-testid="calendar-today"
-          onClick={onToday}
-        >
-          {t("calendar.today")}
-        </Button>
-        <div className="flex items-center">
+        <div className="bg-muted/60 flex items-center rounded-lg p-0.5">
           <Button
             type="button"
             variant="ghost"
@@ -102,15 +97,24 @@ export function CalendarToolbar({
             <ChevronRight className="rtl:rotate-180" aria-hidden />
           </Button>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-testid="calendar-today"
+          onClick={onToday}
+        >
+          {t("calendar.today")}
+        </Button>
         <h2
-          className="text-lg font-semibold tracking-tight tabular-nums"
+          className="truncate text-base font-bold tracking-tight tabular-nums sm:text-lg"
           data-testid="calendar-title"
         >
           {title}
         </h2>
       </div>
 
-      {/* Right cluster — teacher/student filters + view switcher */}
+      {/* Trailing cluster — filters + view switcher + create */}
       <div className="flex flex-wrap items-center gap-2">
         {canPickTeacher && (
           <Combobox
@@ -150,20 +154,36 @@ export function CalendarToolbar({
                 role="tab"
                 aria-selected={active}
                 data-testid={`view-${v}`}
+                title={t(`calendar.view.${v}`)}
                 onClick={() => onView(v)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors",
                   active
-                    ? "bg-background text-foreground shadow-sm ring-1 ring-foreground/[0.06]"
+                    ? "bg-background text-foreground ring-foreground/[0.06] shadow-sm ring-1"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Icon className="size-3.5" aria-hidden />
-                <span className="hidden sm:inline">{t(`calendar.view.${v}`)}</span>
+                <span className="hidden sm:inline">
+                  {t(`calendar.view.${v}`)}
+                </span>
               </button>
             );
           })}
         </div>
+
+        {onCreate && (
+          <Button
+            type="button"
+            size="sm"
+            data-testid="calendar-new-session"
+            onClick={onCreate}
+            className="gap-1.5"
+          >
+            <Plus className="size-3.5" aria-hidden />
+            <span className="hidden sm:inline">{t("calendar.newSession")}</span>
+          </Button>
+        )}
       </div>
     </div>
   );

@@ -61,11 +61,12 @@ function Money({ minor, currency }: { minor: number; currency: string }) {
 }
 
 interface PageProps {
-  params: { token: string };
+  params: Promise<{ token: string }>;
 }
 
 export default async function AcademyPayPage({ params }: PageProps) {
-  const bill = await fetchBill(params.token);
+  const { token } = await params;
+  const bill = await fetchBill(token);
   if (!bill) notFound();
 
   const paid = bill.status === "PAID";
@@ -148,7 +149,7 @@ export default async function AcademyPayPage({ params }: PageProps) {
             </p>
           ) : (
             <PaymentSubmit
-              token={params.token}
+              token={token}
               methods={bill.payment_methods}
             />
           )}

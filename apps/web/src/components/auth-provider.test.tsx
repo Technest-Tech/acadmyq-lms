@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from "next-intl";
 import arMessages from "../../messages/ar.json";
 import { AppShell } from "@/components/app-shell";
 import { AuthProvider } from "@/components/auth-provider";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -17,15 +18,18 @@ vi.mock("@/lib/api", async () => {
   return { ...actual, getMe: () => getMe() };
 });
 
+/** Mirrors the real tree: root layout supplies ThemeProvider, (app)/layout the auth + shell. */
 function renderApp() {
   return render(
-    <NextIntlClientProvider locale="ar" messages={arMessages}>
-      <AuthProvider>
-        <AppShell>
-          <p>dashboard</p>
-        </AppShell>
-      </AuthProvider>
-    </NextIntlClientProvider>,
+    <ThemeProvider>
+      <NextIntlClientProvider locale="ar" messages={arMessages}>
+        <AuthProvider>
+          <AppShell>
+            <p>dashboard</p>
+          </AppShell>
+        </AuthProvider>
+      </NextIntlClientProvider>
+    </ThemeProvider>,
   );
 }
 

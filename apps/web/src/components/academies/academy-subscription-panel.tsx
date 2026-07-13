@@ -16,8 +16,6 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import {
   ApiError,
-  activateAcademySubscription,
-  extendAcademyTrial,
   fetchPaymentScreenshot,
   generateAcademyBill,
   getAcademySubscription,
@@ -30,8 +28,17 @@ import {
   type AcademyBill,
   type AcademyPaymentSubmission,
   type AcademySubscriptionView,
+  type ModuleCode,
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
+
+/** Decode a bill's per-module composition (jsonb arrives as a string). */
+function billBreakdown(
+  raw: AcademyBill["module_breakdown"],
+): { module: ModuleCode; total_minor: number; currency: string }[] {
+  const decoded = typeof raw === "string" ? JSON.parse(raw) : raw;
+  return Array.isArray(decoded) ? decoded : [];
+}
 
 const BILL_STATUS_STYLE: Record<string, string> = {
   OPEN: "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300",
@@ -63,6 +70,7 @@ export function AcademySubscriptionPanel({
   onChanged?: () => void;
 }) {
   const t = useTranslations("academySubscription");
+  const tm = useTranslations("clients.modules");
   const locale = useLocale();
   const { can } = useAuth();
   const toast = useToast();
@@ -70,7 +78,6 @@ export function AcademySubscriptionPanel({
   const [data, setData] = useState<AcademySubscriptionView | null>(null);
   const [bills, setBills] = useState<AcademyBill[]>([]);
   const [busy, setBusy] = useState(false);
-  const [days, setDays] = useState(5);
   const [openBill, setOpenBill] = useState<string | null>(null);
   const [subs, setSubs] = useState<Record<string, AcademyPaymentSubmission[]>>(
     {},
@@ -293,49 +300,8 @@ export function AcademySubscriptionPanel({
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex flex-wrap items-end gap-3 border-t pt-4">
-        <label className="space-y-1">
-          <span className="text-muted-foreground text-xs">{t("extendDays")}</span>
-          <input
-            type="number"
-            min={1}
-            max={365}
-            aria-label={t("extendDays")}
-            className="border-input bg-background w-20 rounded-md border px-2 py-1.5 text-sm"
-            value={days}
-            onChange={(e) => setDays(Number(e.target.value))}
-          />
-        </label>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() =>
-            void run(() => extendAcademyTrial(academyId, days), t("trialExtended"))
-          }
-          data-testid="extend-trial"
-        >
-          {t("extendTrial")}
-        </Button>
-        {sub.is_trial && (
-          <Button
-            type="button"
-            size="sm"
-            disabled={busy}
-            onClick={() =>
-              void run(
-                () => activateAcademySubscription(academyId),
-                t("activated"),
-              )
-            }
-            data-testid="activate-subscription"
-          >
-            {t("activate")}
-          </Button>
-        )}
-      </div>
+      {/* One writer per fact (R3): trial extend / activate moved to the client page's
+          Subscriptions card — this panel is the client's LEDGER (costs, bills, proofs) only. */}
 
       {/* Bills */}
       <div className="mt-5 border-t pt-4">
@@ -387,6 +353,23 @@ export function AcademySubscriptionPanel({
                     {b.period_start} → {b.period_end} · {t("bill.due")}{" "}
                     {b.due_date}
                   </p>
+                  {/* Per-module composition snapshot (R3, M-BILL-1) — chips, oldest bills have none. */}
+                  {billBreakdown(b.module_breakdown).length > 0 && (
+                    <p className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {billBreakdown(b.module_breakdown).map((line) => (
+                        <span
+                          key={line.module}
+                          className="bg-card text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium"
+                          data-bill-module={line.module}
+                        >
+                          {tm(line.module)}
+                          <span className="font-semibold tabular-nums" dir="ltr">
+                            {formatMoney({ amount: line.total_minor, currency: line.currency }, locale)}
+                          </span>
+                        </span>
+                      ))}
+                    </p>
+                  )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <Button

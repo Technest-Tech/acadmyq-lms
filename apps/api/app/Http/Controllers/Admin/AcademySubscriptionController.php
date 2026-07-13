@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Services\AcademyBilling;
+use App\Services\ModuleBilling;
 use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -31,6 +32,7 @@ final class AcademySubscriptionController extends Controller
 {
     public function __construct(
         private readonly AcademyBilling $billing,
+        private readonly ModuleBilling $modules,
         private readonly WhatsAppSender $sender,
     ) {}
 
@@ -86,17 +88,18 @@ final class AcademySubscriptionController extends Controller
         $ctx = app(AuthContext::class);
 
         $sub = $this->inAcademyContext($id, function () use ($id, $data, $ctx) {
-            $sub = $this->billing->ensureSubscription($id);
-
             $fields = array_intersect_key($data, array_flip([
                 'billing_interval', 'activated_at', 'current_period_start', 'current_period_end',
             ]));
+
+            // R1: the write goes to the PRIMARY module sub; the legacy row is its mirror (returned
+            // here so the existing panel keeps its response shape until R2 rewires it).
             if ($fields !== []) {
-                DB::table('academy_subscriptions')->where('id', $sub->id)->update($fields + ['updated_at' => now()]);
-                Audit::log('academy_subscription.updated', 'academy_subscription', $sub->id, $id, $ctx->userId, 'SUPER_ADMIN', after: $fields);
+                $moduleSub = $this->modules->setFields($id, $this->modules->primaryModule($id), $fields);
+                Audit::log('academy_subscription.updated', 'academy_subscription', $moduleSub->id, $id, $ctx->userId, 'SUPER_ADMIN', after: $fields);
             }
 
-            return $this->billing->recomputeTotals($id);
+            return $this->billing->currentSubscription($id) ?? $this->billing->ensureSubscription($id);
         });
 
         return response()->json(['subscription' => $sub]);
@@ -113,13 +116,15 @@ final class AcademySubscriptionController extends Controller
 
         $sub = $this->inAcademyContext($id, function () use ($id, $data, $ctx) {
             $before = $this->billing->currentSubscription($id);
-            $sub = $this->billing->extendTrial($id, (int) $data['days']);
 
-            Audit::log('academy_subscription.trial_extended', 'academy_subscription', $sub->id, $id, $ctx->userId, 'SUPER_ADMIN',
-                after: ['trial_end' => $sub->trial_end, 'days' => (int) $data['days']],
+            // R1: the trial clock lives on the PRIMARY module sub; the legacy row mirrors it.
+            $moduleSub = $this->modules->extendTrial($id, $this->modules->primaryModule($id), (int) $data['days']);
+
+            Audit::log('academy_subscription.trial_extended', 'academy_subscription', $moduleSub->id, $id, $ctx->userId, 'SUPER_ADMIN',
+                after: ['trial_end' => $moduleSub->trial_end, 'days' => (int) $data['days']],
                 before: ['trial_end' => $before->trial_end ?? null]);
 
-            return $sub;
+            return $this->billing->currentSubscription($id);
         });
 
         return response()->json(['subscription' => $sub]);
@@ -134,11 +139,12 @@ final class AcademySubscriptionController extends Controller
         $ctx = app(AuthContext::class);
 
         $sub = $this->inAcademyContext($id, function () use ($id, $ctx) {
-            $sub = $this->billing->activate($id);
-            Audit::log('academy_subscription.activated', 'academy_subscription', $sub->id, $id, $ctx->userId, 'SUPER_ADMIN',
-                after: ['activated_at' => $sub->activated_at, 'current_period_end' => $sub->current_period_end]);
+            // R1: activation happens on the PRIMARY module sub; the legacy row mirrors it.
+            $moduleSub = $this->modules->activate($id, $this->modules->primaryModule($id));
+            Audit::log('academy_subscription.activated', 'academy_subscription', $moduleSub->id, $id, $ctx->userId, 'SUPER_ADMIN',
+                after: ['activated_at' => $moduleSub->activated_at, 'current_period_end' => $moduleSub->current_period_end]);
 
-            return $sub;
+            return $this->billing->currentSubscription($id);
         });
 
         return response()->json(['subscription' => $sub]);

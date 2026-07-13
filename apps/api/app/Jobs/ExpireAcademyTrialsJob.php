@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Services\AcademyBilling;
+use App\Services\ModuleBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Tenancy;
@@ -17,14 +18,14 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Daily sweep that expires lapsed free trials (Platform↔Academy billing). For every non-suspended
- * academy it ensures a subscription row exists (lazy backfill) and, when a trial's `trial_end` has
- * passed, pauses the subscription and — per config('billing.trial_expiry_suspends') — suspends the
- * academy so logins are blocked until it converts to a paid plan.
+ * Daily sweep that expires lapsed free trials (Platform↔Academy billing), PER MODULE (R1,
+ * 04-CLIENT-FIRST-REDESIGN §5): each lapsed module trial pauses only its own subscription — scoped
+ * suspension, M-BILL-2 — and the academy is SUSPENDED (logins blocked) only when NO active module
+ * remains, per config('billing.trial_expiry_suspends'). An academy the module engine has never
+ * touched falls back to the legacy single-subscription expiry (dual-read era; removed in R5).
  *
- * Idempotent (AcademyBilling::expireTrial no-ops once a trial is already PAUSED) and tenant-isolated
- * (each academy's work runs in its OWN Tenancy::withContext transaction), mirroring
- * FlagOverdueReportsJob's discipline.
+ * Idempotent (an expired module is already PAUSED next run) and tenant-isolated (each academy's
+ * work runs in its OWN Tenancy::withContext transaction), mirroring FlagOverdueReportsJob.
  */
 final class ExpireAcademyTrialsJob implements ShouldQueue
 {
@@ -38,9 +39,9 @@ final class ExpireAcademyTrialsJob implements ShouldQueue
     public function __construct(private readonly ?string $onlyAcademyId = null) {}
 
     /**
-     * @return array<string, array{expired: bool, suspended: bool}>
+     * @return array<string, array{expired: bool, suspended: bool, modules: list<string>}>
      */
-    public function handle(AcademyBilling $billing): array
+    public function handle(AcademyBilling $billing, ModuleBilling $modules): array
     {
         $results = [];
         foreach ($this->targetAcademyIds() as $academyId) {
@@ -51,13 +52,21 @@ final class ExpireAcademyTrialsJob implements ShouldQueue
                 permissions: [],
             );
 
-            $results[$academyId] = Tenancy::withContext($ctx, function () use ($academyId, $billing) {
-                $billing->ensureSubscription($academyId);
-                $outcome = $billing->expireTrial($academyId);
+            $results[$academyId] = Tenancy::withContext($ctx, function () use ($academyId, $billing, $modules) {
+                if ($modules->all($academyId)->isEmpty()) {
+                    // Legacy fallback: the engine has never touched this academy.
+                    $billing->ensureSubscription($academyId);
+                    $legacy = $billing->expireTrial($academyId);
+                    $outcome = $legacy + ['modules' => $legacy['expired'] ? ['MANAGEMENT'] : []];
+                } else {
+                    $r = $modules->expireTrialsFor($academyId);
+                    $outcome = ['expired' => $r['expired'] !== [], 'suspended' => $r['suspended'], 'modules' => $r['expired']];
+                }
 
                 if ($outcome['expired']) {
                     Audit::log('academy_subscription.trial_expired', 'academy', $academyId, $academyId, null, 'SUPER_ADMIN', after: [
                         'suspended' => $outcome['suspended'],
+                        'modules' => $outcome['modules'],
                         'trigger' => 'scheduled',
                     ]);
                 }

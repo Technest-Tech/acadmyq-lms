@@ -121,8 +121,9 @@
   "nav": {
     "dashboard": "لوحة التحكم",
     "notifications": "الإشعارات",
-    "adminHome": "نظرة عامة على المنصة",
+    "adminHome": "نظرة عامة",
     "users": "المستخدمون",
+    "clients": "العملاء",
     "academies": "الأكاديميات",
     "guardians": "أولياء الأمور",
     "students": "الطلاب",
@@ -146,8 +147,8 @@
     "staff": "الطاقم الوظيفي",
     "staffDepartments": "أقسام الطاقم",
     "adminSubscriptions": "الاشتراكات",
-    "adminAutomation": "الأتمتة",
-    "adminVideo": "مراقبة الفيديو",
+    "adminAutomation": "عمليات واتساب",
+    "adminVideo": "عمليات الفيديو",
     "platformSettings": "إعدادات المنصة",
     "roles": "الأدوار والصلاحيات",
     "upgradeBadge": "ترقية",
@@ -158,7 +159,11 @@
     "general": "عام",
     "management": "الإدارة",
     "financial": "المالية",
-    "system": "النظام"
+    "system": "النظام",
+    "people": "الأشخاص",
+    "academics": "الشؤون الأكاديمية",
+    "scheduling": "الجدولة",
+    "platform": "المنصّة"
   },
   "adminModule": {
     "platform": "المنصة",
@@ -166,11 +171,142 @@
     "whatsapp": "خدمة واتساب",
     "video": "منصة الفيديو"
   },
+  "clients": {
+    "title": "العملاء",
+    "subtitle": "كل عميل مع اشتراكاته في الإدارة / الفيديو / واتساب — افتح العميل لإدارتها.",
+    "newClient": "عميل جديد",
+    "searchPlaceholder": "ابحث عن عميل…",
+    "allModules": "كل الوحدات",
+    "loading": "جارٍ التحميل…",
+    "empty": "لا يوجد عملاء مطابقون.",
+    "noOwner": "لا يوجد حساب مالك",
+    "open": "فتح ←",
+    "people": "{students} طالب · {teachers} معلم",
+    "status": {
+      "ALL": "الكل",
+      "ACTIVE": "نشط",
+      "TRIAL": "تجربة",
+      "SUSPENDED": "موقوف"
+    },
+    "modules": {
+      "MANAGEMENT": "الإدارة",
+      "VIDEO": "الفيديو",
+      "WHATSAPP": "واتساب"
+    },
+    "chip": {
+      "paused": "موقوف مؤقتًا",
+      "trialDays": "تجربة · باقٍ {days} يوم",
+      "active": "نشط",
+      "off": "غير مفعّل"
+    },
+    "table": {
+      "client": "العميل",
+      "modules": "الوحدات",
+      "status": "الحالة",
+      "monthly": "شهريًا",
+      "people": "الأشخاص"
+    },
+    "subs": {
+      "title": "الاشتراكات — المكان الوحيد لتغييرها",
+      "total": "الإجمالي {total}/شهر",
+      "off": "غير مفعّل",
+      "noPlan": "بدون باقة",
+      "paused": "موقوف مؤقتًا",
+      "trialLeft": "تجربة · باقٍ {days} يوم",
+      "trialExpired": "انتهت التجربة",
+      "renews": "نشط · يتجدد {date}",
+      "active": "نشط",
+      "perMonthSuffix": "/شهر",
+      "enable": "تفعيل…",
+      "extend": "تمديد…",
+      "activate": "تنشيط",
+      "resume": "استئناف",
+      "changePlan": "تغيير الباقة…",
+      "pause": "إيقاف مؤقت",
+      "remove": "إزالة",
+      "confirmPause": "إيقاف هذه الوحدة مؤقتًا؟ يحتفظ العميل بباقي وحداته؛ تتوقف هذه فقط حتى الاستئناف.",
+      "confirmEnd": "إزالة هذه الوحدة من العميل؟ ينتهي اشتراكها (يُحفظ كسجل).",
+      "cancel": "إلغاء",
+      "plan": "الباقة",
+      "mode": "يبدأ كـ",
+      "modeTrial": "تجربة",
+      "modeActive": "مدفوع (نشط فورًا)",
+      "trialDays": "أيام التجربة",
+      "extendByDays": "تمديد بـ (أيام)",
+      "noPlansForModule": "لا توجد باقات لهذه الوحدة بعد"
+    },
+    "detail": {
+      "back": "كل العملاء",
+      "since": "منذ {date}",
+      "suspendedReason": "موقوف: {reason}",
+      "enter": "دخول الأكاديمية",
+      "enterConfirm": "دخول {name}؟ ستعمل داخل هذه الأكاديمية حتى تخرج.",
+      "reactivate": "إعادة تنشيط",
+      "suspend": "إيقاف…",
+      "suspendReasonPlaceholder": "السبب (اختياري)",
+      "tabs": {
+        "billing": "الفوترة",
+        "whatsapp": "واتساب",
+        "video": "الفيديو",
+        "settings": "الإعدادات"
+      },
+      "videoCardTitle": "إعدادات الفيديو والغرف",
+      "videoCardHint": "المستوى وحدود الغرف والتسجيلات وسجلات الغرف موجودة في عمليات الفيديو لهذا العميل.",
+      "videoCardOpen": "الغرف والسجلات ←",
+      "waTitle": "اتصال واتساب والمفاتيح",
+      "waLoading": "جارٍ تحميل حالة الاتصال…",
+      "waConnected": "متصل",
+      "waNotConnected": "غير متصل",
+      "waSummary": "{sent} إرسال (30 يوم) · {keys} مفاتيح API",
+      "waManage": "إدارة الاتصال والمفاتيح…",
+      "videoConfigTitle": "إعدادات الفيديو",
+      "videoConfigHint": "المستوى والحدود لكل عميل أدناه؛ تشغيل/إيقاف الفيديو وتجربته من بطاقة الاشتراكات أعلاه.",
+      "videoTier": "مستوى الفيديو",
+      "videoTierNone": "من الباقة (بدون تخصيص)",
+      "videoLimitDefault": "افتراضي",
+      "videoLimit": {
+        "maxRooms": "أقصى عدد غرف",
+        "maxRoomParticipants": "أقصى مشاركين / غرفة",
+        "recordingRetentionDays": "الاحتفاظ بالتسجيلات (أيام)"
+      },
+      "videoFlag": {
+        "recordingAllowed": "السماح بالتسجيل",
+        "monitorAllowed": "السماح بالمراقبة"
+      },
+      "videoSaved": "تم حفظ إعدادات الفيديو",
+      "settingsTitle": "الاسم والهوية",
+      "fieldName": "الاسم",
+      "fieldBrandName": "اسم العرض التجاري",
+      "fieldSubdomain": "النطاق الفرعي",
+      "fieldLogoUrl": "رابط الشعار",
+      "save": "حفظ",
+      "saved": "تم الحفظ"
+    },
+    "new": {
+      "back": "كل العملاء",
+      "modulesTitle": "فعّل أيضًا لهذا العميل",
+      "modulesHint": "وحدة الإدارة تأتي من الباقة التي تختارها في النموذج أدناه. حدّد الفيديو أو واتساب لتفعيلهما بباقتهما وتجربتهما من اليوم الأول — يمكنك تغيير ذلك لاحقًا من صفحة العميل.",
+      "enableFailed": "تعذر تفعيل {module}: {error}",
+      "waOnlyTitle": "عميل واتساب فقط (بدون حساب دخول)",
+      "waOnlyHint": "لعميل خارج نظام الإدارة: اسم وباقة واتساب فقط — بدون حساب مالك. اربطه عبر QR من صفحته وقدّم له الخدمة عبر الـ API.",
+      "waOnlyStart": "إنشاء عميل واتساب فقط…",
+      "waOnlyName": "اسم العميل",
+      "waOnlyNamePlaceholder": "مثال: حضانة الشروق",
+      "waOnlyCreate": "إنشاء العميل"
+    }
+  },
   "header": {
     "menu": "القائمة",
     "language": "اللغة",
     "enteredAcademy": "داخل أكاديمية",
-    "exit": "خروج"
+    "exit": "خروج",
+    "close": "إغلاق",
+    "collapse": "طي القائمة",
+    "expand": "توسيع القائمة",
+    "breadcrumb": "مسار التنقّل",
+    "details": "التفاصيل",
+    "help": "المساعدة والدليل",
+    "exitAcademy": "الخروج من الأكاديمية"
   },
   "auth": {
     "signIn": "تسجيل الدخول",
@@ -820,7 +956,10 @@
       "hoursUnit": "س",
       "noScheduleTitle": "لا يوجد جدول بعد",
       "noScheduleHint": "أضف جدولاً أسبوعياً لتُنشأ الحصص وتُحتسب الفوترة تلقائياً.",
-      "addTimetable": "إضافة جدول"
+      "addTimetable": "إضافة جدول",
+      "repriceOpenLabel": "تحديث الفواتير المفتوحة أيضًا",
+      "repriceOpenHint": "إعادة احتساب {sessions, plural, zero {# حصة مفوترة} one {حصة مفوترة واحدة} two {حصتين مفوترتين} few {# حصص مفوترة} many {# حصة مفوترة} other {# حصة مفوترة}} في {invoices, plural, zero {# فاتورة مفتوحة} one {فاتورة مفتوحة واحدة} two {فاتورتين مفتوحتين} few {# فواتير مفتوحة} many {# فاتورة مفتوحة} other {# فاتورة مفتوحة}} بالسعر الجديد. استخدم هذا عند إدخال السعر القديم بالخطأ — لا تتغيّر الفواتير المُقفلة أو المدفوعة أبدًا.",
+      "savedRepriced": "تم حفظ الاشتراك. أُعيد احتساب {sessions, plural, zero {# حصة} one {حصة واحدة} two {حصتين} few {# حصص} many {# حصة} other {# حصة}} في {invoices, plural, zero {# فاتورة مفتوحة} one {فاتورة مفتوحة واحدة} two {فاتورتين مفتوحتين} few {# فواتير مفتوحة} many {# فاتورة مفتوحة} other {# فاتورة مفتوحة}}."
     },
     "teacher": {
       "title": "المعلم",
@@ -974,7 +1113,7 @@
     },
     "calendar": {
       "title": "التقويم",
-      "subtitle": "جلساتك خلال الشهر والأسبوع واليوم وكقائمة.",
+      "subtitle": "حصصك خلال الشهر والأسبوع واليوم وكقائمة.",
       "teacher": "المعلّم",
       "allTeachers": "كل المعلّمين",
       "allStudents": "كل الطلاب",
@@ -991,19 +1130,26 @@
         "list": "قائمة"
       },
       "more": "+{count} المزيد",
-      "noSessions": "لا توجد جلسات في هذه الفترة.",
+      "noSessions": "لا توجد حصص في هذه الفترة.",
       "searchPlaceholder": "ابحث عن طالب أو معلّم…",
       "clearSearch": "مسح البحث",
       "filterAll": "الكل",
-      "summary": {
-        "total": "إجمالي الجلسات",
-        "cancelled": "ملغاة"
-      },
-      "empty": "لا تملك صلاحية الوصول إلى التقويم."
+      "empty": "لا تملك صلاحية الوصول إلى التقويم.",
+      "statusLabel": "الحالة",
+      "statusesSelected": "{count} حالات",
+      "newSession": "إضافة حصة",
+      "tomorrow": "غداً",
+      "openDay": "افتح هذا اليوم",
+      "fullDay": "عرض الـ24 ساعة كاملة",
+      "workingHours": "عرض ساعات العمل فقط",
+      "emptyGridHint": "اضغط على أي خانة فارغة لإضافة حصة.",
+      "unnamedStudent": "طالب بدون اسم",
+      "sessionCount": "{count, plural, =0 {لا حصص} one {حصة واحدة} two {حصتان} few {# حصص} many {# حصة} other {# حصة}}",
+      "showingCount": "عرض {shown} من {total}"
     },
     "quickCreate": {
-      "title": "جلسة جديدة",
-      "subtitle": "أضف جلسة لمرة واحدة في الوقت المحدد.",
+      "title": "إضافة حصة",
+      "subtitle": "أضف حصة لمرة واحدة في الوقت المحدد.",
       "student": "الطالب",
       "selectStudent": "اختر طالبًا",
       "searchStudent": "ابحث عن طالب…",
@@ -1013,7 +1159,7 @@
       "date": "التاريخ",
       "time": "الوقت",
       "duration": "المدة",
-      "create": "إنشاء جلسة",
+      "create": "إنشاء حصة",
       "errStudent": "الرجاء اختيار طالب.",
       "errTeacher": "الرجاء اختيار معلّم."
     },
@@ -1045,7 +1191,12 @@
       "requestCancelByStudent": "طلب إلغاء (الطالب)",
       "requestSent": "تم إرسال الطلب — بانتظار موافقة المالك.",
       "attendance": "الحضور والتقرير",
-      "durationMin": "{count} دقيقة"
+      "durationMin": "{count} دقيقة",
+      "back": "رجوع",
+      "date": "التاريخ",
+      "time": "الوقت",
+      "durationLabel": "المدة",
+      "cancelWho": "من قام بالإلغاء؟"
     }
   },
   "notifications": {
@@ -1095,8 +1246,15 @@
     "subtitle": "اكتب تقرير تقدّم شهري لأحد طلابك وأرسله إلى الإدارة للمراجعة.",
     "noPermission": "ليست لديك صلاحية لكتابة تقارير الطلاب.",
     "loading": "جارٍ التحميل…",
+    "stats": {
+      "ALL": "كل التقارير",
+      "PENDING": "بانتظار المراجعة",
+      "APPROVED": "تمت الموافقة",
+      "REJECTED": "مُعادة"
+    },
     "form": {
       "heading": "تقرير جديد",
+      "hint": "تقرير واحد لكل طالب في الشهر. تراجعه الإدارة قبل أن يراه ولي الأمر.",
       "student": "الطالب",
       "studentPlaceholder": "اختر طالبًا",
       "month": "الشهر",
@@ -1104,6 +1262,11 @@
       "titlePlaceholder": "مثال: ملخّص تقدّم شهر يونيو",
       "body": "التقرير",
       "bodyPlaceholder": "صِف تقدّم الطالب وحضوره ونقاط قوته وما يحتاج إلى تحسين هذا الشهر…",
+      "outline": "إدراج نموذج",
+      "outlineTemplate": "التقدّم هذا الشهر:\n- \n\nالحضور والالتزام بالمواعيد:\n- \n\nنقاط القوة:\n- \n\nما يحتاج إلى تحسين:\n- \n\nخطة الشهر القادم:\n- ",
+      "duplicate": "يوجد تقرير لهذا الطالب وهذا الشهر بانتظار المراجعة بالفعل. اختر شهرًا آخر أو انتظر قرار الإدارة.",
+      "reset": "مسح",
+      "reviewNotice": "يمكن للإدارة الموافقة عليه أو إعادته مع ملاحظات.",
       "submit": "إرسال للمراجعة",
       "submitting": "جارٍ الإرسال…",
       "success": "تم إرسال التقرير إلى الإدارة للمراجعة.",
@@ -1111,13 +1274,30 @@
     },
     "list": {
       "heading": "تقاريرك",
+      "searchPlaceholder": "ابحث في تقاريرك…",
+      "clearSearch": "مسح البحث",
       "empty": "لم تُرسل أي تقارير بعد.",
-      "reviewedBy": "{who}: {note}"
+      "emptyHint": "اكتب أول تقرير شهري لك من النموذج أعلاه.",
+      "emptyFor": {
+        "ALL": "لم تُرسل أي تقارير بعد.",
+        "PENDING": "لا شيء بانتظار الإدارة حاليًا.",
+        "APPROVED": "لا توجد تقارير مقبولة بعد.",
+        "REJECTED": "لم يُعَد أي تقرير — عمل ممتاز."
+      },
+      "noResults": "لا يوجد تقرير مطابق لبحثك.",
+      "submitted": "أُرسل {when}",
+      "showMore": "عرض التقرير كاملًا",
+      "showLess": "عرض أقل",
+      "decided": {
+        "APPROVED": "وافق عليه {who} {when}",
+        "REJECTED": "أعاده {who} {when}"
+      },
+      "revise": "تعديل وإعادة الإرسال"
     },
     "status": {
       "PENDING": "بانتظار المراجعة",
       "APPROVED": "تمت الموافقة",
-      "REJECTED": "مرفوض"
+      "REJECTED": "مُعاد"
     }
   },
   "videoClassroom": {
@@ -1361,9 +1541,10 @@
     "viewDetails": "عرض التفاصيل",
     "actions": "إجراءات",
     "moreCurrencies": "+{count} أخرى",
+    "totalsByCurrency": "الإجماليات حسب العملة",
     "closePeriod": "إغلاق الفترة",
     "closePeriodTitle": "إغلاق فترة الفوترة",
-    "closePeriodDesc": "إغلاق الفترة يقفل جميع الفواتير المفتوحة لـ {period} ولا يمكن إضافة جلسات بعده. لا يمكن التراجع عن هذا الإجراء.",
+    "closePeriodDesc": "إغلاق الفترة يقفل جميع الفواتير المفتوحة لـ {period} ولا يمكن إضافة حصص بعده. لا يمكن التراجع عن هذا الإجراء.",
     "closePeriodConfirm": "إغلاق الفترة",
     "closePeriodSuccess": "تم إغلاق {count} فاتورة لـ {period}.",
     "closeYear": "السنة",
@@ -1409,10 +1590,10 @@
     "addLine": "إضافة سطر",
     "removeLine": "حذف السطر",
     "advanceStartDate": "تاريخ البدء",
-    "advanceCalculating": "جارٍ حساب الجلسات المتبقية…",
-    "advanceSessionsCount": "{count} جلسة هذا الشهر",
-    "advanceNoSessions": "لا توجد جلسات قابلة للفوترة متبقية في هذه الفترة للطالب.",
-    "advanceNoSubscription": "لا يوجد اشتراك نشط لهذا الطالب لتسعير الجلسات."
+    "advanceCalculating": "جارٍ حساب الحصص المتبقية…",
+    "advanceSessionsCount": "{count} حصة هذا الشهر",
+    "advanceNoSessions": "لا توجد حصص قابلة للفوترة متبقية في هذه الفترة للطالب.",
+    "advanceNoSubscription": "لا يوجد اشتراك نشط لهذا الطالب لتسعير الحصص."
   },
   "attendance": {
     "title": "الحضور والتقرير",
@@ -1470,6 +1651,20 @@
     "recordedToday": "سُجّلت اليوم",
     "open": "فتح",
     "record": "تسجيل",
+    "currentTime": "المُجدولة حاليًا في",
+    "rescheduleDone": "تمت إعادة الجدولة — نُقلت الحصة إلى وقتها الجديد.",
+    "createClass": "إضافة حصة",
+    "createClassTitle": "إضافة حصة",
+    "createClassSubtitle": "سجّل حصة لم ينشئها الجدول — حصة تعويضية، أو حصة جرت بالفعل.",
+    "createClassAdd": "إضافة الحصة",
+    "createClassPickTeacher": "اختر معلّمًا…",
+    "createClassPickTeacherFirst": "اختر المعلّم أولًا",
+    "createClassPickStudent": "اختر طالبًا…",
+    "createClassNoStudents": "لا يوجد طلاب لهذا المعلّم",
+    "createClassWhen": "التاريخ والوقت",
+    "createClassDescription": "تقرير الحصة (اختياري)",
+    "createClassCancelBilling": "حصة ملغاة — حدّد كيفية احتسابها ماليًا.",
+    "createClassPartial": "تم إنشاء الحصة، لكن:",
     "attendanceRecorded": "تم تسجيل الحضور.",
     "saved": "تم حفظ التقرير.",
     "savedNoOutcome": "تم حفظ التقرير — لا تنسَ تسجيل نتيجة الحضور.",
@@ -1769,7 +1964,9 @@
     "tab": {
       "flags": "مفاتيح الميزات",
       "general": "عام",
-      "payment": "الدفع"
+      "payment": "الدفع",
+      "roles": "الأدوار والصلاحيات",
+      "departments": "أقسام الطاقم"
     },
     "generalHeading": "البريد والإشعارات",
     "payment": {
@@ -1903,11 +2100,22 @@
     "statMrrMore": "+{count} عملات أخرى",
     "statTopPlan": "الأكثر شيوعاً",
     "statNoAcademies": "لا اشتراكات بعد",
+    "addOnsTab": "الإضافات",
+    "addOnsTitle": "كتالوج الإضافات",
+    "addOnCode": "الرمز",
+    "addOnName": "الاسم",
+    "addOnFeature": "تفتح ميزة",
+    "addOnPrice": "السعر",
+    "noAddOns": "لا توجد إضافات معرّفة بعد.",
     "form": {
       "newPlan": "باقة جديدة",
       "editPlan": "تعديل الباقة",
       "newAddOn": "إضافة جديدة",
       "editAddOn": "تعديل الإضافة",
+      "module": "الوحدة",
+      "moduleManagement": "الإدارة",
+      "moduleVideo": "الفيديو",
+      "moduleWhatsapp": "واتساب",
       "code": "الرمز",
       "name": "الاسم",
       "price": "السعر",
@@ -2356,7 +2564,8 @@
       "noPlan": "—",
       "empty": "لا توجد أكاديمية على منصة الفيديو بعد.",
       "liveRecording": "يُسجّل",
-      "addAcademy": "إضافة أكاديمية للفيديو"
+      "addAcademy": "إضافة أكاديمية للفيديو",
+      "manageOnClients": "فعّل الفيديو لعميل من صفحته ←"
     },
     "status": {
       "ENABLED": "مُفعّل",
@@ -2404,6 +2613,9 @@
       "statSessions": "جلسات الدخول",
       "accessTitle": "الوصول للفيديو",
       "accessSubtitle": "فعّل، أو عطّل، أو شغّل تجربة، أو اختر باقة الفيديو لهذه الأكاديمية.",
+      "manageTitle": "إدارة فيديو هذا العميل",
+      "manageHint": "الاشتراك والتجربة والمستوى في صفحة العميل — هذه الصفحة للاستخدام والسجلات.",
+      "openClient": "فتح العميل ←",
       "trialEnds": "تنتهي التجربة {date} · باقٍ {days} يوم",
       "videoTier": "باقة الفيديو (الخيارات)",
       "tierFromPlan": "استخدام خطة الأكاديمية نفسها",
@@ -2567,6 +2779,9 @@
     "connectError": "فشل الاتصال.",
     "tokenHint": "اضغط «إدارة» على أكاديمية ثم «اتصال» وامسح رمز QR بهاتف واتساب الخاص بها (الأجهزة المرتبطة). تبقى الجلسة مرتبطة حتى تسجّل الخروج.",
     "manageBtn": "إدارة",
+    "pillOn": "مفعّل",
+    "pillOff": "متوقف",
+    "openClient": "فتح العميل ←",
     "search": "ابحث عن أكاديمية…",
     "filterAll": "الكل",
     "filterConnected": "متصلة",
@@ -2752,18 +2967,55 @@
     "subtitle": "الموافقة على تقارير التقدّم الشهرية التي يقدّمها المعلّمون أو رفضها.",
     "noPermission": "ليست لديك صلاحية لمراجعة تقارير الطلاب.",
     "loading": "جارٍ التحميل…",
-    "empty": "لا توجد تقارير طلاب للمراجعة.",
+    "pendingBanner": "{count, plural, other {# تقرير بانتظار المراجعة}}",
+    "stats": {
+      "ALL": "كل التقارير",
+      "PENDING": "قيد الانتظار",
+      "APPROVED": "تمت الموافقة",
+      "REJECTED": "مرفوض"
+    },
+    "searchPlaceholder": "ابحث باسم الطالب أو المعلّم أو التقرير…",
+    "allTeachers": "كل المعلّمين",
+    "sort": {
+      "newest": "الأحدث أولًا",
+      "oldest": "الأقدم أولًا"
+    },
+    "empty": {
+      "ALL": "لا توجد تقارير طلاب بعد.",
+      "PENDING": "لا شيء للمراجعة — القائمة فارغة.",
+      "APPROVED": "لا توجد تقارير تمت الموافقة عليها بعد.",
+      "REJECTED": "لا توجد تقارير مرفوضة."
+    },
+    "noResults": "لا يوجد تقرير مطابق للفلاتر.",
+    "noResultsHint": "جرّب كلمة بحث أخرى أو ألغِ فلتر المعلّم.",
+    "submitted": "أُرسل {when}",
     "status": {
       "PENDING": "قيد الانتظار",
       "APPROVED": "تمت الموافقة",
       "REJECTED": "مرفوض"
     },
-    "decisionNote": "{who}: {note}",
+    "decidedBy": {
+      "APPROVED": "وافق عليه {who} {when}",
+      "REJECTED": "رفضه {who} {when}"
+    },
     "notePlaceholder": "أضف ملاحظة (اختياري)",
+    "bulk": {
+      "selectAll": "{count, plural, other {تحديد كل التقارير المعلّقة (#)}}",
+      "selectOne": "تحديد التقرير: {title}",
+      "selected": "{count, plural, other {# محدَّد}}",
+      "working": "جارٍ المعالجة {done}/{total}…",
+      "approve": "الموافقة على المحدَّد",
+      "reject": "رفض المحدَّد",
+      "clear": "إلغاء التحديد"
+    },
     "actions": {
       "refresh": "تحديث",
       "approve": "موافقة",
-      "reject": "رفض"
+      "reject": "رفض",
+      "showMore": "عرض التقرير كاملًا",
+      "showLess": "عرض أقل",
+      "clearSearch": "مسح البحث",
+      "clearFilters": "مسح الفلاتر"
     }
   },
   "trials": {
@@ -3337,5 +3589,15 @@
     "chatEveryone": "الجميع",
     "chatPrivate": "خاصة",
     "chatPrivatePlaceholder": "رسالة خاصة…"
+  },
+  "theme": {
+    "label": "المظهر",
+    "light": "فاتح",
+    "dark": "داكن",
+    "system": "حسب النظام"
+  },
+  "command": {
+    "placeholder": "ابحث في الصفحات…",
+    "empty": "لا توجد صفحات مطابقة."
   }
 }

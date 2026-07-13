@@ -17,7 +17,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import type { InvoiceRow } from "@/app/invoices/screen";
+import type { InvoiceRow } from "@/app/(app)/invoices/screen";
 import { useAuth } from "@/components/auth-provider";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { Button } from "@/components/ui/button";

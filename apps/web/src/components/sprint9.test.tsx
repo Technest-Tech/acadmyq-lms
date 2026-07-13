@@ -7,8 +7,8 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/",
 }));
 
-import { AuditLogScreen } from "@/app/audit/screen";
-import { PlanAdminScreen } from "@/app/admin/plans/screen";
+import { AuditLogScreen } from "@/app/(app)/audit/screen";
+import { PlanAdminScreen } from "@/app/(app)/admin/plans/screen";
 import { AppShell } from "@/components/app-shell";
 import {
   actorInitials,

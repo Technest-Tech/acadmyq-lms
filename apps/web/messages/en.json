@@ -121,8 +121,9 @@
   "nav": {
     "dashboard": "Dashboard",
     "notifications": "Notifications",
-    "adminHome": "Platform Overview",
+    "adminHome": "Overview",
     "users": "Users",
+    "clients": "Clients",
     "academies": "Academies",
     "guardians": "Guardians",
     "students": "Students",
@@ -146,8 +147,8 @@
     "staff": "Staff",
     "staffDepartments": "Staff Departments",
     "adminSubscriptions": "Subscriptions",
-    "adminAutomation": "Automation",
-    "adminVideo": "Video Oversight",
+    "adminAutomation": "WhatsApp Ops",
+    "adminVideo": "Video Ops",
     "platformSettings": "Platform Settings",
     "roles": "Roles & Permissions",
     "upgradeBadge": "Upgrade",
@@ -158,7 +159,11 @@
     "general": "General",
     "management": "Management",
     "financial": "Financial",
-    "system": "System"
+    "system": "System",
+    "people": "People",
+    "academics": "Academics",
+    "scheduling": "Scheduling",
+    "platform": "Platform"
   },
   "adminModule": {
     "platform": "Platform",
@@ -166,11 +171,142 @@
     "whatsapp": "WhatsApp Service",
     "video": "Video Platform"
   },
+  "clients": {
+    "title": "Clients",
+    "subtitle": "Every client with its Management / Video / WhatsApp subscriptions — open a client to manage them.",
+    "newClient": "New client",
+    "searchPlaceholder": "Search clients…",
+    "allModules": "All modules",
+    "loading": "Loading…",
+    "empty": "No clients match.",
+    "noOwner": "No owner login",
+    "open": "Open →",
+    "people": "{students} students · {teachers} teachers",
+    "status": {
+      "ALL": "All",
+      "ACTIVE": "Active",
+      "TRIAL": "Trial",
+      "SUSPENDED": "Suspended"
+    },
+    "modules": {
+      "MANAGEMENT": "Management",
+      "VIDEO": "Video",
+      "WHATSAPP": "WhatsApp"
+    },
+    "chip": {
+      "paused": "paused",
+      "trialDays": "trial · {days} days left",
+      "active": "active",
+      "off": "off"
+    },
+    "table": {
+      "client": "Client",
+      "modules": "Modules",
+      "status": "Status",
+      "monthly": "Monthly",
+      "people": "People"
+    },
+    "subs": {
+      "title": "Subscriptions — the only place to change them",
+      "total": "Total {total}/mo",
+      "off": "Not enabled",
+      "noPlan": "No plan",
+      "paused": "Paused",
+      "trialLeft": "Trial · {days} days left",
+      "trialExpired": "Trial expired",
+      "renews": "Active · renews {date}",
+      "active": "Active",
+      "perMonthSuffix": "/mo",
+      "enable": "Enable…",
+      "extend": "Extend…",
+      "activate": "Activate",
+      "resume": "Resume",
+      "changePlan": "Change plan…",
+      "pause": "Pause",
+      "remove": "Remove",
+      "confirmPause": "Pause this module? The client keeps its other modules; this one stops working until resumed.",
+      "confirmEnd": "Remove this module from the client? Its subscription ends (kept as history).",
+      "cancel": "Cancel",
+      "plan": "Plan",
+      "mode": "Start as",
+      "modeTrial": "Trial",
+      "modeActive": "Paid (active now)",
+      "trialDays": "Trial days",
+      "extendByDays": "Extend by (days)",
+      "noPlansForModule": "No plans for this module yet"
+    },
+    "detail": {
+      "back": "All clients",
+      "since": "since {date}",
+      "suspendedReason": "Suspended: {reason}",
+      "enter": "Enter academy",
+      "enterConfirm": "Enter {name}? You will act inside this academy until you exit.",
+      "reactivate": "Reactivate",
+      "suspend": "Suspend…",
+      "suspendReasonPlaceholder": "Reason (optional)",
+      "tabs": {
+        "billing": "Billing",
+        "whatsapp": "WhatsApp",
+        "video": "Video",
+        "settings": "Settings"
+      },
+      "videoCardTitle": "Video settings & rooms",
+      "videoCardHint": "Tier, room limits, recordings and room logs live in Video Ops for this client.",
+      "videoCardOpen": "Rooms & logs →",
+      "waTitle": "WhatsApp connection & keys",
+      "waLoading": "Loading connection state…",
+      "waConnected": "Connected",
+      "waNotConnected": "Not connected",
+      "waSummary": "{sent} sends (30d) · {keys} API keys",
+      "waManage": "Manage connection & keys…",
+      "videoConfigTitle": "Video configuration",
+      "videoConfigHint": "The tier and per-client limits below; turning video on/off or its trial lives in the Subscriptions card above.",
+      "videoTier": "Video tier",
+      "videoTierNone": "From the plan (no tier override)",
+      "videoLimitDefault": "default",
+      "videoLimit": {
+        "maxRooms": "Max rooms",
+        "maxRoomParticipants": "Max participants / room",
+        "recordingRetentionDays": "Recording retention (days)"
+      },
+      "videoFlag": {
+        "recordingAllowed": "Recording allowed",
+        "monitorAllowed": "Monitoring allowed"
+      },
+      "videoSaved": "Video configuration saved",
+      "settingsTitle": "Name & branding",
+      "fieldName": "Name",
+      "fieldBrandName": "Brand display name",
+      "fieldSubdomain": "Subdomain",
+      "fieldLogoUrl": "Logo URL",
+      "save": "Save",
+      "saved": "Saved"
+    },
+    "new": {
+      "back": "All clients",
+      "modulesTitle": "Also enable for this client",
+      "modulesHint": "Management comes from the plan you pick in the form below. Tick Video or WhatsApp to enable them with their own plan and trial from day one — you can always change this later on the client page.",
+      "enableFailed": "Could not enable {module}: {error}",
+      "waOnlyTitle": "WhatsApp-only client (no login)",
+      "waOnlyHint": "For a client outside the management system: just a name and a WhatsApp plan — no owner account. Connect them by QR from their client page and serve them over the API.",
+      "waOnlyStart": "Create WhatsApp-only…",
+      "waOnlyName": "Client name",
+      "waOnlyNamePlaceholder": "e.g. Sunrise Nursery",
+      "waOnlyCreate": "Create client"
+    }
+  },
   "header": {
     "menu": "Menu",
     "language": "Language",
     "enteredAcademy": "Inside academy",
-    "exit": "Exit"
+    "exit": "Exit",
+    "close": "Close",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "breadcrumb": "Breadcrumb",
+    "details": "Details",
+    "help": "Help & guide",
+    "exitAcademy": "Exit academy"
   },
   "auth": {
     "signIn": "Sign in",
@@ -820,7 +956,10 @@
       "hoursUnit": "hrs",
       "noScheduleTitle": "No timetable yet",
       "noScheduleHint": "Add a weekly timetable so sessions are generated and billed automatically.",
-      "addTimetable": "Add timetable"
+      "addTimetable": "Add timetable",
+      "repriceOpenLabel": "Also update open invoices",
+      "repriceOpenHint": "Recalculate {sessions, plural, one {# billed session} other {# billed sessions}} on {invoices, plural, one {# open invoice} other {# open invoices}} at the new rate. Use this when the old rate was entered by mistake — closed and paid invoices are never changed.",
+      "savedRepriced": "Subscription saved. Recalculated {sessions, plural, one {# session} other {# sessions}} on {invoices, plural, one {# open invoice} other {# open invoices}}."
     },
     "teacher": {
       "title": "Teacher",
@@ -995,11 +1134,18 @@
       "searchPlaceholder": "Search student or teacher…",
       "clearSearch": "Clear search",
       "filterAll": "All",
-      "summary": {
-        "total": "Total sessions",
-        "cancelled": "Cancelled"
-      },
-      "empty": "You do not have access to the calendar."
+      "empty": "You do not have access to the calendar.",
+      "statusLabel": "Status",
+      "statusesSelected": "{count} statuses",
+      "newSession": "New session",
+      "tomorrow": "Tomorrow",
+      "openDay": "Open this day",
+      "fullDay": "Show the full 24 hours",
+      "workingHours": "Show working hours only",
+      "emptyGridHint": "Click any empty slot to add a session.",
+      "unnamedStudent": "Unnamed student",
+      "sessionCount": "{count, plural, =0 {no sessions} one {# session} other {# sessions}}",
+      "showingCount": "Showing {shown} of {total}"
     },
     "quickCreate": {
       "title": "New session",
@@ -1045,7 +1191,12 @@
       "requestCancelByStudent": "Request cancel (by student)",
       "requestSent": "Request sent — awaiting the owner's approval.",
       "attendance": "Attendance & report",
-      "durationMin": "{count} min"
+      "durationMin": "{count} min",
+      "back": "Back",
+      "date": "Date",
+      "time": "Time",
+      "durationLabel": "Duration",
+      "cancelWho": "Who cancelled?"
     }
   },
   "notifications": {
@@ -1095,8 +1246,15 @@
     "subtitle": "Write a monthly progress report for one of your students and send it to the admin for review.",
     "noPermission": "You don't have permission to write student reports.",
     "loading": "Loading…",
+    "stats": {
+      "ALL": "All reports",
+      "PENDING": "Awaiting review",
+      "APPROVED": "Approved",
+      "REJECTED": "Rejected"
+    },
     "form": {
       "heading": "New report",
+      "hint": "One report per student per month. The admin reviews it before the parent sees it.",
       "student": "Student",
       "studentPlaceholder": "Select a student",
       "month": "Month",
@@ -1104,6 +1262,11 @@
       "titlePlaceholder": "e.g. June progress summary",
       "body": "Report",
       "bodyPlaceholder": "Describe the student's progress, attendance, strengths, and areas to improve this month…",
+      "outline": "Insert outline",
+      "outlineTemplate": "Progress this month:\n- \n\nAttendance & punctuality:\n- \n\nStrengths:\n- \n\nAreas to improve:\n- \n\nPlan for next month:\n- ",
+      "duplicate": "A report for this student and month is already awaiting review. Pick another month, or wait for the admin's decision.",
+      "reset": "Clear",
+      "reviewNotice": "The admin can approve or send it back with notes.",
       "submit": "Send for review",
       "submitting": "Sending…",
       "success": "Report sent to the admin for review.",
@@ -1111,13 +1274,30 @@
     },
     "list": {
       "heading": "Your reports",
+      "searchPlaceholder": "Search your reports…",
+      "clearSearch": "Clear search",
       "empty": "You haven't submitted any reports yet.",
-      "reviewedBy": "{who}: {note}"
+      "emptyHint": "Write your first monthly report using the form above.",
+      "emptyFor": {
+        "ALL": "You haven't submitted any reports yet.",
+        "PENDING": "Nothing is waiting on the admin right now.",
+        "APPROVED": "No approved reports yet.",
+        "REJECTED": "No reports were sent back — nice work."
+      },
+      "noResults": "No report matches your search.",
+      "submitted": "Sent {when}",
+      "showMore": "Show full report",
+      "showLess": "Show less",
+      "decided": {
+        "APPROVED": "Approved by {who} {when}",
+        "REJECTED": "Sent back by {who} {when}"
+      },
+      "revise": "Revise & resend"
     },
     "status": {
       "PENDING": "Awaiting review",
       "APPROVED": "Approved",
-      "REJECTED": "Rejected"
+      "REJECTED": "Sent back"
     }
   },
   "videoClassroom": {
@@ -1361,6 +1541,7 @@
     "viewDetails": "View details",
     "actions": "Actions",
     "moreCurrencies": "+{count} more",
+    "totalsByCurrency": "Totals by currency",
     "closePeriod": "Close period",
     "closePeriodTitle": "Close billing period",
     "closePeriodDesc": "Closing locks every open invoice for {period} so no further sessions can be added. This cannot be undone.",
@@ -1470,6 +1651,20 @@
     "recordedToday": "Recorded today",
     "open": "Open",
     "record": "Record",
+    "currentTime": "Currently scheduled for",
+    "rescheduleDone": "Rescheduled — the class was moved to its new time.",
+    "createClass": "Add class",
+    "createClassTitle": "Add a class",
+    "createClassSubtitle": "Log a lesson the timetable didn't create — a make-up class, or one that already happened.",
+    "createClassAdd": "Add class",
+    "createClassPickTeacher": "Choose a teacher…",
+    "createClassPickTeacherFirst": "Choose a teacher first",
+    "createClassPickStudent": "Choose a student…",
+    "createClassNoStudents": "This teacher has no students",
+    "createClassWhen": "Date & time",
+    "createClassDescription": "Lesson report (optional)",
+    "createClassCancelBilling": "Cancelled lesson — decide how it is billed.",
+    "createClassPartial": "The class was created, but:",
     "attendanceRecorded": "Attendance recorded.",
     "saved": "Report saved.",
     "savedNoOutcome": "Report saved — remember to record the attendance outcome.",
@@ -1769,7 +1964,9 @@
     "tab": {
       "flags": "Feature flags",
       "general": "General",
-      "payment": "Payment"
+      "payment": "Payment",
+      "roles": "Roles & permissions",
+      "departments": "Staff departments"
     },
     "generalHeading": "Email & notifications",
     "payment": {
@@ -1903,11 +2100,22 @@
     "statMrrMore": "+{count} more {count, plural, one {currency} other {currencies}}",
     "statTopPlan": "Most popular",
     "statNoAcademies": "No subscriptions yet",
+    "addOnsTab": "Add-ons",
+    "addOnsTitle": "Add-on catalog",
+    "addOnCode": "Code",
+    "addOnName": "Name",
+    "addOnFeature": "Unlocks feature",
+    "addOnPrice": "Price",
+    "noAddOns": "No add-ons defined yet.",
     "form": {
       "newPlan": "New plan",
       "editPlan": "Edit plan",
       "newAddOn": "New add-on",
       "editAddOn": "Edit add-on",
+      "module": "Module",
+      "moduleManagement": "Management",
+      "moduleVideo": "Video",
+      "moduleWhatsapp": "WhatsApp",
       "code": "Code",
       "name": "Name",
       "price": "Price",
@@ -2356,7 +2564,8 @@
       "noPlan": "—",
       "empty": "No academy is on the video platform yet.",
       "liveRecording": "Recording",
-      "addAcademy": "Add academy to video"
+      "addAcademy": "Add academy to video",
+      "manageOnClients": "Enable video for a client on its client page →"
     },
     "status": {
       "ENABLED": "Enabled",
@@ -2404,6 +2613,9 @@
       "statSessions": "Join sessions",
       "accessTitle": "Video access",
       "accessSubtitle": "Activate, deactivate, run a trial, or pick the video tier for this academy.",
+      "manageTitle": "Manage this client's video",
+      "manageHint": "Subscription, trial and tier live on the client page — this page is usage and logs.",
+      "openClient": "Open client →",
       "trialEnds": "Trial ends {date} · {days} days left",
       "videoTier": "Video tier (options)",
       "tierFromPlan": "Use the academy's own plan",
@@ -2567,6 +2779,9 @@
     "connectError": "Connect failed.",
     "tokenHint": "Click Manage on an academy, then Connect and scan the QR with that academy's WhatsApp phone (Linked devices). The session stays linked until you log out.",
     "manageBtn": "Manage",
+    "pillOn": "On",
+    "pillOff": "Off",
+    "openClient": "Open client →",
     "search": "Search academies…",
     "filterAll": "All",
     "filterConnected": "Connected",
@@ -2752,18 +2967,55 @@
     "subtitle": "Approve or reject the monthly progress reports teachers submit.",
     "noPermission": "You don't have permission to review student reports.",
     "loading": "Loading…",
-    "empty": "No student reports to review.",
+    "pendingBanner": "{count, plural, =1 {# report awaiting review} other {# reports awaiting review}}",
+    "stats": {
+      "ALL": "All reports",
+      "PENDING": "Pending",
+      "APPROVED": "Approved",
+      "REJECTED": "Rejected"
+    },
+    "searchPlaceholder": "Search student, teacher, or report…",
+    "allTeachers": "All teachers",
+    "sort": {
+      "newest": "Newest first",
+      "oldest": "Oldest first"
+    },
+    "empty": {
+      "ALL": "No student reports yet.",
+      "PENDING": "Nothing to review — the queue is clear.",
+      "APPROVED": "No approved reports yet.",
+      "REJECTED": "No rejected reports."
+    },
+    "noResults": "No report matches your filters.",
+    "noResultsHint": "Try a different search term or clear the teacher filter.",
+    "submitted": "Submitted {when}",
     "status": {
       "PENDING": "Pending",
       "APPROVED": "Approved",
       "REJECTED": "Rejected"
     },
-    "decisionNote": "{who}: {note}",
+    "decidedBy": {
+      "APPROVED": "Approved by {who} {when}",
+      "REJECTED": "Rejected by {who} {when}"
+    },
     "notePlaceholder": "Add a note (optional)",
+    "bulk": {
+      "selectAll": "{count, plural, =1 {Select the pending report} other {Select all # pending reports}}",
+      "selectOne": "Select report: {title}",
+      "selected": "{count, plural, =1 {# selected} other {# selected}}",
+      "working": "Processing {done}/{total}…",
+      "approve": "Approve selected",
+      "reject": "Reject selected",
+      "clear": "Clear"
+    },
     "actions": {
       "refresh": "Refresh",
       "approve": "Approve",
-      "reject": "Reject"
+      "reject": "Reject",
+      "showMore": "Show full report",
+      "showLess": "Show less",
+      "clearSearch": "Clear search",
+      "clearFilters": "Clear filters"
     }
   },
   "trials": {
@@ -3337,5 +3589,15 @@
     "chatEveryone": "Everyone",
     "chatPrivate": "Private",
     "chatPrivatePlaceholder": "Private message…"
+  },
+  "theme": {
+    "label": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "command": {
+    "placeholder": "Search pages…",
+    "empty": "No matching pages."
   }
 }

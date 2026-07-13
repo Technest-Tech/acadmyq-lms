@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\AcademyAutomationController;
 use App\Http\Controllers\Admin\AcademyController;
 use App\Http\Controllers\Admin\AcademySubscriptionController;
 use App\Http\Controllers\Admin\BillingController;
+use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\RoleController;
@@ -223,6 +224,20 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/admin/academies/{id}/subscription/trial/extend', [AcademySubscriptionController::class, 'extendTrial']);
     Route::post('/admin/academies/{id}/subscription/activate', [AcademySubscriptionController::class, 'activate']);
     Route::get('/my-subscription', [AcademySubscriptionController::class, 'mySummary']);
+
+    // Client-first Super Admin surface (R1, docs/superadmin-modules/04-CLIENT-FIRST-REDESIGN):
+    // the cross-tenant client directory (module chips per client) and the per-module subscription
+    // lifecycle — THE one writer for module on/off / plan / trial / activate / pause. The legacy
+    // /admin/academies/* endpoints above stay as aliases and write through the same engine.
+    Route::get('/admin/clients', [ClientController::class, 'index']);
+    Route::post('/admin/clients', [ClientController::class, 'store']); // WhatsApp-only external client (M-CLI-2)
+    Route::get('/admin/clients/{id}', [ClientController::class, 'show']);
+    Route::post('/admin/clients/{id}/modules/{module}/subscription', [ClientController::class, 'enableModule']);
+    Route::put('/admin/clients/{id}/modules/{module}/subscription', [ClientController::class, 'updateModule']);
+    Route::post('/admin/clients/{id}/modules/{module}/subscription/trial', [ClientController::class, 'extendTrial']);
+    Route::post('/admin/clients/{id}/modules/{module}/subscription/activate', [ClientController::class, 'activateModule']);
+    Route::post('/admin/clients/{id}/modules/{module}/subscription/pause', [ClientController::class, 'pauseModule']);
+    Route::post('/admin/clients/{id}/modules/{module}/subscription/end', [ClientController::class, 'endModule']);
 
     // Platform → Academy bills (academy_billing.manage). Academy-scoped so the Super Admin write
     // runs in the academy's context (no cross-tenant lookup); send delivers the bill over WhatsApp.
