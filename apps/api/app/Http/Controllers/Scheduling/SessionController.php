@@ -38,10 +38,18 @@ final class SessionController extends Controller
         'student' => 'CANCELLED_BY_STUDENT',
     ];
 
-    /** POST /api/sessions — a one-off session not tied to any schedule (AC-5.10). */
+    /**
+     * POST /api/sessions — a one-off session not tied to any schedule (AC-5.10).
+     *
+     * Gated on `session.create`, which a TEACHER now also holds so they can log a class the
+     * timetable never produced (e.g. a make-up lesson). That capability is deliberately narrower
+     * than `schedule.manage`: it mints one ad-hoc occurrence, it does NOT let a teacher rewrite a
+     * weekly timetable. A TEACHER is confined to their own roster and is always recorded as the
+     * teacher, so they can never mint a billable class for someone else's student.
+     */
     public function store(Request $request): JsonResponse
     {
-        Gate::authorize('schedule.manage');
+        Gate::authorize('session.create');
 
         $academyId = $this->currentAcademyId();
         $data = $request->validate([
@@ -58,6 +66,21 @@ final class SessionController extends Controller
         }
 
         $teacherId = $data['teacher_id'] ?? $this->currentTeacherFor($data['student_id']);
+
+        // A TEACHER may only ever create a class for themselves, and only for a student currently
+        // assigned to them. Any teacher_id they send is ignored rather than rejected — the caller's
+        // own identity is the only one that can hold here.
+        if ($this->ctx()->role === 'TEACHER') {
+            $ownTeacherId = $this->callerTeacherId();
+            if ($ownTeacherId === null) {
+                abort(403, 'No teacher record for this user.');
+            }
+            if ($this->currentTeacherFor($data['student_id']) !== $ownTeacherId) {
+                abort(403, 'Not your student.');
+            }
+            $teacherId = $ownTeacherId;
+        }
+
         if ($teacherId === null) {
             throw ValidationException::withMessages(['teacher_id' => ['No teacher given and the student has none assigned.']]);
         }

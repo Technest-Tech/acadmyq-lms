@@ -10,6 +10,7 @@ use App\Support\PublicInvoiceToken;
 use App\Support\StudentStatus;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -648,6 +649,11 @@ final class Invoicing implements BillingHook
      *               student on this invoice — if count + 1 == sessions_per_month, this is
      *               the last slot.
      *
+     *               A month may legitimately run OVER quota — a make-up class, or a one-off
+     *               lesson added on the Attendance page. PER_MONTH is a flat fee, so those
+     *               extra lessons are already paid for: they bill 0. The lines can therefore
+     *               never sum past price_minor, and never below it once the quota is met.
+     *
      *               If sessions_per_month is null or 0, treat as PER_SESSION.
      */
     private function resolvePerSessionAmount(
@@ -677,20 +683,36 @@ final class Invoicing implements BillingHook
 
         $perSessionFloor = intdiv($priceMinor, $sessionsPerMonth);
 
-        // Count how many lines already exist for this student on this invoice.
-        $alreadyBilled = (int) DB::table('invoice_line_items')
+        // What this student's LESSONS have already taken off the monthly fee on this invoice.
+        // Both the count and the sum are read: the count says which quota slot this lesson fills,
+        // the sum says how much of the flat fee is left to charge. Manual (non-session) lines are
+        // excluded — they are their own charge, not a lesson against the quota.
+        $billed = DB::table('invoice_line_items')
             ->where('invoice_id', $invoiceId)
             ->where('student_id', $studentId)
-            ->count();
+            ->whereNotNull('session_id')
+            ->selectRaw('count(*) as line_count, coalesce(sum(amount_minor), 0) as line_sum')
+            ->first();
 
-        // This will be line number ($alreadyBilled + 1). If it equals sessions_per_month it is
-        // the last session → absorb the remainder.
-        if ($alreadyBilled + 1 >= $sessionsPerMonth) {
-            // Last (or over-quota) session: pays whatever is left of price_minor.
-            return $priceMinor - ($perSessionFloor * $alreadyBilled);
+        $alreadyBilled = (int) $billed->line_count;
+        $remaining = $priceMinor - (int) $billed->line_sum;
+
+        // The flat monthly fee is fully charged → every further lesson this month is already paid
+        // for and bills 0. Deriving this from what is LEFT (rather than subtracting floor × count
+        // unconditionally) is what stops an over-quota lesson emitting a NEGATIVE line, which used
+        // to refund the academy its own money: an 8-lesson / 800 EGP month billed only 500 EGP
+        // once three make-up classes were added.
+        if ($remaining <= 0) {
+            return 0;
         }
 
-        return $perSessionFloor;
+        // The last quota lesson absorbs the integer-division remainder, so the lines sum to
+        // price_minor exactly.
+        if ($alreadyBilled + 1 >= $sessionsPerMonth) {
+            return $remaining;
+        }
+
+        return min($perSessionFloor, $remaining);
     }
 
     /**
@@ -785,6 +807,87 @@ final class Invoicing implements BillingHook
 
         $this->onSessionUnbilled($session);
         $this->onSessionBillable($session);
+    }
+
+    /**
+     * Re-derive every already-billed session on this student's OPEN invoices from the student's
+     * CURRENT subscription — the correction path for a rate that was entered wrong.
+     *
+     * Line items snapshot their amount at billing time and the invoice total is only ever
+     * incremented, so fixing the subscription price alone leaves lessons already billed at the
+     * old rate untouched. This replays them: drop every line, then re-add through the normal
+     * {@see onSessionBillable} pricing path so the new rate, the free-trial flag and the current
+     * session duration are all picked up.
+     *
+     * Removal happens for ALL sessions before ANY is re-added, deliberately: PER_MONTH pricing
+     * counts the lines already on the invoice to find the quota's last slot (which absorbs the
+     * integer-division remainder), so a line-by-line swap would see a stale count and misprice
+     * the remainder. A clean slate re-counts correctly. Re-adding runs in chronological order so
+     * "last session of the month" still means the chronologically last one.
+     *
+     * CLOSED / PAID invoices are never touched — they are immutable both by decision (R-INV-3)
+     * and by a Postgres trigger. Only OPEN invoices are in scope, so a corrected rate can never
+     * back-date a bill the parent has already been sent.
+     *
+     * @return array{sessions:int, invoices:int} what was actually recalculated
+     */
+    public function repriceOpenInvoicesForStudent(string $studentId): array
+    {
+        $sessions = $this->openBilledSessions($studentId);
+
+        if ($sessions->isEmpty()) {
+            return ['sessions' => 0, 'invoices' => 0];
+        }
+
+        $invoiceCount = $sessions->pluck('invoice_id')->unique()->count();
+
+        DB::transaction(function () use ($sessions) {
+            foreach ($sessions as $session) {
+                $this->onSessionUnbilled($session);
+            }
+
+            foreach ($sessions as $session) {
+                $this->onSessionBillable($session);
+            }
+        });
+
+        return ['sessions' => $sessions->count(), 'invoices' => $invoiceCount];
+    }
+
+    /**
+     * How much a reprice would touch, without touching it — drives the "N sessions on M open
+     * invoices will be recalculated" confirmation in the price dialog.
+     *
+     * @return array{sessions:int, invoices:int}
+     */
+    public function previewOpenInvoiceReprice(string $studentId): array
+    {
+        $sessions = $this->openBilledSessions($studentId);
+
+        return [
+            'sessions' => $sessions->count(),
+            'invoices' => $sessions->pluck('invoice_id')->unique()->count(),
+        ];
+    }
+
+    /**
+     * The sessions this student has billed onto still-OPEN invoices, chronological.
+     *
+     * Manual line items (no session_id) are excluded — they were typed by hand and carry no
+     * subscription rate to re-derive, so a reprice must leave them exactly as they are.
+     *
+     * @return Collection<int, object>
+     */
+    private function openBilledSessions(string $studentId): Collection
+    {
+        return DB::table('invoice_line_items as li')
+            ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+            ->join('sessions as s', 's.id', '=', 'li.session_id')
+            ->where('li.student_id', $studentId)
+            ->where('i.status', 'OPEN')
+            ->orderBy('s.scheduled_at_utc')
+            ->select('s.*', 'li.invoice_id')
+            ->get();
     }
 
     /**

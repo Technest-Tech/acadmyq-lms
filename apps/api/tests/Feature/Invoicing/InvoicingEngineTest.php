@@ -1437,3 +1437,110 @@ it('#12: a cancelled lesson in a different currency does not attach to an EGP in
         ->and($lines->pluck('student_id'))->not->toContain($usdStudent)
         ->and($lines->every(fn ($li) => $li['currency'] === 'EGP'))->toBeTrue();
 });
+
+// ─── Repricing an OPEN invoice after a mistyped rate ──────────────────────────
+
+it('reprices already-billed sessions on an OPEN invoice when the hourly rate is corrected', function () {
+    Sanctum::actingAs($this->owner);
+
+    // The academy types the rate in wrong: 60.00 EGP/hr when it should be 100.00.
+    $this->asAcademy($this->academy);
+    DB::table('subscriptions')
+        ->where('student_id', $this->student)
+        ->update(['price_basis' => 'PER_HOUR', 'price_minor' => 6000]);
+
+    // Two lessons get billed at the wrong rate: 60 min → 6 000, 90 min → 9 000.
+    foreach ([['01', 60], ['02', 90]] as [$day, $duration]) {
+        Sanctum::actingAs($this->owner);
+        $s = $this->createSession($this->academy, $this->student, $this->teacher, [
+            'scheduled_at_utc' => "2026-06-{$day} 10:00:00+00",
+            'duration_minutes' => $duration,
+            'status' => 'SCHEDULED',
+        ]);
+        $this->postJson("/api/sessions/{$s}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    }
+
+    expect((int) ($this->openInvoice)()->total_minor)->toBe(15000);
+
+    // The mistake is spotted. Correct the rate to 100.00 EGP/hr, asking for the open invoice to
+    // be recalculated too.
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/students/{$this->student}/subscription/price", [
+        'price_minor' => 10000,
+        'price_basis' => 'PER_HOUR',
+        'reprice_open' => true,
+    ])->assertOk()->assertJsonPath('repriced.sessions', 2)->assertJsonPath('repriced.invoices', 1);
+
+    // 60 min → 10 000, 90 min → 15 000. The stale 15 000 total is gone.
+    $this->asAcademy($this->academy);
+    $invoice = ($this->openInvoice)();
+    expect((int) $invoice->total_minor)->toBe(25000)
+        ->and((int) $invoice->subtotal_minor)->toBe(25000)
+        ->and((int) DB::table('invoice_line_items')->where('invoice_id', $invoice->id)->sum('amount_minor'))->toBe(25000)
+        ->and(DB::table('invoice_line_items')->where('invoice_id', $invoice->id)->count())->toBe(2);
+});
+
+it('leaves already-billed sessions untouched when the rate changes without reprice_open', function () {
+    Sanctum::actingAs($this->owner);
+
+    $this->asAcademy($this->academy);
+    DB::table('subscriptions')
+        ->where('student_id', $this->student)
+        ->update(['price_basis' => 'PER_HOUR', 'price_minor' => 6000]);
+
+    Sanctum::actingAs($this->owner);
+    $s = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-01 10:00:00+00',
+        'duration_minutes' => 60,
+        'status' => 'SCHEDULED',
+    ]);
+    $this->postJson("/api/sessions/{$s}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    // A genuine mid-term rate rise: the lesson already taught keeps the price it was taught at.
+    $this->patchJson("/api/students/{$this->student}/subscription/price", [
+        'price_minor' => 10000,
+        'price_basis' => 'PER_HOUR',
+    ])->assertOk()->assertJsonPath('repriced.sessions', 0);
+
+    $this->asAcademy($this->academy);
+    expect((int) ($this->openInvoice)()->total_minor)->toBe(6000);
+});
+
+it('never reprices a CLOSED invoice, and reports how much a reprice would touch', function () {
+    Sanctum::actingAs($this->owner);
+
+    $this->asAcademy($this->academy);
+    DB::table('subscriptions')
+        ->where('student_id', $this->student)
+        ->update(['price_basis' => 'PER_HOUR', 'price_minor' => 6000]);
+
+    Sanctum::actingAs($this->owner);
+    $s = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-01 10:00:00+00',
+        'duration_minutes' => 60,
+        'status' => 'SCHEDULED',
+    ]);
+    $this->postJson("/api/sessions/{$s}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    // While the invoice is OPEN the preview offers to recalculate the one billed session.
+    $this->getJson("/api/students/{$this->student}/subscription/reprice-preview")
+        ->assertOk()->assertJsonPath('sessions', 1)->assertJsonPath('invoices', 1);
+
+    // Close it — the parent has now been sent this bill.
+    $invoiceId = ($this->openInvoice)()->id;
+    Sanctum::actingAs($this->owner);
+    app(Invoicing::class)->closeInvoice($invoiceId, $this->academy, $this->owner->id, 'ACADEMY_OWNER');
+
+    // A closed bill is immutable: nothing left to reprice, and the total holds at the old rate.
+    $this->getJson("/api/students/{$this->student}/subscription/reprice-preview")
+        ->assertOk()->assertJsonPath('sessions', 0)->assertJsonPath('invoices', 0);
+
+    $this->patchJson("/api/students/{$this->student}/subscription/price", [
+        'price_minor' => 10000,
+        'price_basis' => 'PER_HOUR',
+        'reprice_open' => true,
+    ])->assertOk()->assertJsonPath('repriced.sessions', 0);
+
+    $this->asAcademy($this->academy);
+    expect((int) DB::table('invoices')->where('id', $invoiceId)->value('total_minor'))->toBe(6000);
+});

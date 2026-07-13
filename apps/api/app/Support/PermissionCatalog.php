@@ -28,6 +28,11 @@ final class PermissionCatalog
         'student.read', 'student.create', 'student.update', 'student.deactivate',
         'schedule.read', 'schedule.manage',
         'session.read', 'session.mark_attendance', 'session.write_report',
+        // Add a one-off class that no timetable produced (the Attendance page's "create class").
+        // Held by TEACHER too — unlike `schedule.manage`, it grants a single ad-hoc occurrence,
+        // not the power to rewrite a student's weekly timetable. A TEACHER is confined to their
+        // own students and is always recorded as the teacher (enforced in SessionController).
+        'session.create',
         'session.reschedule', 'session.cancel',
         'session.cancel_request', 'session.cancel_approve',
         // Mark a lesson FREE. Like a cancellation, the per-academy billing decision (charge the
@@ -68,6 +73,7 @@ final class PermissionCatalog
             'student.read', 'student.create', 'student.update', 'student.deactivate',
             'schedule.read', 'schedule.manage',
             'session.read', 'session.mark_attendance', 'session.write_report',
+            'session.create',
             'session.reschedule', 'session.cancel', 'session.cancel_approve',
             // Mark free directly (with the billing popup) + approve teachers' free requests.
             'session.free', 'session.free_approve',
@@ -113,6 +119,9 @@ final class PermissionCatalog
             'TEACHER' => [
                 'schedule.read',
                 'session.read', 'session.mark_attendance', 'session.write_report',
+                // Log a one-off class the timetable never produced. Scoped hard server-side: only
+                // for a student assigned to them, and always with themselves as the teacher.
+                'session.create',
                 'session.reschedule', 'session.cancel_request',
                 // A teacher cannot mark a lesson free directly (the academy's free-lesson billing
                 // logic differs) — they raise a request the Owner approves (like a cancellation).

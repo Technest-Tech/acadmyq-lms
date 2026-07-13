@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\Entitlement;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -87,7 +88,20 @@ final class AuthController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    /** GET /api/auth/me (auth) — resolved identity, role, academy, permissions, locale. */
+    /**
+     * GET /api/auth/me (auth) — resolved identity, role, academy, permissions, locale, and the
+     * academy's plan capabilities.
+     *
+     * `capabilities` ships with the session on purpose. The web shell needs both the permission set
+     * and the plan capabilities before it can paint a single nav item, and fetching them separately
+     * made that a waterfall — /auth/me, then /entitlements, with the chrome held back behind both.
+     * They resolve from the same request context, so there is no reason to pay two round-trips.
+     * `null` (not `[]`) means "no academy scope" — a platform Super Admin has no plan to resolve,
+     * which is a different thing from an academy whose plan grants nothing.
+     *
+     * GET /api/entitlements remains the full payload (limits, usage, add-ons, modules) for the
+     * screens that need more than the capability list.
+     */
     public function me(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -103,6 +117,9 @@ final class AuthController extends Controller
             'academyId' => $ctx->academyId,
             'permissions' => $ctx->permissions,
             'locale' => $user->preferred_locale,
+            'capabilities' => $ctx->academyId === null
+                ? null
+                : Entitlement::resolve($ctx->academyId)['capabilities'],
         ]);
     }
 

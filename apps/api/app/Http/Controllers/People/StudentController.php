@@ -6,6 +6,7 @@ namespace App\Http\Controllers\People;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
+use App\Services\Invoicing;
 use App\Services\SessionGenerator;
 use App\Support\Audit;
 use App\Support\DataTable;
@@ -344,7 +345,22 @@ final class StudentController extends Controller
         $data = $this->validateSubscription($request->input('subscription', $request->all()));
         $subId = $this->writeSubscription($academyId, $id, $data, replace: true);
 
-        return response()->json(['subscriptionId' => $subId], 200);
+        return response()->json([
+            'subscriptionId' => $subId,
+            'repriced' => $this->maybeRepriceOpenInvoices($request, $id, $academyId, $subId),
+        ], 200);
+    }
+
+    /**
+     * GET /api/students/{id}/subscription/reprice-preview — how many already-billed sessions on
+     * how many OPEN invoices a reprice would recalculate. Read-only; drives the confirmation
+     * text on the price dialog's "also update open invoices" option.
+     */
+    public function repricePreview(string $id): JsonResponse
+    {
+        Gate::authorize('student.read');
+
+        return response()->json(app(Invoicing::class)->previewOpenInvoiceReprice($id));
     }
 
     /** PATCH /api/students/{id}/subscription/price — change price (audited, future-only). */
@@ -380,7 +396,38 @@ final class StudentController extends Controller
         DB::table('subscriptions')->where('id', $sub->id)->update($after + ['updated_at' => now()]);
         Audit::log('subscription.price_changed', 'subscription', $sub->id, $academyId, $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
 
-        return response()->json(['ok' => true]);
+        return response()->json([
+            'ok' => true,
+            'repriced' => $this->maybeRepriceOpenInvoices($request, $id, $academyId, (string) $sub->id),
+        ]);
+    }
+
+    /**
+     * Opt-in retroactive correction: when the caller passes `reprice_open`, replay the sessions
+     * already billed onto this student's OPEN invoices at the new rate.
+     *
+     * Off by default, because the two reasons to change a price want opposite behaviour — a rate
+     * that was simply typed wrong should fix the bill it has already produced, while a genuine
+     * mid-month rate rise should NOT retroactively re-bill lessons taught at the old rate. Only
+     * the person making the change knows which one this is, so they choose. Closed and paid
+     * invoices are out of scope either way (R-INV-3).
+     *
+     * @return array{sessions:int, invoices:int}
+     */
+    private function maybeRepriceOpenInvoices(Request $request, string $studentId, string $academyId, string $subId): array
+    {
+        if (! $request->boolean('reprice_open')) {
+            return ['sessions' => 0, 'invoices' => 0];
+        }
+
+        $result = app(Invoicing::class)->repriceOpenInvoicesForStudent($studentId);
+
+        if ($result['sessions'] > 0) {
+            Audit::log('subscription.open_invoices_repriced', 'subscription', $subId, $academyId,
+                $this->ctx()->userId, $this->ctx()->role, after: $result);
+        }
+
+        return $result;
     }
 
     /** POST /api/students/{id}/teacher — reassign teacher (close current + open new, audited). */

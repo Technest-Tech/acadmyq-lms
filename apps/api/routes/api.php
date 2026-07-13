@@ -375,6 +375,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::delete('/students/{id}', [StudentController::class, 'destroy']);
     Route::put('/students/{id}/subscription', [StudentController::class, 'setSubscription']);
     Route::patch('/students/{id}/subscription/price', [StudentController::class, 'changePrice']);
+    Route::get('/students/{id}/subscription/reprice-preview', [StudentController::class, 'repricePreview']);
     Route::post('/students/{id}/teacher', [StudentController::class, 'reassignTeacher']);
     Route::get('/students/{id}/teacher-history', [StudentController::class, 'teacherHistory']);
 
