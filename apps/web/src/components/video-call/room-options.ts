@@ -1,4 +1,9 @@
-import { VideoPreset, type RoomOptions, type ScreenShareCaptureOptions } from "livekit-client";
+import {
+  ScreenSharePresets,
+  VideoPreset,
+  type RoomOptions,
+  type ScreenShareCaptureOptions,
+} from "livekit-client";
 
 /**
  * Tuned connect-time options for the classroom SFU.
@@ -32,10 +37,14 @@ import { VideoPreset, type RoomOptions, type ScreenShareCaptureOptions } from "l
  *    scrolling/video-in-share now renders smooth instead of 15fps-janky, and under pressure the
  *    encoder sheds fps back down exactly as before — text never goes soft.
  *
- *  • screenShareSimulcastLayers — pinned to 960x540 @ 1 Mbps @ 15fps, the same low rung the SDK
- *    derived when the cap was 15fps. Left on auto, raising the cap to 30 would recompute this rung
- *    at 30fps with the SAME bitrate — half the bits per frame, visibly mushier text for exactly the
- *    weak-downlink students who are stuck on it. Low rung keeps its bits; the top rung gets the fps.
+ *  • screenShareSimulcastLayers — pinned to the SDK's h720fps15 (1280x720 @ 1.5 Mbps @ 15fps).
+ *    The low rung IS the share's worst-case reading experience, reached from BOTH sides: a viewer
+ *    whose downlink can't hold the top layer is downswitched onto it, and a presenter whose UPLINK
+ *    can't hold the top layer stops sending it — putting the whole class on the low rung. The SDK's
+ *    auto rung is half-res (960x540), and 540p is precisely where slide text turns to mush; 720p is
+ *    the smallest size that keeps it readable, so that's the floor. Pinning also matters for the
+ *    fps: recomputed under a 30fps cap, the auto rung would spend the same bitrate on twice the
+ *    frames. Low rung keeps its bits at 15fps; only the top rung gets the fps.
  *
  * dynacast stays on, and it's what makes the ladder affordable: the SFU pauses any layer nobody is
  * watching, so while the teacher presents, their camera collapses to the ~250kbps bottom rung
@@ -55,7 +64,7 @@ export const CLASSROOM_ROOM_OPTIONS: RoomOptions = {
       new VideoPreset(640, 360, 800_000, 30),
     ],
     screenShareEncoding: { maxBitrate: 4_000_000, maxFramerate: 30 },
-    screenShareSimulcastLayers: [new VideoPreset(960, 540, 1_000_000, 15)],
+    screenShareSimulcastLayers: [ScreenSharePresets.h720fps15],
   },
 };
 
