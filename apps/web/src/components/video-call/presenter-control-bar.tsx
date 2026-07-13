@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { useChatPanel } from "./chat-context";
 import { useLeaveConfirm } from "./leave-confirm-dialog";
 import { useRecording } from "./recording-context";
+import { SCREEN_SHARE_CAPTURE_OPTIONS } from "./room-options";
 import { useWhiteboard } from "./whiteboard-context";
 import { useIsDesktop } from "./use-is-desktop";
 
@@ -102,7 +103,7 @@ export function PresenterControlBar({
   const cam = useTrackToggle({ source: Track.Source.Camera });
   const screen = useTrackToggle({
     source: Track.Source.ScreenShare,
-    captureOptions: { audio: true },
+    captureOptions: SCREEN_SHARE_CAPTURE_OPTIONS,
   });
   const { open: boardOpen, toggleBoard, canManage, setAllowDraw, setScreenBaking, clearScreenAnnotations } =
     useWhiteboard();

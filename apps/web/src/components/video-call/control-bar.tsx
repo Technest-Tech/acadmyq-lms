@@ -26,6 +26,7 @@ import { ChatButton } from "./chat-button";
 import { usePip } from "./composite-pip";
 import { useLeaveConfirm } from "./leave-confirm-dialog";
 import { useRecording } from "./recording-context";
+import { SCREEN_SHARE_CAPTURE_OPTIONS } from "./room-options";
 import { useWhiteboard } from "./whiteboard-context";
 import { useFullscreen } from "./use-fullscreen";
 import { useIsDesktop } from "./use-is-desktop";
@@ -235,8 +236,7 @@ export function ControlBar({
   const cam = useTrackToggle({ source: Track.Source.Camera });
   const screen = useTrackToggle({
     source: Track.Source.ScreenShare,
-    // Request system/tab audio with the share so the picker shows "Share audio".
-    captureOptions: { audio: true },
+    captureOptions: SCREEN_SHARE_CAPTURE_OPTIONS,
   });
   const fs = useFullscreen();
   const pip = usePip();

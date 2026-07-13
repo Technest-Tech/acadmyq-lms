@@ -1,4 +1,4 @@
-import { VideoPreset, type RoomOptions } from "livekit-client";
+import { VideoPreset, type RoomOptions, type ScreenShareCaptureOptions } from "livekit-client";
 
 /**
  * Tuned connect-time options for the classroom SFU.
@@ -26,7 +26,16 @@ import { VideoPreset, type RoomOptions } from "livekit-client";
  *
  *  • videoEncoding — the top rung (1280x720 @ 30fps), for the spotlight / pinned / fullscreen tile.
  *
- *  • screenShareEncoding — 4 Mbps @ 15fps keeps shared text crisp; framerate barely matters there.
+ *  • screenShareEncoding — 4 Mbps @ 30fps. Screen-share is the classroom's main surface, and its
+ *    degradation stays "maintain-resolution" (the per-source SDK default), so the fps cap is what a
+ *    GOOD link enjoys, not what a bad link pays for: static slides emit almost no frames either way,
+ *    scrolling/video-in-share now renders smooth instead of 15fps-janky, and under pressure the
+ *    encoder sheds fps back down exactly as before — text never goes soft.
+ *
+ *  • screenShareSimulcastLayers — pinned to 960x540 @ 1 Mbps @ 15fps, the same low rung the SDK
+ *    derived when the cap was 15fps. Left on auto, raising the cap to 30 would recompute this rung
+ *    at 30fps with the SAME bitrate — half the bits per frame, visibly mushier text for exactly the
+ *    weak-downlink students who are stuck on it. Low rung keeps its bits; the top rung gets the fps.
  *
  * dynacast stays on, and it's what makes the ladder affordable: the SFU pauses any layer nobody is
  * watching, so while the teacher presents, their camera collapses to the ~250kbps bottom rung
@@ -45,6 +54,26 @@ export const CLASSROOM_ROOM_OPTIONS: RoomOptions = {
       new VideoPreset(320, 180, 250_000, 30),
       new VideoPreset(640, 360, 800_000, 30),
     ],
-    screenShareEncoding: { maxBitrate: 4_000_000, maxFramerate: 15 },
+    screenShareEncoding: { maxBitrate: 4_000_000, maxFramerate: 30 },
+    screenShareSimulcastLayers: [new VideoPreset(960, 540, 1_000_000, 15)],
   },
+};
+
+/**
+ * getDisplayMedia options for every screen-share toggle (main + presenter control bars share these).
+ *
+ *  • contentHint "detail" — slides/whiteboard/text is the dominant share content; bias the encoder
+ *    to spatial detail. Only effective on the VP8 path — with SVC codecs the SDK force-overrides the
+ *    hint to "motion", which is one more reason the codec stays VP8 (see above).
+ *  • selfBrowserSurface "exclude" — sharing the call's own tab is the classic infinite-mirror
+ *    accident; remove it from the picker.
+ *  • surfaceSwitching "include" — let the sharer retarget tabs mid-share without stopping.
+ *  • audio + systemAudio — surface the "share audio" checkbox for tab AND full-screen shares.
+ */
+export const SCREEN_SHARE_CAPTURE_OPTIONS: ScreenShareCaptureOptions = {
+  audio: true,
+  systemAudio: "include",
+  contentHint: "detail",
+  selfBrowserSurface: "exclude",
+  surfaceSwitching: "include",
 };
