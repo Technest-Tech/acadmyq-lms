@@ -105,6 +105,13 @@ final class VideoJoinController extends Controller
         $livekitName = (string) $knock['livekit_name'];
         $identity = (string) $knock['identity'];
         $displayName = (string) ($knock['display_name'] ?? '');
+
+        // A ghost-waiting-room knock is admitted as a HIDDEN monitor (never a visible guest) — the host
+        // consented to an observer, so we mint the monitor token and audit the entry, no attendance row.
+        if ((string) ($knock['role'] ?? 'guest') === 'monitor') {
+            return $this->admitMonitorKnock($knock, $config, $academyId, $roomId, $livekitName, $identity, $displayName);
+        }
+
         $allowScreenshare = (bool) ($config['allow_guest_screenshare'] ?? true);
 
         $accessToken = $this->tokens->guestToken($livekitName, $identity, $displayName, $allowScreenshare);
@@ -130,6 +137,45 @@ final class VideoJoinController extends Controller
             'manageToken' => null,
             'recordingEnabled' => (bool) ($config['recording_enabled'] ?? true),
             'muteOnJoin' => (bool) ($config['mute_guests_on_join'] ?? false),
+            'monitorDisclosure' => (bool) ($config['monitor_enabled'] ?? false) && (bool) ($config['monitor_disclose'] ?? true),
+            'suppressRecordingIndicator' => (bool) ($config['monitor_enabled'] ?? false) && ! (bool) ($config['monitor_disclose'] ?? true),
+        ]);
+    }
+
+    /**
+     * Admit a ghost-waiting-room knock as a HIDDEN monitor (08-ROOM-ACCESS §13). Mirrors the immediate
+     * monitor branch of performJoin, but fires at the moment the host admits — so `monitor_join` is
+     * audited when the observer truly enters (naming the signed-in watcher, or an anonymous link use),
+     * carrying the actor recorded at knock time. No attendance row: a monitor is a ghost.
+     *
+     * @param  array<string,mixed>  $knock
+     * @param  array<string,mixed>  $config
+     */
+    private function admitMonitorKnock(array $knock, array $config, string $academyId, string $roomId, string $livekitName, string $identity, string $displayName): JsonResponse
+    {
+        $accessToken = $this->tokens->monitorToken($livekitName, $identity, $displayName !== '' ? $displayName : null);
+
+        $actorUserId = ($knock['actor_user_id'] ?? null) !== null ? (string) $knock['actor_user_id'] : null;
+        $actorRole = (string) ($knock['actor_role'] ?? '') ?: 'MONITOR_LINK';
+        Audit::log('video_room.monitor_join', 'video_room', $roomId, $academyId, $actorUserId, $actorRole, after: [
+            'livekit_name' => $livekitName,
+            'via' => 'ghost_waiting_room',
+        ]);
+
+        return response()->json([
+            'state' => 'admitted',
+            'url' => (string) config('services.livekit.host'),
+            'token' => $accessToken,
+            'roomName' => $livekitName,
+            'roomTitle' => (string) $knock['name'],
+            'roomId' => $roomId,
+            'identity' => $identity,
+            'displayName' => $displayName !== '' ? $displayName : null,
+            'role' => 'monitor',
+            'canManage' => false,
+            'manageToken' => null,
+            'recordingEnabled' => (bool) ($config['recording_enabled'] ?? true),
+            'muteOnJoin' => false,
             'monitorDisclosure' => (bool) ($config['monitor_enabled'] ?? false) && (bool) ($config['monitor_disclose'] ?? true),
             'suppressRecordingIndicator' => (bool) ($config['monitor_enabled'] ?? false) && ! (bool) ($config['monitor_disclose'] ?? true),
         ]);
@@ -235,6 +281,28 @@ final class VideoJoinController extends Controller
                 $auditActor = null;
                 $auditRole = 'MONITOR_LINK';
             }
+
+            // Ghost waiting room (08-ROOM-ACCESS §13): when enabled, even a hidden observer must be
+            // admitted by the host before entering — mint NOTHING, record a monitor knock, and return
+            // the "knocking" state. The host's queue surfaces it (labelled as an observer); on admit,
+            // knockStatus() mints the monitor token and audits the entry (the true "watched" moment).
+            // This is the female-teacher consent gate: no ghost enters her room without her say-so.
+            if ((bool) ($config['ghost_waiting_room'] ?? false)) {
+                $knockToken = VideoJoinToken::generateSecret();
+                $this->recordKnock($academyId, $roomId, $knockToken, $identity, $displayName, [
+                    'role' => 'monitor',
+                    'actorUserId' => $auditActor,
+                    'actorRole' => $auditRole,
+                ]);
+
+                return response()->json([
+                    'state' => 'knocking',
+                    'knockToken' => $knockToken,
+                    'roomId' => $roomId,
+                    'roomTitle' => (string) $room['name'],
+                ]);
+            }
+
             $canManage = false;
             $role = 'monitor';
             $accessToken = $this->tokens->monitorToken($livekitName, $identity, $displayName !== '' ? $displayName : null);
@@ -580,13 +648,17 @@ final class VideoJoinController extends Controller
 
     /**
      * Record a PENDING knock inside the room's tenant context (same context-free-write discipline as
-     * recordParticipant). The guest gets back only the knock_token; no LiveKit token is minted yet.
+     * recordParticipant). The knocker gets back only the knock_token; no LiveKit token is minted yet.
+     * `opts` tags the knock with the role to mint on admit ('guest' default, or 'monitor' for a ghost
+     * waiting room) and, for a monitor, the audit actor recorded so the entry names WHO watched.
+     *
+     * @param  array{role?: string, actorUserId?: ?string, actorRole?: ?string}  $opts
      */
-    private function recordKnock(string $academyId, string $roomId, string $knockToken, string $identity, string $displayName): void
+    private function recordKnock(string $academyId, string $roomId, string $knockToken, string $identity, string $displayName, array $opts = []): void
     {
         $ctx = new AuthContext(self::SYSTEM_USER_ID, $academyId, 'SUPER_ADMIN', []);
 
-        Tenancy::withContext($ctx, function () use ($academyId, $roomId, $knockToken, $identity, $displayName): void {
+        Tenancy::withContext($ctx, function () use ($academyId, $roomId, $knockToken, $identity, $displayName, $opts): void {
             DB::table('room_knocks')->insert([
                 'id' => (string) Str::uuid(),
                 'academy_id' => $academyId,
@@ -595,6 +667,9 @@ final class VideoJoinController extends Controller
                 'identity' => $identity,
                 'display_name' => $displayName,
                 'status' => 'PENDING',
+                'role' => $opts['role'] ?? 'guest',
+                'actor_user_id' => $opts['actorUserId'] ?? null,
+                'actor_role' => $opts['actorRole'] ?? null,
             ]);
         });
     }
@@ -640,7 +715,7 @@ final class VideoJoinController extends Controller
      * The room's pending queue (fresh PENDING knocks only, ≤ the 15-min TTL), read inside the room's
      * tenant context.
      *
-     * @return array<int,array{id:string,displayName:string,createdAt:string}>
+     * @return array<int,array{id:string,displayName:string,role:string,createdAt:string}>
      */
     private function readPendingKnocks(string $academyId, string $roomId): array
     {
@@ -652,10 +727,13 @@ final class VideoJoinController extends Controller
                 ->where('status', 'PENDING')
                 ->where('created_at', '>', now()->subMinutes(15))
                 ->orderBy('created_at')
-                ->get(['id', 'display_name', 'created_at'])
+                ->get(['id', 'display_name', 'role', 'created_at'])
                 ->map(fn (object $k): array => [
                     'id' => (string) $k->id,
                     'displayName' => (string) $k->display_name,
+                    // 'guest' (student) or 'monitor' (a hidden observer awaiting consent) — lets the
+                    // host queue label a ghost knock distinctly from a student one.
+                    'role' => (string) ($k->role ?? 'guest'),
                     'createdAt' => (string) $k->created_at,
                 ])
                 ->all();

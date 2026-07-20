@@ -545,6 +545,9 @@ final class VideoRoomController extends Controller
             // Disclose monitoring to participants (safe default). Set false for COVERT supervision —
             // the academy owns that legal call (08-ROOM-ACCESS §5); entry is audited regardless.
             'monitor_disclose' => true,
+            // Ghost waiting room (08-ROOM-ACCESS §13): a monitor/ghost-link entrant must knock and be
+            // admitted by the host before observing (off = the ghost enters silently as before).
+            'ghost_waiting_room' => false,
         ];
     }
 
@@ -582,6 +585,7 @@ final class VideoRoomController extends Controller
             'settings.max_participants' => ['sometimes', 'nullable', 'integer', 'min:2', 'max:500'],
             'settings.monitor_enabled' => ['sometimes', 'boolean'],
             'settings.monitor_disclose' => ['sometimes', 'boolean'],
+            'settings.ghost_waiting_room' => ['sometimes', 'boolean'],
         ]);
 
         $allowed = array_keys($this->defaultConfig());

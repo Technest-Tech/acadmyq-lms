@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, KeyRound, Lock, ShieldCheck, SlidersHorizontal, Video } from "lucide-react";
+import { Eye, Hand, KeyRound, Lock, ShieldCheck, SlidersHorizontal, Video } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -127,6 +127,8 @@ export function RoomModal({
   // Supervisor mode (08-ROOM-ACCESS §5) — only editable by room.monitor holders.
   const [monitorEnabled, setMonitorEnabled] = useState(false);
   const [monitorDisclose, setMonitorDisclose] = useState(true);
+  // Ghost waiting room (08-ROOM-ACCESS §13): make the observer knock for the host's consent first.
+  const [ghostWaitingRoom, setGhostWaitingRoom] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +148,7 @@ export function RoomModal({
     setRecordingEnabled(c?.recording_enabled ?? true);
     setMonitorEnabled(c?.monitor_enabled ?? false);
     setMonitorDisclose(c?.monitor_disclose ?? true);
+    setGhostWaitingRoom(c?.ghost_waiting_room ?? false);
     setError(null);
   }, [open, room]);
 
@@ -166,6 +169,7 @@ export function RoomModal({
     if (canMonitor) {
       s.monitor_enabled = monitorEnabled;
       s.monitor_disclose = monitorDisclose;
+      s.ghost_waiting_room = ghostWaitingRoom;
     }
     return s;
   }
@@ -372,6 +376,15 @@ export function RoomModal({
                 <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
                   {t("monitorCovertWarning")}
                 </p>
+              )}
+              {monitorEnabled && (
+                <ToggleRow
+                  icon={Hand}
+                  title={t("ghostWaitingRoom")}
+                  help={t("ghostWaitingRoomHelp")}
+                  checked={ghostWaitingRoom}
+                  onChange={(e) => setGhostWaitingRoom(e.target.checked)}
+                />
               )}
             </Section>
           </>

@@ -3677,6 +3677,11 @@ export interface RoomAccessSettings {
   monitor_enabled: boolean;
   /** Disclose monitoring to participants. false = COVERT (no notice, recording indicator hidden). */
   monitor_disclose: boolean;
+  /**
+   * Ghost waiting room (08-ROOM-ACCESS §13): a monitor/ghost-link entrant must knock and be admitted
+   * by the host before observing (the teacher-consent gate). Off = the ghost enters silently.
+   */
+  ghost_waiting_room: boolean;
 }
 
 export interface VideoRoom {
@@ -4010,6 +4015,8 @@ export function pollKnock(knockToken: string): Promise<KnockPoll> {
 export interface PendingKnock {
   id: string;
   displayName: string;
+  /** 'guest' = a student waiting to join; 'monitor' = a hidden observer awaiting the host's consent. */
+  role?: "guest" | "monitor";
   createdAt: string;
 }
 

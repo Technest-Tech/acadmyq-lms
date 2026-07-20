@@ -40,6 +40,7 @@ const baseConfig: api.RoomAccessSettings = {
   max_participants: null,
   monitor_enabled: false,
   monitor_disclose: true,
+  ghost_waiting_room: false,
 };
 
 describe("RoomModal (simplified, 08-ROOM-ACCESS §14)", () => {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { Check, Hand, X } from "lucide-react";
+import { Check, Eye, Hand, X } from "lucide-react";
 import { decideKnock, listKnocks, type PendingKnock } from "@/lib/api";
 import { useKnockChime } from "./knock-chime";
 
@@ -140,21 +140,30 @@ export function KnockControl({ manageToken }: { manageToken: string }) {
 
         {/* Queue */}
         <ul className="max-h-[50vh] space-y-1.5 overflow-y-auto p-2">
-          {knocks.map((k) => (
+          {knocks.map((k) => {
+            const isGhost = k.role === "monitor";
+            return (
             <li
               key={k.id}
               data-testid="knock-row"
+              data-role={k.role ?? "guest"}
               className="flex items-center gap-2.5 rounded-xl bg-white/5 p-2 ring-1 ring-white/5"
             >
               <span
-                className="grid size-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-400/30 to-emerald-600/30 text-sm font-semibold uppercase text-emerald-100"
+                className={
+                  isGhost
+                    ? "grid size-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-indigo-400/30 to-indigo-600/30 text-indigo-100"
+                    : "grid size-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-emerald-400/30 to-emerald-600/30 text-sm font-semibold uppercase text-emerald-100"
+                }
                 aria-hidden
               >
-                {k.displayName.trim().charAt(0) || "?"}
+                {isGhost ? <Eye className="size-4" /> : k.displayName.trim().charAt(0) || "?"}
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{k.displayName}</p>
-                <p className="truncate text-xs text-white/50">{t("knockWantsToJoin")}</p>
+                <p className="truncate text-xs text-white/50">
+                  {isGhost ? t("knockWantsToObserve") : t("knockWantsToJoin")}
+                </p>
               </div>
               <button
                 type="button"
@@ -177,7 +186,8 @@ export function KnockControl({ manageToken }: { manageToken: string }) {
                 <X className="size-4" />
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       </div>
     </div>

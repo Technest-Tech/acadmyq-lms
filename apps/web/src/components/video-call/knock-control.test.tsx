@@ -50,6 +50,23 @@ describe("KnockControl", () => {
     expect(screen.getAllByTestId("knock-row")).toHaveLength(2);
   });
 
+  it("labels a ghost (monitor) knock distinctly from a student one", async () => {
+    mockListKnocks.mockResolvedValue({
+      knocks: [
+        { id: "k1", displayName: "Sara", role: "guest", createdAt: "2026-06-28T00:00:00Z" },
+        { id: "k2", displayName: "Supervisor", role: "monitor", createdAt: "2026-06-28T00:00:01Z" },
+      ],
+    });
+    renderControl();
+    await waitFor(() => expect(screen.getByTestId("knock-control")).toBeInTheDocument());
+
+    const rows = screen.getAllByTestId("knock-row");
+    const ghostRow = rows.find((r) => r.getAttribute("data-role") === "monitor")!;
+    const guestRow = rows.find((r) => r.getAttribute("data-role") === "guest")!;
+    expect(ghostRow).toHaveTextContent(enMessages.videoCall.knockWantsToObserve);
+    expect(guestRow).toHaveTextContent(enMessages.videoCall.knockWantsToJoin);
+  });
+
   it("admits a knocker and drops the row optimistically", async () => {
     mockListKnocks.mockResolvedValue({
       knocks: [{ id: "k1", displayName: "Sara", createdAt: "2026-06-28T00:00:00Z" }],
