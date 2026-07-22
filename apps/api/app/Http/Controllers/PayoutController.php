@@ -198,16 +198,23 @@ final class PayoutController extends Controller
             ])
             ->get();
 
+        // `source` tells the statement WHO moved this money: a human typing on this page (MANUAL),
+        // a quality report (QUALITY), or the unmarked-lesson sweep (AUTO_UNREPORTED). The teacher
+        // reads this statement, so "the system docked you" must never look like "your manager did".
+        // It also drives the row's actions — a derived row can't be deleted from here.
         $adjustments = DB::table('payout_adjustments')
             ->where('payout_id', $id)
             ->orderBy('created_at')
             ->select([
                 'id',
                 'type',
+                'source',
                 'amount_minor',
                 'currency',
                 'reason',
                 'details',
+                'session_id',
+                'quality_report_id',
                 'created_at',
             ])
             ->get();

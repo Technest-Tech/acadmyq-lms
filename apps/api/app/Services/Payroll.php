@@ -120,6 +120,10 @@ final class Payroll implements PayoutHook
                     'currency'     => $currency,
                 ],
             );
+
+            // The month's gross just moved, so any percent-based quality deduction hanging off
+            // this statement is now stale — a MONTHLY report docks a % of exactly this total.
+            $this->quality()->syncPayout($payoutId);
         }
     }
 
@@ -173,6 +177,9 @@ final class Payroll implements PayoutHook
                 'amount_minor' => $amountMinor,
             ],
         );
+
+        // The month's gross shrank — re-derive the percent-based quality deductions against it.
+        $this->quality()->syncPayout($payoutId);
     }
 
     // -------------------------------------------------------------------------
@@ -202,6 +209,15 @@ final class Payroll implements PayoutHook
 
         // Idempotent — already finalized.
         if ($payout->finalized_at !== null) {
+            return;
+        }
+
+        // Settle the derived quality deductions against the period's FINAL gross before sealing:
+        // a MONTHLY report docks a % of the month's total pay, and this is the last moment that
+        // total can still move. After finalize the DB triggers freeze the row for good.
+        $this->quality()->syncPayout($payoutId);
+        $payout = DB::table('payouts')->where('id', $payoutId)->first();
+        if ($payout === null) {
             return;
         }
 
@@ -423,6 +439,64 @@ final class Payroll implements PayoutHook
                 'reason'        => $adjustment->reason,
             ],
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Derived-adjustment support (teacher quality + the auto-deduction sweep)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Find or open the OPEN monthly payout for a teacher/period, resolving the academy and the
+     * teacher's currency itself.
+     *
+     * Attendance is normally what brings a statement into being ({@see onSessionAttended}), but the
+     * two automatic writers need one BEFORE any pay has accrued — and the sharpest case is exactly
+     * that: the auto-deduction sweep fires because a teacher never marked a session, so that
+     * teacher may have no line items and therefore no statement at all to hang the deduction on.
+     * Returns null when the academy or teacher can't be resolved.
+     */
+    public function ensureOpenPayoutFor(string $academyId, string $teacherId, int $year, int $month): ?string
+    {
+        $academy = DB::table('academies')->where('id', $academyId)->first();
+        $teacher = DB::table('teachers')->where('id', $teacherId)->first();
+
+        if ($academy === null || $teacher === null) {
+            return null;
+        }
+
+        return $this->ensureOpenPayout($academy, $teacherId, $year, $month, (string) $teacher->currency);
+    }
+
+    /**
+     * What one session pays the teacher on this statement — the snapshotted line, or 0 when no line
+     * exists (the session isn't ATTENDED, so it earned nothing). A SESSION-scoped quality report
+     * bites into exactly this: dock a % of what the lesson paid, and a lesson that paid nothing
+     * costs nothing. If it is marked ATTENDED later the line appears and the refresh picks it up.
+     */
+    public function sessionLineAmountMinor(string $payoutId, string $sessionId): int
+    {
+        return (int) DB::table('payout_line_items')
+            ->where('payout_id', $payoutId)
+            ->where('session_id', $sessionId)
+            ->value('amount_minor');
+    }
+
+    /**
+     * Σ of the statement's per-session lines — the period's GROSS pay, before rewards/deductions.
+     * This is the base a MONTHLY quality report docks its percent from ("% of the total salary at
+     * the end of the month"), and it keeps growing until the statement is finalized.
+     */
+    public function grossMinor(string $payoutId): int
+    {
+        return (int) DB::table('payout_line_items')
+            ->where('payout_id', $payoutId)
+            ->sum('amount_minor');
+    }
+
+    /** Resolved lazily: TeacherQuality depends on Payroll, so a constructor edge would cycle. */
+    private function quality(): TeacherQuality
+    {
+        return app(TeacherQuality::class);
     }
 
     // -------------------------------------------------------------------------

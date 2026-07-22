@@ -26,10 +26,16 @@ beforeEach(function () {
     $this->seed(DemoAcademySeeder::class);
     $this->clearTenantContext();
 
+    // The payout endpoints are plan-gated (entitled:payroll), so the academy needs a plan that
+    // includes it or every call 402s before the controller runs — PRO carries the full catalog.
+    // Same shape as TrialsTest.
+    $proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
+
     $this->academy = $this->createAcademy(overrides: [
         'default_currency' => 'EGP',
         'timezone'         => 'Africa/Cairo',
         'invoice_grouping' => 'PER_GUARDIAN',
+        'plan_id'          => $proPlan,
     ]);
 
     $this->owner       = $this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-adj@test.local']);
@@ -243,7 +249,13 @@ it('TC-8.32: validation rejects a missing reason, a bad type, and a non-positive
 it('TC-8.33: adjustments are RLS-isolated — academy B cannot adjust academy A\'s payout', function () {
     $payout = ($this->payout)();
 
-    $academyB = $this->createAcademy(overrides: ['default_currency' => 'EGP', 'timezone' => 'Africa/Cairo']);
+    // B gets the same plan as A on purpose: the point of this test is RLS, so B must clear the
+    // entitlement gate and be stopped by tenant isolation — not 402 before it is ever reached.
+    $academyB = $this->createAcademy(overrides: [
+        'default_currency' => 'EGP',
+        'timezone'         => 'Africa/Cairo',
+        'plan_id'          => DB::table('plans')->where('code', 'PRO')->value('id'),
+    ]);
     $ownerB = $this->makeUser($academyB, 'ACADEMY_OWNER', ['email' => 'owner-b-adj@test.local']);
 
     Sanctum::actingAs($ownerB);

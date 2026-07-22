@@ -14,6 +14,10 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
+import {
+  AdjustmentReason,
+  SourceBadge,
+} from "@/components/adjustments/source-badge";
 import { useAuth } from "@/components/auth-provider";
 import { AdjustmentFormModal } from "@/components/payroll/adjustment-form-modal";
 import { AlertBanner } from "@/components/ui/alert";
@@ -334,7 +338,11 @@ export function PayoutDetailModal({
                       adj={adj}
                       locale={locale}
                       dateLabel={dateFmt.format(new Date(adj.created_at))}
-                      canRemove={canAdjust}
+                      // Only hand-typed rows can be removed here. A QUALITY row is owned by its
+                      // report (withdraw the report to undo it) and an AUTO_UNREPORTED one would
+                      // be rewritten by the next hourly sweep — the Discounts & Awards page waives
+                      // that one with a compensating award instead.
+                      canRemove={canAdjust && adj.source === "MANUAL"}
                       removing={removingId === adj.id}
                       onRemove={() => void handleRemove(adj.id)}
                     />
@@ -612,8 +620,13 @@ function AdjustmentRow({
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">{adj.reason}</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold">
+            {/* A derived row's stored reason is the audit trail's English; the reader gets it in
+                their own language, rebuilt from the source. A hand-typed reason IS the reason, so
+                it shows exactly as written. */}
+            <AdjustmentReason source={adj.source} reason={adj.reason} sessionLocal={null} />
+          </span>
           <span
             className={cn(
               "rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
@@ -624,6 +637,9 @@ function AdjustmentRow({
           >
             {isReward ? t("typeReward") : t("typeDeduction")}
           </span>
+          {/* The teacher reads this statement: a machine's deduction and a manager's must never
+              look like the same act. */}
+          {adj.source !== "MANUAL" && <SourceBadge source={adj.source} />}
         </div>
         {adj.details && (
           <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
