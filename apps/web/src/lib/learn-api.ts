@@ -75,6 +75,8 @@ export interface LearnCourseCard {
 
 export type LearnLessonType = "YOUTUBE" | "TEXT" | "PDF" | "AUDIO" | "VIDEO_UPLOAD" | "QUIZ";
 
+export type LearnMediaStatus = "PENDING" | "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
+
 export interface LearnLesson {
   id: string;
   title: string;
@@ -85,6 +87,9 @@ export interface LearnLesson {
   youtube_video_id?: string | null;
   body?: string | null;
   attachment_path?: string | null;
+  /** VIDEO_UPLOAD / uploaded AUDIO: an upload is attached, and whether it's finished transcoding. */
+  has_media?: boolean;
+  media_status?: LearnMediaStatus;
 }
 
 export interface LearnSection {
@@ -177,4 +182,12 @@ export function learnSaveProgress(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+/** A short-lived signed URL for an uploaded lesson's media (VIDEO_UPLOAD / uploaded AUDIO). */
+export function learnPlayback(
+  academy: string,
+  lessonId: string,
+): Promise<{ url: string; kind: "VIDEO" | "AUDIO" }> {
+  return learnFetch(academy, `/lessons/${lessonId}/playback`);
 }

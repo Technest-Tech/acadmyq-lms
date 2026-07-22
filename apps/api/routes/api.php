@@ -27,6 +27,8 @@ use App\Http\Controllers\Lms\CodeController;
 use App\Http\Controllers\Lms\CourseController;
 use App\Http\Controllers\Lms\LearnerAdminController;
 use App\Http\Controllers\Lms\LessonController;
+use App\Http\Controllers\Lms\MediaController;
+use App\Http\Controllers\Lms\MediaDeliveryController;
 use App\Http\Controllers\Lms\SectionController;
 use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
@@ -207,8 +209,20 @@ Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group
         Route::post('/auth/logout', [LearnerAuthController::class, 'logout']);
         Route::post('/redeem', [LearnerRedemptionController::class, 'redeem']);
         Route::get('/courses/{slug}/content', [LearnerPlayerController::class, 'content'])->where('slug', '[a-z0-9-]+');
+        Route::get('/lessons/{id}/playback', [LearnerPlayerController::class, 'playback']);
         Route::post('/lessons/{id}/progress', [LearnerPlayerController::class, 'progress']);
     });
+});
+
+/*
+| LMS media delivery on a NON-presigning (local) disk — dev / CI (docs/lms/04). PUBLIC but gated by
+| Laravel's `signed` middleware: the url is minted only after the API authorised the caller (upload =
+| course.manage, playback = an enrollment check), so the signature is the authorisation. On an S3
+| disk the client talks to object storage directly and these are never used. Named for URL::signedRoute.
+*/
+Route::middleware('signed')->group(function () {
+    Route::put('/lms/media/raw', [MediaDeliveryController::class, 'raw'])->name('lms.media.raw');
+    Route::get('/lms/media/stream', [MediaDeliveryController::class, 'stream'])->name('lms.media.stream');
 });
 
 /*
@@ -538,6 +552,13 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/courses/{course}/lessons/reorder', [LessonController::class, 'reorder']);
         Route::patch('/courses/{course}/lessons/{id}', [LessonController::class, 'update']);
         Route::delete('/courses/{course}/lessons/{id}', [LessonController::class, 'destroy']);
+
+        // Uploaded lesson media (VOD, docs/lms/04): reserve → PUT the file (presigned/​signed) →
+        // confirm READY → poll status. `media` is a literal segment; `/courses/{id}` is whereUuid'd
+        // above so it isn't captured as an id.
+        Route::post('/courses/media/upload-url', [MediaController::class, 'createUpload']);
+        Route::get('/courses/media/{id}', [MediaController::class, 'show'])->whereUuid('id');
+        Route::post('/courses/media/{id}/uploaded', [MediaController::class, 'markUploaded'])->whereUuid('id');
 
         // Access codes (staff generate/hand out; learners redeem on the public site).
         Route::get('/courses/codes', [CodeController::class, 'index']);

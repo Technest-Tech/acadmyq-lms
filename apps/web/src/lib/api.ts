@@ -3679,6 +3679,7 @@ export type LessonType =
 
 /** The kinds the phase-1 editor can create. */
 export const AUTHORABLE_LESSON_TYPES: readonly LessonType[] = [
+  "VIDEO_UPLOAD",
   "YOUTUBE",
   "TEXT",
   "PDF",
@@ -3747,8 +3748,10 @@ export interface LessonInput {
   youtube_url?: string | null;
   /** TEXT: markdown body. */
   body?: string | null;
-  /** PDF / AUDIO: a link to the file (direct upload arrives with the media pipeline). */
+  /** PDF / AUDIO: a link to an external file. */
   url?: string | null;
+  /** VIDEO_UPLOAD / uploaded AUDIO: the id of a READY media_asset (see requestMediaUpload). */
+  media_asset_id?: string | null;
 }
 
 export function listCourses(
@@ -3874,6 +3877,79 @@ export function reorderLessons(
   return apiFetch(`/api/courses/${courseId}/lessons/reorder`, {
     method: "POST",
     body: JSON.stringify({ section_id: sectionId, ids }),
+  });
+}
+
+// ── LMS media uploads (VOD, docs/lms/04) ─────────────────────────────────────
+// Reserve a media_asset (server enforces the plan storage cap), PUT the file straight to the
+// returned target (presigned S3, or a signed proxy route on a local disk), then confirm it READY.
+// The READY asset's id goes on a VIDEO_UPLOAD / AUDIO lesson.
+
+export type MediaKind = "VIDEO" | "AUDIO";
+export type MediaStatus = "PENDING" | "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
+
+export interface MediaUploadTarget {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+}
+
+export interface MediaAsset {
+  id: string;
+  kind: MediaKind;
+  status: MediaStatus;
+  size_bytes: number | null;
+  duration_seconds: number | null;
+  original_filename: string | null;
+  error: string | null;
+}
+
+export function requestMediaUpload(input: {
+  filename: string;
+  content_type: string;
+  kind: MediaKind;
+  size_bytes: number;
+}): Promise<{ mediaAssetId: string; upload: MediaUploadTarget }> {
+  return apiFetch("/api/courses/media/upload-url", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getMediaAsset(id: string): Promise<MediaAsset> {
+  return apiFetch(`/api/courses/media/${id}`);
+}
+
+export function confirmMediaUploaded(
+  id: string,
+): Promise<{ status: MediaStatus; size_bytes: number }> {
+  return apiFetch(`/api/courses/media/${id}/uploaded`, { method: "POST" });
+}
+
+/** PUT the file straight to the upload target (S3 or the signed proxy), reporting 0–100% progress. */
+export function uploadFileToTarget(
+  target: MediaUploadTarget,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(target.method, target.url, true);
+    for (const [key, value] of Object.entries(target.headers)) {
+      xhr.setRequestHeader(key, value);
+    }
+    if (!("Content-Type" in target.headers) && file.type) {
+      xhr.setRequestHeader("Content-Type", file.type);
+    }
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Upload failed (${xhr.status})`));
+    xhr.onerror = () => reject(new Error("Upload failed"));
+    xhr.send(file);
   });
 }
 

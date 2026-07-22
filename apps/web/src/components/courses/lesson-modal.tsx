@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { Field, inputClass, textareaClass } from "@/components/courses/form-bits";
+import { MediaUpload } from "@/components/courses/media-upload";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -49,6 +50,9 @@ export function LessonModal({
   );
   const [body, setBody] = useState(lesson?.body ?? "");
   const [url, setUrl] = useState(lesson?.attachment_path ?? "");
+  const [mediaAssetId, setMediaAssetId] = useState<string | null>(
+    lesson?.type === "VIDEO_UPLOAD" ? (lesson.media_asset_id ?? null) : null,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +61,7 @@ export function LessonModal({
     if (type === "YOUTUBE") base.youtube_url = youtubeUrl.trim();
     if (type === "TEXT") base.body = body;
     if (type === "PDF" || type === "AUDIO") base.url = url.trim();
+    if (type === "VIDEO_UPLOAD" && mediaAssetId) base.media_asset_id = mediaAssetId;
     base.is_preview = isPreview;
     return base;
   }
@@ -82,7 +87,8 @@ export function LessonModal({
     title.trim() !== "" &&
     ((type === "YOUTUBE" && youtubeUrl.trim() !== "") ||
       (type === "TEXT" && body.trim() !== "") ||
-      ((type === "PDF" || type === "AUDIO") && url.trim() !== ""));
+      ((type === "PDF" || type === "AUDIO") && url.trim() !== "") ||
+      (type === "VIDEO_UPLOAD" && mediaAssetId != null));
 
   return (
     <Modal open onClose={onClose} title={editing ? t("editor.addLesson") : t("lesson.add")}>
@@ -155,6 +161,16 @@ export function LessonModal({
               onChange={(e) => setUrl(e.target.value)}
               placeholder={t("lesson.urlPlaceholder")}
               className={inputClass}
+            />
+          </Field>
+        )}
+        {type === "VIDEO_UPLOAD" && (
+          <Field label={t("lesson.video")}>
+            <MediaUpload
+              kind="VIDEO"
+              accept="video/*"
+              hasExisting={lesson?.type === "VIDEO_UPLOAD" && lesson.media_asset_id != null}
+              onChange={setMediaAssetId}
             />
           </Field>
         )}

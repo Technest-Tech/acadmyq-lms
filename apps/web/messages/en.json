@@ -3081,13 +3081,14 @@
     "lesson": {
       "title": "Lesson title",
       "type": "Type",
-      "typeHint": "Uploaded video and quizzes arrive in a later release.",
+      "typeHint": "Quiz lessons arrive in a later release.",
       "youtubeUrl": "YouTube link",
       "youtubePlaceholder": "https://youtube.com/watch?v=…",
       "body": "Content",
       "bodyPlaceholder": "Write the lesson text (markdown supported)",
       "url": "File link",
       "urlPlaceholder": "https://…/file.pdf",
+      "video": "Video file",
       "isPreview": "Free preview (watchable without a code)",
       "add": "Add lesson",
       "save": "Save lesson",
@@ -3099,6 +3100,17 @@
         "VIDEO_UPLOAD": "Uploaded video",
         "QUIZ": "Quiz"
       }
+    },
+    "media": {
+      "choose": "Choose a video to upload",
+      "hint": "MP4 or WebM. Large files upload directly and may take a while.",
+      "uploading": "Uploading…",
+      "processing": "Processing the video…",
+      "ready": "Uploaded",
+      "replace": "Replace",
+      "retry": "Try again",
+      "failed": "Upload failed. Please try again.",
+      "processingFailed": "We couldn't process this file. Try a different one."
     },
     "confirm": {
       "deleteCourse": "Delete this course? This can't be undone.",
@@ -3228,6 +3240,7 @@
     "player": {
       "locked": "This lesson is locked. Redeem a code to unlock the course.",
       "openPdf": "Open PDF",
+      "processing": "This video is still processing — check back shortly.",
       "signInNeeded": "Sign in to watch this course.",
       "notEnrolled": "Redeem a code to unlock this course.",
       "progress": "{done} / {total} done",

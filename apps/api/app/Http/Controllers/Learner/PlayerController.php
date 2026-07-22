@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Learner;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Learner\Concerns\BuildsCourseOutline;
 use App\Http\Controllers\Learner\Concerns\InteractsWithLearner;
+use App\Support\LmsMedia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -60,6 +61,41 @@ final class PlayerController extends Controller
             ],
             'sections' => $this->outline((string) $course->id, includeContent: true),
             'progress' => $progress,
+        ]);
+    }
+
+    /**
+     * GET /api/learn/lessons/{id}/playback — a short-lived signed URL for an uploaded lesson's media
+     * (VIDEO_UPLOAD / uploaded AUDIO, docs/lms/04). Gated by the same enrollment check as the player
+     * (a free-preview lesson is playable un-enrolled). The raw storage key never leaves the server.
+     */
+    public function playback(string $lessonId): JsonResponse
+    {
+        $this->currentAcademyId();
+
+        $lesson = DB::table('lessons')->where('id', $lessonId)
+            ->first(['id', 'course_id', 'type', 'is_preview', 'media_asset_id']);
+        if ($lesson === null) {
+            abort(404, 'Lesson not found.');
+        }
+        if (! (bool) $lesson->is_preview) {
+            $this->assertEnrolled((string) $lesson->course_id);
+        }
+        if (! in_array((string) $lesson->type, ['VIDEO_UPLOAD', 'AUDIO'], true) || $lesson->media_asset_id === null) {
+            abort(404, 'This lesson has no playable media.');
+        }
+
+        $asset = DB::table('media_assets')
+            ->where('id', $lesson->media_asset_id)
+            ->where('status', 'READY')
+            ->first(['id', 'kind', 'playback_path', 'storage_key']);
+        if ($asset === null) {
+            abort(409, 'This lesson is still processing.');
+        }
+
+        return response()->json([
+            'kind' => (string) $asset->kind,
+            'url' => LmsMedia::playbackUrl($asset),
         ]);
     }
 

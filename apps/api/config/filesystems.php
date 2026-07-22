@@ -79,6 +79,23 @@ return [
             'report' => false,
         ],
 
+        // LMS uploaded lesson media (docs/lms/04). Reuses the same S3/CDN layer as the video
+        // platform — its own bucket, keyed `lms/<academy>/<asset>/…`. When LMS_S3_* is unset it
+        // falls back to the LIVEKIT_S3_* store (one MinIO locally). With NO S3 configured at all the
+        // default disk is `local` (see LMS_MEDIA_DISK / config/lms.php) and the API serves signed
+        // proxy URLs instead of presigning — so LMS video works in dev without object storage.
+        'lms_media' => [
+            'driver' => 's3',
+            'key' => env('LMS_S3_KEY', env('LIVEKIT_S3_KEY')),
+            'secret' => env('LMS_S3_SECRET', env('LIVEKIT_S3_SECRET')),
+            'region' => env('LMS_S3_REGION', env('LIVEKIT_S3_REGION', 'us-east-1')),
+            'bucket' => env('LMS_S3_BUCKET', 'lms-media'),
+            'endpoint' => env('LMS_S3_PUBLIC_ENDPOINT', env('LMS_S3_ENDPOINT', env('LIVEKIT_S3_PUBLIC_ENDPOINT', env('LIVEKIT_S3_ENDPOINT')))),
+            'use_path_style_endpoint' => true,
+            'throw' => false,
+            'report' => false,
+        ],
+
     ],
 
     /*

@@ -28,9 +28,16 @@ trait BuildsCourseOutline
             ->orderBy('position')->orderBy('created_at')
             ->get();
 
+        // Statuses of any uploaded media the served lessons reference (so the player knows an
+        // upload is READY before it asks for a playback url). One query, RLS-scoped.
+        $mediaIds = $lessons->pluck('media_asset_id')->filter()->map('strval')->unique()->all();
+        $mediaStatus = $mediaIds === []
+            ? []
+            : DB::table('media_assets')->whereIn('id', $mediaIds)->pluck('status', 'id')->all();
+
         $bySection = [];
         foreach ($lessons as $l) {
-            $bySection[(string) $l->section_id][] = $this->presentLesson($l, $includeContent);
+            $bySection[(string) $l->section_id][] = $this->presentLesson($l, $includeContent, $mediaStatus);
         }
 
         return $sections->map(fn (object $s): array => [
@@ -40,8 +47,11 @@ trait BuildsCourseOutline
         ])->all();
     }
 
-    /** @return array<string,mixed> */
-    protected function presentLesson(object $l, bool $includeContent): array
+    /**
+     * @param  array<string,string>  $mediaStatus  media_asset_id → status
+     * @return array<string,mixed>
+     */
+    protected function presentLesson(object $l, bool $includeContent, array $mediaStatus = []): array
     {
         $out = [
             'id' => (string) $l->id,
@@ -56,6 +66,12 @@ trait BuildsCourseOutline
             $out['youtube_video_id'] = $l->youtube_video_id;
             $out['body'] = $l->body;
             $out['attachment_path'] = $l->attachment_path;
+            // Uploaded media (VIDEO_UPLOAD / uploaded AUDIO): expose only whether it's READY — never
+            // the storage key. The client fetches a short-lived playback url from /lessons/{id}/playback.
+            if ($l->media_asset_id !== null) {
+                $out['has_media'] = true;
+                $out['media_status'] = (string) ($mediaStatus[(string) $l->media_asset_id] ?? 'PENDING');
+            }
         }
 
         return $out;

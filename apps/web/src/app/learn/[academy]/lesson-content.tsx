@@ -1,14 +1,20 @@
 "use client";
 
-import { FileText, Lock } from "lucide-react";
+import { FileText, Loader2, Lock } from "lucide-react";
 import { useTranslations } from "next-intl";
-import type { LearnLesson } from "@/lib/learn-api";
+import { useEffect, useState } from "react";
+import { learnPlayback, type LearnLesson } from "@/lib/learn-api";
 
 /** Renders a lesson's content by type. Content is absent when the viewer isn't entitled to it. */
-export function LessonContent({ lesson }: { lesson: LearnLesson }) {
+export function LessonContent({ lesson, academy }: { lesson: LearnLesson; academy: string }) {
   const t = useTranslations("learn");
+
+  const uploaded = lesson.has_media === true; // VIDEO_UPLOAD, or an uploaded AUDIO
   const hasContent =
-    lesson.youtube_video_id != null || lesson.body != null || lesson.attachment_path != null;
+    lesson.youtube_video_id != null ||
+    lesson.body != null ||
+    lesson.attachment_path != null ||
+    uploaded;
 
   if (!hasContent) {
     return (
@@ -31,6 +37,19 @@ export function LessonContent({ lesson }: { lesson: LearnLesson }) {
         />
       </div>
     );
+  }
+
+  // Uploaded video / audio (docs/lms/04): fetch a short-lived signed url just in time.
+  if (lesson.type === "VIDEO_UPLOAD" || (lesson.type === "AUDIO" && uploaded)) {
+    if (lesson.media_status && lesson.media_status !== "READY") {
+      return (
+        <div className="text-muted-foreground flex items-center gap-2 rounded-xl border border-dashed p-4 text-sm">
+          <Loader2 className="size-4 animate-spin" />
+          {t("player.processing")}
+        </div>
+      );
+    }
+    return <UploadedMedia academy={academy} lesson={lesson} />;
   }
 
   if (lesson.type === "AUDIO" && lesson.attachment_path) {
@@ -60,4 +79,54 @@ export function LessonContent({ lesson }: { lesson: LearnLesson }) {
   }
 
   return null;
+}
+
+/** Resolves the enrollment-gated signed playback URL, then renders a <video>/<audio> element. */
+function UploadedMedia({ academy, lesson }: { academy: string; lesson: LearnLesson }) {
+  const t = useTranslations("learn");
+  const [url, setUrl] = useState<string | null>(null);
+  const [kind, setKind] = useState<"VIDEO" | "AUDIO">("VIDEO");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setUrl(null);
+    setError(null);
+    learnPlayback(academy, lesson.id)
+      .then((r) => {
+        if (!active) return;
+        setUrl(r.url);
+        setKind(r.kind);
+      })
+      .catch((e) => {
+        if (active) setError(e instanceof Error ? e.message : t("errors.generic"));
+      });
+    return () => {
+      active = false;
+    };
+  }, [academy, lesson.id, t]);
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-dashed p-4 text-sm text-red-600 dark:text-red-400">
+        {error}
+      </div>
+    );
+  }
+
+  if (url === null) {
+    return (
+      <div className="text-muted-foreground flex aspect-video w-full items-center justify-center rounded-xl border border-dashed text-sm">
+        <Loader2 className="size-5 animate-spin" />
+      </div>
+    );
+  }
+
+  if (kind === "AUDIO") {
+    return <audio controls src={url} className="w-full" />;
+  }
+
+  return (
+    <video controls playsInline src={url} className="aspect-video w-full rounded-xl bg-black" />
+  );
 }

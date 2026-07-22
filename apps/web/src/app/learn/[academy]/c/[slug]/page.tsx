@@ -109,7 +109,7 @@ export default function CourseDetailPage() {
                     </div>
                     {openPreview === lesson.id && (
                       <div className="p-3 pt-0">
-                        <LessonContent lesson={lesson} />
+                        <LessonContent lesson={lesson} academy={academy} />
                       </div>
                     )}
                   </li>

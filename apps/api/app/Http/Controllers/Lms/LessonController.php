@@ -18,25 +18,27 @@ use Illuminate\Validation\ValidationException;
 /**
  * Lessons (LMS module, entitled:lms) — the items inside a section. A lesson's `type` selects which
  * payload matters (docs/lms/04-CONTENT-VOD-AND-QUIZZES):
- *   - YOUTUBE  → youtube_video_id (parsed from the pasted URL)
- *   - TEXT     → body (markdown)
- *   - PDF      → attachment_path (a link for now; direct upload arrives with the media pipeline)
- *   - AUDIO    → attachment_path (a link for now; upload+transcode is phase 3)
- * VIDEO_UPLOAD and QUIZ are recognised by the schema but not yet accepted here — they need the media
- * pipeline (phase 3) and the quiz subsystem (phase 4). They are rejected with a clear message so the
- * editor can grey them out without the API silently accepting a half-built lesson.
+ *   - YOUTUBE       → youtube_video_id (parsed from the pasted URL)
+ *   - TEXT          → body (markdown)
+ *   - PDF           → attachment_path (a link for now; direct upload arrives with the media pipeline)
+ *   - AUDIO         → media_asset_id (an uploaded file) OR attachment_path (an external link)
+ *   - VIDEO_UPLOAD  → media_asset_id (an uploaded video, docs/lms/04)
+ * QUIZ is recognised by the schema but not yet accepted here — it needs the quiz subsystem (phase 4)
+ * and is rejected with a clear message so the editor can grey it out without the API silently
+ * accepting a half-built lesson.
  *
- * `course.manage` gates everything; RLS scopes to the academy.
+ * `course.manage` gates everything; RLS scopes to the academy. An uploaded media_asset must be READY
+ * and of the matching kind (VIDEO/AUDIO) and academy — a not-ready or cross-tenant id is a 422.
  */
 final class LessonController extends Controller
 {
     use InteractsWithLms;
 
-    /** Types the phase-1 authoring API accepts (no media/quiz pipeline required). */
-    private const SUPPORTED_TYPES = ['YOUTUBE', 'TEXT', 'PDF', 'AUDIO'];
+    /** Types the authoring API accepts. */
+    private const SUPPORTED_TYPES = ['YOUTUBE', 'TEXT', 'PDF', 'AUDIO', 'VIDEO_UPLOAD'];
 
-    /** Recognised in the schema but not yet buildable here. */
-    private const DEFERRED_TYPES = ['VIDEO_UPLOAD', 'QUIZ'];
+    /** Recognised in the schema but not yet buildable here (phase 4). */
+    private const DEFERRED_TYPES = ['QUIZ'];
 
     /** POST /api/courses/{course}/lessons — add a lesson to a section. */
     public function store(Request $request, string $courseId): JsonResponse
@@ -185,6 +187,7 @@ final class LessonController extends Controller
             'youtube_url' => ['sometimes', 'nullable', 'string', 'max:1024'],
             'body' => ['sometimes', 'nullable', 'string', 'max:100000'],
             'url' => ['sometimes', 'nullable', 'string', 'max:2048', 'url'],
+            'media_asset_id' => ['sometimes', 'nullable', 'uuid'],
         ];
     }
 
@@ -193,20 +196,35 @@ final class LessonController extends Controller
     {
         return array_key_exists('youtube_url', $data)
             || array_key_exists('body', $data)
-            || array_key_exists('url', $data);
+            || array_key_exists('url', $data)
+            || array_key_exists('media_asset_id', $data);
     }
 
     private function assertSupportedType(string $type): void
     {
         if (in_array($type, self::DEFERRED_TYPES, true)) {
-            throw ValidationException::withMessages([
-                'type' => [$type === 'QUIZ'
-                    ? 'Quiz lessons arrive in a later release.'
-                    : 'Uploaded-video lessons arrive in a later release — use a YouTube link for now.'],
-            ]);
+            throw ValidationException::withMessages(['type' => ['Quiz lessons arrive in a later release.']]);
         }
         if (! in_array($type, self::SUPPORTED_TYPES, true)) {
             throw ValidationException::withMessages(['type' => ["Unsupported lesson type: {$type}."]]);
+        }
+    }
+
+    /**
+     * An uploaded media_asset must exist in THIS academy (RLS scopes the lookup — a cross-tenant id
+     * just 404s to null here), be the matching kind, and have finished processing.
+     */
+    private function assertMediaAsset(string $assetId, string $expectedKind): void
+    {
+        $asset = DB::table('media_assets')->where('id', $assetId)->first(['id', 'kind', 'status']);
+        if ($asset === null) {
+            throw ValidationException::withMessages(['media_asset_id' => ['That upload was not found.']]);
+        }
+        if ((string) $asset->kind !== $expectedKind) {
+            throw ValidationException::withMessages(['media_asset_id' => ['That file is the wrong type for this lesson.']]);
+        }
+        if ((string) $asset->status !== 'READY') {
+            throw ValidationException::withMessages(['media_asset_id' => ['The upload is still processing — try again once it is ready.']]);
         }
     }
 
@@ -247,9 +265,41 @@ final class LessonController extends Controller
 
                 return ['body' => (string) $body] + $blank;
 
-            case 'PDF':
+            case 'VIDEO_UPLOAD':
+                $assetId = $data['media_asset_id'] ?? ($existing?->type === 'VIDEO_UPLOAD' ? $existing->media_asset_id : null);
+                if ($assetId === null) {
+                    throw ValidationException::withMessages(['media_asset_id' => ['Upload a video for this lesson.']]);
+                }
+                // Only (re)validate a NEWLY-attached asset — a title-only edit re-sends the same id.
+                if (! ($existing?->type === 'VIDEO_UPLOAD' && (string) $existing->media_asset_id === (string) $assetId)) {
+                    $this->assertMediaAsset((string) $assetId, 'VIDEO');
+                }
+
+                return ['media_asset_id' => (string) $assetId] + $blank;
+
             case 'AUDIO':
-                $url = $data['url'] ?? ($existing !== null && $existing->type === $type ? $existing->attachment_path : null);
+                // Uploaded audio (a media_asset) takes precedence; otherwise fall back to an external link.
+                $assetId = $data['media_asset_id'] ?? null;
+                if ($assetId !== null) {
+                    if (! ($existing?->type === 'AUDIO' && (string) $existing->media_asset_id === (string) $assetId)) {
+                        $this->assertMediaAsset((string) $assetId, 'AUDIO');
+                    }
+
+                    return ['media_asset_id' => (string) $assetId] + $blank;
+                }
+                // No new upload sent: keep the existing upload if there is one, else require a link.
+                if ($existing?->type === 'AUDIO' && $existing->media_asset_id !== null && ! array_key_exists('url', $data)) {
+                    return [];
+                }
+                $url = $data['url'] ?? ($existing?->type === 'AUDIO' ? $existing->attachment_path : null);
+                if ($url === null || trim((string) $url) === '') {
+                    throw ValidationException::withMessages(['url' => ['Upload an audio file or provide a link.']]);
+                }
+
+                return ['attachment_path' => (string) $url] + $blank;
+
+            case 'PDF':
+                $url = $data['url'] ?? ($existing?->type === 'PDF' ? $existing->attachment_path : null);
                 if ($url === null || trim((string) $url) === '') {
                     throw ValidationException::withMessages(['url' => ['Provide a link to the file.']]);
                 }

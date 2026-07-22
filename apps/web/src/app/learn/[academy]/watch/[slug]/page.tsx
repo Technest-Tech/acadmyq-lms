@@ -108,7 +108,7 @@ export default function WatchPage() {
           {current ? (
             <>
               <h1 className="text-lg font-semibold">{current.title}</h1>
-              <LessonContent lesson={current} />
+              <LessonContent lesson={current} academy={academy} />
               <div className="flex justify-end">
                 <Button
                   variant={progress[current.id]?.status === "COMPLETED" ? "outline" : "default"}
