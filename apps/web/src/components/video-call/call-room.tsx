@@ -21,6 +21,7 @@ import { ChatProvider } from "./chat-context";
 import { CompositePipProvider } from "./composite-pip";
 import { ControlBar } from "./control-bar";
 import type { LobbySettings } from "./lobby";
+import { MediaErrorToast } from "./media-error-toast";
 import { MonitorFrame } from "./monitor-frame";
 import { ParticipantsPanel } from "./participants-panel";
 import { PinContext, nextPinned } from "./pin-context";
@@ -154,6 +155,7 @@ function InCall({
                   {/* Above the stage⇄whiteboard swap so the call timer survives the board opening. */}
                   <CallTimerProvider>
                     <ApplySettingsOnJoin />
+                    <MediaErrorToast />
                     {isMonitor && <MonitorFrame />}
                     {presenter ? (
                       // Desktop screen-share: the modern floating presenter card (or its collapsed
