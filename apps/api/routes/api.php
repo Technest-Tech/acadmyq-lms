@@ -19,6 +19,15 @@ use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CertificateTemplateController;
+use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
+use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
+use App\Http\Controllers\Learner\PlayerController as LearnerPlayerController;
+use App\Http\Controllers\Learner\RedemptionController as LearnerRedemptionController;
+use App\Http\Controllers\Lms\CodeController;
+use App\Http\Controllers\Lms\CourseController;
+use App\Http\Controllers\Lms\LearnerAdminController;
+use App\Http\Controllers\Lms\LessonController;
+use App\Http\Controllers\Lms\SectionController;
 use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
 use App\Http\Controllers\InvoiceController;
@@ -178,6 +187,29 @@ Route::post('/internal/wa/webhook', [WhatsAppWebhookController::class, 'handle']
 | academy from the room-name suffix and writes inside Tenancy::withContext.
 */
 Route::post('/internal/livekit/webhook', [LivekitWebhookController::class, 'handle'])->middleware('livekit.webhook');
+
+/*
+| LMS public course site (docs/lms). NOT Sanctum-gated: the tenant is resolved from the SUBDOMAIN
+| (the web layer forwards it as the `X-Academy` header) by `resolve.academy`, which sets the RLS
+| context for the whole request. Learners authenticate with a Sanctum BEARER token on the `learner`
+| guard; `learner.auth` asserts the token belongs to an ACTIVE learner of this academy. The public
+| leg (register/login/catalog) needs only the academy; the protected leg (me/redeem/player/progress)
+| additionally needs the learner. `{slug}` is constrained so it never captures a literal path segment.
+*/
+Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group(function () {
+    Route::post('/auth/register', [LearnerAuthController::class, 'register']);
+    Route::post('/auth/login', [LearnerAuthController::class, 'login']);
+    Route::get('/courses', [LearnerCatalogController::class, 'index']);
+    Route::get('/courses/{slug}', [LearnerCatalogController::class, 'show'])->where('slug', '[a-z0-9-]+');
+
+    Route::middleware('learner.auth')->group(function () {
+        Route::get('/me', [LearnerAuthController::class, 'me']);
+        Route::post('/auth/logout', [LearnerAuthController::class, 'logout']);
+        Route::post('/redeem', [LearnerRedemptionController::class, 'redeem']);
+        Route::get('/courses/{slug}/content', [LearnerPlayerController::class, 'content'])->where('slug', '[a-z0-9-]+');
+        Route::post('/lessons/{id}/progress', [LearnerPlayerController::class, 'progress']);
+    });
+});
 
 /*
 | Authenticated API. `auth:sanctum` establishes identity; `tenant.context`
@@ -480,6 +512,44 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::patch('/trials/{id}', [TrialController::class, 'update']);
         Route::post('/trials/{id}/convert', [TrialController::class, 'convert']);
         Route::delete('/trials/{id}', [TrialController::class, 'destroy']);
+    });
+
+    // LMS / Courses (LMS module, docs/lms). Staff build on-demand courses — sections of lessons
+    // (YouTube / text / PDF / audio now; uploaded video + quizzes in later phases) — that learners
+    // watch on the academy's public subdomain. Owner-only by default (`course.read` / `course.manage`),
+    // delegated via a custom "Courses" role. Plan-gated by its own billable module (entitled:lms).
+    // Literal segments (`summary`, `sections`, `lessons`, `publish`) precede `{id}` so they aren't
+    // captured as an id.
+    Route::middleware('entitled:lms')->group(function () {
+        Route::get('/courses', [CourseController::class, 'index']);
+        Route::get('/courses/summary', [CourseController::class, 'summary']);
+        Route::post('/courses', [CourseController::class, 'store']);
+        Route::get('/courses/{id}', [CourseController::class, 'show'])->whereUuid('id');
+        Route::patch('/courses/{id}', [CourseController::class, 'update'])->whereUuid('id');
+        Route::post('/courses/{id}/publish', [CourseController::class, 'setStatus'])->whereUuid('id');
+        Route::delete('/courses/{id}', [CourseController::class, 'destroy'])->whereUuid('id');
+
+        Route::post('/courses/{course}/sections', [SectionController::class, 'store']);
+        Route::post('/courses/{course}/sections/reorder', [SectionController::class, 'reorder']);
+        Route::patch('/courses/{course}/sections/{id}', [SectionController::class, 'update']);
+        Route::delete('/courses/{course}/sections/{id}', [SectionController::class, 'destroy']);
+
+        Route::post('/courses/{course}/lessons', [LessonController::class, 'store']);
+        Route::post('/courses/{course}/lessons/reorder', [LessonController::class, 'reorder']);
+        Route::patch('/courses/{course}/lessons/{id}', [LessonController::class, 'update']);
+        Route::delete('/courses/{course}/lessons/{id}', [LessonController::class, 'destroy']);
+
+        // Access codes (staff generate/hand out; learners redeem on the public site).
+        Route::get('/courses/codes', [CodeController::class, 'index']);
+        Route::post('/courses/codes/batch', [CodeController::class, 'batch']);
+        Route::patch('/courses/codes/{id}', [CodeController::class, 'update']);
+        Route::delete('/courses/codes/{id}', [CodeController::class, 'destroy']);
+
+        // Learners + their enrollments (staff view; block / revoke access).
+        Route::get('/courses/learners', [LearnerAdminController::class, 'index']);
+        Route::get('/courses/learners/{id}', [LearnerAdminController::class, 'show']);
+        Route::post('/courses/learners/{id}/status', [LearnerAdminController::class, 'setStatus']);
+        Route::post('/courses/learners/{id}/enrollment', [LearnerAdminController::class, 'setEnrollment']);
     });
 
     Route::post('/admin/generate-sessions', GenerateSessionsController::class);

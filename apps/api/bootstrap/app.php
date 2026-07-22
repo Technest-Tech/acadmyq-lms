@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use App\Http\Middleware\AuthenticateWhatsAppApiKey;
 use App\Http\Middleware\EnsureEntitled;
+use App\Http\Middleware\EnsureLearner;
 use App\Http\Middleware\ForceJsonResponse;
+use App\Http\Middleware\ResolveAcademyContext;
 use App\Http\Middleware\TenantContextMiddleware;
 use App\Http\Middleware\VerifyLivekitWebhook;
 use App\Http\Middleware\VerifyWhatsAppWebhook;
@@ -42,6 +44,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'livekit.webhook' => VerifyLivekitWebhook::class,
             // Per-academy API-key auth for the external WhatsApp API (docs/whatsapp-api).
             'wa.apikey' => AuthenticateWhatsAppApiKey::class,
+            // LMS public course site (docs/lms): resolve the academy from the subdomain (X-Academy)
+            // into tenant context, then (for protected routes) require an authenticated learner.
+            'resolve.academy' => ResolveAcademyContext::class,
+            'learner.auth' => EnsureLearner::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

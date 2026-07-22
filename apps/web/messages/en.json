@@ -128,6 +128,7 @@
     "guardians": "Guardians",
     "students": "Students",
     "trials": "Trials",
+    "courses": "Courses",
     "teachers": "Teachers",
     "schedule": "Schedule",
     "videoClassroom": "Video Classroom",
@@ -3018,6 +3019,227 @@
       "showLess": "Show less",
       "clearSearch": "Clear search",
       "clearFilters": "Clear filters"
+    }
+  },
+  "courses": {
+    "title": "Courses",
+    "subtitle": "Build on-demand courses your students unlock with a code and watch online.",
+    "noAccess": "You don't have access to courses.",
+    "new": "New course",
+    "delete": "Delete",
+    "empty": "No courses yet. Create your first one.",
+    "lessonCount": "{count, plural, =0 {No lessons} one {# lesson} other {# lessons}}",
+    "search": "Search courses",
+    "back": "Back to courses",
+    "openEditor": "Open",
+    "stats": {
+      "total": "Total",
+      "draft": "Draft",
+      "published": "Published",
+      "archived": "Archived"
+    },
+    "status": {
+      "DRAFT": "Draft",
+      "PUBLISHED": "Published",
+      "ARCHIVED": "Archived"
+    },
+    "filter": {
+      "all": "All",
+      "DRAFT": "Draft",
+      "PUBLISHED": "Published",
+      "ARCHIVED": "Archived"
+    },
+    "form": {
+      "title": "Title",
+      "titlePlaceholder": "e.g. Intro to Chemistry",
+      "subtitle": "Subtitle",
+      "subtitlePlaceholder": "A short line shown under the title",
+      "description": "Description",
+      "descriptionPlaceholder": "What will students learn?",
+      "create": "Create course",
+      "save": "Save changes",
+      "cancel": "Cancel"
+    },
+    "editor": {
+      "details": "Course details",
+      "curriculum": "Curriculum",
+      "publish": "Publish",
+      "unpublish": "Unpublish",
+      "archive": "Archive",
+      "restore": "Restore to draft",
+      "publishHint": "Add at least one lesson before publishing.",
+      "addSection": "Add section",
+      "sectionTitle": "Section title",
+      "renameSection": "Rename",
+      "deleteSection": "Delete section",
+      "addLesson": "Add lesson",
+      "noSections": "Add a section to start building the curriculum.",
+      "noLessons": "No lessons in this section yet.",
+      "preview": "Free preview",
+      "deleteLesson": "Delete lesson"
+    },
+    "lesson": {
+      "title": "Lesson title",
+      "type": "Type",
+      "typeHint": "Uploaded video and quizzes arrive in a later release.",
+      "youtubeUrl": "YouTube link",
+      "youtubePlaceholder": "https://youtube.com/watch?v=…",
+      "body": "Content",
+      "bodyPlaceholder": "Write the lesson text (markdown supported)",
+      "url": "File link",
+      "urlPlaceholder": "https://…/file.pdf",
+      "isPreview": "Free preview (watchable without a code)",
+      "add": "Add lesson",
+      "save": "Save lesson",
+      "types": {
+        "YOUTUBE": "YouTube video",
+        "TEXT": "Text",
+        "PDF": "PDF",
+        "AUDIO": "Audio",
+        "VIDEO_UPLOAD": "Uploaded video",
+        "QUIZ": "Quiz"
+      }
+    },
+    "confirm": {
+      "deleteCourse": "Delete this course? This can't be undone.",
+      "deleteSection": "Delete this section and its lessons?",
+      "deleteLesson": "Delete this lesson?"
+    },
+    "alerts": {
+      "created": "Course created.",
+      "saved": "Saved.",
+      "published": "Course published.",
+      "unpublished": "Course moved to draft.",
+      "archived": "Course archived.",
+      "deleted": "Course deleted.",
+      "lessonAdded": "Lesson added.",
+      "failed": "Something went wrong. Please try again."
+    },
+    "tabs": {
+      "courses": "Courses",
+      "codes": "Access codes",
+      "learners": "Learners"
+    },
+    "codes": {
+      "title": "Access codes",
+      "subtitle": "Generate codes, hand them to students, and they redeem to unlock courses.",
+      "generate": "Generate codes",
+      "empty": "No codes yet. Generate a batch to get started.",
+      "column": {
+        "code": "Code",
+        "courses": "Courses",
+        "uses": "Uses",
+        "expires": "Expires",
+        "status": "Status"
+      },
+      "unlimited": "Unlimited",
+      "singleUse": "Single-use",
+      "active": "Active",
+      "inactive": "Inactive",
+      "noExpiry": "Never",
+      "activate": "Activate",
+      "deactivate": "Deactivate",
+      "copy": "Copy",
+      "copied": "Copied",
+      "exportCsv": "Export CSV",
+      "form": {
+        "courses": "Courses this code unlocks",
+        "count": "How many codes",
+        "maxRedemptions": "Uses per code",
+        "singleUse": "Single-use (1 per code)",
+        "unlimited": "Unlimited",
+        "expires": "Expiry (optional)",
+        "label": "Label (optional)",
+        "labelPlaceholder": "e.g. Grade 10 Batch A",
+        "submit": "Generate",
+        "pickCourse": "Select at least one course."
+      },
+      "generated": "{count} codes generated.",
+      "deleted": "Code deleted.",
+      "confirmDelete": "Delete this code?"
+    },
+    "learners": {
+      "title": "Learners",
+      "subtitle": "Everyone who signed up on your course site and what they can access.",
+      "empty": "No learners yet.",
+      "column": {
+        "name": "Name",
+        "email": "Email",
+        "courses": "Courses",
+        "lastActive": "Last active",
+        "status": "Status"
+      },
+      "active": "Active",
+      "blocked": "Blocked",
+      "block": "Block",
+      "unblock": "Unblock",
+      "never": "Never",
+      "enrollments": "Enrollments",
+      "revoke": "Revoke",
+      "restore": "Restore",
+      "blocked_msg": "Learner blocked.",
+      "unblocked_msg": "Learner unblocked.",
+      "revoked_msg": "Access revoked.",
+      "restored_msg": "Access restored."
+    },
+    "site": {
+      "notConfigured": "Your course site isn't set up yet — ask your provider to assign a subdomain.",
+      "yourSite": "Your course site",
+      "visit": "Visit site"
+    }
+  },
+  "learn": {
+    "brand": "Courses",
+    "errors": { "generic": "Something went wrong. Please try again." },
+    "auth": {
+      "signIn": "Sign in",
+      "register": "Create account",
+      "logout": "Sign out",
+      "fullName": "Full name",
+      "email": "Email",
+      "password": "Password",
+      "needAccount": "New here? Create an account",
+      "haveAccount": "Already have an account? Sign in"
+    },
+    "redeem": {
+      "cta": "Redeem code",
+      "title": "Redeem a code",
+      "hint": "Enter the code your teacher gave you to unlock the course.",
+      "submit": "Redeem",
+      "unlocked": "Unlocked! You now have access to:",
+      "done": "Start learning"
+    },
+    "catalog": {
+      "title": "Courses",
+      "subtitle": "Browse the courses and unlock them with a code.",
+      "empty": "No courses published yet.",
+      "lessons": "{count, plural, =0 {No lessons} one {# lesson} other {# lessons}}"
+    },
+    "course": {
+      "notFound": "Course not found.",
+      "back": "Back to courses",
+      "continue": "Continue",
+      "enroll": "Enroll with a code",
+      "curriculum": "Curriculum",
+      "preview": "Free preview",
+      "watch": "Watch",
+      "hide": "Hide"
+    },
+    "player": {
+      "locked": "This lesson is locked. Redeem a code to unlock the course.",
+      "openPdf": "Open PDF",
+      "signInNeeded": "Sign in to watch this course.",
+      "notEnrolled": "Redeem a code to unlock this course.",
+      "progress": "{done} / {total} done",
+      "completed": "Completed",
+      "markComplete": "Mark complete",
+      "empty": "This course has no lessons yet."
+    },
+    "me": {
+      "signInNeeded": "Sign in to see your courses.",
+      "title": "Hi, {name}",
+      "myCourses": "My courses",
+      "none": "You haven't unlocked any courses yet. Redeem a code to get started."
     }
   },
   "trials": {

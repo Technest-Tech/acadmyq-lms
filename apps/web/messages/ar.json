@@ -138,6 +138,7 @@
     "studentReportReviews": "مراجعة تقارير الطلاب",
     "myPayroll": "رواتبي",
     "trials": "التجارب",
+    "courses": "الدورات",
     "billing": "الفوترة والاشتراكات",
     "plans": "الباقات",
     "plan": "باقتي",
@@ -3018,6 +3019,227 @@
       "showLess": "عرض أقل",
       "clearSearch": "مسح البحث",
       "clearFilters": "مسح الفلاتر"
+    }
+  },
+  "courses": {
+    "title": "الدورات",
+    "subtitle": "أنشئ دورات يشاهدها طلابك عبر الإنترنت ويفتحونها برمز.",
+    "noAccess": "ليست لديك صلاحية الوصول إلى الدورات.",
+    "new": "دورة جديدة",
+    "delete": "حذف",
+    "empty": "لا توجد دورات بعد. أنشئ أول دورة.",
+    "lessonCount": "{count, plural, =0 {لا دروس} one {درس واحد} two {درسان} few {# دروس} many {# درسًا} other {# درس}}",
+    "search": "ابحث في الدورات",
+    "back": "العودة إلى الدورات",
+    "openEditor": "فتح",
+    "stats": {
+      "total": "الإجمالي",
+      "draft": "مسودة",
+      "published": "منشورة",
+      "archived": "مؤرشفة"
+    },
+    "status": {
+      "DRAFT": "مسودة",
+      "PUBLISHED": "منشورة",
+      "ARCHIVED": "مؤرشفة"
+    },
+    "filter": {
+      "all": "الكل",
+      "DRAFT": "مسودة",
+      "PUBLISHED": "منشورة",
+      "ARCHIVED": "مؤرشفة"
+    },
+    "form": {
+      "title": "العنوان",
+      "titlePlaceholder": "مثال: مقدمة في الكيمياء",
+      "subtitle": "العنوان الفرعي",
+      "subtitlePlaceholder": "سطر قصير يظهر تحت العنوان",
+      "description": "الوصف",
+      "descriptionPlaceholder": "ماذا سيتعلم الطلاب؟",
+      "create": "إنشاء الدورة",
+      "save": "حفظ التغييرات",
+      "cancel": "إلغاء"
+    },
+    "editor": {
+      "details": "تفاصيل الدورة",
+      "curriculum": "المحتوى",
+      "publish": "نشر",
+      "unpublish": "إلغاء النشر",
+      "archive": "أرشفة",
+      "restore": "إعادة إلى مسودة",
+      "publishHint": "أضف درسًا واحدًا على الأقل قبل النشر.",
+      "addSection": "إضافة قسم",
+      "sectionTitle": "عنوان القسم",
+      "renameSection": "إعادة تسمية",
+      "deleteSection": "حذف القسم",
+      "addLesson": "إضافة درس",
+      "noSections": "أضف قسمًا لبدء بناء المحتوى.",
+      "noLessons": "لا دروس في هذا القسم بعد.",
+      "preview": "معاينة مجانية",
+      "deleteLesson": "حذف الدرس"
+    },
+    "lesson": {
+      "title": "عنوان الدرس",
+      "type": "النوع",
+      "typeHint": "الفيديو المرفوع والاختبارات ستتوفر في إصدار لاحق.",
+      "youtubeUrl": "رابط يوتيوب",
+      "youtubePlaceholder": "https://youtube.com/watch?v=…",
+      "body": "المحتوى",
+      "bodyPlaceholder": "اكتب نص الدرس (يدعم markdown)",
+      "url": "رابط الملف",
+      "urlPlaceholder": "https://…/file.pdf",
+      "isPreview": "معاينة مجانية (تُشاهد دون رمز)",
+      "add": "إضافة الدرس",
+      "save": "حفظ الدرس",
+      "types": {
+        "YOUTUBE": "فيديو يوتيوب",
+        "TEXT": "نص",
+        "PDF": "PDF",
+        "AUDIO": "صوت",
+        "VIDEO_UPLOAD": "فيديو مرفوع",
+        "QUIZ": "اختبار"
+      }
+    },
+    "confirm": {
+      "deleteCourse": "حذف هذه الدورة؟ لا يمكن التراجع.",
+      "deleteSection": "حذف هذا القسم ودروسه؟",
+      "deleteLesson": "حذف هذا الدرس؟"
+    },
+    "alerts": {
+      "created": "تم إنشاء الدورة.",
+      "saved": "تم الحفظ.",
+      "published": "تم نشر الدورة.",
+      "unpublished": "أُعيدت الدورة إلى مسودة.",
+      "archived": "تمت أرشفة الدورة.",
+      "deleted": "تم حذف الدورة.",
+      "lessonAdded": "تمت إضافة الدرس.",
+      "failed": "حدث خطأ ما. حاول مرة أخرى."
+    },
+    "tabs": {
+      "courses": "الدورات",
+      "codes": "رموز الوصول",
+      "learners": "المتعلمون"
+    },
+    "codes": {
+      "title": "رموز الوصول",
+      "subtitle": "أنشئ رموزًا وسلّمها للطلاب، ويستخدمونها لفتح الدورات.",
+      "generate": "إنشاء رموز",
+      "empty": "لا توجد رموز بعد. أنشئ دفعة للبدء.",
+      "column": {
+        "code": "الرمز",
+        "courses": "الدورات",
+        "uses": "الاستخدامات",
+        "expires": "الانتهاء",
+        "status": "الحالة"
+      },
+      "unlimited": "غير محدود",
+      "singleUse": "استخدام واحد",
+      "active": "فعّال",
+      "inactive": "غير فعّال",
+      "noExpiry": "أبدًا",
+      "activate": "تفعيل",
+      "deactivate": "إيقاف",
+      "copy": "نسخ",
+      "copied": "تم النسخ",
+      "exportCsv": "تصدير CSV",
+      "form": {
+        "courses": "الدورات التي يفتحها هذا الرمز",
+        "count": "عدد الرموز",
+        "maxRedemptions": "الاستخدامات لكل رمز",
+        "singleUse": "استخدام واحد (لكل رمز)",
+        "unlimited": "غير محدود",
+        "expires": "الانتهاء (اختياري)",
+        "label": "وصف (اختياري)",
+        "labelPlaceholder": "مثال: الصف العاشر الدفعة أ",
+        "submit": "إنشاء",
+        "pickCourse": "اختر دورة واحدة على الأقل."
+      },
+      "generated": "تم إنشاء {count} رمزًا.",
+      "deleted": "تم حذف الرمز.",
+      "confirmDelete": "حذف هذا الرمز؟"
+    },
+    "learners": {
+      "title": "المتعلمون",
+      "subtitle": "كل من سجّل في موقع دوراتك وما يمكنه الوصول إليه.",
+      "empty": "لا يوجد متعلمون بعد.",
+      "column": {
+        "name": "الاسم",
+        "email": "البريد",
+        "courses": "الدورات",
+        "lastActive": "آخر نشاط",
+        "status": "الحالة"
+      },
+      "active": "فعّال",
+      "blocked": "محظور",
+      "block": "حظر",
+      "unblock": "إلغاء الحظر",
+      "never": "أبدًا",
+      "enrollments": "التسجيلات",
+      "revoke": "إلغاء الوصول",
+      "restore": "استعادة",
+      "blocked_msg": "تم حظر المتعلم.",
+      "unblocked_msg": "تم إلغاء حظر المتعلم.",
+      "revoked_msg": "تم إلغاء الوصول.",
+      "restored_msg": "تمت استعادة الوصول."
+    },
+    "site": {
+      "notConfigured": "لم يتم إعداد موقع دوراتك بعد — اطلب من مزوّد الخدمة تعيين نطاق فرعي.",
+      "yourSite": "موقع دوراتك",
+      "visit": "زيارة الموقع"
+    }
+  },
+  "learn": {
+    "brand": "الدورات",
+    "errors": { "generic": "حدث خطأ ما. حاول مرة أخرى." },
+    "auth": {
+      "signIn": "تسجيل الدخول",
+      "register": "إنشاء حساب",
+      "logout": "تسجيل الخروج",
+      "fullName": "الاسم الكامل",
+      "email": "البريد الإلكتروني",
+      "password": "كلمة المرور",
+      "needAccount": "جديد هنا؟ أنشئ حسابًا",
+      "haveAccount": "لديك حساب؟ سجّل الدخول"
+    },
+    "redeem": {
+      "cta": "استخدام رمز",
+      "title": "استخدام رمز",
+      "hint": "أدخل الرمز الذي أعطاك إياه معلمك لفتح الدورة.",
+      "submit": "تفعيل",
+      "unlocked": "تم الفتح! أصبح لديك الآن وصول إلى:",
+      "done": "ابدأ التعلّم"
+    },
+    "catalog": {
+      "title": "الدورات",
+      "subtitle": "تصفّح الدورات وافتحها برمز.",
+      "empty": "لا توجد دورات منشورة بعد.",
+      "lessons": "{count, plural, =0 {لا دروس} one {درس واحد} two {درسان} few {# دروس} many {# درسًا} other {# درس}}"
+    },
+    "course": {
+      "notFound": "الدورة غير موجودة.",
+      "back": "العودة إلى الدورات",
+      "continue": "متابعة",
+      "enroll": "التسجيل برمز",
+      "curriculum": "المحتوى",
+      "preview": "معاينة مجانية",
+      "watch": "مشاهدة",
+      "hide": "إخفاء"
+    },
+    "player": {
+      "locked": "هذا الدرس مقفل. استخدم رمزًا لفتح الدورة.",
+      "openPdf": "فتح PDF",
+      "signInNeeded": "سجّل الدخول لمشاهدة هذه الدورة.",
+      "notEnrolled": "استخدم رمزًا لفتح هذه الدورة.",
+      "progress": "{done} / {total} مكتمل",
+      "completed": "مكتمل",
+      "markComplete": "وضع علامة مكتمل",
+      "empty": "لا دروس في هذه الدورة بعد."
+    },
+    "me": {
+      "signInNeeded": "سجّل الدخول لرؤية دوراتك.",
+      "title": "مرحبًا، {name}",
+      "myCourses": "دوراتي",
+      "none": "لم تفتح أي دورة بعد. استخدم رمزًا للبدء."
     }
   },
   "trials": {

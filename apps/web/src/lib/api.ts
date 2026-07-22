@@ -3654,6 +3654,323 @@ export function cancelTrial(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/trials/${id}`, { method: "DELETE" });
 }
 
+// ── LMS / Courses (LMS module, docs/lms) ─────────────────────────────────────
+// The authoring side: staff build on-demand courses — sections of lessons (YouTube / text / PDF /
+// audio now; uploaded video + quizzes in later phases) — learners watch on the academy's public
+// subdomain. Plan-gated by the LMS module (entitled:lms → 402) and capability-gated by
+// course.read / course.manage (403). Transport only.
+
+export type CourseStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+
+export const COURSE_STATUSES: readonly CourseStatus[] = [
+  "DRAFT",
+  "PUBLISHED",
+  "ARCHIVED",
+];
+
+/** Lesson kinds. VIDEO_UPLOAD + QUIZ are recognised but not yet buildable (later phases). */
+export type LessonType =
+  | "YOUTUBE"
+  | "TEXT"
+  | "PDF"
+  | "AUDIO"
+  | "VIDEO_UPLOAD"
+  | "QUIZ";
+
+/** The kinds the phase-1 editor can create. */
+export const AUTHORABLE_LESSON_TYPES: readonly LessonType[] = [
+  "YOUTUBE",
+  "TEXT",
+  "PDF",
+  "AUDIO",
+];
+
+export interface CourseRow {
+  id: string;
+  title: string;
+  slug: string;
+  subtitle: string | null;
+  status: CourseStatus;
+  cover_image_path: string | null;
+  published_at: string | null;
+  created_at: string;
+  lesson_count: number;
+}
+
+export interface CourseSummary {
+  draft: number;
+  published: number;
+  archived: number;
+  total: number;
+}
+
+export interface Lesson {
+  id: string;
+  title: string;
+  type: LessonType;
+  position: number;
+  is_preview: boolean;
+  duration_seconds: number | null;
+  media_asset_id: string | null;
+  youtube_video_id: string | null;
+  attachment_path: string | null;
+  body: string | null;
+  quiz_id: string | null;
+}
+
+export interface CourseSection {
+  id: string;
+  title: string;
+  position: number;
+  lessons: Lesson[];
+}
+
+/** The full editor payload: the course row (with description) + its section→lesson outline. */
+export interface CourseDetail {
+  course: CourseRow & { description: string | null };
+  sections: CourseSection[];
+}
+
+export interface CourseInput {
+  title: string;
+  subtitle?: string | null;
+  description?: string | null;
+}
+
+export interface LessonInput {
+  section_id: string;
+  type: LessonType;
+  title: string;
+  is_preview?: boolean;
+  duration_seconds?: number | null;
+  /** YOUTUBE: the pasted link (server parses the 11-char id). */
+  youtube_url?: string | null;
+  /** TEXT: markdown body. */
+  body?: string | null;
+  /** PDF / AUDIO: a link to the file (direct upload arrives with the media pipeline). */
+  url?: string | null;
+}
+
+export function listCourses(
+  q: DataTableQuery = {},
+): Promise<ListResult<CourseRow>> {
+  return apiFetch(`/api/courses${toQueryString(q)}`);
+}
+
+export function getCourseSummary(): Promise<CourseSummary> {
+  return apiFetch("/api/courses/summary");
+}
+
+export function createCourse(input: CourseInput): Promise<{ courseId: string }> {
+  return apiFetch("/api/courses", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getCourse(id: string): Promise<CourseDetail> {
+  return apiFetch(`/api/courses/${id}`);
+}
+
+export function updateCourse(
+  id: string,
+  patch: Partial<CourseInput> & { slug?: string; cover_image_path?: string | null },
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/courses/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function setCourseStatus(
+  id: string,
+  status: CourseStatus,
+): Promise<{ ok: boolean; status: CourseStatus }> {
+  return apiFetch(`/api/courses/${id}/publish`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function deleteCourse(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/${id}`, { method: "DELETE" });
+}
+
+export function addSection(
+  courseId: string,
+  title: string,
+): Promise<{ sectionId: string }> {
+  return apiFetch(`/api/courses/${courseId}/sections`, {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export function updateSection(
+  courseId: string,
+  id: string,
+  title: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/${courseId}/sections/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export function deleteSection(
+  courseId: string,
+  id: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/${courseId}/sections/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function reorderSections(
+  courseId: string,
+  ids: string[],
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/${courseId}/sections/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+export function addLesson(
+  courseId: string,
+  input: LessonInput,
+): Promise<{ lessonId: string }> {
+  return apiFetch(`/api/courses/${courseId}/lessons`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateLesson(
+  courseId: string,
+  id: string,
+  patch: Partial<LessonInput>,
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/courses/${courseId}/lessons/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteLesson(
+  courseId: string,
+  id: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/${courseId}/lessons/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function reorderLessons(
+  courseId: string,
+  sectionId: string,
+  ids: string[],
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/${courseId}/lessons/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ section_id: sectionId, ids }),
+  });
+}
+
+// ── LMS dashboard: access codes + learners (staff side) ──────────────────────
+
+export interface AccessCode {
+  id: string;
+  code: string;
+  label: string | null;
+  /** null = unlimited redemptions; 1 = single-use. */
+  max_redemptions: number | null;
+  redemptions_count: number;
+  expires_at: string | null;
+  is_active: boolean;
+  course_titles: string[];
+}
+
+export interface CourseLearnerRow {
+  id: string;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  status: "ACTIVE" | "BLOCKED";
+  enrollment_count: number;
+  last_login_at: string | null;
+}
+
+export interface LearnerEnrollment {
+  course_id: string;
+  title: string;
+  status: "ACTIVE" | "REVOKED";
+  enrolled_at: string;
+}
+
+export function listCodes(): Promise<{ codes: AccessCode[] }> {
+  return apiFetch("/api/courses/codes");
+}
+
+export function generateCodes(input: {
+  course_ids: string[];
+  count: number;
+  max_redemptions?: number | null;
+  expires_at?: string | null;
+  label?: string | null;
+}): Promise<{ codes: { id: string; code: string }[] }> {
+  return apiFetch("/api/courses/codes/batch", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCode(
+  id: string,
+  patch: { is_active?: boolean; label?: string | null; expires_at?: string | null },
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/codes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteCode(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/codes/${id}`, { method: "DELETE" });
+}
+
+export function listCourseLearners(): Promise<{ learners: CourseLearnerRow[] }> {
+  return apiFetch("/api/courses/learners");
+}
+
+export function getCourseLearner(id: string): Promise<{
+  learner: Omit<CourseLearnerRow, "enrollment_count" | "last_login_at">;
+  enrollments: LearnerEnrollment[];
+}> {
+  return apiFetch(`/api/courses/learners/${id}`);
+}
+
+export function setLearnerStatus(
+  id: string,
+  status: "ACTIVE" | "BLOCKED",
+): Promise<{ ok: boolean; status: string }> {
+  return apiFetch(`/api/courses/learners/${id}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function setEnrollmentStatus(
+  learnerId: string,
+  courseId: string,
+  status: "ACTIVE" | "REVOKED",
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/learners/${learnerId}/enrollment`, {
+    method: "POST",
+    body: JSON.stringify({ course_id: courseId, status }),
+  });
+}
+
 // ── Video classroom (docs/video-platform) ────────────────────────────────────
 // Management surface for the self-hosted LiveKit rooms + recordings. Plan-gated by
 // video.conferencing (402) and capability-gated by room.* / recording.view (403); the

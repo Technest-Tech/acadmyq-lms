@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Models\Learner;
 use App\Models\User;
 
 return [
@@ -44,6 +45,16 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // LMS learners (docs/lms) authenticate with Sanctum BEARER tokens on the public course
+        // subdomain — never the staff SPA session. The `learners` provider is a plain eloquent
+        // provider (no RLS-bypass needed): the academy is resolved from the subdomain FIRST, so
+        // every learner lookup already runs under tenant context. A learner-context middleware
+        // additionally asserts the token's owner is a Learner of the current academy.
+        'learner' => [
+            'driver' => 'sanctum',
+            'provider' => 'learners',
+        ],
     ],
 
     /*
@@ -73,10 +84,12 @@ return [
             'model' => env('AUTH_MODEL', User::class),
         ],
 
-        // 'users' => [
-        //     'driver' => 'database',
-        //     'table' => 'users',
-        // ],
+        // Learners resolve under tenant context (set from the subdomain before auth), so a plain
+        // eloquent provider is safe here — no BYPASSRLS provider like `users` needs.
+        'learners' => [
+            'driver' => 'eloquent',
+            'model' => Learner::class,
+        ],
     ],
 
     /*

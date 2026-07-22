@@ -2,6 +2,7 @@
 
 import {
   Award,
+  BookOpen,
   BarChart3,
   BellRing,
   Briefcase,
@@ -75,6 +76,7 @@ type NavKey =
   | "schedule"
   | "videoClassroom"
   | "trials"
+  | "courses"
   | "attendance"
   | "studentReports"
   | "studentReportReviews"
@@ -183,6 +185,13 @@ const NAV: ReadonlyArray<{
   },
 
   // ── Academics ───────────────────────────────────────────────────────────
+  {
+    key: "courses",
+    icon: BookOpen,
+    permission: "course.read",
+    href: "/courses",
+    group: "academics",
+  },
   {
     key: "attendance",
     icon: ClipboardCheck,
@@ -392,6 +401,7 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   staff: "staff",
   academyRoles: "custom_roles",
   trials: "trials",
+  courses: "lms",
   certificates: "certificates",
   studentReports: "student_reports",
   studentReportReviews: "student_reports",

@@ -35,6 +35,7 @@ final class FeatureCatalog
         'report_field.custom' => 'Custom report fields',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
         'video.only' => 'Video-only workspace (the panel shows the video classroom only)',
+        'lms' => 'LMS — online courses (course builder & learner site)',
     ];
 
     /**
@@ -50,6 +51,9 @@ final class FeatureCatalog
         'maxRooms' => 'Video — max rooms',
         'maxRoomParticipants' => 'Video — max participants per room',
         'recordingRetentionDays' => 'Video — recording retention (days)',
+        'maxCourses' => 'LMS — max published courses',
+        'maxLearners' => 'LMS — max learners',
+        'maxStorageGb' => 'LMS — media storage (GB)',
     ];
 
     /**

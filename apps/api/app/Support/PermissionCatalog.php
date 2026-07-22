@@ -40,6 +40,10 @@ final class PermissionCatalog
         // they raise a request (session.free_request) the OWNER approves (session.free_approve).
         'session.free', 'session.free_request', 'session.free_approve',
         'trial.read', 'trial.manage',
+        // LMS / online courses (LMS module, docs/lms): read vs. build courses, manage the access
+        // codes learners redeem, and see learners + enrollments. Owner-only by default; delegated to
+        // a course-team employee through a custom role (same pattern as CRM).
+        'course.read', 'course.manage', 'access_code.manage', 'learner.read',
         'notification.read',
         'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
         'payout.read', 'payout.read_own', 'payout.finalize', 'payout.adjust',
@@ -78,6 +82,7 @@ final class PermissionCatalog
             // Mark free directly (with the billing popup) + approve teachers' free requests.
             'session.free', 'session.free_approve',
             'trial.read', 'trial.manage',
+            'course.read', 'course.manage', 'access_code.manage', 'learner.read',
             'notification.read',
             'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
             'payout.read', 'payout.finalize', 'payout.adjust',

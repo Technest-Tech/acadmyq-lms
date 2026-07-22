@@ -349,6 +349,7 @@ final class Entitlement
         $mgmt = $grantable->firstWhere('module', 'MANAGEMENT');
         $video = $grantable->firstWhere('module', 'VIDEO');
         $whatsapp = $grantable->firstWhere('module', 'WHATSAPP');
+        $lms = $grantable->firstWhere('module', 'LMS');
         $videoContainer = $subs->firstWhere('module', 'VIDEO'); // overrides apply from ANY live sub
         $primary = $mgmt ?? $video; // the sub whose plan == the old academies.plan_id
 
@@ -359,6 +360,16 @@ final class Entitlement
             $capabilities = array_merge(
                 $capabilities,
                 self::decodeFeatures($whatsapp->features ?? null)['capabilities'],
+            );
+        }
+
+        // The LMS sub contributes its plan's capabilities the same way (docs/lms) — scoped
+        // suspension applies for free: a PAUSED/lapsed LMS module stops granting `lms` while the
+        // client's other modules keep working.
+        if ($lms !== null) {
+            $capabilities = array_merge(
+                $capabilities,
+                self::decodeFeatures($lms->features ?? null)['capabilities'],
             );
         }
         $capabilities = array_values(array_unique($capabilities));

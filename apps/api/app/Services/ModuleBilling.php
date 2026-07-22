@@ -29,7 +29,7 @@ use Illuminate\Validation\ValidationException;
  */
 final class ModuleBilling
 {
-    public const MODULES = ['MANAGEMENT', 'VIDEO', 'WHATSAPP'];
+    public const MODULES = ['MANAGEMENT', 'VIDEO', 'WHATSAPP', 'LMS'];
 
     /** Add-on feature_keys attributed to a non-MANAGEMENT module for pricing. */
     private const ADDON_MODULE = [
