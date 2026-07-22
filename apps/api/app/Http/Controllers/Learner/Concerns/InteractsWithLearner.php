@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Learner\Concerns;
 
 use App\Models\Learner;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Shared helpers for the LMS public-site (learner) controllers. The academy is already in tenant
@@ -34,6 +35,24 @@ trait InteractsWithLearner
         }
 
         return $learner;
+    }
+
+    /** Does the current learner hold an ACTIVE enrollment in $courseId? */
+    protected function isEnrolled(string $courseId): bool
+    {
+        return DB::table('enrollments')
+            ->where('learner_id', $this->learner()->getKey())
+            ->where('course_id', $courseId)
+            ->where('status', 'ACTIVE')
+            ->exists();
+    }
+
+    /** ACTIVE enrollment in $courseId for the current learner, or 403 — the gate the whole LMS turns on. */
+    protected function assertEnrolled(string $courseId): void
+    {
+        if (! $this->isEnrolled($courseId)) {
+            abort(403, 'Enroll with a code to watch this course.');
+        }
     }
 
     /** ISO-8601 UTC (or null). */

@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   FileText,
+  ListChecks,
   Music,
   Pencil,
   Plus,
@@ -18,6 +19,7 @@ import { useAuth } from "@/components/auth-provider";
 import { CourseStatusBadge } from "@/components/courses/course-status-badge";
 import { Field, inputClass, textareaClass } from "@/components/courses/form-bits";
 import { LessonModal } from "@/components/courses/lesson-modal";
+import { QuizBuilder } from "@/components/courses/quiz-builder";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -39,9 +41,11 @@ import { cn } from "@/lib/utils";
 
 const LESSON_ICON: Partial<Record<LessonType, typeof FileText>> = {
   YOUTUBE: Video,
+  VIDEO_UPLOAD: Video,
   TEXT: FileText,
   PDF: FileText,
   AUDIO: Music,
+  QUIZ: ListChecks,
 };
 
 /**
@@ -73,6 +77,7 @@ export function CourseEditor({ courseId }: { courseId: string }) {
   const [lessonModal, setLessonModal] = useState<{ sectionId: string; lesson?: Lesson } | null>(
     null,
   );
+  const [quizBuilder, setQuizBuilder] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ message: string; run: () => Promise<void> } | null>(
     null,
   );
@@ -378,6 +383,15 @@ export function CourseEditor({ courseId }: { courseId: string }) {
                           </span>
                           {canManage && (
                             <>
+                              {lesson.type === "QUIZ" && lesson.quiz_id && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setQuizBuilder(lesson.quiz_id)}
+                                >
+                                  <ListChecks className="size-4" /> {t("quiz.build")}
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
@@ -458,6 +472,19 @@ export function CourseEditor({ courseId }: { courseId: string }) {
             setLessonModal(null);
             refresh();
             showAlert("success", t("alerts.lessonAdded"));
+          }}
+        />
+      )}
+
+      {/* Quiz builder modal */}
+      {quizBuilder && (
+        <QuizBuilder
+          courseId={courseId}
+          quizId={quizBuilder}
+          onClose={() => setQuizBuilder(null)}
+          onSaved={() => {
+            setQuizBuilder(null);
+            showAlert("success", t("alerts.saved"));
           }}
         />
       )}

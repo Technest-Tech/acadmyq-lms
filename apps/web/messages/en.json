@@ -3112,6 +3112,30 @@
       "failed": "Upload failed. Please try again.",
       "processingFailed": "We couldn't process this file. Try a different one."
     },
+    "quiz": {
+      "build": "Build quiz",
+      "title": "Quiz builder",
+      "passMark": "Pass mark (%)",
+      "maxAttempts": "Max attempts",
+      "unlimited": "Unlimited",
+      "prompt": "Question",
+      "points": "Points",
+      "option": "Option",
+      "addOption": "Add option",
+      "removeOption": "Remove option",
+      "addQuestion": "Add question",
+      "removeQuestion": "Remove question",
+      "markCorrect": "Correct answer",
+      "save": "Save quiz",
+      "cancel": "Cancel",
+      "loadFailed": "Couldn't load the quiz.",
+      "saveFailed": "Couldn't save the quiz.",
+      "types": {
+        "SINGLE": "Single choice",
+        "MULTIPLE": "Multiple choice",
+        "TRUE_FALSE": "True / False"
+      }
+    },
     "confirm": {
       "deleteCourse": "Delete this course? This can't be undone.",
       "deleteSection": "Delete this section and its lessons?",
@@ -3246,7 +3270,32 @@
       "progress": "{done} / {total} done",
       "completed": "Completed",
       "markComplete": "Mark complete",
+      "certificateReady": "You finished the course — view your certificate",
       "empty": "This course has no lessons yet."
+    },
+    "quiz": {
+      "passMark": "Pass mark: {mark}%",
+      "attemptsLeft": "{n} attempts left",
+      "submit": "Submit answers",
+      "score": "You scored {score}%",
+      "passed": "You passed 🎉",
+      "failed": "You need {mark}% to pass.",
+      "certificateEarned": "You've completed the course — a certificate is ready!",
+      "retry": "Try again",
+      "alreadyPassed": "You passed this quiz ({score}%).",
+      "retake": "Retake quiz",
+      "error": "Something went wrong. Please try again."
+    },
+    "certificate": {
+      "heading": "Certificate of completion",
+      "hasCompleted": "has successfully completed",
+      "serial": "Serial",
+      "print": "Print",
+      "signInNeeded": "Sign in to view your certificate.",
+      "signIn": "Sign in",
+      "notEarned": "Finish every lesson to earn your certificate.",
+      "keepLearning": "Keep learning",
+      "failed": "Couldn't load the certificate."
     },
     "me": {
       "signInNeeded": "Sign in to see your courses.",

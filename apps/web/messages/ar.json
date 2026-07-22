@@ -3112,6 +3112,30 @@
       "failed": "فشل الرفع. حاول مرة أخرى.",
       "processingFailed": "تعذّرت معالجة هذا الملف. جرّب ملفًا آخر."
     },
+    "quiz": {
+      "build": "إنشاء الاختبار",
+      "title": "منشئ الاختبار",
+      "passMark": "درجة النجاح (%)",
+      "maxAttempts": "أقصى عدد للمحاولات",
+      "unlimited": "غير محدود",
+      "prompt": "السؤال",
+      "points": "النقاط",
+      "option": "خيار",
+      "addOption": "إضافة خيار",
+      "removeOption": "حذف الخيار",
+      "addQuestion": "إضافة سؤال",
+      "removeQuestion": "حذف السؤال",
+      "markCorrect": "الإجابة الصحيحة",
+      "save": "حفظ الاختبار",
+      "cancel": "إلغاء",
+      "loadFailed": "تعذّر تحميل الاختبار.",
+      "saveFailed": "تعذّر حفظ الاختبار.",
+      "types": {
+        "SINGLE": "اختيار واحد",
+        "MULTIPLE": "اختيار متعدد",
+        "TRUE_FALSE": "صح / خطأ"
+      }
+    },
     "confirm": {
       "deleteCourse": "حذف هذه الدورة؟ لا يمكن التراجع.",
       "deleteSection": "حذف هذا القسم ودروسه؟",
@@ -3246,7 +3270,32 @@
       "progress": "{done} / {total} مكتمل",
       "completed": "مكتمل",
       "markComplete": "وضع علامة مكتمل",
+      "certificateReady": "أنهيت الدورة — اعرض شهادتك",
       "empty": "لا دروس في هذه الدورة بعد."
+    },
+    "quiz": {
+      "passMark": "درجة النجاح: {mark}%",
+      "attemptsLeft": "بقيت {n} محاولات",
+      "submit": "إرسال الإجابات",
+      "score": "حصلت على {score}%",
+      "passed": "لقد نجحت 🎉",
+      "failed": "تحتاج إلى {mark}% للنجاح.",
+      "certificateEarned": "أكملت الدورة — شهادتك جاهزة!",
+      "retry": "حاول مرة أخرى",
+      "alreadyPassed": "لقد اجتزت هذا الاختبار ({score}%).",
+      "retake": "إعادة الاختبار",
+      "error": "حدث خطأ ما. حاول مرة أخرى."
+    },
+    "certificate": {
+      "heading": "شهادة إتمام",
+      "hasCompleted": "أتمّ بنجاح",
+      "serial": "الرقم التسلسلي",
+      "print": "طباعة",
+      "signInNeeded": "سجّل الدخول لعرض شهادتك.",
+      "signIn": "تسجيل الدخول",
+      "notEarned": "أكمل جميع الدروس للحصول على شهادتك.",
+      "keepLearning": "واصل التعلّم",
+      "failed": "تعذّر تحميل الشهادة."
     },
     "me": {
       "signInNeeded": "سجّل الدخول لرؤية دوراتك.",

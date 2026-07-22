@@ -108,21 +108,23 @@ it('never lets one academy open another academy course', function () {
     $this->getJson('/api/courses')->assertOk()->assertJsonPath('total', 0);
 });
 
-// ── validation: unsupported types are rejected with a clear message ──────────
-it('rejects uploaded-video and quiz lessons in phase 1', function () {
+// ── validation: half-built lessons are rejected with a clear message ─────────
+it('rejects a half-built media or youtube lesson', function () {
     Sanctum::actingAs($this->owner);
     $courseId = $this->postJson('/api/courses', ['title' => 'C'])->assertCreated()->json('courseId');
     $sectionId = $this->postJson("/api/courses/{$courseId}/sections", ['title' => 'S'])->assertCreated()->json('sectionId');
 
+    // VIDEO_UPLOAD without a media_asset_id → 422 (nothing to play).
     $this->postJson("/api/courses/{$courseId}/lessons", [
         'section_id' => $sectionId, 'type' => 'VIDEO_UPLOAD', 'title' => 'v',
     ])->assertStatus(422);
 
     $this->postJson("/api/courses/{$courseId}/lessons", [
-        'section_id' => $sectionId, 'type' => 'QUIZ', 'title' => 'q',
-    ])->assertStatus(422);
-
-    $this->postJson("/api/courses/{$courseId}/lessons", [
         'section_id' => $sectionId, 'type' => 'YOUTUBE', 'title' => 'bad', 'youtube_url' => 'not a link',
     ])->assertStatus(422);
+
+    // A QUIZ lesson needs no payload — it auto-creates an empty quiz to build against.
+    $this->postJson("/api/courses/{$courseId}/lessons", [
+        'section_id' => $sectionId, 'type' => 'QUIZ', 'title' => 'Quiz 1',
+    ])->assertCreated();
 });

@@ -3953,6 +3953,82 @@ export function uploadFileToTarget(
   });
 }
 
+// ── LMS quizzes (builder, docs/lms/04) ───────────────────────────────────────
+// A quiz belongs to a course and is attached to a QUIZ lesson (lessons.quiz_id). The builder edits
+// the whole quiz at once (replace-all save). Correct-answer flags are visible to staff here — the
+// learner endpoints never return them; grading is server-side.
+
+export type QuestionType = "SINGLE" | "MULTIPLE" | "TRUE_FALSE";
+
+export const QUESTION_TYPES: readonly QuestionType[] = ["SINGLE", "MULTIPLE", "TRUE_FALSE"];
+
+export interface QuizOptionInput {
+  id?: string;
+  text: string;
+  is_correct: boolean;
+}
+
+export interface QuizQuestionInput {
+  id?: string;
+  prompt: string;
+  type: QuestionType;
+  points: number;
+  options: QuizOptionInput[];
+}
+
+export interface QuizDetail {
+  quiz: {
+    id: string;
+    course_id: string;
+    title: string | null;
+    pass_mark: number;
+    max_attempts: number | null;
+  };
+  questions: Array<{
+    id: string;
+    prompt: string;
+    type: QuestionType;
+    points: number;
+    options: Array<{ id: string; text: string; is_correct: boolean }>;
+  }>;
+}
+
+export interface QuizSaveInput {
+  title?: string | null;
+  pass_mark?: number;
+  max_attempts?: number | null;
+  questions: QuizQuestionInput[];
+}
+
+export function createQuiz(
+  courseId: string,
+  input: { title?: string | null; pass_mark?: number; max_attempts?: number | null } = {},
+): Promise<{ quizId: string }> {
+  return apiFetch(`/api/courses/${courseId}/quizzes`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getQuiz(courseId: string, quizId: string): Promise<QuizDetail> {
+  return apiFetch(`/api/courses/${courseId}/quizzes/${quizId}`);
+}
+
+export function saveQuiz(
+  courseId: string,
+  quizId: string,
+  input: QuizSaveInput,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/${courseId}/quizzes/${quizId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteQuiz(courseId: string, quizId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/${courseId}/quizzes/${quizId}`, { method: "DELETE" });
+}
+
 // ── LMS dashboard: access codes + learners (staff side) ──────────────────────
 
 export interface AccessCode {

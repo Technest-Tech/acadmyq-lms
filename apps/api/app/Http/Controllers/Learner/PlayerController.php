@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Learner;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Learner\Concerns\BuildsCourseOutline;
 use App\Http\Controllers\Learner\Concerns\InteractsWithLearner;
+use App\Http\Controllers\Learner\Concerns\IssuesCertificates;
 use App\Support\LmsMedia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -20,7 +21,7 @@ use Illuminate\Support\Facades\DB;
  */
 final class PlayerController extends Controller
 {
-    use BuildsCourseOutline, InteractsWithLearner;
+    use BuildsCourseOutline, InteractsWithLearner, IssuesCertificates;
 
     /** GET /api/learn/courses/{slug}/content — the full player payload for an enrolled learner. */
     public function content(string $slug): JsonResponse
@@ -136,19 +137,46 @@ final class PlayerController extends Controller
             ],
         );
 
-        return response()->json(['ok' => true]);
+        // Completing the final lesson (of any type) may finish the course → issue the certificate.
+        $certificate = $completed
+            ? $this->maybeIssueCertificate($academyId, (string) $learner->getKey(), (string) $lesson->course_id)
+            : null;
+
+        return response()->json([
+            'ok' => true,
+            'certificate' => $certificate !== null ? ['serial' => (string) $certificate->serial] : null,
+        ]);
     }
 
-    /** ACTIVE enrollment in $courseId for the current learner, or 403. */
-    private function assertEnrolled(string $courseId): void
+    /**
+     * GET /api/learn/courses/{slug}/certificate — the learner's course-completion certificate, if
+     * issued. Enrollment-gated (the same course they studied); returns the serial + printable details.
+     */
+    public function certificate(string $slug): JsonResponse
     {
-        $ok = DB::table('enrollments')
-            ->where('learner_id', $this->learner()->getKey())
-            ->where('course_id', $courseId)
-            ->where('status', 'ACTIVE')
-            ->exists();
-        if (! $ok) {
-            abort(403, 'Enroll with a code to watch this course.');
+        $this->currentAcademyId();
+        $learner = $this->learner();
+
+        $course = DB::table('courses')->where('slug', $slug)->whereNull('deleted_at')
+            ->first(['id', 'title']);
+        if ($course === null) {
+            abort(404, 'Course not found.');
         }
+        $this->assertEnrolled((string) $course->id);
+
+        $cert = DB::table('course_certificates')
+            ->where('learner_id', $learner->getKey())
+            ->where('course_id', $course->id)
+            ->first(['serial', 'issued_at']);
+        if ($cert === null) {
+            abort(404, 'No certificate yet — finish every lesson to earn it.');
+        }
+
+        return response()->json([
+            'serial' => (string) $cert->serial,
+            'issued_at' => $this->iso($cert->issued_at),
+            'course_title' => (string) $course->title,
+            'learner_name' => (string) $learner->full_name,
+        ]);
     }
 }

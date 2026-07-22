@@ -22,6 +22,7 @@ use App\Http\Controllers\CertificateTemplateController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
 use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
 use App\Http\Controllers\Learner\PlayerController as LearnerPlayerController;
+use App\Http\Controllers\Learner\QuizController as LearnerQuizController;
 use App\Http\Controllers\Learner\RedemptionController as LearnerRedemptionController;
 use App\Http\Controllers\Lms\CodeController;
 use App\Http\Controllers\Lms\CourseController;
@@ -29,6 +30,7 @@ use App\Http\Controllers\Lms\LearnerAdminController;
 use App\Http\Controllers\Lms\LessonController;
 use App\Http\Controllers\Lms\MediaController;
 use App\Http\Controllers\Lms\MediaDeliveryController;
+use App\Http\Controllers\Lms\QuizController;
 use App\Http\Controllers\Lms\SectionController;
 use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
@@ -209,7 +211,10 @@ Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group
         Route::post('/auth/logout', [LearnerAuthController::class, 'logout']);
         Route::post('/redeem', [LearnerRedemptionController::class, 'redeem']);
         Route::get('/courses/{slug}/content', [LearnerPlayerController::class, 'content'])->where('slug', '[a-z0-9-]+');
+        Route::get('/courses/{slug}/certificate', [LearnerPlayerController::class, 'certificate'])->where('slug', '[a-z0-9-]+');
         Route::get('/lessons/{id}/playback', [LearnerPlayerController::class, 'playback']);
+        Route::get('/lessons/{id}/quiz', [LearnerQuizController::class, 'show']);
+        Route::post('/lessons/{id}/quiz/submit', [LearnerQuizController::class, 'submit']);
         Route::post('/lessons/{id}/progress', [LearnerPlayerController::class, 'progress']);
     });
 });
@@ -559,6 +564,13 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/courses/media/upload-url', [MediaController::class, 'createUpload']);
         Route::get('/courses/media/{id}', [MediaController::class, 'show'])->whereUuid('id');
         Route::post('/courses/media/{id}/uploaded', [MediaController::class, 'markUploaded'])->whereUuid('id');
+
+        // Quizzes (phase 4, docs/lms/04): the builder for a course; a QUIZ lesson references quizzes.id.
+        // Correct-answer flags are returned to staff here but never to learners.
+        Route::post('/courses/{course}/quizzes', [QuizController::class, 'store']);
+        Route::get('/courses/{course}/quizzes/{id}', [QuizController::class, 'show']);
+        Route::put('/courses/{course}/quizzes/{id}', [QuizController::class, 'update']);
+        Route::delete('/courses/{course}/quizzes/{id}', [QuizController::class, 'destroy']);
 
         // Access codes (staff generate/hand out; learners redeem on the public site).
         Route::get('/courses/codes', [CodeController::class, 'index']);

@@ -4,10 +4,24 @@ import { FileText, Loader2, Lock } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { learnPlayback, type LearnLesson } from "@/lib/learn-api";
+import { QuizRunner } from "./quiz-runner";
 
 /** Renders a lesson's content by type. Content is absent when the viewer isn't entitled to it. */
-export function LessonContent({ lesson, academy }: { lesson: LearnLesson; academy: string }) {
+export function LessonContent({
+  lesson,
+  academy,
+  onComplete,
+}: {
+  lesson: LearnLesson;
+  academy: string;
+  onComplete?: () => void;
+}) {
   const t = useTranslations("learn");
+
+  // A quiz carries its own content (the questions) and completes itself on a pass.
+  if (lesson.type === "QUIZ") {
+    return <QuizRunner academy={academy} lessonId={lesson.id} onPassed={onComplete} />;
+  }
 
   const uploaded = lesson.has_media === true; // VIDEO_UPLOAD, or an uploaded AUDIO
   const hasContent =

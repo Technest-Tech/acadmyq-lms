@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, ChevronLeft, Circle } from "lucide-react";
+import { Award, CheckCircle2, ChevronLeft, Circle } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -103,21 +103,32 @@ export default function WatchPage() {
         </span>
       </div>
 
+      {lessons.length > 0 && completedCount === lessons.length && (
+        <Link
+          href={`/learn/${academy}/certificate/${slug}`}
+          className="flex items-center justify-center gap-2 rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300"
+        >
+          <Award className="size-4" /> {t("player.certificateReady")}
+        </Link>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
         <div className="space-y-4">
           {current ? (
             <>
               <h1 className="text-lg font-semibold">{current.title}</h1>
-              <LessonContent lesson={current} academy={academy} />
-              <div className="flex justify-end">
-                <Button
-                  variant={progress[current.id]?.status === "COMPLETED" ? "outline" : "default"}
-                  onClick={markComplete}
-                >
-                  <CheckCircle2 />
-                  {progress[current.id]?.status === "COMPLETED" ? t("player.completed") : t("player.markComplete")}
-                </Button>
-              </div>
+              <LessonContent lesson={current} academy={academy} onComplete={load} />
+              {current.type !== "QUIZ" && (
+                <div className="flex justify-end">
+                  <Button
+                    variant={progress[current.id]?.status === "COMPLETED" ? "outline" : "default"}
+                    onClick={markComplete}
+                  >
+                    <CheckCircle2 />
+                    {progress[current.id]?.status === "COMPLETED" ? t("player.completed") : t("player.markComplete")}
+                  </Button>
+                </div>
+              )}
             </>
           ) : (
             <p className="text-muted-foreground text-sm">{t("player.empty")}</p>

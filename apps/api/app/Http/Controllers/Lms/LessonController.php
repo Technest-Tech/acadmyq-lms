@@ -23,22 +23,19 @@ use Illuminate\Validation\ValidationException;
  *   - PDF           → attachment_path (a link for now; direct upload arrives with the media pipeline)
  *   - AUDIO         → media_asset_id (an uploaded file) OR attachment_path (an external link)
  *   - VIDEO_UPLOAD  → media_asset_id (an uploaded video, docs/lms/04)
- * QUIZ is recognised by the schema but not yet accepted here — it needs the quiz subsystem (phase 4)
- * and is rejected with a clear message so the editor can grey it out without the API silently
- * accepting a half-built lesson.
+ *   - QUIZ          → quiz_id (docs/lms/04 §quizzes) — an existing quiz, else one is auto-created for
+ *                     the course so "add a quiz lesson" always yields something to build.
  *
  * `course.manage` gates everything; RLS scopes to the academy. An uploaded media_asset must be READY
- * and of the matching kind (VIDEO/AUDIO) and academy — a not-ready or cross-tenant id is a 422.
+ * and of the matching kind (VIDEO/AUDIO) and academy — a not-ready or cross-tenant id is a 422; a
+ * quiz_id must belong to this course.
  */
 final class LessonController extends Controller
 {
     use InteractsWithLms;
 
     /** Types the authoring API accepts. */
-    private const SUPPORTED_TYPES = ['YOUTUBE', 'TEXT', 'PDF', 'AUDIO', 'VIDEO_UPLOAD'];
-
-    /** Recognised in the schema but not yet buildable here (phase 4). */
-    private const DEFERRED_TYPES = ['QUIZ'];
+    private const SUPPORTED_TYPES = ['YOUTUBE', 'TEXT', 'PDF', 'AUDIO', 'VIDEO_UPLOAD', 'QUIZ'];
 
     /** POST /api/courses/{course}/lessons — add a lesson to a section. */
     public function store(Request $request, string $courseId): JsonResponse
@@ -52,7 +49,7 @@ final class LessonController extends Controller
         $this->assertSupportedType($data['type']);
         $this->assertSectionInCourse($courseId, $data['section_id']);
 
-        $payload = $this->buildTypePayload($data['type'], $data);
+        $payload = $this->buildTypePayload($data['type'], $data, $courseId, $academyId);
 
         $lessonId = (string) Str::uuid();
         DB::table('lessons')->insert([
@@ -106,7 +103,7 @@ final class LessonController extends Controller
         if (isset($data['type']) || $this->touchesPayload($data)) {
             $this->assertSupportedType($type);
             $update['type'] = $type;
-            $update += $this->buildTypePayload($type, $data, $lesson);
+            $update += $this->buildTypePayload($type, $data, $courseId, $academyId, $lesson);
         }
 
         if ($update === []) {
@@ -179,7 +176,7 @@ final class LessonController extends Controller
 
         return [
             'title' => [$req, 'string', 'max:255'],
-            'type' => [$req, Rule::in([...self::SUPPORTED_TYPES, ...self::DEFERRED_TYPES])],
+            'type' => [$req, Rule::in(self::SUPPORTED_TYPES)],
             'section_id' => [$req, 'uuid'],
             'is_preview' => ['sometimes', 'boolean'],
             'duration_seconds' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:360000'],
@@ -188,6 +185,7 @@ final class LessonController extends Controller
             'body' => ['sometimes', 'nullable', 'string', 'max:100000'],
             'url' => ['sometimes', 'nullable', 'string', 'max:2048', 'url'],
             'media_asset_id' => ['sometimes', 'nullable', 'uuid'],
+            'quiz_id' => ['sometimes', 'nullable', 'uuid'],
         ];
     }
 
@@ -197,16 +195,23 @@ final class LessonController extends Controller
         return array_key_exists('youtube_url', $data)
             || array_key_exists('body', $data)
             || array_key_exists('url', $data)
-            || array_key_exists('media_asset_id', $data);
+            || array_key_exists('media_asset_id', $data)
+            || array_key_exists('quiz_id', $data);
     }
 
     private function assertSupportedType(string $type): void
     {
-        if (in_array($type, self::DEFERRED_TYPES, true)) {
-            throw ValidationException::withMessages(['type' => ['Quiz lessons arrive in a later release.']]);
-        }
         if (! in_array($type, self::SUPPORTED_TYPES, true)) {
             throw ValidationException::withMessages(['type' => ["Unsupported lesson type: {$type}."]]);
+        }
+    }
+
+    /** A quiz attached to a QUIZ lesson must belong to this course (RLS scopes it to the academy). */
+    private function assertQuizInCourse(string $courseId, string $quizId): void
+    {
+        $ok = DB::table('quizzes')->where('id', $quizId)->where('course_id', $courseId)->exists();
+        if (! $ok) {
+            throw ValidationException::withMessages(['quiz_id' => ['That quiz is not part of this course.']]);
         }
     }
 
@@ -234,7 +239,7 @@ final class LessonController extends Controller
      *
      * @return array<string, mixed>
      */
-    private function buildTypePayload(string $type, array $data, ?object $existing = null): array
+    private function buildTypePayload(string $type, array $data, string $courseId, string $academyId, ?object $existing = null): array
     {
         $blank = [
             'youtube_video_id' => null,
@@ -305,6 +310,25 @@ final class LessonController extends Controller
                 }
 
                 return ['attachment_path' => (string) $url] + $blank;
+
+            case 'QUIZ':
+                $quizId = $data['quiz_id'] ?? ($existing?->type === 'QUIZ' ? $existing->quiz_id : null);
+                if ($quizId !== null) {
+                    $this->assertQuizInCourse($courseId, (string) $quizId);
+
+                    return ['quiz_id' => (string) $quizId] + $blank;
+                }
+                // "Add a quiz lesson" with no quiz yet → mint an empty quiz to build against.
+                $quizId = (string) Str::uuid();
+                DB::table('quizzes')->insert([
+                    'id' => $quizId,
+                    'academy_id' => $academyId,
+                    'course_id' => $courseId,
+                    'title' => trim((string) ($data['title'] ?? '')) ?: null,
+                    'pass_mark' => 60,
+                ]);
+
+                return ['quiz_id' => $quizId] + $blank;
         }
 
         return $blank;

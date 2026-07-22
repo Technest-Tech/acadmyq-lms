@@ -191,3 +191,61 @@ export function learnPlayback(
 ): Promise<{ url: string; kind: "VIDEO" | "AUDIO" }> {
   return learnFetch(academy, `/lessons/${lessonId}/playback`);
 }
+
+// ── quizzes & certificates (docs/lms/04) ───────────────────────────────────────
+
+export type LearnQuestionType = "SINGLE" | "MULTIPLE" | "TRUE_FALSE";
+
+export interface LearnQuizPayload {
+  quiz: {
+    id: string;
+    title: string | null;
+    pass_mark: number;
+    max_attempts: number | null;
+    attempts_used: number;
+    passed: boolean;
+    best_score: number | null;
+  };
+  // NB: no is_correct — grading is server-side.
+  questions: Array<{
+    id: string;
+    prompt: string;
+    type: LearnQuestionType;
+    points: number;
+    options: Array<{ id: string; text: string }>;
+  }>;
+}
+
+export interface LearnQuizResult {
+  score: number;
+  passed: boolean;
+  attempts_used: number;
+  max_attempts: number | null;
+  certificate: { serial: string } | null;
+}
+
+export interface LearnCertificate {
+  serial: string;
+  issued_at: string | null;
+  course_title: string;
+  learner_name: string;
+}
+
+export function learnQuiz(academy: string, lessonId: string): Promise<LearnQuizPayload> {
+  return learnFetch(academy, `/lessons/${lessonId}/quiz`);
+}
+
+export function learnSubmitQuiz(
+  academy: string,
+  lessonId: string,
+  answers: Array<{ question_id: string; selected_option_ids: string[] }>,
+): Promise<LearnQuizResult> {
+  return learnFetch(academy, `/lessons/${lessonId}/quiz/submit`, {
+    method: "POST",
+    body: JSON.stringify({ answers }),
+  });
+}
+
+export function learnCertificate(academy: string, slug: string): Promise<LearnCertificate> {
+  return learnFetch(academy, `/courses/${slug}/certificate`);
+}
