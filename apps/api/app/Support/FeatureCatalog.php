@@ -30,6 +30,7 @@ final class FeatureCatalog
         'staff' => 'Non-teaching staff management',
         'custom_roles' => 'Custom roles & permissions builder',
         'trials' => 'Free trials pipeline & availability matcher',
+        'crm' => 'CRM — leads pipeline & follow-ups',
         'student_reports' => 'Student progress reports (teacher→owner review)',
         'audit.full' => 'Full audit history (beyond 30 days)',
         'report_field.custom' => 'Custom report fields',

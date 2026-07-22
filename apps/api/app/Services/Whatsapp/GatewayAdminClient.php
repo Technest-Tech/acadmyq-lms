@@ -87,11 +87,24 @@ final class GatewayAdminClient
         }
     }
 
-    /** Logout + delete a session on the gateway. Best-effort — returns whether the call succeeded. */
+    /**
+     * Logout + delete a session on the gateway. Returns whether the call succeeded.
+     *
+     * The body is deliberately non-empty. PendingRequest pins Content-Type: application/json on every
+     * request (its constructor calls asJson()), and Fastify's JSON parser rejects that content-type
+     * with an empty body — so a body-less DELETE came back 400 "Body cannot be empty…" and logout
+     * never actually reached the gateway, leaking a live session while the app cleared its token. The
+     * route reads only :id, so the payload is ignored.
+     */
     public function deleteSession(string $sessionId): bool
     {
         try {
-            return $this->http()->delete('/sessions/'.rawurlencode($sessionId))->successful();
+            $res = $this->http()->delete('/sessions/'.rawurlencode($sessionId), ['confirm' => true]);
+
+            // 404 means the gateway holds no such session, i.e. the end state logout wants already
+            // holds — report success so the caller can clear its token. Reporting failure would strand
+            // an academy whose session the gateway has already dropped.
+            return $res->successful() || $res->status() === 404;
         } catch (Throwable) {
             return false;
         }

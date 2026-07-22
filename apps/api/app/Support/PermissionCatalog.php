@@ -40,6 +40,9 @@ final class PermissionCatalog
         // they raise a request (session.free_request) the OWNER approves (session.free_approve).
         'session.free', 'session.free_request', 'session.free_approve',
         'trial.read', 'trial.manage',
+        // CRM / Leads (CRM module): see the pipeline vs. add/move/note/convert/delete leads.
+        // Owner-only by default; delegated to sales/support staff through a custom role.
+        'crm.read', 'crm.manage',
         // LMS / online courses (LMS module, docs/lms): read vs. build courses, manage the access
         // codes learners redeem, and see learners + enrollments. Owner-only by default; delegated to
         // a course-team employee through a custom role (same pattern as CRM).
@@ -51,6 +54,12 @@ final class PermissionCatalog
         'specialization.manage',
         'payment_settings.manage',
         'teacher_report.manage',
+        // Teacher quality: the academy's delivery rubric and the reports written against it, which
+        // dock pay through a derived payout deduction. `read_own` is the teacher's window onto the
+        // reports about THEMSELVES — a document that costs them money has to be readable by them
+        // (same reasoning as payout.read_own). Distinct from `teacher_report.manage`, which is the
+        // owner-private free-text log.
+        'teacher_quality.read', 'teacher_quality.manage', 'teacher_quality.read_own',
         'student_report.submit', 'student_report.review',
         'certificate.read', 'certificate.manage',
         'audit.read',
@@ -82,6 +91,7 @@ final class PermissionCatalog
             // Mark free directly (with the billing popup) + approve teachers' free requests.
             'session.free', 'session.free_approve',
             'trial.read', 'trial.manage',
+            'crm.read', 'crm.manage',
             'course.read', 'course.manage', 'access_code.manage', 'learner.read',
             'notification.read',
             'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
@@ -90,6 +100,7 @@ final class PermissionCatalog
             'specialization.manage',
             'payment_settings.manage',
             'teacher_report.manage',
+            'teacher_quality.read', 'teacher_quality.manage',
             'student_report.review',
             'certificate.read', 'certificate.manage',
             'audit.read',
@@ -134,6 +145,10 @@ final class PermissionCatalog
                 'student.read',
                 'teacher.read_own',
                 'payout.read_own',
+                // Read the quality reports written about themselves. Self-scoped in the controller:
+                // a quality report docks their pay, so they must be able to see what they were
+                // docked for and why — never a window onto a colleague's reports.
+                'teacher_quality.read_own',
                 // Write monthly progress reports about their own students and submit them for the
                 // Owner to review on the Notifications page (the Owner holds student_report.review).
                 'student_report.submit',

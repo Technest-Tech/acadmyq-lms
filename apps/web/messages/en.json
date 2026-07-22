@@ -128,6 +128,7 @@
     "guardians": "Guardians",
     "students": "Students",
     "trials": "Trials",
+    "crm": "CRM",
     "courses": "Courses",
     "teachers": "Teachers",
     "schedule": "Schedule",
@@ -154,7 +155,9 @@
     "roles": "Roles & Permissions",
     "upgradeBadge": "Upgrade",
     "upgradeHint": "Upgrade your plan to unlock this feature",
-    "academyRoles": "Roles & Permissions"
+    "academyRoles": "Roles & Permissions",
+    "teacherQuality": "Teacher Quality",
+    "discountsAwards": "Discounts & Awards"
   },
   "navGroup": {
     "general": "General",
@@ -192,7 +195,8 @@
     "modules": {
       "MANAGEMENT": "Management",
       "VIDEO": "Video",
-      "WHATSAPP": "WhatsApp"
+      "WHATSAPP": "WhatsApp",
+      "CRM": "CRM"
     },
     "chip": {
       "paused": "paused",
@@ -279,6 +283,10 @@
       "fieldName": "Name",
       "fieldBrandName": "Brand display name",
       "fieldSubdomain": "Subdomain",
+      "subdomainHint": "Lowercase letters, digits and hyphens. Powers the LMS learner site.",
+      "subdomainPreview": "Learner site: {url}",
+      "subdomainInvalid": "Use only lowercase letters, digits and hyphens.",
+      "subdomainReserved": "That handle is reserved — pick another.",
       "fieldLogoUrl": "Logo URL",
       "save": "Save",
       "saved": "Saved"
@@ -2119,6 +2127,7 @@
       "moduleManagement": "Management",
       "moduleVideo": "Video",
       "moduleWhatsapp": "WhatsApp",
+      "moduleCrm": "CRM",
       "code": "Code",
       "name": "Name",
       "price": "Price",
@@ -3304,6 +3313,138 @@
       "none": "You haven't unlocked any courses yet. Redeem a code to get started."
     }
   },
+  "crm": {
+    "title": "CRM — Leads",
+    "subtitle": "Capture interested people, follow up on time, and turn them into students.",
+    "noAccess": "You don't have access to the CRM.",
+    "newLead": "New lead",
+    "whatsapp": "WhatsApp",
+    "dueBanner": "{count, plural, one {# follow-up is due — open the lead and call back.} other {# follow-ups are due — open the leads and call back.}}",
+    "stats": {
+      "open": "Open leads",
+      "due": "Follow-ups due",
+      "won": "Won",
+      "conversionRate": "Conversion"
+    },
+    "view": {
+      "board": "Board",
+      "list": "List"
+    },
+    "status": {
+      "NEW": "New",
+      "CONTACTED": "Contacted",
+      "INTERESTED": "Interested",
+      "WON": "Won",
+      "LOST": "Lost"
+    },
+    "source": {
+      "FACEBOOK": "Facebook",
+      "INSTAGRAM": "Instagram",
+      "WHATSAPP": "WhatsApp",
+      "REFERRAL": "Referral",
+      "WALK_IN": "Walk-in",
+      "PHONE": "Phone call",
+      "WEBSITE": "Website",
+      "OTHER": "Other"
+    },
+    "followUp": {
+      "label": "Follow-up",
+      "today": "Due today",
+      "overdue": "Overdue"
+    },
+    "board": {
+      "emptyColumn": "No leads here",
+      "loadFailed": "Couldn't load the board — try refreshing the page.",
+      "cardMenu": "Lead actions",
+      "moveTo": "Move to {status}",
+      "convert": "Convert to student",
+      "delete": "Delete",
+      "convertedTag": "Student ✓"
+    },
+    "filters": {
+      "status": "Status",
+      "source": "Source",
+      "due": "Follow-up",
+      "dueToday": "Due today",
+      "dueOverdue": "Overdue"
+    },
+    "table": {
+      "name": "Name",
+      "phone": "WhatsApp",
+      "source": "Source",
+      "status": "Status",
+      "followUp": "Follow-up",
+      "created": "Added",
+      "convert": "Convert",
+      "moveTo": "Change status",
+      "delete": "Delete",
+      "empty": "No leads yet — add your first lead with the button above."
+    },
+    "form": {
+      "title": "New lead",
+      "description": "Who's interested? A name is enough to start.",
+      "name": "Full name",
+      "namePlaceholder": "e.g. Sara Ahmed",
+      "nameRequired": "Please enter the lead's name.",
+      "phone": "WhatsApp number",
+      "phoneHint": "Pick the country code, then type the number without the leading zero.",
+      "source": "Where did they come from?",
+      "interestedIn": "Interested in",
+      "interestedInHint": "A course or subject — free text.",
+      "interestedInPlaceholder": "e.g. Quran — beginners",
+      "followUp": "Follow up on",
+      "followUpHint": "The lead is highlighted when this day arrives.",
+      "note": "First note",
+      "notePlaceholder": "e.g. Asked about evening classes…",
+      "save": "Add lead",
+      "cancel": "Cancel"
+    },
+    "detail": {
+      "title": "Lead",
+      "status": "Status",
+      "followUp": "Follow up on",
+      "lostReason": "Reason",
+      "convertedNote": "Converted to student <b>{name}</b> — details are locked, but you can still add notes."
+    },
+    "timeline": {
+      "title": "Activity",
+      "addNote": "Add note",
+      "notePlaceholder": "Write what happened — a call, a question, a promise…",
+      "empty": "Nothing here yet.",
+      "created": "Lead added",
+      "statusChange": "Moved from {from} to {to}",
+      "followUpSet": "Follow-up set to {date}",
+      "followUpCleared": "Follow-up removed",
+      "converted": "Converted to a student 🎉"
+    },
+    "convert": {
+      "title": "Convert to student",
+      "description": "Create the student record — the name and number are already filled in.",
+      "markWonHint": "Already added as a student elsewhere?",
+      "markWonOnly": "Mark Won only"
+    },
+    "lost": {
+      "title": "Mark as lost",
+      "reasonLabel": "Why? (optional)",
+      "reasonPlaceholder": "e.g. price, timing, chose another academy…",
+      "confirm": "Mark lost",
+      "cancel": "Back"
+    },
+    "deleteModal": {
+      "title": "Delete lead",
+      "body": "Delete <b>{name}</b>? This removes the lead and its notes from the pipeline.",
+      "confirm": "Delete",
+      "keep": "Keep"
+    },
+    "alerts": {
+      "created": "Lead added.",
+      "moved": "Moved to {status}.",
+      "converted": "Lead converted — the student is now in the Students page.",
+      "wonOnly": "Marked as won.",
+      "deleted": "Lead deleted.",
+      "failed": "That didn't save — please try again."
+    }
+  },
   "trials": {
     "title": "Free Trials",
     "subtitle": "Find an available teacher, book a trial, and turn prospects into students.",
@@ -3467,6 +3608,7 @@
       "schedule": "Scheduling",
       "session": "Sessions & attendance",
       "trial": "Trial lessons",
+      "crm": "CRM & leads",
       "invoice": "Invoices",
       "payout": "Payroll",
       "certificate": "Certificates",
@@ -3485,9 +3627,18 @@
       "plan": "Plans",
       "academy_billing": "Billing",
       "automation": "Automation",
-      "platform": "Platform"
+      "platform": "Platform",
+      "teacher_quality": "Teacher quality"
     },
     "items": {
+      "crm_read": {
+        "label": "View leads",
+        "desc": "See the leads pipeline, lead details and their activity"
+      },
+      "crm_manage": {
+        "label": "Manage leads",
+        "desc": "Add, move, note, convert and delete leads"
+      },
       "student_read": {
         "label": "View students",
         "desc": "See the student list and their profiles"
@@ -3716,6 +3867,18 @@
       },
       "staff_department_manage": {
         "label": "Manage staff departments"
+      },
+      "teacher_quality_read": {
+        "label": "View quality reports",
+        "desc": "See the quality rubric and the reports written about teachers"
+      },
+      "teacher_quality_manage": {
+        "label": "Manage quality",
+        "desc": "Edit the rubric, write and withdraw reports, and set the automatic discount rule"
+      },
+      "teacher_quality_read_own": {
+        "label": "View own quality reports",
+        "desc": "A teacher reads the quality reports written about themselves"
       }
     }
   },
@@ -3750,6 +3913,13 @@
     "insecureBody": "Your camera and microphone need a secure (HTTPS) connection. Open this link over https to enable them.",
     "noDevicesTitle": "No camera or mic found",
     "noDevicesBody": "We couldn't find a camera or microphone. You can still join to listen.",
+    "deviceMic": "microphone",
+    "deviceCam": "camera",
+    "deviceMedia": "microphone or camera",
+    "mediaBlocked": "Access to your {device} is blocked. Click the camera or lock icon in your browser's address bar, allow access, then try again.",
+    "mediaInUse": "Your {device} is being used by another app or tab. Close it (Zoom, Teams, another browser tab) and try again.",
+    "mediaNotFound": "No {device} was found. Check that it's connected, then try again.",
+    "mediaFailed": "Couldn't turn on your {device}. Check your browser permissions, then try again.",
     "continueWithout": "Continue without camera & mic",
     "connecting": "Connecting…",
     "reconnecting": "Reconnecting…",
@@ -3886,5 +4056,212 @@
   "command": {
     "placeholder": "Search pages…",
     "empty": "No matching pages."
+  },
+  "quality": {
+    "title": "Teacher Quality",
+    "subtitle": "Judge how your teachers deliver, against a rubric you write yourself. A report docks a share of the pay it applies to.",
+    "noAccess": "You don't have access to teacher quality.",
+    "newReport": "New report",
+    "cancel": "Cancel",
+    "close": "Close",
+    "optional": "optional",
+    "passed": "All good",
+    "tabs": {
+      "reports": "Reports",
+      "rubric": "Rubric"
+    },
+    "scope": {
+      "SESSION": "One lesson",
+      "MONTHLY": "Whole month"
+    },
+    "stats": {
+      "avgScore": "Average score",
+      "reports": "Reports this month",
+      "flagged": "Teachers flagged",
+      "flaggedHint": "At least one report that cost them",
+      "docked": "Docked this month"
+    },
+    "table": {
+      "teacher": "Teacher",
+      "scope": "Applies to",
+      "verdict": "Verdict",
+      "cost": "Cost",
+      "author": "Written by",
+      "empty": "No quality reports this month. Write one with the button above.",
+      "pending": "Not yet",
+      "sessionFallback": "Lesson"
+    },
+    "rubric": {
+      "title": "Your rubric",
+      "explainer": "Group what you expect into categories, then add the checkable items under each one. The percentage is what a teacher loses when they DON'T do it. Editing the rubric only changes future reports — reports already written keep the wording and the percentage they were judged by.",
+      "count": "{count, plural, =0 {No categories} one {# category} other {# categories}}",
+      "criteriaCount": "{count, plural, =0 {no items} one {# item} other {# items}}",
+      "maxPercent": "up to {percent}%",
+      "addCategory": "Add category",
+      "saveCategory": "Save category",
+      "deleteCategory": "Delete category",
+      "categoryNamePlaceholder": "Category name — e.g. Punctuality",
+      "categoryDescPlaceholder": "Short description (optional)",
+      "addCriterion": "Add",
+      "deleteCriterion": "Remove item",
+      "criterionNamePlaceholder": "What should the teacher do? e.g. Started the lesson on time",
+      "percentLabel": "Discount percentage",
+      "noCriteria": "No items in this category yet — add the first one below.",
+      "empty": "Your rubric is empty.",
+      "emptyHint": "Add a category first (like \"Punctuality\" or \"Lesson delivery\"), then the items you check a teacher against.",
+      "confirmDeleteCategory": "Delete \"{name}\" and all its items? Reports already written keep their own copy and are not affected."
+    },
+    "composer": {
+      "title": "New quality report",
+      "description": "Pick what this judges, then tick anything the teacher didn't do.",
+      "teacher": "Teacher",
+      "pickTeacher": "Choose a teacher…",
+      "pickTeacherFirst": "Choose a teacher first to see their lessons.",
+      "scope": "This report applies to",
+      "scopeSessionHint": "Docks a share of that lesson's pay",
+      "scopeMonthlyHint": "Docks a share of the month's total pay",
+      "session": "Lesson",
+      "pickSession": "Choose a lesson…",
+      "loadingSessions": "Loading lessons…",
+      "noSessions": "This teacher has no recent lessons to judge.",
+      "alreadyJudged": "already judged",
+      "period": "Month",
+      "month": "Month",
+      "year": "Year",
+      "checklist": "The rubric",
+      "checklistHint": "Everything starts as done. Tick only what the teacher didn't do — each tick costs them its percentage.",
+      "clearAll": "Clear all ticks",
+      "noRubric": "You haven't written a rubric yet.",
+      "noRubricHint": "Open the Rubric tab and add a category with a few items first.",
+      "note": "Note",
+      "notePlaceholder": "Anything the teacher should know about this report…",
+      "noteHint": "The teacher can read this.",
+      "scoreLabel": "Score {score} out of 100",
+      "willDock": "Docks {percent}% of the pay",
+      "noDock": "Costs nothing",
+      "basisSession": "of this lesson's pay",
+      "basisMonthly": "of this month's total pay",
+      "save": "Save report"
+    },
+    "detail": {
+      "title": "Quality report",
+      "aboutSession": "About one lesson with {student}",
+      "aboutMonth": "About the whole month of {period}",
+      "note": "Note",
+      "notMet": "{count, plural, one {# thing that wasn't done} other {# things that weren't done}}",
+      "met": "{count, plural, one {# thing done} other {# things done}}",
+      "unknownAuthor": "Unknown",
+      "pending": "Nothing to dock yet",
+      "withdraw": "Withdraw report",
+      "confirmDelete": "Withdraw this report? The money it docked goes back to the teacher."
+    },
+    "mine": {
+      "title": "My quality & pay",
+      "reportsTab": "Reports about me ({count})",
+      "moneyTab": "Awards & discounts ({count})",
+      "noReports": "No quality reports have been written about you.",
+      "noMoney": "Nothing has been added to or taken from your pay."
+    },
+    "alerts": {
+      "created": "Quality report saved.",
+      "withdrawn": "Report withdrawn — the money went back."
+    }
+  },
+  "adjustments": {
+    "title": "Discounts & Awards",
+    "subtitle": "Add to a teacher's pay or take from it — by hand, or automatically when a lesson goes unmarked.",
+    "noAccess": "You don't have access to discounts and awards.",
+    "cancel": "Cancel",
+    "optional": "optional",
+    "addReward": "Add award",
+    "addDeduction": "Add discount",
+    "autoPolicy": "Automatic rule",
+    "waive": "Waive",
+    "delete": "Delete",
+    "confirmDelete": "Delete this entry? The teacher's pay goes back to what it was.",
+    "waivePrompt": "Why are you waiving this deduction? The teacher will see your reason.",
+    "type": {
+      "REWARD": "Award",
+      "DEDUCTION": "Discount"
+    },
+    "source": {
+      "MANUAL": "By hand",
+      "QUALITY": "Quality report",
+      "AUTO_UNREPORTED": "Automatic"
+    },
+    "autoReason": "The lesson on {date} was never marked in the system.",
+    "autoReasonNoDate": "A lesson was never marked in the system.",
+    "qualityReason": "From a quality report.",
+    "stats": {
+      "rewards": "Awards this month",
+      "deductions": "Discounts this month",
+      "auto": "Automatic discounts",
+      "autoHint": "For lessons never marked",
+      "entries": "{count, plural, =0 {no entries} one {# entry} other {# entries}}"
+    },
+    "policy": {
+      "onTitle": "Automatic discount is ON — {hours}h after a lesson ends",
+      "onHint": "If a teacher hasn't marked a lesson by then, the system takes it off their pay and tells them why.",
+      "offTitle": "Automatic discount is off",
+      "offHint": "Turn it on to discount teachers who don't mark their lessons in time.",
+      "thisMonth": "{count, plural, one {# this month} other {# this month}}"
+    },
+    "table": {
+      "teacher": "Teacher",
+      "type": "Type",
+      "source": "Added by",
+      "reason": "Reason",
+      "amount": "Amount",
+      "finalized": "Paid out",
+      "empty": "Nothing added or discounted this month."
+    },
+    "composer": {
+      "title": "Award or discount",
+      "description": "This goes straight onto the teacher's pay for the month you pick.",
+      "teacher": "Teacher",
+      "pickTeacher": "Choose a teacher…",
+      "amount": "Amount",
+      "period": "Month",
+      "month": "Month",
+      "year": "Year",
+      "reason": "Reason",
+      "reasonHint": "The teacher sees this on their pay statement.",
+      "reasonRewardPlaceholder": "e.g. A student sent a thank-you",
+      "reasonDeductionPlaceholder": "e.g. Missed a lesson without notice",
+      "rewardHint": "Adds to their pay",
+      "deductionHint": "Takes from their pay",
+      "details": "Details",
+      "saveReward": "Add award",
+      "saveDeduction": "Add discount"
+    },
+    "settings": {
+      "title": "Automatic discount",
+      "description": "Discount a teacher who doesn't mark a lesson in the system.",
+      "enable": "Turn the automatic discount on",
+      "enableHint": "Runs every hour. Once on, it discounts teachers without anyone clicking.",
+      "graceHours": "Hours to wait after the lesson ends",
+      "graceHint": "The teacher gets this long to mark the lesson before anything is taken.",
+      "basis": "How much to take",
+      "basisFixed": "A fixed amount",
+      "basisFixedHint": "The same for every missed lesson",
+      "basisPercent": "A share of the lesson",
+      "basisPercentHint": "A % of what that lesson would have paid",
+      "amount": "Amount per missed lesson",
+      "amountHint": "Charged in each teacher's own currency — nothing is converted.",
+      "percent": "Percentage per missed lesson",
+      "percentHint": "Of what the lesson would have paid the teacher.",
+      "warning": "While this is on, the system discounts teachers on its own. Each discount says why, the teacher can see it, and you can waive any one of them.",
+      "save": "Save rule"
+    },
+    "mine": {
+      "hint": "Anything your academy adds to or takes from your pay shows here, with the reason. Automatic discounts say so — ask your academy if one looks wrong."
+    },
+    "alerts": {
+      "rewarded": "Award added to the teacher's pay.",
+      "deducted": "Discount taken off the teacher's pay.",
+      "deleted": "Entry deleted.",
+      "waived": "Discount waived — the money went back.",
+      "settingsSaved": "Rule saved."
+    }
   }
 }

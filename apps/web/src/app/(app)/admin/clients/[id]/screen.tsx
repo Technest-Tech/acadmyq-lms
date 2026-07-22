@@ -53,6 +53,13 @@ const STATUS_STYLE: Record<string, string> = {
 
 type Tab = "billing" | "whatsapp" | "video" | "settings";
 
+/** Subdomain provisioning (docs/lms/02): DNS-safe handle → the LMS learner site. Mirrors the API's
+ *  validation + the learner-site middleware's reserved list so the admin sees the resulting URL and
+ *  never round-trips an avoidable 422. */
+const SUBDOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+const RESERVED_SUBDOMAINS = new Set(["www", "app", "api", "admin", "mail", "static", "assets", "cdn"]);
+const LEARNER_ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN;
+
 export function ClientScreen({ clientId }: { clientId: string }) {
   const t = useTranslations("clients.detail");
   const ts = useTranslations("clients");
@@ -324,6 +331,17 @@ function ClientSettingsForm({
 
   if (!can("academy.configure")) return null;
 
+  // Live subdomain feedback: format/reserved checks + the public URL the handle resolves to.
+  const sub = subdomain.trim();
+  const subValid = sub === "" || SUBDOMAIN_RE.test(sub);
+  const subReserved = RESERVED_SUBDOMAINS.has(sub);
+  const subUrl =
+    sub === "" || !subValid || subReserved
+      ? null
+      : LEARNER_ROOT_DOMAIN
+        ? `https://${sub}.${LEARNER_ROOT_DOMAIN}`
+        : `/learn/${sub}`;
+
   const save = async () => {
     setSaving(true);
     try {
@@ -357,14 +375,34 @@ function ClientSettingsForm({
       </label>
       <label className="block text-xs font-medium">
         <span className="text-muted-foreground mb-1 block">{t("fieldSubdomain")}</span>
-        <input value={subdomain} onChange={(e) => setSubdomain(e.target.value)} className={field} />
+        <input
+          value={subdomain}
+          onChange={(e) => setSubdomain(e.target.value.toLowerCase())}
+          placeholder="my-academy"
+          className={cn(field, !subValid || subReserved ? "border-red-400 dark:border-red-500" : "")}
+        />
+        {subReserved ? (
+          <span className="mt-1 block text-red-600 dark:text-red-400">{t("subdomainReserved")}</span>
+        ) : !subValid ? (
+          <span className="mt-1 block text-red-600 dark:text-red-400">{t("subdomainInvalid")}</span>
+        ) : subUrl ? (
+          <span className="text-muted-foreground mt-1 block break-all">
+            {t("subdomainPreview", { url: subUrl })}
+          </span>
+        ) : (
+          <span className="text-muted-foreground mt-1 block">{t("subdomainHint")}</span>
+        )}
       </label>
       <label className="block text-xs font-medium">
         <span className="text-muted-foreground mb-1 block">{t("fieldLogoUrl")}</span>
         <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} className={field} />
       </label>
       <div className="flex justify-end">
-        <Button size="sm" disabled={saving || name.trim() === ""} onClick={save}>
+        <Button
+          size="sm"
+          disabled={saving || name.trim() === "" || !subValid || subReserved}
+          onClick={save}
+        >
           {t("save")}
         </Button>
       </div>

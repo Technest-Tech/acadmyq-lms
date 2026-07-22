@@ -69,7 +69,7 @@ final class PlanController extends Controller
             'price_minor' => ['required', 'integer', 'min:0'],
             'currency' => ['required', 'string', 'size:3'],
             // R1: a plan belongs to exactly one sellable module (plans.module, M-UI-2).
-            'module' => ['sometimes', Rule::in(['MANAGEMENT', 'WHATSAPP', 'VIDEO'])],
+            'module' => ['sometimes', Rule::in(['MANAGEMENT', 'WHATSAPP', 'VIDEO', 'CRM'])],
             'features' => ['nullable', 'array'],
             'is_active' => ['sometimes', 'boolean'],
         ]);
@@ -104,7 +104,7 @@ final class PlanController extends Controller
             'name' => ['sometimes', 'string', 'max:255'],
             'price_minor' => ['sometimes', 'integer', 'min:0'],
             'currency' => ['sometimes', 'string', 'size:3'],
-            'module' => ['sometimes', Rule::in(['MANAGEMENT', 'WHATSAPP', 'VIDEO'])],
+            'module' => ['sometimes', Rule::in(['MANAGEMENT', 'WHATSAPP', 'VIDEO', 'CRM'])],
             'features' => ['sometimes', 'array'],
             'is_active' => ['sometimes', 'boolean'],
         ]);

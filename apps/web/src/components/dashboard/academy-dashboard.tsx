@@ -30,6 +30,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { SubscriptionBanner } from "@/components/dashboard/subscription-banner";
+import { MyQualityPanel } from "@/components/quality/my-quality-panel";
 import {
   getCalendar,
   getEntitlements,
@@ -1518,6 +1519,12 @@ export function AcademyDashboard() {
           </div>
         </div>
       )}
+
+      {/* ── My quality & pay (teacher) ──
+          A quality report and an automatic deduction both change what this person earns, so the
+          explanation lives on the page they open every day — not somewhere they'd have to know to
+          look. Renders nothing until they actually have one. */}
+      {isTeacher && can("teacher_quality.read_own") && <MyQualityPanel />}
 
       {/* ── Plan usage ── */}
       {!isTeacher && !isSuperAdmin && !ldPlan && entitlements && (studentLimit !== null || teacherLimit !== null) && (

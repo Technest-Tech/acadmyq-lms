@@ -50,7 +50,9 @@ export function ClientWhatsappCard({ clientId }: { clientId: string }) {
     void load();
   }, [load]);
 
-  const connected = row?.wasender_session_status === "connected";
+  // Every writer stores this uppercase (the webhook and the status probe both strtoupper it), so a
+  // case-sensitive compare against "connected" never matched and the badge always read disconnected.
+  const connected = row?.wasender_session_status?.toUpperCase() === "CONNECTED";
 
   return (
     <div className="bg-card rounded-2xl border p-5 shadow-sm" data-testid="client-whatsapp-card">

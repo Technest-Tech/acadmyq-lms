@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CertificateTemplateController;
+use App\Http\Controllers\Crm\LeadController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
 use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
 use App\Http\Controllers\Learner\PlayerController as LearnerPlayerController;
@@ -32,6 +33,9 @@ use App\Http\Controllers\Lms\MediaController;
 use App\Http\Controllers\Lms\MediaDeliveryController;
 use App\Http\Controllers\Lms\QuizController;
 use App\Http\Controllers\Lms\SectionController;
+use App\Http\Controllers\Quality\QualityReportController;
+use App\Http\Controllers\Quality\QualityRubricController;
+use App\Http\Controllers\Quality\TeacherAdjustmentController;
 use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
 use App\Http\Controllers\InvoiceController;
@@ -220,14 +224,16 @@ Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group
 });
 
 /*
-| LMS media delivery on a NON-presigning (local) disk — dev / CI (docs/lms/04). PUBLIC but gated by
-| Laravel's `signed` middleware: the url is minted only after the API authorised the caller (upload =
-| course.manage, playback = an enrollment check), so the signature is the authorisation. On an S3
-| disk the client talks to object storage directly and these are never used. Named for URL::signedRoute.
+| LMS media delivery (docs/lms/04). PUBLIC but gated by Laravel's `signed` middleware: the url is
+| minted only after the API authorised the caller (upload = course.manage, playback = an enrollment
+| check), so the signature is the authorisation. On an S3 disk `raw`/`stream` are never used (the
+| client talks to object storage directly); `hls` rewrites a playlist's segment URIs to signed urls
+| server-side and IS used on both drivers. Named for URL::signedRoute.
 */
 Route::middleware('signed')->group(function () {
     Route::put('/lms/media/raw', [MediaDeliveryController::class, 'raw'])->name('lms.media.raw');
     Route::get('/lms/media/stream', [MediaDeliveryController::class, 'stream'])->name('lms.media.stream');
+    Route::get('/lms/media/hls', [MediaDeliveryController::class, 'hls'])->name('lms.media.hls');
 });
 
 /*
@@ -533,6 +539,24 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::delete('/trials/{id}', [TrialController::class, 'destroy']);
     });
 
+    // CRM / Leads (CRM module). Sales/support staff capture prospective students as leads,
+    // walk them through the pipeline board (NEW → CONTACTED → INTERESTED → WON/LOST), keep a
+    // per-lead activity timeline, and convert an enrolling lead into a real student. Owner-only
+    // by default (`crm.read` / `crm.manage`), meant to be delegated via a custom "Sales" role.
+    // Plan-gated by its own billable module (entitled:crm). Literal segments (`board`,
+    // `summary`) are declared before `{id}` so they aren't captured as an id.
+    Route::middleware('entitled:crm')->group(function () {
+        Route::get('/crm/leads', [LeadController::class, 'index']);
+        Route::get('/crm/leads/board', [LeadController::class, 'board']);
+        Route::get('/crm/leads/summary', [LeadController::class, 'summary']);
+        Route::post('/crm/leads', [LeadController::class, 'store']);
+        Route::get('/crm/leads/{id}', [LeadController::class, 'show']);
+        Route::patch('/crm/leads/{id}', [LeadController::class, 'update']);
+        Route::post('/crm/leads/{id}/notes', [LeadController::class, 'addNote']);
+        Route::post('/crm/leads/{id}/convert', [LeadController::class, 'convert']);
+        Route::delete('/crm/leads/{id}', [LeadController::class, 'destroy']);
+    });
+
     // LMS / Courses (LMS module, docs/lms). Staff build on-demand courses — sections of lessons
     // (YouTube / text / PDF / audio now; uploaded video + quizzes in later phases) — that learners
     // watch on the academy's public subdomain. Owner-only by default (`course.read` / `course.manage`),
@@ -664,6 +688,41 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/payouts/{id}/adjustments', [PayoutController::class, 'addAdjustment']);
         Route::delete('/payouts/{id}/adjustments/{adjustmentId}', [PayoutController::class, 'removeAdjustment']);
         Route::get('/reports/profit-summary', [PayoutController::class, 'profitSummary']);
+
+        // Teacher quality + Discounts & Awards — payroll's two management surfaces, so they sit
+        // under the SAME plan gate as the statements they move money on. RBAC splits by page:
+        // the rubric/reports are teacher_quality.*, while an award/discount is a payout
+        // adjustment and stays on payout.read / payout.adjust — nobody gains a way to move a
+        // teacher's pay that they didn't already have. Literal segments (`summary`, `settings`,
+        // `rubric`) are declared before `{id}` so they aren't captured as an id.
+        Route::get('/quality/rubric', [QualityRubricController::class, 'index']);
+        Route::post('/quality/rubric/categories', [QualityRubricController::class, 'storeCategory']);
+        Route::patch('/quality/rubric/categories/{id}', [QualityRubricController::class, 'updateCategory']);
+        Route::delete('/quality/rubric/categories/{id}', [QualityRubricController::class, 'destroyCategory']);
+        Route::post('/quality/rubric/criteria', [QualityRubricController::class, 'storeCriterion']);
+        Route::patch('/quality/rubric/criteria/{id}', [QualityRubricController::class, 'updateCriterion']);
+        Route::delete('/quality/rubric/criteria/{id}', [QualityRubricController::class, 'destroyCriterion']);
+
+        Route::get('/quality/reports/summary', [QualityReportController::class, 'summary']);
+        Route::get('/quality/reports', [QualityReportController::class, 'index']);
+        Route::post('/quality/reports', [QualityReportController::class, 'store']);
+        Route::get('/quality/reports/{id}', [QualityReportController::class, 'show']);
+        Route::delete('/quality/reports/{id}', [QualityReportController::class, 'destroy']);
+        Route::get('/quality/teachers/{id}/sessions', [QualityReportController::class, 'teacherSessions']);
+
+        Route::get('/quality/settings', [TeacherAdjustmentController::class, 'settings']);
+        Route::put('/quality/settings', [TeacherAdjustmentController::class, 'updateSettings']);
+        Route::get('/quality/adjustments/summary', [TeacherAdjustmentController::class, 'summary']);
+        Route::get('/quality/adjustments', [TeacherAdjustmentController::class, 'index']);
+        Route::post('/quality/adjustments/{id}/waive', [TeacherAdjustmentController::class, 'waive']);
+        Route::delete('/quality/adjustments/{id}', [TeacherAdjustmentController::class, 'destroy']);
+        Route::post('/quality/teachers/{id}/adjustments', [TeacherAdjustmentController::class, 'store']);
+
+        // The teacher's own window onto everything above. Self-scoped in the controllers (RLS pins
+        // the academy, not the person) — a pay document has to be readable by whoever it pays.
+        Route::get('/me/quality-reports', [QualityReportController::class, 'mine']);
+        Route::get('/me/quality-reports/{id}', [QualityReportController::class, 'mineShow']);
+        Route::get('/me/adjustments', [TeacherAdjustmentController::class, 'mine']);
     });
 
     // Video classroom (docs/video-platform). Plan-gated by entitled:video.conferencing (402 on a

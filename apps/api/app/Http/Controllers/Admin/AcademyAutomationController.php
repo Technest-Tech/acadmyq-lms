@@ -305,9 +305,16 @@ final class AcademyAutomationController extends Controller
         $this->assertAcademy($id);
         $ctx = app(AuthContext::class);
 
+        // Only clear the local token once the gateway has actually dropped the session. Clearing it
+        // regardless leaves the worst possible split: the gateway keeps a live, reconnecting socket for
+        // a session nothing points at any more, while the academy loses the token it sends with — so
+        // every send silently falls back to a deep link and the panel reports "not connected".
         $sessionId = $this->waSessionId($id);
-        if ($sessionId !== null) {
-            $this->gateway->deleteSession($sessionId);
+        if ($sessionId !== null && ! $this->gateway->deleteSession($sessionId)) {
+            return response()->json([
+                'error' => 'gateway_unavailable',
+                'message' => 'Could not log the session out on the WhatsApp service; nothing was changed. Please retry.',
+            ], 502);
         }
 
         $this->inAcademyContext($id, function () use ($id, $ctx) {

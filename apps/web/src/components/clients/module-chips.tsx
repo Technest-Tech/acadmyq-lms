@@ -28,6 +28,10 @@ export const MODULE_STYLE: Record<
     on: "bg-emerald-100 text-emerald-700 ring-emerald-300/50 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800/50",
     label: "W",
   },
+  CRM: {
+    on: "bg-rose-100 text-rose-700 ring-rose-300/50 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-800/50",
+    label: "C",
+  },
 };
 
 /** Whole days from now until an ISO date (negative once past), or null when unset. */

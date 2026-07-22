@@ -249,7 +249,7 @@ export interface Plan {
   price_minor: number;
   currency: string;
   /** The sellable module this plan belongs to (R1, plans.module). */
-  module?: "MANAGEMENT" | "VIDEO" | "WHATSAPP";
+  module?: ModuleCode;
   is_active: boolean;
 }
 
@@ -410,12 +410,13 @@ export function getMySubscription(): Promise<{
 // WHATSAPP — each with its own plan, trial clock and lifecycle. These endpoints are THE one
 // writer for module on/off / plan / trial / activate / pause ("one writer per fact").
 
-export type ModuleCode = "MANAGEMENT" | "VIDEO" | "WHATSAPP";
+export type ModuleCode = "MANAGEMENT" | "VIDEO" | "WHATSAPP" | "CRM";
 
 export const MODULE_CODES: readonly ModuleCode[] = [
   "MANAGEMENT",
   "VIDEO",
   "WHATSAPP",
+  "CRM",
 ];
 
 /** One module's live subscription as returned by the client endpoints. */
@@ -2632,14 +2633,33 @@ export interface PayoutLineItem {
 
 export type AdjustmentType = "REWARD" | "DEDUCTION";
 
+/**
+ * Who moved this money:
+ *  • MANUAL          — a human typed it on the payroll or Discounts & Awards page.
+ *  • QUALITY         — derived from a quality report; recomputed until the payout is finalized.
+ *  • AUTO_UNREPORTED — the hourly sweep docked an unmarked lesson.
+ *
+ * The teacher reads this statement, so a derived row must never be presented as a manager's
+ * decision — and only MANUAL rows can be deleted (see `sourceOf` handling in the ledger UI).
+ */
+export type AdjustmentSource = "MANUAL" | "QUALITY" | "AUTO_UNREPORTED";
+export const ADJUSTMENT_SOURCES: readonly AdjustmentSource[] = [
+  "MANUAL",
+  "QUALITY",
+  "AUTO_UNREPORTED",
+];
+
 /** A reward (bonus) or deduction on a payout statement, with reason + optional details. */
 export interface PayoutAdjustment {
   id: string;
   type: AdjustmentType;
+  source: AdjustmentSource;
   amount_minor: number;
   currency: string;
   reason: string;
   details: string | null;
+  session_id: string | null;
+  quality_report_id: string | null;
   created_at: string;
 }
 
@@ -3164,7 +3184,7 @@ export interface PlanInput {
   price_minor: number;
   currency: string;
   /** The sellable module this plan belongs to (R3; defaults to MANAGEMENT server-side). */
-  module?: "MANAGEMENT" | "VIDEO" | "WHATSAPP";
+  module?: ModuleCode;
   features: PlanFeatures;
   is_active: boolean;
 }
@@ -3652,6 +3672,163 @@ export function convertTrial(
 
 export function cancelTrial(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/trials/${id}`, { method: "DELETE" });
+}
+
+// ── CRM / Leads (CRM module) ─────────────────────────────────────────────────
+// A prospective student captured as a lead and walked through a fixed pipeline
+// (NEW → CONTACTED → INTERESTED → WON/LOST) on a board or list, with a per-lead
+// activity timeline. Plan-gated by the CRM module (entitled:crm → 402) and
+// capability-gated by crm.read / crm.manage (403). Transport only.
+
+export type LeadStatus = "NEW" | "CONTACTED" | "INTERESTED" | "WON" | "LOST";
+
+export const LEAD_STATUSES: readonly LeadStatus[] = [
+  "NEW",
+  "CONTACTED",
+  "INTERESTED",
+  "WON",
+  "LOST",
+];
+
+export type LeadSource =
+  | "FACEBOOK"
+  | "INSTAGRAM"
+  | "WHATSAPP"
+  | "REFERRAL"
+  | "WALK_IN"
+  | "PHONE"
+  | "WEBSITE"
+  | "OTHER";
+
+export const LEAD_SOURCES: readonly LeadSource[] = [
+  "FACEBOOK",
+  "INSTAGRAM",
+  "WHATSAPP",
+  "REFERRAL",
+  "WALK_IN",
+  "PHONE",
+  "WEBSITE",
+  "OTHER",
+];
+
+export interface LeadRow {
+  id: string;
+  full_name: string;
+  whatsapp_phone: string | null;
+  source: LeadSource;
+  interested_in: string | null;
+  status: LeadStatus;
+  lost_reason: string | null;
+  /** Follow-up date "YYYY-MM-DD" (no time — staff promise a day, not a minute). */
+  follow_up_at: string | null;
+  converted_student_id: string | null;
+  student_name?: string | null;
+  created_at: string;
+}
+
+export interface LeadActivity {
+  id: string;
+  type: "CREATED" | "NOTE" | "STATUS_CHANGE" | "FOLLOW_UP_SET" | "CONVERTED";
+  body: string | null;
+  meta: Record<string, unknown> | null;
+  author_name: string | null;
+  created_at: string;
+}
+
+/** The whole pipeline in one payload; `today` is the academy-local date for due colouring. */
+export interface LeadBoard {
+  columns: Record<LeadStatus, LeadRow[]>;
+  counts: Record<LeadStatus, number>;
+  today: string;
+}
+
+export interface LeadSummary {
+  new: number;
+  contacted: number;
+  interested: number;
+  won: number;
+  lost: number;
+  total: number;
+  open: number;
+  due_today: number;
+  overdue: number;
+  conversion_rate: number;
+  today: string;
+}
+
+export interface LeadInput {
+  full_name: string;
+  whatsapp_phone?: string | null;
+  source: LeadSource;
+  interested_in?: string | null;
+  follow_up_at?: string | null;
+  /** Optional first note, stored as the lead's first timeline entry. */
+  note?: string | null;
+}
+
+export function listLeads(
+  q: DataTableQuery = {},
+): Promise<ListResult<LeadRow> & { today: string }> {
+  return apiFetch(`/api/crm/leads${toQueryString(q)}`);
+}
+
+export function getLeadBoard(): Promise<LeadBoard> {
+  return apiFetch("/api/crm/leads/board");
+}
+
+export function getLeadSummary(): Promise<LeadSummary> {
+  return apiFetch("/api/crm/leads/summary");
+}
+
+export function createLead(input: LeadInput): Promise<{ leadId: string }> {
+  return apiFetch("/api/crm/leads", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getLead(
+  id: string,
+): Promise<{ lead: LeadRow; activities: LeadActivity[]; today: string }> {
+  return apiFetch(`/api/crm/leads/${id}`);
+}
+
+export function updateLead(
+  id: string,
+  patch: Partial<Omit<LeadInput, "note">> & {
+    status?: LeadStatus;
+    lost_reason?: string | null;
+  },
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/crm/leads/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function addLeadNote(
+  id: string,
+  body: string,
+): Promise<{ activity: LeadActivity }> {
+  return apiFetch(`/api/crm/leads/${id}/notes`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
+}
+
+/** Link the lead to the real student it became (POST /students happens first). */
+export function convertLead(
+  id: string,
+  studentId: string,
+): Promise<{ ok: boolean; studentId: string }> {
+  return apiFetch(`/api/crm/leads/${id}/convert`, {
+    method: "POST",
+    body: JSON.stringify({ student_id: studentId }),
+  });
+}
+
+export function deleteLead(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/crm/leads/${id}`, { method: "DELETE" });
 }
 
 // ── LMS / Courses (LMS module, docs/lms) ─────────────────────────────────────
@@ -4580,4 +4757,323 @@ export function removeParticipant(roomId: string, identity: string, manageToken?
 export function endRoomForAll(roomId: string, manageToken?: string | null): Promise<{ ok: boolean }> {
   const path = manageToken ? `/api/video/manage/${manageToken}/end` : `/api/video/rooms/${roomId}/end`;
   return apiFetch(path, { method: "POST" });
+}
+
+// ── Teacher quality + Discounts & Awards (payroll module) ────────────────────
+// Two management surfaces over teacher pay:
+//   • the RUBRIC — the academy's own definition of good delivery (categories → criteria, each
+//     carrying the percent docked when a teacher doesn't meet it) — and the REPORTS written
+//     against it, scoped either to one lesson (SESSION) or a whole month (MONTHLY);
+//   • ADJUSTMENTS — awards and discounts on a teacher's statement, whether typed by a human or
+//     written by the unmarked-lesson sweep.
+//
+// A report stores a PERCENT, never an amount: the money is a derived payout deduction the API
+// recomputes while the statement is OPEN (a MONTHLY report docks a % of a total that grows all
+// month). So `amount_minor` on a report row is the CURRENT cost, and it is null while the percent
+// bites into nothing — a real state, not a missing value. Plan-gated with payroll (entitled:payroll
+// → 402); capability-gated by teacher_quality.* / payout.* (403). Transport only.
+
+export type QualityScope = "SESSION" | "MONTHLY";
+export const QUALITY_SCOPES: readonly QualityScope[] = ["SESSION", "MONTHLY"];
+
+/** One checkable rubric item; `discount_percent` is what NOT meeting it costs. */
+export interface QualityCriterion {
+  id: string;
+  category_id: string;
+  name: string;
+  discount_percent: number;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface QualityCategory {
+  id: string;
+  name: string;
+  description: string | null;
+  sort_order: number;
+  is_active: boolean;
+  criteria: QualityCriterion[];
+}
+
+export interface QualityReportRow {
+  id: string;
+  teacher_id: string;
+  teacher_name: string | null;
+  scope: QualityScope;
+  session_id: string | null;
+  student_name: string | null;
+  scheduled_at_utc: string | null;
+  period_year: number;
+  period_month: number;
+  total_percent: number;
+  note: string | null;
+  author_name: string | null;
+  /** The deduction it currently costs; null while it bites into nothing yet. */
+  amount_minor: number | null;
+  currency: string | null;
+  created_at: string;
+}
+
+/** One frozen answer: the criterion as it read WHEN JUDGED, and whether the teacher met it. */
+export interface QualityReportItem {
+  id: string;
+  category_name: string;
+  criterion_name: string;
+  discount_percent: number;
+  met: boolean;
+}
+
+export interface QualityReportDetail {
+  report: QualityReportRow;
+  items: QualityReportItem[];
+}
+
+export interface QualitySummary {
+  year: number;
+  month: number;
+  report_count: number;
+  teachers_flagged: number;
+  /** 100 = every report this period found nothing wrong. Averaged over reports, not teachers. */
+  avg_score: number;
+  docked: { currency: string; amount_minor: number }[];
+}
+
+/** A past lesson offered to the SESSION-scope picker. */
+export interface QualitySessionOption {
+  id: string;
+  scheduled_at_utc: string;
+  local_date: string;
+  duration_minutes: number;
+  status: string;
+  student_name: string | null;
+  has_report: boolean;
+}
+
+export function getQualityRubric(
+  includeInactive = false,
+): Promise<{ categories: QualityCategory[] }> {
+  return apiFetch(
+    `/api/quality/rubric${includeInactive ? "?include_inactive=1" : ""}`,
+  );
+}
+
+export function createQualityCategory(input: {
+  name: string;
+  description?: string | null;
+  sort_order?: number;
+}): Promise<{ categoryId: string }> {
+  return apiFetch("/api/quality/rubric/categories", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateQualityCategory(
+  id: string,
+  patch: { name?: string; description?: string | null; sort_order?: number; is_active?: boolean },
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/quality/rubric/categories/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteQualityCategory(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/quality/rubric/categories/${id}`, { method: "DELETE" });
+}
+
+export function createQualityCriterion(input: {
+  category_id: string;
+  name: string;
+  discount_percent: number;
+  sort_order?: number;
+}): Promise<{ criterionId: string }> {
+  return apiFetch("/api/quality/rubric/criteria", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateQualityCriterion(
+  id: string,
+  patch: { name?: string; discount_percent?: number; sort_order?: number; is_active?: boolean },
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/quality/rubric/criteria/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteQualityCriterion(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/quality/rubric/criteria/${id}`, { method: "DELETE" });
+}
+
+export function listQualityReports(
+  q: DataTableQuery = {},
+): Promise<ListResult<QualityReportRow>> {
+  return apiFetch(`/api/quality/reports${toQueryString(q)}`);
+}
+
+export function getQualityReport(id: string): Promise<QualityReportDetail> {
+  return apiFetch(`/api/quality/reports/${id}`);
+}
+
+export function getQualitySummary(
+  year: number,
+  month: number,
+): Promise<QualitySummary> {
+  return apiFetch(`/api/quality/reports/summary?year=${year}&month=${month}`);
+}
+
+/** Judge a teacher against the rubric. `items` is the whole sheet; only unmet items cost. */
+export function createQualityReport(input: {
+  teacher_id: string;
+  scope: QualityScope;
+  session_id?: string | null;
+  period_year?: number;
+  period_month?: number;
+  note?: string | null;
+  items: { criterion_id: string; met: boolean }[];
+}): Promise<{ reportId: string }> {
+  return apiFetch("/api/quality/reports", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Withdraw a report; the deduction it caused cascades away with it. */
+export function deleteQualityReport(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/quality/reports/${id}`, { method: "DELETE" });
+}
+
+export function listQualityTeacherSessions(
+  teacherId: string,
+): Promise<{ sessions: QualitySessionOption[] }> {
+  return apiFetch(`/api/quality/teachers/${teacherId}/sessions`);
+}
+
+/** Teacher: the reports written about themselves (self-scoped server-side). */
+export function listMyQualityReports(
+  q: DataTableQuery = {},
+): Promise<ListResult<QualityReportRow>> {
+  return apiFetch(`/api/me/quality-reports${toQueryString(q)}`);
+}
+
+export function getMyQualityReport(id: string): Promise<QualityReportDetail> {
+  return apiFetch(`/api/me/quality-reports/${id}`);
+}
+
+// ── Discounts & Awards ──────────────────────────────────────────────────────
+
+/** An award/discount as the teacher-first ledger returns it (joined to teacher + period). */
+export interface TeacherAdjustmentRow {
+  id: string;
+  payout_id: string;
+  teacher_id: string;
+  teacher_name: string | null;
+  type: AdjustmentType;
+  source: AdjustmentSource;
+  amount_minor: number;
+  currency: string;
+  reason: string;
+  details: string | null;
+  session_id: string | null;
+  quality_report_id: string | null;
+  /** The lesson a system row is about, in the academy's clock ("YYYY-MM-DD HH:mm"). */
+  session_local: string | null;
+  author_name: string | null;
+  period_year: number;
+  period_month: number;
+  /** Finalized statements are frozen — no add, no remove, no waive. */
+  finalized: boolean;
+  created_at: string;
+}
+
+export interface AdjustmentSummary {
+  year: number;
+  month: number;
+  totals: { currency: string; rewards_minor: number; deductions_minor: number }[];
+  reward_count: number;
+  deduction_count: number;
+  auto_count: number;
+}
+
+/** The academy's standing policy for docking teachers who never mark a lesson. */
+export interface QualitySettings {
+  auto_deduct_enabled: boolean;
+  auto_deduct_grace_hours: number;
+  /** FIXED docks a flat amount; PERCENT_SESSION docks a % of what the lesson would have paid. */
+  auto_deduct_basis: "FIXED" | "PERCENT_SESSION";
+  auto_deduct_amount_minor: number;
+  auto_deduct_percent: number;
+}
+
+export function listTeacherAdjustments(
+  q: DataTableQuery = {},
+): Promise<ListResult<TeacherAdjustmentRow>> {
+  return apiFetch(`/api/quality/adjustments${toQueryString(q)}`);
+}
+
+export function getAdjustmentSummary(
+  year: number,
+  month: number,
+): Promise<AdjustmentSummary> {
+  return apiFetch(`/api/quality/adjustments/summary?year=${year}&month=${month}`);
+}
+
+/** Award or dock a teacher for a period; opens their statement if it doesn't exist yet. */
+export function addTeacherAdjustment(
+  teacherId: string,
+  input: {
+    type: AdjustmentType;
+    amount_minor: number;
+    reason: string;
+    details?: string | null;
+    period_year?: number;
+    period_month?: number;
+  },
+): Promise<{ adjustmentId: string; payoutId: string }> {
+  return apiFetch(`/api/quality/teachers/${teacherId}/adjustments`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Remove a hand-typed award/discount. Rejected (422) for derived rows. */
+export function deleteTeacherAdjustment(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/quality/adjustments/${id}`, { method: "DELETE" });
+}
+
+/**
+ * Cancel an automatic deduction by posting a matching award beside it. Deleting it wouldn't work —
+ * the hourly sweep would write it back — so both the machine's call and the override stay on record.
+ */
+export function waiveAutoDeduction(
+  id: string,
+  reason: string,
+): Promise<{ rewardId: string }> {
+  return apiFetch(`/api/quality/adjustments/${id}/waive`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function getQualitySettings(): Promise<{ settings: QualitySettings }> {
+  return apiFetch("/api/quality/settings");
+}
+
+export function updateQualitySettings(
+  settings: QualitySettings,
+): Promise<{ settings: QualitySettings }> {
+  return apiFetch("/api/quality/settings", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
+
+/** Teacher: their own awards and discounts (self-scoped server-side). */
+export function listMyAdjustments(
+  q: DataTableQuery = {},
+): Promise<ListResult<TeacherAdjustmentRow>> {
+  return apiFetch(`/api/me/adjustments${toQueryString(q)}`);
 }

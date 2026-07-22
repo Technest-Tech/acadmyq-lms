@@ -27,6 +27,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ReceiptText,
+  Scale,
   Settings,
   ShieldCheck,
   Sparkles,
@@ -34,6 +35,7 @@ import {
   Users,
   UserCheck,
   UserCog,
+  UserPlus,
   Video,
   Wallet,
   X,
@@ -76,6 +78,7 @@ type NavKey =
   | "schedule"
   | "videoClassroom"
   | "trials"
+  | "crm"
   | "courses"
   | "attendance"
   | "studentReports"
@@ -84,6 +87,8 @@ type NavKey =
   | "billing"
   | "invoices"
   | "payroll"
+  | "teacherQuality"
+  | "discountsAwards"
   | "myPayroll"
   | "plan"
   | "financialStats"
@@ -183,6 +188,13 @@ const NAV: ReadonlyArray<{
     href: "/roles",
     group: "people",
   },
+  {
+    key: "crm",
+    icon: UserPlus,
+    permission: "crm.read",
+    href: "/crm",
+    group: "people",
+  },
 
   // ── Academics ───────────────────────────────────────────────────────────
   {
@@ -257,6 +269,22 @@ const NAV: ReadonlyArray<{
     icon: Wallet,
     permission: "payout.read",
     href: "/payroll",
+    group: "financial",
+  },
+  // Payroll's two management surfaces sit directly under it — both only ever move money on the
+  // statements the item above shows.
+  {
+    key: "teacherQuality",
+    icon: ClipboardCheck,
+    permission: "teacher_quality.read",
+    href: "/teacher-quality",
+    group: "financial",
+  },
+  {
+    key: "discountsAwards",
+    icon: Scale,
+    permission: "payout.adjust",
+    href: "/discounts-awards",
     group: "financial",
   },
   {
@@ -401,12 +429,17 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   staff: "staff",
   academyRoles: "custom_roles",
   trials: "trials",
+  crm: "crm",
   courses: "lms",
   certificates: "certificates",
   studentReports: "student_reports",
   studentReportReviews: "student_reports",
   invoices: "invoicing",
   payroll: "payroll",
+  // Both live behind the payroll entitlement — they are payroll features, not a separate module,
+  // so an academy without payroll sees them locked exactly as it sees payroll locked.
+  teacherQuality: "payroll",
+  discountsAwards: "payroll",
   myPayroll: "payroll",
 };
 

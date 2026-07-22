@@ -45,7 +45,7 @@ export function PlanFormModal({
   const [price, setPrice] = useState(toMajor(plan?.price_minor ?? 0));
   const [currency, setCurrency] = useState(plan?.currency ?? "EGP");
   // R3: every plan belongs to one sellable module (plans.module).
-  const [planModule, setPlanModule] = useState<"MANAGEMENT" | "VIDEO" | "WHATSAPP">(
+  const [planModule, setPlanModule] = useState<"MANAGEMENT" | "VIDEO" | "WHATSAPP" | "CRM">(
     plan?.module ?? "MANAGEMENT",
   );
   const [isActive, setIsActive] = useState(plan?.is_active ?? true);
@@ -202,12 +202,15 @@ export function PlanFormModal({
             aria-label={t("module")}
             className={inputClass}
             value={planModule}
-            onChange={(e) => setPlanModule(e.target.value as "MANAGEMENT" | "VIDEO" | "WHATSAPP")}
+            onChange={(e) =>
+              setPlanModule(e.target.value as "MANAGEMENT" | "VIDEO" | "WHATSAPP" | "CRM")
+            }
             data-testid="plan-module"
           >
             <option value="MANAGEMENT">{t("moduleManagement")}</option>
             <option value="VIDEO">{t("moduleVideo")}</option>
             <option value="WHATSAPP">{t("moduleWhatsapp")}</option>
+            <option value="CRM">{t("moduleCrm")}</option>
           </select>
         </label>
 

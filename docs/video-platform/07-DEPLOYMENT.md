@@ -1,21 +1,29 @@
-# 07 — Production Deployment (DigitalOcean media server)
+# 07 — Production Deployment (Contabo media server)
 
 This is the **production** runbook for the AcademIQ self-hosted video media plane (LiveKit + TURN +
-Egress + observability) on a DigitalOcean droplet at **`media.acadmyq.com`**. It is written so a stranger
+Egress + observability) on a Contabo VPS at **`media.acadmyq.com`**. It is written so a stranger
 can redeploy the entire media plane **from zero** using only this file + the committed artifacts in
 [`infra/video/prod/`](../../infra/video/prod/).
 
 It is the production counterpart to [02-INFRASTRUCTURE](02-INFRASTRUCTURE.md) (local Docker stack +
-Hetzner-flavoured notes). We deploy on **DigitalOcean** (not Hetzner — see §2) using the same Docker stack,
-hardened for the internet.
+Hetzner-flavoured notes). We deploy on **Contabo** (see §2) using the same Docker stack, hardened for
+the internet.
 
 > **Reproducibility contract:** every config below lives in `infra/video/prod/` with secrets as
 > placeholders. `provision.sh` renders the real configs from a root-only `.env` on the box. Nothing secret
 > is ever committed. The deploy is re-runnable from these files, not from memory.
 
+> **Migration history:** originally a DigitalOcean droplet (`159.223.184.102`, NYC, 2 vCPU / 4 GB);
+> migrated to **Contabo** on 2026-07-22 (DO credits ran out). Migration recipe: copy the old box's
+> `/opt/academiq-video/.env` to the new box (so `LIVEKIT_API_KEY/SECRET` still match the app → **zero app
+> change**), set `EXTERNAL_IP` to the new public IP, add **DNS-only** `media`/`turn` records at Cloudflare,
+> host-prep + `provision.sh`. Note: after DNS moved to Cloudflare, the `media`/`turn` records had been lost
+> (they fell through the proxied wildcard to the app box), so **video was broken until this migration
+> re-created them as DNS-only** (§4).
+
 **Live deployment facts (this box):**
-- Droplet: DigitalOcean, **159.223.184.102**, Ubuntu 24.04 LTS, **4 vCPU / 8 GB / 154 GB** (Regular).
-- Domains: `media.acadmyq.com` (WSS via Caddy), `turn.acadmyq.com` (coturn TLS). DNS on DigitalOcean.
+- Server: **Contabo Cloud VPS 6**, **169.58.59.255**, Ubuntu 24.04 LTS, **6 vCPU / 12 GB / ~193 GB**, EU (Lauterbourg). Access: `ssh academiq-s2` = `root@169.58.59.255`, key-only (`~/.ssh/contabo_academiq_s2`).
+- Domains: `media.acadmyq.com` (WSS via Caddy), `turn.acadmyq.com` (coturn TLS). **DNS on Cloudflare — both DNS-only (grey cloud).**
 - Pinned images: livekit-server **v1.13.1**, egress **v1.13.0**, coturn **4.14.0**, caddy **2.11.4**,
   redis **7**, prometheus **v3.12.0**, node-exporter **v1.11.1**, grafana **11.6.16**.
 
@@ -54,10 +62,10 @@ hardened for the internet.
 ```
    STUDENT / TEACHER browser  ──HTTPS──►  apps/web (Next.js)         ┐
             │                                  │                     │  control plane
-            │   mint short-lived JWT  ◄──────  apps/api (Laravel)    │  (DigitalOcean)
+            │   mint short-lived JWT  ◄──────  apps/api (Laravel)    │  (Contabo Srv 1)
             │                                  │   ▲ webhook         ┘
             ▼ wss://media.acadmyq.com          │   │
-   ┌─────────── MEDIA PLANE — media.acadmyq.com (159.223.184.102) ──┴───┐
+   ┌─────────── MEDIA PLANE — media.acadmyq.com (169.58.59.255) ──┴─────┐
    │  Caddy :443 ──auto-TLS──► LiveKit SFU :7880   coturn :5349/3478     │
    │  Redis(127.0.0.1)   Egress→object store   Prometheus+Grafana+node   │
    └────────────────────────────────────────────────────────────────────┘
@@ -80,8 +88,8 @@ two things: **DNS** (`media.acadmyq.com`) and a **shared `LIVEKIT_API_KEY`/`SECR
 
 | Prereq | Why |
 |---|---|
-| **DigitalOcean droplet**, Ubuntu 24.04 LTS | The media host. **Why DO, not Hetzner:** Hetzner identity verification failed for the account, so Hetzner was not an option. DO works, has a simple API/DNS, snapshots, and reserved IPs for the future 443-TURN path (§18). |
-| A **domain with DNS you control** (`acadmyq.com`, DNS on DO) | Caddy needs the `media` A-record live to issue Let's Encrypt TLS; coturn needs `turn` for its cert. |
+| **Contabo VPS**, Ubuntu 24.04 LTS | The media host. **Why Contabo:** Hetzner banned the account (identity verification) and DigitalOcean got too expensive after the free credits ran out. Contabo is cheap, lenient on signup, and has EU regions. Shared vCPU — fine for the pilot; move to a **Cloud VDS** (dedicated cores) before sustained recording (§3, §18). No cloud firewall (ufw is the only one) and no built-in reserved-IP concept — plan the 443-TURN path accordingly. |
+| A **domain with DNS you control** (`acadmyq.com`, DNS on **Cloudflare**) | Caddy needs the `media` A-record live **and DNS-only (grey)** to issue Let's Encrypt TLS via HTTP-01; coturn needs `turn` for its cert. |
 | An **S3-compatible bucket** (Backblaze B2 / Wasabi / DO Spaces) | Durable recording storage (§15). Not needed until recording is enabled. |
 | **LiveKit CLI** (`lk`) | Smoke tests + token minting. `curl -sSL https://get.livekit.io/cli | bash`. |
 | The **Mac SSH key** `~/.ssh/id_ed25519` (+ backup `~/.ssh/academiq_video`) | Admin access; key-only after hardening. |
@@ -121,23 +129,28 @@ FRA1 → re-point DNS. Documented as a decision (§18); for the proof, NYC1 is f
 
 ## 4. DNS records
 
-On DigitalOcean → Networking → Domains → `acadmyq.com`:
+On Cloudflare → `acadmyq.com` → DNS. **Both must be DNS-only (grey cloud), NOT proxied:**
 
-| Type | Hostname | Value | TTL |
-|---|---|---|---|
-| A | `media` | `159.223.184.102` | 3600 |
-| A | `turn`  | `159.223.184.102` | 3600 |
+| Type | Hostname | Value | Proxy | TTL |
+|---|---|---|---|---|
+| A | `media` | `169.58.59.255` | **DNS-only (grey)** | Auto |
+| A | `turn`  | `169.58.59.255` | **DNS-only (grey)** | Auto |
+
+⚠️ These are **explicit overrides** of the proxied wildcard `*.acadmyq.com` (which points at the app
+box, Server 1). They MUST be **grey-cloud**: Cloudflare's proxy can't carry WebRTC/UDP media, and Caddy's
+ACME HTTP-01/TLS-ALPN needs a direct connection to the origin. A proxied `media`/`turn` = **broken video**
+(and no cert). This is exactly the bug that took video down when DNS first moved to Cloudflare.
 
 Add these **before** bringing up the stack — Caddy's Let's Encrypt issuance fails until `media` (and
-`turn`) resolve. Verify: `dig +short media.acadmyq.com @1.1.1.1`.
+`turn`) resolve to this box. Verify: `dig +short media.acadmyq.com @1.1.1.1` → `169.58.59.255`.
 
 ---
 
 ## 5. Step 1 — Access & backup SSH key
 
 ```bash
-# from the Mac
-ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new root@159.223.184.102
+# from the Mac (key-only; alias in ~/.ssh/config)
+ssh academiq-s2        # = root@169.58.59.255, identity ~/.ssh/contabo_academiq_s2
 ```
 
 **Add a second (backup) key immediately** so a botched SSH change can never lock you out:
@@ -149,7 +162,7 @@ grep -qF "$KEY" ~/.ssh/authorized_keys || printf '%s\n' "$KEY" >> ~/.ssh/authori
 ```
 
 Verify the backup key authenticates from the Mac **before** hardening:
-`ssh -i ~/.ssh/academiq_video -o IdentitiesOnly=yes root@159.223.184.102 'echo ok'`.
+`ssh -i ~/.ssh/academiq_video -o IdentitiesOnly=yes root@169.58.59.255 'echo ok'`.
 
 **Add 2 GB swap** (the box ships with none; one memory spike → OOM kill without it):
 ```bash
@@ -160,6 +173,17 @@ grep -qF /swapfile /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
 ---
 
 ## 6. Step 2 — Security hardening
+
+> **⚠️ Contabo apt gotcha — do this FIRST, before any `apt` command:** the default
+> `archive.ubuntu.com` (and `mirror.contabo.net`) are **unreachable** from the Lauterbourg boxes, so
+> `apt` hangs forever mid-install. Repoint apt at a working mirror + force IPv4:
+> ```bash
+> sed -i 's|http://archive.ubuntu.com/ubuntu|http://de.archive.ubuntu.com/ubuntu|g; \
+>         s|http://security.ubuntu.com/ubuntu|http://de.archive.ubuntu.com/ubuntu|g' \
+>   /etc/apt/sources.list.d/ubuntu.sources
+> printf 'Acquire::ForceIPv4 "true";\n' > /etc/apt/apt.conf.d/99force-ipv4
+> apt-get update
+> ```
 
 ```bash
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
@@ -317,15 +341,15 @@ All artifacts are in [`infra/video/prod/`](../../infra/video/prod/). The secret-
 ```bash
 # upload the artifacts to the box (COPYFILE_DISABLE avoids macOS AppleDouble junk)
 cd infra/video/prod
-COPYFILE_DISABLE=1 tar czf - . | ssh root@159.223.184.102 \
+COPYFILE_DISABLE=1 tar czf - . | ssh root@169.58.59.255 \
   'mkdir -p /opt/academiq-video && tar xzf - -C /opt/academiq-video && chown -R root:root /opt/academiq-video'
 
 # provision (generates .env + secrets, renders configs, pulls pinned images, brings up the stack,
 # waits for the TURN cert, syncs it into coturn, starts coturn)
-ssh root@159.223.184.102 'cd /opt/academiq-video && ./provision.sh'
+ssh root@169.58.59.255 'cd /opt/academiq-video && ./provision.sh'
 
 # enable boot self-heal + weekly TURN-cert sync
-ssh root@159.223.184.102 'cd /opt/academiq-video &&
+ssh root@169.58.59.255 'cd /opt/academiq-video &&
   cp systemd/academiq-video.service systemd/academiq-coturn-certs.{service,timer} /etc/systemd/system/ &&
   systemctl daemon-reload &&
   systemctl enable academiq-video.service &&
@@ -341,9 +365,9 @@ echo | openssl s_client -connect turn.acadmyq.com:5349 -servername turn.acadmyq.
 
 **Reboot self-heal test (must recover with zero manual steps):**
 ```bash
-ssh root@159.223.184.102 systemctl reboot
+ssh root@169.58.59.255 systemctl reboot
 # wait ~40s, reconnect:
-ssh root@159.223.184.102 'cd /opt/academiq-video && docker compose ps'   # all Up; curl https still OK
+ssh root@169.58.59.255 'cd /opt/academiq-video && docker compose ps'   # all Up; curl https still OK
 ```
 
 > **coturn cert renewal:** Caddy renews ~30 days before expiry; the weekly
@@ -379,9 +403,11 @@ The LiveKit `webhook.urls` already points at `WEBHOOK_URL`
 (`https://api.acadmyq.com/api/internal/livekit/webhook` — note the `/api` prefix; verified via prod
 `route:list`).
 
-> ✅ **DONE (2026-06-27).** The control plane is a **separate DigitalOcean droplet** `159.89.89.241`
-> (`api.acadmyq.com`, self-hosted nginx + PHP 8.2-FPM + Postgres 16, app dir `/var/www/acadmyq`,
-> branch deploys via `deploy/deploy.sh`). Steps taken:
+> ✅ **DONE (2026-06-27; control plane MIGRATED 2026-07-22).** The control plane runs where the rest of
+> AcademIQ runs — now **Contabo Server 1** `169.58.59.194` (`api.acadmyq.com` via the proxied Cloudflare
+> wildcard; self-hosted nginx + PHP 8.2-FPM + Postgres 16, app dir `/var/www/acadmyq`, branch deploys via
+> `deploy/deploy.sh` — see the root `DEPLOYMENT.md`). It was originally the DO droplet `159.89.89.241`; the
+> `LIVEKIT_*` wiring below is **unchanged** by the move (the keys carried over verbatim). Original steps:
 > 1. Pushed `feat/video-platform` to `origin` (the video backend wasn't deployed before — prod ran
 >    `feat/whatsapp-gateway`).
 > 2. **Backed up** the prod DB (`pg_dump -Fc`) + `apps/api/.env` to `/root/backups/` first.
@@ -399,7 +425,7 @@ The LiveKit `webhook.urls` already points at `WEBHOOK_URL`
 - **Prometheus** (`127.0.0.1:9090`) scrapes LiveKit metrics (`:6789`), node-exporter (`:9100`), itself.
 - **Grafana** (`127.0.0.1:3000`, localhost-only) — datasource + a starter "AcademIQ Media — Overview"
   dashboard auto-provisioned (CPU, mem/swap, network, disk, LiveKit/node up). Reach it via SSH tunnel:
-  `ssh -L 3000:127.0.0.1:3000 root@159.223.184.102` → http://localhost:3000 (admin / `GRAFANA_ADMIN_PASSWORD`).
+  `ssh -L 3000:127.0.0.1:3000 root@169.58.59.255` → http://localhost:3000 (admin / `GRAFANA_ADMIN_PASSWORD`).
 - **Alert rules** (`prometheus/alerts.yml`): NodeExporterDown, LiveKitDown, HighCPU, HighMemory, LowDisk,
   SwapHeavilyUsed. To **deliver** alerts, add an Alertmanager target in `prometheus.yml` (email/Slack).
 - TODO: packet-loss + cert-expiry alerts (need LiveKit metric-name confirmation + a blackbox/x509 exporter).
@@ -428,6 +454,11 @@ Egress is gated behind the `recording` compose profile (it needs S3 storage + ~1
 ---
 
 ## 16. Step 12 — The real internet call (success criterion)
+
+> **Note:** the proof below was measured on **2026-06-27 on the original DO box (`159.223.184.102`)**.
+> The current media box is Contabo **`169.58.59.255`** — on the 2026-07-22 migration the `lk` smoke test
+> (room list/create over `https://media.acadmyq.com`), coturn TLS (5349), and the webhook path were
+> re-verified; re-run the full two-browser call there to re-confirm end-to-end media.
 
 ✅ **PROVEN (2026-06-27).** Two browsers joined the same room via the web client (`apps/web`
 `/r/{token}`) and exchanged **real two-way audio + video** through the production SFU over the internet.
@@ -481,8 +512,11 @@ plane is the prod box):
 
 ## 18. Decisions log (the WHY)
 
-- **Provider = DigitalOcean.** Hetzner identity verification failed for the account. DO gives simple
-  DNS/API, snapshots, and **Reserved IPs** (the future 443-TURN path).
+- **Provider = Contabo** (since 2026-07-22). Hetzner banned the account; DigitalOcean got too expensive
+  after the free credits ran out. Contabo is cheap and lenient on signup — trade-offs: shared vCPU (move to
+  a **Cloud VDS** for dedicated cores before heavy recording), **no cloud firewall** (ufw is the only one),
+  and **no reserved-IP** concept (rethink the future 443-TURN path). *(Originally DigitalOcean, chosen
+  because Hetzner verification failed; DO had simple DNS/API, snapshots, and reserved IPs.)*
 - **Size = 4 vCPU / 8 GB Regular** for the proof + pilot. Dedicated (CPU-Optimized) recommended before
   sustained recording at scale (CPU-steal hurts real-time media). Resize is a quick power-off (§3).
 - **Region = NYC1** (the box exists). FRA1 recommended for a MENA-serving production node (snapshot+migrate).

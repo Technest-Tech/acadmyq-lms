@@ -1,12 +1,19 @@
-# Acadmyq — Self-Hosted Deployment (DigitalOcean)
+# Acadmyq — Self-Hosted Deployment (Contabo)
 
 Full, reproducible deployment of the Acadmyq monorepo (Laravel API + Next.js web)
-onto a **single DigitalOcean droplet**, with per-academy **wildcard subdomains** and
+onto a **single Contabo VPS**, with per-academy **wildcard subdomains** and
 shared-cookie auth. This file is the source of truth — any human or agent can deploy
 or redeploy from it.
 
 > Replaces the old Railway/Vercel/Supabase plan in `DEPLOY.md`. We now self-host
-> everything (app + PostgreSQL) on one droplet.
+> everything (app + PostgreSQL) on one VPS.
+>
+> **Migration history:** originally on a DigitalOcean droplet (`159.89.89.241`, NYC, 2 vCPU);
+> migrated to **Contabo** on 2026-07-22 when the DO free credits ran out. DNS also moved from
+> DigitalOcean to **Cloudflare** (registrar: Hostinger), and the wildcard-TLS challenge moved
+> from the certbot DO plugin to the **Cloudflare** plugin. The cutover was a zero-downtime,
+> zero-data-loss `pg_dump`/restore + a Cloudflare A-record IP flip (reversible). See §1 for
+> current facts and §5 for TLS.
 
 ---
 
@@ -14,25 +21,44 @@ or redeploy from it.
 
 | Item | Value |
 |---|---|
-| Droplet IP | `159.89.89.241` |
-| OS | Ubuntu 24.04.3 LTS (hostname `acadmyq`) |
-| Domain | `acadmyq.com` (DNS hosted on **DigitalOcean**) |
-| SSH access | `ssh root@159.89.89.241` |
+| Server | **Contabo Cloud VPS 4** — 4 vCPU / 8 GB / ~96 GB SSD, Ubuntu 24.04 LTS, EU (Lauterbourg) |
+| Public IP | `169.58.59.194` |
+| Hostname | `vmi3458789` |
+| Domain | `acadmyq.com` (DNS on **Cloudflare**; registrar **Hostinger**) |
+| SSH access | `ssh academiq-s1` — **key-only**, root, identity `~/.ssh/contabo_academiq_s1` (password auth disabled) |
 | App directory | `/var/www/acadmyq` |
 | App OS user | `acadmyq` (system user, owns the app dir + runs web/queue) |
 | GitHub repo | `git@github.com:Technest-Tech/acadmyq-lms.git` |
 | Deploy key | `/root/.ssh/acadmyq_deploy` (+ `.pub`); added to repo → Settings → Deploy keys |
 | Secrets file | `/root/acadmyq-secrets.env` (DB password, etc. — chmod 600, never committed) |
+| Deployed branch | `feat/video-platform` (prod ran commit `9b3832f` at migration) |
 
-### DNS records (DigitalOcean → Networking → Domains → acadmyq.com)
+> The **media/video plane is a second box** — Contabo VPS 6 `169.58.59.255`
+> (`ssh academiq-s2`, `media.acadmyq.com` + `turn.acadmyq.com`). See
+> [`docs/video-platform/07-DEPLOYMENT.md`](docs/video-platform/07-DEPLOYMENT.md).
 
-| Type | Hostname | Value |
-|---|---|---|
-| A | `acadmyq.com` (`@`) | `159.89.89.241` |
-| A | `*.acadmyq.com` | `159.89.89.241` |
+### DNS records (Cloudflare → acadmyq.com)
 
-The wildcard `*` makes **every** subdomain resolve to the droplet, so each academy
-gets `<academy>.acadmyq.com` with zero per-tenant DNS work.
+| Type | Hostname | Value | Proxy |
+|---|---|---|---|
+| A | `acadmyq.com` (`@`) | `169.58.59.194` | **Proxied** (orange) |
+| A | `www.acadmyq.com` | `169.58.59.194` | **Proxied** (orange) |
+| A | `*.acadmyq.com` | `169.58.59.194` | **Proxied** (orange) |
+| A | `media.acadmyq.com` | `169.58.59.255` (Server 2) | **DNS-only** (grey) |
+| A | `turn.acadmyq.com` | `169.58.59.255` (Server 2) | **DNS-only** (grey) |
+
+The wildcard `*` makes **every** subdomain resolve to Server 1, so each academy gets
+`<academy>.acadmyq.com` with zero per-tenant DNS work. The app records are **proxied**
+(Cloudflare CDN + SSL + DDoS).
+
+⚠️ The `media`/`turn` records are explicit **DNS-only** overrides pointing at the media box
+(Server 2) — they must **never** be proxied (Cloudflare's proxy can't carry WebRTC/UDP).
+Because a proxied wildcard would otherwise swallow them and break video, these explicit
+grey-cloud records are mandatory.
+
+> **Cutover / rollback:** the origin holds a real Let's Encrypt wildcard cert (§5), so
+> Cloudflare "Full (strict)" works. Moving to a new origin is just editing the A-record IPs
+> in Cloudflare (proxied → instant + reversible; no nameserver change).
 
 ### Domain → app routing
 
@@ -62,6 +88,18 @@ resolve which academy a tenant subdomain belongs to.
 Provision a fresh box in one shot with [`deploy/provision.sh`](deploy/provision.sh)
 (idempotent, run as root). It installs everything above, creates the `acadmyq` user,
 the PostgreSQL roles/DBs, the PHP-FPM pool, systemd units, and the scheduler cron.
+
+> **⚠️ Contabo apt gotcha — do this BEFORE `provision.sh` (and it's not in the script):**
+> the default `archive.ubuntu.com` (and `mirror.contabo.net`) are **unreachable** from the
+> Lauterbourg boxes, so `apt` hangs forever mid-install. Repoint apt at a working mirror +
+> force IPv4 first, and install `git` (also not installed by default):
+> ```bash
+> sed -i 's|http://archive.ubuntu.com/ubuntu|http://de.archive.ubuntu.com/ubuntu|g; \
+>         s|http://security.ubuntu.com/ubuntu|http://de.archive.ubuntu.com/ubuntu|g' \
+>   /etc/apt/sources.list.d/ubuntu.sources
+> printf 'Acquire::ForceIPv4 "true";\n' > /etc/apt/apt.conf.d/99force-ipv4
+> apt-get update && apt-get install -y git
+> ```
 
 ### Multi-tenancy / database roles (Postgres RLS)
 
@@ -98,8 +136,8 @@ Config sources (committed, installed by `provision.sh`):
 ## 4. First-time deployment (from a bare droplet)
 
 ```bash
-# 0. SSH in
-ssh root@159.89.89.241
+# 0. SSH in  (key-only; alias in ~/.ssh/config on the Mac)
+ssh academiq-s1        # = root@169.58.59.194, identity ~/.ssh/contabo_academiq_s1
 
 # 1. Deploy key → GitHub  (one-time)
 #    Public key already generated at /root/.ssh/acadmyq_deploy.pub
@@ -119,11 +157,15 @@ bash /var/www/acadmyq/deploy/provision.sh
 cp /var/www/acadmyq/deploy/env/api.env.template /var/www/acadmyq/apps/api/.env
 #    fill {{DB_PASSWORD}} from /root/acadmyq-secrets.env, then generate the app key:
 cd /var/www/acadmyq/apps/api && php8.2 artisan key:generate
+#    ⚠️ MIGRATING an existing box (not a fresh install)? Do NOT key:generate — copy the
+#    existing apps/api/.env verbatim (same APP_KEY) and reuse /root/acadmyq-secrets.env,
+#    or encrypted DB data + live sessions break. And restore a pg_dump instead of running
+#    fresh migrations/seed (see the 2026-07-22 DO→Contabo migration in §History).
 #    Web (NEXT_PUBLIC_* are inlined at build time):
 cp /var/www/acadmyq/deploy/env/web.env.template /var/www/acadmyq/apps/web/.env.production
 
 # 5. First build + migrate (then seeds, if desired)
-sudo -u acadmyq APP_BRANCH=sprint-9-audit-gating-hardening /var/www/acadmyq/deploy/deploy.sh
+sudo -u acadmyq APP_BRANCH=feat/video-platform /var/www/acadmyq/deploy/deploy.sh
 cd /var/www/acadmyq/apps/api && sudo -u acadmyq php8.2 artisan db:seed --force   # optional demo data
 
 # 6. Wildcard TLS certificate (see §5)
@@ -140,41 +182,51 @@ systemctl enable --now acadmyq-web acadmyq-queue
 
 ---
 
-## 5. Wildcard TLS certificate (Let's Encrypt, DNS-01)
+## 5. Wildcard TLS certificate (Let's Encrypt, DNS-01 via Cloudflare)
 
-A wildcard cert (`*.acadmyq.com`) **requires** the DNS-01 challenge. Since DNS is on
-DigitalOcean, use the certbot DO plugin for fully automatic issuance + renewal.
+A wildcard cert (`*.acadmyq.com`) **requires** the DNS-01 challenge. DNS is on **Cloudflare**,
+so use the certbot **Cloudflare** plugin for fully automatic issuance + renewal.
 
 ```bash
-# Install certbot + DO DNS plugin
-snap install certbot --classic
-snap set certbot trust-plugin-with-root=ok
-snap install certbot-dns-digitalocean
+# Install certbot + Cloudflare DNS plugin (apt, not snap)
+apt-get install -y certbot python3-certbot-dns-cloudflare
 
-# DO API token (read+write) → DigitalOcean → API → Tokens
-printf 'dns_digitalocean_token = %s\n' 'YOUR_DO_API_TOKEN' > /root/certbot-do.ini
-chmod 600 /root/certbot-do.ini
+# Cloudflare API token with Zone:DNS:Edit (+ Zone:Read) on acadmyq.com
+printf 'dns_cloudflare_api_token = %s\n' 'YOUR_CF_API_TOKEN' > /root/certbot-cf.ini
+chmod 600 /root/certbot-cf.ini
 
 # Issue the cert (covers apex + every single-level subdomain)
-certbot certonly --dns-digitalocean \
-  --dns-digitalocean-credentials /root/certbot-do.ini \
-  --dns-digitalocean-propagation-seconds 60 \
+certbot certonly --non-interactive --agree-tos -m admin@acadmyq.com \
+  --dns-cloudflare --dns-cloudflare-credentials /root/certbot-cf.ini \
+  --dns-cloudflare-propagation-seconds 30 \
   -d 'acadmyq.com' -d '*.acadmyq.com' \
-  -m admin@acadmyq.com --agree-tos --no-eff-email
+  --cert-name acadmyq.com
 
 # Cert lands at /etc/letsencrypt/live/acadmyq.com/{fullchain,privkey}.pem
-certbot renew --dry-run     # confirm auto-renewal works
+certbot renew --dry-run     # confirm auto-renewal works (certbot.timer runs it 2x/day)
 ```
 
 > The nginx vhosts reference `/etc/letsencrypt/live/acadmyq.com/`. Obtain the cert
 > **before** enabling them (step 7 above) or nginx will fail to start.
+>
+> **Gotcha:** if a placeholder cert (e.g. a temporary self-signed one) already occupies
+> `/etc/letsencrypt/live/acadmyq.com/`, remove that dir first — certbot refuses to write
+> into a `live/` dir it didn't create ("live directory exists for acadmyq.com").
+>
+> **Why not a Cloudflare Origin cert?** The app is proxied, so a CF Origin cert would also
+> work — but a real LE cert is publicly-trusted, works in *any* Cloudflare SSL mode, and needs
+> no dashboard step. (A plain `Zone:DNS:Edit` token can't mint Origin certs anyway — that
+> needs the account-level Origin CA permission, which returns `1016 not authorized` otherwise.)
+>
+> The token lives at `/root/certbot-cf.ini` for auto-renewal — treat it as a secret and
+> rotate it if it's ever exposed (update the file after rotating).
 
 ---
 
 ## 6. Recurring deploys (after the first one)
 
 ```bash
-sudo -u acadmyq APP_BRANCH=sprint-9-audit-gating-hardening /var/www/acadmyq/deploy/deploy.sh
+sudo -u acadmyq APP_BRANCH=feat/video-platform /var/www/acadmyq/deploy/deploy.sh
 ```
 
 [`deploy/deploy.sh`](deploy/deploy.sh) pulls the branch, `pnpm install` + builds web,

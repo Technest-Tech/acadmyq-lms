@@ -35,3 +35,9 @@ apps/api/bootstrap/cache/*.php
 # Build / coverage
 coverage/
 *.log
+
+# Local junk / iCloud artifacts (never commit)
+apps/api/vendor.broken/
+*.icloudpin.tmp
+/package-lock.json
+/teachers.mp4

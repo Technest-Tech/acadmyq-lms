@@ -20,8 +20,8 @@ import { cn } from "@/lib/utils";
 
 // Display order for capability groups — the domains an academy admin cares about first.
 const DOMAIN_ORDER = [
-  "student", "guardian", "teacher", "schedule", "session", "trial",
-  "invoice", "payout", "certificate", "student_report", "teacher_report",
+  "student", "guardian", "teacher", "schedule", "session", "trial", "crm",
+  "invoice", "payout", "teacher_quality", "certificate", "student_report", "teacher_report",
   "report_field", "specialization", "payment_settings", "staff", "staff_department",
   "user", "role", "notification", "audit",
   "academy", "plan", "academy_billing", "automation", "platform",

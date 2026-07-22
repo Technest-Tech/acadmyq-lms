@@ -8,6 +8,8 @@ use App\Billing\BillingHook;
 use App\Payroll\PayoutHook;
 use App\Services\Invoicing;
 use App\Services\Payroll;
+use App\Support\Lms\FfmpegHlsTranscoder;
+use App\Support\Lms\HlsTranscoder;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -33,6 +35,10 @@ class AppServiceProvider extends ServiceProvider
         // (AC-8.1, AC-8.12).
         $this->app->bind(PayoutHook::class, Payroll::class);
         $this->app->singleton(Payroll::class);
+
+        // LMS phase 3b: the HLS transcode seam. TranscodeMediaJob resolves this; the real ffmpeg
+        // impl runs on a host that has the binary, while tests bind a fake (docs/lms/04 — VOD).
+        $this->app->bind(HlsTranscoder::class, FfmpegHlsTranscoder::class);
     }
 
     /**

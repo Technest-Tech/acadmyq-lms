@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Jobs\AutoDeductUnreportedSessionsJob;
 use App\Jobs\CloseMonthlyInvoicesJob;
 use App\Jobs\CloseMonthlyPayoutsJob;
 use App\Jobs\ExpireAcademyTrialsJob;
@@ -51,6 +52,16 @@ Schedule::job(new CloseMonthlyPayoutsJob)->monthlyOn(3, '01:30')->name('close-mo
 | each academy's work runs in its own tenant context inside the job.
 */
 Schedule::job(new FlagOverdueReportsJob)->hourly()->name('flag-overdue-reports')->withoutOverlapping();
+
+/*
+| Hourly unmarked-session deduction (Discounts & Awards page). The money half of the sweep above:
+| for every academy that switched the policy ON, dock the teacher for each session still unreported
+| past the academy's grace window — same predicate as the overdue flag, so the deduction only ever
+| follows a warning the system was already raising. Idempotent (one AUTO_UNREPORTED adjustment per
+| session, partial unique index), skips finalized statements, and runs :30 past the hour so the
+| owner's alert lands before the money moves. Each academy runs in its own tenant context.
+*/
+Schedule::job(new AutoDeductUnreportedSessionsJob)->hourlyAt(30)->name('auto-deduct-unreported')->withoutOverlapping();
 
 /*
 | Daily free-trial expiry sweep (Platform↔Academy billing). Each morning, for every non-suspended
