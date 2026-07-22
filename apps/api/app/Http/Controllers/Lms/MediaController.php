@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Lms;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Lms\Concerns\InteractsWithLms;
+use App\Jobs\TranscodeMediaJob;
 use App\Support\Audit;
 use App\Support\LmsMedia;
 use Illuminate\Http\JsonResponse;
@@ -103,8 +104,27 @@ final class MediaController extends Controller
         // Re-check the cap against the ACTUAL size (excluding this asset's reserved size).
         LmsMedia::assertWithinCap($academyId, $size, excludeAssetId: $id);
 
+        // Phase 3b: a VIDEO upload transcodes to HLS on the queue when it's enabled; everything else
+        // (uploaded audio, or transcode off = the v0 / storage-less dev box) serves the source object
+        // directly. The upload/progress UI already tolerates the extra PROCESSING step either way.
+        if ((string) $asset->kind === 'VIDEO' && config('lms.media.transcode')) {
+            DB::table('media_assets')->where('id', $id)->update([
+                'status' => 'PROCESSING',
+                'size_bytes' => $size,
+                'error' => null,
+                'updated_at' => now(),
+            ]);
+
+            TranscodeMediaJob::dispatch($id, $academyId);
+
+            Audit::log('lms_media.processing', 'media_asset', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['size_bytes' => $size]);
+
+            return response()->json(['status' => 'PROCESSING', 'size_bytes' => $size]);
+        }
+
         DB::table('media_assets')->where('id', $id)->update([
-            'status' => 'READY',            // v0: no transcode — source object is the playback object
+            'status' => 'READY',            // no transcode — the source object is the playback object
             'size_bytes' => $size,
             'playback_path' => $asset->storage_key,
             'error' => null,

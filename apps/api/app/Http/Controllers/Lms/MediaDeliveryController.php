@@ -29,6 +29,40 @@ final class MediaDeliveryController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /**
+     * GET /lms/media/hls?...signed... — serve an HLS playlist (docs/lms/04, phase 3b), rewriting each
+     * child URI to its own signed URL: a variant .m3u8 back through this route, a segment to a signed
+     * object URL (presigned S3 GET, or the stream proxy on a local disk). A signed URL's query string
+     * can't be resolved relatively by hls.js, so the manifest — small — is rewritten server-side; the
+     * segments themselves still go direct-to-storage on S3.
+     */
+    public function hls(Request $request): Response
+    {
+        $key = $this->signedKey($request);
+        $disk = Storage::disk(LmsMedia::disk());
+        abort_unless($disk->exists($key), 404);
+
+        $dir = str_contains($key, '/') ? substr($key, 0, (int) strrpos($key, '/')) : '';
+        $lines = preg_split('/\r\n|\r|\n/', (string) $disk->get($key)) ?: [];
+
+        $rewritten = array_map(function (string $line) use ($dir): string {
+            $uri = trim($line);
+            if ($uri === '' || str_starts_with($uri, '#') || str_contains($uri, '://')) {
+                return $line;                       // a tag, a blank line, or an already-absolute URL
+            }
+            $childKey = ($dir !== '' ? $dir.'/' : '').$uri;
+
+            return str_ends_with(strtolower($uri), '.m3u8')
+                ? LmsMedia::manifestUrl($childKey)  // a variant playlist → rewritten through this route too
+                : LmsMedia::objectUrl($childKey);   // a segment → a direct signed object URL
+        }, $lines);
+
+        return response(implode("\n", $rewritten), 200, [
+            'Content-Type' => 'application/vnd.apple.mpegurl',
+            'Cache-Control' => 'no-store',
+        ]);
+    }
+
     /** GET /lms/media/stream?...signed... — stream the object (range-capable for <video> seeking). */
     public function stream(Request $request): Response
     {

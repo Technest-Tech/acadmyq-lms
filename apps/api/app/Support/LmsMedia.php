@@ -104,16 +104,48 @@ final class LmsMedia
         ];
     }
 
-    /** A short-lived URL an enrolled learner's <video>/<audio> can play. Caller has already gated it. */
+    /**
+     * A short-lived URL an enrolled learner's player loads. Caller has already gated it. A transcoded
+     * asset (phase 3b) plays via its HLS manifest; anything else (uploaded audio, or a progressive-MP4
+     * v0 video) plays its source object directly. `??` tolerates callers that didn't select
+     * hls_manifest_key.
+     */
     public static function playbackUrl(object $asset): string
     {
-        $key = (string) ($asset->playback_path ?? '') ?: (string) $asset->storage_key;
-        $ttl = Carbon::now()->addMinutes((int) config('lms.media.playback_ttl_minutes', 240));
-
-        if (self::presignEnabled()) {
-            return Storage::disk(self::disk())->temporaryUrl($key, $ttl);
+        $hls = (string) ($asset->hls_manifest_key ?? '');
+        if ($hls !== '') {
+            return self::manifestUrl($hls);
         }
 
-        return URL::temporarySignedRoute('lms.media.stream', $ttl, ['k' => $key]);
+        return self::objectUrl((string) ($asset->playback_path ?? '') ?: (string) $asset->storage_key);
+    }
+
+    /**
+     * A signed URL to the HLS manifest route. BOTH disk drivers go through our API here: an .m3u8's
+     * segment URIs must be rewritten to signed URLs server-side (a signed URL's own query string can't
+     * be resolved relatively by hls.js), so the manifest — small — is served by PHP either way.
+     */
+    public static function manifestUrl(string $key): string
+    {
+        return URL::temporarySignedRoute('lms.media.hls', self::playbackTtl(), ['k' => $key]);
+    }
+
+    /**
+     * A signed URL that serves one media object's raw bytes — a presigned GET straight from object
+     * storage (S3), or a signed proxy route (local disk). Backs progressive audio/video AND each HLS
+     * segment, so big segment traffic never streams through PHP on S3.
+     */
+    public static function objectUrl(string $key): string
+    {
+        if (self::presignEnabled()) {
+            return Storage::disk(self::disk())->temporaryUrl($key, self::playbackTtl());
+        }
+
+        return URL::temporarySignedRoute('lms.media.stream', self::playbackTtl(), ['k' => $key]);
+    }
+
+    private static function playbackTtl(): Carbon
+    {
+        return Carbon::now()->addMinutes((int) config('lms.media.playback_ttl_minutes', 240));
     }
 }

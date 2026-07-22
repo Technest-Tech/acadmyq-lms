@@ -57,6 +57,24 @@ Design points:
 - **Storage accounting**: `media_assets.size_bytes` summed per academy feeds the `maxStorageGb`
   limit (see [05](05-BILLING-ENTITLEMENT-PERMISSIONS.md)); at-limit upload returns 402-style upgrade.
 
+### Status
+
+- **v0 (phase 3, shipped)** — progressive MP4: `markUploaded` flips a confirmed video straight to
+  READY and serves the source object behind a signed URL. No transcode; works with zero object
+  storage (the `local` disk + signed-proxy branch in `App\Support\LmsMedia`).
+- **HLS (phase 3b, shipped)** — gated by `LMS_TRANSCODE` (default off = v0). When on, a confirmed
+  **video** goes `PROCESSING` and `App\Jobs\TranscodeMediaJob` shells to ffmpeg
+  (`App\Support\Lms\HlsTranscoder` seam) → a 360p/720p HLS ladder under
+  `lms/{academy}/{asset}/hls/`, then READY + `hls_manifest_key` (or FAILED + error). The source
+  object is dropped and `size_bytes` reset to the rendition total. Audio never transcodes.
+  - **Delivery**: playback returns `protocol: hls|progressive`. The HLS manifest is served through
+    the API (`lms.media.hls`) on **both** disk drivers, rewriting each child URI to its own signed
+    URL — a signed URL's query string can't be resolved relatively by hls.js — while segments still
+    go direct-to-storage (presigned) on S3. The learner player picks `hls.js` vs a plain `<video>`.
+  - ffmpeg is integration-only; the job's download → transcode → upload → READY/FAILED wiring and
+    the manifest-rewrite route are covered by `tests/Feature/Lms/TranscodeMediaTest` with a fake
+    transcoder + faked queue on a `local` disk.
+
 ## Progress & resume (phase 2)
 
 `lesson_progress` is upserted as the learner watches:

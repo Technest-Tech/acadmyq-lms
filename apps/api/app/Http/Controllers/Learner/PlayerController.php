@@ -89,13 +89,16 @@ final class PlayerController extends Controller
         $asset = DB::table('media_assets')
             ->where('id', $lesson->media_asset_id)
             ->where('status', 'READY')
-            ->first(['id', 'kind', 'playback_path', 'storage_key']);
+            ->first(['id', 'kind', 'playback_path', 'storage_key', 'hls_manifest_key']);
         if ($asset === null) {
             abort(409, 'This lesson is still processing.');
         }
 
+        // A transcoded video plays via hls.js (protocol=hls); audio and a progressive-MP4 v0 video
+        // are a plain <audio>/<video> source (protocol=progressive). The client picks the player.
         return response()->json([
             'kind' => (string) $asset->kind,
+            'protocol' => $asset->hls_manifest_key !== null ? 'hls' : 'progressive',
             'url' => LmsMedia::playbackUrl($asset),
         ]);
     }

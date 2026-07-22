@@ -184,11 +184,15 @@ export function learnSaveProgress(
   });
 }
 
-/** A short-lived signed URL for an uploaded lesson's media (VIDEO_UPLOAD / uploaded AUDIO). */
+/**
+ * A short-lived signed URL for an uploaded lesson's media (VIDEO_UPLOAD / uploaded AUDIO). `protocol`
+ * is `hls` for a transcoded video (play with hls.js) or `progressive` for audio / a v0 MP4 (a plain
+ * `<audio>`/`<video>` source).
+ */
 export function learnPlayback(
   academy: string,
   lessonId: string,
-): Promise<{ url: string; kind: "VIDEO" | "AUDIO" }> {
+): Promise<{ url: string; kind: "VIDEO" | "AUDIO"; protocol: "hls" | "progressive" }> {
   return learnFetch(academy, `/lessons/${lessonId}/playback`);
 }
 

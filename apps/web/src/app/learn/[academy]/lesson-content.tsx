@@ -1,8 +1,9 @@
 "use client";
 
+import type Hls from "hls.js";
 import { FileText, Loader2, Lock } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { learnPlayback, type LearnLesson } from "@/lib/learn-api";
 import { QuizRunner } from "./quiz-runner";
 
@@ -95,22 +96,21 @@ export function LessonContent({
   return null;
 }
 
-/** Resolves the enrollment-gated signed playback URL, then renders a <video>/<audio> element. */
+type Playback = { url: string; kind: "VIDEO" | "AUDIO"; protocol: "hls" | "progressive" };
+
+/** Resolves the enrollment-gated signed playback URL, then renders the right player for its protocol. */
 function UploadedMedia({ academy, lesson }: { academy: string; lesson: LearnLesson }) {
   const t = useTranslations("learn");
-  const [url, setUrl] = useState<string | null>(null);
-  const [kind, setKind] = useState<"VIDEO" | "AUDIO">("VIDEO");
+  const [playback, setPlayback] = useState<Playback | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    setUrl(null);
+    setPlayback(null);
     setError(null);
     learnPlayback(academy, lesson.id)
       .then((r) => {
-        if (!active) return;
-        setUrl(r.url);
-        setKind(r.kind);
+        if (active) setPlayback(r);
       })
       .catch((e) => {
         if (active) setError(e instanceof Error ? e.message : t("errors.generic"));
@@ -128,7 +128,7 @@ function UploadedMedia({ academy, lesson }: { academy: string; lesson: LearnLess
     );
   }
 
-  if (url === null) {
+  if (playback === null) {
     return (
       <div className="text-muted-foreground flex aspect-video w-full items-center justify-center rounded-xl border border-dashed text-sm">
         <Loader2 className="size-5 animate-spin" />
@@ -136,11 +136,56 @@ function UploadedMedia({ academy, lesson }: { academy: string; lesson: LearnLess
     );
   }
 
-  if (kind === "AUDIO") {
-    return <audio controls src={url} className="w-full" />;
+  if (playback.kind === "AUDIO") {
+    return <audio controls src={playback.url} className="w-full" />;
+  }
+
+  // A transcoded video streams via hls.js; a progressive-MP4 v0 is a plain <video> source.
+  if (playback.protocol === "hls") {
+    return <HlsVideo src={playback.url} />;
   }
 
   return (
-    <video controls playsInline src={url} className="aspect-video w-full rounded-xl bg-black" />
+    <video controls playsInline src={playback.url} className="aspect-video w-full rounded-xl bg-black" />
   );
+}
+
+/**
+ * Adaptive HLS playback. Safari/iOS play `.m3u8` natively; every other browser loads hls.js on demand
+ * (dynamic import keeps it out of the initial bundle). The signed manifest url already carries its own
+ * signed segment urls (rewritten server-side), so hls.js just fetches them.
+ */
+function HlsVideo({ src }: { src: string }) {
+  const ref = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+
+    // Native HLS (Safari/iOS): let the browser handle it, no library needed.
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = src;
+      return;
+    }
+
+    let hls: Hls | null = null;
+    let cancelled = false;
+    void import("hls.js").then(({ default: HlsCtor }) => {
+      if (cancelled || !ref.current) return;
+      if (!HlsCtor.isSupported()) {
+        ref.current.src = src; // last resort — let the browser try directly
+        return;
+      }
+      hls = new HlsCtor({ enableWorker: true });
+      hls.loadSource(src);
+      hls.attachMedia(ref.current);
+    });
+
+    return () => {
+      cancelled = true;
+      hls?.destroy();
+    };
+  }, [src]);
+
+  return <video ref={ref} controls playsInline className="aspect-video w-full rounded-xl bg-black" />;
 }

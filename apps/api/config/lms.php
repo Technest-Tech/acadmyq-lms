@@ -32,6 +32,20 @@ return [
 
         // Hard per-file ceiling regardless of the plan's storage cap (bytes). 5 GiB.
         'max_upload_bytes' => (int) env('LMS_MAX_UPLOAD_BYTES', 5368709120),
+
+        // Phase 3b — HLS transcode. When ON, a confirmed VIDEO upload goes PROCESSING and a queued
+        // TranscodeMediaJob shells to ffmpeg to build an HLS ladder; when OFF (the default, and the
+        // storage-less dev box) the source object is served directly as a progressive MP4 (v0). Audio
+        // is never transcoded either way. Enable in prod once ffmpeg + a queue worker are in place.
+        'transcode' => (bool) env('LMS_TRANSCODE', false),
+
+        // Binaries the transcode worker shells to (on PATH by default; override for a pinned build).
+        'ffmpeg_bin' => (string) env('LMS_FFMPEG_BIN', 'ffmpeg'),
+        'ffprobe_bin' => (string) env('LMS_FFPROBE_BIN', 'ffprobe'),
+
+        // HLS segment length (seconds) and how long ffmpeg may run before it's killed (seconds).
+        'hls_segment_seconds' => (int) env('LMS_HLS_SEGMENT_SECONDS', 6),
+        'transcode_timeout_seconds' => (int) env('LMS_TRANSCODE_TIMEOUT', 7200),
     ],
 
 ];
