@@ -2,23 +2,40 @@
 
 import {
   ArrowLeft,
-  ChevronLeft,
-  FileText,
+  ArrowRight,
+  Archive,
+  BookOpen,
+  Eye,
+  Layers,
   ListChecks,
-  Music,
   Pencil,
+  PlayCircle,
   Plus,
+  Rocket,
+  Settings2,
   Trash2,
-  Video,
+  Undo2,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { CourseStatusBadge } from "@/components/courses/course-status-badge";
-import { Field, inputClass, textareaClass } from "@/components/courses/form-bits";
+import { Field, inputClass, PriceField, textareaClass } from "@/components/courses/form-bits";
+import { MediaUpload } from "@/components/courses/media-upload";
 import { LessonModal } from "@/components/courses/lesson-modal";
+import {
+  EmptyState,
+  LESSON_STYLE,
+  lmsColor,
+  Panel,
+  PriceTag,
+  SectionTitle,
+  Sk,
+  StatusPill,
+} from "@/components/courses/lms-ui";
 import { QuizBuilder } from "@/components/courses/quiz-builder";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -35,24 +52,14 @@ import {
   type CourseDetail,
   type CourseStatus,
   type Lesson,
-  type LessonType,
 } from "@/lib/api";
+import { formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-const LESSON_ICON: Partial<Record<LessonType, typeof FileText>> = {
-  YOUTUBE: Video,
-  VIDEO_UPLOAD: Video,
-  TEXT: FileText,
-  PDF: FileText,
-  AUDIO: Music,
-  QUIZ: ListChecks,
-};
-
 /**
- * The course editor: metadata (title / subtitle / description), lifecycle actions
- * (publish / unpublish / archive), and the curriculum builder — sections of lessons, each added or
- * edited through the lesson modal. Everything mutating is gated by `course.manage`; a reader sees a
- * read-only outline.
+ * The course editor: the curriculum builder is the main column (sections of lessons, each added or
+ * edited through the lesson modal), with the course's metadata and its publishing controls in a
+ * sticky sidebar. Everything mutating is gated by `course.manage`; a reader sees a read-only outline.
  */
 export function CourseEditor({ courseId }: { courseId: string }) {
   const t = useTranslations("courses");
@@ -70,7 +77,12 @@ export function CourseEditor({ courseId }: { courseId: string }) {
     null,
   );
 
-  const [details, setDetails] = useState({ title: "", subtitle: "", description: "" });
+  const [details, setDetails] = useState({
+    title: "",
+    subtitle: "",
+    description: "",
+    price_minor: 0,
+  });
   const [detailsDirty, setDetailsDirty] = useState(false);
   const [newSection, setNewSection] = useState("");
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
@@ -78,6 +90,9 @@ export function CourseEditor({ courseId }: { courseId: string }) {
     null,
   );
   const [quizBuilder, setQuizBuilder] = useState<string | null>(null);
+  // A newly uploaded cover, held until the details form is saved (null = leave the current one).
+  const [coverAssetId, setCoverAssetId] = useState<string | null>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
   const [confirm, setConfirm] = useState<{ message: string; run: () => Promise<void> } | null>(
     null,
   );
@@ -98,8 +113,10 @@ export function CourseEditor({ courseId }: { courseId: string }) {
           title: d.course.title,
           subtitle: d.course.subtitle ?? "",
           description: d.course.description ?? "",
+          price_minor: d.course.price_minor,
         });
         setDetailsDirty(false);
+        setCoverAssetId(null);
       })
       .catch(() => setNotFound(true));
   }, [courseId, refreshToken]);
@@ -111,6 +128,9 @@ export function CourseEditor({ courseId }: { courseId: string }) {
         title: details.title.trim(),
         subtitle: details.subtitle.trim() || null,
         description: details.description.trim() || null,
+        price_minor: details.price_minor,
+        // Only sent when a new image was uploaded — omitting it leaves the existing cover alone.
+        ...(coverAssetId !== null ? { cover_media_asset_id: coverAssetId } : {}),
       });
       setDetailsDirty(false);
       refresh();
@@ -176,290 +196,365 @@ export function CourseEditor({ courseId }: { courseId: string }) {
     }
   }
 
-  const BackIcon = rtl ? ChevronLeft : ArrowLeft;
+  const BackIcon = rtl ? ArrowRight : ArrowLeft;
 
   if (notFound) {
     return (
-      <div className="py-16 text-center">
-        <p className="text-muted-foreground text-sm">{t("empty")}</p>
-        <Button variant="outline" className="mt-4" onClick={() => router.push("/courses")}>
-          <BackIcon /> {t("back")}
-        </Button>
+      <div className="bg-card rounded-2xl shadow-sm ring-1 ring-foreground/[0.06]">
+        <EmptyState
+          Icon={BookOpen}
+          color="slate"
+          title={t("notFound")}
+          description={t("notFoundHint")}
+          action={
+            <Button variant="outline" onClick={() => router.push("/lms/courses")}>
+              <BackIcon /> {t("back")}
+            </Button>
+          }
+        />
       </div>
     );
   }
 
-  if (!data) {
-    return <p className="text-muted-foreground py-16 text-center text-sm">…</p>;
-  }
+  if (!data) return <EditorSkeleton />;
 
   const { course, sections } = data;
+  const lessonCount = sections.reduce((n, s) => n + s.lessons.length, 0);
+  const previewCount = sections.reduce(
+    (n, s) => n + s.lessons.filter((l) => l.is_preview).length,
+    0,
+  );
+  const canPublish = lessonCount > 0;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="space-y-3">
-        <Link
-          href="/courses"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-        >
-          <BackIcon className="size-4" /> {t("back")}
-        </Link>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold">{course.title}</h1>
-            <CourseStatusBadge status={course.status} />
-          </div>
-          {canManage && (
-            <div className="flex flex-wrap gap-2">
-              {course.status !== "PUBLISHED" && (
-                <Button onClick={() => changeStatus("PUBLISHED", "alerts.published")} disabled={busy}>
-                  {t("editor.publish")}
-                </Button>
-              )}
-              {course.status === "PUBLISHED" && (
-                <Button
-                  variant="outline"
-                  onClick={() => changeStatus("DRAFT", "alerts.unpublished")}
-                  disabled={busy}
-                >
-                  {t("editor.unpublish")}
-                </Button>
-              )}
-              {course.status !== "ARCHIVED" ? (
-                <Button
-                  variant="outline"
-                  onClick={() => changeStatus("ARCHIVED", "alerts.archived")}
-                  disabled={busy}
-                >
-                  {t("editor.archive")}
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  onClick={() => changeStatus("DRAFT", "alerts.unpublished")}
-                  disabled={busy}
-                >
-                  {t("editor.restore")}
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={t("delete")}
-                onClick={() =>
-                  setConfirm({
-                    message: t("confirm.deleteCourse"),
-                    run: async () => {
-                      await deleteCourse(courseId);
-                      router.push("/courses");
-                    },
-                  })
-                }
-              >
-                <Trash2 className="text-destructive" />
-              </Button>
-            </div>
-          )}
-        </div>
-        {course.status === "DRAFT" && sections.every((s) => s.lessons.length === 0) && (
-          <p className="text-muted-foreground text-xs">{t("editor.publishHint")}</p>
-        )}
-      </div>
+    <div className="space-y-5 pb-4">
+      <Link
+        href="/lms/courses"
+        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm transition-colors"
+      >
+        <BackIcon className="size-4" /> {t("back")}
+      </Link>
+
+      <CourseBanner
+        course={course}
+        sectionCount={sections.length}
+        lessonCount={lessonCount}
+        previewCount={previewCount}
+        locale={locale}
+      />
 
       {alert && (
-        <AlertBanner variant={alert.variant} message={alert.message} onDismiss={() => setAlert(null)} />
+        <AlertBanner
+          variant={alert.variant}
+          message={alert.message}
+          onDismiss={() => setAlert(null)}
+        />
       )}
 
-      {/* Details */}
-      <section className="space-y-4 rounded-xl border p-4">
-        <h2 className="font-medium">{t("editor.details")}</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={t("form.title")}>
-            <input
-              value={details.title}
-              disabled={!canManage}
-              onChange={(e) => {
-                setDetails((d) => ({ ...d, title: e.target.value }));
-                setDetailsDirty(true);
-              }}
-              className={inputClass}
-            />
-          </Field>
-          <Field label={t("form.subtitle")}>
-            <input
-              value={details.subtitle}
-              disabled={!canManage}
-              onChange={(e) => {
-                setDetails((d) => ({ ...d, subtitle: e.target.value }));
-                setDetailsDirty(true);
-              }}
-              className={inputClass}
-            />
-          </Field>
-        </div>
-        <Field label={t("form.description")}>
-          <textarea
-            value={details.description}
-            disabled={!canManage}
-            onChange={(e) => {
-              setDetails((d) => ({ ...d, description: e.target.value }));
-              setDetailsDirty(true);
-            }}
-            rows={4}
-            className={textareaClass}
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+        {/* ── Curriculum (main column) ── */}
+        <div className="space-y-4">
+          <SectionTitle
+            Icon={Layers}
+            color="indigo"
+            title={t("editor.curriculum")}
+            desc={t("editor.curriculumDesc")}
           />
-        </Field>
-        {canManage && (
-          <div className="flex justify-end">
-            <Button onClick={saveDetails} disabled={busy || !detailsDirty || !details.title.trim()}>
-              {t("form.save")}
-            </Button>
-          </div>
-        )}
-      </section>
 
-      {/* Curriculum */}
-      <section className="space-y-4">
-        <h2 className="font-medium">{t("editor.curriculum")}</h2>
+          {sections.length === 0 ? (
+            <div className="bg-card rounded-2xl shadow-sm ring-1 ring-foreground/[0.06]">
+              <EmptyState
+                Icon={Layers}
+                color="indigo"
+                title={t("editor.noSections")}
+                description={t("editor.noSectionsHint")}
+              />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sections.map((section, index) => (
+                <section
+                  key={section.id}
+                  className="bg-card overflow-hidden rounded-2xl shadow-sm ring-1 ring-foreground/[0.06]"
+                >
+                  <header className="bg-muted/30 flex items-center gap-3 border-b px-4 py-3">
+                    <span className="bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm flex size-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold tabular-nums">
+                      {formatNumber(index + 1, locale)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">{section.title}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {t("lessonCount", { count: section.lessons.length })}
+                      </p>
+                    </div>
+                    {canManage && (
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={t("editor.renameSection")}
+                          onClick={() => setRenaming({ id: section.id, title: section.title })}
+                        >
+                          <Pencil />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={t("editor.deleteSection")}
+                          onClick={() =>
+                            setConfirm({
+                              message: t("confirm.deleteSection"),
+                              run: async () => {
+                                await deleteSection(courseId, section.id);
+                                refresh();
+                              },
+                            })
+                          }
+                        >
+                          <Trash2 className="text-destructive" />
+                        </Button>
+                      </div>
+                    )}
+                  </header>
 
-        {sections.length === 0 ? (
-          <p className="text-muted-foreground rounded-xl border border-dashed py-10 text-center text-sm">
-            {t("editor.noSections")}
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {sections.map((section) => (
-              <div key={section.id} className="rounded-xl border">
-                <div className="flex items-center gap-2 border-b p-3">
-                  <span className="flex-1 font-medium">{section.title}</span>
-                  {canManage && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t("editor.renameSection")}
-                        onClick={() => setRenaming({ id: section.id, title: section.title })}
-                      >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={t("editor.deleteSection")}
-                        onClick={() =>
-                          setConfirm({
-                            message: t("confirm.deleteSection"),
-                            run: async () => {
-                              await deleteSection(courseId, section.id);
-                              refresh();
-                            },
-                          })
-                        }
-                      >
-                        <Trash2 className="text-destructive" />
-                      </Button>
-                    </>
+                  {section.lessons.length === 0 ? (
+                    <p className="text-muted-foreground px-4 py-6 text-center text-sm">
+                      {t("editor.noLessons")}
+                    </p>
+                  ) : (
+                    <ul className="divide-y">
+                      {section.lessons.map((lesson, li) => (
+                        <LessonRow
+                          key={lesson.id}
+                          lesson={lesson}
+                          index={li}
+                          locale={locale}
+                          canManage={canManage}
+                          onEdit={() => setLessonModal({ sectionId: section.id, lesson })}
+                          onBuildQuiz={
+                            lesson.type === "QUIZ" && lesson.quiz_id
+                              ? () => setQuizBuilder(lesson.quiz_id)
+                              : undefined
+                          }
+                          onDelete={() =>
+                            setConfirm({
+                              message: t("confirm.deleteLesson"),
+                              run: async () => {
+                                await deleteLesson(courseId, lesson.id);
+                                refresh();
+                              },
+                            })
+                          }
+                        />
+                      ))}
+                    </ul>
                   )}
-                </div>
 
-                {section.lessons.length === 0 ? (
-                  <p className="text-muted-foreground px-3 py-4 text-sm">{t("editor.noLessons")}</p>
-                ) : (
-                  <ul className="divide-y">
-                    {section.lessons.map((lesson) => {
-                      const Icon = LESSON_ICON[lesson.type] ?? FileText;
-                      return (
-                        <li key={lesson.id} className="flex items-center gap-3 px-3 py-2.5">
-                          <Icon className="size-4 shrink-0 opacity-60" />
-                          <span className="min-w-0 flex-1 truncate text-sm">{lesson.title}</span>
-                          {lesson.is_preview && (
-                            <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs">
-                              {t("editor.preview")}
-                            </span>
-                          )}
-                          <span className="text-muted-foreground text-xs">
-                            {t(`lesson.types.${lesson.type}`)}
-                          </span>
-                          {canManage && (
-                            <>
-                              {lesson.type === "QUIZ" && lesson.quiz_id && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => setQuizBuilder(lesson.quiz_id)}
-                                >
-                                  <ListChecks className="size-4" /> {t("quiz.build")}
-                                </Button>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={t("lesson.save")}
-                                onClick={() => setLessonModal({ sectionId: section.id, lesson })}
-                              >
-                                <Pencil />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={t("editor.deleteLesson")}
-                                onClick={() =>
-                                  setConfirm({
-                                    message: t("confirm.deleteLesson"),
-                                    run: async () => {
-                                      await deleteLesson(courseId, lesson.id);
-                                      refresh();
-                                    },
-                                  })
-                                }
-                              >
-                                <Trash2 className="text-destructive" />
-                              </Button>
-                            </>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
+                  {canManage && (
+                    <div className="border-t p-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start"
+                        onClick={() => setLessonModal({ sectionId: section.id })}
+                      >
+                        <Plus /> {t("editor.addLesson")}
+                      </Button>
+                    </div>
+                  )}
+                </section>
+              ))}
+            </div>
+          )}
 
-                {canManage && (
-                  <div className="border-t p-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setLessonModal({ sectionId: section.id })}
-                    >
-                      <Plus /> {t("editor.addLesson")}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {canManage && (
-          <div className="flex gap-2">
-            <input
-              value={newSection}
-              onChange={(e) => setNewSection(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void submitAddSection();
-                }
+          {canManage && (
+            <form
+              className="border-input hover:border-primary/40 flex flex-wrap items-center gap-2 rounded-2xl border border-dashed p-3 transition-colors"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void submitAddSection();
               }}
-              placeholder={t("editor.sectionTitle")}
-              className={cn(inputClass, "max-w-xs")}
-            />
-            <Button variant="outline" onClick={submitAddSection} disabled={busy || !newSection.trim()}>
-              <Plus /> {t("editor.addSection")}
-            </Button>
-          </div>
-        )}
-      </section>
+            >
+              <input
+                value={newSection}
+                onChange={(e) => setNewSection(e.target.value)}
+                placeholder={t("editor.sectionTitle")}
+                className={cn(inputClass, "min-w-0 flex-1 border-transparent bg-transparent")}
+              />
+              <Button type="submit" variant="outline" disabled={busy || !newSection.trim()}>
+                <Plus /> {t("editor.addSection")}
+              </Button>
+            </form>
+          )}
+        </div>
+
+        {/* ── Details + publishing (sidebar) ── */}
+        <aside className="order-first space-y-4 xl:sticky xl:top-4 xl:order-none">
+          {canManage && (
+            <Panel Icon={Rocket} color="emerald" title={t("editor.publishing")}>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground text-xs font-medium">
+                    {t("editor.currentStatus")}
+                  </span>
+                  <CourseStatusBadge status={course.status} />
+                </div>
+                <p className="text-muted-foreground text-xs leading-relaxed">
+                  {t(`editor.statusHint.${course.status}`)}
+                </p>
+
+                {course.status === "DRAFT" && !canPublish && (
+                  <p className="text-amber-600 dark:text-amber-400 text-xs font-medium">
+                    {t("editor.publishHint")}
+                  </p>
+                )}
+
+                <div className="flex flex-col gap-2 pt-1">
+                  {course.status !== "PUBLISHED" && (
+                    <Button
+                      size="lg"
+                      onClick={() => changeStatus("PUBLISHED", "alerts.published")}
+                      disabled={busy || !canPublish}
+                    >
+                      <Rocket /> {t("editor.publish")}
+                    </Button>
+                  )}
+                  {course.status === "PUBLISHED" && (
+                    <Button
+                      variant="outline"
+                      onClick={() => changeStatus("DRAFT", "alerts.unpublished")}
+                      disabled={busy}
+                    >
+                      <Undo2 /> {t("editor.unpublish")}
+                    </Button>
+                  )}
+                  {course.status !== "ARCHIVED" ? (
+                    <Button
+                      variant="outline"
+                      onClick={() => changeStatus("ARCHIVED", "alerts.archived")}
+                      disabled={busy}
+                    >
+                      <Archive /> {t("editor.archive")}
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      onClick={() => changeStatus("DRAFT", "alerts.unpublished")}
+                      disabled={busy}
+                    >
+                      <Undo2 /> {t("editor.restore")}
+                    </Button>
+                  )}
+                  <Button
+                    variant="destructive"
+                    onClick={() =>
+                      setConfirm({
+                        message: t("confirm.deleteCourse"),
+                        run: async () => {
+                          await deleteCourse(courseId);
+                          router.push("/lms/courses");
+                        },
+                      })
+                    }
+                    disabled={busy}
+                  >
+                    <Trash2 /> {t("editor.deleteCourse")}
+                  </Button>
+                </div>
+              </div>
+            </Panel>
+          )}
+
+          <Panel
+            Icon={Settings2}
+            color="violet"
+            title={t("editor.details")}
+            action={
+              detailsDirty ? (
+                <StatusPill tone="amber">{t("editor.unsaved")}</StatusPill>
+              ) : undefined
+            }
+          >
+            <div className="space-y-4">
+              <Field label={t("form.title")}>
+                <input
+                  value={details.title}
+                  disabled={!canManage}
+                  onChange={(e) => {
+                    setDetails((d) => ({ ...d, title: e.target.value }));
+                    setDetailsDirty(true);
+                  }}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label={t("form.subtitle")} optional={t("form.optional")}>
+                <input
+                  value={details.subtitle}
+                  disabled={!canManage}
+                  onChange={(e) => {
+                    setDetails((d) => ({ ...d, subtitle: e.target.value }));
+                    setDetailsDirty(true);
+                  }}
+                  className={inputClass}
+                />
+              </Field>
+              <Field label={t("form.description")} optional={t("form.optional")}>
+                <textarea
+                  value={details.description}
+                  disabled={!canManage}
+                  onChange={(e) => {
+                    setDetails((d) => ({ ...d, description: e.target.value }));
+                    setDetailsDirty(true);
+                  }}
+                  rows={5}
+                  className={textareaClass}
+                />
+              </Field>
+              <Field label={t("form.cover")} optional={t("form.optional")} hint={t("form.coverHint")}>
+                <MediaUpload
+                  kind="IMAGE"
+                  accept="image/*"
+                  hasExisting={course.cover_image_path !== null}
+                  existingUrl={course.cover_image_path}
+                  onChange={(id) => {
+                    setCoverAssetId(id);
+                    if (id !== null) setDetailsDirty(true);
+                  }}
+                  onBusyChange={setCoverUploading}
+                />
+              </Field>
+              <Field label={t("form.price")}>
+                <PriceField
+                  key={`price-${refreshToken}`}
+                  defaultMinor={course.price_minor}
+                  currency={course.currency}
+                  disabled={!canManage}
+                  onChange={(minor) => {
+                    setDetails((d) => ({ ...d, price_minor: minor }));
+                    setDetailsDirty(true);
+                  }}
+                  labels={{
+                    free: t("price.free"),
+                    paid: t("price.paid"),
+                    amount: t("price.amount", { currency: course.currency }),
+                    placeholder: t("price.placeholder"),
+                    freeHint: t("price.freeHint"),
+                  }}
+                />
+              </Field>
+              {canManage && (
+                <Button
+                  className="w-full"
+                  onClick={saveDetails}
+                  disabled={busy || coverUploading || !detailsDirty || !details.title.trim()}
+                >
+                  {t("form.save")}
+                </Button>
+              )}
+            </div>
+          </Panel>
+        </aside>
+      </div>
 
       {/* Lesson add/edit modal */}
       {lessonModal && (
@@ -490,7 +585,11 @@ export function CourseEditor({ courseId }: { courseId: string }) {
       )}
 
       {/* Rename section modal */}
-      <Modal open={renaming !== null} onClose={() => setRenaming(null)} title={t("editor.renameSection")}>
+      <Modal
+        open={renaming !== null}
+        onClose={() => setRenaming(null)}
+        title={t("editor.renameSection")}
+      >
         <form
           className="space-y-4"
           onSubmit={(e) => {
@@ -498,13 +597,15 @@ export function CourseEditor({ courseId }: { courseId: string }) {
             void submitRename();
           }}
         >
-          <input
-            autoFocus
-            value={renaming?.title ?? ""}
-            onChange={(e) => setRenaming((r) => (r ? { ...r, title: e.target.value } : r))}
-            className={inputClass}
-          />
-          <div className="flex justify-end gap-2">
+          <Field label={t("editor.sectionTitle")}>
+            <input
+              autoFocus
+              value={renaming?.title ?? ""}
+              onChange={(e) => setRenaming((r) => (r ? { ...r, title: e.target.value } : r))}
+              className={inputClass}
+            />
+          </Field>
+          <div className="flex justify-end gap-2 border-t pt-4">
             <Button type="button" variant="outline" onClick={() => setRenaming(null)} disabled={busy}>
               {t("form.cancel")}
             </Button>
@@ -516,16 +617,195 @@ export function CourseEditor({ courseId }: { courseId: string }) {
       </Modal>
 
       {/* Generic confirm modal */}
-      <Modal open={confirm !== null} onClose={() => setConfirm(null)} title={confirm?.message ?? ""}>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setConfirm(null)} disabled={busy}>
-            {t("form.cancel")}
+      <Modal
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title={confirm?.message ?? ""}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setConfirm(null)} disabled={busy}>
+              {t("form.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={runConfirm} disabled={busy}>
+              {t("delete")}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-muted-foreground text-sm">{t("confirm.irreversible")}</p>
+      </Modal>
+    </div>
+  );
+}
+
+/** The editor's masthead — the course identity plus the three numbers that describe its shape. */
+function CourseBanner({
+  course,
+  sectionCount,
+  lessonCount,
+  previewCount,
+  locale,
+}: {
+  course: CourseDetail["course"];
+  sectionCount: number;
+  lessonCount: number;
+  previewCount: number;
+  locale: string;
+}) {
+  const t = useTranslations("courses");
+  const c = lmsColor("violet");
+
+  return (
+    <header className="bg-card relative overflow-hidden rounded-2xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
+      <div className={cn("absolute inset-x-0 top-0 h-1 bg-gradient-to-r", c.stripe)} />
+      <div
+        className={cn("pointer-events-none absolute -top-20 -end-10 size-48 rounded-full blur-3xl", c.glow)}
+      />
+      <BookOpen
+        className="text-foreground/[0.03] dark:text-foreground/[0.05] pointer-events-none absolute -bottom-6 -end-4 size-32"
+        strokeWidth={1.25}
+        aria-hidden
+      />
+
+      <div className="relative flex flex-wrap items-start gap-4">
+        <span
+          className={cn(
+            "flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-md",
+            c.chip,
+          )}
+        >
+          <BookOpen className="size-6" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-bold tracking-tight">{course.title}</h1>
+            <CourseStatusBadge status={course.status} />
+            <PriceTag
+              priceMinor={course.price_minor}
+              currency={course.currency}
+              free={course.is_free}
+              freeLabel={t("price.free")}
+              locale={locale}
+            />
+          </div>
+          {course.subtitle && (
+            <p className="text-muted-foreground mt-1 text-sm">{course.subtitle}</p>
+          )}
+          <dl className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5">
+            <BannerStat
+              Icon={Layers}
+              label={t("editor.sectionsLabel")}
+              value={formatNumber(sectionCount, locale)}
+            />
+            <BannerStat
+              Icon={PlayCircle}
+              label={t("editor.lessonsLabel")}
+              value={formatNumber(lessonCount, locale)}
+            />
+            <BannerStat
+              Icon={Eye}
+              label={t("editor.previewsLabel")}
+              value={formatNumber(previewCount, locale)}
+            />
+          </dl>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function BannerStat({ Icon, label, value }: { Icon: LucideIcon; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Icon className="text-muted-foreground size-3.5" />
+      <dt className="text-muted-foreground text-xs">{label}</dt>
+      <dd className="text-sm font-semibold tabular-nums">{value}</dd>
+    </div>
+  );
+}
+
+/** One lesson in the outline — position, kind chip, title, and (for managers) its row actions. */
+function LessonRow({
+  lesson,
+  index,
+  locale,
+  canManage,
+  onEdit,
+  onBuildQuiz,
+  onDelete,
+}: {
+  lesson: Lesson;
+  index: number;
+  locale: string;
+  canManage: boolean;
+  onEdit: () => void;
+  onBuildQuiz?: () => void;
+  onDelete: () => void;
+}) {
+  const t = useTranslations("courses");
+  const style = LESSON_STYLE[lesson.type] ?? LESSON_STYLE.TEXT;
+  const c = lmsColor(style.color);
+  const Icon = style.Icon;
+
+  return (
+    <li className="hover:bg-muted/30 group flex items-center gap-3 px-4 py-2.5 transition-colors">
+      <span className="text-muted-foreground w-4 shrink-0 text-xs tabular-nums">
+        {formatNumber(index + 1, locale)}
+      </span>
+      <span
+        className={cn(
+          "flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm",
+          c.chip,
+        )}
+      >
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{lesson.title}</p>
+        <p className="text-muted-foreground text-xs">{t(`lesson.types.${lesson.type}`)}</p>
+      </div>
+      {lesson.is_preview && (
+        <StatusPill tone="blue" dot={false} className="hidden sm:inline-flex">
+          <Eye className="size-3" />
+          {t("editor.preview")}
+        </StatusPill>
+      )}
+      {canManage && (
+        <div className="flex shrink-0 items-center gap-0.5">
+          {onBuildQuiz && (
+            <Button variant="ghost" size="sm" onClick={onBuildQuiz}>
+              <ListChecks /> <span className="hidden sm:inline">{t("quiz.build")}</span>
+            </Button>
+          )}
+          <Button variant="ghost" size="icon-sm" aria-label={t("lesson.save")} onClick={onEdit}>
+            <Pencil />
           </Button>
-          <Button variant="destructive" onClick={runConfirm} disabled={busy}>
-            {t("delete")}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("editor.deleteLesson")}
+            onClick={onDelete}
+          >
+            <Trash2 className="text-destructive" />
           </Button>
         </div>
-      </Modal>
+      )}
+    </li>
+  );
+}
+
+function EditorSkeleton() {
+  return (
+    <div className="space-y-5">
+      <Sk className="h-4 w-32" />
+      <Sk className="h-32 rounded-2xl" />
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-3">
+          <Sk className="h-40 rounded-2xl" />
+          <Sk className="h-40 rounded-2xl" />
+        </div>
+        <Sk className="h-80 rounded-2xl" />
+      </div>
     </div>
   );
 }

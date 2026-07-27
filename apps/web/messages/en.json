@@ -151,13 +151,19 @@
     "adminSubscriptions": "Subscriptions",
     "adminAutomation": "WhatsApp Ops",
     "adminVideo": "Video Ops",
+    "adminLms": "Course Platform",
     "platformSettings": "Platform Settings",
     "roles": "Roles & Permissions",
     "upgradeBadge": "Upgrade",
     "upgradeHint": "Upgrade your plan to unlock this feature",
     "academyRoles": "Roles & Permissions",
     "teacherQuality": "Teacher Quality",
-    "discountsAwards": "Discounts & Awards"
+    "discountsAwards": "Discounts & Awards",
+    "lmsHome": "LMS Dashboard",
+    "lmsQuizzes": "Quizzes",
+    "lmsLearners": "Learners",
+    "lmsCodes": "Access codes",
+    "lmsSite": "My website"
   },
   "navGroup": {
     "general": "General",
@@ -167,7 +173,8 @@
     "people": "People",
     "academics": "Academics",
     "scheduling": "Scheduling",
-    "platform": "Platform"
+    "platform": "Platform",
+    "lms": "Course platform"
   },
   "adminModule": {
     "platform": "Platform",
@@ -2733,6 +2740,160 @@
       }
     }
   },
+  "adminLms": {
+    "title": "Course Platform Ops",
+    "subtitle": "Every client selling online courses — catalogue, learners and storage against their caps, plus the per-client controls.",
+    "loadError": "Could not load the LMS data. Try refreshing.",
+    "noPermission": "You do not have permission to view the course platform.",
+    "refresh": "Refresh",
+    "totals": {
+      "clients": "LMS clients",
+      "publishedCourses": "Published courses",
+      "lessons": "Lessons",
+      "learners": "Learners",
+      "redeemed": "Codes redeemed",
+      "storage": "Media storage"
+    },
+    "status": {
+      "ACTIVE": "Active",
+      "TRIAL": "Trial",
+      "EXPIRED": "Trial ended",
+      "PAUSED": "Paused",
+      "NONE": "Not enabled"
+    },
+    "courseStatus": {
+      "DRAFT": "Draft",
+      "PUBLISHED": "Published",
+      "ARCHIVED": "Archived"
+    },
+    "clients": {
+      "title": "LMS clients",
+      "subtitle": "Usage per client. Select a row to open its statistics and controls.",
+      "manageOnClients": "Manage subscriptions →",
+      "colClient": "Client",
+      "colStatus": "LMS status",
+      "colSite": "Course site",
+      "colCourses": "Published courses",
+      "colLearners": "Learners",
+      "colEnrollments": "Active enrolments",
+      "colStorage": "Storage",
+      "empty": "No client is selling courses yet.",
+      "noPlan": "No plan",
+      "noSite": "Not set",
+      "publishedOf": "{used} of {total}"
+    },
+    "activity": {
+      "title": "Course platform activity",
+      "subtitle": "Course, lesson, learner, access-code and enrolment actions across every LMS client.",
+      "colClient": "Client",
+      "colAction": "Action",
+      "colActor": "Actor",
+      "colTime": "When",
+      "empty": "No LMS activity recorded yet.",
+      "platformBadge": "Platform",
+      "system": "System"
+    },
+    "action": {
+      "course_create": "Course created",
+      "course_update": "Course updated",
+      "course_set_status": "Course status changed",
+      "course_delete": "Course deleted",
+      "lesson_create": "Lesson added",
+      "lesson_update": "Lesson updated",
+      "lesson_delete": "Lesson deleted",
+      "learner_set_status": "Learner status changed",
+      "enrollment_set_status": "Enrolment changed",
+      "access_code_batch": "Access codes generated",
+      "access_code_update": "Access code updated",
+      "access_code_delete": "Access code deleted",
+      "quiz_create": "Quiz created",
+      "lms_limits_set": "Capacity caps changed",
+      "lms_subdomain_set": "Course site changed",
+      "lms_course_moderated": "Course moderated",
+      "lms_learner_moderated": "Learner moderated"
+    },
+    "detail": {
+      "back": "Back to course platform",
+      "notFound": "That client could not be found.",
+      "createdAt": "client since {date}",
+      "trialDaysLeft": "{days} days left",
+      "openClient": "Open client page →",
+      "save": "Save",
+      "never": "Never",
+      "uncapped": "No cap",
+      "usedOfCap": "{used} of {cap}",
+      "ofCap": "of {cap}",
+      "ofTotal": "of {total} total",
+      "publishedOfTotal": "published of total",
+      "activeLearners": "{count} active",
+      "activeCodes": "{count} codes active",
+      "statCourses": "Courses",
+      "statEnrollments": "Active enrolments",
+      "statCodes": "Codes redeemed",
+      "statCertificates": "Certificates issued",
+      "statCompletedLessons": "Lessons completed",
+      "statQuizAttempts": "Quiz attempts",
+      "statMediaFailed": "Failed uploads",
+      "recentTitle": "Recent enrolments",
+      "recentEmpty": "No enrolments yet.",
+      "limit": {
+        "maxCourses": "Published courses",
+        "maxLearners": "Learners",
+        "maxStorageGb": "Media storage (GB)"
+      },
+      "site": {
+        "title": "Public course site",
+        "hint": "The subdomain learners use to reach this client's courses. Only you can change it — the client sees it read-only.",
+        "placeholder": "subdomain",
+        "saved": "Course site updated.",
+        "failed": "Could not update the course site.",
+        "notConfigured": "Subdomain routing is not configured on this deployment, so this handle resolves through the main domain path shown above. Set LMS_SITE_ROOT_DOMAIN (API) and NEXT_PUBLIC_ROOT_DOMAIN (web), plus wildcard DNS and a wildcard TLS certificate, to serve it as a real subdomain."
+      },
+      "limits": {
+        "title": "Capacity caps",
+        "hint": "Override this client's course, learner and storage caps without creating a bespoke plan. Leave a field blank to inherit the plan's own limit.",
+        "saved": "Capacity caps updated.",
+        "cleared": "Overrides cleared — the client follows its plan again.",
+        "failed": "Could not update the capacity caps.",
+        "clear": "Clear overrides",
+        "inherit": "Inherit",
+        "inheriting": "Following the plan's limits."
+      },
+      "courses": {
+        "title": "Courses",
+        "hint": "Moderate what this client publishes. Unpublishing removes a course from the public site immediately.",
+        "colTitle": "Course",
+        "colStatus": "Status",
+        "colLessons": "Lessons",
+        "colLearners": "Learners",
+        "colActions": "Actions",
+        "empty": "This client has no courses yet.",
+        "publish": "Publish",
+        "unpublish": "Unpublish",
+        "archive": "Archive",
+        "needsLesson": "Add at least one lesson before publishing.",
+        "moderated": "Course updated.",
+        "failed": "Could not update the course."
+      },
+      "learners": {
+        "title": "Learners",
+        "hint": "The 50 most recent learners. Blocking stops a learner signing in to the course site.",
+        "colName": "Learner",
+        "colStatus": "Status",
+        "colEnrollments": "Enrolments",
+        "colLastLogin": "Last sign-in",
+        "empty": "No learners have registered yet.",
+        "block": "Block",
+        "unblock": "Unblock",
+        "moderated": "Learner updated.",
+        "failed": "Could not update the learner.",
+        "status": {
+          "ACTIVE": "Active",
+          "BLOCKED": "Blocked"
+        }
+      }
+    }
+  },
   "waConnect": {
     "title": "Connect WhatsApp",
     "subtitle": "Link your WhatsApp number to start sending.",
@@ -3065,9 +3226,14 @@
       "subtitlePlaceholder": "A short line shown under the title",
       "description": "Description",
       "descriptionPlaceholder": "What will students learn?",
+      "cover": "Cover image",
+      "coverHint": "Shown on your course site and in the catalogue.",
       "create": "Create course",
       "save": "Save changes",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "optional": "optional",
+      "createHint": "Name it now — you can change everything later.",
+      "price": "Price"
     },
     "editor": {
       "details": "Course details",
@@ -3085,12 +3251,27 @@
       "noSections": "Add a section to start building the curriculum.",
       "noLessons": "No lessons in this section yet.",
       "preview": "Free preview",
-      "deleteLesson": "Delete lesson"
+      "deleteLesson": "Delete lesson",
+      "curriculumDesc": "Sections hold the lessons your learners work through, in order.",
+      "noSectionsHint": "Sections group your lessons — add the first one below to start building.",
+      "publishing": "Publishing",
+      "currentStatus": "Current status",
+      "statusHint": {
+        "DRAFT": "Only your team can see this course. Publish it to put it on your site.",
+        "PUBLISHED": "Live on your course site — learners with a valid code can watch it.",
+        "ARCHIVED": "Hidden from your site. Existing learners keep their access."
+      },
+      "deleteCourse": "Delete course",
+      "unsaved": "Unsaved",
+      "sectionsLabel": "Sections",
+      "lessonsLabel": "Lessons",
+      "previewsLabel": "Free previews",
+      "publishBlocked": "Add a lesson to publish"
     },
     "lesson": {
       "title": "Lesson title",
       "type": "Type",
-      "typeHint": "Quiz lessons arrive in a later release.",
+      "typeHint": "Pick a kind — a quiz lesson only needs a title here; you add its questions afterwards.",
       "youtubeUrl": "YouTube link",
       "youtubePlaceholder": "https://youtube.com/watch?v=…",
       "body": "Content",
@@ -3108,18 +3289,72 @@
         "AUDIO": "Audio",
         "VIDEO_UPLOAD": "Uploaded video",
         "QUIZ": "Quiz"
-      }
+      },
+      "editTitle": "Edit lesson",
+      "hint": "Pick the kind of lesson, then fill in the one thing it needs.",
+      "titlePlaceholder": "e.g. Balancing chemical equations",
+      "youtubeHint": "Paste any YouTube link — we read the video id from it.",
+      "isPreviewHint": "Anyone browsing your site can watch this lesson without redeeming a code."
     },
     "media": {
       "choose": "Choose a video to upload",
       "hint": "MP4 or WebM. Large files upload directly and may take a while.",
       "uploading": "Uploading…",
+      "chooseImage": "Choose an image to upload",
+      "hintImage": "JPG, PNG or WebP. A wide (16:9) picture looks best.",
+      "processingImage": "Finishing up…",
       "processing": "Processing the video…",
       "ready": "Uploaded",
       "replace": "Replace",
       "retry": "Try again",
       "failed": "Upload failed. Please try again.",
       "processingFailed": "We couldn't process this file. Try a different one."
+    },
+    "quizzes": {
+      "title": "Quizzes",
+      "subtitle": "Every quiz across your courses, and how learners are doing on them.",
+      "search": "Search quizzes or courses…",
+      "untitled": "Untitled quiz",
+      "empty": "No quizzes yet",
+      "emptyHint": "Add a Quiz lesson to a course, then build its questions.",
+      "unattached": "Not in any lesson",
+      "results": "Results",
+      "edit": "Edit",
+      "openCourse": "Open course",
+      "backToQuizzes": "All quizzes",
+      "passed": "Passed",
+      "failed": "Failed",
+      "pts": "{points} pts",
+      "byLearners": "by {count}",
+      "correctOf": "{correct} of {total}",
+      "questionBreakdown": "Question breakdown",
+      "noQuestionsYet": "This quiz has no questions",
+      "noQuestionsYetHint": "Open the course and build its questions — learners can't take it until then.",
+      "attemptsTitle": "Attempts",
+      "noAttempts": "No attempts yet",
+      "noAttemptsHint": "Results appear here once learners submit this quiz.",
+      "truncated": "Showing the {shown} most recent of {total} attempts. The figures above cover all of them.",
+      "passMarkNote": "Pass mark is {mark}%. {learners} of {total} learners have passed.",
+      "stats": {
+        "quizzes": "Quizzes",
+        "questions": "Questions",
+        "attempts": "Attempts",
+        "learners": "Learners",
+        "passRate": "Pass rate",
+        "avgScore": "Average score"
+      },
+      "col": {
+        "quiz": "Quiz",
+        "questions": "Questions",
+        "attempts": "Attempts",
+        "passRate": "Pass rate",
+        "avgScore": "Avg score",
+        "actions": "Actions",
+        "learner": "Learner",
+        "score": "Score",
+        "outcome": "Outcome",
+        "submitted": "Submitted"
+      }
     },
     "quiz": {
       "build": "Build quiz",
@@ -3143,12 +3378,17 @@
         "SINGLE": "Single choice",
         "MULTIPLE": "Multiple choice",
         "TRUE_FALSE": "True / False"
-      }
+      },
+      "summary": "{questions} questions · {points} points",
+      "noQuestions": "No questions yet",
+      "noQuestionsHint": "Add your first question — each one needs at least two options and a correct answer."
     },
     "confirm": {
       "deleteCourse": "Delete this course? This can't be undone.",
       "deleteSection": "Delete this section and its lessons?",
-      "deleteLesson": "Delete this lesson?"
+      "deleteLesson": "Delete this lesson?",
+      "deleteCourseBody": "This permanently deletes",
+      "irreversible": "This can't be undone."
     },
     "alerts": {
       "created": "Course created.",
@@ -3197,11 +3437,23 @@
         "label": "Label (optional)",
         "labelPlaceholder": "e.g. Grade 10 Batch A",
         "submit": "Generate",
-        "pickCourse": "Select at least one course."
+        "pickCourse": "Select at least one course.",
+        "hint": "Pick the courses, choose how many codes, and we'll generate them.",
+        "selected": "{count} selected",
+        "noCourses": "Create a course first — codes unlock courses.",
+        "singleUseHint": "Each code works exactly once. Turn this off for a code a whole class can share."
       },
       "generated": "{count} codes generated.",
       "deleted": "Code deleted.",
-      "confirmDelete": "Delete this code?"
+      "confirmDelete": "Delete this code?",
+      "search": "Search codes, labels or courses",
+      "emptyHint": "Generate a batch, hand the codes to your students, and each one unlocks the courses you picked.",
+      "confirmDeleteBody": "This permanently deletes the code",
+      "stats": {
+        "total": "Codes",
+        "active": "Active",
+        "redeemed": "Redemptions"
+      }
     },
     "learners": {
       "title": "Learners",
@@ -3225,17 +3477,45 @@
       "blocked_msg": "Learner blocked.",
       "unblocked_msg": "Learner unblocked.",
       "revoked_msg": "Access revoked.",
-      "restored_msg": "Access restored."
+      "restored_msg": "Access restored.",
+      "search": "Search by name or email",
+      "emptyHint": "Learners appear here as soon as they sign up on your course site.",
+      "noEnrollments": "No enrolments yet.",
+      "stats": {
+        "total": "Learners",
+        "active": "Active",
+        "enrollments": "Enrolments"
+      }
     },
     "site": {
       "notConfigured": "Your course site isn't set up yet — ask your provider to assign a subdomain.",
       "yourSite": "Your course site",
       "visit": "Visit site"
+    },
+    "emptyHint": "Create a course, build its curriculum, then publish it to your site.",
+    "noResults": "Nothing matches",
+    "noResultsHint": "Try a different word, or clear the filters.",
+    "clearFilters": "Clear filters",
+    "notFound": "Course not found",
+    "notFoundHint": "It may have been deleted, or you may not have access to it.",
+    "view": {
+      "grid": "Grid view",
+      "list": "List view"
+    },
+    "cardMenu": "Course actions",
+    "noSubtitle": "No subtitle",
+    "price": {
+      "free": "Free",
+      "paid": "Paid",
+      "amount": "Amount ({currency})",
+      "placeholder": "0.00",
+      "freeHint": "Anyone with a code unlocks this course at no charge."
     }
   },
   "learn": {
-    "brand": "Courses",
-    "errors": { "generic": "Something went wrong. Please try again." },
+    "errors": {
+      "generic": "Something went wrong. Please try again."
+    },
     "auth": {
       "signIn": "Sign in",
       "register": "Create account",
@@ -3244,7 +3524,9 @@
       "email": "Email",
       "password": "Password",
       "needAccount": "New here? Create an account",
-      "haveAccount": "Already have an account? Sign in"
+      "haveAccount": "Already have an account? Sign in",
+      "phone": "Phone (optional)",
+      "subtitle": "Your account at {name}"
     },
     "redeem": {
       "cta": "Redeem code",
@@ -3252,35 +3534,145 @@
       "hint": "Enter the code your teacher gave you to unlock the course.",
       "submit": "Redeem",
       "unlocked": "Unlocked! You now have access to:",
-      "done": "Start learning"
+      "done": "Start learning",
+      "signInFirst": "Sign in or create an account, then enter your code."
     },
     "catalog": {
       "title": "Courses",
       "subtitle": "Browse the courses and unlock them with a code.",
       "empty": "No courses published yet.",
-      "lessons": "{count, plural, =0 {No lessons} one {# lesson} other {# lessons}}"
+      "lessons": "{count, plural, =0 {No lessons} one {# lesson} other {# lessons}}",
+      "eyebrow": "Catalogue",
+      "viewAll": "View all courses",
+      "search": "Search courses",
+      "noMatches": "No course matches your search.",
+      "enrolled": "Enrolled",
+      "view": "View course",
+      "tabAll": "All courses",
+      "tabMine": "My courses",
+      "free": "Free",
+      "new": "New",
+      "students": "{count, plural, one {# student} other {# students}}",
+      "loading": "Loading courses…",
+      "resultCount": "{count, plural, =0 {No courses} one {# course} other {# courses}}",
+      "courseCountLabel": "Published courses",
+      "lessonCountLabel": "Lessons available",
+      "clearSearch": "Clear search",
+      "filters": "Filters",
+      "clearAll": "Clear all",
+      "access": "Access",
+      "price": "Price",
+      "priceAll": "All prices",
+      "priceFree": "Free",
+      "pricePaid": "Paid",
+      "duration": "Length",
+      "length": {
+        "any": "Any length",
+        "short": "Under 1 hour",
+        "medium": "1–3 hours",
+        "long": "3+ hours"
+      },
+      "content": "Content",
+      "hasPreview": "Has a free preview",
+      "sort": "Sort by",
+      "sortBy": {
+        "newest": "Newest",
+        "popular": "Most popular",
+        "longest": "Longest",
+        "shortest": "Shortest",
+        "priceLow": "Price: low to high",
+        "priceHigh": "Price: high to low",
+        "az": "Title A–Z"
+      },
+      "gridView": "Grid view",
+      "listView": "List view",
+      "continueLearning": "Continue learning",
+      "totalLine": "{courses} courses · {lessons} lessons in this catalogue"
     },
     "course": {
       "notFound": "Course not found.",
       "back": "Back to courses",
       "continue": "Continue",
       "enroll": "Enroll with a code",
+      "enrollFree": "Enroll for free",
+      "enrolling": "Enrolling…",
+      "enrollFailed": "Could not enroll you. Please try again.",
+      "freeAccess": "Free — no code needed",
+      "freeHint": "This course is free. Sign in and start watching right away.",
       "curriculum": "Curriculum",
       "preview": "Free preview",
       "watch": "Watch",
-      "hide": "Hide"
+      "hide": "Hide",
+      "sections": "{count, plural, =0 {No sections} one {# section} other {# sections}}",
+      "previewCount": "{count, plural, one {# free preview} other {# free previews}}",
+      "about": "About this course",
+      "certificateIncluded": "Certificate when you finish",
+      "codeAccess": "Unlocked with an access code",
+      "requestCode": "No code? Request one",
+      "howToJoin": "How to get access",
+      "more": "More courses",
+      "updated": "Updated {date}",
+      "createdBy": "Created by",
+      "covers": "What this course covers",
+      "curriculumMeta": "{sections, plural, one {# section} other {# sections}} · {lessons, plural, one {# lesson} other {# lessons}}",
+      "expandAll": "Expand all sections",
+      "collapseAll": "Collapse all sections",
+      "sectionEmpty": "No lessons in this section yet.",
+      "showMore": "Show more",
+      "showLess": "Show less",
+      "includes": "This course includes",
+      "includesVideo": "of on-demand video",
+      "includesVideoCount": "{count, plural, one {# video lesson} other {# video lessons}}",
+      "includesReadings": "{count, plural, one {# reading} other {# readings}}",
+      "includesDownloads": "{count, plural, one {# downloadable resource} other {# downloadable resources}}",
+      "includesQuizzes": "{count, plural, one {# quiz} other {# quizzes}}",
+      "includesLifetime": "Full lifetime access",
+      "includesDevices": "Access on phone, tablet and computer",
+      "oneOff": "One-off payment",
+      "previewCta": "Preview this course",
+      "previewNote": "A free preview lesson from this course.",
+      "otherPreviews": "More free previews",
+      "share": "Share this course",
+      "linkCopied": "Link copied",
+      "instructors": "Your teachers"
     },
     "player": {
       "locked": "This lesson is locked. Redeem a code to unlock the course.",
       "openPdf": "Open PDF",
+      "play": "Play",
+      "pause": "Pause",
+      "seek": "Seek",
+      "speed": "Playback speed",
+      "mute": "Mute",
+      "unmute": "Unmute",
+      "fullscreen": "Fullscreen",
+      "exitFullscreen": "Exit fullscreen",
+      "loading": "Loading the player…",
       "processing": "This video is still processing — check back shortly.",
       "signInNeeded": "Sign in to watch this course.",
       "notEnrolled": "Redeem a code to unlock this course.",
+      "freeJoin": "This course is free — enroll to start watching.",
       "progress": "{done} / {total} done",
       "completed": "Completed",
       "markComplete": "Mark complete",
       "certificateReady": "You finished the course — view your certificate",
-      "empty": "This course has no lessons yet."
+      "empty": "This course has no lessons yet.",
+      "contents": "Course content",
+      "close": "Close",
+      "previous": "Previous",
+      "next": "Next",
+      "autoplay": "Autoplay next lesson",
+      "lessonOf": "Lesson {position} of {total}",
+      "sectionNumber": "Section {n}",
+      "sectionProgress": "{done} / {total}",
+      "tab": {
+        "overview": "Overview",
+        "notes": "Notes"
+      },
+      "noOverview": "No description for this lesson.",
+      "notesPlaceholder": "Write your notes for this lesson…",
+      "notesHint": "Notes are saved in this browser only.",
+      "certificateEarned": "Congratulations — your certificate is ready!"
     },
     "quiz": {
       "passMark": "Pass mark: {mark}%",
@@ -3300,17 +3692,226 @@
       "hasCompleted": "has successfully completed",
       "serial": "Serial",
       "print": "Print",
+      "download": "Download PDF",
+      "downloading": "Preparing PDF…",
+      "downloadFailed": "The PDF could not be prepared. You can still use Print and choose “Save as PDF”, or try again.",
+      "verified": "Verified achievement",
+      "verifiedCredential": "Verified credential",
+      "pageTitle": "Your certificate is ready",
+      "pageSubtitle": "A premium, print-ready credential celebrating your completed course.",
+      "credential": "Course credential",
+      "credentialId": "Credential ID",
+      "issued": "Issued",
+      "status": "Status",
+      "privateCredential": "Private credential",
+      "achievementInProgress": "Achievement in progress",
       "signInNeeded": "Sign in to view your certificate.",
+      "signInHint": "Your certificate contains private learner details. Sign in to view and download it securely.",
       "signIn": "Sign in",
       "notEarned": "Finish every lesson to earn your certificate.",
+      "notEarnedHint": "Complete the remaining course content and your verified certificate will appear here automatically.",
       "keepLearning": "Keep learning",
-      "failed": "Couldn't load the certificate."
+      "failed": "Couldn't load the certificate.",
+      "failedHint": "The credential is temporarily unavailable. Please refresh the page or try again shortly."
     },
     "me": {
       "signInNeeded": "Sign in to see your courses.",
       "title": "Hi, {name}",
       "myCourses": "My courses",
-      "none": "You haven't unlocked any courses yet. Redeem a code to get started."
+      "none": "You haven't unlocked any courses yet. Redeem a code to get started.",
+      "subtitle": "Pick up where you left off.",
+      "start": "Start",
+      "certificate": "Certificate",
+      "certificates": "My certificates",
+      "percentComplete": "{pct}% complete",
+      "stats": {
+        "courses": "Courses",
+        "inProgress": "In progress",
+        "lessonsDone": "Lessons completed",
+        "certificates": "Certificates"
+      },
+      "tabInProgress": "In progress",
+      "tabCompleted": "Completed",
+      "tabAll": "All courses",
+      "noCertificates": "No certificates yet — finish a course to earn one.",
+      "noneInProgress": "Nothing in progress. Start a course and it shows up here.",
+      "noneCompleted": "You haven't finished a course yet.",
+      "upNext": "Up next:",
+      "finished": "Course complete",
+      "review": "Review",
+      "account": "Account"
+    },
+    "meta": {
+      "suffix": "Online courses",
+      "description": "Browse and unlock the online courses offered by {name}."
+    },
+    "nav": {
+      "home": "Home",
+      "courses": "Courses",
+      "about": "About",
+      "faq": "FAQ",
+      "contact": "Contact",
+      "myLearning": "My learning",
+      "menu": "Menu"
+    },
+    "hero": {
+      "eyebrow": "Learn online",
+      "title": "Learn with {name}",
+      "subtitle": "Structured video courses you take at your own pace. Unlock a course with the access code from your teacher and start today.",
+      "browse": "Browse courses",
+      "social": {
+        "learners": "students learning with us"
+      },
+      "card": {
+        "badge": "Featured",
+        "subtitle": "Start your first lesson today"
+      }
+    },
+    "stats": {
+      "courses": "Courses",
+      "lessons": "Lessons",
+      "learners": "Students",
+      "certificates": "Certificates"
+    },
+    "faq": {
+      "subtitle": "Everything students usually ask before they start.",
+      "viewAll": "See all questions"
+    },
+    "contact": {
+      "title": "Get in touch",
+      "subtitle": "Questions about a course or an access code? Reach {name} directly.",
+      "whatsapp": "WhatsApp",
+      "phone": "Phone",
+      "email": "Email",
+      "address": "Address",
+      "follow": "Follow us",
+      "map": "Location map",
+      "empty": "Contact details haven't been added yet.",
+      "haveCode": "Already have an access code?"
+    },
+    "whatsapp": {
+      "float": "Chat on WhatsApp",
+      "prefill": "Hello {name}, I have a question about your courses.",
+      "requestCode": "Hello {name}, I'd like an access code for the course “{course}”."
+    },
+    "footer": {
+      "ctaEyebrow": "Your next chapter",
+      "explore": "Explore",
+      "learning": "Learning",
+      "contact": "Contact",
+      "description": "A focused place to build practical skills, track your progress, and earn certificates with {name}.",
+      "rights": "© {name}. All rights reserved.",
+      "poweredBy": "Powered by Acadmyq"
+    },
+    "defaults": {
+      "badges": [
+        "Learn at your own pace",
+        "Certificate when you finish",
+        "Watch on any device"
+      ],
+      "features": {
+        "heading": "Why learn here",
+        "subheading": "Everything you need to actually finish the course, not just start it.",
+        "items": [
+          {
+            "icon": "video",
+            "title": "Clear video lessons",
+            "body": "Short, focused lessons organised into sections, so you always know what comes next."
+          },
+          {
+            "icon": "clock",
+            "title": "At your own pace",
+            "body": "Study whenever it suits you. Your progress is saved automatically on every device."
+          },
+          {
+            "icon": "smartphone",
+            "title": "On any device",
+            "body": "Phone, tablet or computer — the whole course works in the browser, with nothing to install."
+          },
+          {
+            "icon": "award",
+            "title": "Certificate when you finish",
+            "body": "Complete every lesson and pass the quizzes to earn a certificate you can print or share."
+          },
+          {
+            "icon": "book",
+            "title": "Quizzes and materials",
+            "body": "Check what you understood with quizzes, and download the files that come with each lesson."
+          },
+          {
+            "icon": "infinity",
+            "title": "Revisit any time",
+            "body": "Once a course is unlocked it stays in your account — go back to any lesson whenever you need it."
+          }
+        ]
+      },
+      "steps": {
+        "heading": "How it works",
+        "items": [
+          {
+            "title": "Pick your course",
+            "body": "Browse the catalogue and open the course you want. Free preview lessons show you what to expect."
+          },
+          {
+            "title": "Enter your access code",
+            "body": "Create an account and redeem the code you received. The course unlocks instantly."
+          },
+          {
+            "title": "Learn and get certified",
+            "body": "Work through the lessons at your own pace, and collect your certificate at the end."
+          }
+        ]
+      },
+      "faq": {
+        "heading": "Frequently asked questions",
+        "items": [
+          {
+            "q": "How do I get an access code?",
+            "a": "Access codes are handed out by the academy. Contact us through any of the channels on this site and we'll tell you how to get one."
+          },
+          {
+            "q": "How long do I keep access to a course?",
+            "a": "Once a code is redeemed the course stays in your account, so you can go back to any lesson whenever you need it."
+          },
+          {
+            "q": "Can I watch on my phone?",
+            "a": "Yes. The site works in any modern browser on phone, tablet and computer, and your progress follows you between them."
+          },
+          {
+            "q": "Do I get a certificate?",
+            "a": "Yes. Complete every lesson in a course — and pass its quizzes, where there are any — and your certificate becomes available to view and print."
+          }
+        ]
+      },
+      "about": {
+        "heading": "About {name}",
+        "body": "We build practical online courses and teach them the way we'd want to be taught: clearly, in order, and without wasting your time."
+      },
+      "instructors": {
+        "heading": "Your teachers"
+      },
+      "testimonials": {
+        "heading": "What students say"
+      },
+      "cta": {
+        "title": "Ready to start learning with {name}?",
+        "subtitle": "Redeem your access code and open your first lesson in under a minute.",
+        "button": "Redeem your code"
+      }
+    },
+    "units": {
+      "hm": "{h}h {m}m",
+      "h": "{h}h",
+      "m": "{m}m",
+      "s": "{s}s"
+    },
+    "lessonType": {
+      "VIDEO_UPLOAD": "Video",
+      "YOUTUBE": "Video",
+      "AUDIO": "Audio",
+      "PDF": "PDF",
+      "TEXT": "Reading",
+      "QUIZ": "Quiz"
     }
   },
   "crm": {
@@ -4262,6 +4863,214 @@
       "deleted": "Entry deleted.",
       "waived": "Discount waived — the money went back.",
       "settingsSaved": "Rule saved."
+    }
+  },
+  "lms": {
+    "dashboard": {
+      "title": "Course platform",
+      "subtitle": "Your catalogue, learners and public site at a glance.",
+      "noAccess": "You do not have access to the course platform.",
+      "yourSite": "YOUR PUBLIC SITE",
+      "visitSite": "Visit site",
+      "sitePublished": "{count, plural, =0 {No published courses yet} one {# published course} other {# published courses}}",
+      "noSubdomain": "Your public course site is not set up yet — ask the platform admin to assign your subdomain.",
+      "courses": "Courses",
+      "coursesHint": "{published} published · {draft} draft",
+      "learners": "Learners",
+      "learnersHint": "{active} active",
+      "enrollments": "Active enrolments",
+      "enrollmentsHint": "{total} all time",
+      "codes": "Active codes",
+      "codesHint": "{redeemed} redeemed",
+      "certificates": "Certificates issued",
+      "storage": "Media storage",
+      "storageUncapped": "Uncapped on your plan",
+      "storageOf": "of {limit}",
+      "topCourses": "Top courses",
+      "noCourses": "No courses yet.",
+      "learnerCount": "{count} learners",
+      "recentEnrollments": "Recent enrolments",
+      "noEnrollments": "No enrolments yet.",
+      "lessons": "Lessons",
+      "lessonsHint": "Across your whole catalogue",
+      "copyLink": "Copy link",
+      "copied": "Copied",
+      "refresh": "Refresh",
+      "viewAll": "View all",
+      "storageUsed": "{percent}% of your plan's storage used",
+      "noCoursesHint": "Publish your first course and it will show up here, ranked by learners.",
+      "noEnrollmentsHint": "Enrolments appear the moment a learner redeems a code.",
+      "sections": {
+        "overview": "Overview",
+        "overviewDesc": "Your catalogue and audience at a glance",
+        "activity": "Activity",
+        "activityDesc": "What is selling, and who just joined"
+      },
+      "actions": {
+        "coursesTitle": "Build a course",
+        "coursesDesc": "Add sections, lessons and quizzes",
+        "codesTitle": "Generate access codes",
+        "codesDesc": "Hand out codes that unlock courses"
+      }
+    },
+    "site": {
+      "eyebrow": "Course platform",
+      "title": "My website",
+      "subtitle": "The public site your students visit. The layout is ready — just fill in your content.",
+      "noAccess": "You don't have access to the course platform.",
+      "readOnly": "You can view this page, but changing it needs the course-manager permission.",
+      "openSite": "Open my site",
+      "notPublished": "Your site address hasn't been set up yet.",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "saved": "Your site has been updated.",
+      "saveFailed": "Couldn't save your changes.",
+      "discard": "Discard",
+      "unsaved": "You have unsaved changes",
+      "showOnSite": "Show",
+      "optional": "optional",
+      "max": "You've reached the maximum for this section.",
+      "hint": {
+        "fallback": "Leave empty to use the ready-made text.",
+        "url": "Paste a link to an image (https://…).",
+        "color": "Used for buttons, links and highlights across your site.",
+        "whatsapp": "Country code and number, digits only. Also powers the floating WhatsApp button on every page of your site.",
+        "map": "The embed link from Google Maps → Share → Embed a map.",
+        "ctaHref": "Leave empty to open the code box instead."
+      },
+      "blocks": {
+        "brand": {
+          "title": "Brand",
+          "desc": "Name, logo and colour"
+        },
+        "hero": {
+          "title": "Home banner",
+          "desc": "The first thing a visitor reads"
+        },
+        "stats": {
+          "title": "Numbers",
+          "desc": "Leave empty to show your real course and student counts"
+        },
+        "features": {
+          "title": "Why learn here",
+          "desc": "Your selling points"
+        },
+        "steps": {
+          "title": "How it works",
+          "desc": "The steps from browsing to learning"
+        },
+        "about": {
+          "title": "About us",
+          "desc": "Your story, in your words"
+        },
+        "instructors": {
+          "title": "Teachers",
+          "desc": "Who teaches your courses"
+        },
+        "testimonials": {
+          "title": "Student reviews",
+          "desc": "Real quotes from real students"
+        },
+        "faq": {
+          "title": "Questions & answers",
+          "desc": "What students ask before they buy"
+        },
+        "cta": {
+          "title": "Closing invitation",
+          "desc": "The last thing on every page"
+        },
+        "contact": {
+          "title": "Contact",
+          "desc": "How students reach you"
+        },
+        "footer": {
+          "title": "Footer",
+          "desc": "Short text and extra links"
+        },
+        "seo": {
+          "title": "Search & sharing",
+          "desc": "How your site looks on Google and in chats"
+        },
+        "pages": {
+          "title": "Pages",
+          "desc": "Which pages appear in the site menu"
+        }
+      },
+      "f": {
+        "name": "Site name",
+        "tagline": "Tagline",
+        "logo": "Logo",
+        "color": "Brand colour",
+        "heroStyle": "Banner style",
+        "heroStyleGradient": "Brand gradient",
+        "heroStyleImage": "Full-width photo",
+        "heroStylePlain": "Plain",
+        "eyebrow": "Small line above the title",
+        "headline": "Headline",
+        "subtitle": "Sub-headline",
+        "image": "Image",
+        "primaryCta": "Main button",
+        "ctaBrowse": "Browse courses",
+        "ctaRedeem": "Redeem a code",
+        "ctaContact": "Contact us",
+        "badges": "Badges",
+        "badgePlaceholder": "e.g. Certificate when you finish",
+        "value": "Number",
+        "label": "Label",
+        "heading": "Heading",
+        "subheading": "Sub-heading",
+        "body": "Text",
+        "points": "Bullet points",
+        "pointPlaceholder": "e.g. Over 10 years of teaching",
+        "icon": "Icon",
+        "itemTitle": "Title",
+        "personName": "Name",
+        "role": "Role",
+        "bio": "Short bio",
+        "photo": "Photo",
+        "quote": "What they said",
+        "rating": "Stars",
+        "question": "Question",
+        "answer": "Answer",
+        "buttonLabel": "Button text",
+        "buttonHref": "Button link",
+        "email": "Email",
+        "phone": "Phone",
+        "whatsapp": "WhatsApp number",
+        "address": "Address",
+        "mapUrl": "Map embed link",
+        "socials": "Social links",
+        "note": "Footer text",
+        "links": "Extra links",
+        "linkLabel": "Label",
+        "linkHref": "Link",
+        "seoTitle": "Page title",
+        "seoDescription": "Description",
+        "ogImage": "Sharing image",
+        "pageAbout": "About page",
+        "pageFaq": "Questions page",
+        "pageContact": "Contact page"
+      },
+      "add": {
+        "badge": "Add a badge",
+        "stat": "Add a number",
+        "point": "Add a point",
+        "feature": "Add a selling point",
+        "step": "Add a step",
+        "instructor": "Add a teacher",
+        "testimonial": "Add a review",
+        "faq": "Add a question",
+        "link": "Add a link"
+      },
+      "empty": {
+        "stats": "Empty — your site shows its real course and student counts.",
+        "features": "Empty — your site shows six ready-made selling points.",
+        "steps": "Empty — your site shows the three standard steps.",
+        "instructors": "No teachers added, so this section is hidden on your site.",
+        "testimonials": "No reviews added, so this section is hidden on your site.",
+        "faq": "Empty — your site shows four ready-made questions.",
+        "links": "No extra links."
+      }
     }
   }
 }

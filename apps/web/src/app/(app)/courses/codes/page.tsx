@@ -1,5 +1,6 @@
-import { CodesManager } from "@/components/courses/codes-manager";
+import { redirect } from "next/navigation";
 
+/** Moved into the /lms workspace (docs/lms). */
 export default function CoursesCodesPage() {
-  return <CodesManager />;
+  redirect("/lms/codes");
 }

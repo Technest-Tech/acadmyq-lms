@@ -23,6 +23,8 @@ export interface CertificateRenderProps {
   recipientName: string;
   dateLabel: string;
   lang: CertLang;
+  courseTitle?: string;
+  serialLabel?: string;
 }
 
 const SERIF = "'Georgia', 'Times New Roman', serif";
@@ -187,7 +189,7 @@ export function RoyalCertificate({ content, recipientName, dateLabel, lang }: Ce
 
 /* ───────────────────────── Template 2 — Al-Andalus ───────────────────────── */
 
-export function MosaicCertificate({ content, recipientName, dateLabel, lang }: CertificateRenderProps) {
+export function MosaicCertificate({ content, recipientName, dateLabel, lang, courseTitle, serialLabel }: CertificateRenderProps) {
   const accent = content.accentColor || "#0E7C5A";
   const gold = "#C9A227";
   const ink = "#1c2b25";
@@ -251,7 +253,13 @@ export function MosaicCertificate({ content, recipientName, dateLabel, lang }: C
           {recipientName || (lang === "ar" ? "اسم الطالب" : "Recipient Name")}
         </div>
 
-        <div style={{ marginTop: 22, fontSize: 16, lineHeight: 1.7, color: ink, opacity: 0.72, maxWidth: 700, fontFamily: lang === "ar" ? ARABIC : SERIF }}>
+        {courseTitle && (
+          <div style={{ marginTop: 14, padding: "8px 24px", borderRadius: 999, background: `${accent}12`, border: `1px solid ${accent}55`, color: accent, fontSize: 18, fontWeight: 700, fontFamily: display }}>
+            {courseTitle}
+          </div>
+        )}
+
+        <div style={{ marginTop: courseTitle ? 16 : 22, fontSize: 16, lineHeight: 1.7, color: ink, opacity: 0.72, maxWidth: 700, fontFamily: lang === "ar" ? ARABIC : SERIF }}>
           {pick(content, "body", lang)}
         </div>
 
@@ -276,6 +284,12 @@ export function MosaicCertificate({ content, recipientName, dateLabel, lang }: C
             <div style={{ fontSize: 12, color: accent, marginTop: 6 }}>{pick(content, "signatoryTitle", lang)}</div>
           </div>
         </div>
+
+        {serialLabel && (
+          <div style={{ position: "absolute", bottom: 80, left: 0, right: 0, textAlign: "center", color: accent, opacity: 0.72, fontFamily: display, fontSize: 11, letterSpacing: lang === "ar" ? 0 : 1.5 }}>
+            {serialLabel}
+          </div>
+        )}
       </div>
     </div>
   );

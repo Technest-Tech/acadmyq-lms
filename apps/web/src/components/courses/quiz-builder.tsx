@@ -1,9 +1,10 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { GripVertical, ListChecks, Plus, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
-import { Field, inputClass } from "@/components/courses/form-bits";
+import { Field, inputClass, selectClass } from "@/components/courses/form-bits";
+import { EmptyState, Sk } from "@/components/courses/lms-ui";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -38,7 +39,8 @@ const blankOptions = (type: QuestionType) =>
 /**
  * The quiz builder (docs/lms/04). Loads a quiz by id, edits its pass mark, attempt limit and
  * questions/options, and saves the whole thing (the API replaces questions atomically). Correct
- * answers are marked with a radio (SINGLE / TRUE_FALSE) or checkboxes (MULTIPLE).
+ * answers are marked with a radio (SINGLE / TRUE_FALSE) or checkboxes (MULTIPLE), and the marked
+ * option is tinted green so a long quiz can be proof-read at a glance.
  */
 export function QuizBuilder({
   courseId,
@@ -84,7 +86,8 @@ export function QuizBuilder({
     const q = questions[i];
     if (!q) return;
     // Switching to/from TRUE_FALSE resets the options; MULTIPLE↔SINGLE keeps them.
-    const options = type === "TRUE_FALSE" || q.type === "TRUE_FALSE" ? blankOptions(type) : q.options;
+    const options =
+      type === "TRUE_FALSE" || q.type === "TRUE_FALSE" ? blankOptions(type) : q.options;
     patch(i, { type, options });
   }
   function setOption(i: number, oi: number, next: Partial<{ text: string; is_correct: boolean }>) {
@@ -110,6 +113,8 @@ export function QuizBuilder({
           : q.options.filter((o) => o.is_correct).length === 1),
     );
 
+  const totalPoints = questions.reduce((n, q) => n + q.points, 0);
+
   async function submit() {
     setBusy(true);
     setError(null);
@@ -133,16 +138,47 @@ export function QuizBuilder({
     }
   }
 
+  function addQuestion() {
+    setQuestions((qs) => [
+      ...qs,
+      { prompt: "", type: "SINGLE", points: 1, options: blankOptions("SINGLE") },
+    ]);
+  }
+
   return (
-    <Modal open onClose={onClose} title={t("title")}>
-      <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
+    <Modal
+      open
+      onClose={onClose}
+      title={t("title")}
+      description={
+        loading
+          ? undefined
+          : t("summary", { questions: questions.length, points: totalPoints })
+      }
+      size="lg"
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+            {t("cancel")}
+          </Button>
+          <Button type="button" onClick={submit} disabled={busy || loading || !valid}>
+            {t("save")}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
         {error && <AlertBanner variant="error" message={error} />}
 
         {loading ? (
-          <p className="text-muted-foreground py-8 text-center text-sm">…</p>
+          <div className="space-y-3">
+            <Sk className="h-16 rounded-xl" />
+            <Sk className="h-32 rounded-xl" />
+            <Sk className="h-32 rounded-xl" />
+          </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="bg-muted/40 grid gap-4 rounded-xl p-3 sm:grid-cols-2">
               <Field label={t("passMark")}>
                 <input
                   type="number"
@@ -159,129 +195,146 @@ export function QuizBuilder({
                   min={1}
                   placeholder={t("unlimited")}
                   value={maxAttempts}
-                  onChange={(e) => setMaxAttempts(e.target.value === "" ? "" : Number(e.target.value))}
+                  onChange={(e) =>
+                    setMaxAttempts(e.target.value === "" ? "" : Number(e.target.value))
+                  }
                   className={inputClass}
                 />
               </Field>
             </div>
 
-            {questions.map((q, i) => (
-              <div key={i} className="space-y-3 rounded-xl border p-3">
-                <div className="flex items-start gap-2">
-                  <span className="text-muted-foreground pt-2 text-xs tabular-nums">{i + 1}.</span>
-                  <input
-                    value={q.prompt}
-                    onChange={(e) => patch(i, { prompt: e.target.value })}
-                    placeholder={t("prompt")}
-                    className={cn(inputClass, "flex-1")}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={t("removeQuestion")}
-                    onClick={() => setQuestions((qs) => qs.filter((_, idx) => idx !== i))}
-                  >
-                    <Trash2 className="text-destructive" />
+            {questions.length === 0 ? (
+              <EmptyState
+                Icon={ListChecks}
+                color="emerald"
+                title={t("noQuestions")}
+                description={t("noQuestionsHint")}
+                action={
+                  <Button type="button" onClick={addQuestion}>
+                    <Plus /> {t("addQuestion")}
                   </Button>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2 ps-6">
-                  <select
-                    value={q.type}
-                    onChange={(e) => setType(i, e.target.value as QuestionType)}
-                    className={cn(inputClass, "w-auto")}
-                  >
-                    {QUESTION_TYPES.map((ty) => (
-                      <option key={ty} value={ty}>
-                        {t(`types.${ty}`)}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                    {t("points")}
+                }
+              />
+            ) : (
+              questions.map((q, i) => (
+                <div
+                  key={i}
+                  className="bg-card space-y-3 rounded-xl border p-3 shadow-sm transition-shadow focus-within:shadow-md"
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="text-muted-foreground mt-2 flex shrink-0 items-center gap-1 text-xs font-semibold tabular-nums">
+                      <GripVertical className="size-3.5 opacity-40" aria-hidden />
+                      {i + 1}
+                    </span>
                     <input
-                      type="number"
-                      min={1}
-                      value={q.points}
-                      onChange={(e) => patch(i, { points: Math.max(1, Number(e.target.value)) })}
-                      className={cn(inputClass, "w-16")}
+                      value={q.prompt}
+                      onChange={(e) => patch(i, { prompt: e.target.value })}
+                      placeholder={t("prompt")}
+                      className={cn(inputClass, "flex-1 font-medium")}
                     />
-                  </label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="mt-1"
+                      aria-label={t("removeQuestion")}
+                      onClick={() => setQuestions((qs) => qs.filter((_, idx) => idx !== i))}
+                    >
+                      <Trash2 className="text-destructive" />
+                    </Button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 ps-7">
+                    <select
+                      value={q.type}
+                      onChange={(e) => setType(i, e.target.value as QuestionType)}
+                      className={cn(selectClass, "h-8 w-auto text-xs")}
+                    >
+                      {QUESTION_TYPES.map((ty) => (
+                        <option key={ty} value={ty}>
+                          {t(`types.${ty}`)}
+                        </option>
+                      ))}
+                    </select>
+                    <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                      {t("points")}
+                      <input
+                        type="number"
+                        min={1}
+                        value={q.points}
+                        onChange={(e) => patch(i, { points: Math.max(1, Number(e.target.value)) })}
+                        className={cn(inputClass, "h-8 w-16 text-xs")}
+                      />
+                    </label>
+                  </div>
+
+                  <ul className="space-y-1.5 ps-7">
+                    {q.options.map((o, oi) => (
+                      <li
+                        key={oi}
+                        className={cn(
+                          "flex items-center gap-2 rounded-lg border p-1.5 transition-colors",
+                          o.is_correct
+                            ? "border-emerald-300/60 bg-emerald-50/60 dark:border-emerald-800/50 dark:bg-emerald-950/25"
+                            : "border-transparent",
+                        )}
+                      >
+                        <input
+                          type={q.type === "MULTIPLE" ? "checkbox" : "radio"}
+                          name={`correct-${i}`}
+                          checked={o.is_correct}
+                          onChange={(e) => setOption(i, oi, { is_correct: e.target.checked })}
+                          aria-label={t("markCorrect")}
+                          className="accent-primary ms-1 size-4 shrink-0 cursor-pointer"
+                        />
+                        <input
+                          value={o.text}
+                          disabled={q.type === "TRUE_FALSE"}
+                          onChange={(e) => setOption(i, oi, { text: e.target.value })}
+                          placeholder={t("option")}
+                          className={cn(inputClass, "h-8 flex-1 border-transparent bg-transparent")}
+                        />
+                        {q.type !== "TRUE_FALSE" && q.options.length > 2 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={t("removeOption")}
+                            onClick={() =>
+                              patch(i, { options: q.options.filter((_, idx) => idx !== oi) })
+                            }
+                          >
+                            <Trash2 className="size-3.5 opacity-60" />
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+
+                  {q.type !== "TRUE_FALSE" && q.options.length < 10 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="ms-7"
+                      onClick={() =>
+                        patch(i, { options: [...q.options, { text: "", is_correct: false }] })
+                      }
+                    >
+                      <Plus /> {t("addOption")}
+                    </Button>
+                  )}
                 </div>
+              ))
+            )}
 
-                <ul className="space-y-1.5 ps-6">
-                  {q.options.map((o, oi) => (
-                    <li key={oi} className="flex items-center gap-2">
-                      <input
-                        type={q.type === "MULTIPLE" ? "checkbox" : "radio"}
-                        name={`correct-${i}`}
-                        checked={o.is_correct}
-                        onChange={(e) => setOption(i, oi, { is_correct: e.target.checked })}
-                        aria-label={t("markCorrect")}
-                        className="size-4"
-                      />
-                      <input
-                        value={o.text}
-                        disabled={q.type === "TRUE_FALSE"}
-                        onChange={(e) => setOption(i, oi, { text: e.target.value })}
-                        placeholder={t("option")}
-                        className={cn(inputClass, "flex-1")}
-                      />
-                      {q.type !== "TRUE_FALSE" && q.options.length > 2 && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={t("removeOption")}
-                          onClick={() =>
-                            patch(i, { options: q.options.filter((_, idx) => idx !== oi) })
-                          }
-                        >
-                          <Trash2 className="size-3.5 opacity-60" />
-                        </Button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-
-                {q.type !== "TRUE_FALSE" && q.options.length < 10 && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="ms-6"
-                    onClick={() => patch(i, { options: [...q.options, { text: "", is_correct: false }] })}
-                  >
-                    <Plus className="size-3.5" /> {t("addOption")}
-                  </Button>
-                )}
-              </div>
-            ))}
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                setQuestions((qs) => [
-                  ...qs,
-                  { prompt: "", type: "SINGLE", points: 1, options: blankOptions("SINGLE") },
-                ])
-              }
-            >
-              <Plus /> {t("addQuestion")}
-            </Button>
+            {questions.length > 0 && (
+              <Button type="button" variant="outline" className="w-full" onClick={addQuestion}>
+                <Plus /> {t("addQuestion")}
+              </Button>
+            )}
           </>
         )}
-      </div>
-
-      <div className="mt-4 flex justify-end gap-2 border-t pt-4">
-        <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-          {t("cancel")}
-        </Button>
-        <Button type="button" onClick={submit} disabled={busy || loading || !valid}>
-          {t("save")}
-        </Button>
       </div>
     </Modal>
   );

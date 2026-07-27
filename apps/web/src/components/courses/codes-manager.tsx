@@ -1,11 +1,33 @@
 "use client";
 
-import { Check, Copy, Download, Plus, Trash2 } from "lucide-react";
-import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import {
+  Check,
+  CheckCircle2,
+  Copy,
+  Download,
+  Infinity as InfinityIcon,
+  KeyRound,
+  Plus,
+  SearchX,
+  Ticket,
+  Trash2,
+} from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { CoursesTabs } from "@/components/courses/courses-tabs";
-import { Field, inputClass } from "@/components/courses/form-bits";
+import { CheckOption, Field, inputClass } from "@/components/courses/form-bits";
+import {
+  EmptyState,
+  MiniStat,
+  PageHeader,
+  SearchField,
+  StatusPill,
+  tableHeadClass,
+  TableSkeleton,
+  tdClass,
+  thClass,
+  trClass,
+} from "@/components/courses/lms-ui";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -18,16 +40,19 @@ import {
   type AccessCode,
   type CourseRow,
 } from "@/lib/api";
+import { formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /** The access-codes dashboard: generate batches, toggle/expire, copy, export CSV. */
 export function CodesManager() {
   const t = useTranslations("courses");
+  const locale = useLocale();
   const { can } = useAuth();
 
   const [codes, setCodes] = useState<AccessCode[]>([]);
   const [courses, setCourses] = useState<CourseRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [deleting, setDeleting] = useState<AccessCode | null>(null);
@@ -105,108 +130,198 @@ export function CodesManager() {
     URL.revokeObjectURL(url);
   }
 
+  // Search runs client-side: the codes endpoint returns the whole batch in one call.
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (q === "") return codes;
+    return codes.filter(
+      (c) =>
+        c.code.toLowerCase().includes(q) ||
+        (c.label?.toLowerCase().includes(q) ?? false) ||
+        c.course_titles.some((title) => title.toLowerCase().includes(q)),
+    );
+  }, [codes, search]);
+
+  const stats = useMemo(
+    () => ({
+      total: codes.length,
+      active: codes.filter((c) => c.is_active).length,
+      redeemed: codes.reduce((n, c) => n + c.redemptions_count, 0),
+    }),
+    [codes],
+  );
+
   if (!can("access_code.manage")) {
-    return <p className="text-muted-foreground py-16 text-center text-sm">{t("noAccess")}</p>;
+    return (
+      <div className="bg-card rounded-2xl shadow-sm ring-1 ring-foreground/[0.06]">
+        <EmptyState Icon={KeyRound} color="slate" title={t("noAccess")} />
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <CoursesTabs />
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">{t("codes.title")}</h1>
-          <p className="text-muted-foreground mt-1 text-sm">{t("codes.subtitle")}</p>
-        </div>
-        <div className="flex gap-2">
-          {codes.length > 0 && (
-            <Button variant="outline" onClick={exportCsv}>
-              <Download /> {t("codes.exportCsv")}
+    <div className="space-y-5 pb-4">
+      <PageHeader
+        Icon={KeyRound}
+        color="amber"
+        title={t("codes.title")}
+        subtitle={t("codes.subtitle")}
+        actions={
+          <>
+            {codes.length > 0 && (
+              <Button variant="outline" size="lg" onClick={exportCsv}>
+                <Download /> {t("codes.exportCsv")}
+              </Button>
+            )}
+            <Button size="lg" onClick={() => setGenerating(true)}>
+              <Plus /> {t("codes.generate")}
             </Button>
-          )}
-          <Button onClick={() => setGenerating(true)}>
-            <Plus /> {t("codes.generate")}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {alert && (
-        <AlertBanner variant={alert.variant} message={alert.message} onDismiss={() => setAlert(null)} />
+        <AlertBanner
+          variant={alert.variant}
+          message={alert.message}
+          onDismiss={() => setAlert(null)}
+        />
       )}
 
-      {loading ? (
-        <p className="text-muted-foreground py-12 text-center text-sm">…</p>
-      ) : codes.length === 0 ? (
-        <div className="text-muted-foreground rounded-xl border border-dashed py-16 text-center text-sm">
-          {t("codes.empty")}
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border">
-          <table className="w-full text-sm">
-            <thead className="text-muted-foreground border-b text-xs">
-              <tr>
-                <th className="p-3 text-start font-medium">{t("codes.column.code")}</th>
-                <th className="p-3 text-start font-medium">{t("codes.column.courses")}</th>
-                <th className="p-3 text-start font-medium">{t("codes.column.uses")}</th>
-                <th className="p-3 text-start font-medium">{t("codes.column.status")}</th>
-                <th className="p-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {codes.map((c) => (
-                <tr key={c.id} className="hover:bg-muted/30">
-                  <td className="p-3">
-                    <button
-                      type="button"
-                      onClick={() => copy(c.code)}
-                      className="inline-flex items-center gap-1.5 font-mono font-medium"
-                      title={t("codes.copy")}
-                    >
-                      {c.code}
-                      {copied === c.code ? (
-                        <Check className="size-3.5 text-emerald-500" />
-                      ) : (
-                        <Copy className="size-3.5 opacity-40" />
-                      )}
-                    </button>
-                    {c.label && <div className="text-muted-foreground text-xs">{c.label}</div>}
-                  </td>
-                  <td className="text-muted-foreground max-w-52 truncate p-3">
-                    {c.course_titles.join(", ")}
-                  </td>
-                  <td className="p-3 tabular-nums">
-                    {c.redemptions_count}
-                    {c.max_redemptions !== null ? ` / ${c.max_redemptions}` : ` / ∞`}
-                  </td>
-                  <td className="p-3">
-                    <button
-                      type="button"
-                      onClick={() => toggle(c)}
-                      className={cn(
-                        "rounded-full px-2 py-0.5 text-xs font-medium",
-                        c.is_active
-                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {c.is_active ? t("codes.active") : t("codes.inactive")}
-                    </button>
-                  </td>
-                  <td className="p-3 text-end">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={t("codes.confirmDelete")}
-                      onClick={() => setDeleting(c)}
-                    >
-                      <Trash2 className="text-destructive" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MiniStat
+          Icon={KeyRound}
+          color="amber"
+          label={t("codes.stats.total")}
+          value={loading ? null : stats.total}
+          locale={locale}
+        />
+        <MiniStat
+          Icon={CheckCircle2}
+          color="emerald"
+          label={t("codes.stats.active")}
+          value={loading ? null : stats.active}
+          locale={locale}
+        />
+        <MiniStat
+          Icon={Ticket}
+          color="violet"
+          label={t("codes.stats.redeemed")}
+          value={loading ? null : stats.redeemed}
+          locale={locale}
+        />
+      </div>
+
+      {codes.length > 0 && (
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder={t("codes.search")}
+          className="sm:max-w-sm"
+        />
       )}
+
+      <div className="bg-card overflow-hidden rounded-2xl shadow-sm ring-1 ring-foreground/[0.06]">
+        {loading ? (
+          <table className="w-full text-sm">
+            <TableSkeleton cols={5} />
+          </table>
+        ) : codes.length === 0 ? (
+          <EmptyState
+            Icon={KeyRound}
+            color="amber"
+            title={t("codes.empty")}
+            description={t("codes.emptyHint")}
+            action={
+              <Button size="lg" onClick={() => setGenerating(true)}>
+                <Plus /> {t("codes.generate")}
+              </Button>
+            }
+          />
+        ) : visible.length === 0 ? (
+          <EmptyState
+            Icon={SearchX}
+            color="slate"
+            title={t("noResults")}
+            description={t("noResultsHint")}
+            action={
+              <Button variant="outline" onClick={() => setSearch("")}>
+                {t("clearFilters")}
+              </Button>
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className={tableHeadClass}>
+                <tr>
+                  <th className={thClass}>{t("codes.column.code")}</th>
+                  <th className={thClass}>{t("codes.column.courses")}</th>
+                  <th className={thClass}>{t("codes.column.uses")}</th>
+                  <th className={thClass}>{t("codes.column.status")}</th>
+                  <th className={thClass} />
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {visible.map((c) => (
+                  <tr key={c.id} className={trClass}>
+                    <td className={tdClass}>
+                      <button
+                        type="button"
+                        onClick={() => copy(c.code)}
+                        title={copied === c.code ? t("codes.copied") : t("codes.copy")}
+                        className="hover:bg-muted -mx-1.5 inline-flex items-center gap-2 rounded-lg px-1.5 py-0.5 font-mono text-sm font-semibold tracking-wide transition-colors"
+                      >
+                        {c.code}
+                        {copied === c.code ? (
+                          <Check className="size-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="size-3.5 opacity-40" />
+                        )}
+                      </button>
+                      {c.label && (
+                        <div className="text-muted-foreground mt-0.5 text-xs">{c.label}</div>
+                      )}
+                    </td>
+                    <td className={cn(tdClass, "text-muted-foreground max-w-52")}>
+                      <span className="line-clamp-2 text-xs">{c.course_titles.join(" · ")}</span>
+                    </td>
+                    <td className={tdClass}>
+                      <UsesMeter
+                        used={c.redemptions_count}
+                        max={c.max_redemptions}
+                        locale={locale}
+                      />
+                    </td>
+                    <td className={tdClass}>
+                      <button
+                        type="button"
+                        onClick={() => toggle(c)}
+                        title={c.is_active ? t("codes.deactivate") : t("codes.activate")}
+                        className="transition-opacity hover:opacity-75"
+                      >
+                        <StatusPill tone={c.is_active ? "emerald" : "slate"}>
+                          {c.is_active ? t("codes.active") : t("codes.inactive")}
+                        </StatusPill>
+                      </button>
+                    </td>
+                    <td className={cn(tdClass, "text-end")}>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={t("codes.confirmDelete")}
+                        onClick={() => setDeleting(c)}
+                      >
+                        <Trash2 className="text-destructive" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {generating && (
         <GenerateModal
@@ -220,16 +335,69 @@ export function CodesManager() {
         />
       )}
 
-      <Modal open={deleting !== null} onClose={() => setDeleting(null)} title={t("codes.confirmDelete")}>
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="outline" onClick={() => setDeleting(null)} disabled={busy}>
-            {t("form.cancel")}
-          </Button>
-          <Button variant="destructive" onClick={confirmDelete} disabled={busy}>
-            {t("delete")}
-          </Button>
-        </div>
+      <Modal
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title={t("codes.confirmDelete")}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setDeleting(null)} disabled={busy}>
+              {t("form.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={busy}>
+              {t("delete")}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm">
+          <span className="text-muted-foreground">{t("codes.confirmDeleteBody")}</span>{" "}
+          <span className="font-mono font-semibold">{deleting?.code}</span>
+        </p>
       </Modal>
+    </div>
+  );
+}
+
+/** Redemptions against the cap — a bar for capped codes, the ∞ glyph for uncapped ones. */
+function UsesMeter({
+  used,
+  max,
+  locale,
+}: {
+  used: number;
+  max: number | null;
+  locale: string;
+}) {
+  if (max === null) {
+    return (
+      <span className="inline-flex items-center gap-1.5 tabular-nums">
+        {formatNumber(used, locale)}
+        <InfinityIcon className="text-muted-foreground size-3.5" aria-label="unlimited" />
+      </span>
+    );
+  }
+
+  const pct = Math.min((used / max) * 100, 100);
+  const exhausted = used >= max;
+
+  return (
+    <div className="w-24">
+      <div className="flex items-baseline gap-1 text-xs tabular-nums">
+        <span className={cn("font-semibold", exhausted && "text-muted-foreground")}>
+          {formatNumber(used, locale)}
+        </span>
+        <span className="text-muted-foreground">/ {formatNumber(max, locale)}</span>
+      </div>
+      <div className="bg-muted mt-1 h-1.5 w-full overflow-hidden rounded-full">
+        <div
+          className={cn(
+            "h-full rounded-full bg-gradient-to-r transition-all",
+            exhausted ? "from-slate-400 to-slate-500" : "from-amber-500 to-orange-500",
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   );
 }
@@ -280,9 +448,15 @@ function GenerateModal({
   }
 
   return (
-    <Modal open onClose={onCancel} title={t("codes.generate")}>
+    <Modal
+      open
+      onClose={onCancel}
+      title={t("codes.generate")}
+      description={t("codes.form.hint")}
+      size="lg"
+    >
       <form
-        className="space-y-4"
+        className="space-y-5"
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
@@ -290,24 +464,47 @@ function GenerateModal({
       >
         {error && <AlertBanner variant="error" message={error} />}
 
-        <div className="space-y-1.5">
-          <span className="text-sm font-medium">{t("codes.form.courses")}</span>
-          <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border p-2">
-            {courses.map((c) => (
-              <label key={c.id} className="flex items-center gap-2 rounded px-1 py-1 text-sm">
-                <input
-                  type="checkbox"
-                  checked={picked.includes(c.id)}
-                  onChange={() => togglePick(c.id)}
-                  className="size-4"
-                />
-                {c.title}
-              </label>
-            ))}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">{t("codes.form.courses")}</span>
+            {picked.length > 0 && (
+              <StatusPill tone="violet" dot={false}>
+                {t("codes.form.selected", { count: picked.length })}
+              </StatusPill>
+            )}
           </div>
+          {courses.length === 0 ? (
+            <p className="text-muted-foreground rounded-xl border border-dashed p-4 text-center text-sm">
+              {t("codes.form.noCourses")}
+            </p>
+          ) : (
+            <div className="max-h-52 space-y-1.5 overflow-y-auto rounded-xl border p-2">
+              {courses.map((c) => {
+                const on = picked.includes(c.id);
+                return (
+                  <label
+                    key={c.id}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
+                      on ? "bg-primary/10 text-foreground font-medium" : "hover:bg-muted",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => togglePick(c.id)}
+                      className="accent-primary size-4"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{c.title}</span>
+                    {on && <Check className="text-primary size-4 shrink-0" />}
+                  </label>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
           <Field label={t("codes.form.count")}>
             <input
               type="number"
@@ -318,7 +515,7 @@ function GenerateModal({
               className={inputClass}
             />
           </Field>
-          <Field label={t("codes.form.expires")}>
+          <Field label={t("codes.form.expires")} optional={t("form.optional")}>
             <input
               type="date"
               value={expires}
@@ -328,12 +525,14 @@ function GenerateModal({
           </Field>
         </div>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={singleUse} onChange={(e) => setSingleUse(e.target.checked)} className="size-4" />
-          {t("codes.form.singleUse")}
-        </label>
+        <CheckOption
+          checked={singleUse}
+          onChange={setSingleUse}
+          label={t("codes.form.singleUse")}
+          hint={t("codes.form.singleUseHint")}
+        />
 
-        <Field label={t("codes.form.label")}>
+        <Field label={t("codes.form.label")} optional={t("form.optional")}>
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
@@ -342,12 +541,12 @@ function GenerateModal({
           />
         </Field>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 border-t pt-4">
           <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
             {t("form.cancel")}
           </Button>
           <Button type="submit" disabled={busy || picked.length === 0}>
-            {t("codes.form.submit")}
+            <Plus /> {t("codes.form.submit")}
           </Button>
         </div>
       </form>

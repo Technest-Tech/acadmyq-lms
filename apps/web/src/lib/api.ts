@@ -5,6 +5,9 @@ import type {
   ReportFieldType,
   SessionStatus,
 } from "@academiq/contracts";
+// The LMS public site's content shape is defined once, next to the client that reads it on the site
+// itself (docs/lms/09); the staff editor here writes exactly the same document.
+import type { LearnSiteContent } from "@/lib/learn-api";
 
 /**
  * Typed HTTP client for the Laravel JSON API.
@@ -1256,6 +1259,235 @@ export interface VideoHealth {
 /** LiveKit + Egress + object-storage reachability + concurrent-recording capacity hint. */
 export function getVideoHealth(): Promise<VideoHealth> {
   return apiFetch("/api/admin/video/health");
+}
+
+// ── Super Admin LMS oversight (docs/lms) ─────────────────────────────────────
+
+/** Effective LMS module status, derived from the client's LMS module subscription. */
+export type LmsStatus = "ACTIVE" | "TRIAL" | "EXPIRED" | "PAUSED" | "NONE";
+
+export type LmsCourseStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+
+export interface LmsUsageRow {
+  academy_id: string;
+  academy_name: string;
+  subdomain: string | null;
+  created_at: string;
+  plan_name: string | null;
+  lms_plan_name: string | null;
+  lms_status: LmsStatus;
+  lms_enabled: boolean;
+  trial_end: string | null;
+  max_courses: number | null;
+  max_learners: number | null;
+  max_storage_gb: number | null;
+  courses_total: number;
+  courses_published: number;
+  courses_draft: number;
+  lessons: number;
+  learners: number;
+  active_learners: number;
+  enrollments: number;
+  active_enrollments: number;
+  codes: number;
+  active_codes: number;
+  redeemed_codes: number;
+  storage_bytes: number;
+  media_processing: number;
+  media_failed: number;
+  certificates: number;
+  last_activity: string | null;
+}
+
+export interface LmsUsageTotals {
+  academies: number;
+  active: number;
+  trial: number;
+  courses: number;
+  published_courses: number;
+  lessons: number;
+  learners: number;
+  enrollments: number;
+  redeemed_codes: number;
+  storage_bytes: number;
+  certificates: number;
+}
+
+/** The LMS client roster (catalogue, learners, enrolment, storage) + platform totals. */
+export function getLmsUsage(): Promise<{
+  academies: LmsUsageRow[];
+  totals: LmsUsageTotals;
+}> {
+  return apiFetch("/api/admin/lms/usage");
+}
+
+/** The per-academy LMS capacity caps a Super Admin can override (null ⇒ inherit the plan). */
+export interface LmsLimits {
+  maxCourses?: number | null;
+  maxLearners?: number | null;
+  maxStorageGb?: number | null;
+}
+
+export interface LmsAcademyCourse {
+  id: string;
+  title: string;
+  slug: string;
+  status: LmsCourseStatus;
+  created_at: string;
+  published_at: string | null;
+  lessons: number;
+  learners: number;
+}
+
+export interface LmsAcademyLearner {
+  id: string;
+  full_name: string;
+  email: string;
+  status: "ACTIVE" | "BLOCKED";
+  created_at: string;
+  last_login_at: string | null;
+  enrollments: number;
+}
+
+export interface LmsAcademyDetail {
+  academy: {
+    id: string;
+    name: string;
+    subdomain: string | null;
+    created_at: string;
+    currency: string | null;
+    plan_name: string | null;
+    lms_plan_name: string | null;
+    lms_status: LmsStatus;
+    lms_enabled: boolean;
+    trial_start: string | null;
+    trial_end: string | null;
+    /** Effective caps (the per-academy override wins over the LMS plan's limits). */
+    lms_limits: LmsLimits;
+    /** Raw per-academy override (null ⇒ inheriting the plan's caps). */
+    lms_overrides: LmsLimits | null;
+  };
+  subscription: {
+    status: string;
+    is_trial: boolean;
+    trial_start: string | null;
+    trial_end: string | null;
+    current_period_start: string | null;
+    current_period_end: string | null;
+    total_cost_minor: number;
+    currency: string | null;
+    plan_name: string | null;
+  } | null;
+  stats: {
+    courses_total: number;
+    courses_published: number;
+    courses_draft: number;
+    lessons: number;
+    learners: number;
+    active_learners: number;
+    enrollments: number;
+    active_enrollments: number;
+    codes: number;
+    active_codes: number;
+    redeemed_codes: number;
+    storage_bytes: number;
+    media_processing: number;
+    media_failed: number;
+    certificates: number;
+    quiz_attempts: number;
+    completed_lessons: number;
+  };
+  courses: LmsAcademyCourse[];
+  learners: LmsAcademyLearner[];
+  recent_enrollments: {
+    id: string;
+    learner_name: string;
+    course_title: string;
+    enrolled_at: string;
+  }[];
+  site: {
+    subdomain: string | null;
+    url: string | null;
+    root_domain: string | null;
+    /** False ⇒ subdomain routing is not configured and `url` is an in-app path, not an origin. */
+    configured: boolean;
+  };
+}
+
+/** One client's LMS detail: subscription state, effective caps, courses, learners, activity. */
+export function getLmsAcademy(id: string): Promise<LmsAcademyDetail> {
+  return apiFetch(`/api/admin/lms/academies/${id}`);
+}
+
+export interface LmsActivityRow {
+  id: string;
+  academy_id: string | null;
+  academy_name: string | null;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  actor_role: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  created_at: string;
+}
+
+/** The LMS activity feed (course/lesson/learner/code/enrolment/quiz/media actions). */
+export function getLmsActivity(
+  limit = 100,
+  academy?: string,
+): Promise<{ rows: LmsActivityRow[]; total: number; limit: number }> {
+  const q = new URLSearchParams({ limit: String(limit) });
+  if (academy) q.set("academy", academy);
+  return apiFetch(`/api/admin/lms/activity?${q.toString()}`);
+}
+
+/** Replace this client's LMS capacity caps; an empty map clears the override. Audited. */
+export function setLmsLimits(
+  id: string,
+  limits: LmsLimits,
+): Promise<{ ok: boolean } & LmsAcademyDetail> {
+  return apiFetch(`/api/admin/lms/academies/${id}/limits`, {
+    method: "POST",
+    body: JSON.stringify({ limits }),
+  });
+}
+
+/** Set (or detach, with null) the client's public course-site subdomain. Audited. */
+export function setLmsSubdomain(
+  id: string,
+  subdomain: string | null,
+): Promise<{ ok: boolean } & LmsAcademyDetail> {
+  return apiFetch(`/api/admin/lms/academies/${id}/subdomain`, {
+    method: "PUT",
+    body: JSON.stringify({ subdomain }),
+  });
+}
+
+/** Platform moderation of a client's course (publish / unpublish / archive). Audited. */
+export function setLmsCourseStatus(
+  academyId: string,
+  courseId: string,
+  status: LmsCourseStatus,
+  reason?: string,
+): Promise<{ ok: boolean; status: LmsCourseStatus }> {
+  return apiFetch(
+    `/api/admin/lms/academies/${academyId}/courses/${courseId}/status`,
+    { method: "POST", body: JSON.stringify({ status, reason: reason ?? null }) },
+  );
+}
+
+/** Block or unblock one of the client's learners. Audited. */
+export function setLmsLearnerStatus(
+  academyId: string,
+  learnerId: string,
+  status: "ACTIVE" | "BLOCKED",
+  reason?: string,
+): Promise<{ ok: boolean; status: "ACTIVE" | "BLOCKED" }> {
+  return apiFetch(
+    `/api/admin/lms/academies/${academyId}/learners/${learnerId}/status`,
+    { method: "POST", body: JSON.stringify({ status, reason: reason ?? null }) },
+  );
 }
 
 /** Fetch a private payment-proof screenshot as an object URL (works in cookie + token modes). */
@@ -3845,7 +4077,7 @@ export const COURSE_STATUSES: readonly CourseStatus[] = [
   "ARCHIVED",
 ];
 
-/** Lesson kinds. VIDEO_UPLOAD + QUIZ are recognised but not yet buildable (later phases). */
+/** Lesson kinds. */
 export type LessonType =
   | "YOUTUBE"
   | "TEXT"
@@ -3854,13 +4086,17 @@ export type LessonType =
   | "VIDEO_UPLOAD"
   | "QUIZ";
 
-/** The kinds the phase-1 editor can create. */
+/**
+ * The kinds the editor can create. QUIZ carries no payload field of its own — the API mints an
+ * empty quiz for the course on save, which the QuizBuilder then fills in (docs/lms/04 §quizzes).
+ */
 export const AUTHORABLE_LESSON_TYPES: readonly LessonType[] = [
   "VIDEO_UPLOAD",
   "YOUTUBE",
   "TEXT",
   "PDF",
   "AUDIO",
+  "QUIZ",
 ];
 
 export interface CourseRow {
@@ -3873,6 +4109,12 @@ export interface CourseRow {
   published_at: string | null;
   created_at: string;
   lesson_count: number;
+  /** One-off unlock price in integer minor units, in the academy's currency. 0 = free. */
+  price_minor: number;
+  /** ISO 4217 code the price is denominated in (the academy's default currency). */
+  currency: string;
+  /** Derived: true when `price_minor` is 0. */
+  is_free: boolean;
 }
 
 export interface CourseSummary {
@@ -3880,6 +4122,8 @@ export interface CourseSummary {
   published: number;
   archived: number;
   total: number;
+  /** The academy's currency (ISO 4217) — labels the price field before any course exists. */
+  currency: string;
 }
 
 export interface Lesson {
@@ -3913,6 +4157,10 @@ export interface CourseInput {
   title: string;
   subtitle?: string | null;
   description?: string | null;
+  /** One-off unlock price in integer minor units (academy currency). 0 / omitted = free. */
+  price_minor?: number;
+  /** A READY IMAGE upload to use as the cover; the API stores its key and serves a loadable url. */
+  cover_media_asset_id?: string | null;
 }
 
 export interface LessonInput {
@@ -3939,6 +4187,79 @@ export function listCourses(
 
 export function getCourseSummary(): Promise<CourseSummary> {
   return apiFetch("/api/courses/summary");
+}
+
+/** The LMS client's own dashboard — the course platform's home screen (docs/lms). */
+export interface LmsDashboard {
+  stats: {
+    courses: number;
+    published_courses: number;
+    draft_courses: number;
+    lessons: number;
+    learners: number;
+    active_learners: number;
+    enrollments: number;
+    active_enrollments: number;
+    codes: number;
+    active_codes: number;
+    redeemed_codes: number;
+    certificates: number;
+  };
+  storage: { used_bytes: number; limit_bytes: number | null };
+  site: {
+    subdomain: string | null;
+    /** Absolute URL once DNS is configured, else the in-app `/learn/<subdomain>` path. */
+    url: string | null;
+    root_domain: string | null;
+    /** False ⇒ subdomain routing is not configured and `url` is an in-app path, not an origin. */
+    configured: boolean;
+    published_courses: number;
+  };
+  recent_enrollments: {
+    id: string;
+    learner_name: string;
+    course_title: string;
+    enrolled_at: string | null;
+  }[];
+  top_courses: {
+    id: string;
+    title: string;
+    slug: string;
+    status: CourseStatus;
+    learners: number;
+  }[];
+}
+
+export function getLmsDashboard(): Promise<LmsDashboard> {
+  return apiFetch("/api/courses/dashboard");
+}
+
+/**
+ * The client's public-site content (docs/lms/09) — the per-client half of the shared learner-site
+ * template. `LearnSiteContent` is the same shape the public site consumes, so the editor and the
+ * site can never disagree about a field.
+ */
+export interface LmsSiteProfile {
+  /** What the site renders: the client's content laid over the structural defaults. */
+  content: LearnSiteContent;
+  /** The bare defaults, so the editor can show what an empty field falls back to. */
+  defaults: LearnSiteContent;
+  /** False until the client saves for the first time. */
+  configured: boolean;
+  site: {
+    subdomain: string | null;
+    url: string | null;
+    root_domain: string | null;
+    configured: boolean;
+  };
+}
+
+export function getLmsSiteProfile(): Promise<LmsSiteProfile> {
+  return apiFetch("/api/courses/site");
+}
+
+export function saveLmsSiteProfile(content: LearnSiteContent): Promise<LmsSiteProfile> {
+  return apiFetch("/api/courses/site", { method: "PUT", body: JSON.stringify(content) });
 }
 
 export function createCourse(input: CourseInput): Promise<{ courseId: string }> {
@@ -4062,7 +4383,7 @@ export function reorderLessons(
 // returned target (presigned S3, or a signed proxy route on a local disk), then confirm it READY.
 // The READY asset's id goes on a VIDEO_UPLOAD / AUDIO lesson.
 
-export type MediaKind = "VIDEO" | "AUDIO";
+export type MediaKind = "VIDEO" | "AUDIO" | "IMAGE";
 export type MediaStatus = "PENDING" | "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
 
 export interface MediaUploadTarget {
@@ -4204,6 +4525,85 @@ export function saveQuiz(
 
 export function deleteQuiz(courseId: string, quizId: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/courses/${courseId}/quizzes/${quizId}`, { method: "DELETE" });
+}
+
+// ── LMS quizzes: cross-course listing + results ──────────────────────────────
+// A quiz is otherwise only reachable through the lesson it hangs off; these two power the /lms/quizzes
+// workspace page and its per-quiz results view.
+
+export interface QuizRow {
+  id: string;
+  title: string | null;
+  pass_mark: number;
+  max_attempts: number | null;
+  created_at: string | null;
+  course_id: string;
+  course_title: string;
+  course_status: string;
+  /** null when no lesson references this quiz — it exists but no learner can reach it. */
+  lesson_id: string | null;
+  lesson_title: string | null;
+  question_count: number;
+  total_points: number;
+  attempt_count: number;
+  learner_count: number;
+  passed_count: number;
+  /** null until at least one attempt has been submitted. */
+  avg_score: number | null;
+}
+
+export interface QuizAttemptRow {
+  id: string;
+  learner_id: string;
+  learner_name: string;
+  learner_email: string;
+  score: number | null;
+  passed: boolean;
+  started_at: string | null;
+  submitted_at: string | null;
+}
+
+export interface QuizQuestionStat {
+  id: string;
+  prompt: string;
+  type: QuestionType;
+  points: number;
+  correct_count: number;
+  attempts: number;
+  /** Percent of submitted attempts that got this question right; null before any attempt. */
+  correct_rate: number | null;
+}
+
+export interface QuizResults {
+  quiz: {
+    id: string;
+    title: string | null;
+    pass_mark: number;
+    max_attempts: number | null;
+    course_id: string;
+    course_title: string;
+  };
+  summary: {
+    attempts: number;
+    learners: number;
+    passed: number;
+    passed_learners: number;
+    avg_score: number | null;
+    best_score: number | null;
+    worst_score: number | null;
+  };
+  attempts: QuizAttemptRow[];
+  /** True when `attempts` is only the most recent slice — the summary still covers every attempt. */
+  attempts_truncated: boolean;
+  questions: QuizQuestionStat[];
+}
+
+export function listQuizzes(): Promise<{ quizzes: QuizRow[] }> {
+  return apiFetch("/api/courses/quizzes");
+}
+
+export function getQuizResults(quizId: string): Promise<QuizResults> {
+  return apiFetch(`/api/courses/quizzes/${quizId}/results`);
 }
 
 // ── LMS dashboard: access codes + learners (staff side) ──────────────────────

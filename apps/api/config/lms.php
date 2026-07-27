@@ -18,6 +18,31 @@ return [
     |
     */
 
+    /*
+    |--------------------------------------------------------------------------
+    | LMS learner site (docs/lms/02)
+    |--------------------------------------------------------------------------
+    |
+    | Each client's public course site is served at `<subdomain>.<root_domain>`
+    | (wildcard DNS → the one Next.js app, routed by its middleware). Leave the
+    | root domain empty until DNS is configured: the API then reports the site's
+    | in-app path (`/learn/<subdomain>`), which serves the same site — so the
+    | dashboard's "visit your site" link works in dev and in prod alike. Mirror
+    | of the web app's NEXT_PUBLIC_ROOT_DOMAIN.
+    |
+    */
+
+    'site' => [
+        // The root the learner site hangs off. May carry a PORT for local development
+        // (`localhost:3000`) — the web middleware compares hostnames only, so the port is used for
+        // link building and ignored when matching. Empty ⇒ report the in-app `/learn/<sub>` path.
+        'root_domain' => (string) env('LMS_SITE_ROOT_DOMAIN', ''),
+
+        // Scheme for the generated site URL. `http` for local development; leave at `https` in prod.
+        // Mirror of the web app's NEXT_PUBLIC_ROOT_SCHEME.
+        'scheme' => (string) env('LMS_SITE_SCHEME', 'https'),
+    ],
+
     'media' => [
         // Default to the S3 disk only when object storage is actually configured; otherwise the
         // `local` disk + signed-proxy delivery, so a plain dev box needs zero storage setup.

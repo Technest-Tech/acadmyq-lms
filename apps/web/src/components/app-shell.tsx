@@ -13,10 +13,14 @@ import {
   ClipboardCheck,
   CreditCard,
   FileCheck2,
+  Globe,
   GraduationCap,
   History,
+  KeyRound,
   LayoutDashboard,
+  LibraryBig,
   LifeBuoy,
+  ListChecks,
   Lock,
   LogOut,
   Menu,
@@ -71,6 +75,7 @@ type NavKey =
   | "staffDepartments"
   | "adminAutomation"
   | "adminVideo"
+  | "adminLms"
   | "guardians"
   | "students"
   | "teachers"
@@ -79,7 +84,12 @@ type NavKey =
   | "videoClassroom"
   | "trials"
   | "crm"
+  | "lmsHome"
   | "courses"
+  | "lmsQuizzes"
+  | "lmsLearners"
+  | "lmsCodes"
+  | "lmsSite"
   | "attendance"
   | "studentReports"
   | "studentReportReviews"
@@ -110,6 +120,7 @@ type NavGroup =
   | "general"
   | "people"
   | "academics"
+  | "lms"
   | "scheduling"
   | "financial"
   | "platform"
@@ -119,6 +130,7 @@ const NAV_GROUPS: readonly NavGroup[] = [
   "general",
   "people",
   "academics",
+  "lms",
   "scheduling",
   "financial",
   "platform",
@@ -196,14 +208,57 @@ const NAV: ReadonlyArray<{
     group: "people",
   },
 
-  // ── Academics ───────────────────────────────────────────────────────────
+  // ── Course platform (LMS, docs/lms) ─────────────────────────────────────
+  // Its own group: an LMS client's whole workspace, and a distinct section for a school that also
+  // sells courses. `lms.only` collapses the sidebar to exactly these (+ the account screens).
+  {
+    key: "lmsHome",
+    icon: LayoutDashboard,
+    permission: "course.read",
+    href: "/lms",
+    group: "lms",
+  },
   {
     key: "courses",
     icon: BookOpen,
     permission: "course.read",
-    href: "/courses",
-    group: "academics",
+    href: "/lms/courses",
+    group: "lms",
   },
+  // Quizzes live inside a course (a QUIZ lesson points at one), so this is purely the cross-course
+  // overview + their results — the one place staff can see every quiz and how learners did.
+  {
+    key: "lmsQuizzes",
+    icon: ListChecks,
+    permission: "course.read",
+    href: "/lms/quizzes",
+    group: "lms",
+  },
+  {
+    key: "lmsLearners",
+    icon: Users,
+    permission: "learner.read",
+    href: "/lms/learners",
+    group: "lms",
+  },
+  {
+    key: "lmsCodes",
+    icon: KeyRound,
+    permission: "access_code.manage",
+    href: "/lms/codes",
+    group: "lms",
+  },
+  // The public site's content (docs/lms/09) — the client's own half of the shared learner-site
+  // template. Read-gated like the rest of the workspace; the editor itself needs `course.manage`.
+  {
+    key: "lmsSite",
+    icon: Globe,
+    permission: "course.read",
+    href: "/lms/site",
+    group: "lms",
+  },
+
+  // ── Academics ───────────────────────────────────────────────────────────
   {
     key: "attendance",
     icon: ClipboardCheck,
@@ -366,6 +421,13 @@ const NAV: ReadonlyArray<{
     href: "/admin/video",
     group: "platform",
   },
+  {
+    key: "adminLms",
+    icon: LibraryBig,
+    permission: "platform.manage",
+    href: "/admin/lms",
+    group: "platform",
+  },
 
   // ── System ──────────────────────────────────────────────────────────────
   {
@@ -411,6 +473,7 @@ const PLATFORM_NAV: readonly NavKey[] = [
   "billing", // money only: proof review, dues, MRR per module
   "plans", // catalog, one tab per module + add-ons
   "adminVideo", // Video Ops (platform-wide health/usage)
+  "adminLms", // Course Platform Ops (LMS clients, usage, per-client controls)
   "adminAutomation", // WhatsApp Ops (gateway health/activity)
   "users",
   "platformSettings", // + tabs: roles matrix, staff departments (R3)
@@ -442,6 +505,31 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   discountsAwards: "payroll",
   myPayroll: "payroll",
 };
+
+/**
+ * The LMS workspace (docs/lms). `LMS_EXTRA_KEYS` are the surfaces that only make sense once the
+ * module is on (they're hidden outright otherwise); `courses` is deliberately NOT one of them, so a
+ * school without the module still sees a single locked "Courses" item advertising the platform.
+ * `LMS_ONLY_KEYS` is everything an `lms.only` client keeps: its workspace + the account screens.
+ * Settings is deliberately NOT one of them — every knob on it (subjects, logo, colours, payment) is
+ * either school-only or already owned by "My site", so for these clients it is a dead end.
+ */
+const LMS_EXTRA_KEYS = new Set<NavKey>([
+  "lmsHome",
+  "lmsQuizzes",
+  "lmsLearners",
+  "lmsCodes",
+  "lmsSite",
+]);
+const LMS_ONLY_KEYS = new Set<NavKey>([
+  "lmsHome",
+  "courses",
+  "lmsQuizzes",
+  "lmsLearners",
+  "lmsCodes",
+  "lmsSite",
+  "plan",
+]);
 
 const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
 
@@ -571,6 +659,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [capabilities, pathname, router]);
 
+  // An LMS-only client's home is the course platform's own dashboard, not the school's (docs/lms).
+  // Settings goes the same way: it is off their sidebar, so the bare URL must not be a back door
+  // into a screen full of school knobs they have no use for.
+  useEffect(() => {
+    if (
+      capabilities?.includes("lms.only") &&
+      (pathname === "/dashboard" || pathname === "/settings")
+    ) {
+      router.replace("/lms");
+    }
+  }, [capabilities, pathname, router]);
+
   // Cold start only. The shell lives in the (app) layout, so it mounts once per session and stays
   // mounted across every navigation — this full-screen state is what a hard load or a sign-in
   // transition looks like, never what clicking a nav link looks like.
@@ -599,6 +699,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // else — collapse the whole nav to just that.
   const videoOnly =
     capabilities !== null && capabilities.includes("video.only");
+  // An LMS-only client (the `lms.only` capability) sells courses and runs no school — collapse the
+  // nav to the course platform plus the account screens every client still needs (docs/lms).
+  const lmsOnly = capabilities !== null && capabilities.includes("lms.only");
+  const hasLms = capabilities === null || capabilities.includes("lms");
   const items = NAV.filter((item) => {
     if (item.permission !== null && !can(item.permission)) return false;
     if (item.key === "dashboard" && isPlatformAdmin) return false;
@@ -607,6 +711,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // owner panel's navigation.
     if (item.key === "audit" && session.role !== "SUPER_ADMIN") return false;
     if (videoOnly && item.key !== "videoClassroom") return false;
+    if (lmsOnly && !LMS_ONLY_KEYS.has(item.key)) return false;
+    // Without the module, only `courses` remains — visible-but-locked, as the LMS upsell. The rest
+    // of the workspace would be meaningless noise in a school's sidebar.
+    if (!hasLms && LMS_EXTRA_KEYS.has(item.key)) return false;
     return true;
   });
   const inEnteredAcademy =
@@ -619,10 +727,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .join("")
     .toUpperCase();
 
-  // `/dashboard` and `/admin` are exact-match only — otherwise `/admin` would greedily
-  // claim the `/admin/plans` and `/admin/staff-departments` routes via startsWith.
+  // `/dashboard`, `/admin` and `/lms` are exact-match only — otherwise `/admin` would greedily
+  // claim the `/admin/plans` and `/admin/staff-departments` routes via startsWith, and the LMS
+  // home would claim every `/lms/*` workspace page.
   const isExactOnly = (href: string) =>
-    href === "/dashboard" || href === "/admin";
+    href === "/dashboard" || href === "/admin" || href === "/lms";
   const matches = (href: string) =>
     pathname === href || (!isExactOnly(href) && pathname.startsWith(href));
   const activeItem = items.find((item) => matches(item.href));
@@ -854,19 +963,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               ) : (
                 // Tenant (or an admin acting inside an academy): the flat labelled groups.
                 NAV_GROUPS.map((group) => {
-                    const groupItems = items.filter(
-                      (item) => item.group === group,
-                    );
-                    if (groupItems.length === 0) return null;
-                    return (
-                      <div key={group}>
-                        {groupLabel(t(`navGroup.${group}`))}
-                        <div className="space-y-0.5">
-                          {groupItems.map(renderNavItem)}
-                        </div>
+                  const groupItems = items.filter(
+                    (item) => item.group === group,
+                  );
+                  if (groupItems.length === 0) return null;
+                  return (
+                    <div key={group}>
+                      {groupLabel(t(`navGroup.${group}`))}
+                      <div className="space-y-0.5">
+                        {groupItems.map(renderNavItem)}
                       </div>
-                    );
-                  })
+                    </div>
+                  );
+                })
               )}
             </div>
           </nav>
@@ -1057,7 +1166,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  {can("specialization.manage") && (
+                  {can("specialization.manage") && !lmsOnly && (
                     <DropdownMenuItem
                       onClick={() => router.push("/settings")}
                       closeOnClick

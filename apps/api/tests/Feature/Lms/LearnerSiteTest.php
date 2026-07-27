@@ -135,6 +135,63 @@ it('gates the player behind enrollment, which a redeemed code grants', function 
         ->assertOk()->assertJsonPath('enrolled_course_ids.0', $this->courseId);
 });
 
+// ── a free course needs no code at all ───────────────────────────────────────
+it('self-enrolls a signed-in learner in a FREE course, but not in a paid one', function () {
+    $token = $this->withHeaders(learnHeaders())->postJson('/api/learn/auth/register', [
+        'full_name' => 'Nour', 'email' => 'nour@example.com', 'password' => 'password123',
+    ])->json('token');
+
+    // The seeded course carries the default price of 0 → one click enrolls.
+    $this->withHeaders(learnHeaders($token))
+        ->postJson("/api/learn/courses/{$this->slug}/enroll")
+        ->assertOk()
+        ->assertJsonPath('already_enrolled', false)
+        ->assertJsonPath('course.slug', $this->slug);
+
+    // The player opens, and repeating the call is idempotent.
+    $this->withHeaders(learnHeaders($token))
+        ->getJson("/api/learn/courses/{$this->slug}/content")->assertOk();
+    $this->withHeaders(learnHeaders($token))
+        ->postJson("/api/learn/courses/{$this->slug}/enroll")
+        ->assertOk()->assertJsonPath('already_enrolled', true);
+
+    // A priced course still demands a code.
+    Sanctum::actingAs($this->owner);
+    $paidId = $this->postJson('/api/courses', ['title' => 'Physics Pro', 'price_minor' => 50000])->json('courseId');
+    $paidSection = $this->postJson("/api/courses/{$paidId}/sections", ['title' => 'Unit 1'])->json('sectionId');
+    $this->postJson("/api/courses/{$paidId}/lessons", [
+        'section_id' => $paidSection, 'type' => 'TEXT', 'title' => 'Paid notes', 'body' => 'x',
+    ])->assertCreated();
+    $this->postJson("/api/courses/{$paidId}/publish", ['status' => 'PUBLISHED'])->assertOk();
+    $paidSlug = $this->getJson("/api/courses/{$paidId}")->json('course.slug');
+    app()['auth']->forgetGuards();
+
+    $this->withHeaders(learnHeaders($token))
+        ->postJson("/api/learn/courses/{$paidSlug}/enroll")
+        ->assertStatus(403);
+});
+
+// ── revoked access is not re-openable by the free door ───────────────────────
+it('refuses free self-enrollment for a learner whose access was revoked', function () {
+    $token = $this->withHeaders(learnHeaders())->postJson('/api/learn/auth/register', [
+        'full_name' => 'Rami', 'email' => 'rami@example.com', 'password' => 'password123',
+    ])->json('token');
+
+    $this->withHeaders(learnHeaders($token))
+        ->postJson("/api/learn/courses/{$this->slug}/enroll")->assertOk();
+
+    Sanctum::actingAs($this->owner);
+    $learnerId = $this->getJson('/api/courses/learners')->json('learners.0.id');
+    $this->postJson("/api/courses/learners/{$learnerId}/enrollment", [
+        'course_id' => $this->courseId, 'status' => 'REVOKED',
+    ])->assertOk();
+    app()['auth']->forgetGuards();
+
+    $this->withHeaders(learnHeaders($token))
+        ->postJson("/api/learn/courses/{$this->slug}/enroll")
+        ->assertStatus(403);
+});
+
 // ── a single-use code cannot be shared ───────────────────────────────────────
 it('refuses a single-use code once it is spent', function () {
     $a = $this->withHeaders(learnHeaders())->postJson('/api/learn/auth/register', [

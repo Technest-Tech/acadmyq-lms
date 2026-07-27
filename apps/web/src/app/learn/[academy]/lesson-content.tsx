@@ -1,27 +1,54 @@
 "use client";
 
 import type Hls from "hls.js";
-import { FileText, Loader2, Lock } from "lucide-react";
+import { Download, FileText, Loader2, Lock } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { YoutubePlayer } from "@/components/learn/youtube-player";
 import { learnPlayback, type LearnLesson } from "@/lib/learn-api";
 import { QuizRunner } from "./quiz-runner";
 
-/** Renders a lesson's content by type. Content is absent when the viewer isn't entitled to it. */
+/**
+ * Renders a lesson's content by type. Content is absent when the viewer isn't entitled to it.
+ *
+ * Playable lessons (uploaded video/audio) also report where the learner got to, so the player can
+ * save a resume point and tick the lesson off once it has effectively been watched — the behaviour
+ * every course platform has, and the reason `position_seconds` exists in the API.
+ */
+
+export interface LessonPlaybackProps {
+  /** Resume point in seconds — applied once the media knows its duration. */
+  startAt?: number;
+  autoPlay?: boolean;
+  /** Throttled (~10s) playback position, plus the media's duration. */
+  onTime?: (position: number, duration: number) => void;
+  onEnded?: () => void;
+}
+
 export function LessonContent({
   lesson,
   academy,
   onComplete,
+  startAt,
+  autoPlay,
+  onTime,
+  onEnded,
 }: {
   lesson: LearnLesson;
   academy: string;
   onComplete?: () => void;
-}) {
+} & LessonPlaybackProps) {
   const t = useTranslations("learn");
 
   // A quiz carries its own content (the questions) and completes itself on a pass.
   if (lesson.type === "QUIZ") {
-    return <QuizRunner academy={academy} lessonId={lesson.id} onPassed={onComplete} />;
+    return (
+      <QuizRunner
+        academy={academy}
+        lessonId={lesson.id}
+        onPassed={onComplete}
+      />
+    );
   }
 
   const uploaded = lesson.has_media === true; // VIDEO_UPLOAD, or an uploaded AUDIO
@@ -40,17 +67,17 @@ export function LessonContent({
     );
   }
 
+  // YouTube-hosted lesson: our own chrome, none of YouTube's (see YoutubePlayer).
   if (lesson.type === "YOUTUBE" && lesson.youtube_video_id) {
     return (
-      <div className="aspect-video w-full overflow-hidden rounded-xl bg-black">
-        <iframe
-          className="h-full w-full"
-          src={`https://www.youtube-nocookie.com/embed/${lesson.youtube_video_id}?rel=0`}
-          title={lesson.title}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
-      </div>
+      <YoutubePlayer
+        videoId={lesson.youtube_video_id}
+        title={lesson.title}
+        startAt={startAt}
+        autoPlay={autoPlay}
+        onTime={onTime}
+        onEnded={onEnded}
+      />
     );
   }
 
@@ -64,11 +91,29 @@ export function LessonContent({
         </div>
       );
     }
-    return <UploadedMedia academy={academy} lesson={lesson} />;
+    return (
+      <UploadedMedia
+        academy={academy}
+        lesson={lesson}
+        startAt={startAt}
+        autoPlay={autoPlay}
+        onTime={onTime}
+        onEnded={onEnded}
+      />
+    );
   }
 
   if (lesson.type === "AUDIO" && lesson.attachment_path) {
-    return <audio controls src={lesson.attachment_path} className="w-full" />;
+    return (
+      <PlainMedia
+        kind="AUDIO"
+        src={lesson.attachment_path}
+        startAt={startAt}
+        autoPlay={autoPlay}
+        onTime={onTime}
+        onEnded={onEnded}
+      />
+    );
   }
 
   if (lesson.type === "PDF" && lesson.attachment_path) {
@@ -77,17 +122,20 @@ export function LessonContent({
         href={lesson.attachment_path}
         target="_blank"
         rel="noreferrer"
-        className="border-input hover:bg-muted flex items-center gap-3 rounded-xl border p-4 text-sm"
+        className="border-input hover:border-primary/50 hover:bg-muted/50 flex items-center gap-3 rounded-xl border p-4 text-sm font-medium transition-colors"
       >
-        <FileText className="size-5 opacity-70" />
-        {t("player.openPdf")}
+        <span className="bg-[var(--brand-soft)] flex size-10 shrink-0 items-center justify-center rounded-xl">
+          <FileText className="text-primary size-5" aria-hidden />
+        </span>
+        <span className="flex-1">{t("player.openPdf")}</span>
+        <Download className="text-muted-foreground size-4" aria-hidden />
       </a>
     );
   }
 
   if (lesson.type === "TEXT" && lesson.body != null) {
     return (
-      <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-sm leading-relaxed">
+      <div className="prose prose-sm max-w-none text-sm leading-relaxed whitespace-pre-wrap">
         {lesson.body}
       </div>
     );
@@ -96,10 +144,18 @@ export function LessonContent({
   return null;
 }
 
-type Playback = { url: string; kind: "VIDEO" | "AUDIO"; protocol: "hls" | "progressive" };
+type Playback = {
+  url: string;
+  kind: "VIDEO" | "AUDIO";
+  protocol: "hls" | "progressive";
+};
 
 /** Resolves the enrollment-gated signed playback URL, then renders the right player for its protocol. */
-function UploadedMedia({ academy, lesson }: { academy: string; lesson: LearnLesson }) {
+function UploadedMedia({
+  academy,
+  lesson,
+  ...playbackProps
+}: { academy: string; lesson: LearnLesson } & LessonPlaybackProps) {
   const t = useTranslations("learn");
   const [playback, setPlayback] = useState<Playback | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +169,8 @@ function UploadedMedia({ academy, lesson }: { academy: string; lesson: LearnLess
         if (active) setPlayback(r);
       })
       .catch((e) => {
-        if (active) setError(e instanceof Error ? e.message : t("errors.generic"));
+        if (active)
+          setError(e instanceof Error ? e.message : t("errors.generic"));
       });
     return () => {
       active = false;
@@ -122,7 +179,7 @@ function UploadedMedia({ academy, lesson }: { academy: string; lesson: LearnLess
 
   if (error) {
     return (
-      <div className="rounded-xl border border-dashed p-4 text-sm text-red-600 dark:text-red-400">
+      <div className="rounded-xl border border-dashed p-4 text-sm text-red-600">
         {error}
       </div>
     );
@@ -136,17 +193,90 @@ function UploadedMedia({ academy, lesson }: { academy: string; lesson: LearnLess
     );
   }
 
-  if (playback.kind === "AUDIO") {
-    return <audio controls src={playback.url} className="w-full" />;
-  }
-
   // A transcoded video streams via hls.js; a progressive-MP4 v0 is a plain <video> source.
   if (playback.protocol === "hls") {
-    return <HlsVideo src={playback.url} />;
+    return <HlsVideo src={playback.url} {...playbackProps} />;
   }
 
   return (
-    <video controls playsInline src={playback.url} className="aspect-video w-full rounded-xl bg-black" />
+    <PlainMedia kind={playback.kind} src={playback.url} {...playbackProps} />
+  );
+}
+
+/**
+ * The shared media behaviour: resume where the learner stopped, report the position on a ~10s
+ * cadence (often enough to be a useful resume point, rare enough not to hammer the API), and hand
+ * the "finished" event up so the player can advance.
+ */
+function useMediaBehaviour({ startAt, onTime, onEnded }: LessonPlaybackProps) {
+  const lastReport = useRef(0);
+  const seeked = useRef(false);
+
+  // A fresh lesson gets a fresh seek — the same <video> node is reused across lessons.
+  useEffect(() => {
+    seeked.current = false;
+    lastReport.current = 0;
+  }, [startAt]);
+
+  const onLoadedMetadata = useCallback(
+    (e: { currentTarget: HTMLMediaElement }) => {
+      const el = e.currentTarget;
+      // Resuming into the last few seconds would just replay the credits — start over instead.
+      if (
+        !seeked.current &&
+        startAt &&
+        startAt > 5 &&
+        startAt < el.duration - 10
+      ) {
+        el.currentTime = startAt;
+      }
+      seeked.current = true;
+    },
+    [startAt],
+  );
+
+  const onTimeUpdate = useCallback(
+    (e: { currentTarget: HTMLMediaElement }) => {
+      const el = e.currentTarget;
+      if (!onTime || !Number.isFinite(el.duration)) return;
+      if (Math.abs(el.currentTime - lastReport.current) < 10) return;
+      lastReport.current = el.currentTime;
+      onTime(el.currentTime, el.duration);
+    },
+    [onTime],
+  );
+
+  return { onLoadedMetadata, onTimeUpdate, onEnded };
+}
+
+function PlainMedia({
+  kind,
+  src,
+  autoPlay,
+  ...rest
+}: { kind: "VIDEO" | "AUDIO"; src: string } & LessonPlaybackProps) {
+  const handlers = useMediaBehaviour(rest);
+
+  if (kind === "AUDIO") {
+    return (
+      <audio
+        controls
+        src={src}
+        autoPlay={autoPlay}
+        className="w-full"
+        {...handlers}
+      />
+    );
+  }
+  return (
+    <video
+      controls
+      playsInline
+      src={src}
+      autoPlay={autoPlay}
+      className="aspect-video w-full rounded-xl bg-black"
+      {...handlers}
+    />
   );
 }
 
@@ -155,8 +285,13 @@ function UploadedMedia({ academy, lesson }: { academy: string; lesson: LearnLess
  * (dynamic import keeps it out of the initial bundle). The signed manifest url already carries its own
  * signed segment urls (rewritten server-side), so hls.js just fetches them.
  */
-function HlsVideo({ src }: { src: string }) {
+function HlsVideo({
+  src,
+  autoPlay,
+  ...rest
+}: { src: string } & LessonPlaybackProps) {
   const ref = useRef<HTMLVideoElement>(null);
+  const handlers = useMediaBehaviour(rest);
 
   useEffect(() => {
     const video = ref.current;
@@ -187,5 +322,14 @@ function HlsVideo({ src }: { src: string }) {
     };
   }, [src]);
 
-  return <video ref={ref} controls playsInline className="aspect-video w-full rounded-xl bg-black" />;
+  return (
+    <video
+      ref={ref}
+      controls
+      playsInline
+      autoPlay={autoPlay}
+      className="aspect-video w-full rounded-xl bg-black"
+      {...handlers}
+    />
+  );
 }

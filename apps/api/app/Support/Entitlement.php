@@ -172,6 +172,8 @@ final class Entitlement
             $capabilities = array_values(array_diff($capabilities, $disabled));
         }
 
+        $capabilities = self::applyLmsOnlyGuard($capabilities);
+
         // A per-academy video TIER drives only the video limit keys; every other limit still comes
         // from the academy's own plan (so a video grant never alters maxStudents, etc.).
         $limits = $features['limits'];
@@ -203,6 +205,33 @@ final class Entitlement
      * @param  list<string>  $capabilities
      * @return list<string>
      */
+    /**
+     * `lms.only` collapses the web panel to the course platform (docs/lms), so it may only survive
+     * when the course platform IS the client's whole product — nothing beyond the LMS capabilities is
+     * granted. A school that ALSO sells courses keeps its full panel even though its LMS plan carries
+     * the marker.
+     *
+     * Deliberately keyed on the resolved CAPABILITIES, not on which module row holds the LMS plan:
+     * a client can legitimately be provisioned with the LMS plan attached to its MANAGEMENT
+     * subscription (that is how the academy-creation flow assigns a plan), and that is still a
+     * course-platform-only client.
+     *
+     * @param  list<string>  $capabilities
+     * @return list<string>
+     */
+    private static function applyLmsOnlyGuard(array $capabilities): array
+    {
+        if (! in_array('lms.only', $capabilities, true)) {
+            return $capabilities;
+        }
+
+        if (array_diff($capabilities, ['lms', 'lms.only']) === []) {
+            return $capabilities; // the LMS is the entire product → keep the workspace marker
+        }
+
+        return array_values(array_filter($capabilities, static fn (string $c): bool => $c !== 'lms.only'));
+    }
+
     private static function applyVideoOverride(array $capabilities, ?object $academy): array
     {
         $access = $academy->video_access ?? null;
@@ -248,6 +277,27 @@ final class Entitlement
         foreach (FeatureCatalog::VIDEO_LIMIT_KEYS as $key) {
             if (array_key_exists($key, $tier)) {
                 $base[$key] = $tier[$key];
+            }
+        }
+
+        return $base;
+    }
+
+    /**
+     * Merge $incoming over $base for $keys only — the key-scoped merge mergeVideoLimits does for the
+     * video tier, reused by the LMS module (its plan's caps and its per-academy override). A key
+     * $incoming omits leaves the base value intact.
+     *
+     * @param  array<string,mixed>  $base
+     * @param  array<string,mixed>  $incoming
+     * @param  list<string>  $keys
+     * @return array<string,mixed>
+     */
+    private static function mergeScopedLimits(array $base, array $incoming, array $keys): array
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $incoming)) {
+                $base[$key] = $incoming[$key];
             }
         }
 
@@ -340,7 +390,7 @@ final class Entitlement
             ->leftJoin('plans as p', 'p.id', '=', 'ms.plan_id')
             ->where('ms.academy_id', $academyId)
             ->where('ms.status', '<>', 'ENDED')
-            ->get(['ms.module', 'ms.status', 'ms.is_trial', 'ms.trial_end', 'ms.overrides', 'p.code as plan_code', 'p.features']);
+            ->get(['ms.module', 'ms.status', 'ms.is_trial', 'ms.trial_end', 'ms.overrides', 'p.code as plan_code', 'p.features', 'p.module as plan_module']);
 
         // Grants come only from ACTIVE subs whose trial (when one is running) hasn't lapsed — an
         // expired trial stops granting the moment it ends, not when the nightly job pauses it.
@@ -352,6 +402,12 @@ final class Entitlement
         $crm = $grantable->firstWhere('module', 'CRM');
         $lms = $grantable->firstWhere('module', 'LMS');
         $videoContainer = $subs->firstWhere('module', 'VIDEO'); // overrides apply from ANY live sub
+        // The LMS caps container. A dedicated LMS row when there is one, else the live sub CARRYING
+        // an LMS plan — the academy-creation flow provisions an LMS client as a single MANAGEMENT
+        // row holding the LMS plan, so keying on the module name alone silently misses real clients
+        // (the same trap applyLmsOnlyGuard hit). `plans.module` is the reliable signal.
+        $lmsContainer = $subs->firstWhere('module', 'LMS')
+            ?? $subs->first(static fn (object $s): bool => ($s->plan_module ?? null) === 'LMS');
         $primary = $mgmt ?? $video; // the sub whose plan == the old academies.plan_id
 
         $primaryFeatures = self::decodeFeatures($primary->features ?? null);
@@ -413,6 +469,8 @@ final class Entitlement
             $capabilities = array_values(array_diff($capabilities, $disabled));
         }
 
+        $capabilities = self::applyLmsOnlyGuard($capabilities);
+
         // Base limits from the primary plan; video keys from the VIDEO sub's tier + override only.
         $limits = $primaryFeatures['limits'];
         if ($videoOverrides !== null) {
@@ -420,6 +478,27 @@ final class Entitlement
                 $limits = self::mergeVideoLimits($limits, (string) $videoOverrides['tierPlanId']);
             }
             $limits = self::applyOverrideLimits($limits, ['limits' => $videoOverrides['limits'] ?? []]);
+        }
+
+        // The LMS caps work the same way (docs/lms): the LMS sub's plan is the course-platform TIER
+        // — it contributes ONLY the LMS limit keys, so a school's maxStudents is never touched —
+        // and the sub's `overrides.limits` is the per-academy override a Super Admin sets from
+        // /admin/lms. Both apply from any LIVE sub: a paused module stops granting `lms`, but its
+        // caps must stay put so nothing silently becomes unlimited while it is suspended.
+        if ($lmsContainer !== null) {
+            $limits = self::mergeScopedLimits(
+                $limits,
+                self::decodeFeatures($lmsContainer->features ?? null)['limits'],
+                FeatureCatalog::LMS_LIMIT_KEYS,
+            );
+            $lmsOverrides = self::decodeOverrides($lmsContainer->overrides);
+            if ($lmsOverrides !== null) {
+                $limits = self::mergeScopedLimits(
+                    $limits,
+                    self::decodeFeatures(['limits' => $lmsOverrides['limits'] ?? []])['limits'],
+                    FeatureCatalog::LMS_LIMIT_KEYS,
+                );
+            }
         }
 
         return [

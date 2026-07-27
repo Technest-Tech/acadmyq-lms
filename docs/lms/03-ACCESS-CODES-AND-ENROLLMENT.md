@@ -59,8 +59,10 @@ prevents a single-use code from being redeemed twice in a race.
 
 `enrollments` is the single source of truth the player asks: *may this learner watch this course?*
 
-- Created only by redemption (phase 2). Later, paid checkout could create it with a null
-  `source_code_id` — the column already allows it.
+- Created by redemption, or — for a `price_minor = 0` course — by the learner themselves via
+  `POST /api/learn/courses/{slug}/enroll`, which writes the same row with a null `source_code_id`.
+  A free course needs no code: the price IS the authorisation, re-checked server-side, and a
+  REVOKED enrollment is never resurrected by it. Later, paid checkout can create the row the same way.
 - `status ACTIVE | REVOKED` — an academy can revoke access (dashboard) without deleting the row, so
   the learner's progress/history survives and access can be restored.
 - **Every learner-facing content endpoint checks enrollment**: listing lessons, fetching a playback

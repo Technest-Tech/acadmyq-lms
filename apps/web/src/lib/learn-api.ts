@@ -30,11 +30,7 @@ export class LearnApiError extends Error {
   }
 }
 
-async function learnFetch<T>(
-  academy: string,
-  path: string,
-  opts: RequestInit = {},
-): Promise<T> {
+async function learnFetch<T>(academy: string, path: string, opts: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -55,11 +51,114 @@ async function learnFetch<T>(
 
   if (!res.ok) {
     const message =
-      (body && typeof body === "object" && "message" in body && (body as { message?: string }).message) ||
+      (body &&
+        typeof body === "object" &&
+        "message" in body &&
+        (body as { message?: string }).message) ||
       `Request failed (${res.status})`;
     throw new LearnApiError(res.status, message, body);
   }
   return body as T;
+}
+
+// ── site profile (docs/lms/09) ───────────────────────────────────────────────
+
+/**
+ * The per-academy content of the shared site template. Every LMS client renders the SAME sections;
+ * this is the only thing that differs between them. Blank strings and empty lists are normal — the
+ * template substitutes its own translated copy, which is how a client who never opened the editor
+ * still gets a finished, bilingual site.
+ */
+export interface LearnSiteContent {
+  brand: {
+    name: string;
+    tagline: string;
+    logo_url: string;
+    /** `#rrggbb`; drives the whole palette through CSS variables. */
+    color: string;
+    hero_style: "gradient" | "image" | "plain";
+  };
+  hero: {
+    eyebrow: string;
+    title: string;
+    subtitle: string;
+    image_url: string;
+    primary_cta: "browse" | "redeem" | "contact";
+    badges: string[];
+  };
+  stats: { show: boolean; items: { value: string; label: string }[] };
+  about: {
+    show: boolean;
+    heading: string;
+    body: string;
+    image_url: string;
+    points: string[];
+  };
+  features: {
+    show: boolean;
+    heading: string;
+    subheading: string;
+    items: { icon: string; title: string; body: string }[];
+  };
+  steps: {
+    show: boolean;
+    heading: string;
+    items: { title: string; body: string }[];
+  };
+  instructors: {
+    show: boolean;
+    heading: string;
+    items: { name: string; role: string; bio: string; photo_url: string }[];
+  };
+  testimonials: {
+    show: boolean;
+    heading: string;
+    items: {
+      name: string;
+      role: string;
+      quote: string;
+      photo_url: string;
+      rating: number;
+    }[];
+  };
+  faq: { show: boolean; heading: string; items: { q: string; a: string }[] };
+  cta: {
+    show: boolean;
+    title: string;
+    subtitle: string;
+    button_label: string;
+    button_href: string;
+  };
+  contact: {
+    show: boolean;
+    email: string;
+    phone: string;
+    whatsapp: string;
+    address: string;
+    map_url: string;
+    socials: Record<string, string>;
+  };
+  footer: { note: string; links: { label: string; href: string }[] };
+  seo: { title: string; description: string; og_image_url: string };
+  pages: { about: boolean; faq: boolean; contact: boolean };
+}
+
+/** Live catalogue counters — what the stats band shows when the client wrote no numbers of its own. */
+export interface LearnSiteStats {
+  courses: number;
+  lessons: number;
+  learners: number;
+  certificates: number;
+}
+
+export interface LearnSite {
+  site: LearnSiteContent;
+  stats: LearnSiteStats;
+  academy: { name: string; subdomain: string | null };
+}
+
+export function learnSite(academy: string): Promise<LearnSite> {
+  return learnFetch(academy, "/site");
 }
 
 // ── types ────────────────────────────────────────────────────────────────────
@@ -71,6 +170,19 @@ export interface LearnCourseCard {
   subtitle: string | null;
   cover_image_path: string | null;
   lesson_count: number;
+  /** Catalogue facts (docs/lms/09). Optional: an older API build sends only `lesson_count`. */
+  section_count?: number;
+  /** Total runtime of every timed lesson, in seconds. 0 when the course carries no durations. */
+  duration_seconds?: number;
+  preview_count?: number;
+  /** ACTIVE enrolments — real social proof, shown only when there is some. */
+  learner_count?: number;
+  published_at?: string | null;
+  updated_at?: string | null;
+  /** One-off unlock price in integer minor units, in the academy's currency. 0 = free. */
+  price_minor: number;
+  currency: string;
+  is_free: boolean;
 }
 
 export type LearnLessonType = "YOUTUBE" | "TEXT" | "PDF" | "AUDIO" | "VIDEO_UPLOAD" | "QUIZ";
@@ -106,6 +218,14 @@ export interface LearnCourseDetail {
     subtitle: string | null;
     description: string | null;
     cover_image_path: string | null;
+    /** Sales-page facts — absent from the player payload, which sells nothing. */
+    learner_count?: number;
+    published_at?: string | null;
+    updated_at?: string | null;
+    /** One-off unlock price in integer minor units, in the academy's currency. 0 = free. */
+    price_minor: number;
+    currency: string;
+    is_free: boolean;
   };
   sections: LearnSection[];
 }
@@ -129,14 +249,20 @@ export function learnRegister(
   academy: string,
   input: { full_name: string; email: string; password: string; phone?: string },
 ): Promise<{ token: string; learner: LearnProfile }> {
-  return learnFetch(academy, "/auth/register", { method: "POST", body: JSON.stringify(input) });
+  return learnFetch(academy, "/auth/register", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function learnLogin(
   academy: string,
   input: { email: string; password: string },
 ): Promise<{ token: string; learner: LearnProfile }> {
-  return learnFetch(academy, "/auth/login", { method: "POST", body: JSON.stringify(input) });
+  return learnFetch(academy, "/auth/login", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export function learnMe(
@@ -162,8 +288,27 @@ export function learnCourse(academy: string, slug: string): Promise<LearnCourseD
 export function learnRedeem(
   academy: string,
   code: string,
-): Promise<{ ok: boolean; already_redeemed: boolean; courses: { id: string; title: string; slug: string }[] }> {
-  return learnFetch(academy, "/redeem", { method: "POST", body: JSON.stringify({ code }) });
+): Promise<{
+  ok: boolean;
+  already_redeemed: boolean;
+  courses: { id: string; title: string; slug: string }[];
+}> {
+  return learnFetch(academy, "/redeem", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+/** Self-enroll in a FREE course — no code, just a signed-in learner (the API re-checks the price). */
+export function learnEnrollFree(
+  academy: string,
+  slug: string,
+): Promise<{
+  ok: boolean;
+  already_enrolled: boolean;
+  course: { id: string; title: string; slug: string };
+}> {
+  return learnFetch(academy, `/courses/${slug}/enroll`, { method: "POST" });
 }
 
 export function learnPlayer(
@@ -173,11 +318,15 @@ export function learnPlayer(
   return learnFetch(academy, `/courses/${slug}/content`);
 }
 
+/**
+ * Saves a resume point and/or completion for one lesson. Completing the last outstanding lesson
+ * finishes the course, which is why a certificate can come back from a progress save.
+ */
 export function learnSaveProgress(
   academy: string,
   lessonId: string,
   input: { position_seconds?: number; completed?: boolean },
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; certificate: { serial: string } | null }> {
   return learnFetch(academy, `/lessons/${lessonId}/progress`, {
     method: "POST",
     body: JSON.stringify(input),
@@ -192,7 +341,11 @@ export function learnSaveProgress(
 export function learnPlayback(
   academy: string,
   lessonId: string,
-): Promise<{ url: string; kind: "VIDEO" | "AUDIO"; protocol: "hls" | "progressive" }> {
+): Promise<{
+  url: string;
+  kind: "VIDEO" | "AUDIO";
+  protocol: "hls" | "progressive";
+}> {
   return learnFetch(academy, `/lessons/${lessonId}/playback`);
 }
 

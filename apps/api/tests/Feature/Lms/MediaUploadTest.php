@@ -212,3 +212,97 @@ it('serves a signed playback url to an enrolled learner and refuses otherwise', 
     $streamPath = str_replace(config('app.url'), '', $play->json('url'));
     $this->get($streamPath)->assertOk();
 });
+
+// ── course cover images (docs/lms/04 §media) ─────────────────────────────────
+it('uploads a cover image and serves it as a signed url on the public course site', function () {
+    Sanctum::actingAs($this->owner);
+
+    // A cover goes through the SAME reserve → put → confirm pipeline as lesson media.
+    $assetId = $this->postJson('/api/courses/media/upload-url', [
+        'filename' => 'cover.jpg', 'content_type' => 'image/jpeg', 'kind' => 'IMAGE', 'size_bytes' => 1024,
+    ])->assertCreated()->json('mediaAssetId');
+    Storage::disk('lms_media')->put("lms/{$this->academy}/{$assetId}/source.jpg", str_repeat('x', 1024));
+    $this->postJson("/api/courses/media/{$assetId}/uploaded")->assertOk()
+        ->assertJsonPath('status', 'READY');   // an image never transcodes
+
+    $courseId = $this->postJson('/api/courses', [
+        'title' => 'Design', 'cover_media_asset_id' => $assetId,
+    ])->assertCreated()->json('courseId');
+
+    // Staff read it back as a loadable url, never the raw storage key.
+    $cover = $this->getJson("/api/courses/{$courseId}")->assertOk()->json('course.cover_image_path');
+    expect($cover)->toBeString()->toContain('/lms/media/stream');
+    expect($cover)->not->toContain('lms/'.$this->academy.'/'.$assetId);
+
+    // A course needs a lesson before it can be published (and thus appear in the catalogue).
+    $sectionId = $this->postJson("/api/courses/{$courseId}/sections", ['title' => 'Unit 1'])
+        ->json('sectionId');
+    $this->postJson("/api/courses/{$courseId}/lessons", [
+        'section_id' => $sectionId, 'type' => 'TEXT', 'title' => 'Intro', 'body' => 'hi',
+    ])->assertCreated();
+
+    $this->postJson("/api/courses/{$courseId}/publish", ['status' => 'PUBLISHED'])->assertOk();
+    app()['auth']->forgetGuards();
+
+    // And the PUBLIC catalogue — no learner auth at all — serves a url that really returns bytes.
+    $card = collect($this->withHeaders(['X-Academy' => 'vodsite'])
+        ->getJson('/api/learn/courses')->assertOk()->json('courses'))->firstWhere('title', 'Design');
+    expect($card['cover_image_path'])->toBeString()->toContain('/lms/media/stream');
+    $this->get(str_replace(config('app.url'), '', $card['cover_image_path']))->assertOk();
+});
+
+it('rejects a non-image file as a cover, and a cover asset that is not READY', function () {
+    Sanctum::actingAs($this->owner);
+
+    $this->postJson('/api/courses/media/upload-url', [
+        'filename' => 'clip.mp4', 'content_type' => 'video/mp4', 'kind' => 'IMAGE', 'size_bytes' => 1024,
+    ])->assertStatus(422);
+
+    // Reserved but never uploaded → still PENDING, so it cannot become a cover.
+    $pending = $this->postJson('/api/courses/media/upload-url', [
+        'filename' => 'cover.png', 'content_type' => 'image/png', 'kind' => 'IMAGE', 'size_bytes' => 512,
+    ])->assertCreated()->json('mediaAssetId');
+
+    $this->postJson('/api/courses', ['title' => 'Nope', 'cover_media_asset_id' => $pending])
+        ->assertStatus(422);
+});
+
+it('keeps a plain url cover working and leaves the cover alone when not sent', function () {
+    Sanctum::actingAs($this->owner);
+
+    $courseId = $this->postJson('/api/courses', [
+        'title' => 'Pasted', 'cover_image_path' => 'https://cdn.example.com/a.jpg',
+    ])->assertCreated()->json('courseId');
+
+    // A url is stored and returned untouched — no signing, no rewriting.
+    expect($this->getJson("/api/courses/{$courseId}")->json('course.cover_image_path'))
+        ->toBe('https://cdn.example.com/a.jpg');
+
+    // A patch that says nothing about the cover must not clear it.
+    $this->patchJson("/api/courses/{$courseId}", ['title' => 'Renamed'])->assertOk();
+    expect($this->getJson("/api/courses/{$courseId}")->json('course.cover_image_path'))
+        ->toBe('https://cdn.example.com/a.jpg');
+});
+
+// ── presigned uploads must not hand the browser headers it refuses to set ────
+it('strips browser-forbidden headers from a presigned upload target', function () {
+    // The rest of the suite fakes a `local` disk, so this is the only cover for the S3 branch.
+    config([
+        'lms.media.disk' => 'lms_media',
+        'filesystems.disks.lms_media.driver' => 's3',
+    ]);
+
+    $disk = Mockery::mock();
+    $disk->shouldReceive('temporaryUploadUrl')->once()->andReturn([
+        'url' => 'https://objects.test/lms/a/b/source.jpg?X-Amz-Signature=abc',
+        // S3 presigning hands `Host` back; XHR throws "Refused to set unsafe header" on it.
+        'headers' => ['Host' => 'objects.test', 'Content-Type' => 'image/jpeg'],
+    ]);
+    Storage::shouldReceive('disk')->with('lms_media')->andReturn($disk);
+
+    $target = App\Support\LmsMedia::uploadTarget('lms/a/b/source.jpg', 'image/jpeg');
+
+    expect($target['headers'])->toHaveKey('Content-Type');   // the signed value survives
+    expect($target['headers'])->not->toHaveKey('Host');      // the unsettable one is gone
+    expect($target['url'])->toContain('X-Amz-Signature');
+});

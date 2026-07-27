@@ -27,7 +27,18 @@ return [
         explode(',', (string) env('FRONTEND_URL', 'http://localhost:3000'))
     ),
 
-    'allowed_origins_patterns' => [],
+    // The LMS public course site (docs/lms/09) serves EACH client from its own subdomain
+    // (`<academy>.<root>`), so there is no fixed list of origins to enumerate — one per client, added
+    // as clients sign up. Instead allow any subdomain of the configured learner-site root domain.
+    // The root mirrors the web app's NEXT_PUBLIC_ROOT_DOMAIN and may carry a dev port
+    // (`localhost:3000`); every label under it is an origin WE control (wildcard DNS → our one app),
+    // so this widens nothing to third parties. Empty root ⇒ no pattern (subdomain routing is off and
+    // the site is reached at the apex origin's `/learn/<sub>` path, already covered above).
+    'allowed_origins_patterns' => array_values(array_filter([
+        ($lmsRoot = trim((string) env('LMS_SITE_ROOT_DOMAIN', ''))) !== ''
+            ? '#^https?://[a-z0-9-]+\.'.preg_quote($lmsRoot, '#').'$#i'
+            : null,
+    ])),
 
     'allowed_headers' => ['*'],
 

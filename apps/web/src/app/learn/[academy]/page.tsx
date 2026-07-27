@@ -1,69 +1,131 @@
 "use client";
 
-import { BookOpen, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Ticket } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
+import { useLearn } from "@/components/learn/context";
+import { CourseGrid, CourseGridSkeleton } from "@/components/learn/course-card";
+import {
+  AboutSplit,
+  Container,
+  CtaBand,
+  CtaButton,
+  FaqAccordion,
+  FeatureGrid,
+  Hero,
+  InstructorGrid,
+  Section,
+  SectionHeading,
+  StatsBand,
+  StepsRail,
+  TestimonialGrid,
+} from "@/components/learn/sections";
 import { learnCatalog, type LearnCourseCard } from "@/lib/learn-api";
-import { useLearn } from "./learn-provider";
 
-export default function CatalogPage() {
+/**
+ * The academy's landing page (docs/lms/09) — the same section order for every LMS client: what they
+ * teach, proof, the courses themselves, why here, how access works, who teaches, what students say,
+ * the usual questions, and one closing ask. A client fills in as much as they want; sections with
+ * nothing to show remove themselves.
+ */
+export default function SiteHomePage() {
   const t = useTranslations("learn");
-  const { academy, isEnrolled } = useLearn();
+  const { academy, site, openRedeem } = useLearn();
   const [courses, setCourses] = useState<LearnCourseCard[] | null>(null);
-  const [error, setError] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     learnCatalog(academy)
       .then((r) => setCourses(r.courses))
-      .catch(() => setError(true));
+      .catch(() => setFailed(true));
   }, [academy]);
 
-  return (
-    <div className="space-y-8">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-bold sm:text-3xl">{t("catalog.title")}</h1>
-        <p className="text-muted-foreground">{t("catalog.subtitle")}</p>
-      </div>
+  const featured = (courses ?? []).slice(0, 6);
+  const hasMore = (courses?.length ?? 0) > featured.length;
+  const heroCta = site.hero.primary_cta;
 
-      {error ? (
-        <p className="text-muted-foreground py-16 text-center text-sm">{t("errors.generic")}</p>
-      ) : courses === null ? (
-        <p className="text-muted-foreground py-16 text-center text-sm">…</p>
-      ) : courses.length === 0 ? (
-        <div className="text-muted-foreground rounded-xl border border-dashed py-16 text-center text-sm">
-          {t("catalog.empty")}
-        </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {courses.map((c) => (
-            <Link
-              key={c.id}
-              href={`/learn/${academy}/c/${c.slug}`}
-              className="group hover:border-primary/40 flex flex-col overflow-hidden rounded-xl border transition-colors"
-            >
-              <div className="bg-muted flex aspect-video items-center justify-center">
-                {c.cover_image_path ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={c.cover_image_path} alt={c.title} className="h-full w-full object-cover" />
-                ) : (
-                  <BookOpen className="size-10 opacity-30" />
-                )}
+  return (
+    <>
+      <Hero
+        actions={
+          <>
+            {heroCta === "redeem" ? (
+              <CtaButton onClick={openRedeem}>
+                <Ticket className="size-4" aria-hidden />
+                {t("redeem.cta")}
+              </CtaButton>
+            ) : heroCta === "contact" && site.pages.contact ? (
+              <CtaButton href={`/learn/${academy}/contact`}>{t("nav.contact")}</CtaButton>
+            ) : (
+              <CtaButton href={`/learn/${academy}/courses`}>
+                {t("hero.browse")}
+                <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
+              </CtaButton>
+            )}
+            <CtaButton variant="onDark" onClick={openRedeem}>
+              <Ticket className="size-4" aria-hidden />
+              {t("redeem.cta")}
+            </CtaButton>
+          </>
+        }
+      />
+
+      <StatsBand />
+
+      <Section id="courses">
+        <SectionHeading
+          eyebrow={t("catalog.eyebrow")}
+          title={t("catalog.title")}
+          subtitle={t("catalog.subtitle")}
+        />
+
+        {failed ? (
+          <p className="text-muted-foreground py-10 text-center text-sm">{t("errors.generic")}</p>
+        ) : courses === null ? (
+          <CourseGridSkeleton count={3} />
+        ) : featured.length === 0 ? (
+          <div className="text-muted-foreground rounded-2xl border border-dashed py-16 text-center text-sm">
+            {t("catalog.empty")}
+          </div>
+        ) : (
+          <>
+            <CourseGrid courses={featured} />
+            {hasMore && (
+              <div className="mt-10 text-center">
+                <CtaButton variant="outline" href={`/learn/${academy}/courses`}>
+                  {t("catalog.viewAll")}
+                  <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
+                </CtaButton>
               </div>
-              <div className="flex flex-1 flex-col gap-1 p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold leading-tight">{c.title}</h3>
-                  {isEnrolled(c.id) && <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />}
-                </div>
-                {c.subtitle && <p className="text-muted-foreground text-sm">{c.subtitle}</p>}
-                <p className="text-muted-foreground mt-auto pt-2 text-xs">
-                  {t("catalog.lessons", { count: c.lesson_count })}
-                </p>
-              </div>
-            </Link>
-          ))}
-        </div>
+            )}
+          </>
+        )}
+      </Section>
+
+      {/* Each section carries its own background tone so the page has a visual rhythm rather than
+          one flat surface, and a divider badge straddles each boundary. Sections that render
+          nothing (no instructors, no reviews) take their divider with them — no orphan splitters. */}
+      <FeatureGrid tone="muted" divider />
+      <StepsRail tone="tint" divider />
+      {site.pages.about && <AboutSplit tone="pattern" divider />}
+      <InstructorGrid tone="muted" divider />
+      <TestimonialGrid tone="tint" divider />
+      <FaqAccordion limit={5} tone="plain" divider />
+
+      {site.pages.faq && site.faq.show && (
+        <Container className="-mt-8 text-center">
+          <Link
+            href={`/learn/${academy}/faq`}
+            className="text-primary inline-flex items-center gap-1.5 text-sm font-semibold hover:underline"
+          >
+            {t("faq.viewAll")}
+            <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
+          </Link>
+        </Container>
       )}
-    </div>
+
+      <CtaBand onPrimary={openRedeem} />
+    </>
   );
 }

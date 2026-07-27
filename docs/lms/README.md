@@ -30,6 +30,8 @@ identity + on-demand video delivery are the genuinely new pieces this module add
 | [05-BILLING-ENTITLEMENT-PERMISSIONS.md](05-BILLING-ENTITLEMENT-PERMISSIONS.md) | Module registration, plan, `lms` capability, `course.*` permissions — mirroring CRM |
 | [06-FRONTEND-SURFACES.md](06-FRONTEND-SURFACES.md) | Dashboard pages + learner-site pages |
 | [07-ROADMAP.md](07-ROADMAP.md) | The four phases, each an independently shippable slice |
+| [08-SUPERADMIN-OVERSIGHT.md](08-SUPERADMIN-OVERSIGHT.md) | `/admin/lms` — the LMS client roster, per-client statistics, and the four platform controls |
+| [09-PUBLIC-SITE.md](09-PUBLIC-SITE.md) | The shared learner-site template + the per-client content profile the client edits at `/lms/site` |
 
 ## Status
 

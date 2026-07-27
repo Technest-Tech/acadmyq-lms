@@ -9,8 +9,13 @@ import { type NextRequest, NextResponse } from "next/server";
  * OPT-IN and fail-safe: with `NEXT_PUBLIC_ROOT_DOMAIN` unset (dev, and until DNS is configured) this
  * is a pure pass-through, so the app host and local development are completely unaffected. The
  * learner site is also always reachable directly at `/learn/<academy>/…` for local testing.
+ *
+ * The variable may carry a PORT (`localhost:3000`) so the same value can build links elsewhere; host
+ * matching is hostname-only, so the port is stripped here. That is what lets subdomain routing run
+ * locally against `http://<academy>.localhost:3000` — browsers and macOS resolve any `*.localhost`
+ * label to loopback, so no `/etc/hosts` entry is needed.
  */
-const ROOT = process.env.NEXT_PUBLIC_ROOT_DOMAIN;
+const ROOT = process.env.NEXT_PUBLIC_ROOT_DOMAIN?.split(":")[0]?.toLowerCase();
 
 // Subdomains that are the platform itself, never an academy handle.
 const RESERVED = new Set(["www", "app", "api", "admin", "mail", "static", "assets", "cdn"]);

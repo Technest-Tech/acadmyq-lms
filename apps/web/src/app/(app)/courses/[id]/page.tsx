@@ -1,10 +1,11 @@
-import { CourseEditor } from "@/components/courses/course-editor";
+import { redirect } from "next/navigation";
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
+/** Moved into the /lms workspace (docs/lms). */
 export default async function CourseEditorPage({ params }: PageProps) {
   const { id } = await params;
-  return <CourseEditor courseId={id} />;
+  redirect(`/lms/courses/${id}`);
 }

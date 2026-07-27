@@ -2,7 +2,8 @@
 
 import { useTranslations } from "next-intl";
 import { useState } from "react";
-import { Field, inputClass, textareaClass } from "@/components/courses/form-bits";
+import { CheckOption, Field, inputClass, textareaClass } from "@/components/courses/form-bits";
+import { LESSON_STYLE, lmsColor } from "@/components/courses/lms-ui";
 import { MediaUpload } from "@/components/courses/media-upload";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -18,9 +19,10 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Add or edit a lesson. The `type` picker offers only the phase-1 authorable kinds (YouTube / text /
- * PDF / audio); uploaded video + quizzes are noted as coming later. The type selects which single
- * payload field shows.
+ * Add or edit a lesson. The `type` picker offers the authorable kinds (YouTube / uploaded video /
+ * text / PDF / audio / quiz) as icon tiles, and the chosen kind decides which single payload field
+ * shows — so the form never asks for more than the one thing that lesson needs. QUIZ shows no
+ * payload field at all: saving mints an empty quiz, built from the editor's "Build quiz" action.
  */
 export function LessonModal({
   courseId,
@@ -44,9 +46,7 @@ export function LessonModal({
   );
   const [isPreview, setIsPreview] = useState(lesson?.is_preview ?? false);
   const [youtubeUrl, setYoutubeUrl] = useState(
-    lesson?.youtube_video_id
-      ? `https://www.youtube.com/watch?v=${lesson.youtube_video_id}`
-      : "",
+    lesson?.youtube_video_id ? `https://www.youtube.com/watch?v=${lesson.youtube_video_id}` : "",
   );
   const [body, setBody] = useState(lesson?.body ?? "");
   const [url, setUrl] = useState(lesson?.attachment_path ?? "");
@@ -85,15 +85,23 @@ export function LessonModal({
 
   const valid =
     title.trim() !== "" &&
-    ((type === "YOUTUBE" && youtubeUrl.trim() !== "") ||
+    // QUIZ needs nothing but a title — its questions are authored in the builder afterwards.
+    (type === "QUIZ" ||
+      (type === "YOUTUBE" && youtubeUrl.trim() !== "") ||
       (type === "TEXT" && body.trim() !== "") ||
       ((type === "PDF" || type === "AUDIO") && url.trim() !== "") ||
       (type === "VIDEO_UPLOAD" && mediaAssetId != null));
 
   return (
-    <Modal open onClose={onClose} title={editing ? t("editor.addLesson") : t("lesson.add")}>
+    <Modal
+      open
+      onClose={onClose}
+      title={editing ? t("lesson.editTitle") : t("lesson.add")}
+      description={t("lesson.hint")}
+      size="lg"
+    >
       <form
-        className="space-y-4"
+        className="space-y-5"
         onSubmit={(e) => {
           e.preventDefault();
           if (valid) void submit();
@@ -106,35 +114,30 @@ export function LessonModal({
             autoFocus
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            placeholder={t("lesson.titlePlaceholder")}
             className={inputClass}
             required
           />
         </Field>
 
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <span className="text-sm font-medium">{t("lesson.type")}</span>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {AUTHORABLE_LESSON_TYPES.map((ty) => (
-              <button
+              <TypeTile
                 key={ty}
-                type="button"
-                onClick={() => setType(ty)}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-sm transition-colors",
-                  type === ty
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-input hover:bg-muted",
-                )}
-              >
-                {t(`lesson.types.${ty}`)}
-              </button>
+                type={ty}
+                active={type === ty}
+                label={t(`lesson.types.${ty}`)}
+                onSelect={() => setType(ty)}
+              />
             ))}
           </div>
           <p className="text-muted-foreground text-xs">{t("lesson.typeHint")}</p>
         </div>
 
         {type === "YOUTUBE" && (
-          <Field label={t("lesson.youtubeUrl")}>
+          <Field label={t("lesson.youtubeUrl")} hint={t("lesson.youtubeHint")}>
             <input
               value={youtubeUrl}
               onChange={(e) => setYoutubeUrl(e.target.value)}
@@ -149,7 +152,7 @@ export function LessonModal({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder={t("lesson.bodyPlaceholder")}
-              rows={6}
+              rows={8}
               className={textareaClass}
             />
           </Field>
@@ -175,17 +178,14 @@ export function LessonModal({
           </Field>
         )}
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={isPreview}
-            onChange={(e) => setIsPreview(e.target.checked)}
-            className="size-4 rounded border-input"
-          />
-          {t("lesson.isPreview")}
-        </label>
+        <CheckOption
+          checked={isPreview}
+          onChange={setIsPreview}
+          label={t("lesson.isPreview")}
+          hint={t("lesson.isPreviewHint")}
+        />
 
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 border-t pt-4">
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             {t("form.cancel")}
           </Button>
@@ -195,5 +195,47 @@ export function LessonModal({
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** One kind of lesson, as a selectable tile — icon, label, and a clear selected state. */
+function TypeTile({
+  type,
+  active,
+  label,
+  onSelect,
+}: {
+  type: LessonType;
+  active: boolean;
+  label: string;
+  onSelect: () => void;
+}) {
+  const style = LESSON_STYLE[type];
+  const c = lmsColor(style.color);
+  const Icon = style.Icon;
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={active}
+      className={cn(
+        "flex items-center gap-2.5 rounded-xl border p-2.5 text-start transition-all",
+        active
+          ? "border-primary/50 bg-primary/5 ring-primary/20 shadow-sm ring-1"
+          : "border-input hover:bg-muted/60",
+      )}
+    >
+      <span
+        className={cn(
+          "flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm transition-opacity",
+          c.chip,
+          !active && "opacity-70",
+        )}
+      >
+        <Icon className="size-4" />
+      </span>
+      <span className="min-w-0 truncate text-sm font-medium">{label}</span>
+    </button>
   );
 }

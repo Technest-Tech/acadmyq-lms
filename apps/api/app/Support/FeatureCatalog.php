@@ -37,6 +37,7 @@ final class FeatureCatalog
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
         'video.only' => 'Video-only workspace (the panel shows the video classroom only)',
         'lms' => 'LMS — online courses (course builder & learner site)',
+        'lms.only' => 'LMS-only workspace (the panel shows the course platform only)',
     ];
 
     /**
@@ -86,28 +87,48 @@ final class FeatureCatalog
     ];
 
     /**
-     * Capabilities that must NEVER be part of a general "all features" plan bundle — they are
-     * exclusive to a specific plan shape. `video.only` flips an academy into the video-only
-     * (Meet Plan) workspace where the panel collapses to just the video classroom, so granting
-     * it to a full plan (FREE/PRO) would wrongly hide the whole academy. Only the MEET plan,
-     * seeded by its own migration, carries it.
+     * The LMS-specific limit keys (a subset of LIMITS) — the course-platform twin of
+     * VIDEO_LIMIT_KEYS. They are the only keys taken from the LMS module subscription: its plan
+     * contributes them as the client's course-platform TIER, and a Super Admin can override any of
+     * them per academy from /admin/lms (stored in the LMS sub's `overrides.limits`). Every other
+     * limit (maxStudents, …) still comes from the academy's primary plan, so an LMS grant never
+     * alters the school side of a multi-module client.
      *
      * @var list<string>
      */
-    public const MEET_EXCLUSIVE_CAPABILITIES = [
+    public const LMS_LIMIT_KEYS = [
+        'maxCourses',
+        'maxLearners',
+        'maxStorageGb',
+    ];
+
+    /**
+     * Capabilities that must NEVER be part of a general "all features" plan bundle — each one flips
+     * the academy into a single-module WORKSPACE where the web panel collapses its nav to that module
+     * alone, so granting one to a full plan (FREE/PRO) would wrongly hide the rest of the academy:
+     *
+     *  - `video.only` → the Meet Plan workspace (video classroom only).
+     *  - `lms.only`   → the course-platform workspace (LMS dashboard/courses/learners/codes only).
+     *
+     * Only the single-module plans, seeded by their own migrations, carry these.
+     *
+     * @var list<string>
+     */
+    public const WORKSPACE_EXCLUSIVE_CAPABILITIES = [
         'video.only',
+        'lms.only',
     ];
 
     /**
      * Every capability a full-featured plan (FREE/PRO) may bundle — the whole catalog MINUS the
-     * Meet-exclusive ones. Use this instead of `array_keys(CAPABILITIES)` when granting "all
+     * workspace-exclusive ones. Use this instead of `array_keys(CAPABILITIES)` when granting "all
      * features", so a special-purpose capability never leaks into a general plan.
      *
      * @return list<string>
      */
     public static function bundledCapabilities(): array
     {
-        return array_values(array_diff(array_keys(self::CAPABILITIES), self::MEET_EXCLUSIVE_CAPABILITIES));
+        return array_values(array_diff(array_keys(self::CAPABILITIES), self::WORKSPACE_EXCLUSIVE_CAPABILITIES));
     }
 
     /** @return array{capabilities: array<string,string>, limits: array<string,string>, flags: array<string,string>} */

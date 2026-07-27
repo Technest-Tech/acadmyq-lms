@@ -165,6 +165,68 @@ it('enforces max_attempts', function () {
         ->assertStatus(422);                                                            // attempt 2 refused
 });
 
+// ── staff: the cross-course listing ──────────────────────────────────────────
+it('lists every quiz across courses with its counts', function () {
+    $auth = enrolledLearner('list@example.com');
+    takeQuiz($auth, $this->quizLessonId, ['2+2?' => ['4'], 'Pick the primes' => ['2', '3']])->assertOk();
+    app()['auth']->forgetGuards();
+
+    Sanctum::actingAs($this->owner);
+    $row = collect($this->getJson('/api/courses/quizzes')->assertOk()->json('quizzes'))
+        ->firstWhere('id', $this->quizId);
+
+    expect($row)->not->toBeNull();
+    expect($row['course_title'])->toBe('Math');
+    expect($row['lesson_title'])->toBe('Quiz 1');   // resolved through lessons.quiz_id
+    expect($row['question_count'])->toBe(2);
+    expect($row['total_points'])->toBe(2);
+    expect($row['attempt_count'])->toBe(1);
+    expect($row['learner_count'])->toBe(1);
+    expect($row['passed_count'])->toBe(1);
+    expect($row['avg_score'])->toBe(100);
+});
+
+// ── staff: results, and the per-question rate agreeing with the score ────────
+it('reports attempts and a per-question correct-rate that matches grading', function () {
+    // One learner aces it; another gets Q1 right and the MULTIPLE partially wrong (all-or-nothing → 50%).
+    // forgetGuards between them: the `learner` guard caches its user, so without it the second
+    // token resolves back to the first learner and both attempts land on one account.
+    takeQuiz(enrolledLearner('ace@example.com'), $this->quizLessonId,
+        ['2+2?' => ['4'], 'Pick the primes' => ['2', '3']])->assertOk();
+    app()['auth']->forgetGuards();
+    takeQuiz(enrolledLearner('half@example.com'), $this->quizLessonId,
+        ['2+2?' => ['4'], 'Pick the primes' => ['2']])->assertOk();
+    app()['auth']->forgetGuards();
+
+    Sanctum::actingAs($this->owner);
+    $res = $this->getJson("/api/courses/quizzes/{$this->quizId}/results")->assertOk();
+
+    expect($res->json('quiz.course_title'))->toBe('Math');
+    expect($res->json('summary.attempts'))->toBe(2);
+    expect($res->json('summary.learners'))->toBe(2);
+    expect($res->json('summary.passed'))->toBe(1);           // only the 100% run cleared the 60 mark
+    expect($res->json('summary.avg_score'))->toBe(75);       // (100 + 50) / 2
+    expect($res->json('summary.best_score'))->toBe(100);
+    expect($res->json('summary.worst_score'))->toBe(50);
+    expect($res->json('attempts_truncated'))->toBeFalse();
+    expect($res->json('attempts'))->toHaveCount(2);
+
+    // Both got "2+2?" right; only one got the MULTIPLE fully right — the same all-or-nothing rule
+    // grading uses, so these rates reconcile with the 100 / 50 scores above.
+    $byPrompt = collect($res->json('questions'))->keyBy('prompt');
+    expect($byPrompt['2+2?']['correct_rate'])->toBe(100);
+    expect($byPrompt['Pick the primes']['correct_count'])->toBe(1);
+    expect($byPrompt['Pick the primes']['correct_rate'])->toBe(50);
+});
+
+it('hides quiz results from another academy', function () {
+    $other = $this->createAcademy(overrides: ['plan_id' => DB::table('plans')->where('code', 'LMS_BASIC')->value('id')]);
+    Sanctum::actingAs($this->makeUser($other, 'ACADEMY_OWNER'));
+
+    $this->getJson('/api/courses/quizzes')->assertOk()->assertJsonCount(0, 'quizzes');
+    $this->getJson("/api/courses/quizzes/{$this->quizId}/results")->assertNotFound();
+});
+
 // ── certificate on full course completion ────────────────────────────────────
 it('issues a certificate once every lesson is complete', function () {
     $auth = enrolledLearner('cert@example.com');

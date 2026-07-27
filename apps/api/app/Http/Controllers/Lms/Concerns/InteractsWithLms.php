@@ -34,6 +34,20 @@ trait InteractsWithLms
     }
 
     /**
+     * The current academy's billing currency (ISO 4217) — the denomination of every course price.
+     * There is no per-course currency: a client sells in its own currency, so course prices carry
+     * this at read time rather than storing it per row. Memoised for the request.
+     */
+    protected function academyCurrency(): string
+    {
+        return $this->academyCurrency ??= (string) (DB::table('academies')
+            ->where('id', $this->currentAcademyId())
+            ->value('default_currency') ?? 'USD');
+    }
+
+    private ?string $academyCurrency = null;
+
+    /**
      * Load a course in the current academy (RLS scopes it) or 404. Excludes soft-deleted rows.
      */
     protected function findCourse(string $courseId): object

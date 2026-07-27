@@ -58,7 +58,7 @@ final class PlayerController extends Controller
                 'slug' => (string) $course->slug,
                 'subtitle' => $course->subtitle,
                 'description' => $course->description,
-                'cover_image_path' => $course->cover_image_path,
+                'cover_image_path' => LmsMedia::coverUrl($course->cover_image_path),
             ],
             'sections' => $this->outline((string) $course->id, includeContent: true),
             'progress' => $progress,

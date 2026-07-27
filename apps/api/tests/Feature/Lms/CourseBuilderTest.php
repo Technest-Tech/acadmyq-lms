@@ -128,3 +128,47 @@ it('rejects a half-built media or youtube lesson', function () {
         'section_id' => $sectionId, 'type' => 'QUIZ', 'title' => 'Quiz 1',
     ])->assertCreated();
 });
+
+// ── pricing: free by default, sets a price, priced in the academy currency ───
+it('defaults a new course to free and carries the academy currency', function () {
+    Sanctum::actingAs($this->owner);
+
+    $courseId = $this->postJson('/api/courses', ['title' => 'Free one'])
+        ->assertCreated()->json('courseId');
+
+    // No price given → free, denominated in the academy's currency (EGP from createAcademy).
+    $this->getJson("/api/courses/{$courseId}")->assertOk()
+        ->assertJsonPath('course.price_minor', 0)
+        ->assertJsonPath('course.is_free', true)
+        ->assertJsonPath('course.currency', 'EGP');
+
+    // The summary carries the currency so the "new course" form can label its price field.
+    $this->getJson('/api/courses/summary')->assertOk()
+        ->assertJsonPath('currency', 'EGP');
+});
+
+it('sets and updates a course price in minor units', function () {
+    Sanctum::actingAs($this->owner);
+
+    // Priced at creation (199.99 EGP → 19999 minor).
+    $courseId = $this->postJson('/api/courses', ['title' => 'Paid one', 'price_minor' => 19999])
+        ->assertCreated()->json('courseId');
+
+    $this->getJson("/api/courses/{$courseId}")->assertOk()
+        ->assertJsonPath('course.price_minor', 19999)
+        ->assertJsonPath('course.is_free', false);
+
+    // The list view carries the price too.
+    $this->getJson('/api/courses')->assertOk()
+        ->assertJsonPath('rows.0.price_minor', 19999)
+        ->assertJsonPath('rows.0.is_free', false);
+
+    // Editing back down to free.
+    $this->patchJson("/api/courses/{$courseId}", ['price_minor' => 0])->assertOk();
+    $this->getJson("/api/courses/{$courseId}")->assertOk()
+        ->assertJsonPath('course.price_minor', 0)
+        ->assertJsonPath('course.is_free', true);
+
+    // A negative price is rejected.
+    $this->patchJson("/api/courses/{$courseId}", ['price_minor' => -5])->assertStatus(422);
+});

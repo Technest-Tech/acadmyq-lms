@@ -19,6 +19,9 @@ use Illuminate\Validation\ValidationException;
  * enrolled in every course the code unlocks. The whole request already runs inside the
  * ResolveAcademyContext transaction, so the `lockForUpdate` + cap check is race-safe: two learners
  * racing a single-use code cannot both win.
+ *
+ * A price_minor = 0 course needs no code at all: `enrollFree` is the one-click path for it, creating
+ * the same enrollment row with a null `source_code_id` (the column already allows it).
  */
 final class RedemptionController extends Controller
 {
@@ -103,6 +106,58 @@ final class RedemptionController extends Controller
             'ok' => true,
             'already_redeemed' => $already,
             'courses' => $courses,
+        ]);
+    }
+
+    /** POST /api/learn/courses/{slug}/enroll — self-enroll in a FREE course, no code needed. */
+    public function enrollFree(string $slug): JsonResponse
+    {
+        $academyId = $this->currentAcademyId();
+        $learner = $this->learner();
+
+        $course = DB::table('courses')
+            ->where('slug', $slug)
+            ->where('status', 'PUBLISHED')
+            ->whereNull('deleted_at')
+            ->first(['id', 'title', 'slug', 'price_minor']);
+        if ($course === null) {
+            abort(404, 'Course not found.');
+        }
+        // The price is the authorisation: a paid course still has to go through a code.
+        if ((int) $course->price_minor !== 0) {
+            abort(403, 'This course needs an access code.');
+        }
+
+        $existing = DB::table('enrollments')
+            ->where('learner_id', $learner->getKey())
+            ->where('course_id', $course->id)
+            ->first(['status']);
+
+        // A staff-revoked enrollment must NOT be undone by re-enrolling — free is not a way around a ban.
+        if ($existing !== null && $existing->status !== 'ACTIVE') {
+            abort(403, 'Your access to this course was revoked.');
+        }
+
+        if ($existing === null) {
+            DB::table('enrollments')->insert([
+                'id' => (string) Str::uuid(),
+                'academy_id' => $academyId,
+                'learner_id' => $learner->getKey(),
+                'course_id' => $course->id,
+                'source_code_id' => null,
+                'status' => 'ACTIVE',
+                'enrolled_at' => now(),
+            ]);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'already_enrolled' => $existing !== null,
+            'course' => [
+                'id' => (string) $course->id,
+                'title' => (string) $course->title,
+                'slug' => (string) $course->slug,
+            ],
         ]);
     }
 }

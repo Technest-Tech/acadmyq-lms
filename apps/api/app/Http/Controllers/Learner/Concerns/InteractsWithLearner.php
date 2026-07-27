@@ -26,6 +26,14 @@ trait InteractsWithLearner
         return $id;
     }
 
+    /** The academy's billing currency (ISO 4217) — the denomination of every course price. */
+    protected function academyCurrency(string $academyId): string
+    {
+        return (string) (DB::table('academies')
+            ->where('id', $academyId)
+            ->value('default_currency') ?? 'USD');
+    }
+
     /** The authenticated learner (only on `learner.auth` routes). */
     protected function learner(): Learner
     {

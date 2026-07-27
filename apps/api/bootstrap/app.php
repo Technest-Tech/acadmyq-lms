@@ -26,6 +26,15 @@ return Application::configure(basePath: dirname(__DIR__))
         // CSRF stack so Auth::attempt persists and X-XSRF-TOKEN is validated (Sprint 2 §2).
         $middleware->statefulApi();
 
+        // The LMS media proxy (docs/lms/04) is authorised by the URL SIGNATURE, not by the session:
+        // it's the local-disk stand-in for a presigned S3 PUT, and the browser uploads to it with a
+        // plain XHR that carries no XSRF header. Session CSRF on top would reject every such upload
+        // with a 419. Safe to exempt — `signed` still gates it on an unguessable, expiring signature
+        // that only this API hands out, and the handler only accepts `lms/*` object keys.
+        $middleware->validateCsrfTokens(except: [
+            'api/lms/media/*',
+        ]);
+
         // All /api/* responses (and errors) negotiate to JSON.
         $middleware->api(prepend: [
             ForceJsonResponse::class,

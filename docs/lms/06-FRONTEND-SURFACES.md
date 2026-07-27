@@ -2,42 +2,64 @@
 
 Two surfaces, one Next.js app (`apps/web`), split by route group.
 
-## A. Staff dashboard — `(app)/courses`
+## A. Staff dashboard — the `(app)/lms` workspace
 
-Lives beside `(app)/crm`, behind the existing `AppShell`, staff auth, and sidebar gating. The
-sidebar item shows only when the academy has the `lms` entitlement (same upgrade-badge gating the
-other modules use). Pages:
+The course platform is its own **workspace**, not a page: a dedicated `lms` sidebar group whose items
+are the LMS surfaces. Lives behind the existing `AppShell` + staff auth. Pages:
 
 | Route | Purpose | Gate |
 |---|---|---|
-| `/courses` | Course list (draft/published/archived), "New course" | `course.read` |
-| `/courses/[id]` | Course editor: sections + lessons, drag-reorder, publish toggle | `course.manage` |
-| `/courses/[id]/lessons/[lid]` | Lesson editor: pick type, YouTube URL / upload / PDF / text / quiz, attachments, preview flag | `course.manage` |
-| `/courses/codes` | Access codes: batch generate, list, redemption counts, expiry, active toggle, CSV export | `access_code.manage` |
-| `/courses/learners` | Learners + enrollments, block/unblock, revoke access | `learner.read` |
-| `/courses/settings` | Subdomain handle, site branding (logo, colors, landing copy) | `course.manage` |
+| `/lms` | **LMS dashboard** — catalogue/learner/enrolment/certificate stats, media storage vs the plan cap, top courses, recent enrolments, and the client's public site with a "visit site" link | `course.read` |
+| `/lms/courses` | Course list (draft/published/archived), "New course" | `course.read` |
+| `/lms/courses/[id]` | Course editor: sections + lessons, drag-reorder, publish toggle, quiz builder | `course.manage` |
+| `/lms/learners` | Learners + enrollments, block/unblock, revoke access | `learner.read` |
+| `/lms/codes` | Access codes: batch generate, list, redemption counts, expiry, active toggle, CSV export | `access_code.manage` |
+| `/lms/site` | **Public-site editor** — the per-client content of the shared learner-site template: brand, hero, about, why-us, steps, instructors, testimonials, FAQ, contact, footer, SEO ([09](09-PUBLIC-SITE.md)) | `course.read` view / `course.manage` edit |
+
+The old `/courses/*` routes redirect into `/lms/*`. The lesson editor is a modal on the course editor
+(not its own route), and the subdomain is provisioned by the Super Admin on the client's Settings tab
+(`/admin/clients/[id]`) rather than by the client.
+
+### Who sees what
+
+- **LMS-only client** (`lms.only` capability — the LMS twin of the Meet Plan's `video.only`): the
+  sidebar collapses to the LMS group plus the account screens (`/plan`, `/settings`), and
+  `/dashboard` redirects to `/lms`. They never see the school-management panel.
+- **School that also sells courses**: keeps its full panel, with the LMS group alongside it.
+  `Entitlement::resolveFromModules` strips `lms.only` whenever LMS is not the only granting module,
+  so a multi-module client can never be collapsed by it.
+- **No LMS module**: a single locked "Courses" item remains as the upsell (upgrade badge → `/plan`);
+  the rest of the workspace is hidden entirely.
 
 The course editor is the heart of the dashboard: a sectioned outline where each lesson is added by
 type. YouTube = paste a URL; PDF/audio = upload; text = a markdown editor; quiz = the quiz builder
 (phase 4). Video upload (phase 3) shows a transcode-progress state driven by `media_assets.status`.
 
-## B. Learner site — `(learn)` route group on `<academy>.<platform>`
+## B. Learner site — `learn/[academy]` route group on `<academy>.<platform>`
 
-Public, tenant-resolved by subdomain (see [02](02-LEARNER-AUTH-AND-SUBDOMAINS.md)). Branded per
-academy (logo/colors from `/courses/settings`). Pages:
+Public, tenant-resolved by subdomain (see [02](02-LEARNER-AUTH-AND-SUBDOMAINS.md)). A **shared
+template** branded per academy from the client's site profile ([09](09-PUBLIC-SITE.md)) — one design
+for every client, only the content differs. Pages:
 
 | Route | Purpose | Auth |
 |---|---|---|
-| `/` | Landing + catalog of published courses, academy branding, hero | public |
-| `/c/[slug]` | Course detail: description, curriculum outline, preview lessons, "enroll with code" CTA | public |
-| `/auth/register`, `/auth/login` | Learner signup / login | public |
-| `/redeem` | Enter an access code → unlock course(s) | learner |
-| `/learn/[slug]` | The player: lesson list + current lesson (video/YouTube/audio/PDF/text/quiz), progress, resume, attachments | learner + enrolled |
-| `/me` | Learner's enrolled courses, progress, certificates | learner |
+| `/` | Landing: hero, stats, featured courses, why-us, how-it-works, teachers, reviews, FAQ, CTA | public |
+| `/courses` | Full catalogue: search, "my courses" filter | public |
+| `/c/[slug]` | Course detail: promise, curriculum, preview lessons, sticky enrol card, related courses | public |
+| `/about`, `/faq`, `/contact` | Client-written pages (each hideable from the nav via the site profile) | public |
+| `/login`, `/register`, `/redeem` | Standalone auth + code redemption (also available as header modals anywhere) | public / learner |
+| `/watch/[slug]` | The player: lesson list + content pane (video/YouTube/audio/PDF/text/quiz), progress, resume — chrome-free focus mode | learner + enrolled |
+| `/me` | "My learning": enrolled courses with progress bars, resume, certificates | learner |
+| `/certificate/[slug]` | Printable completion certificate | learner + completed |
 
 The player is the core learner surface: a lesson sidebar (progress ticks) + a content pane that
 switches on lesson type. Progress posts as the learner watches; completing a course surfaces the
-certificate.
+certificate. The whole site is **light-only** — a student-facing marketing site does not inherit a
+staff member's dark-mode preference.
+
+Every client renders identical structure and code; the only per-client data is the site profile
+([09](09-PUBLIC-SITE.md)), which the client edits at `/lms/site`. An empty profile still yields a
+complete, bilingual site because blank fields fall back to the template's own translated copy.
 
 ## Middleware & i18n
 

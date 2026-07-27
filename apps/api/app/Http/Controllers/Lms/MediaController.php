@@ -36,7 +36,7 @@ final class MediaController extends Controller
     use InteractsWithLms;
 
     /** kind → the leading MIME segment the browser must declare (loose; the cap + gate are the teeth). */
-    private const KIND_MIME = ['VIDEO' => 'video/', 'AUDIO' => 'audio/'];
+    private const KIND_MIME = ['VIDEO' => 'video/', 'AUDIO' => 'audio/', 'IMAGE' => 'image/'];
 
     /** POST /api/courses/media/upload-url — reserve an asset + return the upload target. */
     public function createUpload(Request $request): JsonResponse
@@ -54,7 +54,7 @@ final class MediaController extends Controller
         $prefix = self::KIND_MIME[$data['kind']];
         if (! str_starts_with(strtolower($data['content_type']), $prefix)) {
             throw ValidationException::withMessages([
-                'content_type' => ["A {$data['kind']} lesson needs a {$prefix}* file."],
+                'content_type' => ["A {$data['kind']} upload needs a {$prefix}* file."],
             ]);
         }
 

@@ -94,7 +94,11 @@ final class LmsMedia
         if (self::presignEnabled()) {
             $signed = Storage::disk(self::disk())->temporaryUploadUrl($key, $ttl);
 
-            return ['url' => $signed['url'], 'method' => 'PUT', 'headers' => $signed['headers'] ?? []];
+            return [
+                'url' => $signed['url'],
+                'method' => 'PUT',
+                'headers' => self::browserSafeHeaders($signed['headers'] ?? []),
+            ];
         }
 
         return [
@@ -118,6 +122,47 @@ final class LmsMedia
         }
 
         return self::objectUrl((string) ($asset->playback_path ?? '') ?: (string) $asset->storage_key);
+    }
+
+    /**
+     * Drop the headers a browser refuses to let script set. S3 presigning hands back `Host` (and can
+     * hand back `Content-Length`); XHR/fetch throw "Refused to set unsafe header" on those and the
+     * upload dies before it starts. Removing them is safe — the signature covers `host` via
+     * SignedHeaders and the browser sends exactly the value the signature was computed over.
+     *
+     * @param  array<string,string>  $headers
+     * @return array<string,string>
+     */
+    private static function browserSafeHeaders(array $headers): array
+    {
+        $forbidden = ['host', 'content-length', 'connection', 'origin', 'referer', 'user-agent'];
+
+        return array_filter(
+            $headers,
+            static fn (string $name): bool => ! in_array(strtolower($name), $forbidden, true),
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    /**
+     * Resolve a stored `courses.cover_image_path` into something an <img> can load. The column holds
+     * one of two things, and both must keep working:
+     *
+     *   - an `lms/…` storage key (an uploaded cover) → a short-lived signed/presigned URL;
+     *   - a plain http(s) URL (pasted, or seeded) → returned untouched.
+     *
+     * The cover is rendered on the PUBLIC course site, so this is deliberately not enrollment-gated —
+     * a catalog thumbnail is public by definition. Pages are server-rendered per request, so each
+     * render mints a fresh URL well inside the playback TTL.
+     */
+    public static function coverUrl(?string $path): ?string
+    {
+        $path = $path !== null ? trim($path) : '';
+        if ($path === '') {
+            return null;
+        }
+
+        return str_starts_with($path, 'lms/') ? self::objectUrl($path) : $path;
     }
 
     /**

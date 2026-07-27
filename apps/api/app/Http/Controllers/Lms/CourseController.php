@@ -8,12 +8,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Lms\Concerns\InteractsWithLms;
 use App\Support\Audit;
 use App\Support\DataTable;
+use App\Support\LmsMedia;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Courses (LMS module, entitled:lms). A course is a publishable unit of learning — sections of
@@ -30,6 +32,9 @@ final class CourseController extends Controller
 
     private const STATUSES = ['DRAFT', 'PUBLISHED', 'ARCHIVED'];
 
+    /** A sanity ceiling on a course price: 10,000,000 major units in minor (e.g. 10M EGP). */
+    private const MAX_PRICE_MINOR = 1_000_000_000;
+
     /** GET /api/courses — the server-driven list view. */
     public function index(Request $request): JsonResponse
     {
@@ -39,7 +44,7 @@ final class CourseController extends Controller
             ->whereNull('c.deleted_at')
             ->select([
                 'c.id', 'c.title', 'c.slug', 'c.subtitle', 'c.status',
-                'c.cover_image_path', 'c.published_at', 'c.created_at',
+                'c.cover_image_path', 'c.price_minor', 'c.published_at', 'c.created_at',
                 DB::raw('(select count(*) from lessons l where l.course_id = c.id) as lesson_count'),
             ]);
 
@@ -78,7 +83,12 @@ final class CourseController extends Controller
             $counts[strtolower($status)] = (int) ($byStatus[$status] ?? 0);
         }
 
-        return response()->json($counts + ['total' => array_sum($counts)]);
+        // The academy currency travels with the summary so the "new course" form can label its price
+        // field even before the first course (and thus the first priced row) exists.
+        return response()->json($counts + [
+            'total' => array_sum($counts),
+            'currency' => $this->academyCurrency(),
+        ]);
     }
 
     /** POST /api/courses — create a draft course. */
@@ -91,7 +101,9 @@ final class CourseController extends Controller
             'title' => ['required', 'string', 'max:255'],
             'subtitle' => ['sometimes', 'nullable', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string', 'max:10000'],
-        ]);
+            // Integer minor units, in the academy's currency. 0 (or omitted) = free.
+            'price_minor' => ['sometimes', 'integer', 'min:0', 'max:'.self::MAX_PRICE_MINOR],
+        ] + $this->coverRules());
 
         $courseId = (string) Str::uuid();
         DB::table('courses')->insert([
@@ -101,6 +113,8 @@ final class CourseController extends Controller
             'slug' => $this->uniqueCourseSlug($academyId, $data['title']),
             'subtitle' => $data['subtitle'] ?? null,
             'description' => $data['description'] ?? null,
+            'price_minor' => $data['price_minor'] ?? 0,
+            'cover_image_path' => $this->resolveCover($data),
             'status' => 'DRAFT',
             'created_by' => $this->ctx()->userId,
         ]);
@@ -176,14 +190,19 @@ final class CourseController extends Controller
             'subtitle' => ['sometimes', 'nullable', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string', 'max:10000'],
             'slug' => ['sometimes', 'string', 'max:255', 'regex:/^[a-z0-9-]+$/'],
-            'cover_image_path' => ['sometimes', 'nullable', 'string', 'max:1024'],
-        ]);
+            // Integer minor units, in the academy's currency. 0 = free.
+            'price_minor' => ['sometimes', 'integer', 'min:0', 'max:'.self::MAX_PRICE_MINOR],
+        ] + $this->coverRules());
 
         $update = [];
-        foreach (['title', 'subtitle', 'description', 'cover_image_path'] as $field) {
+        foreach (['title', 'subtitle', 'description', 'price_minor'] as $field) {
             if (array_key_exists($field, $data)) {
                 $update[$field] = is_string($data[$field]) ? trim($data[$field]) : $data[$field];
             }
+        }
+        // An uploaded cover wins over a pasted url; either being present (even as null) is an edit.
+        if (array_key_exists('cover_media_asset_id', $data) || array_key_exists('cover_image_path', $data)) {
+            $update['cover_image_path'] = $this->resolveCover($data);
         }
         if (array_key_exists('slug', $data)) {
             $update['slug'] = $this->uniqueCourseSlug($academyId, $data['slug'], $id);
@@ -252,16 +271,67 @@ final class CourseController extends Controller
 
     // ── internals ────────────────────────────────────────────────────────────
 
-    /** Normalise a course row for the client (ISO timestamps, typed counts). */
+    /** Normalise a course row for the client (ISO timestamps, typed counts, priced money). */
+    /**
+     * A cover can arrive two ways: as an uploaded IMAGE asset (the normal path — reserve → PUT →
+     * confirm, same pipeline as lesson media) or as a plain url. Both land in the one
+     * `cover_image_path` column; reads resolve whichever it is via LmsMedia::coverUrl().
+     *
+     * @return array<string, list<mixed>>
+     */
+    private function coverRules(): array
+    {
+        return [
+            'cover_media_asset_id' => ['sometimes', 'nullable', 'uuid'],
+            'cover_image_path' => ['sometimes', 'nullable', 'string', 'max:1024'],
+        ];
+    }
+
+    /**
+     * The value to store in `cover_image_path` — an uploaded asset's storage key, else the pasted
+     * url, else null (clearing the cover). The asset must be a READY IMAGE; RLS already scopes the
+     * lookup to this academy, so another tenant's id simply fails the check.
+     *
+     * @param  array<string,mixed>  $data
+     */
+    private function resolveCover(array $data): ?string
+    {
+        $assetId = $data['cover_media_asset_id'] ?? null;
+        if ($assetId !== null) {
+            $asset = DB::table('media_assets')->where('id', $assetId)
+                ->first(['storage_key', 'kind', 'status']);
+            if ($asset === null || (string) $asset->kind !== 'IMAGE' || (string) $asset->status !== 'READY') {
+                throw ValidationException::withMessages([
+                    'cover_media_asset_id' => ['That image is not ready yet — please re-upload it.'],
+                ]);
+            }
+
+            return (string) $asset->storage_key;
+        }
+
+        $url = $data['cover_image_path'] ?? null;
+
+        return is_string($url) && trim($url) !== '' ? trim($url) : null;
+    }
+
     private function presentCourse(object $c): object
     {
         $c->created_at = $this->iso($c->created_at ?? null);
+        // The column holds a storage key or a url; the client only ever sees a loadable url.
+        if (property_exists($c, 'cover_image_path')) {
+            $c->cover_image_path = LmsMedia::coverUrl($c->cover_image_path);
+        }
         if (property_exists($c, 'published_at')) {
             $c->published_at = $this->iso($c->published_at);
         }
         if (property_exists($c, 'lesson_count')) {
             $c->lesson_count = (int) $c->lesson_count;
         }
+        // Price is money: integer minor units + the academy's currency. `is_free` is derived so the
+        // client renders a "Free" pill without reimplementing the 0-means-free rule.
+        $c->price_minor = (int) ($c->price_minor ?? 0);
+        $c->currency = $this->academyCurrency();
+        $c->is_free = $c->price_minor === 0;
 
         return $c;
     }

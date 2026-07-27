@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\AcademySubscriptionController;
 use App\Http\Controllers\Admin\BillingController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\LmsOversightController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\SettingsController;
@@ -25,14 +26,17 @@ use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
 use App\Http\Controllers\Learner\PlayerController as LearnerPlayerController;
 use App\Http\Controllers\Learner\QuizController as LearnerQuizController;
 use App\Http\Controllers\Learner\RedemptionController as LearnerRedemptionController;
+use App\Http\Controllers\Learner\SiteController as LearnerSiteController;
 use App\Http\Controllers\Lms\CodeController;
 use App\Http\Controllers\Lms\CourseController;
+use App\Http\Controllers\Lms\DashboardController as LmsDashboardController;
 use App\Http\Controllers\Lms\LearnerAdminController;
 use App\Http\Controllers\Lms\LessonController;
 use App\Http\Controllers\Lms\MediaController;
 use App\Http\Controllers\Lms\MediaDeliveryController;
 use App\Http\Controllers\Lms\QuizController;
 use App\Http\Controllers\Lms\SectionController;
+use App\Http\Controllers\Lms\SiteProfileController as LmsSiteProfileController;
 use App\Http\Controllers\Quality\QualityReportController;
 use App\Http\Controllers\Quality\QualityRubricController;
 use App\Http\Controllers\Quality\TeacherAdjustmentController;
@@ -207,6 +211,9 @@ Route::post('/internal/livekit/webhook', [LivekitWebhookController::class, 'hand
 Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group(function () {
     Route::post('/auth/register', [LearnerAuthController::class, 'register']);
     Route::post('/auth/login', [LearnerAuthController::class, 'login']);
+    // The site's own content (docs/lms/09) — brand + section copy the shared template renders. The
+    // layout fetches it server-side on every page, so it precedes everything learner-specific.
+    Route::get('/site', [LearnerSiteController::class, 'show']);
     Route::get('/courses', [LearnerCatalogController::class, 'index']);
     Route::get('/courses/{slug}', [LearnerCatalogController::class, 'show'])->where('slug', '[a-z0-9-]+');
 
@@ -214,6 +221,8 @@ Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group
         Route::get('/me', [LearnerAuthController::class, 'me']);
         Route::post('/auth/logout', [LearnerAuthController::class, 'logout']);
         Route::post('/redeem', [LearnerRedemptionController::class, 'redeem']);
+        // Free courses skip the code entirely — one click enrolls the signed-in learner.
+        Route::post('/courses/{slug}/enroll', [LearnerRedemptionController::class, 'enrollFree'])->where('slug', '[a-z0-9-]+');
         Route::get('/courses/{slug}/content', [LearnerPlayerController::class, 'content'])->where('slug', '[a-z0-9-]+');
         Route::get('/courses/{slug}/certificate', [LearnerPlayerController::class, 'certificate'])->where('slug', '[a-z0-9-]+');
         Route::get('/lessons/{id}/playback', [LearnerPlayerController::class, 'playback']);
@@ -378,6 +387,18 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/admin/video/academies/{id}', [VideoOversightController::class, 'academy']);
     Route::get('/admin/video/academies/{id}/rooms/{roomId}/logs', [VideoOversightController::class, 'roomLogs']);
     Route::post('/admin/video/academies/{id}/access', [VideoOversightController::class, 'setAccess']);
+
+    // Super Admin LMS oversight (docs/lms) — the course-platform twin of the video block above.
+    // Reads go through the audited SECURITY DEFINER hatches (app.admin_lms_stats / _academy / _audit);
+    // the writes are the LMS-only control surface (caps, public site handle, course & learner
+    // moderation) — module subscriptions stay the client page's job. All gated by platform.manage.
+    Route::get('/admin/lms/usage', [LmsOversightController::class, 'usage']);
+    Route::get('/admin/lms/activity', [LmsOversightController::class, 'activity']);
+    Route::get('/admin/lms/academies/{id}', [LmsOversightController::class, 'academy']);
+    Route::post('/admin/lms/academies/{id}/limits', [LmsOversightController::class, 'setLimits']);
+    Route::put('/admin/lms/academies/{id}/subdomain', [LmsOversightController::class, 'setSubdomain']);
+    Route::post('/admin/lms/academies/{id}/courses/{courseId}/status', [LmsOversightController::class, 'setCourseStatus']);
+    Route::post('/admin/lms/academies/{id}/learners/{learnerId}/status', [LmsOversightController::class, 'setLearnerStatus']);
 
     // Platform settings + feature flags (Super Admin, platform.manage). A disabled flag is a
     // kill-switch consulted by Entitlement::resolve — it removes a capability platform-wide.
@@ -566,6 +587,13 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::middleware('entitled:lms')->group(function () {
         Route::get('/courses', [CourseController::class, 'index']);
         Route::get('/courses/summary', [CourseController::class, 'summary']);
+        // The course platform's own dashboard — the LMS client's home screen (literal, so it must
+        // precede/avoid `{id}`, which is whereUuid'd).
+        Route::get('/courses/dashboard', [LmsDashboardController::class, 'show']);
+        // The client's public-site content (docs/lms/09) — the only per-client half of the shared
+        // learner-site template. Literal, so it must precede the whereUuid'd `/courses/{id}`.
+        Route::get('/courses/site', [LmsSiteProfileController::class, 'show']);
+        Route::put('/courses/site', [LmsSiteProfileController::class, 'update']);
         Route::post('/courses', [CourseController::class, 'store']);
         Route::get('/courses/{id}', [CourseController::class, 'show'])->whereUuid('id');
         Route::patch('/courses/{id}', [CourseController::class, 'update'])->whereUuid('id');
@@ -591,6 +619,10 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
 
         // Quizzes (phase 4, docs/lms/04): the builder for a course; a QUIZ lesson references quizzes.id.
         // Correct-answer flags are returned to staff here but never to learners.
+        // The cross-course listing + its results are literal (`quizzes` in the {course} slot), so they
+        // precede the course-scoped routes below.
+        Route::get('/courses/quizzes', [QuizController::class, 'index']);
+        Route::get('/courses/quizzes/{id}/results', [QuizController::class, 'results'])->whereUuid('id');
         Route::post('/courses/{course}/quizzes', [QuizController::class, 'store']);
         Route::get('/courses/{course}/quizzes/{id}', [QuizController::class, 'show']);
         Route::put('/courses/{course}/quizzes/{id}', [QuizController::class, 'update']);

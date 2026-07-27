@@ -304,6 +304,70 @@ final class ModuleBilling
     }
 
     /**
+     * Replace a module sub's per-academy limit override (`overrides.limits`) — the module-agnostic
+     * form of what videoAccess() does for VIDEO, used by the LMS oversight page to raise or lower a
+     * single client's course/learner/storage caps without minting a bespoke plan for them.
+     *
+     * Passing an empty/null map CLEARS the override, so the client falls back to its module plan's
+     * caps. Deliberately operates on the EXISTING sub only (no ensure()): a plan-less sub conjured
+     * here would read as a live module the client never bought — enabling the module is the client
+     * page's job.
+     *
+     * @param  array<string,int>|null  $limits
+     */
+    public function setLimitOverrides(string $academyId, string $module, ?array $limits): ?object
+    {
+        $this->assertModule($module);
+        $sub = $this->container($academyId, $module);
+        if ($sub === null) {
+            return null;
+        }
+
+        $ov = $this->decodeOverrides($sub->overrides);
+        if ($limits !== null && $limits !== []) {
+            $ov['limits'] = $limits;
+        } else {
+            unset($ov['limits']);
+        }
+
+        DB::table('module_subscriptions')->where('id', $sub->id)->update([
+            'overrides' => $ov === [] ? null : json_encode($ov),
+            'updated_at' => now(),
+        ]);
+
+        $this->recompute($academyId);
+
+        return $this->container($academyId, $module);
+    }
+
+    /**
+     * The live subscription that REPRESENTS a module for this client — the dedicated `$module` row
+     * when one exists, else the live row whose PLAN belongs to that module.
+     *
+     * The second case is not an edge case: the academy-creation flow provisions a single-module
+     * client as ONE `MANAGEMENT` row carrying that module's plan (an LMS client has no `LMS` row at
+     * all). `current()` answers "is there a row named X", which is the right question for the
+     * billing lifecycle; this answers "which row governs module X", which is the right question for
+     * reading or overriding that module's settings.
+     *
+     * Resolution order matches `app.admin_lms_stats` / `app.admin_lms_academy`, so the API and the
+     * cross-tenant readers can never disagree about which row governs.
+     */
+    public function container(string $academyId, string $module): ?object
+    {
+        $this->assertModule($module);
+
+        return $this->current($academyId, $module)
+            ?? DB::table('module_subscriptions as ms')
+                ->join('plans as p', 'p.id', '=', 'ms.plan_id')
+                ->where('ms.academy_id', $academyId)
+                ->where('ms.status', '<>', 'ENDED')
+                ->where('p.module', $module)
+                ->orderByDesc('ms.created_at')
+                ->first(['ms.*']);
+    }
+
+    /**
      * The legacy "set the academy's plan" semantics, module-first: the plan's own module decides the
      * client's PRIMARY sub (VIDEO for the MEET plan, else MANAGEMENT), carrying the previous
      * primary's lifecycle across a module switch (PRO↔MEET) exactly as the Phase-2b reconcile did.

@@ -67,7 +67,7 @@
   --secondary: oklch(0.955 0.003 248);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.952 0.003 248);
-  --muted-foreground: oklch(0.50 0 0);
+  --muted-foreground: oklch(0.5 0 0);
   --accent: oklch(0.952 0.003 248);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
@@ -123,6 +123,36 @@
   --sidebar-accent-foreground: oklch(0.97 0 0);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.596 0.154 163.2);
+}
+
+/*
+ * The public LMS course site (docs/lms/09) is a student-facing marketing site, so it is LIGHT-only
+ * — it must not inherit a staff member's OS/dark preference the way the dashboard does. Re-declaring
+ * the light palette on the site wrapper forces light for the whole subtree even when `<html>` still
+ * carries `.dark`, with no flash and without mutating the global element. The brand colour set
+ * inline by `components/learn/theme.tsx` overrides `--primary`/`--ring` on top of this.
+ */
+.learn-site {
+  color-scheme: light;
+  overflow-x: clip;
+  --background: oklch(0.982 0.004 248);
+  --foreground: oklch(0.18 0.024 248);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.024 248);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.024 248);
+  --primary: oklch(0.519 0.158 163.2);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.962 0.007 248);
+  --secondary-foreground: oklch(0.24 0.024 248);
+  --muted: oklch(0.958 0.006 248);
+  --muted-foreground: oklch(0.47 0.018 248);
+  --accent: oklch(0.958 0.006 248);
+  --accent-foreground: oklch(0.24 0.024 248);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.9 0.008 248);
+  --input: oklch(0.9 0.008 248);
+  --ring: oklch(0.519 0.158 163.2);
 }
 
 @layer base {

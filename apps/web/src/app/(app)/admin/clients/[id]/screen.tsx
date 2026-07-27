@@ -59,6 +59,9 @@ type Tab = "billing" | "whatsapp" | "video" | "settings";
 const SUBDOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 const RESERVED_SUBDOMAINS = new Set(["www", "app", "api", "admin", "mail", "static", "assets", "cdn"]);
 const LEARNER_ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN;
+/** `http` for local development, `https` in prod — mirror of the API's LMS_SITE_SCHEME. */
+const LEARNER_SCHEME =
+  process.env.NEXT_PUBLIC_ROOT_SCHEME === "http" ? "http" : "https";
 
 export function ClientScreen({ clientId }: { clientId: string }) {
   const t = useTranslations("clients.detail");
@@ -339,7 +342,7 @@ function ClientSettingsForm({
     sub === "" || !subValid || subReserved
       ? null
       : LEARNER_ROOT_DOMAIN
-        ? `https://${sub}.${LEARNER_ROOT_DOMAIN}`
+        ? `${LEARNER_SCHEME}://${sub}.${LEARNER_ROOT_DOMAIN}`
         : `/learn/${sub}`;
 
   const save = async () => {
