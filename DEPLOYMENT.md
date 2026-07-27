@@ -275,9 +275,28 @@ tail -n 50 /var/www/acadmyq/apps/api/storage/logs/laravel.log
 
 ---
 
-## 9. Outstanding: app-level tenant resolution
+## 9. Tenant resolution (LMS learner sites)
 
-Infra routes every `*.acadmyq.com` to Next.js, but the **application** must read the
-incoming `Host` header (or `X-Forwarded-Host`), extract the subdomain, and resolve it
-to an Academy. If not yet implemented, that is the remaining product work to make the
-wildcard subdomains meaningful — the deployment itself is complete without it.
+Infra routes every `*.acadmyq.com` to Next.js; the **application** turns that subdomain into
+a tenant. `apps/web/src/middleware.ts` reads the `Host` header and rewrites
+`<academy>.acadmyq.com/<path>` → `/learn/<academy>/<path>`, which is the LMS client's public
+course site (docs/lms/02). `www`, `app`, `api`, `admin`, `mail`, `static`, `assets` and `cdn`
+are reserved and never treated as academy handles.
+
+⚠️ **Both root-domain vars must be set, or the feature silently no-ops.** The middleware is a
+deliberate pass-through when `NEXT_PUBLIC_ROOT_DOMAIN` is empty — so `<academy>.acadmyq.com`
+serves the *main app* instead of the course site, with no error anywhere. This bit us on the
+2026-07-27 deploy.
+
+| App | Variable | Value | Notes |
+|---|---|---|---|
+| Web | `NEXT_PUBLIC_ROOT_DOMAIN` | `acadmyq.com` | **Inlined at build time** — set it *before* `pnpm build`, then rebuild |
+| API | `LMS_SITE_ROOT_DOMAIN` | `acadmyq.com` | Then `php8.2 artisan config:cache` |
+
+Both default the scheme to `https`; only override (`NEXT_PUBLIC_ROOT_SCHEME` /
+`LMS_SITE_SCHEME`) for local http. They are mirrors — set **both or neither**. Left empty, the
+API reports the in-app path (`/learn/<subdomain>`), which serves the same site, so the
+dashboard's "visit your site" link still works.
+
+A client's subdomain is Super-Admin-owned: `PUT /api/admin/lms/academies/{id}/subdomain`
+(lowercase alnum + hyphens, ≤63 chars, unique). No per-tenant DNS work — the wildcard covers it.
