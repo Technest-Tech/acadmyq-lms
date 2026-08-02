@@ -57,6 +57,23 @@ import {
 export const CLASSROOM_ROOM_OPTIONS: RoomOptions = {
   adaptiveStream: { pixelDensity: "screen" },
   dynacast: true,
+  /**
+   * Mic processing for the FIRST publish, before any saved settings are re-applied.
+   *
+   * This has to live here, not only in the Settings dialog, because the loudest complaint about the
+   * classroom is the other side's background noise ("the student's room is in my ear"), and a student
+   * will never open Settings. Whatever we want every participant to get has to be the join default.
+   *
+   * `voiceIsolation` is the ML speech extractor and the actual fix for fan/room noise — plain
+   * `noiseSuppression` only ever took the edge off it (see `micConstraints` for why sending both is
+   * correct and why it degrades safely on browsers that lack it).
+   */
+  audioCaptureDefaults: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    voiceIsolation: true,
+    autoGainControl: true,
+  },
   publishDefaults: {
     videoEncoding: { maxBitrate: 2_500_000, maxFramerate: 30 },
     videoSimulcastLayers: [
@@ -78,9 +95,24 @@ export const CLASSROOM_ROOM_OPTIONS: RoomOptions = {
  *    accident; remove it from the picker.
  *  • surfaceSwitching "include" — let the sharer retarget tabs mid-share without stopping.
  *  • audio + systemAudio — surface the "share audio" checkbox for tab AND full-screen shares.
+ *
+ *  • audio.restrictOwnAudio "true" — THE echo fix. `systemAudio: "include"` lets the teacher share a
+ *    whole-screen capture with sound, but a system-audio capture is indiscriminate: it grabs
+ *    everything the machine is playing, and that includes the call itself coming out of the
+ *    teacher's speakers. So every student's voice was being re-captured and re-published back into
+ *    the room on the screen-audio track — the class hearing itself a beat late, which is precisely
+ *    the "annoying echo at the student" report. Muting the mic appeared to fix it only because it
+ *    removed the loudest thing feeding those speakers; the loop was in the SHARE, not the mic.
+ *    `restrictOwnAudio` tells the browser to exclude our own rendered audio from the capture, which
+ *    kills the loop at the source and — unlike muting — leaves the teacher free to talk over the clip.
+ *    Unrecognised constraint names are discarded by the UA and it's an ideal (non-`exact`) boolean,
+ *    so on a browser without it the share still starts, just without the protection.
+ *
+ *    NOT paired with `suppressLocalAudioPlayback`, which would also break the loop but by silencing
+ *    the clip on the teacher's own speakers — they'd be narrating a video they can't hear.
  */
 export const SCREEN_SHARE_CAPTURE_OPTIONS: ScreenShareCaptureOptions = {
-  audio: true,
+  audio: { restrictOwnAudio: true },
   systemAudio: "include",
   contentHint: "detail",
   selfBrowserSurface: "exclude",

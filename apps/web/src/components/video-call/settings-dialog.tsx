@@ -14,6 +14,7 @@ import { applyBackground, backgroundSupported } from "./background-processor";
 import { DevicePicker } from "./device-picker";
 import { MicMeter } from "./mic-meter";
 import {
+  micConstraints,
   resolutionConstraints,
   useSettings,
   type CallBackground,
@@ -113,16 +114,12 @@ function AudioSection({ micTrack }: { micTrack: LocalAudioTrack | undefined }) {
   const speaker = useMediaDeviceSelect({ kind: "audiooutput" });
   const canSelectOutput = supportsAudioOutputSelection();
 
-  async function restartMic(patch: Partial<Pick<typeof settings, "noiseSuppression" | "echoCancellation">>) {
+  async function restartMic(
+    patch: Partial<Pick<typeof settings, "noiseSuppression" | "voiceIsolation" | "echoCancellation">>,
+  ) {
     const next = { ...settings, ...patch };
     update(patch);
-    await micTrack
-      ?.restartTrack({
-        deviceId: settings.audioDeviceId || undefined,
-        noiseSuppression: next.noiseSuppression,
-        echoCancellation: next.echoCancellation,
-      })
-      .catch(() => {});
+    await micTrack?.restartTrack(micConstraints(next)).catch(() => {});
   }
 
   return (
@@ -166,6 +163,12 @@ function AudioSection({ micTrack }: { micTrack: LocalAudioTrack | undefined }) {
         </Field>
       )}
 
+      <ToggleRow
+        label={t("voiceIsolation")}
+        hint={t("voiceIsolationHint")}
+        on={settings.voiceIsolation}
+        onChange={(v) => void restartMic({ voiceIsolation: v })}
+      />
       <ToggleRow
         label={t("noiseSuppression")}
         on={settings.noiseSuppression}
@@ -544,10 +547,23 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function ToggleRow({ label, on, onChange }: { label: string; on: boolean; onChange: (v: boolean) => void }) {
+function ToggleRow({
+  label,
+  hint,
+  on,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  on: boolean;
+  onChange: (v: boolean) => void;
+}) {
   return (
     <label className="flex cursor-pointer items-center justify-between gap-3">
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-sm">
+        <span className="font-medium">{label}</span>
+        {hint && <span className="mt-0.5 block text-xs text-slate-400">{hint}</span>}
+      </span>
       <Switch on={on} onChange={onChange} label={label} />
     </label>
   );

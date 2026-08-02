@@ -29,6 +29,7 @@ import { PresenterBubble } from "./presenter-bubble";
 import { PresenterShell } from "./presenter-panel";
 import { RecordingProvider } from "./recording-context";
 import { CLASSROOM_ROOM_OPTIONS } from "./room-options";
+import { ScreenAudioHint } from "./screen-audio-hint";
 import { SettingsDialog } from "./settings-dialog";
 import { usePresenterMode } from "./use-presenter-mode";
 import { WhiteboardProvider } from "./whiteboard-context";
@@ -156,6 +157,7 @@ function InCall({
                   <CallTimerProvider>
                     <ApplySettingsOnJoin />
                     <MediaErrorToast />
+                    <ScreenAudioHint />
                     {isMonitor && <MonitorFrame />}
                     {presenter ? (
                       // Desktop screen-share: the modern floating presenter card (or its collapsed

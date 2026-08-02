@@ -72,3 +72,23 @@ export async function applyBackground(
   await track.setProcessor(processor);
   appliedKey = trackKey(track);
 }
+
+/**
+ * Detach the processor from a track that is going away — the lobby preview on unmount, or when a new
+ * preview track replaces it. Without this the segmentation instance the lobby spun up stays attached
+ * to a dead track, still holding its WASM/GPU context, while the call immediately builds a second one
+ * for its own camera. Also clears the module state so the next `applyBackground` attaches fresh
+ * instead of trying to `switchTo()` on a processor whose track no longer exists.
+ */
+export async function releaseBackground(track: LocalVideoTrack | undefined): Promise<void> {
+  if (!track) return;
+  try {
+    await track.stopProcessor();
+  } catch {
+    // track already stopped/detached — nothing to release
+  }
+  if (appliedKey === trackKey(track)) {
+    processor = null;
+    appliedKey = null;
+  }
+}

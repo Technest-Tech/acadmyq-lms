@@ -22,9 +22,16 @@ import {
 } from "lucide-react";
 import { getMe } from "@/lib/api";
 import { LOCALE_COOKIE, locales } from "@/i18n/config";
+import { applyBackground, releaseBackground } from "./background-processor";
 import { BrandBackdrop } from "./brand-backdrop";
 import { DevicePicker } from "./device-picker";
 import { MicMeter } from "./mic-meter";
+import {
+  loadSettings,
+  micConstraints,
+  saveSettings,
+  type CallSettings,
+} from "./use-call-settings";
 import { useIsDesktop } from "./use-is-desktop";
 
 /** The device + identity choices the lobby hands to the call on Join. */
@@ -85,14 +92,46 @@ export function Lobby({
   const camSelect = useMediaDeviceSelect({ kind: "videoinput" });
   const micSelect = useMediaDeviceSelect({ kind: "audioinput" });
 
+  // The saved call setup (devices, background, mic processing). Read AFTER mount, never during
+  // render: localStorage doesn't exist on the server, so seeding state from it directly would make
+  // the client's first paint disagree with the SSR markup and trip hydration.
+  const [saved, setSaved] = useState<CallSettings | null>(null);
+  useEffect(() => {
+    setSaved(loadSettings());
+  }, []);
+
+  // Restore the saved camera/mic once the browser has actually enumerated devices — before that the
+  // list is empty (and unlabelled until permission is granted), so there's nothing to match against.
+  // Guarded to run at most once per kind, so a later manual pick is never overridden.
+  const restoredCam = useRef(false);
+  const restoredMic = useRef(false);
+  useEffect(() => {
+    if (!saved?.autoApply) return;
+    if (!restoredCam.current && camSelect.devices.length) {
+      restoredCam.current = true;
+      if (saved.videoDeviceId && camSelect.devices.some((d) => d.deviceId === saved.videoDeviceId)) {
+        void camSelect.setActiveMediaDevice(saved.videoDeviceId);
+      }
+    }
+    if (!restoredMic.current && micSelect.devices.length) {
+      restoredMic.current = true;
+      if (saved.audioDeviceId && micSelect.devices.some((d) => d.deviceId === saved.audioDeviceId)) {
+        void micSelect.setActiveMediaDevice(saved.audioDeviceId);
+      }
+    }
+  }, [saved, camSelect, micSelect]);
+
   const trackOptions = useMemo<CreateLocalTracksOptions>(
     () =>
       secure
         ? {
+            // Preview the mic through the SAME processing the call will publish with, so the level
+            // meter reflects what the class actually hears rather than the raw capture.
             audio: micEnabled
-              ? micSelect.activeDeviceId
-                ? { deviceId: micSelect.activeDeviceId }
-                : true
+              ? {
+                  ...(saved ? micConstraints(saved) : {}),
+                  deviceId: micSelect.activeDeviceId || undefined,
+                }
               : false,
             video: camEnabled
               ? camSelect.activeDeviceId
@@ -101,8 +140,17 @@ export function Lobby({
               : false,
           }
         : { audio: false, video: false },
-    [secure, micEnabled, camEnabled, micSelect.activeDeviceId, camSelect.activeDeviceId],
+    [secure, micEnabled, camEnabled, saved, micSelect.activeDeviceId, camSelect.activeDeviceId],
   );
+
+  /** Persist a lobby choice so the next join restores it (and so the call re-applies it on connect). */
+  const patchSaved = useCallback((patch: Partial<CallSettings>) => {
+    setSaved((prev) => {
+      const next = { ...(prev ?? loadSettings()), ...patch };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
 
   // Must be referentially stable: usePreviewTracks keys its acquire effect on this callback, so a
   // fresh arrow each render would re-run getUserMedia in a tight loop (each new LocalAudioTrack
@@ -135,6 +183,20 @@ export function Lobby({
       videoTrack.detach(el);
     };
   }, [videoTrack]);
+
+  // Show the saved background on the preview. Restoring it only after connecting was the reason the
+  // blur/background looked "forgotten": the teacher's last sight of themselves before joining was a
+  // bare room, so they'd open Settings and re-pick it every time even when the call would have
+  // restored it a second later. Re-runs per track, since switching camera builds a new one.
+  useEffect(() => {
+    if (!saved?.autoApply || !videoTrack) return;
+    void applyBackground(videoTrack, saved.background).catch(() => {});
+    // Hand the segmentation instance back on unmount (i.e. on Join) — the call builds its own for
+    // its own camera track, and two live MediaPipe contexts is a real cost on a budget laptop.
+    return () => {
+      void releaseBackground(videoTrack).catch(() => {});
+    };
+  }, [saved, videoTrack]);
 
   function handleJoin() {
     if (!isHost && !name.trim()) {
@@ -301,14 +363,20 @@ export function Lobby({
                 Icon={Video}
                 devices={camSelect.devices}
                 activeId={camSelect.activeDeviceId}
-                onChange={(id) => void camSelect.setActiveMediaDevice(id)}
+                onChange={(id) => {
+                  void camSelect.setActiveMediaDevice(id);
+                  patchSaved({ videoDeviceId: id });
+                }}
               />
               <DevicePicker
                 label={t("microphone")}
                 Icon={Mic}
                 devices={micSelect.devices}
                 activeId={micSelect.activeDeviceId}
-                onChange={(id) => void micSelect.setActiveMediaDevice(id)}
+                onChange={(id) => {
+                  void micSelect.setActiveMediaDevice(id);
+                  patchSaved({ audioDeviceId: id });
+                }}
               />
             </div>
           )}

@@ -4550,6 +4550,8 @@
     "micLevel": "مستوى الميكروفون",
     "testSpeaker": "اختبار السماعة",
     "noiseSuppression": "تقليل الضوضاء",
+    "voiceIsolation": "عزل صوتك",
+    "voiceIsolationHint": "يستخدم الذكاء الاصطناعي للإبقاء على صوتك وحذف المراوح والضوضاء والأصوات المحيطة.",
     "echoCancellation": "إلغاء الصدى",
     "resolution": "الجودة",
     "resolutionAuto": "تلقائي",
@@ -4646,7 +4648,8 @@
     "chatTo": "إلى",
     "chatEveryone": "الجميع",
     "chatPrivate": "خاصة",
-    "chatPrivatePlaceholder": "رسالة خاصة…"
+    "chatPrivatePlaceholder": "رسالة خاصة…",
+    "screenAudioEchoHint": "أنت تشارك الصوت. استخدم سماعات الرأس — وإلا سيلتقط الميكروفون صوت المقطع مرة أخرى ويسمع الطلاب صدى."
   },
   "theme": {
     "label": "المظهر",

@@ -54,16 +54,28 @@ describe("SettingsDialog", () => {
     expect(update).toHaveBeenCalledWith({ mirror: false });
   });
 
-  it("persists the apply-automatically toggle", () => {
+  it("shows apply-automatically already on, and persists turning it off", () => {
+    // It renders CHECKED because remembering the setup is now the default — teachers were re-picking
+    // their camera and background on every join because this shipped off and buried in the footer.
     const update = renderDialog();
-    fireEvent.click(screen.getByRole("switch", { name: v.applyAutomatically }));
-    expect(update).toHaveBeenCalledWith({ autoApply: true });
+    const toggle = screen.getByRole("switch", { name: v.applyAutomatically });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    expect(update).toHaveBeenCalledWith({ autoApply: false });
   });
 
   it("toggling noise suppression persists it", () => {
     const update = renderDialog();
     fireEvent.click(screen.getByRole("switch", { name: v.noiseSuppression }));
     expect(update).toHaveBeenCalledWith({ noiseSuppression: false });
+  });
+
+  it("offers voice isolation, on by default, and persists turning it off", () => {
+    const update = renderDialog();
+    const toggle = screen.getByRole("switch", { name: v.voiceIsolation });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    expect(update).toHaveBeenCalledWith({ voiceIsolation: false });
   });
 
   it("switches to the Background tab and lists effect options", () => {

@@ -4550,6 +4550,8 @@
     "micLevel": "Mic level",
     "testSpeaker": "Test speaker",
     "noiseSuppression": "Noise suppression",
+    "voiceIsolation": "Voice isolation",
+    "voiceIsolationHint": "Uses AI to keep your voice and drop fans, traffic and background chatter.",
     "echoCancellation": "Echo cancellation",
     "resolution": "Quality",
     "resolutionAuto": "Auto",
@@ -4646,7 +4648,8 @@
     "chatTo": "To",
     "chatEveryone": "Everyone",
     "chatPrivate": "Private",
-    "chatPrivatePlaceholder": "Private message…"
+    "chatPrivatePlaceholder": "Private message…",
+    "screenAudioEchoHint": "You're sharing sound. Use headphones — otherwise your mic picks the clip back up and the class hears an echo."
   },
   "theme": {
     "label": "Theme",
