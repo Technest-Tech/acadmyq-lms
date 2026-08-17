@@ -16,6 +16,8 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AcademyOwnerSection } from "@/components/academies/academy-owner-section";
 import { AcademySubscriptionPanel } from "@/components/academies/academy-subscription-panel";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { StatusChip, SUBSCRIPTION_TONE } from "@/components/admin/status-chip";
 import { useAuth } from "@/components/auth-provider";
 import { ClientVideoCard, ClientWhatsappCard } from "@/components/clients/module-tabs";
 import { SubscriptionsCard } from "@/components/clients/subscriptions-card";
@@ -42,14 +44,6 @@ import { cn } from "@/lib/utils";
  * WhatsApp (connection/toggles/keys), Video (link to its ops detail), Settings (name/branding/
  * owner). A real route at last, so every trial chip and proof row can deep-link here.
  */
-
-const STATUS_STYLE: Record<string, string> = {
-  ACTIVE:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-  TRIAL: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  SUSPENDED:
-    "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
-};
 
 type Tab = "billing" | "whatsapp" | "video" | "settings";
 
@@ -161,63 +155,58 @@ export function ClientScreen({ clientId }: { clientId: string }) {
 
   return (
     <div className="space-y-5" data-testid="client-screen">
-      <BackLink label={t("back")} />
-
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="truncate text-xl font-bold tracking-tight">{client.name}</h1>
-            <span
-              className={cn(
-                "rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
-                STATUS_STYLE[client.status],
-              )}
-            >
-              {ts(`status.${client.status}`)}
-            </span>
-          </div>
-          <p className="text-muted-foreground mt-0.5 text-xs">
+      <AdminPageHeader
+        backHref="/admin/clients"
+        backLabel={t("back")}
+        title={client.name}
+        titleExtra={
+          <StatusChip tone={SUBSCRIPTION_TONE[client.status] ?? "neutral"} dot>
+            {ts(`status.${client.status}`)}
+          </StatusChip>
+        }
+        subtitle={
+          <>
             {client.default_currency} · {client.timezone}
             {client.subdomain !== null && <> · {client.subdomain}</>}
             {" · "}
             {t("since", {
               date: new Date(client.created_at).toLocaleDateString(locale),
             })}
-          </p>
-          {client.status === "SUSPENDED" && client.suspended_reason !== null && (
-            <p className="text-destructive mt-1 text-xs font-medium">
-              {t("suspendedReason", { reason: client.suspended_reason })}
-            </p>
-          )}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          {can("academy.enter") && (
-            <Button variant="outline" size="sm" disabled={busy} onClick={() => setConfirmEnter(true)}>
-              <LogIn className="size-4" aria-hidden />
-              {t("enter")}
-            </Button>
-          )}
-          {can("academy.suspend") &&
-            (client.status === "SUSPENDED" ? (
-              <Button size="sm" disabled={busy} onClick={toggleSuspension}>
-                <CheckCircle2 className="size-4" aria-hidden />
-                {t("reactivate")}
+          </>
+        }
+        actions={
+          <>
+            {can("academy.enter") && (
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => setConfirmEnter(true)}>
+                <LogIn className="size-4" aria-hidden />
+                {t("enter")}
               </Button>
-            ) : (
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={busy}
-                onClick={() => setSuspendOpen(true)}
-              >
-                <Ban className="size-4" aria-hidden />
-                {t("suspend")}
-              </Button>
-            ))}
-        </div>
-      </div>
+            )}
+            {can("academy.suspend") &&
+              (client.status === "SUSPENDED" ? (
+                <Button size="sm" disabled={busy} onClick={toggleSuspension}>
+                  <CheckCircle2 className="size-4" aria-hidden />
+                  {t("reactivate")}
+                </Button>
+              ) : (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => setSuspendOpen(true)}
+                >
+                  <Ban className="size-4" aria-hidden />
+                  {t("suspend")}
+                </Button>
+              ))}
+          </>
+        }
+      />
+      {client.status === "SUSPENDED" && client.suspended_reason !== null && (
+        <p className="text-destructive -mt-2 text-xs font-medium">
+          {t("suspendedReason", { reason: client.suspended_reason })}
+        </p>
+      )}
 
       {/* Enter confirmation */}
       {confirmEnter && (

@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { StatusChip, SUBSCRIPTION_TONE } from "@/components/admin/status-chip";
+import { TableCard, Th, TR_HEAD } from "@/components/admin/table";
 import { useAuth } from "@/components/auth-provider";
 import { ModuleChips } from "@/components/clients/module-chips";
 import { AlertBanner } from "@/components/ui/alert";
@@ -24,14 +27,6 @@ import { cn } from "@/lib/utils";
  * module chips, filterable by status and module. Rows open the client page, where every
  * subscription/trial/module control lives. Replaces the /academies roster.
  */
-
-const STATUS_STYLE: Record<string, string> = {
-  ACTIVE:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-  TRIAL: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  SUSPENDED:
-    "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
-};
 
 type StatusFilter = "ALL" | "ACTIVE" | "TRIAL" | "SUSPENDED";
 
@@ -109,19 +104,18 @@ export function ClientsScreen() {
 
   return (
     <div className="space-y-5" data-testid="clients-screen">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight">{t("title")}</h1>
-          <p className="text-muted-foreground text-sm">{t("subtitle")}</p>
-        </div>
-        {can("academy.create") && (
-          <Button onClick={() => router.push("/admin/clients/new")}>
-            <Plus className="size-4" aria-hidden />
-            {t("newClient")}
-          </Button>
-        )}
-      </div>
+      <AdminPageHeader
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          can("academy.create") && (
+            <Button onClick={() => router.push("/admin/clients/new")}>
+              <Plus className="size-4" aria-hidden />
+              {t("newClient")}
+            </Button>
+          )
+        }
+      />
 
       {error !== null && <AlertBanner variant="error" message={error} />}
 
@@ -197,19 +191,18 @@ export function ClientsScreen() {
       </div>
 
       {/* Roster */}
-      <div className="bg-card overflow-hidden rounded-2xl border shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead>
-              <tr className="text-muted-foreground border-b text-start text-[11px] font-semibold uppercase tracking-wider">
-                <th className="px-4 py-3 text-start">{t("table.client")}</th>
-                <th className="px-4 py-3 text-start">{t("table.modules")}</th>
-                <th className="px-4 py-3 text-start">{t("table.status")}</th>
-                <th className="px-4 py-3 text-start">{t("table.monthly")}</th>
-                <th className="px-4 py-3 text-start">{t("table.people")}</th>
-                <th className="px-4 py-3" aria-hidden />
-              </tr>
-            </thead>
+      <TableCard>
+        <table className="w-full min-w-[720px] text-sm">
+          <thead>
+            <tr className={TR_HEAD}>
+              <Th>{t("table.client")}</Th>
+              <Th>{t("table.modules")}</Th>
+              <Th>{t("table.status")}</Th>
+              <Th>{t("table.monthly")}</Th>
+              <Th>{t("table.people")}</Th>
+              <Th />
+            </tr>
+          </thead>
             <tbody>
               {clients === null ? (
                 <tr>
@@ -242,15 +235,13 @@ export function ClientsScreen() {
                       <ModuleChips modules={c.modules} />
                     </td>
                     <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                          STATUS_STYLE[c.status],
-                        )}
+                      <StatusChip
+                        tone={SUBSCRIPTION_TONE[c.status] ?? "neutral"}
+                        dot
                         title={c.suspended_reason ?? undefined}
                       >
                         {t(`status.${c.status}`)}
-                      </span>
+                      </StatusChip>
                     </td>
                     <td className="px-4 py-3 font-medium tabular-nums">
                       {monthlyLabel(c)}
@@ -275,8 +266,7 @@ export function ClientsScreen() {
               )}
             </tbody>
           </table>
-        </div>
-      </div>
+      </TableCard>
     </div>
   );
 }

@@ -2,21 +2,24 @@
 
 import {
   Building2,
-  CreditCard,
   Hourglass,
   ImageIcon,
   ReceiptText,
   TrendingUp,
   Wallet,
-  type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { StatTile } from "@/components/admin/stat-tile";
+import { StatusChip, SUBSCRIPTION_TONE } from "@/components/admin/status-chip";
+import { Td, Th, TR_HEAD } from "@/components/admin/table";
 import { useAuth } from "@/components/auth-provider";
 import { ModuleChips, MODULE_STYLE } from "@/components/clients/module-chips";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ApiError,
   fetchPaymentScreenshot,
@@ -32,47 +35,18 @@ import {
 import { formatMoney, formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-const STATUS_STYLE: Record<string, string> = {
-  ACTIVE: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-  TRIAL: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  SUSPENDED: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
-};
-
 /** Whole days from now until an ISO date (negative once past), or null when unset. */
 function daysUntil(iso: string | null): number | null {
   if (!iso) return null;
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
 }
 
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  gradient,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  gradient: string;
-}) {
-  return (
-    <div className="bg-card relative flex items-center gap-3.5 overflow-hidden rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.04]">
-      <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl text-white shadow-sm", gradient)}>
-        <Icon className="size-5" aria-hidden />
-      </div>
-      <div className="min-w-0">
-        <p className="text-2xl font-bold leading-none tracking-tight tabular-nums">{value}</p>
-        <p className="text-muted-foreground mt-1 truncate text-xs font-medium">{label}</p>
-      </div>
-    </div>
-  );
-}
-
 /**
- * The money page (R3, 04-CLIENT-FIRST-REDESIGN §3): MRR split BY MODULE, the payment-proof review
- * inbox (the ONE writer for proof decisions), and the per-client dues table. Subscription
- * lifecycle buttons are gone from here — rows deep-link to the client page, whose Subscriptions
- * card is the one writer for trial/plan/module state.
+ * The money page (R3, 04-CLIENT-FIRST-REDESIGN §3; restyled in superadmin-reorg on the shared
+ * admin kit): MRR split BY MODULE, the payment-proof review inbox (the ONE writer for proof
+ * decisions), and the per-client dues table. Subscription lifecycle buttons are gone from
+ * here — rows deep-link to the client page, whose Subscriptions card is the one writer for
+ * trial/plan/module state.
  */
 export function BillingScreen() {
   const t = useTranslations("billing");
@@ -168,22 +142,41 @@ export function BillingScreen() {
       : ts("noDate");
 
   return (
-    <div className="space-y-6">
-      {/* Hero */}
-      <div className="from-primary/[0.10] via-card to-card relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        <div className="flex items-center gap-3.5">
-          <div className="bg-primary/12 text-primary flex size-11 items-center justify-center rounded-xl">
-            <CreditCard className="size-5.5" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t("combinedTitle")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">{t("combinedSubtitle")}</p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-5">
+      <AdminPageHeader title={t("combinedTitle")} subtitle={t("combinedSubtitle")} />
 
       {error && <AlertBanner variant="error" message={error} />}
       {notice && <AlertBanner variant="success" message={notice} />}
+
+      {/* KPI row */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatTile
+          icon={Building2}
+          label={ts("kpi.academies")}
+          value={formatNumber(rows?.length ?? 0, locale)}
+          loading={rows === null}
+        />
+        <StatTile
+          icon={Hourglass}
+          label={ts("kpi.trials")}
+          value={formatNumber(trialCount, locale)}
+          loading={rows === null}
+        />
+        <StatTile
+          icon={Wallet}
+          label={ts("kpi.outstanding")}
+          value={formatNumber(outstandingCount, locale)}
+          subTone={outstandingCount > 0 ? "crit" : "neutral"}
+          loading={rows === null}
+        />
+        <StatTile
+          icon={ReceiptText}
+          label={ts("kpi.proofs")}
+          value={formatNumber(proofs.length, locale)}
+          subTone={proofs.length > 0 ? "warn" : "neutral"}
+          loading={rows === null}
+        />
+      </div>
 
       {/* MRR by currency, split by module (R3) */}
       <section>
@@ -192,33 +185,30 @@ export function BillingScreen() {
           {t("mrrHeading")}
         </h2>
         {mrr === null ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} className="bg-card h-32 animate-pulse rounded-2xl border shadow-sm" aria-hidden />
+              <div key={i} className="bg-card h-32 animate-pulse rounded-xl shadow-sm ring-1 ring-foreground/[0.06]" aria-hidden />
             ))}
           </div>
         ) : mrr.length === 0 ? (
           <p className="text-muted-foreground text-sm">{t("noRevenue")}</p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {mrr.map(([currency, bucket]) => (
               <div
                 key={currency}
-                className="from-primary/[0.06] via-card to-card relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 shadow-sm ring-1 ring-foreground/[0.04]"
+                className="bg-card rounded-xl p-4 shadow-sm ring-1 ring-foreground/[0.06]"
                 data-mrr={currency}
               >
-                <div className="mb-1 flex items-center justify-between">
+                <div className="flex items-baseline justify-between gap-2">
                   <span className="text-muted-foreground text-xs font-medium">
                     {t("mrr")} · {currency}
                   </span>
-                  <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
-                    <TrendingUp className="size-4" aria-hidden />
-                  </div>
+                  <span className="text-muted-foreground text-[11px]">{t("perMonth")}</span>
                 </div>
-                <span className="text-2xl font-bold tracking-tight tabular-nums">
+                <p className="mt-1 text-2xl font-bold tracking-tight tabular-nums" dir="ltr">
                   {formatMoney({ amount: bucket.total, currency }, locale)}
-                </span>
-                <span className="text-muted-foreground text-[11px]">{t("perMonth")}</span>
+                </p>
                 <div className="mt-3 space-y-1 border-t pt-2.5">
                   {MODULE_CODES.map((code) => {
                     const amount = bucket.byModule.get(code) ?? 0;
@@ -249,14 +239,6 @@ export function BillingScreen() {
         )}
       </section>
 
-      {/* Subscription KPIs */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard icon={Building2} label={ts("kpi.academies")} value={formatNumber(rows?.length ?? 0, locale)} gradient="bg-gradient-to-br from-blue-500 to-indigo-600" />
-        <StatCard icon={Hourglass} label={ts("kpi.trials")} value={formatNumber(trialCount, locale)} gradient="bg-gradient-to-br from-amber-500 to-orange-600" />
-        <StatCard icon={Wallet} label={ts("kpi.outstanding")} value={formatNumber(outstandingCount, locale)} gradient="bg-gradient-to-br from-rose-500 to-pink-600" />
-        <StatCard icon={ReceiptText} label={ts("kpi.proofs")} value={formatNumber(proofs.length, locale)} gradient="bg-gradient-to-br from-violet-500 to-purple-600" />
-      </div>
-
       {/* Pending payment-proof queue */}
       {proofs.length > 0 && (
         <section>
@@ -268,11 +250,16 @@ export function BillingScreen() {
             {proofs.map((p) => (
               <div
                 key={p.submission_id}
-                className="bg-card flex flex-col gap-2 rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.04]"
+                className="bg-card flex flex-col gap-2 rounded-xl p-4 shadow-sm ring-1 ring-foreground/[0.06]"
                 data-proof={p.submission_id}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate font-medium">{p.academy_name}</span>
+                  <Link
+                    href={`/admin/clients/${p.academy_id}`}
+                    className="hover:text-primary truncate font-medium hover:underline"
+                  >
+                    {p.academy_name}
+                  </Link>
                   <span className="text-primary font-bold tabular-nums" dir="ltr">
                     {formatMoney({ amount: p.bill_total_minor, currency: p.currency }, locale)}
                   </span>
@@ -310,116 +297,124 @@ export function BillingScreen() {
         </section>
       )}
 
-      {/* Academy subscriptions */}
-      <section>
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <Building2 className="text-muted-foreground size-4" aria-hidden />
-          {ts("table.title")}
-        </h2>
-        <div className="bg-card overflow-x-auto rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
-          <table className="w-full text-sm" data-testid="billing-table">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="px-3 py-2.5 text-start">{ts("col.academy")}</th>
-                <th className="px-3 py-2.5 text-start">{tc("table.modules")}</th>
-                <th className="px-3 py-2.5 text-start">{ts("col.status")}</th>
-                <th className="px-3 py-2.5 text-start">{ts("col.renewal")}</th>
-                <th className="px-3 py-2.5 text-end">{ts("col.cost")}</th>
-                <th className="px-3 py-2.5 text-end">{ts("col.outstanding")}</th>
-                <th className="px-3 py-2.5 text-end" aria-hidden />
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {rows === null ? (
-                Array.from({ length: 4 }).map((_, i) => (
-                  <tr key={i}>
-                    <td colSpan={7} className="px-3 py-3">
-                      <div className="bg-muted h-5 animate-pulse rounded" aria-hidden />
-                    </td>
-                  </tr>
-                ))
-              ) : rows.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="text-muted-foreground px-3 py-10 text-center">{ts("none")}</td>
+      {/* Per-client dues table */}
+      <Card>
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="text-muted-foreground size-4" aria-hidden />
+            {ts("table.title")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-0 pb-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" data-testid="billing-table">
+              <thead>
+                <tr className={TR_HEAD}>
+                  <Th>{ts("col.academy")}</Th>
+                  <Th>{tc("table.modules")}</Th>
+                  <Th>{ts("col.status")}</Th>
+                  <Th>{ts("col.renewal")}</Th>
+                  <Th className="text-end">{ts("col.cost")}</Th>
+                  <Th className="text-end">{ts("col.outstanding")}</Th>
+                  <Th />
                 </tr>
-              ) : (
-                rows.map((r) => {
-                  // Trial academies count down to trial_end; paid ones to the next renewal.
-                  const renewIso = r.is_trial ? r.trial_end : r.current_period_end;
-                  const renewDays = daysUntil(renewIso);
-                  const trialDays = r.is_trial ? renewDays : null;
-                  return (
-                    <tr key={r.academy_id} data-academy={r.academy_id} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-3 py-2 font-medium">
-                        <Link
-                          href={`/admin/clients/${r.academy_id}`}
-                          className="hover:text-primary hover:underline"
-                        >
-                          {r.academy_name}
-                        </Link>
-                      </td>
-                      <td className="px-3 py-2">
-                        <ModuleChips modules={modulesByClient.get(r.academy_id) ?? []} />
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium", STATUS_STYLE[r.academy_status] ?? "bg-muted")}>
-                          {r.is_trial && <Hourglass className="size-3" aria-hidden />}
-                          {r.is_trial
-                            ? trialDays !== null && trialDays > 0
-                              ? ts("trialDaysLeft", { days: trialDays })
-                              : ts("trialExpired")
-                            : ts(`status.${r.academy_status}`)}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex flex-col">
-                          <span className="tabular-nums">{fmtDate(renewIso)}</span>
-                          {renewDays !== null && (
-                            <span
-                              className={cn(
-                                "text-[11px]",
-                                renewDays <= 0
-                                  ? "text-rose-600"
-                                  : renewDays <= 3
-                                    ? "text-amber-600"
-                                    : "text-muted-foreground",
-                              )}
-                            >
-                              {renewDays > 0 ? ts("daysLeft", { days: renewDays }) : ts("expired")}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-end font-semibold tabular-nums">
-                        {formatMoney({ amount: r.total_cost_minor, currency: r.currency }, locale)}
-                      </td>
-                      <td className="px-3 py-2 text-end tabular-nums">
-                        {r.outstanding_minor > 0 ? (
-                          <span className="font-semibold text-rose-600">
-                            {formatMoney({ amount: r.outstanding_minor, currency: r.currency }, locale)}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      {/* One writer per fact (R3): trial/plan/suspend live on the client page. */}
-                      <td className="px-3 py-2 text-end">
-                        <Link
-                          href={`/admin/clients/${r.academy_id}`}
-                          className="text-primary text-xs font-semibold whitespace-nowrap hover:underline"
-                          data-testid={`open-${r.academy_id}`}
-                        >
-                          {tc("open")}
-                        </Link>
-                      </td>
+              </thead>
+              <tbody className="divide-y">
+                {rows === null ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <tr key={i}>
+                      <Td colSpan={7}>
+                        <div className="bg-muted h-5 animate-pulse rounded" aria-hidden />
+                      </Td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                  ))
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <Td colSpan={7} className="text-muted-foreground py-10 text-center">
+                      {ts("none")}
+                    </Td>
+                  </tr>
+                ) : (
+                  rows.map((r) => {
+                    // Trial academies count down to trial_end; paid ones to the next renewal.
+                    const renewIso = r.is_trial ? r.trial_end : r.current_period_end;
+                    const renewDays = daysUntil(renewIso);
+                    const trialDays = r.is_trial ? renewDays : null;
+                    return (
+                      <tr key={r.academy_id} data-academy={r.academy_id} className="hover:bg-muted/30 transition-colors">
+                        <Td className="font-medium">
+                          <Link
+                            href={`/admin/clients/${r.academy_id}`}
+                            className="hover:text-primary hover:underline"
+                          >
+                            {r.academy_name}
+                          </Link>
+                        </Td>
+                        <Td>
+                          <ModuleChips modules={modulesByClient.get(r.academy_id) ?? []} />
+                        </Td>
+                        <Td>
+                          <StatusChip
+                            tone={r.is_trial ? "warn" : SUBSCRIPTION_TONE[r.academy_status] ?? "neutral"}
+                            icon={r.is_trial ? Hourglass : undefined}
+                          >
+                            {r.is_trial
+                              ? trialDays !== null && trialDays > 0
+                                ? ts("trialDaysLeft", { days: trialDays })
+                                : ts("trialExpired")
+                              : ts(`status.${r.academy_status}`)}
+                          </StatusChip>
+                        </Td>
+                        <Td>
+                          <div className="flex flex-col">
+                            <span className="tabular-nums">{fmtDate(renewIso)}</span>
+                            {renewDays !== null && (
+                              <span
+                                className={cn(
+                                  "text-[11px]",
+                                  renewDays <= 0
+                                    ? "text-rose-600 dark:text-rose-400"
+                                    : renewDays <= 3
+                                      ? "text-amber-600 dark:text-amber-400"
+                                      : "text-muted-foreground",
+                                )}
+                              >
+                                {renewDays > 0 ? ts("daysLeft", { days: renewDays }) : ts("expired")}
+                              </span>
+                            )}
+                          </div>
+                        </Td>
+                        <Td className="text-end font-semibold tabular-nums">
+                          {formatMoney({ amount: r.total_cost_minor, currency: r.currency }, locale)}
+                        </Td>
+                        <Td className="text-end tabular-nums">
+                          {r.outstanding_minor > 0 ? (
+                            <span className="font-semibold text-rose-600 dark:text-rose-400">
+                              {formatMoney({ amount: r.outstanding_minor, currency: r.currency }, locale)}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </Td>
+                        {/* One writer per fact (R3): trial/plan/suspend live on the client page. */}
+                        <Td className="text-end">
+                          <Link
+                            href={`/admin/clients/${r.academy_id}`}
+                            className="text-primary text-xs font-semibold whitespace-nowrap hover:underline"
+                            data-testid={`open-${r.academy_id}`}
+                          >
+                            {tc("open")}
+                          </Link>
+                        </Td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

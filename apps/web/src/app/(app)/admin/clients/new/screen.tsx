@@ -1,11 +1,10 @@
 "use client";
 
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { AcademyWizard } from "@/components/academies/academy-wizard";
+import { AdminPageHeader } from "@/components/admin/page-header";
 import { MODULE_STYLE } from "@/components/clients/module-chips";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -92,20 +91,19 @@ export function NewClientScreen() {
 
   return (
     <div className="space-y-5" data-testid="new-client-screen">
-      <Link
-        href="/admin/clients"
-        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-xs font-medium"
-      >
-        <ArrowLeft className="size-3.5 rtl:rotate-180" aria-hidden />
-        {t("back")}
-      </Link>
+      <AdminPageHeader
+        backHref="/admin/clients"
+        backLabel={t("back")}
+        title={t("title")}
+        subtitle={t("subtitle")}
+      />
 
       {/* WhatsApp-only external client (R4, M-CLI-2): no owner login, connected by QR later. */}
       <WhatsappOnlyCard plans={plansFor("WHATSAPP")} />
 
       {/* Extra modules — applied right after the wizard creates the client. */}
-      <section className="bg-card rounded-2xl border p-4 shadow-sm">
-        <h2 className="text-sm font-bold">{t("modulesTitle")}</h2>
+      <section className="bg-card rounded-xl p-4 shadow-sm ring-1 ring-foreground/[0.06]">
+        <h2 className="text-sm font-semibold">{t("modulesTitle")}</h2>
         <p className="text-muted-foreground mt-0.5 text-xs">{t("modulesHint")}</p>
 
         <div className="mt-3 space-y-2.5">
@@ -240,14 +238,14 @@ function WhatsappOnlyCard({ plans }: { plans: Plan[] }) {
   return (
     <section
       className={cn(
-        "rounded-2xl border p-4 shadow-sm transition-colors",
-        open ? "border-primary/40 bg-primary/[0.03]" : "bg-card",
+        "rounded-xl border p-4 shadow-sm ring-1 ring-foreground/[0.06] transition-colors",
+        open ? "border-primary/40 bg-primary/[0.03]" : "bg-card border-transparent",
       )}
       data-testid="wa-only-card"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="flex items-center gap-2 text-sm font-bold">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
             <span
               className={cn(
                 "inline-flex size-5 items-center justify-center rounded-md text-[10px] font-bold ring-1",

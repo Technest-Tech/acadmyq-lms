@@ -17,6 +17,11 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AddOnFormModal, PlanFormModal } from "./plan-forms";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { StatTile } from "@/components/admin/stat-tile";
+import { StatusChip } from "@/components/admin/status-chip";
+import { TableCard, Td, Th, TR_HEAD } from "@/components/admin/table";
+import { EmptyState } from "@/components/admin/empty-state";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -24,54 +29,18 @@ import {
   getAdminDashboard,
   getCapabilityCatalog,
   getPlanCatalog,
+  MODULE_CODES,
   updatePlan,
   type AddOnCatalogItem,
   type AdminDashboardStats,
   type CapabilityCatalog,
+  type ModuleCode,
   type PlanCatalogItem,
 } from "@/lib/api";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-/** A compact KPI tile for the statistics strip. */
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  tone = "primary",
-}: {
-  icon: typeof Package;
-  label: string;
-  value: string;
-  sub?: string;
-  tone?: "primary" | "emerald" | "amber" | "violet";
-}) {
-  const tones = {
-    primary: "bg-primary/10 text-primary",
-    emerald: "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300",
-    amber: "bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300",
-    violet: "bg-violet-100 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300",
-  } as const;
-  return (
-    <div className="bg-card rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.04]">
-      <div className="flex items-center gap-3">
-        <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg", tones[tone])}>
-          <Icon className="size-5" aria-hidden />
-        </div>
-        <div className="min-w-0">
-          <p className="text-muted-foreground text-xs font-medium">{label}</p>
-          <p className="truncate text-xl font-bold tracking-tight tabular-nums">
-            {value}
-          </p>
-        </div>
-      </div>
-      {sub && <p className="text-muted-foreground mt-2 text-xs">{sub}</p>}
-    </div>
-  );
-}
-
-/** Inline active/inactive toggle (reuses the platform-settings switch styling). */
+/** Inline active/inactive toggle for a plan column. */
 function StatusSwitch({
   on,
   busy,
@@ -120,12 +89,14 @@ function LimitValue({ value, locale }: { value: number | null | undefined; local
   return <span className="font-semibold tabular-nums">{formatNumber(value, locale)}</span>;
 }
 
+type ModuleTab = ModuleCode | "ADDONS";
+
 /**
- * Super-Admin plan management (Sprint 9 §8). A professional control surface for the revenue
- * model: KPI statistics (plan count, academies, estimated MRR, most popular tier), then a
- * side-by-side comparison matrix of every plan's price, limits and feature entitlements with
- * inline activate/deactivate and edit. Gated by plan.manage. (Add-ons are intentionally hidden
- * for now — the catalog still supports them, they're just not surfaced here.)
+ * Super-Admin plan management (Sprint 9 §8; restyled in superadmin-reorg on the shared admin
+ * kit). KPI statistics, one tab per module (EVERY module in MODULE_CODES — a plan saved for a
+ * module always has a tab to live on) plus the add-on grants, and a side-by-side comparison
+ * matrix of each plan's price, limits and feature entitlements with inline activate/edit.
+ * Gated by plan.manage.
  */
 export function PlanAdminScreen() {
   const t = useTranslations("planAdmin");
@@ -141,9 +112,7 @@ export function PlanAdminScreen() {
   const [toggleError, setToggleError] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   // R3 (client-first redesign): one catalog, one tab per module — plus the add-on grants.
-  const [moduleTab, setModuleTab] = useState<"MANAGEMENT" | "VIDEO" | "WHATSAPP" | "ADDONS">(
-    "MANAGEMENT",
-  );
+  const [moduleTab, setModuleTab] = useState<ModuleTab>("MANAGEMENT");
 
   // Modal state: a value means "open for this plan/add-on"; `"new"` means create.
   const [planModal, setPlanModal] = useState<PlanCatalogItem | "new" | null>(null);
@@ -233,21 +202,14 @@ export function PlanAdminScreen() {
   const capabilityEntries = catalog ? Object.entries(catalog.capabilities) : [];
 
   return (
-    <div className="space-y-6">
-      {/* Hero header */}
-      <div className="from-primary/[0.10] via-card to-card relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        <div className="flex flex-wrap items-center gap-3.5">
-          <div className="bg-primary/12 text-primary flex size-11 items-center justify-center rounded-xl">
-            <Package className="size-5.5" aria-hidden />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">{t("subtitle")}</p>
-          </div>
+    <div className="space-y-5">
+      <AdminPageHeader
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
           <Button
             type="button"
             size="sm"
-            className="ms-auto"
             disabled={catalog === null}
             onClick={() => setPlanModal("new")}
             data-testid="new-plan"
@@ -255,23 +217,23 @@ export function PlanAdminScreen() {
             <Plus className="size-4" aria-hidden />
             {t("form.newPlan")}
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {error && <AlertBanner variant="error" message={t("loadError")} />}
       {toggleError && <AlertBanner variant="error" message={t("toggleError")} />}
 
       {/* Statistics strip */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
+        <StatTile
           icon={Package}
           label={t("statPlans")}
           value={plans === null ? "—" : formatNumber(plans.length, locale)}
           sub={plans === null ? undefined : t("statActive", { count: activeCount })}
+          loading={plans === null}
         />
-        <StatCard
+        <StatTile
           icon={Building2}
-          tone="emerald"
           label={t("statAcademies")}
           value={stats === null ? "—" : formatNumber(stats.academies.total, locale)}
           sub={
@@ -283,9 +245,8 @@ export function PlanAdminScreen() {
                 })
           }
         />
-        <StatCard
+        <StatTile
           icon={Coins}
-          tone="amber"
           label={t("statMrr")}
           value={formatMoney(
             {
@@ -296,18 +257,18 @@ export function PlanAdminScreen() {
           )}
           sub={mrr.length > 1 ? t("statMrrMore", { count: mrr.length - 1 }) : t("statMrrHint")}
         />
-        <StatCard
+        <StatTile
           icon={Crown}
-          tone="violet"
           label={t("statTopPlan")}
           value={topPlan?.code ?? "—"}
           sub={topPlan ? t("academiesCount", { count: topPlan.count }) : t("statNoAcademies")}
         />
       </div>
 
-      {/* Module tabs (R3): Management | Video | WhatsApp | Add-ons */}
+      {/* Module tabs (R3): one per module + Add-ons — driven by MODULE_CODES so a new
+          module's plans can never become unreachable again. */}
       <div className="flex gap-1 overflow-x-auto border-b" role="tablist" data-testid="plan-module-tabs">
-        {(["MANAGEMENT", "VIDEO", "WHATSAPP", "ADDONS"] as const).map((tab) => (
+        {([...MODULE_CODES, "ADDONS"] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -350,36 +311,36 @@ export function PlanAdminScreen() {
               {t("form.newAddOn")}
             </Button>
           </div>
-          <div className="bg-card overflow-x-auto rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+          <TableCard>
             <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="px-3 py-2.5 text-start">{t("addOnCode")}</th>
-                  <th className="px-3 py-2.5 text-start">{t("addOnName")}</th>
-                  <th className="px-3 py-2.5 text-start">{t("addOnFeature")}</th>
-                  <th className="px-3 py-2.5 text-end">{t("addOnPrice")}</th>
-                  <th className="px-3 py-2.5 text-end" aria-hidden />
+              <thead>
+                <tr className={TR_HEAD}>
+                  <Th>{t("addOnCode")}</Th>
+                  <Th>{t("addOnName")}</Th>
+                  <Th>{t("addOnFeature")}</Th>
+                  <Th className="text-end">{t("addOnPrice")}</Th>
+                  <Th />
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {addOns.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="text-muted-foreground px-3 py-10 text-center">
+                    <Td colSpan={5} className="text-muted-foreground py-10 text-center">
                       {t("noAddOns")}
-                    </td>
+                    </Td>
                   </tr>
                 ) : (
                   addOns.map((a) => (
                     <tr key={a.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-3 py-2 font-semibold">{a.code}</td>
-                      <td className="px-3 py-2">{a.name}</td>
-                      <td className="text-muted-foreground px-3 py-2 font-mono text-xs" dir="ltr">
-                        {a.feature_key}
-                      </td>
-                      <td className="px-3 py-2 text-end font-semibold tabular-nums">
+                      <Td className="font-semibold">{a.code}</Td>
+                      <Td>{a.name}</Td>
+                      <Td className="text-muted-foreground font-mono text-xs" >
+                        <span dir="ltr">{a.feature_key}</span>
+                      </Td>
+                      <Td className="text-end font-semibold tabular-nums">
                         {formatMoney({ amount: a.price_minor, currency: a.currency }, locale)}
-                      </td>
-                      <td className="px-3 py-2 text-end">
+                      </Td>
+                      <Td className="text-end">
                         <Button
                           type="button"
                           variant="ghost"
@@ -389,13 +350,13 @@ export function PlanAdminScreen() {
                         >
                           <Pencil className="size-3.5" aria-hidden />
                         </Button>
-                      </td>
+                      </Td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
-          </div>
+          </TableCard>
         </section>
       ) : (
       /* Comparison matrix */
@@ -406,18 +367,16 @@ export function PlanAdminScreen() {
         </h2>
 
         {plans === null || catalog === null ? (
-          <div className="bg-card h-72 animate-pulse rounded-2xl border shadow-sm" aria-hidden />
+          <div className="bg-card h-72 animate-pulse rounded-xl shadow-sm ring-1 ring-foreground/[0.06]" aria-hidden />
         ) : visible.length === 0 ? (
-          <div className="border-border/60 bg-muted/20 rounded-2xl border border-dashed p-12 text-center text-sm font-medium">
-            {t("noPlans")}
-          </div>
+          <EmptyState icon={Package} message={t("noPlans")} />
         ) : (
-          <div className="bg-card overflow-x-auto rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+          <TableCard>
             <table className="w-full min-w-[640px] border-collapse text-sm">
               <thead>
                 <tr className="border-b">
                   <th className="w-44 p-3 text-start align-bottom">
-                    <span className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wide">
+                    <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
                       {t("planColumn")}
                     </span>
                   </th>
@@ -425,9 +384,7 @@ export function PlanAdminScreen() {
                     <th key={p.id} className="border-s p-3 align-top">
                       <div className="flex flex-col items-start gap-2">
                         <div className="flex w-full items-center justify-between gap-2">
-                          <span className="bg-primary/10 text-primary inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold tracking-wide">
-                            {p.code}
-                          </span>
+                          <StatusChip tone="accent">{p.code}</StatusChip>
                           <Button
                             type="button"
                             variant="ghost"
@@ -441,9 +398,7 @@ export function PlanAdminScreen() {
                         </div>
                         <span className="font-semibold">{p.name}</span>
                         {p.price_minor === 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                            {t("freeTrial")}
-                          </span>
+                          <StatusChip tone="good">{t("freeTrial")}</StatusChip>
                         ) : (
                           <span className="text-lg font-bold tracking-tight tabular-nums">
                             {formatMoney({ amount: p.price_minor, currency: p.currency }, locale)}
@@ -543,7 +498,7 @@ export function PlanAdminScreen() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableCard>
         )}
       </section>
       )}

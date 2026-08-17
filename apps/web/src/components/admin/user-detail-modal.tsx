@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
+import { StatusChip } from "@/components/admin/status-chip";
+import { UserAvatar } from "@/components/admin/user-avatar";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -24,43 +26,16 @@ import {
   type AcademyListItem,
   type PlatformUserDetail,
 } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 const inputClass =
   "border-input bg-background w-full rounded-lg border px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none";
 
-const ROLE_STYLE: Record<string, string> = {
-  SUPER_ADMIN:
-    "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
-  ACADEMY_OWNER:
-    "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
-  TEACHER:
-    "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300",
+/** Role → chip tone; the single source is the same map the users list uses. */
+const ROLE_TONE: Record<string, "accent" | "info" | "neutral"> = {
+  SUPER_ADMIN: "accent",
+  ACADEMY_OWNER: "info",
+  TEACHER: "neutral",
 };
-
-const AVATAR_GRADIENTS = [
-  "from-blue-500 to-indigo-600",
-  "from-emerald-500 to-teal-600",
-  "from-violet-500 to-purple-600",
-  "from-amber-500 to-orange-600",
-  "from-rose-500 to-pink-600",
-  "from-cyan-500 to-sky-600",
-];
-
-function avatarFor(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return AVATAR_GRADIENTS[h % AVATAR_GRADIENTS.length]!;
-}
-
-function initials(name: string): string {
-  return name
-    .split(" ")
-    .slice(0, 2)
-    .map((w) => w[0] ?? "")
-    .join("")
-    .toUpperCase();
-}
 
 /**
  * Super Admin user detail + actions (admin panel — Phase 4): roles across academies (with
@@ -132,31 +107,16 @@ export function UserDetailModal({
 
           {/* Identity header */}
           <div className="bg-muted/30 flex items-center gap-3.5 rounded-xl p-4">
-            <div
-              className={cn(
-                "flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-base font-bold text-white shadow-sm",
-                avatarFor(user.id),
-              )}
-              aria-hidden
-            >
-              {initials(user.full_name)}
-            </div>
+            <UserAvatar name={user.full_name} size="lg" />
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{user.full_name}</p>
               <p className="text-muted-foreground truncate text-sm" dir="ltr">
                 {user.email}
               </p>
             </div>
-            <span
-              className={cn(
-                "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset",
-                user.is_active
-                  ? "bg-emerald-100 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-950/40 dark:text-emerald-300"
-                  : "bg-rose-100 text-rose-700 ring-rose-600/20 dark:bg-rose-950/40 dark:text-rose-300",
-              )}
-            >
+            <StatusChip tone={user.is_active ? "good" : "neutral"} dot>
               {user.is_active ? t("active") : t("inactive")}
-            </span>
+            </StatusChip>
           </div>
 
           {/* Roles */}
@@ -175,14 +135,9 @@ export function UserDetailModal({
                     className="bg-card flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm"
                   >
                     <span className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-                          ROLE_STYLE[r.role] ?? "bg-muted",
-                        )}
-                      >
+                      <StatusChip tone={ROLE_TONE[r.role] ?? "neutral"}>
                         {t(`role.${r.role}`)}
-                      </span>
+                      </StatusChip>
                       {r.academy_name && (
                         <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
                           <Building2 className="size-3" aria-hidden />

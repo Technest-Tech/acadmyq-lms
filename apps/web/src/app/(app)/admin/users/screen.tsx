@@ -1,8 +1,13 @@
 "use client";
 
-import { Search, Users } from "lucide-react";
+import { Search } from "lucide-react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { StatusChip } from "@/components/admin/status-chip";
+import { TableCard, Td, Th, TR_HEAD } from "@/components/admin/table";
+import { UserAvatar } from "@/components/admin/user-avatar";
 import { UserDetailModal } from "@/components/admin/user-detail-modal";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
@@ -20,39 +25,16 @@ const PAGE_SIZE = 25;
 const inputClass =
   "border-input bg-background rounded-lg border px-3 py-2 text-sm transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none";
 
-const ROLE_STYLE: Record<string, string> = {
-  SUPER_ADMIN:
-    "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
-  ACADEMY_OWNER:
-    "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
-  TEACHER:
-    "bg-slate-100 text-slate-700 dark:bg-slate-800/60 dark:text-slate-300",
+const ROLE_TONE: Record<string, "accent" | "info" | "neutral"> = {
+  SUPER_ADMIN: "accent",
+  ACADEMY_OWNER: "info",
+  TEACHER: "neutral",
 };
 
-const AVATAR_GRADIENTS = [
-  "from-blue-500 to-indigo-600",
-  "from-emerald-500 to-teal-600",
-  "from-violet-500 to-purple-600",
-  "from-amber-500 to-orange-600",
-  "from-rose-500 to-pink-600",
-  "from-cyan-500 to-sky-600",
-];
-
-function avatarFor(id: string): string {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return AVATAR_GRADIENTS[h % AVATAR_GRADIENTS.length]!;
-}
-
-function initials(name: string): string {
-  return name
-    .split(" ")
-    .slice(0, 2)
-    .map((w) => w[0] ?? "")
-    .join("")
-    .toUpperCase();
-}
-
+/**
+ * Platform-wide user directory (superadmin-reorg): kit header + table dialect, client names
+ * link to their client page, and the user detail opens in the shared modal.
+ */
 export function PlatformUsersScreen() {
   const t = useTranslations("platformUsers");
   const { can } = useAuth();
@@ -107,28 +89,18 @@ export function PlatformUsersScreen() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Hero */}
-      <div className="from-primary/[0.10] via-card to-card relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3.5">
-            <div className="bg-primary/12 text-primary flex size-11 items-center justify-center rounded-xl">
-              <Users className="size-5.5" aria-hidden />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-              <p className="text-muted-foreground mt-0.5 text-sm">
-                {t("subtitle")}
-              </p>
-            </div>
-          </div>
-          {data && (
-            <span className="text-muted-foreground hidden text-sm sm:block">
+    <div className="space-y-5">
+      <AdminPageHeader
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          data && (
+            <span className="text-muted-foreground text-sm">
               {t("countLabel", { total: data.total })}
             </span>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
 
       {/* Filters */}
       <form
@@ -193,45 +165,37 @@ export function PlatformUsersScreen() {
       {error && <AlertBanner variant="error" message={t("loadError")} />}
 
       {/* Table */}
-      <div className="bg-card overflow-hidden rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+      <TableCard>
         <table className="w-full text-sm" data-testid="platform-users-table">
           <thead>
-            <tr className="border-b text-xs">
-              <th className="text-muted-foreground px-4 py-3 text-start font-semibold">
-                {t("colName")}
-              </th>
-              <th className="text-muted-foreground px-4 py-3 text-start font-semibold">
-                {t("colAcademy")}
-              </th>
-              <th className="text-muted-foreground px-4 py-3 text-start font-semibold">
-                {t("colRoles")}
-              </th>
-              <th className="text-muted-foreground px-4 py-3 text-start font-semibold">
-                {t("colStatus")}
-              </th>
-              <th className="px-4 py-3" />
+            <tr className={TR_HEAD}>
+              <Th>{t("colName")}</Th>
+              <Th>{t("colAcademy")}</Th>
+              <Th>{t("colRoles")}</Th>
+              <Th>{t("colStatus")}</Th>
+              <Th />
             </tr>
           </thead>
           <tbody className="divide-y">
             {data === null ? (
               Array.from({ length: 6 }).map((_, i) => (
                 <tr key={i}>
-                  <td colSpan={5} className="px-4 py-3.5">
+                  <Td colSpan={5} className="py-3.5">
                     <div
                       className="bg-muted h-6 animate-pulse rounded"
                       aria-hidden
                     />
-                  </td>
+                  </Td>
                 </tr>
               ))
             ) : data.rows.length === 0 ? (
               <tr>
-                <td
+                <Td
                   colSpan={5}
-                  className="text-muted-foreground px-4 py-12 text-center"
+                  className="text-muted-foreground py-12 text-center"
                 >
                   {t("empty")}
-                </td>
+                </Td>
               </tr>
             ) : (
               data.rows.map((u) => (
@@ -241,17 +205,9 @@ export function PlatformUsersScreen() {
                   className="hover:bg-muted/30 group cursor-pointer transition-colors"
                   onClick={() => setOpenUserId(u.id)}
                 >
-                  <td className="px-4 py-3">
+                  <Td>
                     <div className="flex items-center gap-3">
-                      <div
-                        className={cn(
-                          "flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-xs font-bold text-white shadow-sm",
-                          avatarFor(u.id),
-                        )}
-                        aria-hidden
-                      >
-                        {initials(u.full_name)}
-                      </div>
+                      <UserAvatar name={u.full_name} />
                       <div className="min-w-0">
                         <p className="truncate font-semibold">{u.full_name}</p>
                         <p
@@ -262,45 +218,35 @@ export function PlatformUsersScreen() {
                         </p>
                       </div>
                     </div>
-                  </td>
-                  <td className="text-muted-foreground px-4 py-3">
-                    {u.academy_name ?? "—"}
-                  </td>
-                  <td className="px-4 py-3">
+                  </Td>
+                  <Td className="text-muted-foreground">
+                    {u.academy_id !== null && u.academy_name !== null ? (
+                      <Link
+                        href={`/admin/clients/${u.academy_id}`}
+                        className="hover:text-primary hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {u.academy_name}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
+                  </Td>
+                  <Td>
                     <div className="flex flex-wrap gap-1">
                       {u.roles.map((r) => (
-                        <span
-                          key={r}
-                          className={cn(
-                            "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
-                            ROLE_STYLE[r] ?? "bg-muted",
-                          )}
-                        >
+                        <StatusChip key={r} tone={ROLE_TONE[r] ?? "neutral"}>
                           {t(`role.${r}`)}
-                        </span>
+                        </StatusChip>
                       ))}
                     </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1.5 text-xs font-medium",
-                        u.is_active
-                          ? "text-emerald-600"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "size-1.5 rounded-full",
-                          u.is_active ? "bg-emerald-500" : "bg-muted-foreground/50",
-                        )}
-                        aria-hidden
-                      />
+                  </Td>
+                  <Td>
+                    <StatusChip tone={u.is_active ? "good" : "neutral"} dot>
                       {u.is_active ? t("active") : t("inactive")}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-end">
+                    </StatusChip>
+                  </Td>
+                  <Td className="text-end">
                     <Button
                       type="button"
                       size="xs"
@@ -314,13 +260,13 @@ export function PlatformUsersScreen() {
                     >
                       {t("manage")}
                     </Button>
-                  </td>
+                  </Td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
-      </div>
+      </TableCard>
 
       {/* Pagination */}
       {data && data.total > 0 && (

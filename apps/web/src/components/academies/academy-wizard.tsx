@@ -127,30 +127,26 @@ export function AcademyWizard({
 
   return (
     <div className="w-full space-y-6" data-testid="academy-wizard">
-      {/* Header */}
-      <div className="from-primary/[0.10] via-card to-card relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3.5">
-            <div className="bg-primary/12 text-primary flex size-11 items-center justify-center rounded-xl">
-              <Building2 className="size-5.5" aria-hidden />
-            </div>
-            <div>
-              <h2 className="text-xl font-bold tracking-tight">{t("title")}</h2>
-              <p className="text-muted-foreground mt-0.5 text-sm">
-                {t("subtitle")}
-              </p>
-            </div>
+      {/* Section header — the page above owns the h1; this is just the wizard's own label. */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <Building2 className="text-muted-foreground size-4" aria-hidden />
+          <div>
+            <h2 className="text-sm font-semibold">{t("title")}</h2>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {t("subtitle")}
+            </p>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onCancel}
-            aria-label={t("cancel")}
-          >
-            <X className="size-4" aria-hidden />
-          </Button>
         </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={onCancel}
+          aria-label={t("cancel")}
+        >
+          <X className="size-4" aria-hidden />
+        </Button>
       </div>
 
       {/* Essentials */}
