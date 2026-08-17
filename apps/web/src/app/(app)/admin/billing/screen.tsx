@@ -33,13 +33,9 @@ import {
   type SubscriptionOverviewRow,
 } from "@/lib/api";
 import { formatMoney, formatNumber } from "@/lib/money";
+import { daysUntil } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-/** Whole days from now until an ISO date (negative once past), or null when unset. */
-function daysUntil(iso: string | null): number | null {
-  if (!iso) return null;
-  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
-}
 
 /**
  * The money page (R3, 04-CLIENT-FIRST-REDESIGN §3; restyled in superadmin-reorg on the shared

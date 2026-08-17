@@ -89,16 +89,28 @@ export function ClientsScreen() {
     };
   }, [clients]);
 
-  /** A client's monthly total per currency, e.g. "EGP 1,599" (+ second currency when mixed). */
-  const monthlyLabel = (c: ClientDirectoryEntry): string => {
+  /**
+   * A client's revenue per currency AND billing interval — "EGP 999/mo + EGP 12,000/yr".
+   * Before superadmin-reorg this summed everything as if monthly, so a yearly deal displayed
+   * as a monthly price under a "Monthly" column.
+   */
+  const revenueLabel = (c: ClientDirectoryEntry): string => {
     const active = c.modules.filter((m) => m.status === "ACTIVE" && !m.is_trial);
     if (active.length === 0) return "—";
-    const byCurrency = new Map<string, number>();
+    const buckets = new Map<string, number>(); // key: `${interval}|${currency}`
     for (const m of active) {
-      byCurrency.set(m.currency, (byCurrency.get(m.currency) ?? 0) + m.total_cost_minor);
+      const key = `${m.billing_interval}|${m.currency}`;
+      buckets.set(key, (buckets.get(key) ?? 0) + m.total_cost_minor);
     }
-    return [...byCurrency.entries()]
-      .map(([currency, amount]) => formatMoney({ amount, currency }, locale))
+    return [...buckets.entries()]
+      .sort(([a], [b]) => a.localeCompare(b)) // MONTHLY before YEARLY, stable currencies
+      .map(([key, amount]) => {
+        const [interval, currency] = key.split("|") as [string, string];
+        const money = formatMoney({ amount, currency }, locale);
+        return t(interval === "YEARLY" ? "table.perYear" : "table.perMonth", {
+          amount: money,
+        });
+      })
       .join(" + ");
   };
 
@@ -244,7 +256,7 @@ export function ClientsScreen() {
                       </StatusChip>
                     </td>
                     <td className="px-4 py-3 font-medium tabular-nums">
-                      {monthlyLabel(c)}
+                      {revenueLabel(c)}
                     </td>
                     <td className="text-muted-foreground px-4 py-3 tabular-nums">
                       {t("people", {

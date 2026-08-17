@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { daysLeft, MODULE_STYLE } from "@/components/clients/module-chips";
+import { MODULE_STYLE } from "@/components/clients/module-chips";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -20,6 +20,7 @@ import {
   type Plan,
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
+import { daysUntil } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
@@ -85,7 +86,7 @@ export function SubscriptionsCard({
 
   return (
     <section
-      className="bg-card overflow-hidden rounded-2xl border shadow-sm"
+      className="bg-card overflow-hidden rounded-xl shadow-sm ring-1 ring-foreground/[0.06]"
       data-testid="subscriptions-card"
     >
       <header className="bg-muted/40 flex items-center justify-between border-b px-4 py-2.5">
@@ -105,7 +106,7 @@ export function SubscriptionsCard({
           );
           const open = editor?.module === code ? editor.kind : null;
           const isBusy = busy === code;
-          const trialDays = sub?.is_trial ? daysLeft(sub.trial_end) : null;
+          const trialDays = sub?.is_trial ? daysUntil(sub.trial_end) : null;
 
           return (
             <div key={code} className="px-4 py-3" data-testid={`module-row-${code}`}>

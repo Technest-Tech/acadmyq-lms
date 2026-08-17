@@ -215,7 +215,9 @@
       "client": "Client",
       "modules": "Modules",
       "status": "Status",
-      "monthly": "Monthly",
+      "monthly": "Revenue",
+      "perMonth": "{amount}/mo",
+      "perYear": "{amount}/yr",
       "people": "People"
     },
     "subs": {
@@ -272,7 +274,7 @@
       "waSummary": "{sent} sends (30d) · {keys} API keys",
       "waManage": "Manage connection & keys…",
       "videoConfigTitle": "Video configuration",
-      "videoConfigHint": "The tier and per-client limits below; turning video on/off or its trial lives in the Subscriptions card above.",
+      "videoConfigHint": "Per-client limit and flag overrides. The video plan itself — like on/off and trials — is set in the Subscriptions card above (one writer per fact).",
       "videoTier": "Video tier",
       "videoTierNone": "From the plan (no tier override)",
       "videoLimitDefault": "default",
@@ -3053,6 +3055,8 @@
       "subtitle": "Live health of the WhatsApp gateway and platform-wide rate limits.",
       "gatewayUp": "Gateway online",
       "gatewayDown": "Gateway offline",
+      "online": "Online",
+      "offline": "Offline",
       "gatewayDownHint": "The gateway service is unreachable. Messages can't be sent until it's back.",
       "uptime": "Uptime",
       "sessionsTitle": "Sessions",

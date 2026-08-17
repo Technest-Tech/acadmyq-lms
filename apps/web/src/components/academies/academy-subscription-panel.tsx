@@ -31,6 +31,7 @@ import {
   type ModuleCode,
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
+import { daysUntil } from "@/lib/time";
 
 /** Decode a bill's per-module composition (jsonb arrives as a string). */
 function billBreakdown(
@@ -48,19 +49,14 @@ const BILL_STATUS_STYLE: Record<string, string> = {
 };
 
 const cardClass =
-  "bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]";
-
-function daysUntil(iso: string | null): number | null {
-  if (!iso) return null;
-  const ms = new Date(iso).getTime() - Date.now();
-  return Math.ceil(ms / 86_400_000);
-}
+  "bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]";
 
 /**
- * Per-academy SaaS subscription panel (Super Admin). Shows the trial window + countdown, the
- * activation/period dates, and the snapshot total cost (plan base + active add-ons), with actions
- * to extend the trial or convert it to a paid subscription. Gated by `academy_billing.manage`
- * (the server Gate is the real control; this is UX only).
+ * Per-academy billing panel (Super Admin): the trial window + countdown, activation/period
+ * dates, the snapshot total cost (plan base + active add-ons), and the academy's bill history
+ * with payment proofs. READ-ONLY over subscription state — the extend/convert actions moved to
+ * the client page's Subscriptions card (one writer per fact). Gated by
+ * `academy_billing.manage` (the server Gate is the real control; this is UX only).
  */
 export function AcademySubscriptionPanel({
   academyId,

@@ -5,17 +5,16 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { ManageModal } from "@/app/(app)/admin/automation/manage-modal";
+import { StatusChip } from "@/components/admin/status-chip";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import {
   ApiError,
   getAutomationOverview,
   getVideoAcademy,
-  getVideoPlans,
   setVideoAccess,
   type AutomationOverviewRow,
   type VideoMeetOptions,
-  type VideoTierPlan,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -26,8 +25,9 @@ import { cn } from "@/lib/utils";
  *
  *  - ClientWhatsappCard — connection state + the full manage surface (QR connect, toggles,
  *    test-send, API keys, connect link) via the existing ManageModal.
- *  - ClientVideoCard — video TIER + per-client limit/flag overrides (the config half; the
- *    lifecycle half — enable/trial/pause — lives in the Subscriptions card above it).
+ *  - ClientVideoCard — per-client limit/flag OVERRIDES only (superadmin-reorg): the video plan
+ *    itself is written solely by the Subscriptions card (one writer per fact) — this card used
+ *    to carry a second "tier" select that silently competed with it.
  */
 
 export function ClientWhatsappCard({ clientId }: { clientId: string }) {
@@ -55,7 +55,7 @@ export function ClientWhatsappCard({ clientId }: { clientId: string }) {
   const connected = row?.wasender_session_status?.toUpperCase() === "CONNECTED";
 
   return (
-    <div className="bg-card rounded-2xl border p-5 shadow-sm" data-testid="client-whatsapp-card">
+    <div className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]" data-testid="client-whatsapp-card">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h3 className="flex items-center gap-2 text-sm font-bold">
@@ -68,16 +68,9 @@ export function ClientWhatsappCard({ clientId }: { clientId: string }) {
             <p className="text-muted-foreground mt-1 text-xs">{t("waLoading")}</p>
           ) : (
             <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold",
-                  connected
-                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-                    : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-                )}
-              >
+              <StatusChip tone={connected ? "good" : "warn"} dot>
                 {connected ? t("waConnected") : t("waNotConnected")}
-              </span>
+              </StatusChip>
               <span className="text-muted-foreground">
                 {t("waSummary", {
                   sent: row.sent_count,
@@ -110,8 +103,6 @@ export function ClientVideoCard({ clientId }: { clientId: string }) {
   const t = useTranslations("clients.detail");
   const toast = useToast();
 
-  const [plans, setPlans] = useState<VideoTierPlan[]>([]);
-  const [tierId, setTierId] = useState<string>("");
   const [limits, setLimits] = useState<Record<string, string>>({});
   const [flags, setFlags] = useState<Record<string, boolean>>({});
   const [loaded, setLoaded] = useState(false);
@@ -119,9 +110,7 @@ export function ClientVideoCard({ clientId }: { clientId: string }) {
 
   const load = useCallback(async () => {
     try {
-      const [detail, tierPlans] = await Promise.all([getVideoAcademy(clientId), getVideoPlans()]);
-      setPlans(tierPlans.plans);
-      setTierId(detail.academy.video_plan_id ?? "");
+      const detail = await getVideoAcademy(clientId);
       const ov = (detail.academy.video_overrides ?? {}) as Record<string, unknown>;
       setLimits(
         Object.fromEntries(
@@ -151,11 +140,9 @@ export function ClientVideoCard({ clientId }: { clientId: string }) {
       for (const k of FLAG_KEYS) {
         if (flags[k] === false) overrides[k] = false; // only an explicit OFF constrains (fail open)
       }
-      await setVideoAccess(clientId, {
-        action: "set_tier",
-        video_plan_id: tierId === "" ? null : tierId,
-        overrides,
-      });
+      // No `video_plan_id` key on purpose: the server only touches the tier when the key is
+      // present, and the plan's one writer is the Subscriptions card.
+      await setVideoAccess(clientId, { action: "set_tier", overrides });
       toast.success(t("videoSaved"));
       await load();
     } catch (e) {
@@ -168,7 +155,7 @@ export function ClientVideoCard({ clientId }: { clientId: string }) {
   const field = "bg-card h-8 w-full rounded-md border px-2 text-sm";
 
   return (
-    <div className="bg-card rounded-2xl border p-5 shadow-sm" data-testid="client-video-card">
+    <div className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]" data-testid="client-video-card">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="flex items-center gap-2 text-sm font-bold">
           <MonitorPlay className="text-muted-foreground size-4" aria-hidden />
@@ -186,23 +173,6 @@ export function ClientVideoCard({ clientId }: { clientId: string }) {
 
       {loaded && (
         <div className="mt-4 space-y-3">
-          <label className="block max-w-xs text-xs font-medium">
-            <span className="text-muted-foreground mb-1 block">{t("videoTier")}</span>
-            <select
-              value={tierId}
-              onChange={(e) => setTierId(e.target.value)}
-              className={field}
-              data-testid="video-tier"
-            >
-              <option value="">{t("videoTierNone")}</option>
-              {plans.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
           <div className="grid max-w-xl grid-cols-2 gap-3 sm:grid-cols-3">
             {NUMBER_KEYS.map((k) => (
               <label key={k} className="block text-xs font-medium">

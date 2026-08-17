@@ -80,3 +80,13 @@ export function formatLocalDateTime(iso: string, locale: string): string {
     timeStyle: "short",
   }).format(new Date(iso));
 }
+
+/**
+ * Whole days from now until an ISO date (negative once past), or null when unset. THE one
+ * implementation (superadmin-reorg) — the audit found three private copies (module-chips,
+ * academy-subscription-panel, lms-format) plus one in billing; they all route here now.
+ */
+export function daysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
+}

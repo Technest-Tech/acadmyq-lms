@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import type { ClientModuleChip, ModuleCode } from "@/lib/api";
 import { MODULE_CODES } from "@/lib/api";
+import { daysUntil } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,11 +35,6 @@ export const MODULE_STYLE: Record<
   },
 };
 
-/** Whole days from now until an ISO date (negative once past), or null when unset. */
-export function daysLeft(iso: string | null): number | null {
-  if (!iso) return null;
-  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
-}
 
 export function ModuleChips({
   modules,
@@ -56,7 +52,7 @@ export function ModuleChips({
         const sub = byModule.get(code);
         const style = MODULE_STYLE[code];
         const paused = sub?.status === "PAUSED";
-        const trialDays = sub?.is_trial ? daysLeft(sub.trial_end) : null;
+        const trialDays = sub?.is_trial ? daysUntil(sub.trial_end) : null;
 
         const title = sub
           ? paused
