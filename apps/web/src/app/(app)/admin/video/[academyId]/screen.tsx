@@ -5,18 +5,18 @@ import {
   CalendarClock,
   Film,
   HardDrive,
-  Loader2,
-  MonitorPlay,
   ScrollText,
   Users,
   Video,
   X,
-  type LucideIcon,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { StatTile } from "@/components/admin/stat-tile";
+import { Th, TR_HEAD } from "@/components/admin/table";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import {
@@ -39,12 +39,10 @@ export function AdminVideoAcademyScreen({ academyId }: { academyId: string }) {
   const { can } = useAuth();
 
   const [detail, setDetail] = useState<VideoAcademyDetail | null>(null);
-  const [error, setError] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [logRoom, setLogRoom] = useState<VideoAcademyRoom | null>(null);
 
   const load = useCallback(async () => {
-    setError(false);
     try {
       setDetail(await getVideoAcademy(academyId));
     } catch {
@@ -64,11 +62,13 @@ export function AdminVideoAcademyScreen({ academyId }: { academyId: string }) {
   const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleDateString(locale, { dateStyle: "medium" }) : "—");
 
   return (
-    <div className="w-full space-y-6 p-4 sm:p-6">
-      <Link href="/admin/video" className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm">
-        <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
-        {t("detail.back")}
-      </Link>
+    <div className="w-full space-y-5">
+      {detail === null && (
+        <Link href="/admin/video" className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm">
+          <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
+          {t("detail.back")}
+        </Link>
+      )}
 
       {notFound ? (
         <AlertBanner variant="error" message={t("detail.notFound")} />
@@ -76,38 +76,32 @@ export function AdminVideoAcademyScreen({ academyId }: { academyId: string }) {
         <div className="bg-muted h-40 animate-pulse rounded-2xl" aria-hidden />
       ) : (
         <>
-          {/* Header */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-gradient-to-br from-indigo-500 to-violet-600 flex size-11 items-center justify-center rounded-xl text-white">
-              <MonitorPlay className="size-5.5" aria-hidden />
-            </div>
-            <div className="flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-bold">{detail.academy.name}</h1>
-                <VideoStatusBadge status={detail.academy.video_status} />
-              </div>
-              <p className="text-muted-foreground text-xs">
+          <AdminPageHeader
+            backHref="/admin/video"
+            backLabel={t("detail.back")}
+            title={detail.academy.name}
+            titleExtra={<VideoStatusBadge status={detail.academy.video_status} />}
+            subtitle={
+              <>
                 {detail.academy.plan_name ?? t("usage.noPlan")} · {t("detail.createdAt", { date: fmtDate(detail.academy.created_at) })}
-              </p>
-            </div>
-          </div>
-
-          {error && <AlertBanner variant="error" message={t("loadError")} />}
+              </>
+            }
+          />
 
           {/* Stats */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <Stat icon={Video} label={t("totals.activeRooms")} value={formatNumber(detail.stats.active_rooms, locale)} tone="text-emerald-600" />
-            <Stat icon={Video} label={t("detail.statTotalRooms")} value={formatNumber(detail.stats.total_rooms, locale)} />
-            <Stat icon={Film} label={t("totals.recordings")} value={formatNumber(detail.stats.recordings_count, locale)} />
-            <Stat icon={HardDrive} label={t("totals.storage")} value={fmtBytes(detail.stats.storage_bytes)} />
-            <Stat icon={CalendarClock} label={t("totals.recordingHours")} value={fmtHours(detail.stats.recording_seconds)} />
-            <Stat icon={Users} label={t("detail.statSessions")} value={formatNumber(detail.stats.participant_sessions, locale)} />
+            <StatTile icon={Video} label={t("totals.activeRooms")} value={<span className="text-emerald-600">{formatNumber(detail.stats.active_rooms, locale)}</span>} />
+            <StatTile icon={Video} label={t("detail.statTotalRooms")} value={formatNumber(detail.stats.total_rooms, locale)} />
+            <StatTile icon={Film} label={t("totals.recordings")} value={formatNumber(detail.stats.recordings_count, locale)} />
+            <StatTile icon={HardDrive} label={t("totals.storage")} value={fmtBytes(detail.stats.storage_bytes)} />
+            <StatTile icon={CalendarClock} label={t("totals.recordingHours")} value={fmtHours(detail.stats.recording_seconds)} />
+            <StatTile icon={Users} label={t("detail.statSessions")} value={formatNumber(detail.stats.participant_sessions, locale)} />
           </div>
 
           {/* R4 (one writer per fact): access/trial/tier controls and the duplicated subscription
               block moved to the client page — Subscriptions card + Video tab. This page keeps the
               per-client video USAGE: rooms, logs, effective limits. */}
-          <section className="bg-card flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]">
+          <section className="bg-card flex flex-wrap items-center justify-between gap-3 rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
             <div className="min-w-0">
               <h2 className="text-sm font-semibold">{t("detail.manageTitle")}</h2>
               <p className="text-muted-foreground mt-0.5 text-xs">{t("detail.manageHint")}</p>
@@ -123,20 +117,20 @@ export function AdminVideoAcademyScreen({ academyId }: { academyId: string }) {
           </section>
 
           {/* Rooms */}
-          <section className="bg-card rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+          <section className="bg-card rounded-xl shadow-sm ring-1 ring-foreground/[0.06]">
             <div className="border-b px-5 py-4">
               <h2 className="text-sm font-semibold">{t("detail.roomsTitle")}</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-muted/40">
-                  <tr className="text-muted-foreground text-xs">
-                    <th className="px-4 py-2.5 text-start font-medium">{t("detail.colRoom")}</th>
-                    <th className="px-4 py-2.5 text-start font-medium">{t("detail.colStatus")}</th>
-                    <th className="px-4 py-2.5 text-end font-medium">{t("detail.colRecordings")}</th>
-                    <th className="px-4 py-2.5 text-end font-medium">{t("detail.colParticipants")}</th>
-                    <th className="px-4 py-2.5 text-end font-medium">{t("detail.colLastActivity")}</th>
-                    <th className="px-4 py-2.5 text-end font-medium">{t("detail.colLogs")}</th>
+                <thead>
+                  <tr className={TR_HEAD}>
+                    <Th>{t("detail.colRoom")}</Th>
+                    <Th>{t("detail.colStatus")}</Th>
+                    <Th className="text-end">{t("detail.colRecordings")}</Th>
+                    <Th className="text-end">{t("detail.colParticipants")}</Th>
+                    <Th className="text-end">{t("detail.colLastActivity")}</Th>
+                    <Th className="text-end">{t("detail.colLogs")}</Th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -190,19 +184,6 @@ function EffectiveLimits({ limits, t }: { limits: Record<string, number>; t: Ret
     </div>
   );
 }
-
-function Stat({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value: string; tone?: string }) {
-  return (
-    <div className="bg-card rounded-xl border p-3.5 shadow-sm ring-1 ring-foreground/[0.04]">
-      <div className="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-[11px] font-medium">
-        <Icon className="size-3.5" aria-hidden />
-        <span className="truncate">{label}</span>
-      </div>
-      <p className={cn("text-2xl font-bold tabular-nums", tone)}>{value}</p>
-    </div>
-  );
-}
-
 
 function RoomLogModal({ academyId, room, onClose }: { academyId: string; room: VideoAcademyRoom; onClose: () => void }) {
   const t = useTranslations("adminVideo");

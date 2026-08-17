@@ -7,11 +7,8 @@ export function fmtBytes(bytes: number): string {
   return `${(bytes / 1e6).toFixed(bytes / 1e6 >= 10 ? 0 : 1)} MB`;
 }
 
-/** Whole days from now until an ISO date (negative when past). */
-export function daysUntil(iso: string | null): number | null {
-  if (!iso) return null;
-  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000);
-}
+/** Re-export of the shared helper (superadmin-reorg) so existing imports keep working. */
+export { daysUntil } from "@/lib/time";
 
 /**
  * How full a capacity cap is, as a percentage — or null when the cap is absent (unlimited), so a

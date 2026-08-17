@@ -19,6 +19,9 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { StatTile } from "@/components/admin/stat-tile";
+import { Th, TR_HEAD } from "@/components/admin/table";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { useToast, type ToastApi } from "@/components/ui/toast";
@@ -80,14 +83,16 @@ export function AdminLmsAcademyScreen({ academyId }: { academyId: string }) {
   const trialDays = detail ? daysUntil(detail.academy.trial_end) : null;
 
   return (
-    <div className="w-full space-y-6 p-4 sm:p-6">
-      <Link
-        href="/admin/lms"
-        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm"
-      >
-        <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
-        {t("detail.back")}
-      </Link>
+    <div className="w-full space-y-5">
+      {detail === null && (
+        <Link
+          href="/admin/lms"
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm"
+        >
+          <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
+          {t("detail.back")}
+        </Link>
+      )}
 
       {notFound ? (
         <AlertBanner variant="error" message={t("detail.notFound")} />
@@ -95,72 +100,77 @@ export function AdminLmsAcademyScreen({ academyId }: { academyId: string }) {
         <div className="bg-muted h-40 animate-pulse rounded-2xl" aria-hidden />
       ) : (
         <>
-          {/* Header */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-gradient-to-br from-teal-500 to-emerald-600 flex size-11 items-center justify-center rounded-xl text-white">
-              <GraduationCap className="size-5.5" aria-hidden />
-            </div>
-            <div className="flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-bold">{detail.academy.name}</h1>
+          <AdminPageHeader
+            backHref="/admin/lms"
+            backLabel={t("detail.back")}
+            title={detail.academy.name}
+            titleExtra={
+              <>
                 <LmsStatusBadge status={detail.academy.lms_status} />
                 {detail.academy.lms_status === "TRIAL" && trialDays !== null && (
                   <span className="text-muted-foreground text-xs">
                     {t("detail.trialDaysLeft", { days: trialDays })}
                   </span>
                 )}
-              </div>
-              <p className="text-muted-foreground text-xs">
+              </>
+            }
+            subtitle={
+              <>
                 {detail.academy.lms_plan_name ?? detail.academy.plan_name ?? t("clients.noPlan")} ·{" "}
                 {t("detail.createdAt", { date: fmtDate(detail.academy.created_at) })}
-              </p>
-            </div>
-            {/* Subscription lifecycle (start / trial / pause / end) is the client page's job — R4,
-                one writer per fact. This page owns the course platform itself. */}
-            <Link
-              href={`/admin/clients/${academyId}`}
-              className="text-primary text-sm font-semibold whitespace-nowrap hover:underline"
-              data-testid="open-client"
-            >
-              {t("detail.openClient")}
-            </Link>
-          </div>
+              </>
+            }
+            actions={
+              /* Subscription lifecycle (start / trial / pause / end) is the client page's job — R4,
+                 one writer per fact. This page owns the course platform itself. */
+              <Link
+                href={`/admin/clients/${academyId}`}
+                className="text-primary text-sm font-semibold whitespace-nowrap hover:underline"
+                data-testid="open-client"
+              >
+                {t("detail.openClient")}
+              </Link>
+            }
+          />
 
           {error && <AlertBanner variant="error" message={t("loadError")} />}
 
           {/* Headline statistics */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            <Stat
+            <StatTile
               icon={BookOpen}
               label={t("detail.statCourses")}
-              value={`${formatNumber(detail.stats.courses_published, locale)} / ${formatNumber(detail.stats.courses_total, locale)}`}
-              hint={t("detail.publishedOfTotal")}
-              tone="text-emerald-600"
+              value={
+                <span className="text-emerald-600">
+                  {`${formatNumber(detail.stats.courses_published, locale)} / ${formatNumber(detail.stats.courses_total, locale)}`}
+                </span>
+              }
+              sub={t("detail.publishedOfTotal")}
             />
-            <Stat icon={Layers} label={t("totals.lessons")} value={formatNumber(detail.stats.lessons, locale)} />
-            <Stat
+            <StatTile icon={Layers} label={t("totals.lessons")} value={formatNumber(detail.stats.lessons, locale)} />
+            <StatTile
               icon={Users}
               label={t("totals.learners")}
               value={formatNumber(detail.stats.learners, locale)}
-              hint={t("detail.activeLearners", { count: formatNumber(detail.stats.active_learners, locale) })}
+              sub={t("detail.activeLearners", { count: formatNumber(detail.stats.active_learners, locale) })}
             />
-            <Stat
+            <StatTile
               icon={GraduationCap}
               label={t("detail.statEnrollments")}
               value={formatNumber(detail.stats.active_enrollments, locale)}
-              hint={t("detail.ofTotal", { total: formatNumber(detail.stats.enrollments, locale) })}
+              sub={t("detail.ofTotal", { total: formatNumber(detail.stats.enrollments, locale) })}
             />
-            <Stat
+            <StatTile
               icon={Ticket}
               label={t("detail.statCodes")}
               value={formatNumber(detail.stats.redeemed_codes, locale)}
-              hint={t("detail.activeCodes", { count: formatNumber(detail.stats.active_codes, locale) })}
+              sub={t("detail.activeCodes", { count: formatNumber(detail.stats.active_codes, locale) })}
             />
-            <Stat
+            <StatTile
               icon={HardDrive}
               label={t("totals.storage")}
               value={fmtBytes(detail.stats.storage_bytes)}
-              hint={
+              sub={
                 detail.academy.lms_limits.maxStorageGb != null
                   ? t("detail.ofCap", { cap: `${detail.academy.lms_limits.maxStorageGb} GB` })
                   : t("detail.uncapped")
@@ -196,7 +206,7 @@ export function AdminLmsAcademyScreen({ academyId }: { academyId: string }) {
           <LearnersCard detail={detail} academyId={academyId} onChanged={load} />
 
           {/* Recent enrolments */}
-          <section className="bg-card rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+          <section className="bg-card rounded-xl shadow-sm ring-1 ring-foreground/[0.06]">
             <div className="border-b px-5 py-4">
               <h2 className="text-sm font-semibold">{t("detail.recentTitle")}</h2>
             </div>
@@ -252,7 +262,7 @@ function SiteCard({
   };
 
   return (
-    <section className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]">
+    <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
       <div className="mb-3 flex items-center gap-2">
         <Globe className="text-muted-foreground size-4" aria-hidden />
         <h2 className="text-sm font-semibold">{t("detail.site.title")}</h2>
@@ -298,7 +308,7 @@ function SiteCard({
       {/* A path-shaped URL means subdomain routing is OFF — say so, rather than letting a
           /learn/<handle> link read as a live subdomain (which is what makes it look broken). */}
       {!detail.site.configured && detail.academy.subdomain !== null && (
-        <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700 ring-1 ring-amber-600/20">
+        <p className="mt-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 px-2.5 py-1.5 text-[11px] text-amber-700 ring-1 ring-amber-600/20">
           {t("detail.site.notConfigured")}
         </p>
       )}
@@ -365,7 +375,7 @@ function LimitsCard({
   };
 
   return (
-    <section className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]">
+    <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
       <div className="mb-3 flex items-center gap-2">
         <SlidersHorizontal className="text-muted-foreground size-4" aria-hidden />
         <h2 className="text-sm font-semibold">{t("detail.limits.title")}</h2>
@@ -472,20 +482,20 @@ function CoursesCard({
   };
 
   return (
-    <section className="bg-card rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+    <section className="bg-card rounded-xl shadow-sm ring-1 ring-foreground/[0.06]">
       <div className="border-b px-5 py-4">
         <h2 className="text-sm font-semibold">{t("detail.courses.title")}</h2>
         <p className="text-muted-foreground text-xs">{t("detail.courses.hint")}</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-muted/40">
-            <tr className="text-muted-foreground text-xs">
-              <th className="px-4 py-2.5 text-start font-medium">{t("detail.courses.colTitle")}</th>
-              <th className="px-4 py-2.5 text-start font-medium">{t("detail.courses.colStatus")}</th>
-              <th className="px-4 py-2.5 text-end font-medium">{t("detail.courses.colLessons")}</th>
-              <th className="px-4 py-2.5 text-end font-medium">{t("detail.courses.colLearners")}</th>
-              <th className="px-4 py-2.5 text-end font-medium">{t("detail.courses.colActions")}</th>
+          <thead>
+            <tr className={TR_HEAD}>
+              <Th>{t("detail.courses.colTitle")}</Th>
+              <Th>{t("detail.courses.colStatus")}</Th>
+              <Th className="text-end">{t("detail.courses.colLessons")}</Th>
+              <Th className="text-end">{t("detail.courses.colLearners")}</Th>
+              <Th className="text-end">{t("detail.courses.colActions")}</Th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -584,20 +594,20 @@ function LearnersCard({
   };
 
   return (
-    <section className="bg-card rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+    <section className="bg-card rounded-xl shadow-sm ring-1 ring-foreground/[0.06]">
       <div className="border-b px-5 py-4">
         <h2 className="text-sm font-semibold">{t("detail.learners.title")}</h2>
         <p className="text-muted-foreground text-xs">{t("detail.learners.hint")}</p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-muted/40">
-            <tr className="text-muted-foreground text-xs">
-              <th className="px-4 py-2.5 text-start font-medium">{t("detail.learners.colName")}</th>
-              <th className="px-4 py-2.5 text-start font-medium">{t("detail.learners.colStatus")}</th>
-              <th className="px-4 py-2.5 text-end font-medium">{t("detail.learners.colEnrollments")}</th>
-              <th className="px-4 py-2.5 text-end font-medium">{t("detail.learners.colLastLogin")}</th>
-              <th className="px-4 py-2.5 text-end font-medium">{t("detail.courses.colActions")}</th>
+          <thead>
+            <tr className={TR_HEAD}>
+              <Th>{t("detail.learners.colName")}</Th>
+              <Th>{t("detail.learners.colStatus")}</Th>
+              <Th className="text-end">{t("detail.learners.colEnrollments")}</Th>
+              <Th className="text-end">{t("detail.learners.colLastLogin")}</Th>
+              <Th className="text-end">{t("detail.courses.colActions")}</Th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -654,31 +664,6 @@ function LearnersCard({
         </table>
       </div>
     </section>
-  );
-}
-
-function Stat({
-  icon: Icon,
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: string;
-}) {
-  return (
-    <div className="bg-card rounded-xl border p-3.5 shadow-sm ring-1 ring-foreground/[0.04]">
-      <div className="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-[11px] font-medium">
-        <Icon className="size-3.5" aria-hidden />
-        <span className="truncate">{label}</span>
-      </div>
-      <p className={cn("text-2xl font-bold tabular-nums", tone)}>{value}</p>
-      {hint && <p className="text-muted-foreground mt-0.5 truncate text-[11px]">{hint}</p>}
-    </div>
   );
 }
 

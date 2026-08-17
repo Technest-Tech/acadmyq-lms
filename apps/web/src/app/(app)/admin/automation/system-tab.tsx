@@ -2,7 +2,7 @@
 
 import { Activity, Clock, Gauge, Loader2, Save, ShieldCheck, Wifi, WifiOff } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AlertBanner } from "@/components/ui/alert";
 import {
   ApiError,
@@ -71,7 +71,6 @@ export function SystemTab() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const mounted = useRef(true);
 
   const loadHealth = useCallback(async () => {
     try {
@@ -91,14 +90,10 @@ export function SystemTab() {
   }, [t]);
 
   useEffect(() => {
-    mounted.current = true;
     void loadHealth();
     void loadSettings();
     const iv = setInterval(() => void loadHealth(), 10000);
-    return () => {
-      mounted.current = false;
-      clearInterval(iv);
-    };
+    return () => clearInterval(iv);
   }, [loadHealth, loadSettings]);
 
   function set<K extends keyof GatewaySettings>(key: K, v: number) {
@@ -135,10 +130,10 @@ export function SystemTab() {
       {error && <AlertBanner variant="error" message={error} />}
 
       {/* Gateway health */}
-      <section className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]">
+      <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className={cn("flex size-11 items-center justify-center rounded-xl text-white", up ? "bg-gradient-to-br from-emerald-500 to-teal-600" : "bg-gradient-to-br from-rose-500 to-rose-700")}>
+            <div className={cn("flex size-11 items-center justify-center rounded-xl", up ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400")}>
               {up ? <Wifi className="size-5.5" aria-hidden /> : <WifiOff className="size-5.5" aria-hidden />}
             </div>
             <div>
@@ -149,9 +144,9 @@ export function SystemTab() {
               </p>
             </div>
           </div>
-          <span className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1", up ? "bg-emerald-100 text-emerald-700 ring-emerald-600/20" : "bg-rose-100 text-rose-700 ring-rose-600/20")}>
+          <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold", up ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" : "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300")}>
             <span className={cn("size-1.5 rounded-full", up ? "bg-emerald-500" : "bg-rose-500")} />
-            {up ? "ONLINE" : "OFFLINE"}
+            {up ? t("system.online") : t("system.offline")}
           </span>
         </div>
 
@@ -175,7 +170,7 @@ export function SystemTab() {
       </section>
 
       {/* Rate limiting */}
-      <section className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]">
+      <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
         <div className="mb-1 flex items-center gap-2">
           <Gauge className="text-primary size-4" aria-hidden />
           <h3 className="text-sm font-semibold">{t("system.rateTitle")}</h3>

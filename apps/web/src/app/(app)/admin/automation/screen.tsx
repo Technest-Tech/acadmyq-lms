@@ -1,8 +1,9 @@
 "use client";
 
-import { Activity, BookOpen, LayoutGrid, MessageCircle, Server, type LucideIcon } from "lucide-react";
+import { Activity, BookOpen, LayoutGrid, Server, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { AdminPageHeader } from "@/components/admin/page-header";
 import { useAuth } from "@/components/auth-provider";
 import { cn } from "@/lib/utils";
 import { OverviewTab } from "./overview-tab";
@@ -32,29 +33,20 @@ export function AutomationOverviewScreen() {
 
   return (
     <div className="space-y-6">
-      {/* Hero */}
-      <div className="from-primary/[0.10] via-card to-card relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        <div className="flex items-center gap-3.5">
-          <div className="bg-primary/12 text-primary flex size-11 items-center justify-center rounded-xl">
-            <MessageCircle className="size-5.5" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">{t("subtitle")}</p>
-          </div>
-        </div>
-      </div>
+      <AdminPageHeader title={t("title")} subtitle={t("subtitle")} />
 
       {/* Tabs */}
       <div className="border-b">
-        <nav className="-mb-px flex gap-1">
+        <nav className="flex gap-1" role="tablist">
           {TABS.map(({ key, icon: Icon }) => (
             <button
               key={key}
               type="button"
+              role="tab"
+              aria-selected={tab === key}
               onClick={() => setTab(key)}
               className={cn(
-                "inline-flex items-center gap-1.5 border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors",
+                "-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-semibold transition-colors",
                 tab === key ? "border-primary text-primary" : "text-muted-foreground hover:text-foreground border-transparent",
               )}
             >

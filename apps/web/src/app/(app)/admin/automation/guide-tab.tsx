@@ -19,7 +19,7 @@ export function GuideTab() {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       {/* Statuses legend */}
-      <section className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]">
+      <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
           <Info className="text-primary size-4" aria-hidden />
           {t("guide.statusesTitle")}
@@ -35,7 +35,7 @@ export function GuideTab() {
       </section>
 
       {/* Steps */}
-      <section className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]">
+      <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
           <ListOrdered className="text-primary size-4" aria-hidden />
           {t("guide.stepsTitle")}
@@ -51,7 +51,7 @@ export function GuideTab() {
       </section>
 
       {/* Reliability */}
-      <section className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04] lg:col-span-2">
+      <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06] lg:col-span-2">
         <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
           <ShieldCheck className="text-emerald-600 size-4" aria-hidden />
           {t("guide.reliabilityTitle")}
@@ -63,7 +63,7 @@ export function GuideTab() {
       </section>
 
       {/* External API (for developers) */}
-      <section className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04] lg:col-span-2">
+      <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06] lg:col-span-2">
         <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold">
           <Code2 className="text-primary size-4" aria-hidden />
           {t("guide.apiTitle")}

@@ -454,7 +454,7 @@ export function ManageModal({
               {checkResult === "nosession" && <span className="text-muted-foreground text-xs">{t("manage.cantCheck")}</span>}
             </div>
             {testResult && (
-              <div className={cn("rounded-lg px-3 py-2 text-xs", testResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800")}>
+              <div className={cn("rounded-lg px-3 py-2 text-xs", testResult.ok ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" : "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300")}>
                 {testResult.ok ? (
                   t("manage.sentVia", { transport: testResult.transport })
                 ) : testResult.transport === "DEEPLINK" ? (
@@ -515,14 +515,14 @@ export function ManageModal({
 
           {/* Freshly-minted key (shown once) */}
           {revealedKey && (
-            <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
               <p className="text-xs font-medium text-amber-800">{t("manage.apiAccess.newKeyWarning")}</p>
               <div className="mt-2 flex items-center gap-2">
-                <input readOnly value={revealedKey} dir="ltr" className="w-full rounded-md border bg-white px-2 py-1 font-mono text-[11px]" />
-                <button type="button" onClick={() => void copy(revealedKey, "key")} className="rounded-md border bg-white p-1.5 text-slate-600 hover:text-slate-900" aria-label={t("manage.apiAccess.copy")}>
+                <input readOnly value={revealedKey} dir="ltr" className="bg-background w-full rounded-md border px-2 py-1 font-mono text-[11px]" />
+                <button type="button" onClick={() => void copy(revealedKey, "key")} className="bg-background text-muted-foreground hover:text-foreground rounded-md border p-1.5" aria-label={t("manage.apiAccess.copy")}>
                   <Copy className="size-3.5" aria-hidden />
                 </button>
-                <button type="button" onClick={() => setRevealedKey(null)} className="rounded-md border bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:text-slate-900">
+                <button type="button" onClick={() => setRevealedKey(null)} className="bg-background text-muted-foreground hover:text-foreground rounded-md border px-2 py-1 text-[11px] font-medium">
                   {t("manage.apiAccess.done")}
                 </button>
               </div>

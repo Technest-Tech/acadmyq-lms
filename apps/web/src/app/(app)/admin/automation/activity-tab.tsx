@@ -10,10 +10,10 @@ import { cn } from "@/lib/utils";
 type Filter = "all" | "SENT" | "FAILED" | "SKIPPED";
 
 const STATUS_CLR: Record<string, string> = {
-  SENT: "text-emerald-600",
-  FAILED: "text-rose-600",
+  SENT: "text-emerald-600 dark:text-emerald-400",
+  FAILED: "text-rose-600 dark:text-rose-400",
   SKIPPED: "text-muted-foreground",
-  QUEUED: "text-amber-600",
+  QUEUED: "text-amber-600 dark:text-amber-400",
 };
 
 export function ActivityTab() {
@@ -79,7 +79,7 @@ export function ActivityTab() {
 
       {error && <AlertBanner variant="error" message={error} />}
 
-      <div className="bg-card overflow-x-auto rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+      <div className="bg-card overflow-x-auto rounded-xl shadow-sm ring-1 ring-foreground/[0.06]">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>

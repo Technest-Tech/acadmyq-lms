@@ -8,11 +8,12 @@ import {
   KeyRound,
   RefreshCw,
   Send,
-  type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StatTile } from "@/components/admin/stat-tile";
+import { TableCard, Th, TR_HEAD } from "@/components/admin/table";
 import { AlertBanner } from "@/components/ui/alert";
 import {
   ApiError,
@@ -44,20 +45,6 @@ const statusRank = (s: string | null): number => {
       return 4;
   }
 };
-
-function StatCard({ icon: Icon, label, value, gradient }: { icon: LucideIcon; label: string; value: string; gradient: string }) {
-  return (
-    <div className="bg-card relative flex items-center gap-3.5 overflow-hidden rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.04]">
-      <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl text-white shadow-sm", gradient)}>
-        <Icon className="size-5" aria-hidden />
-      </div>
-      <div className="min-w-0">
-        <p className="text-2xl font-bold leading-none tracking-tight tabular-nums">{value}</p>
-        <p className="text-muted-foreground mt-1 truncate text-xs font-medium">{label}</p>
-      </div>
-    </div>
-  );
-}
 
 /** Read-only on/off state (R4) — the toggles themselves live on the client's WhatsApp tab. */
 function OnOffPill({ on }: { on: boolean }) {
@@ -170,11 +157,11 @@ export function OverviewTab() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-        <StatCard icon={Building2} label={t("kpi.academies")} value={formatNumber(rows?.length ?? 0, locale)} gradient="bg-gradient-to-br from-slate-500 to-slate-700" />
-        <StatCard icon={KeyRound} label={t("kpi.connected")} value={formatNumber(connectedCount, locale)} gradient="bg-gradient-to-br from-emerald-500 to-teal-600" />
-        <StatCard icon={AlertTriangle} label={t("kpi.needsAttention")} value={formatNumber(attentionCount, locale)} gradient="bg-gradient-to-br from-rose-500 to-orange-600" />
-        <StatCard icon={Gauge} label={t("kpi.deliveryRate")} value={`${formatNumber(deliveryRate, locale)}%`} gradient="bg-gradient-to-br from-violet-500 to-purple-600" />
-        <StatCard icon={Send} label={t("kpi.sends")} value={formatNumber(totalSent, locale)} gradient="bg-gradient-to-br from-amber-500 to-orange-600" />
+        <StatTile icon={Building2} label={t("kpi.academies")} value={formatNumber(rows?.length ?? 0, locale)} />
+        <StatTile icon={KeyRound} label={t("kpi.connected")} value={formatNumber(connectedCount, locale)} />
+        <StatTile icon={AlertTriangle} label={t("kpi.needsAttention")} value={formatNumber(attentionCount, locale)} />
+        <StatTile icon={Gauge} label={t("kpi.deliveryRate")} value={`${formatNumber(deliveryRate, locale)}%`} />
+        <StatTile icon={Send} label={t("kpi.sends")} value={formatNumber(totalSent, locale)} />
       </div>
 
       {/* Toolbar */}
@@ -229,16 +216,16 @@ export function OverviewTab() {
 
       {/* Table — read-only monitoring (R4): the toggles/keys/connection are managed on each
           client's WhatsApp tab; rows link there. One writer per fact. */}
-      <div className="bg-card overflow-x-auto rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+      <TableCard>
         <table className="w-full text-sm" data-testid="automation-table">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="px-3 py-2.5 text-start">{t("col.academy")}</th>
-              <th className="px-3 py-2.5 text-start">{t("col.status")}</th>
-              <th className="px-3 py-2.5 text-center">{t("col.type1")}</th>
-              <th className="px-3 py-2.5 text-center">{t("col.type2")}</th>
-              <th className="px-3 py-2.5 text-end">{t("col.sends")}</th>
-              <th className="px-3 py-2.5 text-end" aria-hidden />
+          <thead>
+            <tr className={TR_HEAD}>
+              <Th className="text-start">{t("col.academy")}</Th>
+              <Th className="text-start">{t("col.status")}</Th>
+              <Th className="text-center">{t("col.type1")}</Th>
+              <Th className="text-center">{t("col.type2")}</Th>
+              <Th className="text-end">{t("col.sends")}</Th>
+              <th className="px-4 py-3 text-end" aria-hidden />
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -287,7 +274,7 @@ export function OverviewTab() {
             )}
           </tbody>
         </table>
-      </div>
+      </TableCard>
     </div>
   );
 }

@@ -4,18 +4,19 @@ import {
   BookOpen,
   Building2,
   ChevronRight,
-  GraduationCap,
   HardDrive,
   Layers,
   RefreshCw,
   Ticket,
   Users,
-  type LucideIcon,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { StatTile } from "@/components/admin/stat-tile";
+import { Th, TR_HEAD } from "@/components/admin/table";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import {
@@ -94,47 +95,47 @@ export function AdminLmsScreen() {
   const fmtTime = (s: string) => new Date(s).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" });
 
   return (
-    <div className="w-full space-y-6 p-4 sm:p-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-br from-teal-500 to-emerald-600 flex size-11 items-center justify-center rounded-xl text-white">
-            <GraduationCap className="size-5.5" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold">{t("title")}</h1>
-            <p className="text-muted-foreground max-w-2xl text-sm">{t("subtitle")}</p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => void loadData()}
-          className="text-muted-foreground hover:text-foreground rounded-lg border p-2 transition-colors"
-          aria-label={t("refresh")}
-        >
-          <RefreshCw className="size-3.5" aria-hidden />
-        </button>
-      </div>
+    <div className="w-full space-y-5">
+      <AdminPageHeader
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          <button
+            type="button"
+            onClick={() => void loadData()}
+            className="text-muted-foreground hover:text-foreground rounded-lg border p-2 transition-colors"
+            aria-label={t("refresh")}
+          >
+            <RefreshCw className="size-3.5" aria-hidden />
+          </button>
+        }
+      />
 
       {error && <AlertBanner variant="error" message={t("loadError")} />}
 
       {/* Platform totals */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat icon={Building2} label={t("totals.clients")} value={totals ? formatNumber(totals.academies, locale) : null} />
-        <Stat
+        <StatTile icon={Building2} label={t("totals.clients")} value={totals ? formatNumber(totals.academies, locale) : null} loading={!totals} />
+        <StatTile
           icon={BookOpen}
           label={t("totals.publishedCourses")}
-          value={totals ? `${formatNumber(totals.published_courses, locale)} / ${formatNumber(totals.courses, locale)}` : null}
-          tone="text-emerald-600"
+          value={
+            totals ? (
+              <span className="text-emerald-600">
+                {`${formatNumber(totals.published_courses, locale)} / ${formatNumber(totals.courses, locale)}`}
+              </span>
+            ) : null
+          }
+          loading={!totals}
         />
-        <Stat icon={Layers} label={t("totals.lessons")} value={totals ? formatNumber(totals.lessons, locale) : null} />
-        <Stat icon={Users} label={t("totals.learners")} value={totals ? formatNumber(totals.learners, locale) : null} />
-        <Stat icon={Ticket} label={t("totals.redeemed")} value={totals ? formatNumber(totals.redeemed_codes, locale) : null} />
-        <Stat icon={HardDrive} label={t("totals.storage")} value={totals ? fmtBytes(totals.storage_bytes) : null} />
+        <StatTile icon={Layers} label={t("totals.lessons")} value={totals ? formatNumber(totals.lessons, locale) : null} loading={!totals} />
+        <StatTile icon={Users} label={t("totals.learners")} value={totals ? formatNumber(totals.learners, locale) : null} loading={!totals} />
+        <StatTile icon={Ticket} label={t("totals.redeemed")} value={totals ? formatNumber(totals.redeemed_codes, locale) : null} loading={!totals} />
+        <StatTile icon={HardDrive} label={t("totals.storage")} value={totals ? fmtBytes(totals.storage_bytes) : null} loading={!totals} />
       </div>
 
       {/* Client roster */}
-      <section className="bg-card rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+      <section className="bg-card rounded-xl shadow-sm ring-1 ring-foreground/[0.06]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
           <div>
             <h2 className="text-sm font-semibold">{t("clients.title")}</h2>
@@ -151,15 +152,15 @@ export function AdminLmsScreen() {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="text-muted-foreground text-xs">
-                <th className="px-4 py-2.5 text-start font-medium">{t("clients.colClient")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("clients.colStatus")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("clients.colSite")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("clients.colCourses")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("clients.colLearners")}</th>
-                <th className="px-4 py-2.5 text-end font-medium">{t("clients.colEnrollments")}</th>
-                <th className="px-4 py-2.5 text-end font-medium">{t("clients.colStorage")}</th>
+            <thead>
+              <tr className={TR_HEAD}>
+                <Th>{t("clients.colClient")}</Th>
+                <Th>{t("clients.colStatus")}</Th>
+                <Th>{t("clients.colSite")}</Th>
+                <Th>{t("clients.colCourses")}</Th>
+                <Th>{t("clients.colLearners")}</Th>
+                <Th className="text-end">{t("clients.colEnrollments")}</Th>
+                <Th className="text-end">{t("clients.colStorage")}</Th>
                 <th className="w-8 px-2 py-2.5" aria-hidden />
               </tr>
             </thead>
@@ -242,19 +243,19 @@ export function AdminLmsScreen() {
       </section>
 
       {/* Activity feed */}
-      <section className="bg-card rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+      <section className="bg-card rounded-xl shadow-sm ring-1 ring-foreground/[0.06]">
         <div className="border-b px-5 py-4">
           <h2 className="text-sm font-semibold">{t("activity.title")}</h2>
           <p className="text-muted-foreground text-xs">{t("activity.subtitle")}</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="text-muted-foreground text-xs">
-                <th className="px-4 py-2.5 text-start font-medium">{t("activity.colClient")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("activity.colAction")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("activity.colActor")}</th>
-                <th className="px-4 py-2.5 text-end font-medium">{t("activity.colTime")}</th>
+            <thead>
+              <tr className={TR_HEAD}>
+                <Th>{t("activity.colClient")}</Th>
+                <Th>{t("activity.colAction")}</Th>
+                <Th>{t("activity.colActor")}</Th>
+                <Th className="text-end">{t("activity.colTime")}</Th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -274,7 +275,7 @@ export function AdminLmsScreen() {
                 feed.map((r) => {
                   const byPlatform = r.action.startsWith("lms.");
                   return (
-                    <tr key={r.id} className={cn("hover:bg-muted/30 transition-colors", byPlatform && "bg-amber-50/50")}>
+                    <tr key={r.id} className={cn("hover:bg-muted/30 transition-colors", byPlatform && "bg-amber-50/50 dark:bg-amber-950/20")}>
                       <td className="px-4 py-2.5 font-medium">{r.academy_name ?? "—"}</td>
                       <td className="px-4 py-2.5">
                         <span className="inline-flex items-center gap-1.5">
@@ -298,22 +299,6 @@ export function AdminLmsScreen() {
           </table>
         </div>
       </section>
-    </div>
-  );
-}
-
-function Stat({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value: string | null; tone?: string }) {
-  return (
-    <div className="bg-card rounded-xl border p-3.5 shadow-sm ring-1 ring-foreground/[0.04]">
-      <div className="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-[11px] font-medium">
-        <Icon className="size-3.5" aria-hidden />
-        <span className="truncate">{label}</span>
-      </div>
-      {value === null ? (
-        <div className="bg-muted h-6 w-12 animate-pulse rounded" aria-hidden />
-      ) : (
-        <p className={cn("text-2xl font-bold tabular-nums", tone)}>{value}</p>
-      )}
     </div>
   );
 }

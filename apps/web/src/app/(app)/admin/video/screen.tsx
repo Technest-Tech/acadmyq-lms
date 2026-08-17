@@ -9,7 +9,6 @@ import {
   Film,
   Gauge,
   HardDrive,
-  MonitorPlay,
   Radio,
   RefreshCw,
   Server,
@@ -20,6 +19,9 @@ import { useLocale, useTranslations } from "next-intl";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { StatTile } from "@/components/admin/stat-tile";
+import { Th, TR_HEAD } from "@/components/admin/table";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import {
@@ -116,54 +118,48 @@ export function AdminVideoScreen() {
   const fmtTime = (s: string) => new Date(s).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" });
 
   return (
-    <div className="w-full space-y-6 p-4 sm:p-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-br from-indigo-500 to-violet-600 flex size-11 items-center justify-center rounded-xl text-white">
-            <MonitorPlay className="size-5.5" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold">{t("title")}</h1>
-            <p className="text-muted-foreground max-w-2xl text-sm">{t("subtitle")}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
-            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="accent-primary" />
-            {t("autoRefresh")}
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              void loadData();
-              void loadHealth();
-            }}
-            className="text-muted-foreground hover:text-foreground rounded-lg border p-2 transition-colors"
-            aria-label={t("refresh")}
-          >
-            <RefreshCw className="size-3.5" aria-hidden />
-          </button>
-        </div>
-      </div>
+    <div className="w-full space-y-5">
+      <AdminPageHeader
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          <>
+            <label className="text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs">
+              <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} className="accent-primary" />
+              {t("autoRefresh")}
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                void loadData();
+                void loadHealth();
+              }}
+              className="text-muted-foreground hover:text-foreground rounded-lg border p-2 transition-colors"
+              aria-label={t("refresh")}
+            >
+              <RefreshCw className="size-3.5" aria-hidden />
+            </button>
+          </>
+        }
+      />
 
       {error && <AlertBanner variant="error" message={t("loadError")} />}
 
       {/* Totals */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat icon={Building2} label={t("totals.academies")} value={totals ? formatNumber(totals.academies, locale) : null} />
-        <Stat icon={Video} label={t("totals.activeRooms")} value={totals ? formatNumber(totals.active_rooms, locale) : null} tone="text-emerald-600" />
-        <Stat icon={Film} label={t("totals.recordings")} value={totals ? formatNumber(totals.recordings_count, locale) : null} />
-        <Stat icon={HardDrive} label={t("totals.storage")} value={totals ? fmtBytes(totals.storage_bytes) : null} />
-        <Stat icon={Clock} label={t("totals.recordingHours")} value={totals ? fmtHours(totals.recording_seconds) : null} />
-        <Stat icon={Radio} label={t("totals.concurrent")} value={totals ? formatNumber(totals.active_recordings, locale) : null} tone={totals && totals.active_recordings > 0 ? "text-rose-600" : undefined} />
+        <StatTile icon={Building2} label={t("totals.academies")} value={totals ? formatNumber(totals.academies, locale) : null} loading={!totals} />
+        <StatTile icon={Video} label={t("totals.activeRooms")} value={totals ? <span className="text-emerald-600">{formatNumber(totals.active_rooms, locale)}</span> : null} loading={!totals} />
+        <StatTile icon={Film} label={t("totals.recordings")} value={totals ? formatNumber(totals.recordings_count, locale) : null} loading={!totals} />
+        <StatTile icon={HardDrive} label={t("totals.storage")} value={totals ? fmtBytes(totals.storage_bytes) : null} loading={!totals} />
+        <StatTile icon={Clock} label={t("totals.recordingHours")} value={totals ? fmtHours(totals.recording_seconds) : null} loading={!totals} />
+        <StatTile icon={Radio} label={t("totals.concurrent")} value={totals ? <span className={totals.active_recordings > 0 ? "text-rose-600" : undefined}>{formatNumber(totals.active_recordings, locale)}</span> : null} loading={!totals} />
       </div>
 
       {/* Service health */}
       <HealthCard health={health} fmtTime={fmtTime} />
 
       {/* Usage by academy */}
-      <section className="bg-card rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+      <section className="bg-card rounded-xl shadow-sm ring-1 ring-foreground/[0.06]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
           <div>
             <h2 className="text-sm font-semibold">{t("usage.title")}</h2>
@@ -180,16 +176,16 @@ export function AdminVideoScreen() {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="text-muted-foreground text-xs">
-                <th className="px-4 py-2.5 text-start font-medium">{t("usage.colAcademy")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("usage.colStatus")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("usage.colPlan")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("usage.colRooms")}</th>
-                <th className="px-4 py-2.5 text-end font-medium">{t("usage.colRecordings")}</th>
-                <th className="px-4 py-2.5 text-end font-medium">{t("usage.colStorage")}</th>
-                <th className="px-4 py-2.5 text-end font-medium">{t("usage.colRecordingTime")}</th>
-                <th className="px-4 py-2.5 text-end font-medium">{t("usage.colLive")}</th>
+            <thead>
+              <tr className={TR_HEAD}>
+                <Th>{t("usage.colAcademy")}</Th>
+                <Th>{t("usage.colStatus")}</Th>
+                <Th>{t("usage.colPlan")}</Th>
+                <Th>{t("usage.colRooms")}</Th>
+                <Th className="text-end">{t("usage.colRecordings")}</Th>
+                <Th className="text-end">{t("usage.colStorage")}</Th>
+                <Th className="text-end">{t("usage.colRecordingTime")}</Th>
+                <Th className="text-end">{t("usage.colLive")}</Th>
                 <th className="w-8 px-2 py-2.5" aria-hidden />
               </tr>
             </thead>
@@ -247,19 +243,19 @@ export function AdminVideoScreen() {
       </section>
 
       {/* Compliance feed */}
-      <section className="bg-card rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+      <section className="bg-card rounded-xl shadow-sm ring-1 ring-foreground/[0.06]">
         <div className="border-b px-5 py-4">
           <h2 className="text-sm font-semibold">{t("compliance.title")}</h2>
           <p className="text-muted-foreground text-xs">{t("compliance.subtitle")}</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="text-muted-foreground text-xs">
-                <th className="px-4 py-2.5 text-start font-medium">{t("compliance.colAcademy")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("compliance.colAction")}</th>
-                <th className="px-4 py-2.5 text-start font-medium">{t("compliance.colActor")}</th>
-                <th className="px-4 py-2.5 text-end font-medium">{t("compliance.colTime")}</th>
+            <thead>
+              <tr className={TR_HEAD}>
+                <Th>{t("compliance.colAcademy")}</Th>
+                <Th>{t("compliance.colAction")}</Th>
+                <Th>{t("compliance.colActor")}</Th>
+                <Th className="text-end">{t("compliance.colTime")}</Th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -279,7 +275,7 @@ export function AdminVideoScreen() {
                 feed.map((r) => {
                   const isMonitor = r.action === "video_room.monitor_join";
                   return (
-                    <tr key={r.id} className={cn("hover:bg-muted/30 transition-colors", isMonitor && "bg-amber-50/50")}>
+                    <tr key={r.id} className={cn("hover:bg-muted/30 transition-colors", isMonitor && "bg-amber-50/50 dark:bg-amber-950/20")}>
                       <td className="px-4 py-2.5 font-medium">{r.academy_name ?? "—"}</td>
                       <td className="px-4 py-2.5">
                         <span className="inline-flex items-center gap-1.5">
@@ -305,22 +301,6 @@ export function AdminVideoScreen() {
         </div>
       </section>
 
-    </div>
-  );
-}
-
-function Stat({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value: string | null; tone?: string }) {
-  return (
-    <div className="bg-card rounded-xl border p-3.5 shadow-sm ring-1 ring-foreground/[0.04]">
-      <div className="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-[11px] font-medium">
-        <Icon className="size-3.5" aria-hidden />
-        <span className="truncate">{label}</span>
-      </div>
-      {value === null ? (
-        <div className="bg-muted h-6 w-12 animate-pulse rounded" aria-hidden />
-      ) : (
-        <p className={cn("text-2xl font-bold tabular-nums", tone)}>{value}</p>
-      )}
     </div>
   );
 }
@@ -352,7 +332,7 @@ function HealthCard({ health, fmtTime }: { health: VideoHealth | null; fmtTime: 
   const limit = health?.capacity.soft_limit ?? 2;
 
   return (
-    <section className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]">
+    <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold">{t("health.title")}</h2>
