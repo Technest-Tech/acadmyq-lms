@@ -1,8 +1,10 @@
 "use client";
 
-import { Lock, ShieldCheck } from "lucide-react";
+import { Lock } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { TableCard, Th, TR_HEAD } from "@/components/admin/table";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -26,7 +28,13 @@ function cloneGrants(data: RoleCatalog): GrantMap {
   return g;
 }
 
-export function RoleEditorScreen() {
+/**
+ * The role → capability matrix, CONTENT-ONLY (superadmin-reorg): no page chrome, so it renders
+ * identically as the /admin/settings "roles" tab and inside the standalone /admin/roles route
+ * (which adds the one page header). Before this split, settings embedded the full screen and
+ * the page ended up with two h1s and two heroes stacked.
+ */
+export function RoleMatrix() {
   const t = useTranslations("roleEditor");
   const { can } = useAuth();
 
@@ -106,35 +114,20 @@ export function RoleEditorScreen() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Hero */}
-      <div className="from-primary/[0.10] via-card to-card relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        <div className="flex items-center gap-3.5">
-          <div className="bg-primary/12 text-primary flex size-11 items-center justify-center rounded-xl">
-            <ShieldCheck className="size-5.5" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">
-              {t("subtitle")}
-            </p>
-          </div>
-        </div>
-      </div>
-
+    <div className="space-y-5">
       {error && <AlertBanner variant="error" message={error} />}
       {notice && <AlertBanner variant="success" message={notice} />}
 
       {/* Matrix */}
-      <div className="bg-card overflow-x-auto rounded-2xl border shadow-sm ring-1 ring-foreground/[0.04]">
+      <TableCard>
         <table className="w-full text-sm" data-testid="role-matrix">
-          <thead className="bg-muted/50 sticky top-0">
-            <tr>
-              <th className="px-3 py-2.5 text-start">{t("capability")}</th>
+          <thead className="sticky top-0">
+            <tr className={TR_HEAD}>
+              <Th>{t("capability")}</Th>
               {ROLE_ORDER.map((r) => (
-                <th key={r} className="px-3 py-2.5 text-center">
+                <Th key={r} className="text-center">
                   {t(`role.${r}`)}
-                </th>
+                </Th>
               ))}
             </tr>
           </thead>
@@ -158,7 +151,7 @@ export function RoleEditorScreen() {
                   className="hover:bg-muted/30 transition-colors"
                 >
                   <td
-                    className="px-3 py-1.5 font-mono text-xs"
+                    className="px-4 py-1.5 font-mono text-xs"
                     dir="ltr"
                   >
                     {cap}
@@ -167,7 +160,7 @@ export function RoleEditorScreen() {
                     const locked = isLocked(role, cap);
                     const checked = grants[role]?.has(cap) ?? false;
                     return (
-                      <td key={role} className="px-3 py-1.5 text-center">
+                      <td key={role} className="px-4 py-1.5 text-center">
                         <span className="inline-flex items-center justify-center">
                           <input
                             type="checkbox"
@@ -193,10 +186,10 @@ export function RoleEditorScreen() {
             )}
           </tbody>
         </table>
-      </div>
+      </TableCard>
 
       {/* Save bar */}
-      <div className="bg-card flex items-center justify-between rounded-2xl border px-4 py-3 shadow-sm ring-1 ring-foreground/[0.04]">
+      <div className="bg-card flex items-center justify-between rounded-xl px-4 py-3 shadow-sm ring-1 ring-foreground/[0.06]">
         <p className="text-muted-foreground text-sm">
           {dirtyRoles.length === 0
             ? t("noChanges")
@@ -257,6 +250,17 @@ export function RoleEditorScreen() {
           })}
         </p>
       </Modal>
+    </div>
+  );
+}
+
+/** Standalone /admin/roles route: the one page header + the shared matrix. */
+export function RoleEditorScreen() {
+  const t = useTranslations("roleEditor");
+  return (
+    <div className="space-y-5">
+      <AdminPageHeader title={t("title")} subtitle={t("subtitle")} />
+      <RoleMatrix />
     </div>
   );
 }

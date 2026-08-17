@@ -3,7 +3,6 @@
 import {
   Briefcase,
   CheckCircle2,
-  GripVertical,
   Pencil,
   Plus,
   Trash2,
@@ -11,6 +10,10 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
+import { EmptyState } from "@/components/admin/empty-state";
+import { AdminPageHeader } from "@/components/admin/page-header";
+import { StatusChip } from "@/components/admin/status-chip";
+import { TableCard, Td, Th, TR_HEAD } from "@/components/admin/table";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -31,75 +34,10 @@ function deptHue(name: string): number {
   return name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
 }
 
-// ── Department row ────────────────────────────────────────────────────────────
-
-function DeptRow({
-  dept,
-  onEdit,
-  onDelete,
-}: {
-  dept: StaffDepartment;
-  onEdit: (dept: StaffDepartment) => void;
-  onDelete: (dept: StaffDepartment) => void;
-}) {
-  const t = useTranslations("staffDepartments");
-  const hue = deptHue(dept.name);
-
-  return (
-    <div className="flex items-center gap-3 border-b px-5 py-3.5 last:border-b-0 hover:bg-muted/20 transition-colors">
-      <GripVertical className="size-4 text-muted-foreground/30 shrink-0" aria-hidden />
-      <span
-        className="size-3 rounded-full shrink-0"
-        style={{ backgroundColor: `hsl(${hue} 55% 50%)` }}
-        aria-hidden
-      />
-      <span className="flex-1 text-sm font-semibold">{dept.name}</span>
-      <span className="text-xs text-muted-foreground tabular-nums w-8 text-center">
-        {dept.sort_order}
-      </span>
-      {dept.is_active ? (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-          <CheckCircle2 className="size-3" aria-hidden />
-          {t("active")}
-        </span>
-      ) : (
-        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
-          <XCircle className="size-3" aria-hidden />
-          {t("inactive")}
-        </span>
-      )}
-      <div className="flex items-center gap-1.5">
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={() => onEdit(dept)}
-          className="gap-1"
-          data-testid={`edit-dept-${dept.id}`}
-        >
-          <Pencil className="size-3" />
-          {t("edit")}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={() => onDelete(dept)}
-          className="gap-1 text-muted-foreground hover:text-destructive"
-          data-testid={`delete-dept-${dept.id}`}
-        >
-          <Trash2 className="size-3.5" />
-          {t("delete")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 // ── Department form (create / edit) ───────────────────────────────────────────
 
 const inputBase =
-  "border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
+  "border-input bg-background focus:border-primary focus:ring-primary/20 w-full rounded-lg border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-2 disabled:opacity-50";
 
 function DeptForm({
   initial,
@@ -192,18 +130,21 @@ function DeptForm({
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           {t("form.cancel")}
         </Button>
-        <Button type="submit" size="sm" disabled={busy} className="gap-1.5">
-          {busy && (
-            <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
-          )}
-          {initial ? t("form.save") : t("form.create")}
+        <Button type="submit" size="sm" disabled={busy}>
+          {initial
+            ? busy
+              ? t("form.save") + "…"
+              : t("form.save")
+            : busy
+              ? t("form.create") + "…"
+              : t("form.create")}
         </Button>
       </div>
     </form>
   );
 }
 
-// ── Screen ────────────────────────────────────────────────────────────────────
+// ── Panel (content-only — rendered by the settings tab AND the standalone route) ──
 
 type ModalState =
   | { kind: "closed" }
@@ -211,7 +152,19 @@ type ModalState =
   | { kind: "edit"; dept: StaffDepartment }
   | { kind: "delete"; dept: StaffDepartment };
 
-export function StaffDepartmentsScreen() {
+/**
+ * Staff department catalog, CONTENT-ONLY (superadmin-reorg): no page chrome, so the settings
+ * "departments" tab and the standalone route each render exactly one header. This screen was
+ * the panel's strongest visual outlier (own page width, violet hero, div-table, one-off input
+ * tokens) — it now sits on the shared kit, and the read is permission-gated like every other
+ * admin surface (previously the list rendered for anyone who reached the route).
+ */
+export function StaffDepartmentsPanel({
+  toolbar,
+}: {
+  /** Where the standalone route puts the New button (the page header renders it). */
+  toolbar?: boolean;
+} = {}) {
   const t = useTranslations("staffDepartments");
   const { can } = useAuth();
 
@@ -223,6 +176,8 @@ export function StaffDepartmentsScreen() {
     message: string;
   } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const canManage = can("staff_department.manage");
 
   function showAlert(variant: "success" | "error", message: string) {
     setAlert({ variant, message });
@@ -242,8 +197,12 @@ export function StaffDepartmentsScreen() {
   }, [t]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (canManage) void load();
+  }, [load, canManage]);
+
+  if (!canManage) {
+    return <p className="text-muted-foreground text-sm">{t("noPermission")}</p>;
+  }
 
   async function handleDelete(dept: StaffDepartment) {
     setDeleteBusy(true);
@@ -260,36 +219,22 @@ export function StaffDepartmentsScreen() {
     }
   }
 
-  const canManage = can("staff_department.manage");
-
   return (
-    <div className="mx-auto max-w-3xl space-y-8 px-4 py-8">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-violet-400 shadow-lg shadow-violet-500/30">
-            <Briefcase className="size-6 text-white" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">{t("subtitle")}</p>
-          </div>
-        </div>
-        {canManage && (
+    <div className="space-y-4">
+      {toolbar !== false && (
+        <div className="flex justify-end">
           <Button
             type="button"
-            size="lg"
+            size="sm"
             onClick={() => setModal({ kind: "new" })}
-            className="gap-2 px-4 shadow-md shadow-primary/25"
             data-testid="new-department"
           >
             <Plus className="size-4" aria-hidden />
             {t("new")}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* ── Alert ──────────────────────────────────────────────────────────── */}
       {alert && (
         <AlertBanner
           variant={alert.variant}
@@ -298,63 +243,101 @@ export function StaffDepartmentsScreen() {
         />
       )}
 
-      {/* ── Departments table ───────────────────────────────────────────────── */}
-      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        {/* Table header */}
-        <div className="flex items-center gap-3 border-b bg-muted/20 px-5 py-3">
-          <span className="w-4" />
-          <span className="w-3" />
-          <span className="flex-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {t("colName")}
-          </span>
-          <span className="w-8 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {t("colOrder")}
-          </span>
-          <span className="w-20 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            {t("colStatus")}
-          </span>
-          <span className="w-28" />
+      {loading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="bg-muted h-12 animate-pulse rounded-xl" aria-hidden />
+          ))}
         </div>
+      ) : departments.length === 0 ? (
+        <EmptyState
+          icon={Briefcase}
+          message={t("empty")}
+          action={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setModal({ kind: "new" })}
+            >
+              {t("new")}
+            </Button>
+          }
+        />
+      ) : (
+        <TableCard>
+          <table className="w-full text-sm" data-testid="departments-table">
+            <thead>
+              <tr className={TR_HEAD}>
+                <Th>{t("colName")}</Th>
+                <Th className="text-center">{t("colOrder")}</Th>
+                <Th>{t("colStatus")}</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {departments.map((dept) => (
+                <tr key={dept.id} className="hover:bg-muted/20 transition-colors">
+                  <Td>
+                    <span className="flex items-center gap-2.5">
+                      <span
+                        className="size-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: `hsl(${deptHue(dept.name)} 55% 50%)` }}
+                        aria-hidden
+                      />
+                      <span className="font-semibold">{dept.name}</span>
+                    </span>
+                  </Td>
+                  <Td className="text-muted-foreground text-center tabular-nums">
+                    {dept.sort_order}
+                  </Td>
+                  <Td>
+                    {dept.is_active ? (
+                      <StatusChip tone="good" icon={CheckCircle2}>
+                        {t("active")}
+                      </StatusChip>
+                    ) : (
+                      <StatusChip tone="neutral" icon={XCircle}>
+                        {t("inactive")}
+                      </StatusChip>
+                    )}
+                  </Td>
+                  <Td className="text-end">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setModal({ kind: "edit", dept })}
+                        className="gap-1"
+                        data-testid={`edit-dept-${dept.id}`}
+                      >
+                        <Pencil className="size-3" />
+                        {t("edit")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setModal({ kind: "delete", dept })}
+                        className="gap-1 text-muted-foreground hover:text-destructive"
+                        data-testid={`delete-dept-${dept.id}`}
+                      >
+                        <Trash2 className="size-3.5" />
+                        {t("delete")}
+                      </Button>
+                    </span>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableCard>
+      )}
 
-        {loading ? (
-          <div className="space-y-px p-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-12 animate-pulse rounded-xl bg-muted/40" />
-            ))}
-          </div>
-        ) : departments.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-16 text-center">
-            <Briefcase className="size-10 text-muted-foreground/20" aria-hidden />
-            <p className="text-sm text-muted-foreground">{t("empty")}</p>
-            {canManage && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setModal({ kind: "new" })}
-              >
-                {t("new")}
-              </Button>
-            )}
-          </div>
-        ) : (
-          departments.map((dept) => (
-            <DeptRow
-              key={dept.id}
-              dept={dept}
-              onEdit={(d) => setModal({ kind: "edit", dept: d })}
-              onDelete={(d) => setModal({ kind: "delete", dept: d })}
-            />
-          ))
-        )}
-      </div>
+      <p className="text-xs text-muted-foreground">{t("note")}</p>
 
-      {/* ── Info note ───────────────────────────────────────────────────────── */}
-      <p className="text-xs text-muted-foreground text-center">
-        {t("note")}
-      </p>
-
-      {/* ── Create modal ────────────────────────────────────────────────────── */}
+      {/* Create modal */}
       <Modal
         open={modal.kind === "new"}
         onClose={() => setModal({ kind: "closed" })}
@@ -371,7 +354,7 @@ export function StaffDepartmentsScreen() {
         />
       </Modal>
 
-      {/* ── Edit modal ──────────────────────────────────────────────────────── */}
+      {/* Edit modal */}
       <Modal
         open={modal.kind === "edit"}
         onClose={() => setModal({ kind: "closed" })}
@@ -391,7 +374,7 @@ export function StaffDepartmentsScreen() {
         )}
       </Modal>
 
-      {/* ── Delete confirmation ──────────────────────────────────────────────── */}
+      {/* Delete confirmation */}
       <Modal
         open={modal.kind === "delete"}
         onClose={() => setModal({ kind: "closed" })}
@@ -418,19 +401,26 @@ export function StaffDepartmentsScreen() {
                 variant="destructive"
                 size="sm"
                 disabled={deleteBusy}
-                className="gap-1.5"
                 data-testid="confirm-delete-dept"
-                onClick={() => void handleDelete((modal as { dept: StaffDepartment }).dept)}
+                onClick={() => void handleDelete(modal.dept)}
               >
-                {deleteBusy && (
-                  <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
-                )}
                 {t("deleteYes")}
               </Button>
             </div>
           </div>
         )}
       </Modal>
+    </div>
+  );
+}
+
+/** Standalone /admin/staff-departments route: the one page header + the shared panel. */
+export function StaffDepartmentsScreen() {
+  const t = useTranslations("staffDepartments");
+  return (
+    <div className="space-y-5">
+      <AdminPageHeader title={t("title")} subtitle={t("subtitle")} />
+      <StaffDepartmentsPanel />
     </div>
   );
 }

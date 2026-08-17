@@ -4,7 +4,6 @@ import {
   Banknote,
   Briefcase,
   Mail,
-  Settings,
   ShieldCheck,
   Smartphone,
   ToggleLeft,
@@ -12,8 +11,9 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
-import { RoleEditorScreen } from "../roles/screen";
-import { StaffDepartmentsScreen } from "../staff-departments/screen";
+import { RoleMatrix } from "../roles/screen";
+import { StaffDepartmentsPanel } from "../staff-departments/screen";
+import { AdminPageHeader } from "@/components/admin/page-header";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,14 @@ const inputClass =
   "border-input bg-background w-full rounded-lg border px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none";
 
 const cardClass =
-  "bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]";
+  "bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]";
+
+const TABS = ["flags", "general", "payment", "roles", "departments"] as const;
+type SettingsTab = (typeof TABS)[number];
+
+function isSettingsTab(v: string | null): v is SettingsTab {
+  return v !== null && (TABS as readonly string[]).includes(v);
+}
 
 interface PayMethod {
   enabled: boolean;
@@ -94,9 +101,20 @@ export function PlatformSettingsScreen() {
 
   // R3 (client-first redesign): the rare-touch catalogs — role permissions & staff departments —
   // fold in here as tabs, taking their sidebar slots away (9 flat items).
-  const [tab, setTab] = useState<
-    "flags" | "general" | "payment" | "roles" | "departments"
-  >("flags");
+  const [tab, setTab] = useState<SettingsTab>("flags");
+
+  // Deep-linkable tabs (?tab=roles). Read once on mount, mirror on change — plain History API
+  // so the page.tsx server component needs no Suspense boundary for useSearchParams.
+  useEffect(() => {
+    const initial = new URLSearchParams(window.location.search).get("tab");
+    if (isSettingsTab(initial)) setTab(initial);
+  }, []);
+  const switchTab = useCallback((next: SettingsTab) => {
+    setTab(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", next);
+    window.history.replaceState(null, "", url);
+  }, []);
   const [flags, setFlags] = useState<FeatureFlag[] | null>(null);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [pay, setPay] = useState<{
@@ -189,36 +207,25 @@ export function PlatformSettingsScreen() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Hero */}
-      <div className="from-primary/[0.10] via-card to-card relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        <div className="flex items-center gap-3.5">
-          <div className="bg-primary/12 text-primary flex size-11 items-center justify-center rounded-xl">
-            <Settings className="size-5.5" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">
-              {t("subtitle")}
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-5">
+      <AdminPageHeader title={t("title")} subtitle={t("subtitle")} />
 
       {error && <AlertBanner variant="error" message={error} />}
       {notice && <AlertBanner variant="success" message={notice} />}
 
       {/* Tabs */}
-      <div className="flex gap-1 overflow-x-auto border-b">
-        {(["flags", "general", "payment", "roles", "departments"] as const).map((tk) => {
+      <div className="flex gap-1 overflow-x-auto border-b" role="tablist">
+        {TABS.map((tk) => {
           const Icon = TAB_ICON[tk];
           return (
             <button
               key={tk}
               type="button"
-              onClick={() => setTab(tk)}
+              role="tab"
+              aria-selected={tab === tk}
+              onClick={() => switchTab(tk)}
               className={cn(
-                "flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm font-medium transition-colors",
+                "-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-semibold transition-colors",
                 tab === tk
                   ? "border-primary text-primary"
                   : "text-muted-foreground hover:text-foreground border-transparent",
@@ -397,11 +404,12 @@ export function PlatformSettingsScreen() {
         </form>
       )}
 
-      {/* Role permissions matrix (moved from /admin/roles — R3) */}
-      {tab === "roles" && <RoleEditorScreen />}
+      {/* Role permissions matrix (moved from /admin/roles — R3). Content-only: this page
+          already owns the h1, so the tab renders the matrix, not a second page. */}
+      {tab === "roles" && <RoleMatrix />}
 
       {/* Staff departments catalog (moved from /admin/staff-departments — R3) */}
-      {tab === "departments" && <StaffDepartmentsScreen />}
+      {tab === "departments" && <StaffDepartmentsPanel />}
     </div>
   );
 }
