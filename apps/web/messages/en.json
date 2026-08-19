@@ -334,7 +334,20 @@
         "turnOff": "Turn off",
         "saveChanges": "Save changes",
         "saved": "Card payment settings saved"
-      }
+      },
+      "logoTitle": "Logo",
+      "logoHint": "Shown on this client's sign-in page, their subdomain and their course site. PNG, JPG or WebP, up to 2 MB.",
+      "logoUpload": "Upload logo",
+      "logoReplace": "Replace",
+      "logoRemove": "Remove",
+      "logoPreviewAlt": "Client logo",
+      "logoEmpty": "No logo",
+      "logoUploading": "Uploading…",
+      "logoSaved": "Logo updated",
+      "logoRemoved": "Logo removed",
+      "logoTypeError": "Pick a PNG, JPG or WebP image.",
+      "logoSizeError": "That image is larger than 2 MB.",
+      "logoUrlHint": "Or paste the address of a logo hosted elsewhere."
     },
     "new": {
       "back": "All clients",

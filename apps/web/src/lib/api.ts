@@ -75,7 +75,9 @@ export async function apiFetch<T>(
   async function send(forceCsrf = false): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
-    if (init.body !== undefined) {
+    // FormData sets its own multipart Content-Type (with the boundary) — overriding it here would
+    // make the body unparseable server-side, so JSON is the default for everything else only.
+    if (init.body !== undefined && !(init.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
 
@@ -340,6 +342,27 @@ export function updateAcademy(
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+}
+
+/**
+ * POST /api/admin/academies/{id}/logo — upload the client's logo (≤ 2 MB png/jpg/webp). The API
+ * stores the file and writes `brand_logo_url`, the one column their sign-in page, their subdomain
+ * and their learner site all read, so the new logo shows up everywhere without a second save.
+ */
+export function uploadAcademyLogo(
+  id: string,
+  file: File,
+): Promise<{ ok: boolean; brand_logo_url: string }> {
+  const body = new FormData();
+  body.append("logo", file);
+  return apiFetch(`/api/admin/academies/${id}/logo`, { method: "POST", body });
+}
+
+/** DELETE /api/admin/academies/{id}/logo — clear it; the surfaces fall back to the client's name. */
+export function deleteAcademyLogo(
+  id: string,
+): Promise<{ ok: boolean; brand_logo_url: null }> {
+  return apiFetch(`/api/admin/academies/${id}/logo`, { method: "DELETE" });
 }
 
 export function suspendAcademy(

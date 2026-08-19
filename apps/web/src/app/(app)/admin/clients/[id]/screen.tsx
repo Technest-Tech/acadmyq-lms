@@ -10,11 +10,14 @@ import {
   ReceiptText,
   Settings2,
   MessageCircle,
+  ImageIcon,
+  Trash2,
+  Upload,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AcademyOwnerSection } from "@/components/academies/academy-owner-section";
 import { AcademySubscriptionPanel } from "@/components/academies/academy-subscription-panel";
 import { AdminPageHeader } from "@/components/admin/page-header";
@@ -29,12 +32,14 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import {
   ApiError,
+  deleteAcademyLogo,
   enterAcademy,
   getClient,
   getPlatformSettings,
   reactivateAcademy,
   suspendAcademy,
   updateAcademy,
+  uploadAcademyLogo,
   type ClientDetail,
   type ModuleCode,
   type PlatformSettings,
@@ -332,6 +337,158 @@ function BackLink({ label }: { label: string }) {
   );
 }
 
+/**
+ * The client's logo. An UPLOAD, not a URL to find somewhere else: the Super Admin picks a file and
+ * the API stores it and rewrites `brand_logo_url` — the single column the client's branded sign-in,
+ * their subdomain's front door and their course site all read — so it appears on every one of those
+ * without a second step. The URL box stays underneath for a client whose logo is already hosted.
+ *
+ * Upload and Remove write immediately (they are their own endpoints); only the pasted URL waits for
+ * Save, which is why the preview follows `logoUrl` either way.
+ */
+function LogoField({
+  clientId,
+  logoUrl,
+  onChange,
+  onUploaded,
+  field,
+}: {
+  clientId: string;
+  logoUrl: string;
+  onChange: (url: string) => void;
+  onUploaded: () => void;
+  field: string;
+}) {
+  const t = useTranslations("clients.detail");
+  const toast = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+
+  const pick = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ""; // let the same file be re-picked after a failure
+    if (!file) return;
+
+    // Mirrors the API's own rules so an obvious reject never costs a round-trip.
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
+      toast.error(t("logoTypeError"));
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error(t("logoSizeError"));
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await uploadAcademyLogo(clientId, file);
+      onChange(res.brand_logo_url);
+      toast.success(t("logoSaved"));
+      onUploaded();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await deleteAcademyLogo(clientId);
+      onChange("");
+      toast.success(t("logoRemoved"));
+      onUploaded();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 text-xs font-medium">
+      <span className="text-muted-foreground block">{t("logoTitle")}</span>
+      <div className="flex items-center gap-4">
+        <div className="bg-muted/30 flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed">
+          {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- arbitrary client-owned host
+            <img
+              src={logoUrl}
+              alt={t("logoPreviewAlt")}
+              className="size-full object-contain p-1.5"
+              data-testid="client-logo-preview"
+            />
+          ) : (
+            <div className="text-muted-foreground/50 flex flex-col items-center gap-1">
+              <ImageIcon className="size-6" aria-hidden />
+              <span className="text-[10px]">{t("logoEmpty")}</span>
+            </div>
+          )}
+        </div>
+        <div className="space-y-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={pick}
+            data-testid="client-logo-file"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={busy}
+              onClick={() => fileRef.current?.click()}
+              data-testid="client-logo-upload"
+            >
+              <Upload className="size-3.5" />
+              {busy
+                ? t("logoUploading")
+                : logoUrl
+                  ? t("logoReplace")
+                  : t("logoUpload")}
+            </Button>
+            {logoUrl !== "" && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="text-muted-foreground hover:text-destructive gap-1.5"
+                disabled={busy}
+                onClick={remove}
+                data-testid="client-logo-remove"
+              >
+                <Trash2 className="size-3.5" />
+                {t("logoRemove")}
+              </Button>
+            )}
+          </div>
+          <p className="text-muted-foreground max-w-xs font-normal">
+            {t("logoHint")}
+          </p>
+        </div>
+      </div>
+      <label className="block">
+        <span className="text-muted-foreground mb-1 block">
+          {t("fieldLogoUrl")}
+        </span>
+        <input
+          value={logoUrl}
+          onChange={(e) => onChange(e.target.value)}
+          className={field}
+        />
+        <span className="text-muted-foreground mt-1 block font-normal">
+          {t("logoUrlHint")}
+        </span>
+      </label>
+    </div>
+  );
+}
+
 /** Name / branding / subdomain — the client-page home of the old academy config card. */
 function ClientSettingsForm({
   client,
@@ -415,10 +572,13 @@ function ClientSettingsForm({
           <span className="text-muted-foreground mt-1 block">{t("subdomainHint")}</span>
         )}
       </label>
-      <label className="block text-xs font-medium">
-        <span className="text-muted-foreground mb-1 block">{t("fieldLogoUrl")}</span>
-        <input value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} className={field} />
-      </label>
+      <LogoField
+        clientId={client.id}
+        logoUrl={logoUrl}
+        onChange={setLogoUrl}
+        onUploaded={onSaved}
+        field={field}
+      />
       <div className="flex justify-end">
         <Button
           size="sm"

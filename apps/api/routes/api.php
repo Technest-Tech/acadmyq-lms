@@ -6,6 +6,7 @@ use App\Http\Controllers\AcademyProfileController;
 use App\Http\Controllers\AcademyRoleController;
 use App\Http\Controllers\Admin\AcademyAutomationController;
 use App\Http\Controllers\Admin\AcademyController;
+use App\Http\Controllers\Admin\AcademyLogoController;
 use App\Http\Controllers\Admin\AcademySubscriptionController;
 use App\Http\Controllers\Admin\BillingController;
 use App\Http\Controllers\Admin\ClientController;
@@ -50,6 +51,7 @@ use App\Http\Controllers\People\StaffController;
 use App\Http\Controllers\People\StudentController;
 use App\Http\Controllers\People\TeacherController;
 use App\Http\Controllers\Public\AcademyPaymentController;
+use App\Http\Controllers\Public\BrandAssetController;
 use App\Http\Controllers\Public\TenantSiteController;
 use App\Http\Controllers\Public\WhatsAppConnectController;
 use App\Http\Controllers\Quality\QualityReportController;
@@ -183,6 +185,18 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::post('/wa/connect/{token}/start', [WhatsAppConnectController::class, 'start'])->where('token', '[A-Za-z0-9_-]+');
     Route::get('/wa/connect/{token}/qr', [WhatsAppConnectController::class, 'qr'])->where('token', '[A-Za-z0-9_-]+');
     Route::get('/wa/connect/{token}/status', [WhatsAppConnectController::class, 'status'])->where('token', '[A-Za-z0-9_-]+');
+});
+
+/*
+| A client's uploaded logo (Super Admin → client page). PUBLIC because every surface that paints it —
+| the branded sign-in, the subdomain front door, the learner site — is seen before anyone logs in.
+| Its own, looser throttle rather than the 60/min public group: this is an <img> on pages a whole
+| office may open at once, and it must never compete with the pay/invoice pages for that budget. The
+| filename is a per-upload UUID, so the response is immutable and a replaced logo is a NEW url.
+*/
+Route::middleware(['throttle:300,1'])->group(function () {
+    Route::get('/brand/{academy}/logo/{file}', [BrandAssetController::class, 'logo'])
+        ->whereUuid('academy')->where('file', '[A-Za-z0-9._-]+');
 });
 
 /*
@@ -358,6 +372,12 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/admin/academies/{id}/bills/{billId}/submissions', [AcademySubscriptionController::class, 'billSubmissions']);
     Route::get('/admin/academies/{id}/payment-submissions/{subId}/screenshot', [AcademySubscriptionController::class, 'screenshot']);
     Route::post('/admin/academies/{id}/payment-submissions/{subId}/review', [AcademySubscriptionController::class, 'reviewSubmission']);
+
+    // The client's logo (academy.configure). Upload replaces the file AND rewrites
+    // academies.brand_logo_url, which is the one column every branded surface already reads — the
+    // client's sign-in page, their subdomain and their learner site all follow from this write.
+    Route::post('/admin/academies/{id}/logo', [AcademyLogoController::class, 'upload']);
+    Route::delete('/admin/academies/{id}/logo', [AcademyLogoController::class, 'remove']);
 
     // Per-academy WhatsApp automation config (automation.manage — Super Admin). The Wasender token
     // is stored encrypted and never returned; toggles gate the scheduled automation jobs.

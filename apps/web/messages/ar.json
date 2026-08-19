@@ -334,7 +334,20 @@
         "turnOff": "إيقاف",
         "saveChanges": "حفظ التغييرات",
         "saved": "تم حفظ إعدادات الدفع بالبطاقة"
-      }
+      },
+      "logoTitle": "الشعار",
+      "logoHint": "يظهر في صفحة دخول العميل ونطاقه الفرعي وموقع الدورات. PNG أو JPG أو WebP بحد 2 ميجابايت.",
+      "logoUpload": "رفع الشعار",
+      "logoReplace": "استبدال",
+      "logoRemove": "حذف",
+      "logoPreviewAlt": "شعار العميل",
+      "logoEmpty": "لا يوجد شعار",
+      "logoUploading": "جارٍ الرفع…",
+      "logoSaved": "تم تحديث الشعار",
+      "logoRemoved": "تم حذف الشعار",
+      "logoTypeError": "اختر صورة PNG أو JPG أو WebP.",
+      "logoSizeError": "حجم الصورة أكبر من 2 ميجابايت.",
+      "logoUrlHint": "أو الصق رابط شعار مستضاف في مكان آخر."
     },
     "new": {
       "back": "كل العملاء",
