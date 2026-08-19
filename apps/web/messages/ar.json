@@ -847,6 +847,7 @@
       "courses": "الدورات",
       "logo": "الشعار",
       "colors": "الألوان",
+      "reportCard": "بطاقة التقرير",
       "payment": "الدفع"
     },
     "specializations": {
@@ -941,6 +942,30 @@
       "saved": "تم الحفظ ✓",
       "unsaved": "تغييرات غير محفوظة",
       "reset": "إعادة للوضع الافتراضي"
+    },
+    "reportCard": {
+      "title": "بطاقة التقرير",
+      "description": "النصوص الثابتة التي تظهر في كل تقرير حصة أو حلقة تجريبية تُرسل لولي الأمر",
+      "langAr": "العربية",
+      "langEn": "English",
+      "save": "حفظ",
+      "saving": "جارٍ الحفظ…",
+      "savedTick": "تم الحفظ",
+      "loadError": "تعذّر تحميل قالب بطاقة التقرير.",
+      "saveError": "تعذّر الحفظ. حاول مرة أخرى.",
+      "accent": "لون البطاقة",
+      "style": "نمط البطاقة",
+      "style_joyful": "مبهجة",
+      "style_joyful_hint": "برسومات — للأطفال",
+      "style_classic": "كلاسيكية",
+      "style_classic_hint": "بلا رسومات — للكبار",
+      "preview": "معاينة",
+      "placeholderHint": "استخدم هذه الرموز في أي موضع من النصوص أعلاه — يُستبدل كل منها بالاسم الحقيقي في كل بطاقة:",
+      "field_headline": "العنوان الرئيسي",
+      "field_intro": "جملة الافتتاح",
+      "field_championMessage": "رسالة إلى الطالب",
+      "field_dua": "الدعاء الختامي",
+      "field_tagline": "شعار الأكاديمية"
     }
   },
   "students": {
@@ -1819,6 +1844,7 @@
     "noPermission": "لا تملك صلاحية تسجيل الحضور.",
     "save": "حفظ",
     "sendWhatsapp": "إرسال واتساب",
+    "reportCard": "بطاقة التقرير",
     "whatsappSoon": "إرسال واتساب قادم قريبًا",
     "awaitingApproval": "بانتظار الموافقة",
     "awaitingApprovalHint": "تم طلب إلغاء وهو بانتظار موافقة المالك.",

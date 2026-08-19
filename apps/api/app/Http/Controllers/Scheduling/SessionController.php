@@ -263,6 +263,18 @@ final class SessionController extends Controller
         $pendingCancellation = ($pending !== null && ! $pendingIsFree) ? $pending : null;
         $pendingFree = $pendingIsFree ? $pending : null;
 
+        // "Lesson #N" for the guardian-facing report card: this student's Nth DELIVERED lesson,
+        // counted chronologically up to and including this one. Cancellations don't take a number
+        // (nothing was delivered), so the sequence a parent sees never skips. Null while the
+        // session is still SCHEDULED or was cancelled — it has no number yet.
+        $sessionNumber = in_array((string) $session->status, ['ATTENDED', 'FREE'], true)
+            ? DB::table('sessions')
+                ->where('student_id', $session->student_id)
+                ->whereIn('status', ['ATTENDED', 'FREE'])
+                ->where('scheduled_at_utc', '<=', $session->scheduled_at_utc)
+                ->count()
+            : null;
+
         return response()->json([
             'session' => [
                 'id' => (string) $session->id,
@@ -273,6 +285,7 @@ final class SessionController extends Controller
                 'academy_name' => $academyName,
                 'scheduled_at_utc' => Carbon::parse($session->scheduled_at_utc)->utc()->toIso8601String(),
                 'duration_minutes' => (int) $session->duration_minutes,
+                'session_number' => $sessionNumber,
                 'status' => (string) $session->status,
                 'status_reason' => $session->status_reason,
                 'billed' => (bool) $session->billed,

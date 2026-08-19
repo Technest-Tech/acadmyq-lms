@@ -847,6 +847,7 @@
       "courses": "Courses",
       "logo": "Logo",
       "colors": "Colors",
+      "reportCard": "Report card",
       "payment": "Payment"
     },
     "specializations": {
@@ -941,6 +942,30 @@
       "saved": "Saved ✓",
       "unsaved": "Unsaved changes",
       "reset": "Reset to default"
+    },
+    "reportCard": {
+      "title": "Report card",
+      "description": "The wording that appears on every session and trial report you send home",
+      "langAr": "العربية",
+      "langEn": "English",
+      "save": "Save",
+      "saving": "Saving…",
+      "savedTick": "Saved",
+      "loadError": "Couldn't load the report card template.",
+      "saveError": "Couldn't save. Please try again.",
+      "accent": "Card colour",
+      "style": "Card style",
+      "style_joyful": "Joyful",
+      "style_joyful_hint": "Illustrated — for children",
+      "style_classic": "Classic",
+      "style_classic_hint": "Plain — for adult students",
+      "preview": "Preview",
+      "placeholderHint": "Use these anywhere in the text above — each one is replaced with the real name on every card:",
+      "field_headline": "Headline",
+      "field_intro": "Opening line",
+      "field_championMessage": "A word to the child",
+      "field_dua": "Closing du'a",
+      "field_tagline": "Academy tagline"
     }
   },
   "students": {
@@ -1819,6 +1844,7 @@
     "noPermission": "You don’t have permission to record attendance.",
     "save": "Save",
     "sendWhatsapp": "Send WhatsApp",
+    "reportCard": "Report card",
     "whatsappSoon": "WhatsApp sending is coming soon",
     "awaitingApproval": "Awaiting approval",
     "awaitingApprovalHint": "A cancellation was requested and is awaiting the owner’s approval.",

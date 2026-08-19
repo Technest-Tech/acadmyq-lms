@@ -2124,6 +2124,46 @@ export function saveCertificateTemplate(
   });
 }
 
+// ── Report card template (the shareable session/trial report image) ──────────
+
+/**
+ * The academy's own voice on the report card — the wording that repeats on EVERY card, saved once
+ * and poured into all of them. The per-session facts come from the session report; the design
+ * lives in `report-card-design.tsx`.
+ *
+ * Every text field may contain `{academy}`, `{student}` and `{teacher}`, substituted at render
+ * time by `fillPlaceholders`.
+ */
+export interface ReportCardContent {
+  headlineAr: string;
+  headlineEn: string;
+  introAr: string;
+  introEn: string;
+  championMessageAr: string;
+  championMessageEn: string;
+  duaAr: string;
+  duaEn: string;
+  taglineAr: string;
+  taglineEn: string;
+  accentColor: string;
+  /** Which visual register the card speaks in. "joyful" (default) adds the illustration layer —
+   *  lanterns, a mushaf, a medal, a balloon, a skyline. "classic" drops it for adult students. */
+  cardStyle: "joyful" | "classic";
+}
+
+export function getReportCardTemplate(): Promise<{ content: ReportCardContent }> {
+  return apiFetch("/api/report-card-template");
+}
+
+export function saveReportCardTemplate(
+  content: Partial<ReportCardContent>,
+): Promise<{ ok: boolean; content: ReportCardContent }> {
+  return apiFetch("/api/report-card-template", {
+    method: "PUT",
+    body: JSON.stringify(content),
+  });
+}
+
 // ── Payment Settings (Settings → Payment) ────────────────────────────────────
 
 export type PaymentMethodKey = "BANK_TRANSFER" | "PAYPAL" | "XPAY";
@@ -2762,6 +2802,9 @@ export interface SessionDetail {
   academy_name: string | null;
   scheduled_at_utc: string;
   duration_minutes: number;
+  /** This student's Nth DELIVERED lesson (attended or free), for the report card's "Lesson #".
+   *  Null while the session is still scheduled or was cancelled — it has no number yet. */
+  session_number: number | null;
   status: SessionStatus;
   status_reason: string | null;
   billed: boolean;

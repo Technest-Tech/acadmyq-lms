@@ -7,6 +7,7 @@ import {
   Copy,
   Gift,
   History,
+  ImageDown,
   Loader2,
   MessageCircle,
   Pencil,
@@ -17,6 +18,7 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { ReportCardModal } from "@/components/reports/report-card-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -135,6 +137,8 @@ export function AttendanceReport({
   // null = hidden, "ar" | "en" = picker open
   const [formatLangPicker, setFormatLangPicker] = useState<"ar" | "en" | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // The guardian-facing report card (the branded, downloadable image).
+  const [cardOpen, setCardOpen] = useState(false);
   // Editor visibility: collapsed to read-only text once a report has been saved.
   const [editing, setEditing] = useState(false);
   // An owner-initiated cancellation awaiting the billing decision (charge student / pay teacher).
@@ -703,6 +707,24 @@ export function AttendanceReport({
 
           <div className="mt-3">
             <div className="flex items-center justify-end gap-2">
+              {/* Report card — the branded image the guardian actually receives. Same audience
+                  rule as the WhatsApp send (the academy speaks to the family, not the teacher),
+                  but allowed in readOnly too: producing the card changes nothing, and looking
+                  back at a past lesson to re-send its card is the common case. */}
+              {!isTeacher && canWrite && isAttended && report && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCardOpen(true)}
+                  data-testid="open-report-card"
+                  className="gap-1.5"
+                >
+                  <ImageDown className="size-3.5" aria-hidden />
+                  {t("reportCard")}
+                </Button>
+              )}
+
               {/* WhatsApp button — only after the session is attended and a report exists.
                   Sending the report to the guardian is an academy-admin action; teachers write
                   the report but don't dispatch it. */}
@@ -799,6 +821,16 @@ export function AttendanceReport({
       >
         <ReportArchive studentId={session.student_id} />
       </Modal>
+
+      {/* ── Report card ───────────────────────────────────────────────── */}
+      {cardOpen && (
+        <ReportCardModal
+          open={cardOpen}
+          onClose={() => setCardOpen(false)}
+          detail={data}
+          uiLocale={locale}
+        />
+      )}
 
       {/* Owner cancellation → billing decision (charge student / pay teacher + reason). */}
       <CancellationBillingModal

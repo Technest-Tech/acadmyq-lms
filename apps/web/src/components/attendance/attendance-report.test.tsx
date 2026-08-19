@@ -32,6 +32,7 @@ function detail(overrides: Partial<api.SessionDetailResponse> = {}): api.Session
       academy_name: "Test Academy",
       scheduled_at_utc: "2026-06-01T15:00:00Z",
       duration_minutes: 30,
+      session_number: null,
       status: "SCHEDULED",
       status_reason: null,
       billed: false,

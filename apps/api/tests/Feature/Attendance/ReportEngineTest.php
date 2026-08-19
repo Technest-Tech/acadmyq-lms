@@ -259,3 +259,36 @@ it('lists the per-student report archive, paginated, own-academy only', function
     $reported = collect($body['reports'])->firstWhere('id', $this->session);
     expect($reported['report_values'])->toMatchArray(['surah_from' => 'A', 'surah_to' => 'B']);
 });
+
+// ── The guardian-facing "Lesson #N" the report card prints ──
+it('numbers a session by the student\'s delivered lessons, skipping cancellations', function () {
+    Sanctum::actingAs($this->owner);
+
+    // The one seeded in beforeEach is this student's first DELIVERED lesson.
+    expect($this->getJson("/api/sessions/{$this->session}")->assertOk()->json('session.session_number'))->toBe(1);
+
+    // A cancellation between them takes no number — nothing was delivered.
+    $cancelled = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-02 15:00:00+00', 'status' => 'CANCELLED_BY_STUDENT',
+    ]);
+    expect($this->getJson("/api/sessions/{$cancelled}")->assertOk()->json('session.session_number'))->toBeNull();
+
+    // A free lesson was still delivered, so the sequence a parent sees never skips.
+    $free = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-03 15:00:00+00', 'status' => 'FREE',
+    ]);
+    expect($this->getJson("/api/sessions/{$free}")->assertOk()->json('session.session_number'))->toBe(2);
+
+    // A session still awaiting its outcome has no number yet.
+    $scheduled = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-04 15:00:00+00', 'status' => 'SCHEDULED',
+    ]);
+    expect($this->getJson("/api/sessions/{$scheduled}")->assertOk()->json('session.session_number'))->toBeNull();
+
+    // Another student's lessons are counted separately.
+    $other = $this->createStudent($this->academy);
+    $otherFirst = $this->createSession($this->academy, $other, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-05 15:00:00+00', 'status' => 'ATTENDED',
+    ]);
+    expect($this->getJson("/api/sessions/{$otherFirst}")->assertOk()->json('session.session_number'))->toBe(1);
+});

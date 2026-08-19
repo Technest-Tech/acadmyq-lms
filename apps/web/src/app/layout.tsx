@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
-import { Tajawal } from "next/font/google";
+import { Amiri, Tajawal } from "next/font/google";
 import { THEME_INIT_SCRIPT, ThemeProvider } from "@/components/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
 import { direction, type Locale } from "@/i18n/config";
@@ -11,6 +11,19 @@ const tajawal = Tajawal({
   subsets: ["arabic", "latin"],
   weight: ["400", "500", "700"],
   variable: "--font-sans",
+  display: "swap",
+});
+
+/**
+ * The DISPLAY face — a classical naskh, used only where the app speaks ceremonially to a family:
+ * the report card's headline and du'a, and anywhere else a line is meant to be read slowly rather
+ * than scanned. Tajawal is a fine UI sans, but naskh is what an Arabic reader recognises as
+ * beautiful; the difference is the whole point of a card an academy sends home.
+ */
+const amiri = Amiri({
+  subsets: ["arabic", "latin"],
+  weight: ["400", "700"],
+  variable: "--font-display",
   display: "swap",
 });
 
@@ -30,7 +43,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       dir={dir}
-      className={tajawal.variable}
+      className={`${tajawal.variable} ${amiri.variable}`}
       suppressHydrationWarning
     >
       <head>

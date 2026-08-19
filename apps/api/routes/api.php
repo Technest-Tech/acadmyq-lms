@@ -57,6 +57,7 @@ use App\Http\Controllers\Public\WhatsAppConnectController;
 use App\Http\Controllers\Quality\QualityReportController;
 use App\Http\Controllers\Quality\QualityRubricController;
 use App\Http\Controllers\Quality\TeacherAdjustmentController;
+use App\Http\Controllers\ReportCardTemplateController;
 use App\Http\Controllers\ReportFieldController;
 use App\Http\Controllers\Scheduling\AttendanceController;
 use App\Http\Controllers\Scheduling\CalendarController;
@@ -591,6 +592,13 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/certificate-templates', [CertificateTemplateController::class, 'index']);
         Route::put('/certificate-templates/{number}', [CertificateTemplateController::class, 'update']);
     });
+
+    // The academy's REPORT CARD wording — the voice behind the shareable session/trial report
+    // image (the design lives in the web client). NOT plan-gated: every academy that can write a
+    // session report can send its guardian a branded card. `session.read` guards the preview,
+    // `report_field.manage` the edit (see ReportCardTemplateController).
+    Route::get('/report-card-template', [ReportCardTemplateController::class, 'show']);
+    Route::put('/report-card-template', [ReportCardTemplateController::class, 'update']);
 
     // Scheduling & sessions (Sprint 5 §8). The weekly schedule is the rule; sessions are the
     // materialised occurrences. Every route is capability-gated and tenant-scoped by RLS;
