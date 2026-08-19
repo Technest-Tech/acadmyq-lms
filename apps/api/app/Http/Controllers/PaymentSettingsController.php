@@ -13,11 +13,18 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 /**
- * Per-academy payment channel configuration (Settings → Payment). Each academy
- * can configure up to three payment channels: BANK_TRANSFER, PAYPAL, and XPAY
- * (placeholder). Channels are stored as rows in `academy_payment_settings` — one
- * row per method per academy, upserted via PUT. The `is_active` flag controls
- * whether the channel is shown to students on the public invoice page.
+ * Per-academy payment channel configuration (Settings → Payment). Three channels:
+ * BANK_TRANSFER, PAYPAL, and XPAY. Channels are stored as rows in
+ * `academy_payment_settings` — one row per method per academy, upserted via PUT.
+ * The `is_active` flag controls whether the channel is shown to students on the
+ * public invoice page.
+ *
+ * TWO CHANNELS ARE THE ACADEMY'S, ONE IS OURS. Bank transfer and PayPal hold
+ * credentials the academy itself owns and types in here. XPay does not: the
+ * Super Admin provisions each client's merchant keys (Admin\ClientPaymentController)
+ * and they live in `academy_xpay_credentials`, encrypted and never returned by any
+ * academy-facing endpoint. So XPAY is READ-ONLY here — the academy sees whether the
+ * channel is live, and nothing more.
  *
  * RLS scopes every query to the caller's academy. Writes require
  * `payment_settings.manage`; reads require `invoice.read` so the invoice screen
@@ -68,6 +75,13 @@ final class PaymentSettingsController extends Controller
         $method = strtoupper($method);
         if (! in_array($method, self::METHODS, true)) {
             abort(404, 'Unknown payment method.');
+        }
+
+        // XPay is provisioned by the Super Admin (Admin\ClientPaymentController), not by the academy:
+        // the merchant keys belong to Academiq's onboarding process and the academy never holds them.
+        // Reads below still show the channel's state; only the write is closed off.
+        if ($method === 'XPAY') {
+            abort(403, 'XPay is managed by Academiq. Contact support to change it.');
         }
 
         $data = $request->validate([
@@ -167,7 +181,9 @@ final class PaymentSettingsController extends Controller
                 'email'         => isset($config['email'])         ? substr((string) $config['email'],         0, 200) : '',
                 'mode'          => in_array($config['mode'] ?? '', ['sandbox', 'live'], true) ? $config['mode'] : 'live',
             ],
-            'XPAY' => [], // placeholder — no config yet
+            // Unreachable: upsert() rejects XPAY before it gets here. Kept so the match stays total
+            // over self::METHODS and a future writer cannot fall through to `default`.
+            'XPAY' => [],
             default => [],
         };
     }
