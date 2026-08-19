@@ -56,6 +56,19 @@ final class TeacherController extends Controller
             'defaultSort' => 'name',
         ]);
 
+        // `availability` is a json column: the driver hands it back as a STRING, while every
+        // consumer (the roster's weekly-hours column, the calendar's availability bands) types it
+        // as AvailabilityWindow[]. show() has always decoded it; index() never did, so list
+        // consumers silently iterated a string's characters — and threw outright the moment one
+        // called an array method on it. Decode here so a single shape leaves this controller.
+        $result['rows'] = $result['rows']->map(function (object $r): object {
+            $r->availability = is_string($r->availability)
+                ? (json_decode($r->availability, true) ?: [])
+                : ($r->availability ?? []);
+
+            return $r;
+        });
+
         return response()->json($result);
     }
 

@@ -132,6 +132,46 @@ trait InteractsWithScheduling
     }
 
     /**
+     * Trials of the same teacher whose [start, start+duration) overlaps the candidate window.
+     * Only a still-SCHEDULED trial can clash (a cancelled/converted/outcome-recorded one cannot).
+     * A trial holds a real hour of a real teacher, so it warns exactly like a session does — in
+     * both directions: booking a lesson over a trial is as much a clash as the reverse.
+     *
+     * @return list<array{id:string, scheduled_at_utc:string, duration_minutes:int}>
+     */
+    protected function trialConflicts(string $teacherId, Carbon $startUtc, int $durationMinutes, ?string $excludeTrialId = null): array
+    {
+        $endUtc = $startUtc->copy()->addMinutes($durationMinutes);
+
+        $candidates = DB::table('trials')
+            ->where('teacher_id', $teacherId)
+            ->where('status', 'SCHEDULED')
+            ->whereNull('deleted_at')
+            ->when($excludeTrialId !== null, fn ($q) => $q->where('id', '!=', $excludeTrialId))
+            // Cheap pre-filter window; exact overlap computed in PHP with per-row duration.
+            ->whereBetween('scheduled_at_utc', [
+                $startUtc->copy()->subDay()->format('Y-m-d H:i:sP'),
+                $endUtc->copy()->addDay()->format('Y-m-d H:i:sP'),
+            ])
+            ->get(['id', 'scheduled_at_utc', 'duration_minutes']);
+
+        $conflicts = [];
+        foreach ($candidates as $row) {
+            $rowStart = Carbon::parse($row->scheduled_at_utc)->utc();
+            $rowEnd = $rowStart->copy()->addMinutes((int) $row->duration_minutes);
+            if ($startUtc->lessThan($rowEnd) && $rowStart->lessThan($endUtc)) {
+                $conflicts[] = [
+                    'id' => (string) $row->id,
+                    'scheduled_at_utc' => $rowStart->toIso8601String(),
+                    'duration_minutes' => (int) $row->duration_minutes,
+                ];
+            }
+        }
+
+        return $conflicts;
+    }
+
+    /**
      * True when the instant falls OUTSIDE every availability window the teacher declared
      * (Sprint 4 `teachers.availability`). Availability is interpreted in $timezone (the schedule
      * / academy local time). Returns false (no warning) when the teacher declares no windows —
@@ -189,15 +229,18 @@ trait InteractsWithScheduling
      *
      * @return list<array{type:string, message:string, detail?:mixed}>
      */
-    protected function schedulingWarnings(string $teacherId, Carbon $startUtc, int $durationMinutes, string $timezone, ?string $excludeSessionId = null): array
+    protected function schedulingWarnings(string $teacherId, Carbon $startUtc, int $durationMinutes, string $timezone, ?string $excludeSessionId = null, ?string $excludeTrialId = null): array
     {
         $warnings = [];
 
-        $conflicts = $this->teacherConflicts($teacherId, $startUtc, $durationMinutes, $excludeSessionId);
+        $conflicts = [
+            ...$this->teacherConflicts($teacherId, $startUtc, $durationMinutes, $excludeSessionId),
+            ...$this->trialConflicts($teacherId, $startUtc, $durationMinutes, $excludeTrialId),
+        ];
         if ($conflicts !== []) {
             $warnings[] = [
                 'type' => 'conflict',
-                'message' => 'This overlaps another session for the same teacher. / يتعارض هذا مع حصة أخرى لنفس المعلّم.',
+                'message' => 'This overlaps another session or trial for the same teacher. / يتعارض هذا مع حصة أو تجربة أخرى لنفس المعلّم.',
                 'detail' => $conflicts,
             ];
         }

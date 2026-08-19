@@ -9,6 +9,7 @@ use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -19,6 +20,15 @@ use Illuminate\Support\Facades\Gate;
  * the academy; RLS guarantees they can never reach another academy's rows (TC-5.27). Instants
  * are stored/returned in UTC; the viewer renders them in their own timezone (the stored UTC
  * never changes, AC-5.15).
+ *
+ * The window carries a SECOND feed: booked trials. A trial is a real hour of a real teacher, but
+ * it is never a `sessions` row (the person may not be a student yet — see the trials migration),
+ * so it would otherwise be invisible on the calendar and double-booked by anyone reading it. It
+ * travels as its own array rather than being disguised as a session: the client paints it, but
+ * the session actions (attendance, reschedule, cancel) do not apply to it.
+ *
+ * Only SCHEDULED trials are returned — a completed, no-show, cancelled or converted trial is
+ * history, and history for trials lives on the Trials page, not on the planning surface.
  */
 final class CalendarController extends Controller
 {
@@ -88,8 +98,58 @@ final class CalendarController extends Controller
 
         return response()->json([
             'sessions' => $rows,
+            'trials' => $this->trialsInWindow($fromUtc, $toUtc, $data),
             'from' => $fromUtc->toIso8601String(),
             'to' => $toUtc->toIso8601String(),
         ]);
+    }
+
+    /**
+     * The booked trials inside the same window, scoped exactly like the sessions above: a TEACHER
+     * sees only their own (the foreign-teacher rejection has already run), an Owner may narrow to
+     * one teacher, and a student filter keeps only the trials booked for that student.
+     *
+     * @param  array<string,mixed>  $data  the validated query (teacherId / studentId)
+     */
+    private function trialsInWindow(Carbon $fromUtc, Carbon $toUtc, array $data): Collection
+    {
+        $query = DB::table('trials as tr')
+            ->leftJoin('teachers as te', 'te.id', '=', 'tr.teacher_id')
+            ->leftJoin('students as st', 'st.id', '=', 'tr.student_id')
+            ->leftJoin('crm_leads as cl', 'cl.id', '=', 'tr.lead_id')
+            ->whereNull('tr.deleted_at')
+            ->where('tr.status', 'SCHEDULED')
+            ->whereBetween('tr.scheduled_at_utc', [
+                $fromUtc->format('Y-m-d H:i:sP'),
+                $toUtc->format('Y-m-d H:i:sP'),
+            ])
+            ->select([
+                'tr.id', 'tr.teacher_id', 'tr.student_id', 'tr.lead_id',
+                'tr.scheduled_at_utc', 'tr.duration_minutes', 'tr.status',
+                'te.full_name as teacher_name',
+                'st.full_name as student_name',
+                'cl.full_name as crm_lead_name',
+                'tr.lead_name',
+            ])
+            ->orderBy('tr.scheduled_at_utc')->orderBy('tr.id');
+
+        if ($this->ctx()->role === 'TEACHER') {
+            $query->where('tr.teacher_id', (string) $this->callerTeacherId());
+        } elseif (! empty($data['teacherId'])) {
+            $query->where('tr.teacher_id', $data['teacherId']);
+        }
+
+        if (! empty($data['studentId'])) {
+            $query->where('tr.student_id', $data['studentId']);
+        }
+
+        return $query->get()->map(function ($r) {
+            $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
+            $r->duration_minutes = (int) $r->duration_minutes;
+            // Who the hour is for, in the order the name is most likely to be current.
+            $r->display_name = $r->student_name ?? $r->crm_lead_name ?? $r->lead_name;
+
+            return $r;
+        });
     }
 }
