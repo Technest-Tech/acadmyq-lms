@@ -9,6 +9,7 @@ use App\Http\Controllers\Admin\AcademyController;
 use App\Http\Controllers\Admin\AcademySubscriptionController;
 use App\Http\Controllers\Admin\BillingController;
 use App\Http\Controllers\Admin\ClientController;
+use App\Http\Controllers\Admin\ClientPaymentController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\LmsOversightController;
 use App\Http\Controllers\Admin\PlanController;
@@ -21,6 +22,9 @@ use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CertificateTemplateController;
 use App\Http\Controllers\Crm\LeadController;
+use App\Http\Controllers\EntitlementController;
+use App\Http\Controllers\ExchangeRateController;
+use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
 use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
 use App\Http\Controllers\Learner\PlayerController as LearnerPlayerController;
@@ -37,12 +41,6 @@ use App\Http\Controllers\Lms\MediaDeliveryController;
 use App\Http\Controllers\Lms\QuizController;
 use App\Http\Controllers\Lms\SectionController;
 use App\Http\Controllers\Lms\SiteProfileController as LmsSiteProfileController;
-use App\Http\Controllers\Quality\QualityReportController;
-use App\Http\Controllers\Quality\QualityRubricController;
-use App\Http\Controllers\Quality\TeacherAdjustmentController;
-use App\Http\Controllers\EntitlementController;
-use App\Http\Controllers\ExchangeRateController;
-use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentSettingsController;
 use App\Http\Controllers\PayoutController;
@@ -52,7 +50,11 @@ use App\Http\Controllers\People\StaffController;
 use App\Http\Controllers\People\StudentController;
 use App\Http\Controllers\People\TeacherController;
 use App\Http\Controllers\Public\AcademyPaymentController;
+use App\Http\Controllers\Public\TenantSiteController;
 use App\Http\Controllers\Public\WhatsAppConnectController;
+use App\Http\Controllers\Quality\QualityReportController;
+use App\Http\Controllers\Quality\QualityRubricController;
+use App\Http\Controllers\Quality\TeacherAdjustmentController;
 use App\Http\Controllers\ReportFieldController;
 use App\Http\Controllers\Scheduling\AttendanceController;
 use App\Http\Controllers\Scheduling\CalendarController;
@@ -72,6 +74,8 @@ use App\Http\Controllers\Video\VideoModerationController;
 use App\Http\Controllers\Video\VideoRecordingController;
 use App\Http\Controllers\Video\VideoRoomController;
 use App\Http\Controllers\WhatsAppWebhookController;
+use App\Http\Controllers\XpayCheckoutController;
+use App\Http\Controllers\XpayWebhookController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -159,6 +163,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::post('/i/{token}/paypal/create-order', [PaypalOrderController::class, 'createOrder']);
     Route::post('/i/{token}/paypal/capture/{orderId}', [PaypalOrderController::class, 'captureOrder']);
 
+    // XPay hosted checkout (public, token-authenticated). `session` opens the hosted page the payer
+    // is redirected to; `session/{id}` is the return page's confirmation fallback for a client whose
+    // webhook endpoint is missing or slow — the webhook at /webhooks/xpay/{academy} remains the
+    // source of truth, and both paths settle through the same XpayFulfillment rule.
+    Route::post('/i/{token}/xpay/session', [XpayCheckoutController::class, 'createSession']);
+    Route::get('/i/{token}/xpay/session/{id}', [XpayCheckoutController::class, 'syncSession'])
+        ->where('id', '[A-Za-z0-9_]+');
+
     // Public academy pay page (Platform↔Academy billing). An academy views its bill + the platform's
     // InstaPay/Vodafone Cash details and uploads a transfer screenshot. Token-authenticated, no
     // Sanctum; `/a/` prefix avoids clashing with the student `/i/` invoice page.
@@ -199,6 +211,29 @@ Route::post('/internal/wa/webhook', [WhatsAppWebhookController::class, 'handle']
 | academy from the room-name suffix and writes inside Tenancy::withContext.
 */
 Route::post('/internal/livekit/webhook', [LivekitWebhookController::class, 'handle'])->middleware('livekit.webhook');
+
+/*
+| Inbound webhook from XPay (docs.xpay.app) — how a card payment on a student invoice becomes a PAID
+| invoice. NOT a Sanctum route: the `xpay.webhook` middleware verifies XPay's HMAC-SHA256 signature
+| over the raw body within a 5-minute replay window.
+|
+| The URL is PER ACADEMY because the signing secret is: every client has its own XPay merchant
+| account and its own `whsec_*`. The academy id here only selects which secret to verify against —
+| it is an identifier, not a credential, and the signature is the sole authority. Throttled well
+| above the WhatsApp tier since all of a client's deliveries arrive from XPay's shared egress.
+*/
+Route::post('/webhooks/xpay/{academy}', [XpayWebhookController::class, 'handle'])
+    ->middleware(['throttle:300,1', 'xpay.webhook'])
+    ->where('academy', '[0-9a-fA-F-]{36}');
+
+/*
+| Which product answers on a client's subdomain (docs/lms/02 §"one address space, two products").
+| `<handle>.<root>` serves the course site for a course-platform client and the management system's
+| branded sign-in for everyone else; the web middleware asks this before it routes, and the sign-in
+| page asks it again for the client's name + logo. Same `resolve.academy` bridge as the learner site
+| below — the handle IS the tenant, and an unknown handle 404s.
+*/
+Route::middleware(['throttle:120,1', 'resolve.academy'])->get('/site', [TenantSiteController::class, 'show']);
 
 /*
 | LMS public course site (docs/lms). NOT Sanctum-gated: the tenant is resolved from the SUBDOMAIN
@@ -300,10 +335,18 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/admin/clients/{id}', [ClientController::class, 'show']);
     Route::post('/admin/clients/{id}/modules/{module}/subscription', [ClientController::class, 'enableModule']);
     Route::put('/admin/clients/{id}/modules/{module}/subscription', [ClientController::class, 'updateModule']);
+    Route::put('/admin/clients/{id}/modules/{module}/features', [ClientController::class, 'updateModuleFeatures']);
     Route::post('/admin/clients/{id}/modules/{module}/subscription/trial', [ClientController::class, 'extendTrial']);
     Route::post('/admin/clients/{id}/modules/{module}/subscription/activate', [ClientController::class, 'activateModule']);
     Route::post('/admin/clients/{id}/modules/{module}/subscription/pause', [ClientController::class, 'pauseModule']);
     Route::post('/admin/clients/{id}/modules/{module}/subscription/end', [ClientController::class, 'endModule']);
+
+    // Payments → XPay provisioning. The Super Admin holds the client's card-gateway keys; the client
+    // never sees them (reads return last-4 tails only). Activating here is what puts the "Pay by
+    // card" option on that client's public invoices.
+    Route::get('/admin/clients/{id}/payments/xpay', [ClientPaymentController::class, 'showXpay']);
+    Route::put('/admin/clients/{id}/payments/xpay', [ClientPaymentController::class, 'updateXpay']);
+    Route::post('/admin/clients/{id}/payments/xpay/test', [ClientPaymentController::class, 'testXpay']);
 
     // Platform → Academy bills (academy_billing.manage). Academy-scoped so the Super Admin write
     // runs in the academy's context (no cross-tenant lookup); send delivers the bill over WhatsApp.
@@ -543,37 +586,42 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
 
     Route::get('/calendar', [CalendarController::class, 'index']);
 
-    // Free Trials (Free-Trials module). The owner finds an available teacher for a requested
-    // slot (availability matcher), books a one-off trial for an existing student or a captured
-    // lead, tracks the pipeline, and converts a successful lead into a real student. Owner-only:
-    // `trial.read` (list/stats/availability) and `trial.manage` (book/update/cancel/convert).
-    // Plan-gated (entitled:trials — a FREE-trial & PRO feature, not BASIC). Literal segments
-    // (`summary`, `availability`) are declared before `{id}` so they aren't captured as an id.
+    // Free Trials (Free-Trials module) — the trials OVERVIEW: every trial the academy has run,
+    // its outcome, and the statistics over them. Booking a trial is the CRM's job (a trial exists
+    // because a lead reached the TRIAL stage), so what lives here is read, outcome, cancel and
+    // convert; POST /trials remains for a trial with no lead behind it. Owner-only: `trial.read`
+    // (list/stats) and `trial.manage` (book/update/cancel/convert). Plan-gated
+    // (entitled:trials — a FREE-trial & PRO feature, not BASIC). The literal `summary` is
+    // declared before `{id}` so it isn't captured as an id.
     Route::middleware('entitled:trials')->group(function () {
         Route::get('/trials', [TrialController::class, 'index']);
         Route::get('/trials/summary', [TrialController::class, 'summary']);
-        Route::get('/trials/availability', [TrialController::class, 'availability']);
-        Route::get('/trials/availability-grid', [TrialController::class, 'availabilityGrid']);
         Route::post('/trials', [TrialController::class, 'store']);
         Route::patch('/trials/{id}', [TrialController::class, 'update']);
         Route::post('/trials/{id}/convert', [TrialController::class, 'convert']);
         Route::delete('/trials/{id}', [TrialController::class, 'destroy']);
     });
 
-    // CRM / Leads (CRM module). Sales/support staff capture prospective students as leads,
-    // walk them through the pipeline board (NEW → CONTACTED → INTERESTED → WON/LOST), keep a
-    // per-lead activity timeline, and convert an enrolling lead into a real student. Owner-only
+    // CRM / Leads (CRM module). Sales/support staff capture prospective students as leads and
+    // walk them through one pipeline board (NEW → CONTACTED → INTERESTED → TRIAL → SUBSCRIBED,
+    // + LOST), keeping a per-lead activity timeline. The last two stages write real records:
+    // `/trial` books the taster lesson (which is what puts it on the calendar) and `/convert`
+    // links the student the lead became (which is what puts them on the Students page). Owner-only
     // by default (`crm.read` / `crm.manage`), meant to be delegated via a custom "Sales" role.
-    // Plan-gated by its own billable module (entitled:crm). Literal segments (`board`,
-    // `summary`) are declared before `{id}` so they aren't captured as an id.
+    // Plan-gated by its own billable module (entitled:crm) — including the trial booking, so a
+    // sales desk never needs the trials capability to sell with one. Literal segments (`board`,
+    // `summary`, and the sibling `/crm/teachers`) are declared before `{id}` so they aren't
+    // captured as an id.
     Route::middleware('entitled:crm')->group(function () {
         Route::get('/crm/leads', [LeadController::class, 'index']);
         Route::get('/crm/leads/board', [LeadController::class, 'board']);
         Route::get('/crm/leads/summary', [LeadController::class, 'summary']);
+        Route::get('/crm/teachers', [LeadController::class, 'teachers']);
         Route::post('/crm/leads', [LeadController::class, 'store']);
         Route::get('/crm/leads/{id}', [LeadController::class, 'show']);
         Route::patch('/crm/leads/{id}', [LeadController::class, 'update']);
         Route::post('/crm/leads/{id}/notes', [LeadController::class, 'addNote']);
+        Route::post('/crm/leads/{id}/trial', [LeadController::class, 'bookTrial']);
         Route::post('/crm/leads/{id}/convert', [LeadController::class, 'convert']);
         Route::delete('/crm/leads/{id}', [LeadController::class, 'destroy']);
     });

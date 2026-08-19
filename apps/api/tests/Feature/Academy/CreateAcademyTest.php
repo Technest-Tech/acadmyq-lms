@@ -50,7 +50,7 @@ it('creates a fully configured academy', function () {
     $this->asSuperAdmin();
     $a = DB::table('academies')->where('id', $id)->first();
     expect($a->academy_type_id)->toBe($this->quranType);
-    expect($a->plan_id)->toBe($this->proPlan);
+    expect($a->client_type)->toBe('MANAGEMENT'); // 05-MODULES-NOT-PACKAGES: a type, not a package
     expect($a->default_currency)->toBe('EGP');
     expect($a->timezone)->toBe('Africa/Cairo');
     expect($a->invoice_grouping)->toBe('PER_GUARDIAN');

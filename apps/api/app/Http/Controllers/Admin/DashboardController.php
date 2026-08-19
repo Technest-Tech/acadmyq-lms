@@ -104,7 +104,6 @@ final class DashboardController extends Controller
             $endingSoon[] = [
                 'academy_id' => $a['academy_id'] ?? null,
                 'academy_name' => $a['academy_name'] ?? null,
-                'plan_name' => $a['plan_name'] ?? null,
                 'kind' => $isTrial ? 'trial' : 'renewal',
                 'ends_at' => $endsAt,
                 'days_left' => $daysLeft,

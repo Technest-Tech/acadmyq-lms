@@ -2,11 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Services\ModuleBilling;
+use App\Support\LmsMedia;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -33,7 +34,7 @@ beforeEach(function () {
 
     $lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
     // subdomain (SUPER_ADMIN-set) is provisioned at creation so the learner-site tests can resolve it.
-    $this->academy = $this->createAcademy(overrides: ['plan_id' => $lmsPlan, 'subdomain' => 'vodsite']);
+    $this->academy = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS', 'subdomain' => 'vodsite']);
     $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER');
 });
 
@@ -102,19 +103,13 @@ it('rejects a content-type that does not match the kind', function () {
 });
 
 // ── AC: storage cap (402 upgrade prompt at the limit) ────────────────────────
-it('returns 402 when the upload would exceed the plan storage cap', function () {
-    // A capped LMS plan (1 GB) → a 2 GB upload is refused before any url is handed out.
-    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
-    $cappedPlan = (string) Str::uuid();
-    DB::table('plans')->insert([
-        'id' => $cappedPlan, 'code' => 'LMS_CAP_TEST', 'name' => 'LMS capped', 'module' => 'LMS',
-        'price_minor' => 0, 'currency' => 'EGP',
-        'features' => json_encode(['capabilities' => ['lms'], 'limits' => ['maxStorageGb' => 1]]),
-        'is_active' => true,
-    ]);
+it("returns 402 when the upload would exceed the client's storage cap", function () {
+    // A client capped at 1 GB from its profile → a 2 GB upload is refused before any url is handed out.
+    $capped = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS']);
+    $this->enterAcademyAsSuperAdmin($capped);
+    app(ModuleBilling::class)->setLimitOverrides($capped, 'LMS', ['maxStorageGb' => 1]);
     $this->clearTenantContext();
 
-    $capped = $this->createAcademy(overrides: ['plan_id' => $cappedPlan]);
     Sanctum::actingAs($this->makeUser($capped, 'ACADEMY_OWNER'));
 
     $this->postJson('/api/courses/media/upload-url', [
@@ -133,7 +128,7 @@ it('gates media endpoints by entitlement and capability', function () {
 
     // An academy without the LMS module → 402.
     $basic = DB::table('plans')->where('code', 'BASIC')->value('id');
-    $other = $this->createAcademy(overrides: ['plan_id' => $basic]);
+    $other = $this->createAcademy();
     Sanctum::actingAs($this->makeUser($other, 'ACADEMY_OWNER'));
     $this->postJson('/api/courses/media/upload-url', [
         'filename' => 'x.mp4', 'content_type' => 'video/mp4', 'kind' => 'VIDEO', 'size_bytes' => 100,
@@ -168,7 +163,7 @@ it('attaches a READY upload to a VIDEO_UPLOAD lesson and rejects a bad asset', f
 
     // Another academy's asset is invisible under RLS → 422 (not a leak).
     $lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
-    $academyB = $this->createAcademy(overrides: ['plan_id' => $lmsPlan]);
+    $academyB = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS']);
     Sanctum::actingAs($this->makeUser($academyB, 'ACADEMY_OWNER'));
     $courseB = $this->postJson('/api/courses', ['title' => 'B'])->json('courseId');
     $sectionB = $this->postJson("/api/courses/{$courseB}/sections", ['title' => 'S'])->json('sectionId');
@@ -300,7 +295,7 @@ it('strips browser-forbidden headers from a presigned upload target', function (
     ]);
     Storage::shouldReceive('disk')->with('lms_media')->andReturn($disk);
 
-    $target = App\Support\LmsMedia::uploadTarget('lms/a/b/source.jpg', 'image/jpeg');
+    $target = LmsMedia::uploadTarget('lms/a/b/source.jpg', 'image/jpeg');
 
     expect($target['headers'])->toHaveKey('Content-Type');   // the signed value survives
     expect($target['headers'])->not->toHaveKey('Host');      // the unsettable one is gone

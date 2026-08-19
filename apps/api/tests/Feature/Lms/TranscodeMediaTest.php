@@ -36,7 +36,7 @@ beforeEach(function () {
     ]);
 
     $lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
-    $this->academy = $this->createAcademy(overrides: ['plan_id' => $lmsPlan, 'subdomain' => 'vodsite']);
+    $this->academy = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS', 'subdomain' => 'vodsite']);
     $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER');
 });
 

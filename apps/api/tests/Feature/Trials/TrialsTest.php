@@ -33,84 +33,7 @@ beforeEach(function () {
 
 afterEach(fn () => Carbon::setTestNow());
 
-// 2026-06-16 is a Tuesday; 17:00 Cairo sits inside the 16:00–19:00 window.
-
-it('lists an available teacher for a slot inside their window, conflict-free', function () {
-    Sanctum::actingAs($this->owner);
-
-    $res = $this->getJson('/api/trials/availability?date=2026-06-16&time=17:00&duration_minutes=30')
-        ->assertOk();
-
-    $teacher = collect($res->json('teachers'))->firstWhere('id', $this->teacher);
-    expect($teacher)->not->toBeNull();
-    expect($teacher['available'])->toBeTrue();
-    expect($teacher['has_conflict'])->toBeFalse();
-});
-
-it('excludes a teacher when the slot is outside their declared availability', function () {
-    Sanctum::actingAs($this->owner);
-
-    // 2026-06-18 is a Thursday — the teacher only declares Tuesday availability.
-    $res = $this->getJson('/api/trials/availability?date=2026-06-18&time=17:00&duration_minutes=30')
-        ->assertOk();
-
-    expect(collect($res->json('teachers'))->pluck('id'))->not->toContain($this->teacher);
-});
-
-it('flags a conflict when the teacher already has a trial at that time', function () {
-    Sanctum::actingAs($this->owner);
-
-    // Book a trial in the window first.
-    $this->postJson('/api/trials', [
-        'teacher_id' => $this->teacher,
-        'lead_name' => 'First Lead',
-        'lead_whatsapp' => '+201234567890',
-        'local_datetime' => '2026-06-16 17:00',
-        'timezone' => 'Africa/Cairo',
-        'duration_minutes' => 30,
-    ])->assertCreated();
-
-    $res = $this->getJson('/api/trials/availability?date=2026-06-16&time=17:00&duration_minutes=30')
-        ->assertOk();
-
-    $teacher = collect($res->json('teachers'))->firstWhere('id', $this->teacher);
-    expect($teacher['has_conflict'])->toBeTrue();
-});
-
-it('returns a weekly availability grid with the teacher in their window', function () {
-    Sanctum::actingAs($this->owner);
-
-    // Week of Sun 2026-06-14 → Sat 2026-06-20; the teacher is free Tue 16:00–19:00.
-    $res = $this->getJson('/api/trials/availability-grid?week_start=2026-06-14&duration_minutes=30')
-        ->assertOk();
-
-    expect($res->json('times'))->toContain('16:00');
-    $cell = collect($res->json('cells.2026-06-16T16:00'));
-    expect($cell->pluck('id'))->toContain($this->teacher);
-    expect($cell->firstWhere('id', $this->teacher)['has_conflict'])->toBeFalse();
-
-    // No cell outside the window (e.g. a Thursday) carries this teacher.
-    expect($res->json('cells.2026-06-18T16:00'))->toBeNull();
-});
-
-it('flags a grid cell as conflicted when the teacher is already booked', function () {
-    Sanctum::actingAs($this->owner);
-
-    $this->postJson('/api/trials', [
-        'teacher_id' => $this->teacher,
-        'lead_name' => 'Grid Lead',
-        'lead_whatsapp' => '+201234567890',
-        'local_datetime' => '2026-06-16 16:00',
-        'timezone' => 'Africa/Cairo',
-        'duration_minutes' => 30,
-    ])->assertCreated();
-
-    $res = $this->getJson('/api/trials/availability-grid?week_start=2026-06-14&duration_minutes=30')
-        ->assertOk();
-
-    $cell = collect($res->json('cells.2026-06-16T16:00'));
-    expect($cell->firstWhere('id', $this->teacher)['has_conflict'])->toBeTrue();
-});
+// 2026-06-16 is a Tuesday; 17:00 Cairo sits inside the teacher's 16:00–19:00 window.
 
 it('books a trial for a brand-new lead (no student row created)', function () {
     Sanctum::actingAs($this->owner);
@@ -146,6 +69,72 @@ it('rejects a lead trial with neither a student nor lead contact', function () {
     ])->assertStatus(422); // missing WhatsApp
 });
 
+it('warns — but does not block — when the slot overlaps another trial', function () {
+    Sanctum::actingAs($this->owner);
+
+    $this->postJson('/api/trials', [
+        'teacher_id' => $this->teacher,
+        'lead_name' => 'First Lead',
+        'lead_whatsapp' => '+201234567890',
+        'local_datetime' => '2026-06-16 17:00',
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 30,
+    ])->assertCreated();
+
+    $res = $this->postJson('/api/trials', [
+        'teacher_id' => $this->teacher,
+        'lead_name' => 'Second Lead',
+        'lead_whatsapp' => '+201234567891',
+        'local_datetime' => '2026-06-16 17:15',
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 30,
+    ])->assertCreated();
+
+    expect(collect($res->json('warnings'))->pluck('type'))->toContain('conflict');
+});
+
+it('counts the trials the overview page reports on', function () {
+    Sanctum::actingAs($this->owner);
+
+    $upcoming = $this->postJson('/api/trials', [
+        'teacher_id' => $this->teacher,
+        'lead_name' => 'Upcoming Lead',
+        'lead_whatsapp' => '+201234567892',
+        'local_datetime' => '2026-06-16 17:00',
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 30,
+    ])->assertCreated()->json('trialId');
+
+    $past = $this->postJson('/api/trials', [
+        'teacher_id' => $this->teacher,
+        'student_id' => $this->student,
+        'local_datetime' => '2026-05-12 17:00',
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 30,
+    ])->assertCreated()->json('trialId');
+
+    $this->patchJson("/api/trials/{$past}", ['status' => 'COMPLETED'])->assertOk();
+
+    $summary = $this->getJson('/api/trials/summary')->assertOk()->json();
+    expect($summary['total'])->toBe(2);
+    expect($summary['upcoming'])->toBe(1);
+    expect($summary['completed'])->toBe(1);
+    // Nothing came from the CRM here, and nothing has slipped past its slot unresolved.
+    expect($summary['from_crm'])->toBe(0);
+    expect($summary['awaiting_outcome'])->toBe(0);
+    expect($upcoming)->not->toBe($past);
+});
+
+it('no longer exposes the availability matcher', function () {
+    // Finding a teacher for a slot was the old trials page's whole job; booking now happens in
+    // the CRM, so the matcher is gone rather than left running unused. (Asserted on the route
+    // table, not a status code: `availability` would otherwise be read as a trial id.)
+    $uris = collect(app('router')->getRoutes()->getRoutes())->map(fn ($r) => $r->uri());
+
+    expect($uris)->not->toContain('api/trials/availability');
+    expect($uris)->not->toContain('api/trials/availability-grid');
+});
+
 it('converts a completed lead trial into a real student', function () {
     Sanctum::actingAs($this->owner);
 
@@ -176,5 +165,5 @@ it('forbids a teacher from reaching the trials surface', function () {
     Sanctum::actingAs($teacherUser);
 
     $this->getJson('/api/trials')->assertForbidden();
-    $this->getJson('/api/trials/availability?date=2026-06-16&time=17:00&duration_minutes=30')->assertForbidden();
+    $this->getJson('/api/trials/summary')->assertForbidden();
 });

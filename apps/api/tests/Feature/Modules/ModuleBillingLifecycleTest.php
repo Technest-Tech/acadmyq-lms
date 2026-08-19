@@ -5,7 +5,9 @@ declare(strict_types=1);
 use App\Jobs\ExpireAcademyTrialsJob;
 use App\Services\AcademyBilling;
 use App\Services\ModuleBilling;
+use App\Support\AuthContext;
 use App\Support\Entitlement;
+use App\Support\Tenancy;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -56,6 +58,14 @@ function mbResolve(string $academyId): array
     return Entitlement::resolve($academyId);
 }
 
+/** Set what a client pays for a module (prices live on the client's own row now). */
+function mbPrice(string $academyId, string $module, int $priceMinor): void
+{
+    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+    DB::statement('select set_config(?, ?, true)', ['app.current_academy_id', $academyId]);
+    app(ModuleBilling::class)->setPricing($academyId, $module, priceMinor: $priceMinor);
+}
+
 /** The live module sub row (read in the academy's context). */
 function mbSub(string $academyId, string $module): ?object
 {
@@ -68,33 +78,35 @@ function mbSub(string $academyId, string $module): ?object
 }
 
 it('enables VIDEO with a trial through the client endpoint: sub + entitlement + mirror', function () {
-    $mgmtPlan = mbPlan('MANAGEMENT', ['invoicing'], [], 30000);
-    $videoPlan = mbPlan('VIDEO', ['video.conferencing'], ['maxRooms' => 5], 20000);
-    $academyId = $this->createAcademy(overrides: ['plan_id' => $mgmtPlan, 'status' => 'ACTIVE']);
+    $academyId = $this->createAcademy();
+    mbPrice($academyId, 'MANAGEMENT', 30000);
 
     Sanctum::actingAs($this->admin);
     $this->postJson("/api/admin/clients/{$academyId}/modules/video/subscription", [
-        'plan_id' => $videoPlan, 'mode' => 'trial', 'trial_days' => 7,
+        'mode' => 'trial', 'trial_days' => 7, 'price_minor' => 20000,
     ])->assertCreated()->assertJsonPath('subscription.is_trial', true);
 
     $sub = mbSub($academyId, 'VIDEO');
     expect($sub)->not->toBeNull();
     expect((bool) $sub->is_trial)->toBeTrue();
+    expect((int) $sub->base_price_minor)->toBe(20000);
     expect(Carbon::parse($sub->trial_end)->diffInDays(now()->addDays(7)))->toBeLessThan(1);
 
-    // Entitlement: video granted (override container) + management caps intact + tier limits.
+    // Entitlement: the module grants the classroom, the management side is untouched, and the
+    // client's own cap (set from its profile) is the only limit in play.
+    $this->putJson("/api/admin/clients/{$academyId}/modules/video/features", [
+        'limits' => ['maxRooms' => 5],
+    ])->assertOk();
+
     $resolved = mbResolve($academyId);
     expect($resolved['capabilities'])->toContain('video.conferencing')->toContain('invoicing');
     expect($resolved['limits']['maxRooms'] ?? null)->toBe(5);
     expect($resolved['modules'])->toContain('VIDEO')->toContain('MANAGEMENT');
 
-    // Legacy mirror: consolidated total (30000 + 20000), primary plan on the academy row.
+    // Legacy mirror: one consolidated total (30000 + 20000) for the client.
     $this->enterAcademyAsSuperAdmin($academyId);
     $legacy = DB::table('academy_subscriptions')->where('academy_id', $academyId)->where('status', '<>', 'ENDED')->first();
     expect((int) $legacy->total_cost_minor)->toBe(50000);
-    $this->asSuperAdmin();
-    expect((string) DB::table('academies')->where('id', $academyId)->value('plan_id'))->toBe($mgmtPlan);
-    expect((string) DB::table('academies')->where('id', $academyId)->value('video_access'))->toBe('ENABLED');
 
     // Audit trail for the enable (audit_log is tenant-scoped — read in the academy's context).
     $this->enterAcademyAsSuperAdmin($academyId);
@@ -102,12 +114,11 @@ it('enables VIDEO with a trial through the client endpoint: sub + entitlement + 
 });
 
 it('defaults the trial length to config(billing.trial_days) when no days are sent', function () {
-    $videoPlan = mbPlan('VIDEO', ['video.conferencing']);
-    $academyId = $this->createAcademy(overrides: ['plan_id' => mbPlan('MANAGEMENT', ['invoicing']), 'status' => 'ACTIVE']);
+    $academyId = $this->createAcademy();
 
     Sanctum::actingAs($this->admin);
     $this->postJson("/api/admin/clients/{$academyId}/modules/video/subscription", [
-        'plan_id' => $videoPlan, 'mode' => 'trial',
+        'mode' => 'trial',
     ])->assertCreated();
 
     $sub = mbSub($academyId, 'VIDEO');
@@ -118,13 +129,12 @@ it('defaults the trial length to config(billing.trial_days) when no days are sen
     ))->toBeTrue();
 });
 
-it('rejects a plan from another module (422)', function () {
-    $mgmtPlan = mbPlan('MANAGEMENT', ['invoicing']);
-    $academyId = $this->createAcademy(overrides: ['plan_id' => $mgmtPlan, 'status' => 'ACTIVE']);
+it('rejects a module the client type cannot hold (422)', function () {
+    $academyId = $this->createAcademy(); // a MANAGEMENT client — never the course platform
 
     Sanctum::actingAs($this->admin);
-    $this->postJson("/api/admin/clients/{$academyId}/modules/video/subscription", [
-        'plan_id' => $mgmtPlan, 'mode' => 'trial',
+    $this->postJson("/api/admin/clients/{$academyId}/modules/lms/subscription", [
+        'mode' => 'trial',
     ])->assertUnprocessable();
 });
 
@@ -289,16 +299,14 @@ it('lists every client with its module chips in the directory (SUPER_ADMIN only)
 });
 
 it('stamps a consolidated bill with its per-module breakdown (M-BILL-1)', function () {
-    $mgmtPlan = mbPlan('MANAGEMENT', ['invoicing'], [], 30000);
-    $videoPlan = mbPlan('VIDEO', ['video.conferencing'], [], 20000);
-    $academyId = $this->createAcademy(overrides: ['plan_id' => $mgmtPlan, 'status' => 'ACTIVE']);
+    $academyId = $this->createAcademy();
 
     Sanctum::actingAs($this->admin);
     $this->postJson("/api/admin/clients/{$academyId}/modules/management/subscription", [
-        'plan_id' => $mgmtPlan, 'mode' => 'active',
+        'mode' => 'active', 'price_minor' => 30000,
     ])->assertCreated();
     $this->postJson("/api/admin/clients/{$academyId}/modules/video/subscription", [
-        'plan_id' => $videoPlan, 'mode' => 'active',
+        'mode' => 'active', 'price_minor' => 20000,
     ])->assertCreated();
 
     $res = $this->postJson("/api/admin/academies/{$academyId}/bills/generate")->assertOk();
@@ -368,15 +376,15 @@ it('rolls the billing period on the PRIMARY module sub and mirrors it (R5a — n
         'current_period_start' => now()->subMonth()->subDay(),
         'current_period_end' => now()->subDay(),
     ]);
-    \App\Support\Tenancy::withContext(new \App\Support\AuthContext(
+    Tenancy::withContext(new AuthContext(
         userId: (string) $this->admin->id, academyId: $academyId, role: 'SUPER_ADMIN', permissions: [],
     ), function () use ($academyId) {
-        $billId = app(\App\Services\AcademyBilling::class)->rollAndBill($academyId);
+        $billId = app(AcademyBilling::class)->rollAndBill($academyId);
         expect($billId)->not->toBeNull();
     });
 
     $sub = mbSub($academyId, 'MANAGEMENT');
-    expect(Illuminate\Support\Carbon::parse($sub->current_period_end)->isFuture())->toBeTrue();
+    expect(Carbon::parse($sub->current_period_end)->isFuture())->toBeTrue();
 
     $this->enterAcademyAsSuperAdmin($academyId);
     $legacy = DB::table('academy_subscriptions')->where('academy_id', $academyId)->where('status', '<>', 'ENDED')->first();

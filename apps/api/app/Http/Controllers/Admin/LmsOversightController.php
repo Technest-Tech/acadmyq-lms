@@ -271,7 +271,13 @@ final class LmsOversightController extends Controller
         }
 
         $data = json_decode($json, true);
-        $data['site'] = LmsSite::block($data['academy']['subdomain'] ?? null);
+        // `ownsRoot` reads the client's entitlement, which is tenant-scoped — resolve it inside that
+        // academy's context, or a Super Admin (who has none) would read an empty subscription set
+        // and mislabel every client's site link.
+        $data['site'] = LmsSite::block(
+            $data['academy']['subdomain'] ?? null,
+            $this->inAcademyContext($id, static fn (): bool => LmsSite::ownsRoot($id)),
+        );
 
         return $data;
     }

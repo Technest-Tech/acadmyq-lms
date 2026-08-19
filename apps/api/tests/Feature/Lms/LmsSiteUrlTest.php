@@ -6,6 +6,7 @@ use App\Support\LmsSite;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -28,7 +29,7 @@ beforeEach(function () {
     $this->clearTenantContext();
 
     $this->lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
-    $this->academy = $this->createAcademy(overrides: ['plan_id' => $this->lmsPlan, 'subdomain' => 'coursesite']);
+    $this->academy = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS', 'subdomain' => 'coursesite']);
     $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER');
     $this->admin = $this->makeUser(null, 'SUPER_ADMIN');
 });
@@ -99,4 +100,34 @@ it('marks the site unconfigured on both surfaces when the root domain is empty',
         ->and($admin['configured'])->toBeFalse()
         ->and($client['url'])->toBe('/learn/coursesite')
         ->and($admin['url'])->toBe('/learn/coursesite');
+});
+
+// ── one host, two products: who answers at `/` decides the link ──────────────
+it('keeps the course site at the root for a course-platform client', function () {
+    config(['lms.site.root_domain' => 'acadmyq.com', 'lms.site.scheme' => 'https']);
+
+    // `lms.only` is the marker; which fact produces it is mid-migration (the LMS plan's
+    // capabilities today, `academies.client_type = 'LMS'` under docs/superadmin-modules/05), so the
+    // fixture states both.
+    $lmsOnly = $this->createAcademy(overrides: array_merge(
+        ['client_type' => 'LMS', 'subdomain' => 'lmsonly'],
+        Schema::hasColumn('academies', 'client_type') ? ['client_type' => 'LMS'] : [],
+    ));
+    $this->asAcademy($lmsOnly);
+
+    expect(LmsSite::ownsRoot($lmsOnly))->toBeTrue()
+        ->and(LmsSite::block('lmsonly', true)['url'])->toBe('https://lmsonly.acadmyq.com');
+});
+
+it('moves it one path down when the client also runs the management panel', function () {
+    config(['lms.site.root_domain' => 'acadmyq.com', 'lms.site.scheme' => 'https']);
+
+    // A school that ALSO sells courses: `/` on their host is their sign-in, not the catalogue.
+    $pro = DB::table('plans')->where('code', 'PRO')->value('id');
+    $school = $this->createAcademy(overrides: ['subdomain' => 'schoolsite']);
+    $this->asAcademy($school);
+
+    expect(LmsSite::ownsRoot($school))->toBeFalse()
+        ->and(LmsSite::block('schoolsite', false)['url'])
+        ->toBe('https://schoolsite.acadmyq.com/learn/schoolsite');
 });

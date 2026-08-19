@@ -36,7 +36,7 @@ beforeEach(function () {
     Http::fake();
 
     $this->proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
-    $this->pro = $this->createAcademy(overrides: ['plan_id' => $this->proPlan]);
+    $this->pro = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO']);
     $this->owner = $this->makeUser($this->pro, 'ACADEMY_OWNER');
 
     // Create a room through the API so it gets a real `__<academyId>` livekit_name.

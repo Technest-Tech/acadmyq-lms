@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\User;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -31,6 +32,39 @@ it('returns the Owner role, academy, and owner permission set', function () {
         ->toContain('invoice.mark_paid')
         ->toContain('student.create')
         ->not->toContain('academy.create'); // platform-only
+});
+
+// ── the panel's own identity travels with the session (docs/lms/02) ──────────
+it('ships the academy name and logo the shell paints, and none for a platform admin', function () {
+    $this->asSuperAdmin();
+    DB::table('academies')->where('id', $this->academy)->update([
+        'name' => 'Noor Academy',
+        'brand_display_name' => 'Noor',
+        'brand_logo_url' => 'https://cdn.test/noor.png',
+    ]);
+
+    Sanctum::actingAs($this->makeUser($this->academy, 'ACADEMY_OWNER'));
+    $this->getJson('/api/auth/me')->assertOk()
+        ->assertJsonPath('academy.name', 'Noor Academy')
+        ->assertJsonPath('academy.displayName', 'Noor')
+        ->assertJsonPath('academy.logoUrl', 'https://cdn.test/noor.png');
+
+    // A platform Super Admin has no academy, so the chrome keeps the platform's own mark.
+    Sanctum::actingAs($this->makeUser(null, 'SUPER_ADMIN'));
+    $this->getJson('/api/auth/me')->assertOk()->assertJsonPath('academy', null);
+});
+
+// ── the display name falls back to the academy's own name ────────────────────
+it('falls back to the academy name when no brand name is set', function () {
+    $this->asSuperAdmin();
+    DB::table('academies')->where('id', $this->academy)->update([
+        'name' => 'Al-Huda', 'brand_display_name' => null, 'brand_logo_url' => null,
+    ]);
+
+    Sanctum::actingAs($this->makeUser($this->academy, 'ACADEMY_OWNER'));
+    $this->getJson('/api/auth/me')->assertOk()
+        ->assertJsonPath('academy.displayName', 'Al-Huda')
+        ->assertJsonPath('academy.logoUrl', null);
 });
 
 // ── TC-2.5 / AC-2.10: /auth/me for a Teacher (limited set) ───────────────────

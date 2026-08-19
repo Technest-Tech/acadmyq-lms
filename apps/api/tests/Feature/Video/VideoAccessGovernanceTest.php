@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\ModuleBilling;
 use App\Support\Entitlement;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -26,28 +27,30 @@ beforeEach(function () {
 
     $this->admin = $this->makeUser(null, 'SUPER_ADMIN');
 
-    $this->noVideoPlan = makeGovPlan('NOVID', []);
-    $this->videoPlan = makeGovPlan('VIDPLAN', ['capabilities' => ['video.conferencing'], 'limits' => ['maxRooms' => 10]]);
-    $this->videoTier = makeGovPlan('VIDTIER', ['capabilities' => ['video.conferencing'], 'limits' => ['maxRooms' => 3, 'maxRoomParticipants' => 25, 'recordingAllowed' => 0]]);
 });
 
-function makeGovPlan(string $code, array $features): string
-{
-    $id = (string) Str::uuid();
-    DB::table('plans')->insert([
-        'id' => $id, 'code' => $code, 'name' => "Plan {$code}",
-        'price_minor' => 0, 'currency' => 'EGP',
-        'features' => json_encode($features), 'is_active' => true,
-    ]);
-
-    return $id;
-}
-
-/** Set the academy's video-access columns directly (Super Admin context admits the write). */
-function setVideoCols(string $academyId, array $cols): void
+/** Force the VIDEO module's legacy access switch / trial clock, as the ops screen writes them. */
+function setVideoOverride(string $academyId, array $overrides): void
 {
     test()->enterAcademyAsSuperAdmin($academyId);
-    DB::table('academies')->where('id', $academyId)->update($cols);
+    $engine = app(ModuleBilling::class);
+    $sub = $engine->current($academyId, 'VIDEO') ?? $engine->ensure($academyId, 'VIDEO');
+    DB::table('module_subscriptions')->where('id', $sub->id)->update([
+        'overrides' => $overrides === [] ? null : json_encode($overrides),
+        'updated_at' => now(),
+    ]);
+    test()->clearTenantContext();
+}
+
+/** Enable / cap the client's video module the way its profile does. */
+function govEnableVideo(string $academyId, array $limits = []): void
+{
+    test()->enterAcademyAsSuperAdmin($academyId);
+    $engine = app(ModuleBilling::class);
+    $engine->enable($academyId, 'VIDEO', trial: false);
+    if ($limits !== []) {
+        $engine->setLimitOverrides($academyId, 'VIDEO', $limits);
+    }
     test()->clearTenantContext();
 }
 
@@ -77,41 +80,45 @@ function seedGovRoom(string $academyId): string
 }
 
 // ── Entitlement override ──────────────────────────────────────────────────────────
-it('force-enables video on a non-video plan and force-disables it on a video plan', function () {
-    $on = $this->createAcademy(overrides: ['plan_id' => $this->noVideoPlan]);
+it('grants the classroom to a client we sold the module to, and the ops force-off still cuts it', function () {
+    $on = $this->createAcademy();
     expect(resolveGov($on)['capabilities'])->not->toContain('video.conferencing');
-    setVideoCols($on, ['video_access' => 'ENABLED']);
+    govEnableVideo($on);
     expect(resolveGov($on)['capabilities'])->toContain('video.conferencing');
 
-    $off = $this->createAcademy(overrides: ['plan_id' => $this->videoPlan]);
-    expect(resolveGov($off)['capabilities'])->toContain('video.conferencing'); // plan grants it
-    setVideoCols($off, ['video_access' => 'DISABLED']);
-    expect(resolveGov($off)['capabilities'])->not->toContain('video.conferencing');
+    setVideoOverride($on, ['access' => 'DISABLED']);
+    expect(resolveGov($on)['capabilities'])->not->toContain('video.conferencing');
 });
 
-it('auto-expires a trial grant once the date passes', function () {
-    $a = $this->createAcademy(overrides: ['plan_id' => $this->noVideoPlan]);
-    setVideoCols($a, ['video_access' => 'ENABLED', 'video_trial_ends_at' => now()->addDays(5)]);
+it('auto-expires a module trial once the date passes', function () {
+    $a = $this->createAcademy();
+    $this->enterAcademyAsSuperAdmin($a);
+    app(ModuleBilling::class)->enable($a, 'VIDEO', trial: true, trialDays: 5);
+    $this->clearTenantContext();
     expect(resolveGov($a)['capabilities'])->toContain('video.conferencing');
 
-    setVideoCols($a, ['video_trial_ends_at' => now()->subDay()]);
+    $this->enterAcademyAsSuperAdmin($a);
+    DB::table('module_subscriptions')->where('academy_id', $a)->where('module', 'VIDEO')
+        ->update(['trial_end' => now()->subDay()]);
+    $this->clearTenantContext();
     expect(resolveGov($a)['capabilities'])->not->toContain('video.conferencing');
 });
 
-it('merges only the video limit keys from the assigned video tier', function () {
-    $a = $this->createAcademy(overrides: ['plan_id' => $this->videoPlan]);
-    expect(resolveGov($a)['limits']['maxRooms'])->toBe(10); // from the plan
+it('applies only this client own video caps, leaving every other key unlimited', function () {
+    $a = $this->createAcademy();
+    govEnableVideo($a);
+    expect(resolveGov($a)['limits'])->toBe([]); // uncapped by default
 
-    setVideoCols($a, ['video_plan_id' => $this->videoTier]);
+    govEnableVideo($a, ['maxRooms' => 3, 'maxRoomParticipants' => 25, 'recordingAllowed' => 0]);
     $r = resolveGov($a);
-    expect($r['limits']['maxRooms'])->toBe(3);              // tier wins
+    expect($r['limits']['maxRooms'])->toBe(3);
     expect($r['limits']['maxRoomParticipants'])->toBe(25);
     expect($r['limits']['recordingAllowed'])->toBe(0);
 });
 
 // ── set-access write ──────────────────────────────────────────────────────────────
 it('activates video and audits the action (visible in the compliance feed)', function () {
-    $a = $this->createAcademy(overrides: ['plan_id' => $this->noVideoPlan]);
+    $a = $this->createAcademy();
 
     Sanctum::actingAs($this->admin);
     $this->postJson("/api/admin/video/academies/{$a}/access", ['action' => 'enable'])
@@ -123,42 +130,42 @@ it('activates video and audits the action (visible in the compliance feed)', fun
     expect($actions)->toContain('video.academy_access');
 });
 
-it('grants a trial with a tier, then reverts to plan', function () {
-    $a = $this->createAcademy(overrides: ['plan_id' => $this->noVideoPlan]);
+it('grants a trial with per-client meet options, then takes the module away', function () {
+    $a = $this->createAcademy();
 
     Sanctum::actingAs($this->admin);
     $this->postJson("/api/admin/video/academies/{$a}/access", [
-        'action' => 'trial', 'trial_days' => 14, 'video_plan_id' => $this->videoTier,
+        'action' => 'trial', 'trial_days' => 14, 'overrides' => ['maxRooms' => 3],
     ])->assertOk()->assertJsonPath('academy.video_status', 'TRIAL');
 
     $r = resolveGov($a);
     expect($r['capabilities'])->toContain('video.conferencing');
-    expect($r['limits']['maxRooms'])->toBe(3); // the tier's options apply
+    expect($r['limits']['maxRooms'])->toBe(3); // this client's own cap
 
-    $this->postJson("/api/admin/video/academies/{$a}/access", ['action' => 'follow_plan'])
-        ->assertOk()->assertJsonPath('academy.video_status', 'NONE');
+    $this->enterAcademyAsSuperAdmin($a);
+    app(ModuleBilling::class)->end($a, 'VIDEO');
+    $this->clearTenantContext();
     expect(resolveGov($a)['capabilities'])->not->toContain('video.conferencing');
 });
 
 it('forbids a non-Super-Admin from the access write + the detail/logs reads', function () {
-    $a = $this->createAcademy(overrides: ['plan_id' => $this->videoPlan]);
+    $a = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO']);
     $owner = $this->makeUser($a, 'ACADEMY_OWNER');
 
     Sanctum::actingAs($owner);
     $this->postJson("/api/admin/video/academies/{$a}/access", ['action' => 'enable'])->assertForbidden();
     $this->getJson("/api/admin/video/academies/{$a}")->assertForbidden();
-    $this->getJson('/api/admin/video/plans')->assertForbidden();
 });
 
 // ── detail + room logs readers ─────────────────────────────────────────────────────
 it('returns per-academy detail with status, stats and rooms', function () {
-    $a = $this->createAcademy(overrides: ['plan_id' => $this->videoPlan]);
+    $a = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO']);
     seedGovRoom($a);
 
     Sanctum::actingAs($this->admin);
     $res = $this->getJson("/api/admin/video/academies/{$a}")->assertOk();
     expect($res->json('academy.id'))->toBe($a);
-    expect($res->json('academy.video_status'))->toBe('PLAN');
+    expect($res->json('academy.video_status'))->toBe('ENABLED');
     expect($res->json('stats.total_rooms'))->toBe(1);
     expect($res->json('rooms'))->toHaveCount(1);
 
@@ -166,9 +173,9 @@ it('returns per-academy detail with status, stats and rooms', function () {
 });
 
 it('returns a room log and rejects a room from another academy', function () {
-    $a = $this->createAcademy(overrides: ['plan_id' => $this->videoPlan]);
+    $a = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO']);
     $room = seedGovRoom($a);
-    $b = $this->createAcademy(overrides: ['plan_id' => $this->videoPlan]);
+    $b = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO']);
     $otherRoom = seedGovRoom($b);
 
     Sanctum::actingAs($this->admin);
@@ -179,9 +186,9 @@ it('returns a room log and rejects a room from another academy', function () {
 });
 
 // ── list includes a zero-room, force-enabled academy ───────────────────────────────
-it('lists a force-enabled academy with no rooms in the usage feed', function () {
-    $a = $this->createAcademy(overrides: ['plan_id' => $this->noVideoPlan, 'name' => 'Zero Room Video']);
-    setVideoCols($a, ['video_access' => 'ENABLED']);
+it('lists a client with the module and no rooms in the usage feed', function () {
+    $a = $this->createAcademy(overrides: ['name' => 'Zero Room Video']);
+    govEnableVideo($a);
 
     Sanctum::actingAs($this->admin);
     $row = collect($this->getJson('/api/admin/video/usage')->assertOk()->json('academies'))
@@ -189,12 +196,4 @@ it('lists a force-enabled academy with no rooms in the usage feed', function () 
     expect($row)->not->toBeNull();
     expect($row['video_status'])->toBe('ENABLED');
     expect($row['active_rooms'])->toBe(0);
-});
-
-it('lists video-capable plans for the tier picker', function () {
-    Sanctum::actingAs($this->admin);
-    $codes = collect($this->getJson('/api/admin/video/plans')->assertOk()->json('plans'))->pluck('code');
-    expect($codes)->toContain('VIDPLAN');
-    expect($codes)->toContain('VIDTIER');
-    expect($codes)->not->toContain('NOVID');
 });

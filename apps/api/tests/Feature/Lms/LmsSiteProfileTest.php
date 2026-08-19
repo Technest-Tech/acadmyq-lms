@@ -29,9 +29,9 @@ beforeEach(function () {
     // `entitled:lms` 402s without a plan that grants the module — the trap every LMS suite hits.
     $this->lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
 
-    $this->academy = $this->createAcademy(overrides: [
+    $this->academy = $this->createAcademy(modules: ['LMS'], overrides: [
         'name' => 'Noor Academy',
-        'plan_id' => $this->lmsPlan,
+        'client_type' => 'LMS',
         'subdomain' => 'noor-lms',
     ]);
     $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER');
@@ -169,9 +169,9 @@ it('never shows one academy the content of another', function () {
     $this->putJson('/api/courses/site', ['hero' => ['title' => 'Noor only']])->assertOk();
     app()['auth']->forgetGuards();
 
-    $other = $this->createAcademy(overrides: [
+    $other = $this->createAcademy(modules: ['LMS'], overrides: [
         'name' => 'Other Academy',
-        'plan_id' => $this->lmsPlan,
+        'client_type' => 'LMS',
         'subdomain' => 'other',
     ]);
     $otherOwner = $this->makeUser($other, 'ACADEMY_OWNER');

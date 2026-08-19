@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -27,10 +28,10 @@ beforeEach(function () {
 
     $this->admin = $this->makeUser(null, 'SUPER_ADMIN');
 
-    $this->A = $this->createAcademy(overrides: ['plan_id' => $this->proPlan]);
+    $this->A = $this->createAcademy();
     $this->ownerA = $this->makeUser($this->A, 'ACADEMY_OWNER');
 
-    $this->B = $this->createAcademy(overrides: ['plan_id' => $this->proPlan]);
+    $this->B = $this->createAcademy();
     $this->ownerB = $this->makeUser($this->B, 'ACADEMY_OWNER');
 });
 
@@ -102,25 +103,30 @@ it('scopes the owner audit to their academy while the Super Admin sees all', fun
     expect($allAcademies)->toContain($this->B);
 });
 
-// ── TC-9.9: BASIC depth = last 30 days; PRO/audit.full = full history ─────────────
-it('limits BASIC audit depth to 30 days and unlocks full history on PRO', function () {
-    $basic = $this->createAcademy(overrides: ['plan_id' => $this->basicPlan]);
-    $basicOwner = $this->makeUser($basic, 'ACADEMY_OWNER');
+// ── TC-9.9: audit depth is a per-client switch — full history unless we cut it ────
+it('limits audit depth to 30 days for a client whose audit.full we switched off', function () {
+    $shallow = $this->createAcademy();
+    $shallowOwner = $this->makeUser($shallow, 'ACADEMY_OWNER');
 
-    seedAudit($basic, 'student.create', $basicOwner->id, now()->subDays(5));   // recent
-    seedAudit($basic, 'student.create', $basicOwner->id, now()->subDays(60));  // old
+    // Every client has audit.full by default (05-MODULES-NOT-PACKAGES §3); this one we trimmed.
+    $this->asAcademy($shallow, 'SUPER_ADMIN');
+    app(ModuleBilling::class)->setDisabledFeatures($shallow, 'MANAGEMENT', ['audit.full']);
+    $this->clearTenantContext();
 
-    Sanctum::actingAs($basicOwner);
+    seedAudit($shallow, 'student.create', $shallowOwner->id, now()->subDays(5));   // recent
+    seedAudit($shallow, 'student.create', $shallowOwner->id, now()->subDays(60));  // old
+
+    Sanctum::actingAs($shallowOwner);
     $res = $this->getJson('/api/audit')->assertOk();
     expect($res->json('depthLimitedDays'))->toBe(30);
-    expect($res->json('total'))->toBe(1); // only the recent row is visible to BASIC
+    expect($res->json('total'))->toBe(1); // only the recent row is visible
 
-    // PRO academy with an equally-old row → full history (no depth limit).
+    // An untouched client with an equally-old row → full history (no depth limit).
     seedAudit($this->A, 'student.create', $this->ownerA->id, now()->subDays(60));
     Sanctum::actingAs($this->ownerA);
-    $proRes = $this->getJson('/api/audit?action=student.create')->assertOk();
-    expect($proRes->json('depthLimitedDays'))->toBeNull();
-    expect($proRes->json('total'))->toBeGreaterThanOrEqual(1);
+    $fullRes = $this->getJson('/api/audit?action=student.create')->assertOk();
+    expect($fullRes->json('depthLimitedDays'))->toBeNull();
+    expect($fullRes->json('total'))->toBeGreaterThanOrEqual(1);
 });
 
 // ── TC-9.10: the audit read path is read-only (append-only forever) ──────────────

@@ -10,7 +10,8 @@ namespace App\Support;
  * link, and they must never disagree about it — hence a single helper rather than the string
  * concatenation each was doing.
  *
- * Two shapes, decided by whether a root domain is configured:
+ * Two shapes, decided by whether a root domain is configured (and, on a real origin, by whether the
+ * course site owns the root of that host — see `ownsRoot`):
  *
  *  - CONFIGURED (`LMS_SITE_ROOT_DOMAIN`) ⇒ the real site origin, `{scheme}://{sub}.{root}`. The root
  *    may include a port for local development (`localhost:3000`); the web middleware matches on
@@ -24,10 +25,19 @@ namespace App\Support;
  */
 final class LmsSite
 {
-    /** The configured root domain (possibly with a port), or '' when subdomain routing is off. */
+    /**
+     * The CANONICAL root domain (possibly with a port), or '' when subdomain routing is off.
+     *
+     * The setting may list several roots, comma-separated, mirroring the web app's
+     * NEXT_PUBLIC_ROOT_DOMAIN: the middleware MATCHES every one of them (a client host can be
+     * reachable at more than one address in development), while a link handed to a client has to
+     * name exactly one — the first.
+     */
     public static function rootDomain(): string
     {
-        return trim((string) config('lms.site.root_domain', ''));
+        $roots = array_filter(array_map('trim', explode(',', (string) config('lms.site.root_domain', ''))));
+
+        return (string) (reset($roots) ?: '');
     }
 
     /** Is subdomain routing configured? False ⇒ URLs are in-app paths, not real origins. */
@@ -45,18 +55,40 @@ final class LmsSite
     }
 
     /**
+     * Does the course site own the ROOT of this client's host?
+     *
+     * A client's `<handle>.<root>` serves one of two products, and only one of them can answer at
+     * `/`: for a client whose whole product IS the course platform (`lms.only`) that is the course
+     * site, and for everyone else it is their management sign-in — their course site, if they have
+     * one, sits one path down. The web middleware splits the host on exactly this fact, so the URL
+     * this class hands out has to be decided by the same predicate or the two would disagree.
+     */
+    public static function ownsRoot(string $academyId): bool
+    {
+        return in_array('lms.only', Entitlement::resolve($academyId)['capabilities'], true);
+    }
+
+    /**
      * The site URL for a handle — a real origin when a root domain is configured, else the in-app
      * path. Null when the academy has no handle (site not published).
+     *
+     * `$ownsRoot` false (a client running the management panel on that host) puts the course site at
+     * `/learn/{sub}` under their own origin, because `/` there is their sign-in. Unconfigured roots
+     * are unaffected: the in-app path is the same either way.
      */
-    public static function url(?string $subdomain): ?string
+    public static function url(?string $subdomain, bool $ownsRoot = true): ?string
     {
         if ($subdomain === null || $subdomain === '') {
             return null;
         }
 
-        return self::configured()
-            ? self::scheme().'://'.$subdomain.'.'.self::rootDomain()
-            : '/learn/'.$subdomain;
+        if (! self::configured()) {
+            return '/learn/'.$subdomain;
+        }
+
+        $origin = self::scheme().'://'.$subdomain.'.'.self::rootDomain();
+
+        return $ownsRoot ? $origin : $origin.'/learn/'.$subdomain;
     }
 
     /**
@@ -65,11 +97,11 @@ final class LmsSite
      *
      * @return array{subdomain: ?string, url: ?string, root_domain: ?string, configured: bool}
      */
-    public static function block(?string $subdomain): array
+    public static function block(?string $subdomain, bool $ownsRoot = true): array
     {
         return [
             'subdomain' => $subdomain,
-            'url' => self::url($subdomain),
+            'url' => self::url($subdomain, $ownsRoot),
             'root_domain' => self::configured() ? self::rootDomain() : null,
             'configured' => self::configured(),
         ];

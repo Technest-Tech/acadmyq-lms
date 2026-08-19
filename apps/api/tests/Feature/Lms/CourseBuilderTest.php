@@ -26,7 +26,7 @@ beforeEach(function () {
     // capability, so they DO include it) — the right plan to prove the entitlement gate bites.
     $this->basicPlan = DB::table('plans')->where('code', 'BASIC')->value('id');
 
-    $this->academy = $this->createAcademy(overrides: ['plan_id' => $lmsPlan]);
+    $this->academy = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS']);
     $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER');
     $this->teacher = $this->makeUser($this->academy, 'TEACHER');
 });
@@ -79,7 +79,7 @@ it('builds a course with sections and lessons, then publishes it', function () {
 
 // ── AC: entitlement gate (402) ───────────────────────────────────────────────
 it('returns 402 for an academy without the LMS module', function () {
-    $other = $this->createAcademy(overrides: ['plan_id' => $this->basicPlan]);
+    $other = $this->createAcademy();
     $owner = $this->makeUser($other, 'ACADEMY_OWNER');
     Sanctum::actingAs($owner);
 
@@ -100,7 +100,7 @@ it('never lets one academy open another academy course', function () {
     $courseId = $this->postJson('/api/courses', ['title' => 'Private'])->assertCreated()->json('courseId');
 
     $lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
-    $intruderAcademy = $this->createAcademy(overrides: ['plan_id' => $lmsPlan]);
+    $intruderAcademy = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS']);
     $intruder = $this->makeUser($intruderAcademy, 'ACADEMY_OWNER');
     Sanctum::actingAs($intruder);
 

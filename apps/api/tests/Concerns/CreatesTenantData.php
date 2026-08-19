@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Concerns;
 
+use App\Support\FeatureCatalog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -28,7 +29,16 @@ trait CreatesTenantData
         return $id;
     }
 
-    protected function createAcademy(?string $id = null, ?string $typeId = null, array $overrides = []): string
+    /**
+     * A client fixture. Since 05-MODULES-NOT-PACKAGES a client is a TYPE holding MODULES, so this
+     * also provisions the type's primary module subscription — without it the academy would carry
+     * no modules at all and every gated feature would 402, which is not what any test means by
+     * "an academy". Pass `modules: []` for a deliberately module-less client.
+     *
+     * @param  array<string,mixed>  $overrides
+     * @param  list<string>|null  $modules  extra modules to enable alongside the type's own
+     */
+    protected function createAcademy(?string $id = null, ?string $typeId = null, array $overrides = [], ?array $modules = null): string
     {
         $id ??= (string) Str::uuid();
         $typeId ??= $this->createAcademyType();
@@ -37,13 +47,46 @@ trait CreatesTenantData
             'id' => $id,
             'name' => 'Academy '.substr($id, 0, 8),
             'academy_type_id' => $typeId,
+            'client_type' => 'MANAGEMENT',
             'status' => 'ACTIVE',
             'default_currency' => 'EGP',
             'timezone' => 'Africa/Cairo',
             'invoice_grouping' => 'PER_GUARDIAN',
         ], $overrides));
 
+        $type = (string) ($overrides['client_type'] ?? 'MANAGEMENT');
+        $wanted = $modules ?? [FeatureCatalog::CLIENT_TYPE_PRIMARY[$type] ?? 'MANAGEMENT'];
+
+        foreach ($wanted as $module) {
+            $this->createModuleSubscription($id, $module, [
+                'currency' => (string) ($overrides['default_currency'] ?? 'EGP'),
+            ]);
+        }
+
         return $id;
+    }
+
+    /** One live module subscription for a client (ACTIVE, unpriced, uncapped by default). */
+    protected function createModuleSubscription(string $academyId, string $module, array $overrides = []): string
+    {
+        $subId = (string) Str::uuid();
+        $this->asAcademy($academyId);
+        DB::table('module_subscriptions')->insert(array_merge([
+            'id' => $subId,
+            'academy_id' => $academyId,
+            'module' => $module,
+            'status' => 'ACTIVE',
+            'is_trial' => false,
+            'activated_at' => now(),
+            'billing_interval' => 'MONTHLY',
+            'base_price_minor' => 0,
+            'addons_price_minor' => 0,
+            'total_cost_minor' => 0,
+            'currency' => 'EGP',
+        ], $overrides));
+        $this->asSuperAdmin();
+
+        return $subId;
     }
 
     protected function createGuardian(string $academyId, array $overrides = []): string

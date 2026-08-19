@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use App\Jobs\GenerateAcademyInvoicesJob;
 use App\Jobs\SendAcademyBillRemindersJob;
 use App\Services\AcademyBilling;
+use App\Services\ModuleBilling;
 use App\Services\Whatsapp\WhatsAppSender;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -23,37 +23,15 @@ beforeEach(function () {
     $this->admin = $this->makeUser(null, 'SUPER_ADMIN');
 });
 
-/** A non-trial academy with a paid plan, activated so it can be billed. */
+/** A non-trial client priced on its management module, activated so it can be billed. */
 function billableAcademy(object $test, int $price = 60000): string
 {
-    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
-    DB::statement("select set_config('app.current_academy_id', '', true)");
+    // `test()` keeps the protected fixture helpers reachable from this file-level function.
+    $academyId = test()->createAcademy();
 
-    $typeId = (string) Str::uuid();
-    DB::table('academy_types')->insert(['id' => $typeId, 'code' => 'BT-'.substr($typeId, 0, 8), 'name' => 'Billable Type']);
-
-    $planId = (string) Str::uuid();
-    DB::table('plans')->insert([
-        'id' => $planId,
-        'code' => 'BILL-'.substr($planId, 0, 8),
-        'name' => 'Billable',
-        'price_minor' => $price,
-        'currency' => 'EGP',
-        'features' => json_encode(['capabilities' => [], 'limits' => []]),
-        'is_active' => true,
-    ]);
-
-    $academyId = (string) Str::uuid();
-    DB::table('academies')->insert([
-        'id' => $academyId,
-        'name' => 'Bill '.substr($academyId, 0, 8),
-        'academy_type_id' => $typeId,
-        'status' => 'ACTIVE',
-        'plan_id' => $planId,
-        'default_currency' => 'EGP',
-        'timezone' => 'Africa/Cairo',
-        'invoice_grouping' => 'PER_GUARDIAN',
-    ]);
+    test()->enterAcademyAsSuperAdmin($academyId);
+    app(ModuleBilling::class)->setPricing($academyId, 'MANAGEMENT', priceMinor: $price, currency: 'EGP');
+    test()->clearTenantContext();
 
     Sanctum::actingAs($test->admin);
     $test->postJson("/api/admin/academies/{$academyId}/subscription/activate")->assertOk();

@@ -30,20 +30,33 @@ beforeEach(function () {
     $this->lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
 
     // Client A sells courses; client B is a plain school with no LMS module.
-    $this->A = $this->createAcademy(overrides: [
-        'plan_id' => $this->lmsPlan, 'name' => 'Course Co', 'subdomain' => 'coursesite',
+    $this->A = $this->createAcademy(modules: ['LMS'], overrides: [
+        'client_type' => 'LMS', 'name' => 'Course Co', 'subdomain' => 'coursesite',
     ]);
     $this->ownerA = $this->makeUser($this->A, 'ACADEMY_OWNER');
 
     $proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
-    $this->B = $this->createAcademy(overrides: ['plan_id' => $proPlan, 'name' => 'Plain School']);
+    $this->B = $this->createAcademy(overrides: ['name' => 'Plain School']);
 });
 
-/** Give an academy a live LMS module subscription; returns its id. */
+/** Shape the client's live LMS module subscription (one live row per module — M-SUB-2). */
 function seedLmsSub(string $academyId, ?string $planId, array $overrides = []): string
 {
-    $id = (string) Str::uuid();
     test()->enterAcademyAsSuperAdmin($academyId);
+
+    $existing = DB::table('module_subscriptions')
+        ->where('academy_id', $academyId)->where('module', 'LMS')->where('status', '<>', 'ENDED')
+        ->first();
+
+    if ($existing !== null) {
+        DB::table('module_subscriptions')->where('id', $existing->id)
+            ->update(array_merge(['plan_id' => $planId, 'updated_at' => now()], $overrides));
+        test()->clearTenantContext();
+
+        return (string) $existing->id;
+    }
+
+    $id = (string) Str::uuid();
     DB::table('module_subscriptions')->insert(array_merge([
         'id' => $id,
         'academy_id' => $academyId,
@@ -71,68 +84,7 @@ function seedLmsCourse(string $title = 'Algebra'): string
     return $courseId;
 }
 
-/**
- * Provision a client the way the academy-creation flow actually does: ONE `MANAGEMENT` module row
- * carrying the LMS plan, with NO `module = 'LMS'` row anywhere. Every LMS surface must recognise
- * this as a course-platform client — keying on the module ROW NAME misses it entirely.
- */
-function seedLmsClientViaManagementRow(string $academyId, string $lmsPlanId): void
-{
-    test()->enterAcademyAsSuperAdmin($academyId);
-    DB::table('module_subscriptions')->insert([
-        'id' => (string) Str::uuid(),
-        'academy_id' => $academyId,
-        'module' => 'MANAGEMENT',
-        'plan_id' => $lmsPlanId,
-        'status' => 'ACTIVE',
-        'is_trial' => false,
-        'currency' => 'EGP',
-    ]);
-    test()->clearTenantContext();
-}
-
-// ── regression: an LMS client provisioned as a MANAGEMENT row holding the LMS plan ──
-it('lists a brand-new LMS client that has no dedicated LMS module row and no courses', function () {
-    // The exact shape that made a real client invisible: LMS plan on the MANAGEMENT row, zero
-    // courses, zero learners — nothing but the subscription to find it by.
-    seedLmsClientViaManagementRow($this->A, $this->lmsPlan);
-
-    Sanctum::actingAs($this->admin);
-    $row = collect($this->getJson('/api/admin/lms/usage')->assertOk()->json('academies'))
-        ->firstWhere('academy_id', $this->A);
-
-    expect($row)->not->toBeNull('an LMS client must appear before it has any content')
-        ->and($row['lms_status'])->toBe('ACTIVE')
-        ->and($row['lms_enabled'])->toBeTrue()
-        ->and($row['lms_plan_name'])->not->toBeNull();
-});
-
-it('serves the detail page for an LMS client held on the MANAGEMENT row', function () {
-    seedLmsClientViaManagementRow($this->A, $this->lmsPlan);
-
-    Sanctum::actingAs($this->admin);
-    $this->getJson("/api/admin/lms/academies/{$this->A}")->assertOk()
-        ->assertJsonPath('academy.lms_status', 'ACTIVE')
-        ->assertJsonPath('academy.lms_enabled', true)
-        ->assertJsonPath('subscription.status', 'ACTIVE');
-});
-
-it('applies a caps override for an LMS client held on the MANAGEMENT row', function () {
-    seedLmsClientViaManagementRow($this->A, $this->lmsPlan);
-
-    Sanctum::actingAs($this->admin);
-    $this->postJson("/api/admin/lms/academies/{$this->A}/limits", [
-        'limits' => ['maxCourses' => 7, 'maxLearners' => 70, 'maxStorageGb' => 3],
-    ])->assertOk()->assertJsonPath('academy.lms_limits.maxCourses', 7);
-
-    // And the resolver — the thing that actually gates publishing/uploads — must agree.
-    $limits = Entitlement::resolveFromModules($this->A)['limits'];
-    expect($limits['maxCourses'])->toBe(7)
-        ->and($limits['maxLearners'])->toBe(70)
-        ->and($limits['maxStorageGb'])->toBe(3);
-});
-
-it('does not mistake a general PRO client for a course-platform client', function () {
+it('does not mistake a plain management client for a course-platform client', function () {
     // FREE/PRO bundle every capability including `lms`, so identifying LMS clients by capability
     // would list the whole roster. Only an LMS PLAN (or a real LMS module row) counts.
     Sanctum::actingAs($this->admin);

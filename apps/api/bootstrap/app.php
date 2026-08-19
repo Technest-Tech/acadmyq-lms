@@ -10,6 +10,7 @@ use App\Http\Middleware\ResolveAcademyContext;
 use App\Http\Middleware\TenantContextMiddleware;
 use App\Http\Middleware\VerifyLivekitWebhook;
 use App\Http\Middleware\VerifyWhatsAppWebhook;
+use App\Http\Middleware\VerifyXpayWebhook;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -51,6 +52,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'wa.webhook' => VerifyWhatsAppWebhook::class,
             // JWT/body-hash guard for the public inbound webhook from the self-hosted LiveKit server.
             'livekit.webhook' => VerifyLivekitWebhook::class,
+            // HMAC guard for XPay's payment webhooks. Unlike the two above, the signing secret is
+            // per-academy (each client has its own merchant account), resolved from the route.
+            'xpay.webhook' => VerifyXpayWebhook::class,
             // Per-academy API-key auth for the external WhatsApp API (docs/whatsapp-api).
             'wa.apikey' => AuthenticateWhatsAppApiKey::class,
             // LMS public course site (docs/lms): resolve the academy from the subdomain (X-Academy)

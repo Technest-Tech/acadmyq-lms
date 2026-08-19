@@ -39,11 +39,11 @@ beforeEach(function () {
     $this->proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
     $this->basicPlan = DB::table('plans')->where('code', 'BASIC')->value('id');
 
-    $this->pro = $this->createAcademy(overrides: ['plan_id' => $this->proPlan]);
+    $this->pro = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO']);
     $this->proOwner = $this->makeUser($this->pro, 'ACADEMY_OWNER');
     $this->proTeacher = $this->makeUser($this->pro, 'TEACHER');
 
-    $this->basic = $this->createAcademy(overrides: ['plan_id' => $this->basicPlan]);
+    $this->basic = $this->createAcademy();
     $this->basicOwner = $this->makeUser($this->basic, 'ACADEMY_OWNER');
 });
 

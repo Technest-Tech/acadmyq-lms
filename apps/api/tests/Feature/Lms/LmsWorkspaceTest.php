@@ -2,12 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Services\ModuleBilling;
 use App\Support\Entitlement;
 use App\Support\FeatureCatalog;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -24,82 +25,50 @@ beforeEach(function () {
     $this->clearTenantContext();
 
     $this->lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
-    $this->academy = $this->createAcademy(overrides: ['plan_id' => $this->lmsPlan, 'subdomain' => 'coursesite']);
+    $this->academy = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS', 'subdomain' => 'coursesite']);
     $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER');
 });
 
-// ── the workspace marker never leaks into a general plan ──────────────────────
-it('keeps lms.only out of the full-plan capability bundle', function () {
+// ── the workspace marker is never something a module grants ───────────────────
+it('keeps lms.only out of every module capability set', function () {
     expect(FeatureCatalog::CAPABILITIES)->toHaveKey('lms.only');
-    expect(FeatureCatalog::bundledCapabilities())->not->toContain('lms.only');
-    expect(FeatureCatalog::bundledCapabilities())->toContain('lms');
+    expect(FeatureCatalog::capabilitiesOfModule('LMS'))->toBe(['lms']);
 
-    // The seeded full plans must not carry it either.
-    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
-    foreach (['FREE', 'PRO', 'BASIC'] as $code) {
-        $features = DB::table('plans')->where('code', $code)->value('features');
-        if ($features === null) {
-            continue;
-        }
-        $caps = json_decode((string) $features, true)['capabilities'] ?? [];
-        expect($caps)->not->toContain('lms.only', "plan {$code} must not grant lms.only");
+    foreach (FeatureCatalog::MODULE_CAPABILITIES as $module => $capabilities) {
+        expect($capabilities)->not->toContain('lms.only', "module {$module} must not grant lms.only");
+        expect($capabilities)->not->toContain('video.only', "module {$module} must not grant video.only");
     }
 });
 
-// ── an LMS-only client gets the collapsed workspace ───────────────────────────
-it('grants lms.only to a client whose plan is the LMS tier', function () {
+// ── an LMS client gets the collapsed workspace ────────────────────────────────
+it('grants lms.only to a course-platform client', function () {
     $caps = Entitlement::resolve($this->academy)['capabilities'];
     expect($caps)->toContain('lms');
     expect($caps)->toContain('lms.only');
 });
 
-// ── a client who ALSO runs the school keeps the full panel ────────────────────
-it('strips lms.only when the client has another module besides LMS', function () {
-    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
-    $proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
-    $academy = $this->createAcademy(overrides: ['plan_id' => $proPlan]);
+// ── the workspace marker follows the client TYPE, and nothing else ────────────
+it('never gives a management client the course platform (or its collapsed workspace)', function () {
+    $school = $this->createAcademy();
 
-    // Module-billed client: MANAGEMENT (PRO) + LMS (the tier that carries lms.only). module_subscriptions
-    // is SUPER_ADMIN-write AND tenant-scoped, so both GUCs must be set (mirrors the Modules suite).
-    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
-    DB::statement('select set_config(?, ?, true)', ['app.current_academy_id', $academy]);
-    foreach ([['MANAGEMENT', $proPlan], ['LMS', $this->lmsPlan]] as [$module, $planId]) {
-        DB::table('module_subscriptions')->insert([
-            'id' => (string) Str::uuid(),
-            'academy_id' => $academy,
-            'module' => $module,
-            'plan_id' => $planId,
-            'status' => 'ACTIVE',
-            'is_trial' => false,
-            'currency' => 'EGP',
-        ]);
-    }
+    // A school cannot even hold the module (05-MODULES-NOT-PACKAGES §2) …
+    $this->enterAcademyAsSuperAdmin($school);
+    expect(fn () => app(ModuleBilling::class)->enable($school, 'LMS', trial: false))
+        ->toThrow(ValidationException::class);
 
-    $caps = Entitlement::resolveFromModules($academy);
-    expect($caps['capabilities'])->toContain('lms');          // the module still grants the LMS itself
-    expect($caps['capabilities'])->not->toContain('lms.only'); // …but never the collapsed workspace
+    // … so it never resolves the LMS or the collapsed workspace.
+    $caps = Entitlement::resolve($school)['capabilities'];
+    expect($caps)->not->toContain('lms')->not->toContain('lms.only');
 });
 
-// ── regression: the LMS plan may hang off the MANAGEMENT module row ───────────
-it('keeps lms.only when the LMS plan is attached to the MANAGEMENT subscription', function () {
-    // How the academy-creation flow actually provisions an LMS client: ONE module sub, named
-    // MANAGEMENT (the primary), carrying the LMS plan. The client still sells courses and nothing
-    // else, so the workspace marker must survive — the guard keys on capabilities, not module names.
-    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
-    DB::statement('select set_config(?, ?, true)', ['app.current_academy_id', $this->academy]);
-    DB::table('module_subscriptions')->insert([
-        'id' => (string) Str::uuid(),
-        'academy_id' => $this->academy,
-        'module' => 'MANAGEMENT',
-        'plan_id' => $this->lmsPlan,
-        'status' => 'ACTIVE',
-        'is_trial' => false,
-        'currency' => 'EGP',
-    ]);
+it('keeps the collapsed workspace for an LMS client even while its module is paused', function () {
+    $this->enterAcademyAsSuperAdmin($this->academy);
+    app(ModuleBilling::class)->pause($this->academy, 'LMS');
 
+    // The panel shape is the client's identity, not a grant: they are still a course-platform
+    // client (with nothing granted) rather than a school with an empty sidebar.
     $caps = Entitlement::resolve($this->academy)['capabilities'];
-    expect($caps)->toContain('lms.only');
-    expect($caps)->toEqualCanonicalizing(['lms', 'lms.only']);
+    expect($caps)->toContain('lms.only')->not->toContain('lms');
 });
 
 // ── the LMS dashboard reports the client's own numbers + site ─────────────────
@@ -167,7 +136,7 @@ it('gates the LMS dashboard by entitlement and capability', function () {
 
     // An academy without the LMS module → 402.
     $basic = DB::table('plans')->where('code', 'BASIC')->value('id');
-    $other = $this->createAcademy(overrides: ['plan_id' => $basic]);
+    $other = $this->createAcademy();
     Sanctum::actingAs($this->makeUser($other, 'ACADEMY_OWNER'));
     $this->getJson('/api/courses/dashboard')->assertStatus(402);
 });

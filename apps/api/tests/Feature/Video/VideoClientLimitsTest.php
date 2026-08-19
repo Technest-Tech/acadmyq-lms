@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -16,10 +17,10 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * Plan-level video controls (FeatureCatalog): the per-plan `maxRooms`, `maxRoomParticipants`,
- * `recordingRetentionDays` numeric limits + the fail-open `recordingAllowed` / `monitorAllowed`
- * flags. Lets a Super Admin sell a video-only plan that caps how many rooms an academy can create
- * and which room options (recording / supervisor mode / capacity / retention) it includes.
+ * Per-client video controls (docs/superadmin-modules/05-MODULES-NOT-PACKAGES §4): the `maxRooms`,
+ * `maxRoomParticipants`, `recordingRetentionDays` caps + the fail-open `recordingAllowed` /
+ * `monitorAllowed` flags a Super Admin sets on ONE client from its profile. Nothing is capped until
+ * someone decides to cap it — there is no tier doing it on their behalf.
  */
 beforeEach(function () {
     $this->seed(DemoAcademySeeder::class);
@@ -40,24 +41,18 @@ beforeEach(function () {
     ]);
 });
 
-/** A video-only plan with the given limit/flag map. Inserted as Super Admin (catalog table). */
-function seedVideoPlan(array $limits, array $caps = ['video.conferencing']): string
+/** A video client capped exactly as this test needs (its own caps, no package). */
+function videoLimitedClient(array $limits): string
 {
-    $id = (string) Str::uuid();
-    DB::statement("select set_config('app.current_academy_id', '', true)");
-    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
-    DB::table('plans')->insert([
-        'id' => $id,
-        'code' => 'VID-'.substr($id, 0, 8),
-        'name' => 'Video Only',
-        'price_minor' => 0,
-        'currency' => 'EGP',
-        'features' => json_encode(['capabilities' => $caps, 'limits' => $limits]),
-        'is_active' => true,
-    ]);
-    DB::statement("select set_config('app.current_role', '', true)");
+    $academy = test()->createAcademy(overrides: ['client_type' => 'VIDEO'], modules: ['VIDEO']);
 
-    return $id;
+    if ($limits !== []) {
+        test()->enterAcademyAsSuperAdmin($academy);
+        app(ModuleBilling::class)->setLimitOverrides($academy, 'VIDEO', $limits);
+        test()->clearTenantContext();
+    }
+
+    return $academy;
 }
 
 /** Seed a room (with link tokens + config) under its academy's RLS context. */
@@ -85,9 +80,8 @@ function seedLimitedRoom(string $academyId, array $config): array
 }
 
 // ── maxRooms ─────────────────────────────────────────────────────────────────────────
-it('caps the number of rooms an academy can create', function () {
-    $plan = seedVideoPlan(['maxRooms' => 1]);
-    $academy = $this->createAcademy(overrides: ['plan_id' => $plan]);
+it('caps the number of rooms a capped client can create', function () {
+    $academy = videoLimitedClient(['maxRooms' => 1]);
     $owner = $this->makeUser($academy, 'ACADEMY_OWNER');
     Sanctum::actingAs($owner);
 
@@ -96,9 +90,8 @@ it('caps the number of rooms an academy can create', function () {
         ->assertStatus(402)->assertJsonPath('code', 'room_limit_reached')->assertJsonPath('limit', 1);
 });
 
-it('allows unlimited rooms when the plan sets no cap (fail open)', function () {
-    $plan = seedVideoPlan([]); // no maxRooms
-    $academy = $this->createAcademy(overrides: ['plan_id' => $plan]);
+it('allows unlimited rooms when nobody capped the client (fail open)', function () {
+    $academy = videoLimitedClient([]); // no maxRooms
     $owner = $this->makeUser($academy, 'ACADEMY_OWNER');
     Sanctum::actingAs($owner);
 
@@ -108,9 +101,8 @@ it('allows unlimited rooms when the plan sets no cap (fail open)', function () {
 });
 
 // ── maxRoomParticipants ──────────────────────────────────────────────────────────────
-it('enforces the plan participant cap on a guest join', function () {
-    $plan = seedVideoPlan(['maxRoomParticipants' => 1]);
-    $academy = $this->createAcademy(overrides: ['plan_id' => $plan]);
+it('enforces the client participant cap on a guest join', function () {
+    $academy = videoLimitedClient(['maxRoomParticipants' => 1]);
     $room = seedLimitedRoom($academy, ['max_participants' => null]);
 
     // The SFU already reports one participant → the 2nd guest exceeds the plan's cap of 1.
@@ -125,27 +117,24 @@ it('enforces the plan participant cap on a guest join', function () {
 });
 
 // ── recordingAllowed flag ────────────────────────────────────────────────────────────
-it('blocks recording when the plan excludes it', function () {
-    $plan = seedVideoPlan(['recordingAllowed' => 0]);
-    $academy = $this->createAcademy(overrides: ['plan_id' => $plan]);
+it('blocks recording when we switched it off for the client', function () {
+    $academy = videoLimitedClient(['recordingAllowed' => 0]);
     $room = seedLimitedRoom($academy, ['recording_enabled' => true]);
 
     $this->postJson("/api/video/manage/{$room['host_token']}/recording")
         ->assertStatus(403)->assertJsonPath('code', 'recording_not_in_plan');
 });
 
-it('allows recording when the plan does not disable it (fail open)', function () {
-    $plan = seedVideoPlan([]); // recordingAllowed absent ⇒ allowed
-    $academy = $this->createAcademy(overrides: ['plan_id' => $plan]);
+it('allows recording when nobody switched it off (fail open)', function () {
+    $academy = videoLimitedClient([]); // recordingAllowed absent ⇒ allowed
     $room = seedLimitedRoom($academy, ['recording_enabled' => true]);
 
     $this->postJson("/api/video/manage/{$room['host_token']}/recording")->assertCreated();
 });
 
 // ── recordingRetentionDays ───────────────────────────────────────────────────────────
-it('stamps the plan recording retention on a new recording', function () {
-    $plan = seedVideoPlan(['recordingRetentionDays' => 7]);
-    $academy = $this->createAcademy(overrides: ['plan_id' => $plan]);
+it('stamps the client recording retention on a new recording', function () {
+    $academy = videoLimitedClient(['recordingRetentionDays' => 7]);
     $room = seedLimitedRoom($academy, ['recording_enabled' => true]);
 
     $recId = $this->postJson("/api/video/manage/{$room['host_token']}/recording")->assertCreated()->json('recordingId');
@@ -158,18 +147,16 @@ it('stamps the plan recording retention on a new recording', function () {
 });
 
 // ── monitorAllowed flag ──────────────────────────────────────────────────────────────
-it('blocks supervisor mode when the plan excludes it', function () {
-    $plan = seedVideoPlan(['monitorAllowed' => 0]);
-    $academy = $this->createAcademy(overrides: ['plan_id' => $plan]);
+it('blocks supervisor mode when we switched it off for the client', function () {
+    $academy = videoLimitedClient(['monitorAllowed' => 0]);
     $room = seedLimitedRoom($academy, ['monitor_enabled' => true]);
 
     $this->postJson("/api/video/join/{$room['monitor_token']}")
         ->assertStatus(403)->assertJsonPath('code', 'monitor_disabled');
 });
 
-it('rejects enabling supervisor mode on a room when the plan excludes it', function () {
-    $plan = seedVideoPlan(['monitorAllowed' => 0]);
-    $academy = $this->createAcademy(overrides: ['plan_id' => $plan]);
+it('rejects enabling supervisor mode on a room when we switched it off for the client it', function () {
+    $academy = videoLimitedClient(['monitorAllowed' => 0]);
     $owner = $this->makeUser($academy, 'ACADEMY_OWNER');
     Sanctum::actingAs($owner);
 
@@ -177,9 +164,8 @@ it('rejects enabling supervisor mode on a room when the plan excludes it', funct
         ->assertStatus(403)->assertJsonPath('code', 'monitor_not_in_plan');
 });
 
-it('allows supervisor mode when the plan does not disable it (fail open)', function () {
-    $plan = seedVideoPlan([]); // monitorAllowed absent ⇒ allowed
-    $academy = $this->createAcademy(overrides: ['plan_id' => $plan]);
+it('allows supervisor mode when nobody switched it off (fail open)', function () {
+    $academy = videoLimitedClient([]); // monitorAllowed absent ⇒ allowed
     $room = seedLimitedRoom($academy, ['monitor_enabled' => true]);
 
     $this->postJson("/api/video/join/{$room['monitor_token']}")

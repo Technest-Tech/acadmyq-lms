@@ -34,7 +34,7 @@ beforeEach(function () {
     ]);
 
     $this->proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
-    $this->pro = $this->createAcademy(overrides: ['plan_id' => $this->proPlan, 'subdomain' => 'ghostx']);
+    $this->pro = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO'], overrides: ['subdomain' => 'ghostx']);
     $this->proOwner = $this->makeUser($this->pro, 'ACADEMY_OWNER'); // holds room.monitor
 });
 

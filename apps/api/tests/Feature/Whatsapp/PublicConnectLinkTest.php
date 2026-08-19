@@ -25,7 +25,7 @@ beforeEach(function () {
     $this->seed(DemoAcademySeeder::class);
     $this->clearTenantContext();
     $this->basicPlan = DB::table('plans')->where('code', 'BASIC')->value('id');
-    $this->academy = $this->createAcademy(overrides: ['plan_id' => $this->basicPlan]);
+    $this->academy = $this->createAcademy(modules: ['MANAGEMENT', 'WHATSAPP']);
     $this->admin = $this->makeUser(null, 'SUPER_ADMIN');
 });
 

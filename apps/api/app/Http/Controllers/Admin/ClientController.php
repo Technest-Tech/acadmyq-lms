@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Services\ModuleBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\FeatureCatalog;
 use App\Support\Tenancy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,9 +56,10 @@ final class ClientController extends Controller
 
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'plan_id' => ['nullable', 'uuid', Rule::exists('plans', 'id')],
             'mode' => ['required', Rule::in(['trial', 'active'])],
             'trial_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            'price_minor' => ['nullable', 'integer', 'min:0'],
+            'billing_interval' => ['sometimes', Rule::in(['MONTHLY', 'YEARLY'])],
             'default_currency' => ['sometimes', 'string', 'size:3'],
             'timezone' => ['sometimes', 'string', 'max:64'],
         ]);
@@ -78,6 +80,7 @@ final class ClientController extends Controller
                 'id' => $clientId,
                 'name' => $data['name'],
                 'academy_type_id' => $typeId,
+                'client_type' => 'WHATSAPP',
                 'status' => 'ACTIVE',
                 'plan_id' => null,
                 'default_currency' => strtoupper((string) ($data['default_currency'] ?? 'EGP')),
@@ -88,22 +91,24 @@ final class ClientController extends Controller
 
             Audit::log('client.whatsapp_only_created', 'academy', $clientId, $clientId, $ctx->userId, 'SUPER_ADMIN', after: [
                 'name' => $data['name'],
-                'plan_id' => $data['plan_id'] ?? null,
+                'client_type' => 'WHATSAPP',
                 'mode' => $data['mode'],
             ]);
 
             $sub = $this->modules->enable(
                 $clientId,
                 'WHATSAPP',
-                $data['plan_id'] ?? null,
                 trial: $data['mode'] === 'trial',
                 trialDays: isset($data['trial_days']) ? (int) $data['trial_days'] : null,
+                priceMinor: isset($data['price_minor']) ? (int) $data['price_minor'] : null,
+                currency: $data['default_currency'] ?? null,
+                interval: $data['billing_interval'] ?? null,
             );
 
             Audit::log('module_subscription.enabled', 'module_subscription', $sub->id, $clientId, $ctx->userId, 'SUPER_ADMIN', after: [
                 'module' => 'WHATSAPP',
-                'plan_id' => $sub->plan_id,
                 'mode' => $data['mode'],
+                'price_minor' => $sub->base_price_minor,
                 'external' => true,
             ]);
         });
@@ -119,13 +124,14 @@ final class ClientController extends Controller
 
         $payload = $this->inAcademyContext($id, function () use ($id) {
             $academy = DB::table('academies')->where('id', $id)->first([
-                'id', 'name', 'status', 'suspended_at', 'suspended_reason', 'plan_id',
+                'id', 'name', 'client_type', 'status', 'suspended_at', 'suspended_reason', 'plan_id',
                 'default_currency', 'timezone', 'invoice_grouping', 'billing_day',
                 'brand_display_name', 'brand_logo_url', 'subdomain', 'created_at',
             ]);
 
             return [
                 'client' => $academy,
+                'catalog' => $this->featureCatalogFor((string) ($academy->client_type ?? 'MANAGEMENT')),
                 'modules' => $this->moduleRows($id),
                 'addOns' => DB::table('academy_addons as aa')
                     ->join('add_ons as ao', 'ao.id', '=', 'aa.add_on_id')
@@ -150,9 +156,11 @@ final class ClientController extends Controller
         $this->assertAcademyExists($id);
 
         $data = $request->validate([
-            'plan_id' => ['nullable', 'uuid', Rule::exists('plans', 'id')],
             'mode' => ['required', Rule::in(['trial', 'active'])],
             'trial_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            'price_minor' => ['nullable', 'integer', 'min:0'],
+            'currency' => ['sometimes', 'string', 'size:3'],
+            'billing_interval' => ['sometimes', Rule::in(['MONTHLY', 'YEARLY'])],
         ]);
         $ctx = app(AuthContext::class);
 
@@ -160,15 +168,18 @@ final class ClientController extends Controller
             $sub = $this->modules->enable(
                 $id,
                 $module,
-                $data['plan_id'] ?? null,
                 trial: $data['mode'] === 'trial',
                 trialDays: isset($data['trial_days']) ? (int) $data['trial_days'] : null,
+                priceMinor: isset($data['price_minor']) ? (int) $data['price_minor'] : null,
+                currency: $data['currency'] ?? null,
+                interval: $data['billing_interval'] ?? null,
             );
 
             Audit::log('module_subscription.enabled', 'module_subscription', $sub->id, $id, $ctx->userId, 'SUPER_ADMIN', after: [
                 'module' => $module,
-                'plan_id' => $sub->plan_id,
                 'mode' => $data['mode'],
+                'price_minor' => $sub->base_price_minor,
+                'currency' => $sub->currency,
                 'trial_end' => $sub->trial_end,
             ]);
 
@@ -178,7 +189,10 @@ final class ClientController extends Controller
         return response()->json(['subscription' => $sub], 201);
     }
 
-    /** PUT /admin/clients/{id}/modules/{module}/subscription — change plan / interval / period. */
+    /**
+     * PUT /admin/clients/{id}/modules/{module}/subscription — what this client pays for this module
+     * (05 §5: price, currency and interval live on the client's own row) plus the period dates.
+     */
     public function updateModule(Request $request, string $id, string $module): JsonResponse
     {
         Gate::authorize('academy_billing.manage');
@@ -186,7 +200,8 @@ final class ClientController extends Controller
         $this->assertAcademyExists($id);
 
         $data = $request->validate([
-            'plan_id' => ['sometimes', 'nullable', 'uuid', Rule::exists('plans', 'id')],
+            'price_minor' => ['sometimes', 'integer', 'min:0'],
+            'currency' => ['sometimes', 'string', 'size:3'],
             'billing_interval' => ['sometimes', Rule::in(['MONTHLY', 'YEARLY'])],
             'activated_at' => ['sometimes', 'nullable', 'date'],
             'current_period_start' => ['sometimes', 'nullable', 'date'],
@@ -197,9 +212,17 @@ final class ClientController extends Controller
         $sub = $this->inAcademyContext($id, function () use ($id, $module, $data, $ctx) {
             $before = $this->modules->current($id, $module);
 
-            if (array_key_exists('plan_id', $data)) {
-                $this->modules->changePlan($id, $module, $data['plan_id']);
+            $priced = array_intersect_key($data, array_flip(['price_minor', 'currency', 'billing_interval']));
+            if ($priced !== []) {
+                $this->modules->setPricing(
+                    $id,
+                    $module,
+                    priceMinor: isset($data['price_minor']) ? (int) $data['price_minor'] : null,
+                    currency: $data['currency'] ?? null,
+                    interval: $data['billing_interval'] ?? null,
+                );
             }
+
             $fields = array_intersect_key($data, array_flip([
                 'billing_interval', 'activated_at', 'current_period_start', 'current_period_end',
             ]));
@@ -207,9 +230,61 @@ final class ClientController extends Controller
                 ? $this->modules->setFields($id, $module, $fields)
                 : $this->modules->current($id, $module);
 
+            if ($sub === null) {
+                abort(404, 'That module is not enabled for this client.');
+            }
+
             Audit::log('module_subscription.updated', 'module_subscription', $sub->id, $id, $ctx->userId, 'SUPER_ADMIN',
                 after: ['module' => $module] + $data,
-                before: ['plan_id' => $before->plan_id ?? null]);
+                before: [
+                    'price_minor' => $before->base_price_minor ?? null,
+                    'currency' => $before->currency ?? null,
+                    'billing_interval' => $before->billing_interval ?? null,
+                ]);
+
+            return $sub;
+        });
+
+        return response()->json(['subscription' => $sub]);
+    }
+
+    /**
+     * PUT /admin/clients/{id}/modules/{module}/features — the per-client feature switches (05 §4).
+     * `disabled` is the exception list: everything the module owns stays granted except these keys.
+     * `limits` is the optional cap map for that module (an absent key means unlimited).
+     */
+    public function updateModuleFeatures(Request $request, string $id, string $module): JsonResponse
+    {
+        Gate::authorize('academy_billing.manage');
+        $module = $this->normalizeModule($module);
+        $this->assertAcademyExists($id);
+
+        $data = $request->validate([
+            'disabled' => ['sometimes', 'array'],
+            'disabled.*' => ['string', Rule::in(FeatureCatalog::capabilitiesOfModule($module))],
+            'limits' => ['sometimes', 'nullable', 'array'],
+        ]);
+        $ctx = app(AuthContext::class);
+
+        $sub = $this->inAcademyContext($id, function () use ($id, $module, $data, $request, $ctx) {
+            $sub = $this->modules->current($id, $module);
+            if ($sub === null) {
+                abort(404, 'That module is not enabled for this client.');
+            }
+
+            if (array_key_exists('disabled', $data)) {
+                $sub = $this->modules->setDisabledFeatures($id, $module, array_values($data['disabled'])) ?? $sub;
+            }
+
+            if ($request->has('limits')) {
+                $sub = $this->modules->setLimitOverrides($id, $module, $this->cleanLimits($module, $data['limits'] ?? [])) ?? $sub;
+            }
+
+            Audit::log('module_subscription.features', 'module_subscription', $sub->id, $id, $ctx->userId, 'SUPER_ADMIN', after: [
+                'module' => $module,
+                'disabled' => $data['disabled'] ?? null,
+                'limits' => $data['limits'] ?? null,
+            ]);
 
             return $sub;
         });
@@ -320,6 +395,58 @@ final class ClientController extends Controller
                 'ms.total_cost_minor', 'ms.currency', 'ms.overrides', 'ms.plan_id',
                 'p.code as plan_code', 'p.name as plan_name',
             ]);
+    }
+
+    /**
+     * What this client's type may hold and, per module, the features and caps a Super Admin can
+     * switch — the profile page renders its toggles straight off this, so the panel can never offer
+     * a key the resolver doesn't honour.
+     *
+     * @return array{clientType: string, allowedModules: list<string>, modules: array<string, array{capabilities: array<string,string>, limits: array<string,string>}>}
+     */
+    private function featureCatalogFor(string $clientType): array
+    {
+        $modules = [];
+        foreach (FeatureCatalog::CLIENT_TYPE_MODULES[$clientType] ?? [] as $module) {
+            $capabilities = [];
+            foreach (FeatureCatalog::capabilitiesOfModule($module) as $key) {
+                $capabilities[$key] = FeatureCatalog::CAPABILITIES[$key] ?? $key;
+            }
+
+            $limits = [];
+            foreach (FeatureCatalog::limitKeysOfModule($module) as $key) {
+                $limits[$key] = FeatureCatalog::LIMITS[$key] ?? FeatureCatalog::FLAGS[$key] ?? $key;
+            }
+
+            $modules[$module] = ['capabilities' => $capabilities, 'limits' => $limits];
+        }
+
+        return [
+            'clientType' => $clientType,
+            'allowedModules' => FeatureCatalog::CLIENT_TYPE_MODULES[$clientType] ?? [],
+            'modules' => $modules,
+        ];
+    }
+
+    /**
+     * Keep only the caps that belong to $module and drop the blanks — an empty map CLEARS the
+     * override, which is how a client goes back to uncapped.
+     *
+     * @param  array<string,mixed>  $limits
+     * @return array<string,int>
+     */
+    private function cleanLimits(string $module, array $limits): array
+    {
+        $clean = [];
+        foreach (FeatureCatalog::limitKeysOfModule($module) as $key) {
+            if (! array_key_exists($key, $limits) || $limits[$key] === null || $limits[$key] === '') {
+                continue;
+            }
+            $value = $limits[$key];
+            $clean[$key] = is_bool($value) ? (int) $value : (int) $value;
+        }
+
+        return $clean;
     }
 
     /** Route segment → module code; unknown segments 404 (the route is enum-like, not user data). */

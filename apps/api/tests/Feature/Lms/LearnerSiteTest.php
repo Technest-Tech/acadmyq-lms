@@ -22,7 +22,7 @@ beforeEach(function () {
     $this->clearTenantContext();
 
     $lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
-    $this->academy = $this->createAcademy(overrides: ['plan_id' => $lmsPlan, 'subdomain' => 'academyx']);
+    $this->academy = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS', 'subdomain' => 'academyx']);
     $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER');
 
     // Build a published course: a preview YouTube lesson + a gated text lesson, then a single-use code.
@@ -217,7 +217,7 @@ it('refuses a single-use code once it is spent', function () {
 // ── a learner token is bound to its academy ──────────────────────────────────
 it('rejects a learner token presented on another academy subdomain', function () {
     $lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
-    $academyB = $this->createAcademy(overrides: ['plan_id' => $lmsPlan, 'subdomain' => 'academyy']);
+    $academyB = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS', 'subdomain' => 'academyy']);
     app()['auth']->forgetGuards();
 
     $tokenB = $this->withHeaders(learnHeaders(null, 'academyy'))->postJson('/api/learn/auth/register', [

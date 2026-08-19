@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\FeatureCatalog;
+use App\Support\ModuleSubscriptionBackfill;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +31,11 @@ use Illuminate\Validation\ValidationException;
  */
 final class ModuleBilling
 {
-    public const MODULES = ['MANAGEMENT', 'VIDEO', 'WHATSAPP', 'CRM', 'LMS'];
+    /**
+     * The sellable modules (05-MODULES-NOT-PACKAGES §2). CRM is deliberately absent: it is a FEATURE
+     * of the management system now, switchable per client, not something a client subscribes to.
+     */
+    public const MODULES = ['MANAGEMENT', 'VIDEO', 'WHATSAPP', 'LMS'];
 
     /** Add-on feature_keys attributed to a non-MANAGEMENT module for pricing. */
     private const ADDON_MODULE = [
@@ -84,12 +90,17 @@ final class ModuleBilling
      * either a trial (default length from config) or an immediately-active paid period. Restores a
      * suspended client's access — enabling a module is an explicit Super Admin grant.
      */
-    public function enable(string $academyId, string $module, ?string $planId, bool $trial, ?int $trialDays = null): object
-    {
+    public function enable(
+        string $academyId,
+        string $module,
+        bool $trial,
+        ?int $trialDays = null,
+        ?int $priceMinor = null,
+        ?string $currency = null,
+        ?string $interval = null,
+    ): object {
         $this->assertModule($module);
-        if ($planId !== null) {
-            $this->assertPlanBelongs($planId, $module);
-        }
+        $this->assertModuleAllowedForClient($academyId, $module);
 
         $sub = $this->ensure($academyId, $module);
         $now = now();
@@ -97,7 +108,6 @@ final class ModuleBilling
         if ($trial) {
             $days = $trialDays ?? (int) config('billing.trial_days', 5);
             $update = [
-                'plan_id' => $planId,
                 'status' => 'ACTIVE',
                 'is_trial' => true,
                 'trial_start' => $now,
@@ -106,31 +116,34 @@ final class ModuleBilling
             ];
         } else {
             $update = [
-                'plan_id' => $planId,
                 'status' => 'ACTIVE',
                 'is_trial' => false,
                 'trial_start' => null,
                 'trial_end' => null,
                 'activated_at' => $sub->activated_at ?? $now,
                 'current_period_start' => $now,
-                'current_period_end' => $this->periodEnd($now, (string) $sub->billing_interval),
+                'current_period_end' => $this->periodEnd($now, (string) ($interval ?? $sub->billing_interval)),
                 'updated_at' => $now,
             ];
         }
 
-        // Enabling VIDEO for a client whose primary plan doesn't grant it must carry the ENABLED
-        // override + the plan as the video TIER — the resolver grants video via the override
-        // container (never a non-primary VIDEO plan's capabilities) and reads video limits from
-        // overrides.tierPlanId. The grant stays gated by the sub's own lifecycle, so a pause or
-        // lapsed trial still cuts the rooms (M-BILL-2).
-        if ($module === 'VIDEO' && $this->primaryModule($academyId) !== 'VIDEO') {
+        // The price of a module is the client's own number (§5) — no catalog in between.
+        if ($priceMinor !== null) {
+            $update['base_price_minor'] = $priceMinor;
+        }
+        if ($currency !== null) {
+            $update['currency'] = strtoupper($currency);
+        }
+        if ($interval !== null) {
+            $update['billing_interval'] = $interval;
+        }
+
+        // Video's legacy force-switch must not survive an explicit enable: an academy someone once
+        // disabled from the video ops screen would otherwise stay dark after being sold the module.
+        if ($module === 'VIDEO') {
             $ov = $this->decodeOverrides($sub->overrides);
-            $ov['access'] = 'ENABLED';
-            unset($ov['trialEnd']);
-            if ($planId !== null) {
-                $ov['tierPlanId'] = $planId;
-            }
-            $update['overrides'] = json_encode($ov);
+            unset($ov['access'], $ov['trialEnd']);
+            $update['overrides'] = $ov === [] ? null : json_encode($ov);
         }
 
         DB::table('module_subscriptions')->where('id', $sub->id)->update($update);
@@ -139,6 +152,106 @@ final class ModuleBilling
         $this->restoreAccess($academyId);
 
         return $this->current($academyId, $module);
+    }
+
+    /**
+     * Set what this client pays for this module (§5): its own base price, currency and interval.
+     * Absent arguments leave the stored value alone, so repricing a module never disturbs its
+     * lifecycle. A live sub is required — pricing a module nobody enabled is meaningless.
+     */
+    public function setPricing(
+        string $academyId,
+        string $module,
+        ?int $priceMinor = null,
+        ?string $currency = null,
+        ?string $interval = null,
+    ): ?object {
+        $this->assertModule($module);
+        $sub = $this->current($academyId, $module);
+        if ($sub === null) {
+            return null;
+        }
+
+        $update = ['updated_at' => now()];
+        if ($priceMinor !== null) {
+            $update['base_price_minor'] = $priceMinor;
+        }
+        if ($currency !== null) {
+            $update['currency'] = strtoupper($currency);
+        }
+        if ($interval !== null) {
+            $update['billing_interval'] = $interval;
+        }
+
+        DB::table('module_subscriptions')->where('id', $sub->id)->update($update);
+
+        $this->recompute($academyId);
+
+        return $this->current($academyId, $module);
+    }
+
+    /**
+     * Switch individual FEATURES off for this one client (§4) — the whole point of the model: a
+     * module grants everything it owns, and this list is the exception. Keys outside the module's
+     * own capability set are rejected, so a typo can never silently disable nothing (or something
+     * belonging to another module).
+     *
+     * Passing an empty list restores the module's full feature set.
+     *
+     * @param  list<string>  $disabled
+     */
+    public function setDisabledFeatures(string $academyId, string $module, array $disabled): ?object
+    {
+        $this->assertModule($module);
+
+        $owned = FeatureCatalog::capabilitiesOfModule($module);
+        $unknown = array_values(array_diff($disabled, $owned));
+        if ($unknown !== []) {
+            throw ValidationException::withMessages([
+                'features' => ['Not features of the '.$module.' module: '.implode(', ', $unknown).'.'],
+            ]);
+        }
+
+        $sub = $this->current($academyId, $module);
+        if ($sub === null) {
+            return null;
+        }
+
+        $ov = $this->decodeOverrides($sub->overrides);
+        $disabled = array_values(array_unique(array_intersect($owned, $disabled))); // stable catalog order
+        if ($disabled !== []) {
+            $ov['disabled'] = $disabled;
+        } else {
+            unset($ov['disabled']);
+        }
+
+        DB::table('module_subscriptions')->where('id', $sub->id)->update([
+            'overrides' => $ov === [] ? null : json_encode($ov),
+            'updated_at' => now(),
+        ]);
+
+        return $this->current($academyId, $module);
+    }
+
+    /** The client's type (§2); MANAGEMENT for anything unreadable, matching the column default. */
+    public function clientType(string $academyId): string
+    {
+        return (string) (DB::table('academies')->where('id', $academyId)->value('client_type') ?? 'MANAGEMENT');
+    }
+
+    /**
+     * A client only ever holds the modules its TYPE allows (§2) — a school never gets the course
+     * platform, a WhatsApp-only client never gets the management system. Enforced here so no
+     * controller, seeder or script can quietly produce a client shape the panel cannot render.
+     */
+    public function assertModuleAllowedForClient(string $academyId, string $module): void
+    {
+        $type = $this->clientType($academyId);
+        if (! FeatureCatalog::moduleAllowedForType($type, $module)) {
+            throw ValidationException::withMessages([
+                'module' => ["A {$type} client cannot hold the {$module} module."],
+            ]);
+        }
     }
 
     /** Change the module's plan (same-module plans only); lifecycle/trial state is untouched. */
@@ -594,11 +707,6 @@ final class ModuleBilling
         $academyCurrency = (string) (DB::table('academies')->where('id', $academyId)->value('default_currency') ?? 'EGP');
         $primaryModule = $this->primaryModule($academyId);
 
-        $plans = DB::table('plans')
-            ->whereIn('id', $subs->pluck('plan_id')->filter()->unique()->all())
-            ->get(['id', 'price_minor', 'currency'])
-            ->keyBy('id');
-
         $addOns = DB::table('academy_addons as aa')
             ->join('add_ons as ao', 'ao.id', '=', 'aa.add_on_id')
             ->where('aa.academy_id', $academyId)
@@ -608,9 +716,10 @@ final class ModuleBilling
         $liveModules = $subs->pluck('module')->all();
 
         foreach ($subs as $sub) {
-            $plan = $sub->plan_id !== null ? ($plans[(string) $sub->plan_id] ?? null) : null;
-            $currency = (string) ($plan->currency ?? $sub->currency ?? $academyCurrency);
-            $base = (int) ($plan->price_minor ?? 0);
+            // The base price IS the row's own (§5) — recompute only re-derives add-ons + total, so
+            // repricing a client can never be undone by the next lifecycle write.
+            $currency = (string) ($sub->currency ?? $academyCurrency);
+            $base = (int) $sub->base_price_minor;
 
             $addons = 0;
             foreach ($addOns as $addOn) {
@@ -739,7 +848,7 @@ final class ModuleBilling
         // WhatsApp-only external client, M-CLI-2 — no plan, no legacy subscription) must get ONLY
         // the requested module, not a manufactured plan-less MANAGEMENT sub.
         if ($this->all($academyId)->isEmpty() && $this->hasLegacyBillingState($academyId)) {
-            \App\Support\ModuleSubscriptionBackfill::runForAcademy($academyId);
+            ModuleSubscriptionBackfill::runForAcademy($academyId);
             $existing = $this->current($academyId, $module);
             if ($existing !== null) {
                 return $existing;

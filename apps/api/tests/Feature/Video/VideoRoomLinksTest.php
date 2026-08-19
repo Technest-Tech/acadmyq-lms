@@ -33,7 +33,7 @@ beforeEach(function () {
     ]);
 
     $this->proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
-    $this->pro = $this->createAcademy(overrides: ['plan_id' => $this->proPlan, 'subdomain' => 'academyx']);
+    $this->pro = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO'], overrides: ['subdomain' => 'academyx']);
     $this->proOwner = $this->makeUser($this->pro, 'ACADEMY_OWNER');
     $this->proTeacher = $this->makeUser($this->pro, 'TEACHER');
 });
@@ -163,7 +163,7 @@ it('rejects a slug without a guest password', function () {
 });
 
 it('rejects a slug when the academy has no subdomain', function () {
-    $bare = $this->createAcademy(overrides: ['plan_id' => $this->proPlan]); // no subdomain
+    $bare = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO']); // no subdomain
     $bareOwner = $this->makeUser($bare, 'ACADEMY_OWNER');
     Sanctum::actingAs($bareOwner);
 

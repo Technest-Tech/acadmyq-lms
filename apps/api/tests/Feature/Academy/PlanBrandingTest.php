@@ -22,17 +22,25 @@ beforeEach(function () {
     $this->proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
 });
 
-// ── TC-3.23 / AC-3.8: selecting PRO stores plan_id (no gating yet) ────────────
-it('stores the selected plan on the academy without gating any feature', function () {
+// ── 05-MODULES-NOT-PACKAGES §2: the wizard sells MODULES, and the client's type decides which ─
+it('provisions the chosen modules on the new client, each with its own price', function () {
     Sanctum::actingAs($this->admin);
     $id = $this->postJson('/api/admin/academies', [
-        'name' => 'Plan Academy', 'academy_type_id' => $this->quranType, 'plan_id' => $this->proPlan,
+        'name' => 'Modules Academy', 'academy_type_id' => $this->quranType,
+        'client_type' => 'MANAGEMENT',
+        'modules' => [['module' => 'WHATSAPP', 'price_minor' => 15000]],
         'default_currency' => 'EGP', 'timezone' => 'Africa/Cairo',
         'email' => 'plan-owner@t.test', 'password' => 'ownerpass123',
     ])->assertCreated()->json('academyId');
 
     $this->asSuperAdmin();
-    expect(DB::table('academies')->where('id', $id)->value('plan_id'))->toBe($this->proPlan);
+    expect(DB::table('academies')->where('id', $id)->value('client_type'))->toBe('MANAGEMENT');
+
+    $this->enterAcademyAsSuperAdmin($id);
+    $subs = DB::table('module_subscriptions')->where('academy_id', $id)->where('status', '<>', 'ENDED')
+        ->pluck('base_price_minor', 'module');
+    expect($subs->keys()->all())->toContain('MANAGEMENT')->toContain('WHATSAPP');
+    expect((int) $subs['WHATSAPP'])->toBe(15000);
 });
 
 // ── TC-3.25 / AC-3.11: currency change warns; existing money is untouched ─────

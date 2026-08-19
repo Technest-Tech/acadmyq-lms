@@ -35,7 +35,7 @@ it('rejects a garbage API key', function () {
 });
 
 it('rejects a revoked API key', function () {
-    $academy = $this->createAcademy(overrides: ['plan_id' => $this->basicPlan]);
+    $academy = $this->createAcademy(modules: ['MANAGEMENT', 'WHATSAPP']);
     $key = makeWhatsAppApiKey($academy, ['revoked_at' => now()]);
 
     $this->postJson('/api/wa/v1/messages', ['to' => '201234567890', 'text' => 'hi'], [
@@ -44,7 +44,7 @@ it('rejects a revoked API key', function () {
 });
 
 it('rejects a key for a suspended academy', function () {
-    $academy = $this->createAcademy(overrides: ['plan_id' => $this->basicPlan, 'status' => 'SUSPENDED']);
+    $academy = $this->createAcademy(modules: ['MANAGEMENT', 'WHATSAPP'], overrides: ['status' => 'SUSPENDED']);
     $key = makeWhatsAppApiKey($academy);
 
     $this->getJson('/api/wa/v1/status', ['Authorization' => "Bearer {$key}"])
@@ -61,7 +61,7 @@ it('rejects a key for an academy whose plan lacks whatsapp.automation', function
 });
 
 it('accepts a valid key and stamps last_used_at', function () {
-    $academy = $this->createAcademy(overrides: ['plan_id' => $this->basicPlan]);
+    $academy = $this->createAcademy(modules: ['MANAGEMENT', 'WHATSAPP']);
     $key = makeWhatsAppApiKey($academy);
 
     // No session connected → status endpoint still authenticates and returns a disconnected state.

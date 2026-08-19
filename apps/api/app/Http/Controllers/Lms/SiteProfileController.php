@@ -85,6 +85,7 @@ final class SiteProfileController extends Controller
             'configured' => $stored !== null,
             'site' => LmsSite::block(
                 isset($academy->subdomain) ? (string) $academy->subdomain : null,
+                LmsSite::ownsRoot($academyId),
             ),
         ];
     }

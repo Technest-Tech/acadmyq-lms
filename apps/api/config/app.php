@@ -60,6 +60,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Frontend URL
+    |--------------------------------------------------------------------------
+    |
+    | Where the Next.js app lives — the host every customer-facing link has to
+    | point at (the public invoice page /i/{token}, the academy pay page
+    | /a/{token}, and the URL XPay redirects a payer back to after checkout).
+    | FRONTEND_URL may list several comma-separated origins for CORS; a link can
+    | only name one, so we take the first — the canonical one.
+    |
+    | Callers read this as `config('app.frontend_url') ?: config('app.url')`.
+    | The key was previously undefined, so every one of those callers silently
+    | fell back to APP_URL (the API host) and handed payers a link to the wrong
+    | server.
+    |
+    */
+
+    'frontend_url' => trim((string) explode(',', (string) env('FRONTEND_URL', ''))[0]),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

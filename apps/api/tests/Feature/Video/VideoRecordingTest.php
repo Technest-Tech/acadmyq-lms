@@ -25,9 +25,9 @@ beforeEach(function () {
     $this->clearTenantContext();
 
     $this->proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
-    $this->pro = $this->createAcademy(overrides: ['plan_id' => $this->proPlan]);
+    $this->pro = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO']);
     $this->owner = $this->makeUser($this->pro, 'ACADEMY_OWNER');
-    $this->other = $this->createAcademy(overrides: ['plan_id' => $this->proPlan]);
+    $this->other = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO']);
 });
 
 function seedRecording(string $academyId, string $status, ?string $key): string

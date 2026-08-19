@@ -21,7 +21,7 @@ beforeEach(function () {
     $this->seed(DemoAcademySeeder::class);
     $this->clearTenantContext();
     $this->basicPlan = DB::table('plans')->where('code', 'BASIC')->value('id');
-    $this->academy = $this->createAcademy(overrides: ['plan_id' => $this->basicPlan]);
+    $this->academy = $this->createAcademy(modules: ['MANAGEMENT', 'WHATSAPP']);
     $this->key = makeWhatsAppApiKey($this->academy);
 });
 
@@ -122,7 +122,7 @@ it('isolates tenants — academy A key never uses academy B token', function () 
     giveWhatsAppToken($this->academy, 'token-A');
 
     // A second academy with its own token; A's key must never touch it.
-    $other = $this->createAcademy(overrides: ['plan_id' => $this->basicPlan]);
+    $other = $this->createAcademy(modules: ['MANAGEMENT', 'WHATSAPP']);
     giveWhatsAppToken($other, 'token-B');
 
     $this->postJson('/api/wa/v1/messages', ['to' => '201234567890', 'text' => 'scoped'], [

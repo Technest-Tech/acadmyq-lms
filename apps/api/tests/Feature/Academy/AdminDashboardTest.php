@@ -32,7 +32,8 @@ it('returns platform stats and recent activity for a Super Admin', function () {
         'stats' => [
             'academies' => ['total', 'active', 'trial', 'suspended', 'recent'],
             'people' => ['students', 'teachers', 'guardians'],
-            'plan_distribution',
+            'module_distribution',
+            'type_distribution',
         ],
         'recentActivity',
     ]);

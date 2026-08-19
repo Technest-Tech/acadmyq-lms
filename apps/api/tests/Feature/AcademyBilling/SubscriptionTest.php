@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 use App\Jobs\ExpireAcademyTrialsJob;
 use App\Services\AcademyBilling;
+use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -21,27 +22,17 @@ beforeEach(function () {
     $this->admin = $this->makeUser(null, 'SUPER_ADMIN');
 });
 
-/** Create a platform plan (catalog) and return its id. */
-function subTestMakePlan(int $priceMinor = 50000, string $currency = 'EGP', array $features = []): string
+/** Price the client's management module — where a client's money lives now (05 §5). */
+function priceClient(string $academyId, int $priceMinor = 50000, string $currency = 'EGP'): void
 {
-    $id = (string) Str::uuid();
-    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
-    DB::table('plans')->insert([
-        'id' => $id,
-        'code' => 'PLAN-'.substr($id, 0, 8),
-        'name' => 'Test Plan',
-        'price_minor' => $priceMinor,
-        'currency' => $currency,
-        'features' => json_encode($features ?: ['capabilities' => [], 'limits' => []]),
-        'is_active' => true,
-    ]);
-
-    return $id;
+    test()->enterAcademyAsSuperAdmin($academyId);
+    app(ModuleBilling::class)->setPricing($academyId, 'MANAGEMENT', priceMinor: $priceMinor, currency: $currency);
+    test()->clearTenantContext();
 }
 
-it('returns the subscription with a plan-based total cost', function () {
-    $planId = subTestMakePlan(50000, 'EGP');
-    $academyId = $this->createAcademy(overrides: ['plan_id' => $planId, 'status' => 'ACTIVE']);
+it("returns the subscription with the client's own module price", function () {
+    $academyId = $this->createAcademy();
+    priceClient($academyId, 50000, 'EGP');
 
     Sanctum::actingAs($this->admin);
     $res = $this->getJson("/api/admin/academies/{$academyId}/subscription")->assertOk();
@@ -49,19 +40,19 @@ it('returns the subscription with a plan-based total cost', function () {
     expect($res->json('subscription.total_cost_minor'))->toBe(50000);
     expect($res->json('subscription.base_price_minor'))->toBe(50000);
     expect($res->json('subscription.currency'))->toBe('EGP');
-    expect($res->json('plan.code'))->not->toBeNull();
 });
 
-it('recomputes the total when the plan changes', function () {
-    $cheap = subTestMakePlan(30000, 'EGP');
-    $pricey = subTestMakePlan(90000, 'EGP');
-    $academyId = $this->createAcademy(overrides: ['plan_id' => $cheap, 'status' => 'ACTIVE']);
+it('recomputes the total when we reprice a module', function () {
+    $academyId = $this->createAcademy();
+    priceClient($academyId, 30000, 'EGP');
 
     Sanctum::actingAs($this->admin);
     $this->getJson("/api/admin/academies/{$academyId}/subscription")->assertOk()
         ->assertJsonPath('subscription.total_cost_minor', 30000);
 
-    $this->postJson("/api/admin/academies/{$academyId}/plan", ['plan_id' => $pricey])->assertOk();
+    $this->putJson("/api/admin/clients/{$academyId}/modules/management/subscription", [
+        'price_minor' => 90000,
+    ])->assertOk();
 
     $this->getJson("/api/admin/academies/{$academyId}/subscription")->assertOk()
         ->assertJsonPath('subscription.total_cost_minor', 90000);
@@ -76,13 +67,13 @@ it('extends a trial and records an audit', function () {
     $this->enterAcademyAsSuperAdmin($academyId);
     $sub = DB::table('academy_subscriptions')->where('academy_id', $academyId)->first();
     expect($sub->is_trial)->toBeTrue();
-    expect(\Illuminate\Support\Carbon::parse($sub->trial_end)->isFuture())->toBeTrue();
+    expect(Carbon::parse($sub->trial_end)->isFuture())->toBeTrue();
     expect(DB::table('audit_log')->where('action', 'academy_subscription.trial_extended')->exists())->toBeTrue();
 });
 
 it('activates a trial into a paid subscription and flips the academy ACTIVE', function () {
-    $planId = subTestMakePlan(40000, 'EGP');
-    $academyId = $this->createAcademy(overrides: ['plan_id' => $planId, 'status' => 'TRIAL']);
+    $academyId = $this->createAcademy(overrides: ['status' => 'TRIAL']);
+    priceClient($academyId, 40000, 'EGP');
 
     Sanctum::actingAs($this->admin);
     $this->postJson("/api/admin/academies/{$academyId}/subscription/activate")->assertOk()
@@ -97,14 +88,20 @@ it('activates a trial into a paid subscription and flips the academy ACTIVE', fu
 });
 
 it('expires a lapsed trial: pauses the subscription and suspends the academy (idempotent)', function () {
-    // created_at 30 days ago → trial_end = created_at + 14 days is in the past.
     $academyId = $this->createAcademy(overrides: [
         'status' => 'TRIAL',
         'created_at' => now()->subDays(30),
     ]);
 
+    // The module's own trial clock is what expires now (M-BILL-2) — lapse it.
+    $this->enterAcademyAsSuperAdmin($academyId);
+    DB::table('module_subscriptions')->where('academy_id', $academyId)->update([
+        'is_trial' => true, 'trial_start' => now()->subDays(30), 'trial_end' => now()->subDays(16),
+    ]);
+    $this->clearTenantContext();
+
     $job = new ExpireAcademyTrialsJob($academyId);
-    $out = $job->handle(app(AcademyBilling::class), app(\App\Services\ModuleBilling::class));
+    $out = $job->handle(app(AcademyBilling::class), app(ModuleBilling::class));
     expect($out[$academyId]['expired'])->toBeTrue();
     expect($out[$academyId]['suspended'])->toBeTrue();
 
@@ -114,7 +111,7 @@ it('expires a lapsed trial: pauses the subscription and suspends the academy (id
     expect(DB::table('academies')->where('id', $academyId)->value('status'))->toBe('SUSPENDED');
 
     // Idempotent: a second run is a no-op (no error, still paused/suspended).
-    $out2 = (new ExpireAcademyTrialsJob($academyId))->handle(app(AcademyBilling::class), app(\App\Services\ModuleBilling::class));
+    $out2 = (new ExpireAcademyTrialsJob($academyId))->handle(app(AcademyBilling::class), app(ModuleBilling::class));
     expect($out2[$academyId]['expired'])->toBeFalse();
 });
 

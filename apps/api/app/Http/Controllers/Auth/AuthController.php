@@ -23,13 +23,22 @@ use Illuminate\Validation\ValidationException;
  */
 final class AuthController extends Controller
 {
-    /** POST /api/auth/login (public) — Auth::attempt, regenerate session, audit auth.login. */
+    /**
+     * POST /api/auth/login (public) — Auth::attempt, regenerate session, audit auth.login.
+     *
+     * An optional `subdomain` names the client door the attempt came through (`<handle>.<root>`);
+     * it binds the session to that client's own people. Absent ⇒ the platform login, unchanged.
+     */
     public function login(Request $request): JsonResponse
     {
-        $credentials = $request->validate([
+        $data = $request->validate([
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
+            // The client's own sign-in door (`<handle>.<root>`) posts its handle; the platform
+            // login (app.<root>) omits it. See $belongsTo below for what it buys.
+            'subdomain' => ['sometimes', 'nullable', 'string', 'max:63', 'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i'],
         ]);
+        $credentials = ['email' => $data['email'], 'password' => $data['password']];
 
         // Fail closed on bad credentials: no session, no context (TC-2.2 / AC-2.13).
         if (! Auth::guard('web')->attempt($credentials)) {
@@ -60,6 +69,22 @@ final class AuthController extends Controller
             $request->session()->regenerateToken();
 
             return response()->json(['message' => 'This academy is suspended.'], 403);
+        }
+
+        // A client's own address is a door for that client's people only: signing in at
+        // `<handle>.<root>` must never establish a session for a user of another academy, however
+        // valid their password is. Rejected with the SAME neutral message as a wrong password, so
+        // the door never becomes an oracle for "does this person work at that academy?".
+        // A SUPER_ADMIN belongs to no academy and is deliberately exempt — the platform admin can
+        // sign in anywhere. An unknown handle matches nobody and therefore rejects everybody.
+        if ($role !== 'SUPER_ADMIN' && ! $this->belongsTo($academyId, $data['subdomain'] ?? null)) {
+            Auth::guard('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            throw ValidationException::withMessages([
+                'email' => ['These credentials do not match our records.'],
+            ]);
         }
 
         $request->session()->regenerate();
@@ -120,7 +145,44 @@ final class AuthController extends Controller
             'capabilities' => $ctx->academyId === null
                 ? null
                 : Entitlement::resolve($ctx->academyId)['capabilities'],
+            'academy' => $this->academyIdentity($ctx->academyId),
         ]);
+    }
+
+    /**
+     * Who the panel belongs to — name and logo — travelling with the session for the same reason
+     * `capabilities` does: the shell paints its sidebar brand before anything else, and a second
+     * round-trip for two strings would show the platform's mark first and swap it a beat later.
+     *
+     * `null` for a platform Super Admin: they have no academy, so the chrome keeps the platform's
+     * own identity. Readable under the caller's own context (academies_select is
+     * `id = app.current_academy_id()`), so this can only ever describe the caller's academy.
+     *
+     * @return array{name: string, displayName: string, logoUrl: ?string}|null
+     */
+    private function academyIdentity(?string $academyId): ?array
+    {
+        if ($academyId === null) {
+            return null;
+        }
+
+        $academy = DB::table('academies')
+            ->where('id', $academyId)
+            ->first(['name', 'brand_display_name', 'brand_logo_url']);
+
+        if ($academy === null) {
+            return null;
+        }
+
+        $name = (string) ($academy->name ?? '');
+        $display = trim((string) ($academy->brand_display_name ?? ''));
+        $logo = trim((string) ($academy->brand_logo_url ?? ''));
+
+        return [
+            'name' => $name,
+            'displayName' => $display !== '' ? $display : $name,
+            'logoUrl' => $logo !== '' ? $logo : null,
+        ];
     }
 
     /** PATCH /api/auth/locale (auth) — persist preferred_locale; report layout direction. */
@@ -160,6 +222,23 @@ final class AuthController extends Controller
             $first->role ?? 'TEACHER',
             isset($first->academy_id) && $first->academy_id !== null ? (string) $first->academy_id : null,
         ];
+    }
+
+    /**
+     * Is this user's academy the one that owns the sign-in handle they used? No handle (the platform
+     * login) ⇒ always true; the tenant check exists only for the per-client door. Resolved with no
+     * context via the same BYPASSRLS subdomain reader the public site uses.
+     */
+    private function belongsTo(?string $academyId, ?string $subdomain): bool
+    {
+        $handle = trim((string) $subdomain);
+        if ($handle === '') {
+            return true;
+        }
+
+        $owner = DB::selectOne('select app.lms_academy_by_subdomain(?) as id', [$handle])->id ?? null;
+
+        return $owner !== null && $academyId !== null && (string) $owner === $academyId;
     }
 
     /** Is the academy SUSPENDED? Read with no context via the BYPASSRLS status reader. */

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
@@ -32,7 +33,7 @@ beforeEach(function () {
     ]);
 
     $this->proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
-    $this->pro = $this->createAcademy(overrides: ['plan_id' => $this->proPlan, 'subdomain' => 'academyx']);
+    $this->pro = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO'], overrides: ['subdomain' => 'academyx']);
     $this->proOwner = $this->makeUser($this->pro, 'ACADEMY_OWNER');
 });
 
@@ -42,7 +43,7 @@ beforeEach(function () {
  *
  * @param  array<string,mixed>  $config
  * @param  array<string,string>  $tokens  Override any of join_token/host_token/monitor_token (e.g. a
- *                                         real `{kebab-name}-{code}` short link with a `-` separator).
+ *                                        real `{kebab-name}-{code}` short link with a `-` separator).
  * @return array{id: string, join_token: string, host_token: string, monitor_token: string, livekit_name: string}
  */
 function seedWaitingRoom(string $academyId, array $config = [], array $tokens = []): array
@@ -199,8 +200,8 @@ it('the host queue + recording resolve via a real hyphenated short host link', f
     // [A-Za-z0-9]+, so the dash failed the pattern → a hard 404 on knocks AND recording from the host
     // link. The pattern must allow `-` like /video/join. (Egress is faked — we only assert the route
     // resolves to the controller, not 404.)
-    Illuminate\Support\Facades\Http::fake([
-        '*' => Illuminate\Support\Facades\Http::response(['egress_id' => 'EG_test'], 200),
+    Http::fake([
+        '*' => Http::response(['egress_id' => 'EG_test'], 200),
     ]);
     $room = seedWaitingRoom($this->pro, ['recording_enabled' => true], ['host_token' => 'halaqa-waiting-k3p9x']);
 

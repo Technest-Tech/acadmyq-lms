@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -21,7 +22,7 @@ beforeEach(function () {
     $this->clearTenantContext();
 
     $lmsPlan = DB::table('plans')->where('code', 'LMS_BASIC')->value('id');
-    $this->academy = $this->createAcademy(overrides: ['plan_id' => $lmsPlan, 'subdomain' => 'quizsite']);
+    $this->academy = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS', 'subdomain' => 'quizsite']);
     $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER');
 
     Sanctum::actingAs($this->owner);
@@ -78,7 +79,7 @@ function enrolledLearner(string $email): array
 }
 
 /** GET the quiz, choose options by their text per prompt, submit. @param array<string,list<string>> $pick */
-function takeQuiz(array $auth, string $lessonId, array $pick): \Illuminate\Testing\TestResponse
+function takeQuiz(array $auth, string $lessonId, array $pick): TestResponse
 {
     $t = test();
     $quiz = $t->withHeaders($auth)->getJson("/api/learn/lessons/{$lessonId}/quiz")->assertOk();
@@ -220,7 +221,7 @@ it('reports attempts and a per-question correct-rate that matches grading', func
 });
 
 it('hides quiz results from another academy', function () {
-    $other = $this->createAcademy(overrides: ['plan_id' => DB::table('plans')->where('code', 'LMS_BASIC')->value('id')]);
+    $other = $this->createAcademy(modules: ['LMS'], overrides: ['client_type' => 'LMS']);
     Sanctum::actingAs($this->makeUser($other, 'ACADEMY_OWNER'));
 
     $this->getJson('/api/courses/quizzes')->assertOk()->assertJsonCount(0, 'quizzes');

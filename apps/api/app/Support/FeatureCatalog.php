@@ -120,6 +120,101 @@ final class FeatureCatalog
     ];
 
     /**
+     * The four CLIENT TYPES (docs/superadmin-modules/05-MODULES-NOT-PACKAGES §2) and the modules each
+     * may hold. The type is a hard constraint, not a hint: a MANAGEMENT client can add Video and
+     * WhatsApp but never the course platform, and every single-module client stays single-module.
+     *
+     * @var array<string, list<string>>
+     */
+    public const CLIENT_TYPE_MODULES = [
+        'MANAGEMENT' => ['MANAGEMENT', 'VIDEO', 'WHATSAPP'],
+        'VIDEO' => ['VIDEO'],
+        'WHATSAPP' => ['WHATSAPP'],
+        'LMS' => ['LMS'],
+    ];
+
+    /** The module a client of each type must always hold (its identity module). */
+    public const CLIENT_TYPE_PRIMARY = [
+        'MANAGEMENT' => 'MANAGEMENT',
+        'VIDEO' => 'VIDEO',
+        'WHATSAPP' => 'WHATSAPP',
+        'LMS' => 'LMS',
+    ];
+
+    /**
+     * MODULE → the capabilities it owns (§3). This replaces `plans.features.capabilities`: a live,
+     * grantable module subscription grants EVERY key listed here for that module, and the only thing
+     * that ever takes one away is a per-client switch in the client profile
+     * (`module_subscriptions.overrides.disabled`) or the platform kill-switch.
+     *
+     * A capability belongs to exactly ONE module — that is what makes "disable this feature for this
+     * client" unambiguous. The workspace-exclusive keys (video.only / lms.only) are NOT here: they
+     * are derived from the client's type, never granted by a subscription.
+     *
+     * @var array<string, list<string>>
+     */
+    public const MODULE_CAPABILITIES = [
+        'MANAGEMENT' => [
+            'invoicing',
+            'payroll',
+            'certificates',
+            'staff',
+            'custom_roles',
+            'trials',
+            'crm',
+            'student_reports',
+            'audit.full',
+            'report_field.custom',
+        ],
+        'VIDEO' => ['video.conferencing'],
+        'WHATSAPP' => ['whatsapp.automation'],
+        'LMS' => ['lms'],
+    ];
+
+    /**
+     * MODULE → the limit/flag keys a Super Admin may cap for that module on a client. Absent ⇒
+     * unlimited (limits fail open), so a client is uncapped until someone decides otherwise.
+     *
+     * @var array<string, list<string>>
+     */
+    public const MODULE_LIMIT_KEYS = [
+        'MANAGEMENT' => ['maxStudents', 'maxTeachers'],
+        'VIDEO' => self::VIDEO_LIMIT_KEYS,
+        'WHATSAPP' => [],
+        'LMS' => self::LMS_LIMIT_KEYS,
+    ];
+
+    /** The capabilities $module grants, or [] for an unknown module (fail closed). */
+    public static function capabilitiesOfModule(string $module): array
+    {
+        return self::MODULE_CAPABILITIES[$module] ?? [];
+    }
+
+    /** The limit/flag keys $module may cap, or [] for an unknown module. */
+    public static function limitKeysOfModule(string $module): array
+    {
+        return self::MODULE_LIMIT_KEYS[$module] ?? [];
+    }
+
+    /** The module that owns $capability, or null when nothing does (add-on keys, unknown keys). */
+    public static function moduleOfCapability(string $capability): ?string
+    {
+        foreach (self::MODULE_CAPABILITIES as $module => $keys) {
+            if (in_array($capability, $keys, true)) {
+                return $module;
+            }
+        }
+
+        return null;
+    }
+
+    /** May a client of $clientType hold $module? Unknown type ⇒ false (fail closed). */
+    public static function moduleAllowedForType(string $clientType, string $module): bool
+    {
+        return in_array($module, self::CLIENT_TYPE_MODULES[$clientType] ?? [], true);
+    }
+
+    /**
      * Every capability a full-featured plan (FREE/PRO) may bundle — the whole catalog MINUS the
      * workspace-exclusive ones. Use this instead of `array_keys(CAPABILITIES)` when granting "all
      * features", so a special-purpose capability never leaks into a general plan.

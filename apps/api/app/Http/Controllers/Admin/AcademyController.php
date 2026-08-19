@@ -9,6 +9,7 @@ use App\Services\AcademyBilling;
 use App\Services\ModuleBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\FeatureCatalog;
 use App\Support\Tenancy;
 use DateTimeZone;
 use Illuminate\Http\JsonResponse;
@@ -119,8 +120,9 @@ final class AcademyController extends Controller
                     'id' => $academyId,
                     'name' => $data['name'],
                     'academy_type_id' => $data['academy_type_id'],
+                    'client_type' => $data['client_type'] ?? 'MANAGEMENT',
                     'status' => $data['status'] ?? 'ACTIVE',
-                    'plan_id' => $data['plan_id'] ?? null,
+                    'plan_id' => null,
                     'default_currency' => $data['default_currency'],
                     'timezone' => $data['timezone'],
                     'invoice_grouping' => $data['invoice_grouping'] ?? 'PER_GUARDIAN',
@@ -132,7 +134,7 @@ final class AcademyController extends Controller
                 Audit::log('academy.create', 'academy', $academyId, $academyId, $ctx->userId, 'SUPER_ADMIN', after: [
                     'name' => $data['name'],
                     'academy_type_id' => $data['academy_type_id'],
-                    'plan_id' => $data['plan_id'] ?? null,
+                    'client_type' => $data['client_type'] ?? 'MANAGEMENT',
                     'default_currency' => $data['default_currency'],
                     'timezone' => $data['timezone'],
                 ]);
@@ -169,16 +171,22 @@ final class AcademyController extends Controller
                     'role' => 'ACADEMY_OWNER',
                 ]);
 
-                // R1 (04-CLIENT-FIRST-REDESIGN §5): the module engine is the source of truth from
-                // minute one — bootstrap the client's module subs from the chosen plan (primary
-                // MANAGEMENT/VIDEO + bundled WhatsApp), start the trial or open the paid period per
-                // the requested status, and write the legacy mirror rows through it.
+                // 05-MODULES-NOT-PACKAGES §2: the client's TYPE decides its identity module; any
+                // extra modules (Video / WhatsApp for a management client) come with their own
+                // price. Every module starts on the same footing — a trial or an open paid period,
+                // per the requested status — and the engine writes the legacy mirror rows.
                 $engine = app(ModuleBilling::class);
-                $engine->setPrimaryPlan($academyId, $data['plan_id'] ?? null);
-                if (($data['status'] ?? 'ACTIVE') === 'TRIAL') {
-                    $engine->startTrial($academyId, $engine->primaryModule($academyId));
-                } else {
-                    $engine->activate($academyId, $engine->primaryModule($academyId));
+                $trial = ($data['status'] ?? 'ACTIVE') === 'TRIAL';
+
+                foreach ($this->modulesToProvision($data) as $module => $pricing) {
+                    $engine->enable(
+                        $academyId,
+                        $module,
+                        trial: $trial,
+                        priceMinor: $pricing['price_minor'],
+                        currency: $data['default_currency'],
+                        interval: $pricing['billing_interval'],
+                    );
                 }
             });
         } catch (Throwable $e) {
@@ -652,6 +660,35 @@ final class AcademyController extends Controller
     }
 
     /**
+     * The modules a new client starts with: its type's own module first, then whatever extras the
+     * wizard ticked — filtered to what the type may hold, so an impossible combination (a school
+     * with the course platform) can never be created. Each carries its own price.
+     *
+     * @param  array<string,mixed>  $data
+     * @return array<string, array{price_minor: ?int, billing_interval: ?string}>
+     */
+    private function modulesToProvision(array $data): array
+    {
+        $type = (string) ($data['client_type'] ?? 'MANAGEMENT');
+        $primary = FeatureCatalog::CLIENT_TYPE_PRIMARY[$type];
+
+        $provision = [$primary => ['price_minor' => null, 'billing_interval' => null]];
+
+        foreach ((array) ($data['modules'] ?? []) as $entry) {
+            $module = strtoupper((string) ($entry['module'] ?? ''));
+            if (! FeatureCatalog::moduleAllowedForType($type, $module)) {
+                continue;
+            }
+            $provision[$module] = [
+                'price_minor' => isset($entry['price_minor']) ? (int) $entry['price_minor'] : null,
+                'billing_interval' => $entry['billing_interval'] ?? null,
+            ];
+        }
+
+        return $provision;
+    }
+
+    /**
      * Validate the academy payload. Branding `subdomain` is validated unique + DNS-safe now
      * even though unused (R-BRA-1 / AC-3.7); timezone must be a real IANA name (TC-3.8).
      *
@@ -664,7 +701,13 @@ final class AcademyController extends Controller
         $rules = [
             'name' => [$req, 'string', 'max:255'],
             'academy_type_id' => [$creating ? 'required' : 'prohibited', 'uuid', Rule::exists('academy_types', 'id')],
-            'plan_id' => ['nullable', 'uuid', Rule::exists('plans', 'id')],
+            // 05-MODULES-NOT-PACKAGES: a client is a TYPE plus the modules it holds. `modules` is
+            // the OPTIONAL extra list — the type's own module is always provisioned.
+            'client_type' => [$creating ? 'sometimes' : 'prohibited', Rule::in(array_keys(FeatureCatalog::CLIENT_TYPE_MODULES))],
+            'modules' => ['sometimes', 'array'],
+            'modules.*.module' => ['required', 'string'],
+            'modules.*.price_minor' => ['nullable', 'integer', 'min:0'],
+            'modules.*.billing_interval' => ['sometimes', Rule::in(['MONTHLY', 'YEARLY'])],
             'default_currency' => [$req, 'string', 'size:3'],
             'timezone' => [$req, 'string', Rule::in(DateTimeZone::listIdentifiers())],
             'invoice_grouping' => ['sometimes', Rule::in(['PER_GUARDIAN', 'PER_STUDENT'])],

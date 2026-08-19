@@ -358,89 +358,85 @@ final class Entitlement
         return ['capabilities' => $capabilities, 'limits' => $limits];
     }
 
-    // ── Phase 2 (docs/superadmin-modules): the module-subscription resolver ─────────────────────
+    // ── The module resolver (docs/superadmin-modules/05-MODULES-NOT-PACKAGES) ──────────────────
     //
-    // Resolves the SAME shape as resolve() but from `module_subscriptions` (the union across a
-    // client's per-module subs) instead of the single `academies.plan_id`. Built alongside the old
-    // resolver and proven byte-identical by the parity harness (M-ENT-1 / AC-M2.1) BEFORE any cutover.
+    // Packages are gone. A client is one of four TYPES, subscribes to MODULES, and a module grants
+    // every capability it owns (FeatureCatalog::MODULE_CAPABILITIES) — no tiers, no bundles:
     //
-    // Parity design (mirrors resolve() exactly):
-    //   - PRIMARY plan = the MANAGEMENT sub's plan, or the VIDEO sub's for a video-only (MEET) client
-    //     with no MANAGEMENT sub — i.e. whatever `academies.plan_id` pointed at. It provides the base
-    //     capabilities AND base limits.
-    //   - The WHATSAPP sub contributes its capability (redundant for a bundled academy; the source of
-    //     truth for a future standalone WhatsApp client).
-    //   - The VIDEO sub is an OVERRIDE container when it is not primary: its `overrides` jsonb (folded
-    //     from the old `academies.video_*` columns) drives applyVideoOverride + the video limit keys;
-    //     its plan is a TIER read for VIDEO_LIMIT_KEYS only, never for capabilities — exactly as the
-    //     old `video_plan_id` behaved.
-    //   - Add-ons and the feature-flag kill-switch are unchanged.
+    //   capabilities = ⋃ grantable live subs: MODULE_CAPABILITIES[module] − overrides.disabled[]
+    //                + video.only / lms.only   (derived from academies.client_type)
+    //                + add-on feature keys
+    //                − feature_flags(enabled = false)          ← platform kill-switch, applied last
+    //   limits       = ⋃ ALL live subs: overrides.limits ∩ MODULE_LIMIT_KEYS[module]
     //
-    // R1 (04-CLIENT-FIRST-REDESIGN §5) — SCOPED SUSPENSION (M-BILL-2, the deliberate post-parity
-    // change): only an ACTIVE sub still inside its trial window GRANTS its plan's capabilities. A
-    // PAUSED or trial-lapsed module contributes nothing while the client's other modules keep
-    // working; the VIDEO sub stays the override CONTAINER regardless of status (a DISABLED
-    // force-off must survive a pause; tier/limit overrides are harmless without the capability).
+    // The ONLY thing that takes a feature away from one client is that client's own switch, stored
+    // in its module row's `overrides.disabled` and written from the client profile. Limits keep
+    // failing open (no override ⇒ unlimited) and capabilities keep failing closed (no module ⇒
+    // nothing). `plans` are no longer read here at all; `plan_id` survives only for the legacy
+    // fallback resolveLegacy() covering academies that predate module rows.
     //
-    // @return array{plan: ?string, capabilities: list<string>, limits: array<string,mixed>, addOns: list<string>, modules: list<string>}
+    // SCOPED SUSPENSION (M-BILL-2) is unchanged: only an ACTIVE sub still inside its trial window
+    // grants, so a paused module goes dark while the client's other modules keep working — but its
+    // caps stay applied, so pausing never silently uncaps anything.
+    //
+    // @return array{plan: ?string, clientType: string, capabilities: list<string>, limits: array<string,mixed>, addOns: list<string>, modules: list<string>}
     public static function resolveFromModules(string $academyId): array
     {
+        $clientType = (string) (DB::table('academies')->where('id', $academyId)->value('client_type') ?? 'MANAGEMENT');
+
         // Live (non-ENDED) subs — ENDED rows are replaced history.
-        $subs = DB::table('module_subscriptions as ms')
-            ->leftJoin('plans as p', 'p.id', '=', 'ms.plan_id')
-            ->where('ms.academy_id', $academyId)
-            ->where('ms.status', '<>', 'ENDED')
-            ->get(['ms.module', 'ms.status', 'ms.is_trial', 'ms.trial_end', 'ms.overrides', 'p.code as plan_code', 'p.features', 'p.module as plan_module']);
+        $subs = DB::table('module_subscriptions')
+            ->where('academy_id', $academyId)
+            ->where('status', '<>', 'ENDED')
+            ->get(['module', 'status', 'is_trial', 'trial_end', 'overrides']);
 
-        // Grants come only from ACTIVE subs whose trial (when one is running) hasn't lapsed — an
-        // expired trial stops granting the moment it ends, not when the nightly job pauses it.
-        $grantable = $subs->filter(fn (object $s): bool => self::subGrants($s));
+        $capabilities = [];
+        $limits = [];
 
-        $mgmt = $grantable->firstWhere('module', 'MANAGEMENT');
-        $video = $grantable->firstWhere('module', 'VIDEO');
-        $whatsapp = $grantable->firstWhere('module', 'WHATSAPP');
-        $crm = $grantable->firstWhere('module', 'CRM');
-        $lms = $grantable->firstWhere('module', 'LMS');
-        $videoContainer = $subs->firstWhere('module', 'VIDEO'); // overrides apply from ANY live sub
-        // The LMS caps container. A dedicated LMS row when there is one, else the live sub CARRYING
-        // an LMS plan — the academy-creation flow provisions an LMS client as a single MANAGEMENT
-        // row holding the LMS plan, so keying on the module name alone silently misses real clients
-        // (the same trap applyLmsOnlyGuard hit). `plans.module` is the reliable signal.
-        $lmsContainer = $subs->firstWhere('module', 'LMS')
-            ?? $subs->first(static fn (object $s): bool => ($s->plan_module ?? null) === 'LMS');
-        $primary = $mgmt ?? $video; // the sub whose plan == the old academies.plan_id
+        foreach ($subs as $sub) {
+            $module = (string) $sub->module;
+            $overrides = self::decodeOverrides($sub->overrides) ?? [];
 
-        $primaryFeatures = self::decodeFeatures($primary->features ?? null);
-        $capabilities = $primaryFeatures['capabilities'];
+            // Caps apply from EVERY live sub, grantable or not: pausing a module must never quietly
+            // uncap the client.
+            $limits = self::mergeScopedLimits(
+                $limits,
+                is_array($overrides['limits'] ?? null) ? $overrides['limits'] : [],
+                FeatureCatalog::limitKeysOfModule($module),
+            );
 
-        if ($whatsapp !== null) {
+            if (! self::subGrants($sub)) {
+                continue;
+            }
+
+            // Video keeps its one legacy force-switch: the video ops screen's "disable" writes
+            // overrides.access = DISABLED and must still cut the classroom without ending the sub.
+            // Never for a video-only client though — the classroom IS their product, so a leftover
+            // force-off must not leave them with an empty workspace. Stop such a client by pausing
+            // the module or suspending them.
+            if ($module === 'VIDEO' && $clientType !== 'VIDEO' && ($overrides['access'] ?? null) === 'DISABLED') {
+                continue;
+            }
+
+            // The module grants everything it owns, MINUS whatever a Super Admin switched off for
+            // this one client in its profile (05-MODULES-NOT-PACKAGES §4).
+            $disabled = array_map('strval', (array) ($overrides['disabled'] ?? []));
             $capabilities = array_merge(
                 $capabilities,
-                self::decodeFeatures($whatsapp->features ?? null)['capabilities'],
+                array_values(array_diff(FeatureCatalog::capabilitiesOfModule($module), $disabled)),
             );
         }
 
-        // The CRM sub contributes its plan's capabilities the same way (scoped suspension:
-        // a PAUSED/lapsed CRM module stops granting while the other modules keep working).
-        if ($crm !== null) {
-            $capabilities = array_merge(
-                $capabilities,
-                self::decodeFeatures($crm->features ?? null)['capabilities'],
-            );
+        // Workspace shape follows the client's TYPE, not a purchased marker: a video-only or an
+        // LMS-only client sees that product's panel and nothing else.
+        if ($clientType === 'VIDEO') {
+            $capabilities[] = 'video.only';
+        }
+        if ($clientType === 'LMS') {
+            $capabilities[] = 'lms.only';
         }
 
-        // The LMS sub contributes its plan's capabilities the same way (docs/lms) — scoped
-        // suspension applies for free: a PAUSED/lapsed LMS module stops granting `lms` while the
-        // client's other modules keep working.
-        if ($lms !== null) {
-            $capabilities = array_merge(
-                $capabilities,
-                self::decodeFeatures($lms->features ?? null)['capabilities'],
-            );
-        }
-        $capabilities = array_values(array_unique($capabilities));
-
-        // Active add-ons unlock their feature_key (identical to resolve()).
+        // Active add-ons still unlock their feature_key on top (unchanged).
         $addOnKeys = DB::table('academy_addons as aa')
             ->join('add_ons as ao', 'ao.id', '=', 'aa.add_on_id')
             ->where('aa.academy_id', $academyId)
@@ -453,60 +449,26 @@ final class Entitlement
             array_map('strval', $addOnKeys),
         )));
 
-        // Per-academy video override — from the VIDEO sub's `overrides` (was academies.video_*).
-        // The force-OFF direction applies from any live sub; the ENABLED grant additionally needs
-        // the sub itself to be grantable (ACTIVE + trial window), so pausing VIDEO cuts the rooms.
-        $videoOverrides = $videoContainer !== null ? self::decodeOverrides($videoContainer->overrides) : null;
-        $capabilities = self::applyVideoOverrideFromArray(
-            $capabilities,
-            $videoOverrides,
-            grantAllowed: $videoContainer !== null && self::subGrants($videoContainer),
-        );
-
-        // Platform kill-switch (identical to resolve()).
-        $disabled = DB::table('feature_flags')->where('enabled', false)->pluck('key')->all();
-        if ($disabled !== []) {
-            $capabilities = array_values(array_diff($capabilities, $disabled));
+        // Platform kill-switch, applied last so a platform-wide disable beats every grant.
+        $disabledFlags = DB::table('feature_flags')->where('enabled', false)->pluck('key')->all();
+        if ($disabledFlags !== []) {
+            $capabilities = array_values(array_diff($capabilities, $disabledFlags));
         }
 
         $capabilities = self::applyLmsOnlyGuard($capabilities);
 
-        // Base limits from the primary plan; video keys from the VIDEO sub's tier + override only.
-        $limits = $primaryFeatures['limits'];
-        if ($videoOverrides !== null) {
-            if (! empty($videoOverrides['tierPlanId'])) {
-                $limits = self::mergeVideoLimits($limits, (string) $videoOverrides['tierPlanId']);
-            }
-            $limits = self::applyOverrideLimits($limits, ['limits' => $videoOverrides['limits'] ?? []]);
-        }
-
-        // The LMS caps work the same way (docs/lms): the LMS sub's plan is the course-platform TIER
-        // — it contributes ONLY the LMS limit keys, so a school's maxStudents is never touched —
-        // and the sub's `overrides.limits` is the per-academy override a Super Admin sets from
-        // /admin/lms. Both apply from any LIVE sub: a paused module stops granting `lms`, but its
-        // caps must stay put so nothing silently becomes unlimited while it is suspended.
-        if ($lmsContainer !== null) {
-            $limits = self::mergeScopedLimits(
-                $limits,
-                self::decodeFeatures($lmsContainer->features ?? null)['limits'],
-                FeatureCatalog::LMS_LIMIT_KEYS,
-            );
-            $lmsOverrides = self::decodeOverrides($lmsContainer->overrides);
-            if ($lmsOverrides !== null) {
-                $limits = self::mergeScopedLimits(
-                    $limits,
-                    self::decodeFeatures(['limits' => $lmsOverrides['limits'] ?? []])['limits'],
-                    FeatureCatalog::LMS_LIMIT_KEYS,
-                );
-            }
-        }
-
         return [
-            'plan' => $primary->plan_code ?? null,
+            'plan' => $clientType,
+            'clientType' => $clientType,
             'capabilities' => $capabilities,
             'limits' => $limits,
             'addOns' => array_values(array_map('strval', $addOnKeys)),
-            'modules' => $grantable->pluck('module')->unique()->values()->all(),
+            'modules' => $subs
+                ->filter(fn (object $s): bool => self::subGrants($s))
+                ->pluck('module')
+                ->unique()
+                ->values()
+                ->all(),
         ];
     }
 

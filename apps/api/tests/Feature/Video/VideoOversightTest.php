@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -27,23 +28,15 @@ beforeEach(function () {
 
     $this->admin = $this->makeUser(null, 'SUPER_ADMIN');
 
-    // A capped plan so max_rooms is reportable (FeatureCatalog `limits.maxRooms`).
-    $this->cappedPlan = (string) Str::uuid();
-    DB::table('plans')->insert([
-        'id' => $this->cappedPlan,
-        'code' => 'VIDEO5',
-        'name' => 'Video 5',
-        'price_minor' => 0,
-        'currency' => 'EGP',
-        'features' => json_encode(['limits' => ['maxRooms' => 5]]),
-        'is_active' => true,
-    ]);
+    // A client capped at 5 rooms from its profile, so max_rooms is reportable.
+    $this->A = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO'], overrides: ['name' => 'Academy A']);
+    $this->enterAcademyAsSuperAdmin($this->A);
+    app(ModuleBilling::class)->setLimitOverrides($this->A, 'VIDEO', ['maxRooms' => 5]);
+    $this->clearTenantContext();
 
-    $this->A = $this->createAcademy(overrides: ['plan_id' => $this->cappedPlan, 'name' => 'Academy A']);
     $this->ownerA = $this->makeUser($this->A, 'ACADEMY_OWNER');
 
-    $proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
-    $this->B = $this->createAcademy(overrides: ['plan_id' => $proPlan, 'name' => 'Academy B']);
+    $this->B = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO'], overrides: ['name' => 'Academy B']);
 });
 
 /** Seed a video room under its academy's RLS context; returns its id. */
@@ -118,7 +111,7 @@ it('aggregates per-academy usage across tenants with plan caps + platform totals
 
     $a = $byId[$this->A];
     expect($a['active_rooms'])->toBe(2);
-    expect($a['max_rooms'])->toBe(5);                  // from the capped plan's limits.maxRooms
+    expect($a['max_rooms'])->toBe(5);                  // this client's own cap
     expect($a['recordings_count'])->toBe(2);           // only COMPLETED
     expect((int) $a['storage_bytes'])->toBe(2_000_000_000);
     expect((int) $a['recording_seconds'])->toBe(3600);

@@ -23,7 +23,7 @@ beforeEach(function () {
     $this->clearTenantContext();
 
     $this->proPlan = DB::table('plans')->where('code', 'PRO')->value('id');
-    $this->pro = $this->createAcademy(overrides: ['plan_id' => $this->proPlan, 'subdomain' => 'academyx']);
+    $this->pro = $this->createAcademy(modules: ['MANAGEMENT', 'VIDEO'], overrides: ['subdomain' => 'academyx']);
     $this->proOwner = $this->makeUser($this->pro, 'ACADEMY_OWNER'); // holds room.monitor
     $this->proTeacher = $this->makeUser($this->pro, 'TEACHER');      // room.read, NOT room.monitor
 });

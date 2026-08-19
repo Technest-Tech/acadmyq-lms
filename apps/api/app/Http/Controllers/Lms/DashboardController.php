@@ -32,7 +32,7 @@ final class DashboardController extends Controller
         $academyId = $this->currentAcademyId();
 
         $courses = DB::table('courses')->whereNull('deleted_at')
-            ->selectRaw("count(*) as total")
+            ->selectRaw('count(*) as total')
             ->selectRaw("count(*) filter (where status = 'PUBLISHED') as published")
             ->selectRaw("count(*) filter (where status = 'DRAFT') as draft")
             ->first();
@@ -89,7 +89,10 @@ final class DashboardController extends Controller
     {
         $subdomain = DB::table('academies')->where('id', $academyId)->value('subdomain');
 
-        return LmsSite::block($subdomain !== null ? (string) $subdomain : null) + [
+        return LmsSite::block(
+            $subdomain !== null ? (string) $subdomain : null,
+            LmsSite::ownsRoot($academyId),
+        ) + [
             'published_courses' => (int) DB::table('courses')
                 ->where('status', 'PUBLISHED')->whereNull('deleted_at')->count(),
         ];
