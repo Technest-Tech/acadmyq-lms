@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  CalendarRange,
   Lock,
   Scale,
   Settings2,
@@ -21,6 +22,7 @@ import {
 } from "@/components/adjustments/source-badge";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
+import { PageHero } from "@/components/ui/page-hero";
 import { Button } from "@/components/ui/button";
 import { DataTable, type ColumnDef } from "@/components/ui/data-table";
 import {
@@ -196,37 +198,48 @@ export function AdjustmentsManager() {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Hero */}
-      <div className="from-primary/10 via-primary/5 relative overflow-hidden rounded-3xl bg-gradient-to-br to-transparent p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <Scale className="text-primary size-5" aria-hidden />
-              <h1 className="text-xl font-bold">{t("title")}</h1>
-            </div>
-            <p className="text-muted-foreground mt-1 max-w-xl text-sm">{t("subtitle")}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)} data-testid="adjustments-settings">
+    <div className="space-y-5">
+      <PageHero
+        latticeId="adjustments-hero-lattice"
+        icon={Scale}
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          <>
+            <Button
+              size="lg"
+              onClick={() => setSettingsOpen(true)}
+              data-testid="adjustments-settings"
+              className="gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25"
+            >
               <Settings2 className="size-4" aria-hidden />
               {t("autoPolicy")}
             </Button>
             {canAdjust && (
               <>
-                <Button size="sm" variant="outline" onClick={() => setComposer("DEDUCTION")} data-testid="adjustments-new-deduction">
+                <Button
+                  size="lg"
+                  onClick={() => setComposer("DEDUCTION")}
+                  data-testid="adjustments-new-deduction"
+                  className="gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25"
+                >
                   <TrendingDown className="size-4" aria-hidden />
                   {t("addDeduction")}
                 </Button>
-                <Button size="sm" onClick={() => setComposer("REWARD")} data-testid="adjustments-new-reward">
+                <Button
+                  size="lg"
+                  onClick={() => setComposer("REWARD")}
+                  data-testid="adjustments-new-reward"
+                  className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
+                >
                   <TrendingUp className="size-4" aria-hidden />
                   {t("addReward")}
                 </Button>
               </>
             )}
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {alert && (
         <AlertBanner variant={alert.variant} message={alert.message} onDismiss={() => setAlert(null)} />
@@ -239,8 +252,13 @@ export function AdjustmentsManager() {
         onOpen={() => setSettingsOpen(true)}
       />
 
-      {/* Period + totals */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Period + totals. The month/year pair decides everything below it, so it sits on the
+          same rail surface as a table's own controls rather than floating loose. */}
+      <div className="bg-muted/35 flex flex-wrap items-center gap-2 rounded-xl border p-2">
+        <CalendarRange
+          className="text-muted-foreground/70 ms-1 size-3.5 shrink-0"
+          aria-hidden
+        />
         <select
           value={month}
           onChange={(e) => setMonth(Number(e.target.value))}

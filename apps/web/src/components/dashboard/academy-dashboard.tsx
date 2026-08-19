@@ -1,5 +1,6 @@
 "use client";
 
+import { KhatamLattice } from "@/components/ornaments";
 import {
   Activity,
   ArrowRight,
@@ -756,6 +757,9 @@ const COLORS: Record<string, ColorDef> = {
   violet: { chip: "from-violet-500 to-purple-500", stripe: "from-violet-500 to-purple-500", glow: "bg-violet-500/20", text: "text-violet-600 dark:text-violet-400", spark: "#8b5cf6" },
   fuchsia: { chip: "from-fuchsia-500 to-pink-500", stripe: "from-fuchsia-500 to-pink-500", glow: "bg-fuchsia-500/20", text: "text-fuchsia-600 dark:text-fuchsia-400", spark: "#d946ef" },
   amber: { chip: "from-amber-500 to-orange-500", stripe: "from-amber-500 to-orange-500", glow: "bg-amber-500/20", text: "text-amber-600 dark:text-amber-400", spark: "#f59e0b" },
+  // The product's own gold (--gold), for decorative accents. `amber` stays as-is: it runs into
+  // orange, which is the right heat for "needs attention" and the wrong one for ornament.
+  gold: { chip: "from-amber-400 to-amber-600", stripe: "from-amber-300 to-amber-500", glow: "bg-amber-400/20", text: "text-amber-600 dark:text-amber-400", spark: "#e3b34d" },
   orange: { chip: "from-orange-500 to-red-500", stripe: "from-orange-500 to-red-500", glow: "bg-orange-500/20", text: "text-orange-600 dark:text-orange-400", spark: "#f97316" },
   rose: { chip: "from-rose-500 to-pink-500", stripe: "from-rose-500 to-pink-500", glow: "bg-rose-500/20", text: "text-rose-600 dark:text-rose-400", spark: "#f43f5e" },
   slate: { chip: "from-slate-500 to-slate-600", stripe: "from-slate-400 to-slate-500", glow: "bg-slate-500/20", text: "text-slate-600 dark:text-slate-300", spark: "#64748b" },
@@ -1005,18 +1009,26 @@ export function AcademyDashboard() {
   return (
     <div className="space-y-5 pb-4">
       {/* ── Hero header ── */}
-      <header className="relative overflow-hidden rounded-2xl border border-transparent bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 p-6 text-white shadow-lg sm:p-7">
-        {/* Vector flourishes: dot grid + glowing orbs */}
-        <svg className="pointer-events-none absolute inset-0 h-full w-full opacity-[0.18]" aria-hidden>
-          <defs>
-            <pattern id="hero-dots" width="22" height="22" patternUnits="userSpaceOnUse">
-              <circle cx="1.5" cy="1.5" r="1.5" fill="white" />
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#hero-dots)" />
-        </svg>
-        <div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full bg-white/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 left-1/4 h-48 w-48 rounded-full bg-fuchsia-400/30 blur-3xl" />
+      {/* The band wears the product's own colours — deep emerald into teal, lit by gold — under a
+          khatam lattice, so the panel opens on the same language as the client's sign-in door
+          (components/ornaments) instead of a generic violet dashboard header. */}
+      <header
+        className="relative overflow-hidden rounded-2xl border border-transparent p-6 text-white shadow-lg sm:p-7"
+        style={{
+          background:
+            "linear-gradient(135deg, oklch(0.30 0.065 163) 0%, oklch(0.38 0.105 168) 48%, oklch(0.32 0.085 196) 100%)",
+        }}
+      >
+        <KhatamLattice
+          id="hero-lattice"
+          size={64}
+          className="pointer-events-none absolute inset-0 h-full w-full text-white opacity-[0.16]"
+        />
+        <div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full bg-white/15 blur-3xl" />
+        <div
+          className="pointer-events-none absolute -bottom-24 left-1/4 h-48 w-48 rounded-full blur-3xl"
+          style={{ background: "oklch(0.835 0.118 85 / 0.30)" }}
+        />
         <div className="pointer-events-none absolute -right-6 bottom-0 opacity-10">
           <GraduationCap className="h-40 w-40" strokeWidth={1} />
         </div>
@@ -1040,7 +1052,7 @@ export function AcademyDashboard() {
               {t("hero.live")}
             </span>
             {planName && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/30 bg-white px-2.5 py-1 text-xs font-bold text-violet-700 shadow-sm">
+              <span className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold shadow-sm">
                 <Sparkles className="h-3 w-3" />
                 {planName}
               </span>
@@ -1063,7 +1075,7 @@ export function AcademyDashboard() {
       <section className="space-y-3">
         <SectionTitle
           Icon={Activity}
-          color="violet"
+          color="emerald"
           title={t("sections.metrics")}
           desc={t("sections.metricsDesc")}
         />
@@ -1085,7 +1097,7 @@ export function AcademyDashboard() {
           {can("teacher.read") && (
             <StatCard
               Icon={Users}
-              color="violet"
+              color="teal"
               label={t("kpi.teachers")}
               value={teachersTotal}
               sub={t("kpi.totalTeachers")}
@@ -1099,7 +1111,7 @@ export function AcademyDashboard() {
           {(can("schedule.read") || can("attendance.read")) && (
             <StatCard
               Icon={CalendarDays}
-              color="cyan"
+              color="gold"
               label={t("kpi.sessionsThisWeek")}
               value={ldWeek ? null : weekSessions?.length ?? 0}
               sub={t("kpi.sessionsThisWeekSub")}
@@ -1137,7 +1149,7 @@ export function AcademyDashboard() {
           {(can("schedule.read") || can("attendance.read")) && (
             <StatCard
               Icon={Timer}
-              color="orange"
+              color="green"
               label={t("kpi.hoursThisMonth")}
               value={ldMonth ? null : hoursMonth}
               sub={ldMonth ? "" : `${minsMonth}m · ${t(isTeacher ? "kpi.hoursThisMonthSubTaught" : "kpi.hoursThisMonthSub")}`}
@@ -1195,7 +1207,7 @@ export function AcademyDashboard() {
               />
               <StatCard
                 Icon={BarChart3}
-                color="indigo"
+                color="emerald"
                 label={t("finance.billed")}
                 value={null}
                 isMoney
@@ -1234,7 +1246,7 @@ export function AcademyDashboard() {
               />
               <StatCard
                 Icon={Activity}
-                color="sky"
+                color="teal"
                 label={t("kpi.avgInvoice")}
                 value={null}
                 isMoney
@@ -1249,7 +1261,7 @@ export function AcademyDashboard() {
                 <StatCard
                   key={`due-${m.currency}`}
                   Icon={ReceiptText}
-                  color="fuchsia"
+                  color="gold"
                   label={`${t("kpi.totalDue")} · ${m.currency}`}
                   value={null}
                   isMoney
@@ -1377,7 +1389,7 @@ export function AcademyDashboard() {
         <section className="space-y-3">
           <SectionTitle
             Icon={CalendarDays}
-            color="blue"
+            color="teal"
             title={t("sections.operations")}
             desc={t("sections.operationsDesc")}
           />
@@ -1531,14 +1543,13 @@ export function AcademyDashboard() {
         <div className="rounded-xl border bg-card p-6">
           <div className="flex items-center justify-between">
             <SectionHeader icon={<Sparkles className="h-4 w-4" />} title={t("plan.usage")} />
-            <ViewAllLink href="/plan" label={t("plan.managePlan")} />
           </div>
           <div className="mt-6 flex flex-wrap justify-center gap-12">
             {studentLimit !== null && (
               <RingGauge value={studentUsage} max={studentLimit} color="#10b981" label={t("plan.students")} locale={locale} />
             )}
             {teacherLimit !== null && (
-              <RingGauge value={teacherUsage} max={teacherLimit} color="#8b5cf6" label={t("plan.teachers")} locale={locale} />
+              <RingGauge value={teacherUsage} max={teacherLimit} color="#e3b34d" label={t("plan.teachers")} locale={locale} />
             )}
           </div>
         </div>
@@ -1546,7 +1557,7 @@ export function AcademyDashboard() {
 
       {/* ── Quick actions ── */}
       <section className="space-y-3">
-        <SectionTitle Icon={Sparkles} color="fuchsia" title={t("actions.title")} desc={t("actions.subtitle")} />
+        <SectionTitle Icon={Sparkles} color="gold" title={t("actions.title")} desc={t("actions.subtitle")} />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {can("student.create") && (
             <ActionCard href="/students" Icon={GraduationCap} color="emerald" label={t("actions.addStudent")} desc={t("actions.addStudentDesc")} />
@@ -1555,22 +1566,22 @@ export function AcademyDashboard() {
             <ActionCard href="/attendance" Icon={ClipboardCheck} color="amber" label={t("actions.markAttendance")} desc={t("actions.markAttendanceDesc")} badge={pendingCount} />
           )}
           {can("invoice.view") && (
-            <ActionCard href="/invoices" Icon={ReceiptText} color="blue" label={t("actions.viewInvoices")} desc={t("actions.viewInvoicesDesc")} badge={openInvoices} />
+            <ActionCard href="/invoices" Icon={ReceiptText} color="teal" label={t("actions.viewInvoices")} desc={t("actions.viewInvoicesDesc")} badge={openInvoices} />
           )}
           {can("schedule.read") && (
-            <ActionCard href="/calendar" Icon={CalendarDays} color="violet" label={t("actions.viewCalendar")} desc={t("actions.viewCalendarDesc")} />
+            <ActionCard href="/calendar" Icon={CalendarDays} color="emerald" label={t("actions.viewCalendar")} desc={t("actions.viewCalendarDesc")} />
           )}
           {can("payout.read") && (
-            <ActionCard href="/payroll" Icon={Wallet} color="rose" label={t("actions.payroll")} desc={t("actions.payrollDesc")} />
+            <ActionCard href="/payroll" Icon={Wallet} color="gold" label={t("actions.payroll")} desc={t("actions.payrollDesc")} />
           )}
           {can("payout.read_own") && !can("payout.read") && (
-            <ActionCard href="/payroll" Icon={Wallet} color="rose" label={t("actions.myPayroll")} desc={t("actions.myPayrollDesc")} />
+            <ActionCard href="/payroll" Icon={Wallet} color="gold" label={t("actions.myPayroll")} desc={t("actions.myPayrollDesc")} />
           )}
           {can("invoice.view") && (
-            <ActionCard href="/financial-statistics" Icon={BarChart3} color="indigo" label={t("actions.financialStats")} desc={t("actions.financialStatsDesc")} />
+            <ActionCard href="/financial-statistics" Icon={BarChart3} color="green" label={t("actions.financialStats")} desc={t("actions.financialStatsDesc")} />
           )}
           {can("student.read") && (
-            <ActionCard href="/sessions" Icon={BookOpen} color="cyan" label={t("actions.sessions")} desc={t("actions.sessionsDesc")} />
+            <ActionCard href="/sessions" Icon={BookOpen} color="teal" label={t("actions.sessions")} desc={t("actions.sessionsDesc")} />
           )}
         </div>
       </section>

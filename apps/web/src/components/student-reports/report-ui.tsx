@@ -106,10 +106,18 @@ export function StatTile({
         "bg-card group relative flex flex-col gap-2 overflow-hidden rounded-2xl border p-3.5 text-start shadow-sm outline-none transition-all",
         "focus-visible:ring-ring/40 hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-3",
         active
-          ? "border-primary/40 ring-primary/15 ring-2"
-          : "hover:border-foreground/15",
+          ? "border-primary/40 ring-primary/25 ring-2"
+          : "hover:border-primary/25",
       )}
     >
+      {/* The gold hairline marks the chosen cut — the same thread the segment tiles, the panel
+          headers and the sidebar use, so "selected" is said in one vocabulary across the app. */}
+      {active && (
+        <span
+          className="via-gold absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent"
+          aria-hidden
+        />
+      )}
       <span className="flex items-center justify-between gap-2">
         <span className="text-muted-foreground text-xs font-medium">
           {label}

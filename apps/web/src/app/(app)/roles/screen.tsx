@@ -1,12 +1,25 @@
 "use client";
 
-import { Check, Lock, Pencil, Plus, ShieldCheck, ShieldHalf, Trash2, Users } from "lucide-react";
+import {
+  Check,
+  KeyRound,
+  Lock,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  ShieldHalf,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { Octagram } from "@/components/ornaments";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { HeroPill, PageHero } from "@/components/ui/page-hero";
+import { SegmentTile } from "@/components/ui/segment-tile";
 import {
   type AcademyRoleSummary,
   type AcademyRolesResponse,
@@ -213,37 +226,104 @@ export function AcademyRolesScreen() {
     }
   }
 
+  // Counts across both books — a roles page's own headline is how much of the academy's access
+  // is custom versus built-in, and how many people are actually standing behind each.
+  const customCount = data?.custom.length ?? null;
+  const systemCount = data?.system.length ?? null;
+  const assignedTotal =
+    data === null
+      ? null
+      : [...data.custom, ...data.system].reduce((n, r) => n + r.assignedCount, 0);
+  const roleTotal =
+    customCount === null || systemCount === null ? null : customCount + systemCount;
+  const pct = (value: number | null) =>
+    roleTotal && roleTotal > 0 && value !== null
+      ? Math.round((value / roleTotal) * 100)
+      : null;
+
   return (
-    <div className="space-y-6">
-      {/* Hero */}
-      <div className="from-primary/[0.10] via-card to-card relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        <div className="flex items-center gap-3.5">
-          <div className="bg-primary/12 text-primary flex size-11 items-center justify-center rounded-xl">
-            <ShieldCheck className="size-5.5" aria-hidden />
-          </div>
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">{t("subtitle")}</p>
-          </div>
-          <Button type="button" size="sm" className="gap-1.5" onClick={openCreate} data-testid="new-role">
-            <Plus className="size-4" />
-            {t("newRole")}
-          </Button>
-        </div>
+    <div className="space-y-5">
+      <PageHero
+        latticeId="roles-hero-lattice"
+        icon={ShieldCheck}
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          <>
+            {data !== null && (
+              <HeroPill>
+                <KeyRound className="size-3.5" aria-hidden />
+                {t("hero.capabilities", { count: data.grantable.length })}
+              </HeroPill>
+            )}
+            <Button
+              type="button"
+              size="lg"
+              className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
+              onClick={openCreate}
+              data-testid="new-role"
+            >
+              <Plus className="size-4" aria-hidden />
+              {t("newRole")}
+            </Button>
+          </>
+        }
+      />
+
+      {/* ── Counters ────────────────────────────────────────────────────
+          Read-only: unlike a list screen there is nothing here to filter — the two books below
+          are already the whole set — so these state the shape of access rather than slice it. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <SegmentTile
+          testKey="custom"
+          icon={ShieldCheck}
+          label={t("customRoles")}
+          hint={t("customRolesSub")}
+          value={customCount}
+          share={pct(customCount)}
+          tone="emerald"
+          selected={false}
+          onSelect={() => {}}
+        />
+        <SegmentTile
+          testKey="system"
+          icon={Lock}
+          label={t("systemRoles")}
+          hint={t("systemRolesSub")}
+          value={systemCount}
+          share={pct(systemCount)}
+          tone="slate"
+          selected={false}
+          onSelect={() => {}}
+        />
+        <SegmentTile
+          testKey="assigned"
+          icon={Users}
+          label={t("assignedTotal")}
+          hint={t("assignedTotalSub")}
+          value={assignedTotal}
+          share={null}
+          tone="gold"
+          selected={false}
+          onSelect={() => {}}
+        />
       </div>
 
       {error && <AlertBanner variant="error" message={error} />}
       {notice && <AlertBanner variant="success" message={notice} />}
 
-      {/* Custom roles */}
+      {/* ── Custom roles ────────────────────────────────────────────────── */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-          {t("customRoles")}
-        </h2>
+        <SectionHeading
+          icon={ShieldCheck}
+          title={t("customRoles")}
+          hint={t("customRolesSub")}
+          count={customCount}
+        />
         {data === null ? (
           <div className="bg-muted h-20 animate-pulse rounded-2xl" aria-hidden />
         ) : data.custom.length === 0 ? (
-          <p className="text-muted-foreground rounded-2xl border border-dashed p-6 text-center text-sm">
+          <p className="text-muted-foreground rounded-2xl border border-dashed p-8 text-center text-sm">
             {t("noCustomRoles")}
           </p>
         ) : (
@@ -263,11 +343,14 @@ export function AcademyRolesScreen() {
         )}
       </section>
 
-      {/* System roles (read-only) */}
+      {/* ── System roles (read-only) ────────────────────────────────────── */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-          {t("systemRoles")}
-        </h2>
+        <SectionHeading
+          icon={Lock}
+          title={t("systemRoles")}
+          hint={t("systemRolesSub")}
+          count={systemCount}
+        />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {(data?.system ?? []).map((role) => (
             <RoleCard
@@ -498,6 +581,43 @@ export function AcademyRolesScreen() {
   );
 }
 
+/** A named divider above a grid of cards — icon, title, count, and the frame's gold rule. */
+function SectionHeading({
+  icon: Icon,
+  title,
+  hint,
+  count,
+}: {
+  icon: typeof ShieldCheck;
+  title: string;
+  hint: string;
+  count: number | null;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="bg-primary/10 ring-primary/15 flex size-9 shrink-0 items-center justify-center rounded-xl ring-1">
+        <Icon className="text-primary size-4" aria-hidden />
+      </div>
+      <div className="min-w-0">
+        <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight">
+          {title}
+          {count !== null && (
+            <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums">
+              {count}
+            </span>
+          )}
+          <Octagram className="text-gold/60 size-2 shrink-0" />
+        </h2>
+        <p className="text-muted-foreground mt-0.5 truncate text-xs">{hint}</p>
+      </div>
+      <span
+        className="via-gold/35 ms-2 h-px flex-1 bg-gradient-to-r from-transparent to-transparent"
+        aria-hidden
+      />
+    </div>
+  );
+}
+
 function cardLabels(
   t: ReturnType<typeof useTranslations>,
   role: AcademyRoleSummary,
@@ -541,15 +661,30 @@ function RoleCard({
       type="button"
       onClick={onView}
       className={cn(
-        "bg-card flex w-full flex-col gap-3 rounded-2xl border p-4 text-start shadow-sm ring-1 ring-foreground/[0.04] transition-colors hover:border-primary/40 hover:bg-muted/20",
+        "bg-card group relative flex w-full flex-col gap-3 overflow-hidden rounded-2xl border p-4 text-start shadow-sm transition-all",
+        "bg-gradient-to-br to-transparent hover:-translate-y-0.5 hover:shadow-md",
+        role.system ? "from-slate-400/[0.06]" : "from-primary/[0.06]",
+        "hover:border-primary/35",
         role.isActive === false && "opacity-60",
       )}
       data-testid={`role-card-${role.code}`}
     >
+      {/* The gold thread across the top — the same one the sidebar and panel headers use. */}
+      <span
+        className="via-gold/50 absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100"
+        aria-hidden
+      />
       <div className="flex w-full items-start justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-xl">
-            {role.system ? <ShieldHalf className="size-4.5" /> : <ShieldCheck className="size-4.5" />}
+          <div
+            className={cn(
+              "flex size-10 items-center justify-center rounded-xl ring-1",
+              role.system
+                ? "bg-slate-400/10 text-slate-500 ring-slate-400/20 dark:text-slate-400"
+                : "bg-primary/10 text-primary ring-primary/15",
+            )}
+          >
+            {role.system ? <ShieldHalf className="size-5" /> : <ShieldCheck className="size-5" />}
           </div>
           <div>
             <p className="font-semibold leading-tight">{title}</p>
@@ -598,10 +733,12 @@ function RoleCard({
         <p className="text-muted-foreground text-sm">{role.description}</p>
       )}
 
-      <div className="text-muted-foreground mt-auto flex items-center gap-4 text-xs">
-        <span>{labels.capabilities}</span>
-        <span className="inline-flex items-center gap-1">
-          <Users className="size-3.5" /> {labels.assigned}
+      <div className="text-muted-foreground mt-auto flex items-center gap-2 border-t pt-3 text-xs">
+        <span className="bg-muted/70 inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium">
+          <KeyRound className="size-3" aria-hidden /> {labels.capabilities}
+        </span>
+        <span className="bg-muted/70 inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium">
+          <Users className="size-3" aria-hidden /> {labels.assigned}
         </span>
       </div>
     </button>

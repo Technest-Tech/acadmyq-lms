@@ -1,6 +1,6 @@
 "use client";
 
-import { History, Lock, ShieldCheck } from "lucide-react";
+import { History, ListFilter, Lock, ShieldCheck } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -12,7 +12,9 @@ import {
 } from "@/components/audit/audit-action-style";
 import { AuditDetailModal } from "@/components/audit/audit-detail-modal";
 import { useAuth } from "@/components/auth-provider";
+import { Octagram } from "@/components/ornaments";
 import { AlertBanner } from "@/components/ui/alert";
+import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import { DataTable, type ColumnDef } from "@/components/ui/data-table";
 import {
   getAudit,
@@ -187,27 +189,21 @@ export function AuditLogScreen() {
     "border-input bg-background focus:border-primary focus:ring-primary/15 h-8 rounded-lg border px-3 text-sm outline-none transition-colors focus:ring-3";
 
   return (
-    <div className="space-y-6">
-      {/* Premium hero header */}
-      <div className="from-primary/[0.10] via-card to-card relative overflow-hidden rounded-2xl border bg-gradient-to-br p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        <div className="flex items-center gap-3.5">
-          <div className="bg-primary/12 text-primary flex size-11 items-center justify-center rounded-xl">
-            <History className="size-5.5" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">
-              {session?.role === "SUPER_ADMIN"
-                ? t("subtitlePlatform")
-                : t("subtitle")}
-            </p>
-          </div>
-          <span className="text-muted-foreground ms-auto hidden items-center gap-1.5 text-xs font-medium sm:inline-flex">
-            <ShieldCheck className="size-3.5 text-emerald-500" aria-hidden />
+    <div className="space-y-5">
+      <PageHero
+        latticeId="audit-hero-lattice"
+        icon={History}
+        title={t("title")}
+        subtitle={
+          session?.role === "SUPER_ADMIN" ? t("subtitlePlatform") : t("subtitle")
+        }
+        actions={
+          <HeroPill>
+            <ShieldCheck className="size-3.5" aria-hidden />
             {t("appendOnly")}
-          </span>
-        </div>
-      </div>
+          </HeroPill>
+        }
+      />
 
       {/* Plan-depth upsell (BASIC) */}
       {depthDays !== null && (
@@ -217,8 +213,14 @@ export function AuditLogScreen() {
         />
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2">
+      {/* Filters. These live outside the DataTable because two of them are date inputs, which
+          its select-only filter rail cannot express — so they wear the same surface instead of
+          floating loose above the table. */}
+      <div className="bg-muted/35 flex flex-wrap items-center gap-2 rounded-xl border p-2">
+        <ListFilter
+          className="text-muted-foreground/70 ms-1 size-3.5 shrink-0"
+          aria-hidden
+        />
         <select
           aria-label={t("filterAction")}
           value={action}
@@ -275,6 +277,29 @@ export function AuditLogScreen() {
         )}
       </div>
 
+      {/* ── Panel ────────────────────────────────────────────────────── */}
+      <section className="bg-card overflow-hidden rounded-2xl border shadow-sm">
+        <div className="relative border-b">
+          <div className="from-primary/[0.07] via-primary/[0.025] flex items-center gap-3 bg-gradient-to-r to-transparent px-5 py-4">
+            <div className="bg-primary/10 ring-primary/15 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1">
+              <History className="text-primary size-5" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight">
+                {t("panelTitle")}
+                <Octagram className="text-gold/60 size-2 shrink-0" />
+              </h2>
+              <p className="text-muted-foreground mt-0.5 truncate text-xs">
+                {t("panelHint")}
+              </p>
+            </div>
+          </div>
+          <span
+            className="via-gold/45 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
+            aria-hidden
+          />
+        </div>
+        <div className="p-4">
       <DataTable<AuditEntry>
         key={filterKey}
         fetcher={fetcher}
@@ -289,6 +314,9 @@ export function AuditLogScreen() {
           columns: exportColumns,
         }}
       />
+
+        </div>
+      </section>
 
       <AuditDetailModal entry={selected} onClose={() => setSelected(null)} />
 

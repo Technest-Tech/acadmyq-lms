@@ -8,17 +8,24 @@ import {
   Check,
   GraduationCap,
   Hash,
+  History,
   MapPin,
   Phone,
   ShieldAlert,
   ShieldCheck,
   Trash2,
+  Undo2,
   UserCircle2,
+  UserRoundCog,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { ScheduleSection } from "@/components/scheduling/schedule-editor";
+import {
+  DetailRow,
+  ProfileCard,
+} from "@/components/ui/profile-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -311,7 +318,12 @@ export function StudentDetail({
 
 // ── ReactivatePanel ─────────────────────────────────────────────────────────────
 
-function ReactivatePanel({
+/**
+ * The way back for a deactivated student. It existed before but was never rendered on the profile
+ * page, so a student deactivated by mistake could only be restored from the database — now it is
+ * what the Settings tab shows once the record is inactive.
+ */
+export function ReactivatePanel({
   studentId,
   onReactivated,
   onError,
@@ -324,19 +336,19 @@ function ReactivatePanel({
   const [busy, setBusy] = useState(false);
 
   return (
-    <section className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-            {t("detail.reactivate")}
-          </p>
-          <p className="text-muted-foreground mt-0.5 text-xs">
-            {t("detail.reactivateHint")}
-          </p>
-        </div>
+    <ProfileCard
+      icon={Undo2}
+      title={t("detail.reactivate")}
+      description={t("profile.settingsSubtitle")}
+      tone="emerald"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-muted-foreground min-w-0 text-xs">
+          {t("detail.reactivateHint")}
+        </p>
         <Button
           type="button"
-          size="xs"
+          size="sm"
           disabled={busy}
           onClick={async () => {
             setBusy(true);
@@ -350,17 +362,27 @@ function ReactivatePanel({
             }
           }}
           data-testid="reactivate-student"
-          className="bg-emerald-600 text-white hover:bg-emerald-700 border-transparent"
+          className="shrink-0 gap-1.5 border-transparent bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-500/40"
         >
+          {busy ? (
+            <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+          ) : (
+            <Undo2 className="size-3.5" />
+          )}
           {t("detail.reactivate")}
         </Button>
       </div>
-    </section>
+    </ProfileCard>
   );
 }
 
 // ── ProfileSection ────────────────────────────────────────────────────────────
 
+/**
+ * The student's own record, and the adult behind it — two subjects, so two cards side by side on
+ * a wide screen. Previously one column with the guardian hanging off the bottom of the form under
+ * a divider, where it read like an afterthought rather than the billing anchor it is.
+ */
 export function ProfileSection({
   data,
   canEdit,
@@ -376,6 +398,10 @@ export function ProfileSection({
   const [name, setName] = useState(data.student.full_name);
   const [status, setStatus] = useState((data.student.status as string) ?? "");
   const [saving, setSaving] = useState(false);
+
+  const dirty =
+    name !== data.student.full_name ||
+    status !== ((data.student.status as string) ?? "");
 
   async function save() {
     setSaving(true);
@@ -396,137 +422,119 @@ export function ProfileSection({
   }
 
   return (
-    <section className="space-y-4" data-testid="student-profile">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-        {t("detail.profile")}
-      </p>
+    <div className="grid gap-4 lg:grid-cols-2" data-testid="student-profile">
+      <ProfileCard
+        icon={UserCircle2}
+        title={t("profile.identityTitle")}
+        description={t("profile.identityDesc")}
+        tone="emerald"
+      >
+        <div className="space-y-4">
+          <Field label={t("form.fullName")}>
+            <input
+              aria-label={t("form.fullName")}
+              className={cn(inputBase, "px-3.5 py-2.5")}
+              value={name}
+              disabled={!canEdit}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </Field>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t("form.fullName")}>
-          <input
-            aria-label={t("form.fullName")}
-            className={cn(inputBase, "px-3.5 py-2.5")}
-            value={name}
-            disabled={!canEdit}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </Field>
+          <Field label={t("form.status")}>
+            <select
+              aria-label={t("form.status")}
+              className={cn(inputBase, "px-3.5 py-2.5", !canEdit && "appearance-none")}
+              value={STUDENT_STATUSES.includes(status as never) ? status : ""}
+              disabled={!canEdit}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              {!STUDENT_STATUSES.includes(status as never) && (
+                <option value="">{status || t("none")}</option>
+              )}
+              {STUDENT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {t(`studentStatus.${s}`)}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-        <Field label={t("form.status")}>
-          <select
-            aria-label={t("form.status")}
-            className={cn(inputBase, "px-3.5 py-2.5", !canEdit && "appearance-none")}
-            value={STUDENT_STATUSES.includes(status as never) ? status : ""}
-            disabled={!canEdit}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            {!STUDENT_STATUSES.includes(status as never) && (
-              <option value="">{status || t("none")}</option>
-            )}
-            {STUDENT_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {t(`studentStatus.${s}`)}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </div>
-
-      {canEdit && (
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            disabled={saving}
-            onClick={() => void save()}
-            data-testid="save-student"
-            className="gap-1.5"
-          >
-            {saving ? (
-              <>
-                <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
-                {t("form.saving")}
-              </>
-            ) : (
-              <>
-                <Check className="size-3.5" />
-                {t("form.save")}
-              </>
-            )}
-          </Button>
+          {canEdit && (
+            <div className="flex items-center justify-end gap-3 border-t pt-4">
+              {/* Saying "nothing to save" beats a button that looks live and does nothing. */}
+              {!dirty && !saving && (
+                <span className="text-muted-foreground/70 text-xs">
+                  {t("profile.noChanges")}
+                </span>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                disabled={saving || !dirty}
+                onClick={() => void save()}
+                data-testid="save-student"
+                className="gap-1.5"
+              >
+                {saving ? (
+                  <>
+                    <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+                    {t("form.saving")}
+                  </>
+                ) : (
+                  <>
+                    <Check className="size-3.5" />
+                    {t("form.save")}
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
         </div>
-      )}
+      </ProfileCard>
 
-      {/* ── Guardian details ──────────────────────────────────────────── */}
-      <GuardianDetails data={data} />
-    </section>
-  );
-}
-
-// ── GuardianDetails ───────────────────────────────────────────────────────────
-
-function GuardianRow_({
-  icon: Icon,
-  label,
-  value,
-  dir,
-}: {
-  icon: typeof Phone;
-  label: string;
-  value: string;
-  dir?: "ltr";
-}) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background ring-1 ring-border/60">
-        <Icon className="size-3.5 text-muted-foreground" aria-hidden />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-          {label}
-        </p>
-        <p className="truncate text-sm font-medium" dir={dir}>
-          {value}
-        </p>
-      </div>
+      <GuardianCard data={data} />
     </div>
   );
 }
 
-function GuardianDetails({ data }: { data: StudentDetailData }) {
+// ── GuardianCard ──────────────────────────────────────────────────────────────
+
+function GuardianCard({ data }: { data: StudentDetailData }) {
   const t = useTranslations("students");
   const guardian = data.guardian;
   const isSelf = data.student.is_self_guardian;
   const country = countryLabel(guardian?.country ?? null);
 
   return (
-    <div className="space-y-3 border-t pt-5">
-      <div className="flex items-center gap-2">
-        <UserCircle2 className="size-4 text-muted-foreground" aria-hidden />
-        <p className="text-sm font-semibold">{t("form.guardianDetails")}</p>
-        {isSelf && (
-          <span className="ms-auto inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary ring-1 ring-primary/15">
+    <ProfileCard
+      icon={ShieldCheck}
+      title={t("form.guardianDetails")}
+      description={t("profile.guardianDesc")}
+      tone="violet"
+      action={
+        isSelf ? (
+          <span className="bg-primary/10 text-primary ring-primary/15 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1">
             <ShieldCheck className="size-3" aria-hidden />
             {t("form.selfGuardian")}
           </span>
-        )}
-      </div>
-
+        ) : undefined
+      }
+    >
       {guardian ? (
-        <div className="rounded-2xl border bg-muted/20 p-4">
+        <div className="space-y-4">
           {isSelf && (
-            <p className="mb-3 text-xs text-muted-foreground">
+            <p className="text-muted-foreground bg-muted/40 rounded-xl px-3 py-2 text-xs">
               {t("form.selfGuardianBadge")}
             </p>
           )}
           <div className="grid gap-3 sm:grid-cols-2">
-            <GuardianRow_
+            <DetailRow
               icon={UserCircle2}
               label={t("form.guardian")}
               value={guardian.full_name}
             />
             {guardian.whatsapp_phone && (
-              <GuardianRow_
+              <DetailRow
                 icon={Phone}
                 label={t("form.phone")}
                 value={guardian.whatsapp_phone}
@@ -534,25 +542,26 @@ function GuardianDetails({ data }: { data: StudentDetailData }) {
               />
             )}
             {country && (
-              <GuardianRow_
-                icon={MapPin}
-                label={t("form.country")}
-                value={country}
-              />
+              <DetailRow icon={MapPin} label={t("form.country")} value={country} />
             )}
           </div>
         </div>
       ) : (
-        <p className="rounded-2xl border border-dashed bg-muted/10 px-4 py-6 text-center text-sm text-muted-foreground">
+        <p className="text-muted-foreground bg-muted/10 rounded-xl border border-dashed px-4 py-8 text-center text-sm">
           {t("form.noGuardian")}
         </p>
       )}
-    </div>
+    </ProfileCard>
   );
 }
 
 // ── SubscriptionSection ───────────────────────────────────────────────────────
 
+/**
+ * What the academy bills this student. The package's figures now live in a card with the edit
+ * form behind a modal, rather than an inline panel that pushed the whole page down the moment
+ * anyone touched "Edit" — the numbers you are changing FROM stay on screen while you change them.
+ */
 export function SubscriptionSection({
   data,
   canEdit,
@@ -576,6 +585,7 @@ export function SubscriptionSection({
   const isHourly = sub?.price_basis === "PER_HOUR";
 
   const [showSet, setShowSet] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [sessions, setSessions] = useState("");
   const [price, setPrice] = useState("");
@@ -620,6 +630,7 @@ export function SubscriptionSection({
   }
 
   async function save() {
+    setSaving(true);
     try {
       const res = await setSubscription(studentId, {
         // The package is always hourly now; derive a display label from the quota.
@@ -642,33 +653,33 @@ export function SubscriptionSection({
       );
     } catch (err) {
       onError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setSaving(false);
     }
   }
 
   return (
-    <section className="space-y-4" data-testid="student-subscription">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-        {t("subscription.title")}
-      </p>
-
-      {/* No-timetable indicator */}
+    <div className="space-y-4" data-testid="student-subscription">
+      {/* A package with no timetable bills nothing — the one blocking condition, stated first. */}
       {hasSchedule === false && (
-        <div className="flex items-start gap-3 rounded-2xl border border-amber-300/60 bg-gradient-to-br from-amber-500/[0.08] to-transparent p-4 dark:border-amber-700/40">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
-            <CalendarPlus className="size-4" aria-hidden />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-              {t("subscription.noScheduleTitle")}
-            </p>
-            <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-400/70">
-              {t("subscription.noScheduleHint")}
-            </p>
+        <div className="flex flex-col gap-3 rounded-2xl border border-amber-300/60 bg-gradient-to-br from-amber-500/[0.08] to-transparent p-4 sm:flex-row sm:items-center dark:border-amber-700/40">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+              <CalendarPlus className="size-4" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                {t("subscription.noScheduleTitle")}
+              </p>
+              <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-400/70">
+                {t("subscription.noScheduleHint")}
+              </p>
+            </div>
           </div>
           {onGoToSchedule && (
             <Button
               type="button"
-              size="xs"
+              size="sm"
               onClick={onGoToSchedule}
               className="shrink-0 gap-1.5 border-transparent bg-amber-500 text-white hover:bg-amber-600 focus-visible:ring-amber-500/40"
             >
@@ -680,104 +691,130 @@ export function SubscriptionSection({
       )}
 
       {sub ? (
-        <div
-          className="overflow-hidden rounded-2xl border bg-card shadow-sm"
-          data-testid="subscription-card"
+        <ProfileCard
+          icon={BookOpen}
+          title={sub.plan_label}
+          description={t(`basis.${sub.price_basis}`)}
+          tone="violet"
+          testId="subscription-card"
+          bodyClassName="p-0"
+          action={
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+                {t("subscription.active")}
+              </span>
+              {canEdit && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={openForm}
+                  data-testid="toggle-set-subscription"
+                  className="gap-1.5"
+                >
+                  <BookOpen className="size-3.5" />
+                  {t("subscription.edit")}
+                </Button>
+              )}
+            </div>
+          }
         >
-          {/* Card header */}
-          <div className="flex items-center gap-2.5 border-b bg-gradient-to-r from-violet-500/[0.07] to-transparent px-4 py-3">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-violet-500/10 ring-1 ring-violet-500/20">
-              <BookOpen className="size-4 text-violet-500" aria-hidden />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{sub.plan_label}</p>
-              <p className="text-[11px] text-muted-foreground">{t(`basis.${sub.price_basis}`)}</p>
-            </div>
-            <span className="ms-auto inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-              <span className="size-1.5 rounded-full bg-emerald-500" />
-              {t("subscription.active")}
-            </span>
-          </div>
-
-          {/* Key figures */}
-          <div className="grid grid-cols-3 divide-x rtl:divide-x-reverse">
-            <div className="px-4 py-3">
-              <p className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
-                {isHourly ? t("subscription.priceHourly") : t("subscription.price")}
-              </p>
-              <p className="mt-0.5 font-bold tabular-nums">
-                <span data-testid="subscription-price">
-                  {formatMoney({ amount: sub.price_minor, currency: sub.currency }, locale)}
+          {/* The three numbers that decide the invoice, given equal weight and one baseline. */}
+          <div className="grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0 rtl:sm:divide-x-reverse">
+            <Figure
+              label={isHourly ? t("subscription.priceHourly") : t("subscription.price")}
+            >
+              <span data-testid="subscription-price">
+                {formatMoney({ amount: sub.price_minor, currency: sub.currency }, locale)}
+              </span>
+              {isHourly && (
+                <span className="text-muted-foreground ms-0.5 text-xs font-medium">
+                  {t("subscription.perHourShort")}
                 </span>
-                {isHourly && (
-                  <span className="ms-0.5 text-xs font-medium text-muted-foreground">
-                    {t("subscription.perHourShort")}
-                  </span>
-                )}
-              </p>
-            </div>
-            {sub.sessions_per_month != null && (
-              <div className="px-4 py-3">
-                <p className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
-                  {isHourly ? t("subscription.hoursPerMonth") : t("subscription.sessionsPerMonth")}
-                </p>
-                <p className="mt-0.5 font-bold tabular-nums">{sub.sessions_per_month}</p>
-              </div>
-            )}
-            <div className="px-4 py-3">
-              <p className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
-                {t("subscription.startDate")}
-              </p>
-              <p className="mt-0.5 text-sm font-semibold">{sub.start_date}</p>
-            </div>
+              )}
+            </Figure>
+            <Figure
+              label={
+                isHourly
+                  ? t("subscription.hoursPerMonth")
+                  : t("subscription.sessionsPerMonth")
+              }
+            >
+              {sub.sessions_per_month ?? <span className="text-muted-foreground/40">—</span>}
+            </Figure>
+            <Figure label={t("subscription.startDate")}>{sub.start_date}</Figure>
           </div>
-
-          {/* Actions */}
-          {canEdit && (
-            <div className="flex flex-wrap items-center gap-1.5 border-t bg-muted/20 px-4 py-3">
+        </ProfileCard>
+      ) : (
+        <ProfileCard
+          icon={BookOpen}
+          title={t("subscription.title")}
+          description={t("profile.subscriptionDesc")}
+          tone="violet"
+        >
+          <div className="rounded-xl border border-dashed bg-muted/10 p-8 text-center">
+            <p className="text-sm font-medium">{t("subscription.none")}</p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {t("subscription.noneHint")}
+            </p>
+            {canEdit && (
               <Button
                 type="button"
-                variant="outline"
-                size="xs"
+                size="sm"
                 onClick={openForm}
                 data-testid="toggle-set-subscription"
-                className="gap-1.5"
+                className="mt-4 gap-1.5"
               >
                 <BookOpen className="size-3.5" />
-                {t("subscription.edit")}
+                {t("subscription.set")}
               </Button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-dashed bg-muted/10 p-6 text-center">
-          <p className="text-sm font-medium">{t("subscription.none")}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t("subscription.noneHint")}</p>
-          {canEdit && (
+            )}
+          </div>
+        </ProfileCard>
+      )}
+
+      {/* ── Edit package ─────────────────────────────────────────────────
+          A modal, not an inline panel: the figures being replaced stay readable behind it. */}
+      <Modal
+        open={showSet && canEdit}
+        onClose={() => !saving && setShowSet(false)}
+        title={sub ? t("subscription.replaceTitle") : t("subscription.setTitle")}
+        size="md"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={saving}
+              onClick={() => setShowSet(false)}
+            >
+              {t("cancel")}
+            </Button>
             <Button
               type="button"
               size="sm"
-              onClick={openForm}
-              data-testid="toggle-set-subscription"
-              className="mt-3 gap-1.5"
+              disabled={saving}
+              onClick={() => void save()}
+              data-testid="save-subscription"
+              className="gap-1.5"
             >
-              <BookOpen className="size-3.5" />
+              {saving ? (
+                <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+              ) : (
+                <Check className="size-3.5" />
+              )}
               {t("subscription.set")}
             </Button>
-          )}
-        </div>
-      )}
-
-      {showSet && canEdit && (
-        <div className="space-y-4 rounded-2xl border bg-muted/20 p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-            {sub ? t("subscription.replaceTitle") : t("subscription.setTitle")}
-          </p>
-
-          <div className="grid grid-cols-2 gap-3">
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label={t("subscription.priceHourly")}>
               <div className="relative">
-                <Banknote className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Banknote className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
                 <input
                   type="number"
                   step="0.01"
@@ -791,7 +828,7 @@ export function SubscriptionSection({
 
             <Field label={t("subscription.hoursPerMonth")}>
               <div className="relative">
-                <Hash className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Hash className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
                 <input
                   type="number"
                   aria-label={t("subscription.hoursPerMonth")}
@@ -814,7 +851,7 @@ export function SubscriptionSection({
 
             <Field label={t("subscription.startDate")}>
               <div className="relative">
-                <CalendarDays className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <CalendarDays className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
                 <input
                   type="date"
                   aria-label={t("subscription.startDate")}
@@ -852,35 +889,31 @@ export function SubscriptionSection({
               </div>
             </label>
           )}
-
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setShowSet(false)}
-            >
-              {t("cancel")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => void save()}
-              data-testid="save-subscription"
-              className="gap-1.5"
-            >
-              <Check className="size-3.5" />
-              {t("subscription.set")}
-            </Button>
-          </div>
         </div>
-      )}
-    </section>
+      </Modal>
+    </div>
+  );
+}
+
+/** One number in a card's figure strip. */
+function Figure({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="px-5 py-4">
+      <p className="text-muted-foreground/80 text-[10px] font-bold uppercase tracking-wider">
+        {label}
+      </p>
+      <p className="mt-1 text-lg font-bold leading-none tabular-nums">{children}</p>
+    </div>
   );
 }
 
 // ── TeacherSection ────────────────────────────────────────────────────────────
 
+/**
+ * Who teaches this student, who to move them to, and who has taught them before — three cards,
+ * because a reassignment is a decision you make while looking at the current assignment and the
+ * history, not after scrolling past them.
+ */
 export function TeacherSection({
   data,
   history,
@@ -925,53 +958,50 @@ export function TeacherSection({
   const since = data.currentTeacher?.started_at?.slice(0, 10) ?? null;
 
   return (
-    <section className="space-y-4" data-testid="student-teacher">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-        {t("teacher.title")}
-      </p>
-
-      {/* Current teacher hero */}
-      <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-        <div className="flex items-center gap-4 bg-gradient-to-br from-primary/[0.07] to-transparent p-4">
-          {currentName ? (
-            <Avatar name={currentName} size="md" />
-          ) : (
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted ring-1 ring-border">
-              <GraduationCap className="size-4 text-muted-foreground" aria-hidden />
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t("teacher.current")}
-            </p>
-            <p
-              className={cn(
-                "truncate text-base font-semibold",
-                !currentName && "text-muted-foreground",
-              )}
-              data-testid="current-teacher"
-            >
-              {currentName ?? t("teacher.none")}
-            </p>
-            {since && (
-              <p className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <CalendarDays className="size-3" aria-hidden />
-                {t("teacher.since", { date: since })}
-              </p>
+    <div className="space-y-4" data-testid="student-teacher">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ProfileCard
+          icon={GraduationCap}
+          title={t("teacher.current")}
+          description={t("profile.teacherDesc")}
+          tone="emerald"
+        >
+          <div className="flex items-center gap-4">
+            {currentName ? (
+              <Avatar name={currentName} size="lg" />
+            ) : (
+              <div className="bg-muted ring-border flex size-14 shrink-0 items-center justify-center rounded-2xl ring-1">
+                <GraduationCap className="text-muted-foreground size-6" aria-hidden />
+              </div>
             )}
+            <div className="min-w-0 flex-1">
+              <p
+                className={cn(
+                  "truncate text-lg font-bold leading-tight",
+                  !currentName && "text-muted-foreground text-base font-medium italic",
+                )}
+                data-testid="current-teacher"
+              >
+                {currentName ?? t("teacher.none")}
+              </p>
+              {since && (
+                <p className="text-muted-foreground mt-1 inline-flex items-center gap-1.5 text-xs">
+                  <CalendarDays className="size-3" aria-hidden />
+                  {t("teacher.since", { date: since })}
+                </p>
+              )}
+            </div>
           </div>
-        </div>
-      </div>
+        </ProfileCard>
 
-      {/* Reassign panel */}
-      {canEdit && (
-        <div className="space-y-3 rounded-2xl border bg-muted/20 p-4">
-          <div>
-            <p className="text-sm font-semibold">{t("teacher.change")}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{t("teacher.changeHint")}</p>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-72 flex-1">
+        {canEdit && (
+          <ProfileCard
+            icon={UserRoundCog}
+            title={t("teacher.change")}
+            description={t("teacher.changeHint")}
+            tone="gold"
+          >
+            <div className="space-y-3">
               <Field label={t("teacher.change")}>
                 <Combobox
                   options={teachers.map((tch) => ({ value: tch.id, label: tch.full_name }))}
@@ -982,67 +1012,83 @@ export function TeacherSection({
                   data-testid="change-teacher-select"
                 />
               </Field>
-            </div>
-            <Field label={t("teacher.effectiveDate")}>
-              <div className="relative">
-                <CalendarDays className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="date"
-                  aria-label={t("teacher.effectiveDate")}
-                  className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                  value={effective}
-                  onChange={(e) => setEffective(e.target.value)}
-                />
+              <Field label={t("teacher.effectiveDate")}>
+                <div className="relative">
+                  <CalendarDays className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    type="date"
+                    aria-label={t("teacher.effectiveDate")}
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                    value={effective}
+                    onChange={(e) => setEffective(e.target.value)}
+                  />
+                </div>
+              </Field>
+              <div className="flex justify-end border-t pt-4">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={changing || !teacherId}
+                  onClick={() => void change()}
+                  data-testid="assign-teacher"
+                  className="gap-1.5"
+                >
+                  {changing ? (
+                    <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+                  ) : (
+                    <Check className="size-3.5" />
+                  )}
+                  {t("teacher.assign")}
+                </Button>
               </div>
-            </Field>
-            <Button
-              type="button"
-              size="sm"
-              disabled={changing || !teacherId}
-              onClick={() => void change()}
-              data-testid="assign-teacher"
-              className="gap-1.5"
-            >
-              <Check className="size-3.5" />
-              {t("teacher.assign")}
-            </Button>
-          </div>
-        </div>
-      )}
+            </div>
+          </ProfileCard>
+        )}
+      </div>
 
-      {/* Assignment history — timeline */}
+      {/* Assignment history — the close+open trail, kept because a reassignment is never a
+          silent overwrite: payroll and session history both hang off these dates. */}
       {history.length > 0 && (
-        <div className="space-y-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
-            {t("teacher.history")}
-          </p>
-          <ol className="relative space-y-3 ps-2" data-testid="teacher-history">
+        <ProfileCard
+          icon={History}
+          title={t("teacher.history")}
+          description={t("profile.historyDesc")}
+          tone="slate"
+        >
+          <ol className="relative space-y-4" data-testid="teacher-history">
+            {/* The rail the dots sit on — one continuous line reads as a timeline; separate
+                dots read as a list. */}
+            <span
+              className="via-border absolute inset-y-1 start-[5px] w-px bg-gradient-to-b from-transparent to-transparent"
+              aria-hidden
+            />
             {history.map((h) => {
               const ongoing = h.ended_at == null;
               return (
                 <li
                   key={h.id}
-                  className="relative flex items-start gap-3 ps-5"
+                  className="relative flex items-start gap-3 ps-6"
                   data-history={h.teacher_id}
                 >
-                  {/* dot */}
                   <span
                     className={cn(
-                      "absolute start-0 top-1.5 size-2.5 rounded-full ring-2 ring-card",
+                      "ring-card absolute start-0 top-1.5 size-2.5 rounded-full ring-4",
                       ongoing ? "bg-emerald-500" : "bg-muted-foreground/40",
                     )}
                     aria-hidden
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium">{h.teacher_name}</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-semibold">
+                        {h.teacher_name}
+                      </span>
                       {ongoing && (
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                           {t("teacher.current_badge")}
                         </span>
                       )}
                     </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+                    <p className="text-muted-foreground mt-0.5 text-xs tabular-nums">
                       {h.started_at.slice(0, 10)} →{" "}
                       {h.ended_at ? h.ended_at.slice(0, 10) : t("teacher.ongoing")}
                     </p>
@@ -1051,14 +1097,19 @@ export function TeacherSection({
               );
             })}
           </ol>
-        </div>
+        </ProfileCard>
       )}
-    </section>
+    </div>
   );
 }
 
 // ── DangerZone ────────────────────────────────────────────────────────────────
 
+/**
+ * The two irreversible-looking actions, in a card that says so. Both are recoverable soft-deletes
+ * underneath, which is exactly why they need to LOOK final — an admin who thinks "deactivate" is
+ * harmless clicks it on the wrong student.
+ */
 export function DangerZone({
   studentId,
   onDeactivated,
@@ -1071,70 +1122,65 @@ export function DangerZone({
   const t = useTranslations("students");
   const [confirmDeactivate, setConfirmDeactivate] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   return (
-    <section className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4">
-      {!confirmDeactivate ? (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <ShieldAlert className="mt-0.5 size-4 shrink-0 text-destructive/60" aria-hidden />
-              <div>
-                <p className="text-sm font-semibold text-destructive">
-                  {t("detail.deactivate")}
-                </p>
-                <p className="text-muted-foreground mt-0.5 text-xs">
-                  {t("detail.deactivateHint")}
-                </p>
-              </div>
-            </div>
+    <ProfileCard
+      icon={ShieldAlert}
+      title={t("profile.settingsTitle")}
+      description={t("profile.settingsSubtitle")}
+      tone="danger"
+      className="border-destructive/25"
+    >
+      <div className="divide-destructive/15 divide-y">
+        <DangerRow
+          icon={ShieldAlert}
+          title={t("detail.deactivate")}
+          hint={t("detail.deactivateHint")}
+          action={
             <Button
               type="button"
               variant="destructive"
-              size="xs"
+              size="sm"
               onClick={() => setConfirmDeactivate(true)}
               data-testid="deactivate-student"
             >
               {t("detail.deactivate")}
             </Button>
-          </div>
-
-          {/* Delete = remove from the system (recoverable soft-delete; confirmed via popup). */}
-          <div className="flex items-center justify-between gap-4 border-t border-destructive/15 pt-4">
-            <div className="flex items-start gap-3">
-              <Trash2 className="mt-0.5 size-4 shrink-0 text-destructive/60" aria-hidden />
-              <div>
-                <p className="text-sm font-semibold text-destructive">
-                  {t("detail.delete")}
-                </p>
-                <p className="text-muted-foreground mt-0.5 text-xs">
-                  {t("detail.deleteHint")}
-                </p>
-              </div>
-            </div>
+          }
+        />
+        <DangerRow
+          icon={Trash2}
+          title={t("detail.delete")}
+          hint={t("detail.deleteHint")}
+          action={
             <Button
               type="button"
               variant="destructive"
-              size="xs"
+              size="sm"
               onClick={() => setConfirmDelete(true)}
               data-testid="delete-student"
             >
               {t("detail.delete")}
             </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-sm font-semibold text-destructive">{t("detail.confirmTitle")}</p>
-          <p className="text-xs text-muted-foreground">
-            {t("detail.confirmBody")}
-          </p>
-          <div className="flex gap-2">
+          }
+        />
+      </div>
+
+      {/* ── Deactivate confirmation ───────────────────────────────────── */}
+      <Modal
+        open={confirmDeactivate}
+        onClose={() => !deactivating && setConfirmDeactivate(false)}
+        title={t("detail.confirmTitle")}
+        size="sm"
+        footer={
+          <>
             <Button
               type="button"
               variant="outline"
-              size="xs"
+              size="sm"
+              disabled={deactivating}
               onClick={() => setConfirmDeactivate(false)}
             >
               {t("cancel")}
@@ -1142,24 +1188,31 @@ export function DangerZone({
             <Button
               type="button"
               variant="destructive"
-              size="xs"
+              size="sm"
+              disabled={deactivating}
+              data-testid="deactivate-student-confirm"
               onClick={async () => {
+                setDeactivating(true);
                 try {
                   await deactivateStudent(studentId);
                   onDeactivated();
                 } catch (err) {
                   onError(err instanceof ApiError ? err.message : String(err));
                   setConfirmDeactivate(false);
+                } finally {
+                  setDeactivating(false);
                 }
               }}
             >
               {t("detail.confirmYes")}
             </Button>
-          </div>
-        </div>
-      )}
+          </>
+        }
+      >
+        <p className="text-sm">{t("detail.confirmBody")}</p>
+      </Modal>
 
-      {/* ── Delete confirmation popup ─────────────────────────────────── */}
+      {/* ── Delete confirmation ───────────────────────────────────────── */}
       <Modal
         open={confirmDelete}
         onClose={() => !deleting && setConfirmDelete(false)}
@@ -1207,6 +1260,31 @@ export function DangerZone({
           </p>
         </div>
       </Modal>
-    </section>
+    </ProfileCard>
+  );
+}
+
+function DangerRow({
+  icon: Icon,
+  title,
+  hint,
+  action,
+}: {
+  icon: typeof Trash2;
+  title: string;
+  hint: string;
+  action: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <Icon className="text-destructive/60 mt-0.5 size-4 shrink-0" aria-hidden />
+        <div className="min-w-0">
+          <p className="text-destructive text-sm font-semibold">{title}</p>
+          <p className="text-muted-foreground mt-0.5 text-xs">{hint}</p>
+        </div>
+      </div>
+      <div className="shrink-0 sm:ms-4">{action}</div>
+    </div>
   );
 }

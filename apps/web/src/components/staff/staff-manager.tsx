@@ -1,23 +1,18 @@
 "use client";
 
-import {
-  Building2,
-  Plus,
-  UserCheck,
-  Users,
-  UserX,
-} from "lucide-react";
+import { Building2, Plus, UserCheck, Users, UserX } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { type ComponentType, useEffect, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { StaffForm } from "@/components/staff/staff-form";
 import { StaffList } from "@/components/staff/staff-list";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { HeroPill, PageHero } from "@/components/ui/page-hero";
+import { SegmentTile } from "@/components/ui/segment-tile";
 import { ApiError, deactivateStaff, listStaff } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,57 +27,17 @@ interface Stats {
   inactive: number;
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
+/**
+ * The roster, cut three ways. Each tile is a saved view: its count and the rows below it come
+ * from the same server filter, so the two can never disagree.
+ */
+type SegmentKey = "total" | "active" | "inactive";
 
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  colorClass,
-  bgClass,
-  ringClass,
-  gradientFrom,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  value: string | null;
-  colorClass: string;
-  bgClass: string;
-  ringClass: string;
-  gradientFrom: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm",
-        "bg-gradient-to-r to-transparent",
-        gradientFrom,
-      )}
-    >
-      <div
-        className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-xl ring-1",
-          bgClass,
-          ringClass,
-        )}
-      >
-        <Icon className={cn("size-4", colorClass)} aria-hidden />
-      </div>
-      <div className="min-w-0 flex-1">
-        {value === null ? (
-          <div className="h-5 w-12 animate-pulse rounded bg-muted" />
-        ) : (
-          <div className="text-xl font-bold leading-tight tracking-tight tabular-nums">
-            {value}
-          </div>
-        )}
-        <div className="text-muted-foreground truncate text-[11px] font-medium uppercase tracking-wide">
-          {label}
-        </div>
-      </div>
-    </div>
-  );
-}
+const SEGMENT_FILTERS: Record<SegmentKey, Record<string, string>> = {
+  total: {},
+  active: { status: "active" },
+  inactive: { status: "inactive" },
+};
 
 // ── StaffManager ──────────────────────────────────────────────────────────────
 
@@ -99,6 +54,34 @@ export function StaffManager() {
     message: string;
   } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [segment, setSegment] = useState<SegmentKey>("total");
+  const [presetToken, setPresetToken] = useState(0);
+
+  /** Clicking the active tile returns to the whole roster — a toggle, not a one-way trip. */
+  function selectSegment(key: SegmentKey) {
+    setSegment((prev) => (prev === key ? "total" : key));
+    setPresetToken((n) => n + 1);
+  }
+
+  /**
+   * Opening a profile is a real navigation. Left bare it read as a dead click, so the row is
+   * marked pending while React transitions, and the route is warmed on hover so most clicks
+   * land on a page that has already loaded.
+   */
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [, startNavigation] = useTransition();
+  const prefetched = useRef<Set<string>>(new Set());
+
+  function prefetchStaff(id: string) {
+    if (prefetched.current.has(id)) return;
+    prefetched.current.add(id);
+    router.prefetch(`/staff/${id}`);
+  }
+
+  function openStaff(id: string) {
+    setPendingId(id);
+    startNavigation(() => router.push(`/staff/${id}`));
+  }
 
   function refresh() {
     setRefreshToken((n) => n + 1);
@@ -140,65 +123,82 @@ export function StaffManager() {
       .catch(() => {});
   }, [refreshToken]);
 
-  return (
-    <div className="space-y-8">
-      {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="relative shrink-0">
-            <div className="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30">
-              <Building2 className="size-6 text-white" aria-hidden />
-            </div>
-            <span className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-background bg-emerald-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">{t("subtitle")}</p>
-          </div>
-        </div>
-        {can("staff.create") && (
-          <Button
-            type="button"
-            size="lg"
-            onClick={() => setModal({ kind: "new" })}
-            data-testid="new-staff"
-            className="gap-2 px-4 shadow-md shadow-primary/25"
-          >
-            <Plus className="size-4" aria-hidden />
-            {t("new")}
-          </Button>
-        )}
-      </div>
+  const pct = (value: number | null) =>
+    stats && stats.total > 0 && value !== null
+      ? Math.round((value / stats.total) * 100)
+      : null;
 
-      {/* ── Stat cards ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard
-          icon={Users}
-          label={t("stat.total")}
-          value={stats ? stats.total.toLocaleString() : null}
-          colorClass="text-primary"
-          bgClass="bg-primary/10"
-          ringClass="ring-primary/20"
-          gradientFrom="from-primary/8"
-        />
-        <StatCard
-          icon={UserCheck}
-          label={t("stat.active")}
-          value={stats ? stats.active.toLocaleString() : null}
-          colorClass="text-emerald-600 dark:text-emerald-400"
-          bgClass="bg-emerald-500/10"
-          ringClass="ring-emerald-500/20"
-          gradientFrom="from-emerald-500/8"
-        />
-        <StatCard
-          icon={UserX}
-          label={t("stat.inactive")}
-          value={stats ? stats.inactive.toLocaleString() : null}
-          colorClass="text-slate-500 dark:text-slate-400"
-          bgClass="bg-slate-400/10"
-          ringClass="ring-slate-400/20"
-          gradientFrom="from-slate-400/8"
-        />
+  return (
+    <div className="space-y-5">
+      <PageHero
+        latticeId="staff-hero-lattice"
+        icon={Building2}
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          <>
+            {stats && (
+              <HeroPill>
+                <Users className="size-3.5" aria-hidden />
+                {t("hero.onRoster", { count: stats.total })}
+              </HeroPill>
+            )}
+            {can("staff.create") && (
+              <Button
+                type="button"
+                size="lg"
+                onClick={() => setModal({ kind: "new" })}
+                data-testid="new-staff"
+                className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
+              >
+                <Plus className="size-4" aria-hidden />
+                {t("new")}
+              </Button>
+            )}
+          </>
+        }
+      />
+
+      {/* ── Segment tiles ───────────────────────────────────────────────── */}
+      <div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <SegmentTile
+            testKey="total"
+            icon={Users}
+            label={t("stat.total")}
+            hint={t("stat.totalSub")}
+            value={stats?.total ?? null}
+            share={null}
+            tone="emerald"
+            selected={segment === "total"}
+            onSelect={() => selectSegment("total")}
+          />
+          <SegmentTile
+            testKey="active"
+            icon={UserCheck}
+            label={t("stat.active")}
+            hint={t("stat.activeSub")}
+            value={stats?.active ?? null}
+            share={pct(stats?.active ?? null)}
+            tone="teal"
+            selected={segment === "active"}
+            onSelect={() => selectSegment("active")}
+          />
+          <SegmentTile
+            testKey="inactive"
+            icon={UserX}
+            label={t("stat.inactive")}
+            hint={t("stat.inactiveSub")}
+            value={stats?.inactive ?? null}
+            share={pct(stats?.inactive ?? null)}
+            tone="slate"
+            selected={segment === "inactive"}
+            onSelect={() => selectSegment("inactive")}
+          />
+        </div>
+        <p className="text-muted-foreground/80 mt-2 text-[11px]">
+          {t("stat.filterHint")}
+        </p>
       </div>
 
       {/* ── Alert ─────────────────────────────────────────────────────────── */}
@@ -213,8 +213,11 @@ export function StaffManager() {
       {/* ── Roster ───────────────────────────────────────────────────────── */}
       <StaffList
         refreshToken={refreshToken}
+        filterPreset={{ values: SEGMENT_FILTERS[segment], token: presetToken }}
+        pendingRowId={pendingId}
+        onPrefetch={prefetchStaff}
         onNew={() => setModal({ kind: "new" })}
-        onOpen={(id) => router.push(`/staff/${id}`)}
+        onOpen={(id) => openStaff(id)}
         onDeactivate={(id, name) => setModal({ kind: "delete", id, name })}
       />
 

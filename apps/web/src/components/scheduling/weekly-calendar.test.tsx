@@ -76,6 +76,7 @@ describe("WeeklyCalendar (Sprint 5 §5.5)", () => {
           teacher_name: "Teacher One",
         },
       ],
+      trials: [],
     });
     vi.mocked(api.listTeachers).mockResolvedValue({
       rows: [
@@ -116,6 +117,45 @@ describe("WeeklyCalendar (Sprint 5 §5.5)", () => {
     expect(card).toHaveTextContent("Yusuf");
     // 17:00 Cairo renders as 5:00 PM in English.
     expect(card).toHaveTextContent("5:00");
+  });
+
+  it("paints a booked trial next to the lessons, but never as one", async () => {
+    // A trial is a real hour of a real teacher booked from the CRM. It has to be visible here or
+    // it gets double-booked — and it must not answer to the session actions, whose endpoints
+    // would rightly refuse a trial id.
+    vi.mocked(api.getCalendar).mockResolvedValue({
+      from: today,
+      to: today,
+      sessions: [],
+      trials: [
+        {
+          id: "tr1",
+          teacher_id: "t1",
+          student_id: null,
+          lead_id: "lead1",
+          scheduled_at_utc: sessionUtc,
+          duration_minutes: 30,
+          status: "SCHEDULED",
+          teacher_name: "Teacher One",
+          student_name: null,
+          crm_lead_name: "Sara Ahmed",
+          lead_name: "Sara Ahmed",
+          display_name: "Sara Ahmed",
+        },
+      ],
+    });
+
+    renderCalendar();
+    const user = userEvent.setup();
+
+    const card = await screen.findByTestId("session-tr1");
+    expect(card).toHaveTextContent("Sara Ahmed");
+
+    await user.click(card);
+    // The trial card, not the session actions.
+    expect(await screen.findByTestId("calendar-trial-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("open-reschedule")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("open-cancel")).not.toBeInTheDocument();
   });
 
   it("lets an owner filter by teacher (refetches with teacherId)", async () => {

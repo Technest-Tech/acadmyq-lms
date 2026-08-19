@@ -1,26 +1,26 @@
 "use client";
 
 import {
-  ArrowUpRight,
+  Banknote,
   GraduationCap,
   Plus,
-  TrendingUp,
   UserCheck,
   Users,
   UserX,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { type ComponentType, useEffect, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { TeacherForm } from "@/components/teachers/teacher-form";
 import { TeachersList } from "@/components/teachers/teachers-list";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { HeroPill, PageHero } from "@/components/ui/page-hero";
+import { SegmentTile } from "@/components/ui/segment-tile";
 import { ApiError, deleteTeacher, listTeachers } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
-import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -28,6 +28,18 @@ type ModalState =
   | { kind: "closed" }
   | { kind: "new" }
   | { kind: "delete"; id: string; name: string };
+
+/**
+ * The roster, cut three ways. Each tile is a saved view: the count and the rows below it come
+ * from the same server filter, so they can never disagree.
+ */
+type SegmentKey = "total" | "active" | "inactive";
+
+const SEGMENT_FILTERS: Record<SegmentKey, Record<string, string>> = {
+  total: {},
+  active: { status: "active" },
+  inactive: { status: "inactive" },
+};
 
 interface Stats {
   total: number;
@@ -59,6 +71,34 @@ export function TeacherManager() {
   }
 
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [segment, setSegment] = useState<SegmentKey>("total");
+  const [presetToken, setPresetToken] = useState(0);
+
+  /** Clicking the active tile returns to the whole roster — a toggle, not a one-way trip. */
+  function selectSegment(key: SegmentKey) {
+    setSegment((prev) => (prev === key ? "total" : key));
+    setPresetToken((n) => n + 1);
+  }
+
+  /**
+   * Opening a workspace is a real navigation. Left bare it read as a dead click, so the row is
+   * marked pending while React transitions, and the route is warmed on hover so most clicks land
+   * on a page that has already loaded.
+   */
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [, startNavigation] = useTransition();
+  const prefetched = useRef<Set<string>>(new Set());
+
+  function prefetchTeacher(id: string) {
+    if (prefetched.current.has(id)) return;
+    prefetched.current.add(id);
+    router.prefetch(`/teachers/${id}`);
+  }
+
+  function openTeacher(id: string) {
+    setPendingId(id);
+    startNavigation(() => router.push(`/teachers/${id}`));
+  }
 
   function showAlert(variant: "success" | "error", message: string) {
     setAlert({ variant, message });
@@ -113,85 +153,88 @@ export function TeacherManager() {
       .catch(() => {});
   }, [refreshToken]);
 
-  return (
-    <div className="space-y-8">
-      {/* ── Page header ───────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="relative shrink-0">
-            <div className="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30">
-              <GraduationCap className="size-6 text-white" aria-hidden />
-            </div>
-            <span className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-background bg-emerald-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">
-              {t("subtitle")}
-            </p>
-          </div>
-        </div>
-        {can("teacher.create") && (
-          <Button
-            type="button"
-            size="lg"
-            onClick={() => setModal({ kind: "new" })}
-            data-testid="new-teacher"
-            className="gap-2 px-4 shadow-md shadow-primary/25"
-          >
-            <Plus className="size-4" aria-hidden />
-            {t("new")}
-          </Button>
-        )}
-      </div>
+  const pct = (value: number | null) =>
+    stats && stats.total > 0 && value !== null
+      ? Math.round((value / stats.total) * 100)
+      : null;
 
-      {/* ── Stat cards ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard
-          icon={Users}
-          label={t("stat.total")}
-          value={stats ? stats.total.toLocaleString() : null}
-          colorClass="text-primary"
-          bgClass="bg-primary/10"
-          ringClass="ring-primary/20"
-          gradientFrom="from-primary/8"
-        />
-        <StatCard
-          icon={UserCheck}
-          label={t("stat.active")}
-          value={stats ? stats.active.toLocaleString() : null}
-          colorClass="text-emerald-600 dark:text-emerald-400"
-          bgClass="bg-emerald-500/10"
-          ringClass="ring-emerald-500/20"
-          gradientFrom="from-emerald-500/8"
-        />
-        <StatCard
-          icon={UserX}
-          label={t("stat.inactive")}
-          value={stats ? stats.inactive.toLocaleString() : null}
-          colorClass="text-slate-500 dark:text-slate-400"
-          bgClass="bg-slate-400/10"
-          ringClass="ring-slate-400/20"
-          gradientFrom="from-slate-400/8"
-        />
-        <StatCard
-          icon={TrendingUp}
-          label={t("stat.avgRate")}
-          value={
-            stats
-              ? stats.avgRateMinor != null
-                ? formatMoney(
-                    { amount: stats.avgRateMinor, currency: stats.currency },
-                    locale,
-                  )
-                : "—"
-              : null
-          }
-          colorClass="text-violet-600 dark:text-violet-400"
-          bgClass="bg-violet-500/10"
-          ringClass="ring-violet-500/20"
-          gradientFrom="from-violet-500/8"
-        />
+  return (
+    <div className="space-y-5">
+      <PageHero
+        latticeId="teachers-hero-lattice"
+        icon={GraduationCap}
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          <>
+            {/* Average pay belongs beside the roster, not in a tile that filters nothing —
+                it is a fact about the roster, not a slice of it. */}
+            {stats?.avgRateMinor != null && (
+              <HeroPill>
+                <Banknote className="size-3.5" aria-hidden />
+                {t("stat.avgRate")}{" "}
+                {formatMoney(
+                  { amount: stats.avgRateMinor, currency: stats.currency },
+                  locale,
+                )}
+              </HeroPill>
+            )}
+            {can("teacher.create") && (
+              <Button
+                type="button"
+                size="lg"
+                onClick={() => setModal({ kind: "new" })}
+                data-testid="new-teacher"
+                className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
+              >
+                <Plus className="size-4" aria-hidden />
+                {t("new")}
+              </Button>
+            )}
+          </>
+        }
+      />
+
+      {/* ── Segment tiles ───────────────────────────────────────────────── */}
+      <div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <SegmentTile
+            testKey="total"
+            icon={Users}
+            label={t("stat.total")}
+            hint={t("stat.totalSub")}
+            value={stats?.total ?? null}
+            share={null}
+            tone="emerald"
+            selected={segment === "total"}
+            onSelect={() => selectSegment("total")}
+          />
+          <SegmentTile
+            testKey="active"
+            icon={UserCheck}
+            label={t("stat.active")}
+            hint={t("stat.activeSub")}
+            value={stats?.active ?? null}
+            share={pct(stats?.active ?? null)}
+            tone="teal"
+            selected={segment === "active"}
+            onSelect={() => selectSegment("active")}
+          />
+          <SegmentTile
+            testKey="inactive"
+            icon={UserX}
+            label={t("stat.inactive")}
+            hint={t("stat.inactiveSub")}
+            value={stats?.inactive ?? null}
+            share={pct(stats?.inactive ?? null)}
+            tone="slate"
+            selected={segment === "inactive"}
+            onSelect={() => selectSegment("inactive")}
+          />
+        </div>
+        <p className="text-muted-foreground/80 mt-2 text-[11px]">
+          {t("stat.filterHint")}
+        </p>
       </div>
 
       {/* ── Alert ──────────────────────────────────────────────────────────── */}
@@ -206,8 +249,11 @@ export function TeacherManager() {
       {/* ── Roster ─────────────────────────────────────────────────────────── */}
       <TeachersList
         refreshToken={refreshToken}
+        filterPreset={{ values: SEGMENT_FILTERS[segment], token: presetToken }}
+        pendingRowId={pendingId}
+        onPrefetch={prefetchTeacher}
         onNew={() => setModal({ kind: "new" })}
-        onOpen={(id) => router.push(`/teachers/${id}`)}
+        onOpen={(id) => openTeacher(id)}
         onDelete={(id, name) => setModal({ kind: "delete", id, name })}
       />
 
@@ -267,62 +313,6 @@ export function TeacherManager() {
           </div>
         )}
       </Modal>
-    </div>
-  );
-}
-
-// ── Stat card ──────────────────────────────────────────────────────────────────
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  colorClass,
-  bgClass,
-  ringClass,
-  gradientFrom,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  value: string | null;
-  colorClass: string;
-  bgClass: string;
-  ringClass: string;
-  gradientFrom: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm",
-        "bg-gradient-to-r to-transparent",
-        gradientFrom,
-      )}
-    >
-      <div
-        className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-xl ring-1",
-          bgClass,
-          ringClass,
-        )}
-      >
-        <Icon className={cn("size-4", colorClass)} aria-hidden />
-      </div>
-      <div className="min-w-0">
-        {value === null ? (
-          <div className="h-5 w-12 animate-pulse rounded bg-muted" />
-        ) : (
-          <div className="text-xl font-bold leading-tight tracking-tight tabular-nums">
-            {value}
-          </div>
-        )}
-        <div className="text-muted-foreground truncate text-[11px] font-medium uppercase tracking-wide">
-          {label}
-        </div>
-      </div>
-      <ArrowUpRight
-        className="ms-auto size-3.5 shrink-0 text-foreground/[0.1]"
-        aria-hidden
-      />
     </div>
   );
 }

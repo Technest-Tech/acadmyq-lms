@@ -22,6 +22,7 @@ import {
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { AlertBanner } from "@/components/ui/alert";
+import { PageHero } from "@/components/ui/page-hero";
 import {
   ApiError,
   approveCancellation,
@@ -107,30 +108,25 @@ export function NotificationsScreen() {
   ];
 
   return (
-    <div className="w-full space-y-6">
-      {/* ── Header ───────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="bg-primary/10 ring-primary/15 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1">
-            <BellRing className="text-primary size-5" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold leading-tight">{t("title")}</h1>
-            <p className="text-muted-foreground text-sm">{t("subtitle")}</p>
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => void load()}
-          className="gap-1.5"
-          data-testid="refresh"
-        >
-          <RefreshCw className="size-3.5" />
-          {t("actions.refresh")}
-        </Button>
-      </div>
+    <div className="w-full space-y-5">
+      <PageHero
+        latticeId="notifications-hero-lattice"
+        icon={BellRing}
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          <Button
+            type="button"
+            size="lg"
+            onClick={() => void load()}
+            className="gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25"
+            data-testid="refresh"
+          >
+            <RefreshCw className="size-4" aria-hidden />
+            {t("actions.refresh")}
+          </Button>
+        }
+      />
 
       {error && (
         <AlertBanner
@@ -143,7 +139,7 @@ export function NotificationsScreen() {
       {/* ── Tabs ─────────────────────────────────────────────────────── */}
       <div
         role="tablist"
-        className="bg-muted/40 flex gap-1 rounded-2xl border p-1.5"
+        className="bg-card flex gap-1 rounded-2xl border p-1.5 shadow-sm"
       >
         {TABS.map(({ key, icon: Icon, count }) => (
           <button
@@ -154,10 +150,10 @@ export function NotificationsScreen() {
             data-testid={`tab-${key}`}
             onClick={() => setTab(key)}
             className={cn(
-              "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors",
+              "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all",
               tab === key
-                ? "bg-card shadow-sm ring-1 ring-black/5"
-                : "hover:bg-card/50 text-muted-foreground",
+                ? "bg-primary/10 text-primary ring-primary/20 ring-1"
+                : "hover:bg-muted/60 hover:text-foreground text-muted-foreground",
             )}
           >
             <Icon className="size-4" />

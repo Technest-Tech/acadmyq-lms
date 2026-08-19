@@ -42,6 +42,7 @@ import {
   type StatusFilter,
 } from "@/components/student-reports/report-ui";
 import { AlertBanner } from "@/components/ui/alert";
+import { PageHero } from "@/components/ui/page-hero";
 import { Button } from "@/components/ui/button";
 import {
   ApiError,
@@ -232,22 +233,13 @@ export function StudentReportsScreen() {
   const searching = query.trim() !== "";
 
   return (
-    <div className="w-full space-y-6">
-      {/* ── Hero header ──────────────────────────────────────────────── */}
-      <div className="from-primary/[0.07] via-card to-card ring-foreground/[0.06] relative overflow-hidden rounded-2xl bg-gradient-to-br p-5 shadow-sm ring-1">
-        <div className="bg-primary/10 pointer-events-none absolute -top-16 -end-16 size-40 rounded-full blur-3xl" />
-        <div className="relative flex items-center gap-3">
-          <div className="bg-primary/10 ring-primary/15 flex size-11 shrink-0 items-center justify-center rounded-xl ring-1">
-            <NotebookPen className="text-primary size-5.5" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-xl leading-tight font-semibold">{t("title")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">
-              {t("subtitle")}
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="w-full space-y-5">
+      <PageHero
+        latticeId="student-reports-hero-lattice"
+        icon={NotebookPen}
+        title={t("title")}
+        subtitle={t("subtitle")}
+      />
 
       {error && (
         <AlertBanner

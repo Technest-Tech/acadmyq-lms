@@ -26,7 +26,7 @@ function navKeys(): string[] {
 }
 
 describe("Sprint 9 — plan gating, audit & nav (AC-9.5/9.6/9.11)", () => {
-  it("shows an Owner the My-Plan nav, but not the audit link or Super-Admin plan catalog", () => {
+  it("hides the audit link and the platform pricing page from an Owner", () => {
     render(
       withAuth(
         makeSession("ACADEMY_OWNER"),
@@ -36,13 +36,12 @@ describe("Sprint 9 — plan gating, audit & nav (AC-9.5/9.6/9.11)", () => {
       ),
     );
     const keys = navKeys();
-    expect(keys).toContain("plan");
     // The Audit Log link is Super-Admin-only in the sidebar; owners reach it by URL.
     expect(keys).not.toContain("audit");
     expect(keys).not.toContain("plans");
   });
 
-  it("shows a Super Admin the plan catalog + audit, not the owner My-Plan", () => {
+  it("shows a Super Admin the pricing page + audit", () => {
     render(
       withAuth(
         makeSession("SUPER_ADMIN"),
@@ -54,10 +53,9 @@ describe("Sprint 9 — plan gating, audit & nav (AC-9.5/9.6/9.11)", () => {
     const keys = navKeys();
     expect(keys).toContain("plans");
     expect(keys).toContain("audit");
-    expect(keys).not.toContain("plan");
   });
 
-  it("hides plan/audit/plans from a Teacher", () => {
+  it("hides audit and pricing from a Teacher", () => {
     render(
       withAuth(
         makeSession("TEACHER"),
@@ -67,7 +65,6 @@ describe("Sprint 9 — plan gating, audit & nav (AC-9.5/9.6/9.11)", () => {
       ),
     );
     const keys = navKeys();
-    expect(keys).not.toContain("plan");
     expect(keys).not.toContain("plans");
     expect(keys).not.toContain("audit");
   });
@@ -77,7 +74,7 @@ describe("Sprint 9 — plan gating, audit & nav (AC-9.5/9.6/9.11)", () => {
     expect(screen.getByText(arMessages.audit.noPermission)).toBeInTheDocument();
   });
 
-  it("gates the plan-catalog screen on plan.manage (Owner sees a no-permission notice)", () => {
+  it("gates the pricing screen on platform.manage (Owner sees a no-permission notice)", () => {
     render(withAuth(makeSession("ACADEMY_OWNER"), <PlanAdminScreen />));
     expect(
       screen.getByText(arMessages.planAdmin.noPermission),

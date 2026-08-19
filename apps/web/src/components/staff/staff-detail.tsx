@@ -3,23 +3,29 @@
 import {
   ArrowLeft,
   Banknote,
+  Building2,
   CalendarDays,
   FileText,
   Pencil,
   Phone,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   ShieldOff,
   Trash2,
+  UserCircle2,
 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { KhatamLattice } from "@/components/ornaments";
 import { StaffForm } from "@/components/staff/staff-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { HeroBadge, PageHero } from "@/components/ui/page-hero";
+import { DetailRow, FactCard, ProfileCard } from "@/components/ui/profile-card";
 import {
   ApiError,
   deactivateStaff,
@@ -29,61 +35,6 @@ import {
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
-
-// ── Avatar ───────────────────────────────────────────────────────────────────
-
-function nameHue(name: string) {
-  return name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
-}
-
-function StaffAvatar({ name, size = "lg" }: { name: string; size?: "md" | "lg" }) {
-  const initials = name
-    .split(" ")
-    .slice(0, 2)
-    .map((w) => w[0] ?? "")
-    .join("")
-    .toUpperCase();
-  return (
-    <div
-      className={cn(
-        "flex shrink-0 items-center justify-center rounded-2xl font-bold text-white shadow-lg",
-        size === "lg" ? "size-16 text-xl" : "size-10 text-sm",
-      )}
-      style={{
-        backgroundColor: `hsl(${nameHue(name)} 48% 42%)`,
-        boxShadow: `0 8px 24px -4px hsl(${nameHue(name)} 48% 42% / 0.35)`,
-      }}
-    >
-      {initials}
-    </div>
-  );
-}
-
-// ── Info row ─────────────────────────────────────────────────────────────────
-
-function InfoRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-start gap-3 py-3">
-      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted">
-        <Icon className="size-4 text-muted-foreground" aria-hidden />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
-          {label}
-        </div>
-        <div className="mt-0.5 text-sm font-medium">{value}</div>
-      </div>
-    </div>
-  );
-}
 
 // ── StaffDetail ───────────────────────────────────────────────────────────────
 
@@ -154,47 +105,33 @@ export function StaffDetail({ id }: { id: string }) {
     }
   }
 
-  // ── Loading skeleton ───────────────────────────────────────────────────────
-
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="h-8 w-48 animate-pulse rounded-lg bg-muted" />
-        <div className="h-40 animate-pulse rounded-2xl bg-muted" />
-        <div className="h-64 animate-pulse rounded-2xl bg-muted" />
-      </div>
-    );
-  }
+  if (loading) return <StaffDetailSkeleton />;
 
   if (error || !member) {
     return (
       <div className="space-y-4">
-        <AlertBanner variant="error" message={error ?? "Not found."} />
+        <BackLink label={t("backToList")} />
+        <AlertBanner variant="error" message={error ?? t("detail.notFound")} />
         <Button variant="outline" size="sm" onClick={() => void load()}>
-          Retry
+          {t("detail.retry")}
         </Button>
       </div>
     );
   }
 
   const isActive = member.deleted_at == null;
+  const memberSince = new Date(member.created_at).toLocaleDateString(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      {/* ── Back link ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2">
-        <Link
-          href="/staff"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm transition-colors"
-        >
-          <ArrowLeft className="size-3.5" aria-hidden />
-          {t("backToList")}
-        </Link>
-      </div>
+    <div className="space-y-5" data-testid="staff-detail">
+      <BackLink label={t("backToList")} />
 
-      {/* ── Alert ─────────────────────────────────────────────────────────── */}
       {alert && (
         <AlertBanner
           variant={alert.variant}
@@ -203,161 +140,211 @@ export function StaffDetail({ id }: { id: string }) {
         />
       )}
 
-      {/* ── Profile card ──────────────────────────────────────────────────── */}
-      <div
-        className={cn(
-          "overflow-hidden rounded-2xl border bg-card shadow-sm",
-          !isActive && "opacity-70",
-        )}
-      >
-        {/* ── Header band ─────────────────────────────────────── */}
-        <div className="relative h-24 bg-gradient-to-r from-primary/15 via-primary/8 to-transparent">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent" />
-          {/* Status ribbon */}
-          {!isActive && (
-            <div className="absolute end-4 top-4 flex items-center gap-1.5 rounded-full border border-destructive/20 bg-destructive/10 px-3 py-1 text-xs font-medium text-destructive">
-              <span className="size-1.5 rounded-full bg-destructive" />
-              Inactive
-            </div>
-          )}
-        </div>
-
-        {/* ── Avatar + name ────────────────────────────────────── */}
-        <div className="px-6 pb-6">
-          <div className="-mt-8 flex items-end justify-between gap-4">
-            <StaffAvatar name={member.full_name} size="lg" />
-            {/* Actions */}
-            <div className="flex items-center gap-2 pb-1">
-              {can("staff.update") && isActive && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditOpen(true)}
-                  className="gap-1.5"
-                  data-testid="edit-staff"
-                >
-                  <Pencil className="size-3.5" aria-hidden />
-                  {t("edit")}
-                </Button>
-              )}
-              {can("staff.deactivate") && isActive && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setDeactivateOpen(true)}
-                  className="gap-1.5 text-destructive hover:text-destructive"
-                  data-testid="deactivate-btn"
-                >
-                  <Trash2 className="size-3.5" aria-hidden />
-                  {t("detail.deactivate")}
-                </Button>
-              )}
-              {can("staff.update") && !isActive && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={actionBusy}
-                  onClick={() => void handleReactivate()}
-                  className="gap-1.5 text-emerald-600 hover:text-emerald-700"
-                  data-testid="reactivate-btn"
-                >
-                  {actionBusy ? (
-                    <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
-                  ) : (
-                    <RefreshCw className="size-3.5" aria-hidden />
-                  )}
-                  {t("detail.reactivate")}
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-3">
-            <h1 className="text-xl font-bold tracking-tight">{member.full_name}</h1>
-            <div className="mt-1.5 flex flex-wrap items-center gap-2">
-              {/* Login badge */}
+      <PageHero
+        latticeId="staff-hero-lattice-detail"
+        avatarName={member.full_name}
+        title={member.full_name}
+        badges={
+          <>
+            <HeroBadge>
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  isActive ? "animate-pulse bg-emerald-300" : "bg-white/50",
+                )}
+              />
+              {isActive ? t("stat.active") : t("stat.inactive")}
+            </HeroBadge>
+            <HeroBadge tone="gold">
+              <Building2 className="size-3" aria-hidden />
+              {t.has(`department.${member.department}`)
+                ? t(`department.${member.department}`)
+                : member.department}
+            </HeroBadge>
+            <HeroBadge>
               {member.user_id ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary ring-1 ring-primary/20">
+                <>
                   <ShieldCheck className="size-3" aria-hidden />
                   {t("detail.hasLogin")}
-                </span>
+                </>
               ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                <>
                   <ShieldOff className="size-3" aria-hidden />
                   {t("detail.noLogin")}
-                </span>
+                </>
               )}
-            </div>
-          </div>
-        </div>
+            </HeroBadge>
+          </>
+        }
+        actions={
+          <>
+            {can("staff.update") && isActive && (
+              <Button
+                type="button"
+                size="lg"
+                onClick={() => setEditOpen(true)}
+                className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
+                data-testid="edit-staff"
+              >
+                <Pencil className="size-4" aria-hidden />
+                {t("edit")}
+              </Button>
+            )}
+            {can("staff.update") && !isActive && (
+              <Button
+                type="button"
+                size="lg"
+                disabled={actionBusy}
+                onClick={() => void handleReactivate()}
+                className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
+                data-testid="reactivate-btn"
+              >
+                {actionBusy ? (
+                  <span className="size-4 animate-spin rounded-full border border-current border-t-transparent" />
+                ) : (
+                  <RefreshCw className="size-4" aria-hidden />
+                )}
+                {t("detail.reactivate")}
+              </Button>
+            )}
+          </>
+        }
+      />
 
-        {/* ── Info grid ────────────────────────────────────────── */}
-        <div className="border-t px-6 divide-y">
-          {member.phone && (
-            <InfoRow
-              icon={Phone}
-              label={t("detail.phone")}
-              value={<span dir="ltr" className="tabular-nums">{member.phone}</span>}
-            />
-          )}
-
-          <InfoRow
-            icon={Banknote}
-            label={t("detail.salary")}
-            value={
-              member.salary_minor > 0
-                ? formatMoney({ amount: member.salary_minor, currency: member.currency }, locale)
-                : <span className="text-muted-foreground/50">—</span>
-            }
-          />
-
-          <InfoRow
-            icon={CalendarDays}
-            label={t("detail.memberSince")}
-            value={new Date(member.created_at).toLocaleDateString(locale, {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
-          />
-
-          {member.notes && (
-            <InfoRow
-              icon={FileText}
-              label={t("detail.notes")}
-              value={
-                <span className="text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                  {member.notes}
-                </span>
-              }
-            />
-          )}
-        </div>
+      {/* ── Fact strip ───────────────────────────────────────────────────
+          Department, pay, phone and tenure — the four things anyone opening a staff file wants,
+          previously a single stacked list of rows below a decorative header band. */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <FactCard
+          icon={Building2}
+          label={t("detail.department")}
+          tone="emerald"
+          value={
+            t.has(`department.${member.department}`)
+              ? t(`department.${member.department}`)
+              : member.department
+          }
+        />
+        <FactCard
+          icon={Banknote}
+          label={t("detail.salary")}
+          tone="violet"
+          muted={member.salary_minor <= 0}
+          value={
+            member.salary_minor > 0
+              ? formatMoney(
+                  { amount: member.salary_minor, currency: member.currency },
+                  locale,
+                )
+              : t("detail.noSalary")
+          }
+          sub={member.salary_minor > 0 ? t("detail.perMonth") : undefined}
+        />
+        <FactCard
+          icon={Phone}
+          label={t("detail.phone")}
+          tone="gold"
+          muted={!member.phone}
+          value={
+            member.phone ? (
+              <span dir="ltr" className="tabular-nums">
+                {member.phone}
+              </span>
+            ) : (
+              t("detail.noPhone")
+            )
+          }
+        />
+        <FactCard
+          icon={CalendarDays}
+          label={t("detail.memberSince")}
+          tone="slate"
+          value={memberSince}
+        />
       </div>
 
-      {/* ── Danger zone ───────────────────────────────────────────────────── */}
+      {/* ── Record + notes ───────────────────────────────────────────── */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ProfileCard
+          icon={UserCircle2}
+          title={t("detail.profile")}
+          description={t("detail.profileDesc")}
+          tone="emerald"
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <DetailRow
+              icon={Building2}
+              label={t("detail.department")}
+              value={
+                t.has(`department.${member.department}`)
+                  ? t(`department.${member.department}`)
+                  : member.department
+              }
+            />
+            <DetailRow
+              icon={member.user_id ? ShieldCheck : ShieldOff}
+              label={t("detail.loginStatus")}
+              value={member.user_id ? t("detail.hasLogin") : t("detail.noLogin")}
+            />
+            {member.phone && (
+              <DetailRow
+                icon={Phone}
+                label={t("detail.phone")}
+                value={member.phone}
+                dir="ltr"
+              />
+            )}
+            <DetailRow
+              icon={CalendarDays}
+              label={t("detail.memberSince")}
+              value={memberSince}
+            />
+          </div>
+        </ProfileCard>
+
+        <ProfileCard
+          icon={FileText}
+          title={t("detail.notes")}
+          description={t("detail.notesDesc")}
+          tone="slate"
+        >
+          {member.notes ? (
+            <p className="text-muted-foreground whitespace-pre-wrap text-sm leading-relaxed">
+              {member.notes}
+            </p>
+          ) : (
+            <p className="text-muted-foreground/60 rounded-xl border border-dashed px-4 py-8 text-center text-sm">
+              {t("detail.noNotes")}
+            </p>
+          )}
+        </ProfileCard>
+      </div>
+
+      {/* ── Danger zone ───────────────────────────────────────────────────
+          One deactivate control, not two. The old page offered it in the header AND again in a
+          danger panel — the same irreversible-looking action twice on one screen. */}
       {can("staff.deactivate") && isActive && (
-        <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-5">
-          <h2 className="text-sm font-semibold text-destructive">
-            {t("detail.deactivate")}
-          </h2>
-          <p className="text-muted-foreground mt-1 text-xs">
-            {t("detail.deactivateHint")}
-          </p>
-          <Button
-            type="button"
-            variant="destructive"
-            size="sm"
-            className="mt-3 gap-1.5"
-            onClick={() => setDeactivateOpen(true)}
-          >
-            <Trash2 className="size-3.5" aria-hidden />
-            {t("detail.deactivate")}
-          </Button>
-        </div>
+        <ProfileCard
+          icon={ShieldAlert}
+          title={t("detail.deactivate")}
+          description={t("detail.deactivateHint")}
+          tone="danger"
+          className="border-destructive/25"
+        >
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setDeactivateOpen(true)}
+              data-testid="deactivate-btn"
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+              {t("detail.deactivate")}
+            </Button>
+          </div>
+        </ProfileCard>
       )}
 
       {/* ── Edit modal ────────────────────────────────────────────────────── */}
@@ -381,15 +368,11 @@ export function StaffDetail({ id }: { id: string }) {
       {/* ── Deactivate confirmation modal ─────────────────────────────────── */}
       <Modal
         open={deactivateOpen}
-        onClose={() => setDeactivateOpen(false)}
+        onClose={() => !actionBusy && setDeactivateOpen(false)}
         title={t("detail.deactivateConfirm")}
         size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            {t("detail.deactivateConfirmBody")}
-          </p>
-          <div className="flex justify-end gap-2">
+        footer={
+          <>
             <Button
               type="button"
               variant="outline"
@@ -413,9 +396,84 @@ export function StaffDetail({ id }: { id: string }) {
               )}
               {t("detail.deactivateYes")}
             </Button>
+          </>
+        }
+      >
+        <p className="text-sm">{t("detail.deactivateConfirmBody")}</p>
+      </Modal>
+    </div>
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function BackLink({ label }: { label: string }) {
+  return (
+    <Link
+      href="/staff"
+      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
+    >
+      <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
+      {label}
+    </Link>
+  );
+}
+
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+
+/**
+ * Shown while the file loads — and exported so the route's `loading.tsx` can show the SAME shape
+ * the instant a row is clicked, instead of three grey slabs that match nothing that arrives.
+ */
+export function StaffDetailSkeleton() {
+  return (
+    <div className="space-y-5" data-testid="staff-detail-skeleton">
+      <div className="bg-muted h-5 w-24 animate-pulse rounded" />
+      <div
+        className="relative h-[8.5rem] overflow-hidden rounded-2xl shadow-lg"
+        style={{
+          background:
+            "linear-gradient(135deg, oklch(0.30 0.065 163) 0%, oklch(0.38 0.105 168) 48%, oklch(0.32 0.085 196) 100%)",
+        }}
+      >
+        <KhatamLattice
+          id="staff-skeleton-lattice"
+          size={64}
+          className="pointer-events-none absolute inset-0 h-full w-full text-white opacity-[0.16]"
+        />
+        <div className="relative flex items-center gap-4 p-6">
+          <div className="size-16 shrink-0 animate-pulse rounded-2xl bg-white/20" />
+          <div className="space-y-2">
+            <div className="h-6 w-52 animate-pulse rounded bg-white/25" />
+            <div className="h-4 w-36 animate-pulse rounded bg-white/15" />
           </div>
         </div>
-      </Modal>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="bg-card flex items-start gap-3 rounded-xl border p-3.5 shadow-sm"
+          >
+            <div className="bg-muted size-9 shrink-0 animate-pulse rounded-xl" />
+            <div className="flex-1 space-y-2 py-0.5">
+              <div className="bg-muted h-2.5 w-16 animate-pulse rounded" />
+              <div className="bg-muted h-3.5 w-24 animate-pulse rounded" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="bg-card rounded-2xl border shadow-sm">
+            <div className="bg-muted/40 h-16 rounded-t-2xl border-b" />
+            <div className="space-y-3 p-5">
+              <div className="bg-muted h-9 animate-pulse rounded-xl" />
+              <div className="bg-muted h-9 animate-pulse rounded-xl" />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

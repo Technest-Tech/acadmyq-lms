@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { type ComponentType, useEffect, useState } from "react";
+import { type ComponentType, useEffect, useMemo, useState } from "react";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption, DialCodePicker } from "@/components/ui/combobox";
@@ -22,6 +22,8 @@ import {
   ApiError,
   createStaff,
   listAcademyRoles,
+  listStaffDepartments,
+  type StaffDepartment,
   type StaffInput,
   updateStaff,
   type StaffRow,
@@ -136,6 +138,8 @@ export function StaffForm({
   );
   const [currency, setCurrency]       = useState(initial?.currency ?? "EGP");
   const [notes, setNotes]             = useState(initial?.notes ?? "");
+  const [department, setDepartment]   = useState(initial?.department ?? "");
+  const [departments, setDepartments] = useState<StaffDepartment[]>([]);
   // An employee gets a login + role by default (uncheck to record a login-less staff member).
   const [createLogin, setCreateLogin] = useState(!initial);
   const [email, setEmail]             = useState("");
@@ -145,6 +149,25 @@ export function StaffForm({
   const [roles, setRoles]             = useState<AcademyRoleSummary[]>([]);
 
   const isEditing = !!initial;
+
+  // The department catalog is a platform list (Admin → Staff departments), not a fixed enum —
+  // so the picker is fetched. Until this existed in the form, every staff member was written as
+  // "OTHER" no matter what, which is why the roster column had nothing to show.
+  useEffect(() => {
+    listStaffDepartments()
+      .then((res) => setDepartments(res.departments.filter((d) => d.is_active)))
+      .catch(() => setDepartments([]));
+  }, []);
+
+  const departmentOptions = useMemo<ComboboxOption[]>(() => {
+    const names = new Set(departments.map((d) => d.name));
+    const opts = departments.map((d) => ({ value: d.name, label: d.name }));
+    // A department that was later retired still has to display on the member holding it.
+    if (department && !names.has(department)) {
+      opts.push({ value: department, label: department });
+    }
+    return opts;
+  }, [departments, department]);
 
   // The roles an employee can be given: the STAFF baseline plus the academy's OWN active custom
   // roles (built on the Roles page). Fetched on mount in create mode; listing needs role.manage,
@@ -181,6 +204,7 @@ export function StaffForm({
     try {
       const input: StaffInput = {
         full_name:    fullName,
+        department:   department || undefined,
         phone:        buildPhone(),
         salary_minor: toMinor(salary),
         currency:     currency || undefined,
@@ -256,6 +280,21 @@ export function StaffForm({
             </div>
           </Field>
         </div>
+
+        {/* Department — organizational only; access is decided by the role below. */}
+        <Field label={t("form.department")}>
+          <Combobox
+            options={departmentOptions}
+            value={department}
+            onChange={setDepartment}
+            placeholder={t("form.departmentPlaceholder")}
+            searchPlaceholder={t("form.searchDepartment")}
+            data-testid="department-select"
+          />
+          <p className="text-muted-foreground/80 mt-1 text-[11px]">
+            {t("form.departmentHint")}
+          </p>
+        </Field>
 
         {/* Notes */}
         <Field label={t("form.notes")}>

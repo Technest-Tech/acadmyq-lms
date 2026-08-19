@@ -2,6 +2,7 @@
 
 import {
   Award,
+  CalendarRange,
   ClipboardCheck,
   ListChecks,
   Plus,
@@ -16,6 +17,7 @@ import { ReportComposer } from "@/components/quality/report-composer";
 import { ReportDetailModal } from "@/components/quality/report-detail-modal";
 import { RubricBuilder } from "@/components/quality/rubric-builder";
 import { AlertBanner } from "@/components/ui/alert";
+import { PageHero } from "@/components/ui/page-hero";
 import { Button } from "@/components/ui/button";
 import { DataTable, type ColumnDef } from "@/components/ui/data-table";
 import {
@@ -144,30 +146,34 @@ export function QualityManager() {
   ];
 
   return (
-    <div className="space-y-6">
-      {/* Hero */}
-      <div className="from-primary/10 via-primary/5 relative overflow-hidden rounded-3xl bg-gradient-to-br to-transparent p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <ClipboardCheck className="text-primary size-5" aria-hidden />
-              <h1 className="text-xl font-bold">{t("title")}</h1>
-            </div>
-            <p className="text-muted-foreground mt-1 max-w-xl text-sm">{t("subtitle")}</p>
-          </div>
-          {canManage && (
-            <Button onClick={() => setComposerOpen(true)} data-testid="quality-new-report">
+    <div className="space-y-5">
+      <PageHero
+        latticeId="quality-hero-lattice"
+        icon={ClipboardCheck}
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          canManage ? (
+            <Button
+              size="lg"
+              onClick={() => setComposerOpen(true)}
+              data-testid="quality-new-report"
+              className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
+            >
               <Plus className="size-4" aria-hidden />
               {t("newReport")}
             </Button>
-          )}
-        </div>
-      </div>
+          ) : undefined
+        }
+      />
 
       {alert && <AlertBanner variant="success" message={alert} onDismiss={() => setAlert(null)} />}
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 border-b">
+      <div
+        role="tablist"
+        className="bg-card flex gap-1 rounded-2xl border p-1.5 shadow-sm sm:max-w-md"
+      >
         <TabButton active={tab === "reports"} onClick={() => setTab("reports")} icon={ClipboardCheck}>
           {t("tabs.reports")}
         </TabButton>
@@ -180,8 +186,13 @@ export function QualityManager() {
         <RubricBuilder canManage={canManage} onChanged={refresh} />
       ) : (
         <div className="space-y-5">
-          {/* Period + stats */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Period + stats. The month/year pair decides every number and row below it, so it
+              sits on the same rail surface a table's own controls use. */}
+          <div className="bg-muted/35 flex flex-wrap items-center gap-2 rounded-xl border p-2">
+            <CalendarRange
+              className="text-muted-foreground/70 ms-1 size-3.5 shrink-0"
+              aria-hidden
+            />
             <select
               value={month}
               onChange={(e) => setMonth(Number(e.target.value))}
@@ -378,15 +389,23 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
+      role="tab"
+      aria-selected={active}
       className={cn(
-        "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+        "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all",
         active
-          ? "border-primary text-foreground"
-          : "text-muted-foreground hover:text-foreground border-transparent",
+          ? "bg-primary/10 text-primary ring-primary/20 ring-1"
+          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
       )}
-      aria-current={active ? "page" : undefined}
     >
-      <Icon className="size-3.5" aria-hidden />
+      {/* The gold thread marks the open tab — the frame's own way of saying "here". */}
+      {active && (
+        <span
+          className="via-gold absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent to-transparent"
+          aria-hidden
+        />
+      )}
+      <Icon className="size-4" aria-hidden />
       {children}
     </button>
   );

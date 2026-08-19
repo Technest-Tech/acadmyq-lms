@@ -8,6 +8,7 @@ import {
   Settings2,
   UserCheck,
   UserCircle2,
+  Users,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -15,19 +16,22 @@ import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { KhatamLattice } from "@/components/ornaments";
 import { StudentTimetable } from "@/components/scheduling/student-timetable";
 import { EnrollmentWizard } from "@/components/students/enrollment-wizard";
+import { FactCard } from "@/components/ui/profile-card";
 import { ScheduleTrialModal } from "@/components/students/schedule-trial-modal";
 import {
-  Avatar,
   DangerZone,
   ProfileSection,
+  ReactivatePanel,
   SubscriptionSection,
   TeacherSection,
 } from "@/components/students/student-detail";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { HeroBadge, PageHero } from "@/components/ui/page-hero";
 import {
   getStudent,
   getTeacherHistory,
@@ -43,6 +47,15 @@ type TabKey = "profile" | "subscription" | "teacher" | "schedule" | "settings";
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+/**
+ * A student's file. The page answers, in order: who is this (hero), the four things anyone asks
+ * about them (fact strip), what needs doing next (trial banner), and then one tab per subject —
+ * each of which is a GRID OF CARDS, not a stack of form sections under grey captions.
+ *
+ * The fact strip is the part that earns its place: teacher, rate, parent and tenure used to be a
+ * click deep in three different tabs, so the commonest question about a student ("who teaches
+ * Yusuf and what do we charge?") cost two navigations to answer.
+ */
 export function StudentProfile({ studentId }: { studentId: string }) {
   const t = useTranslations("students");
   const locale = useLocale();
@@ -90,41 +103,31 @@ export function StudentProfile({ studentId }: { studentId: string }) {
     if (can("schedule.read")) {
       list.push({ key: "schedule", label: t("profile.tabSchedule"), icon: CalendarDays });
     }
-    if (canEdit && isActive) {
+    if (canEdit) {
       list.push({ key: "settings", label: t("profile.tabSettings"), icon: Settings2 });
     }
     return list;
-  }, [t, can, canEdit, isActive]);
+  }, [t, can, canEdit]);
 
   if (notFound) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-5">
         <BackLink t={t} />
-        <div className="rounded-2xl border bg-card p-10 text-center text-sm text-muted-foreground">
+        <div className="bg-card text-muted-foreground rounded-2xl border p-10 text-center text-sm">
           {t("profile.notFound")}
         </div>
       </div>
     );
   }
 
-  if (data === null) {
-    return (
-      <div className="space-y-6">
-        <BackLink t={t} />
-        <div className="flex flex-col items-center justify-center gap-3 py-24">
-          <div className="border-primary size-7 animate-spin rounded-full border-2 border-t-transparent" />
-          <p className="text-muted-foreground text-xs">{t("detail.loading")}</p>
-        </div>
-      </div>
-    );
-  }
+  if (data === null) return <StudentProfileSkeleton />;
 
   const sub = data.subscription;
   const createdAt = data.student.created_at as string | undefined;
+  const status = data.student.status;
 
   // Students created via the quick form land here as TRIAL — surface the next steps (schedule a
   // trial session, or activate them with pricing) right at the top of their profile.
-  const status = data.student.status;
   const needsSetup =
     canEdit && isActive && (status === "TRIAL" || status === "TRIAL_BOOKED");
 
@@ -143,116 +146,105 @@ export function StudentProfile({ studentId }: { studentId: string }) {
         ? t("profile.trialBookedHint")
         : t("profile.trialDoneHint");
 
+  const memberSince = createdAt
+    ? new Date(createdAt).toLocaleDateString(locale, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : null;
+
   return (
-    <div className="space-y-6" data-testid="student-profile-page">
+    <div className="space-y-5" data-testid="student-profile-page">
       <BackLink t={t} />
 
-      {/* ── Hero header ─────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden rounded-3xl border bg-card shadow-sm">
-        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-br from-primary/15 via-primary/5 to-transparent" />
-        <div className="relative flex flex-col gap-5 p-6 sm:flex-row sm:items-start">
-          <div className="shrink-0">
-            <Avatar name={data.student.full_name} size="lg" />
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-bold leading-tight tracking-tight">
-              {data.student.full_name}
-            </h1>
-
-            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-              {isActive ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                  <span className="size-1.5 rounded-full bg-emerald-500" />
-                  {t("filter.active")}
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
-                  <span className="size-1.5 rounded-full bg-slate-400" />
-                  {t("filter.inactive")}
-                </span>
-              )}
-              {data.student.is_self_guardian && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-0.5 text-xs font-medium ring-1 ring-border">
-                  {t("form.selfGuardian")}
-                </span>
-              )}
-              {sub && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
-                  <BookOpen className="size-3" />
-                  {sub.plan_label}
-                </span>
-              )}
-            </div>
-
-            {/* Meta grid */}
-            <div className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2.5 sm:grid-cols-2">
-              <MetaRow icon={UserCircle2} label={t("colGuardian")}>
-                {data.guardian?.full_name ?? t("none")}
-              </MetaRow>
-              <MetaRow icon={GraduationCap} label={t("teacher.current")}>
-                {data.currentTeacher?.teacher_name ?? t("teacher.none")}
-              </MetaRow>
-              {sub && (
-                <MetaRow icon={BookOpen} label={t("subscription.price")}>
-                  <span className="tabular-nums">
-                    {formatMoney(
-                      { amount: sub.price_minor, currency: sub.currency },
-                      locale,
-                    )}
-                  </span>{" "}
-                  <span className="text-muted-foreground">
-                    · {t(`basis.${sub.price_basis}`)}
-                  </span>
-                </MetaRow>
-              )}
-              {createdAt && (
-                <MetaRow icon={CalendarDays} label={t("profile.memberSince")}>
-                  {new Date(createdAt).toLocaleDateString(locale, {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                </MetaRow>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* ── Tab bar ───────────────────────────────────────────────── */}
-        <div className="flex gap-1 overflow-x-auto border-t bg-muted/20 px-3 py-2">
-          {tabs.map((tabItem) => {
-            const Icon = tabItem.icon;
-            const active = tab === tabItem.key;
-            return (
-              <button
-                key={tabItem.key}
-                type="button"
-                onClick={() => setTab(tabItem.key)}
-                aria-current={active ? "page" : undefined}
+      <PageHero
+        latticeId="student-hero-lattice"
+        avatarName={data.student.full_name}
+        title={data.student.full_name}
+        badges={
+          <>
+            <HeroBadge>
+              <span
                 className={cn(
-                  "flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium transition-all",
-                  active
-                    ? "bg-background text-foreground shadow-sm ring-1 ring-border"
-                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
+                  "size-1.5 rounded-full",
+                  isActive ? "animate-pulse bg-emerald-300" : "bg-white/50",
                 )}
-              >
-                <Icon className="size-4" aria-hidden />
-                {tabItem.label}
-              </button>
-            );
-          })}
-        </div>
+              />
+              {isActive ? t("filter.active") : t("filter.inactive")}
+            </HeroBadge>
+            {status && status !== "REGULAR" && (
+              <HeroBadge tone="gold">{t(`studentStatus.${status}`)}</HeroBadge>
+            )}
+            {data.student.is_self_guardian && (
+              <HeroBadge>{t("form.selfGuardian")}</HeroBadge>
+            )}
+            {sub && (
+              <HeroBadge>
+                <BookOpen className="size-3" aria-hidden />
+                {sub.plan_label}
+              </HeroBadge>
+            )}
+          </>
+        }
+      />
+
+      {/* ── Fact strip ───────────────────────────────────────────────── */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <FactCard
+          icon={GraduationCap}
+          label={t("teacher.current")}
+          tone="emerald"
+          muted={!data.currentTeacher}
+          value={data.currentTeacher?.teacher_name ?? t("teacher.none")}
+          sub={
+            data.currentTeacher?.started_at
+              ? t("teacher.since", {
+                  date: data.currentTeacher.started_at.slice(0, 10),
+                })
+              : undefined
+          }
+        />
+        <FactCard
+          icon={BookOpen}
+          label={t("colRate")}
+          tone="violet"
+          muted={!sub}
+          value={
+            sub
+              ? formatMoney(
+                  { amount: sub.price_minor, currency: sub.currency },
+                  locale,
+                )
+              : t("list.noSubscription")
+          }
+          sub={sub ? t(`basis.${sub.price_basis}`) : undefined}
+        />
+        <FactCard
+          icon={Users}
+          label={t("colGuardian")}
+          tone="gold"
+          muted={!data.guardian}
+          value={data.guardian?.full_name ?? t("form.none")}
+          sub={data.guardian?.whatsapp_phone ?? undefined}
+        />
+        <FactCard
+          icon={CalendarDays}
+          label={t("profile.memberSince")}
+          tone="slate"
+          muted={!memberSince}
+          value={memberSince ?? t("none")}
+        />
       </div>
 
       {/* ── Trial setup call-to-action ──────────────────────────────── */}
       {needsSetup && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/40 dark:bg-amber-950/20 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3">
+        <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-500/[0.1] to-transparent p-4 sm:flex-row sm:items-center sm:justify-between dark:border-amber-800/40">
+          <div className="flex min-w-0 items-start gap-3">
             <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 ring-1 ring-amber-500/25">
               <Zap className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
                 {bannerTitle}
               </p>
@@ -303,82 +295,112 @@ export function StudentProfile({ studentId }: { studentId: string }) {
         />
       )}
 
+      {/* ── Tab rail ────────────────────────────────────────────────── */}
+      <div className="bg-card scroll-ornate flex gap-1 overflow-x-auto rounded-2xl border p-1.5 shadow-sm">
+        {tabs.map((tabItem) => {
+          const Icon = tabItem.icon;
+          const active = tab === tabItem.key;
+          return (
+            <button
+              key={tabItem.key}
+              type="button"
+              onClick={() => setTab(tabItem.key)}
+              aria-current={active ? "page" : undefined}
+              data-testid={`profile-tab-${tabItem.key}`}
+              className={cn(
+                "relative flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all",
+                active
+                  ? "bg-primary/10 text-primary ring-primary/20 ring-1"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              )}
+            >
+              {/* The gold thread marks the open tab — the frame's own way of saying "here". */}
+              {active && (
+                <span
+                  className="via-gold absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent to-transparent"
+                  aria-hidden
+                />
+              )}
+              <Icon className="size-4" aria-hidden />
+              {tabItem.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* ── Tab body ────────────────────────────────────────────────── */}
-      <div
-        className={
-          tab === "schedule" ? "" : "rounded-2xl border bg-card p-6 shadow-sm"
-        }
-      >
-        {tab === "profile" && (
-          <ProfileSection
-            data={data}
-            canEdit={canEdit}
-            onSaved={() => {
+      {tab === "profile" && (
+        <ProfileSection
+          data={data}
+          canEdit={canEdit && isActive}
+          onSaved={() => {
+            setNotice(t("form.saved"));
+            void refresh();
+          }}
+          onError={setError}
+        />
+      )}
+
+      {tab === "subscription" && (
+        <SubscriptionSection
+          data={data}
+          teachers={teachers}
+          canEdit={canEdit && isActive}
+          locale={locale}
+          studentId={studentId}
+          onChanged={(msg) => {
+            setNotice(msg);
+            void refresh();
+          }}
+          onError={setError}
+          onGoToSchedule={
+            can("schedule.read") ? () => setTab("schedule") : undefined
+          }
+        />
+      )}
+
+      {tab === "teacher" && (
+        <TeacherSection
+          data={data}
+          history={history}
+          teachers={teachers}
+          canEdit={canEdit && isActive}
+          studentId={studentId}
+          onChanged={() => void refresh()}
+          onError={setError}
+        />
+      )}
+
+      {tab === "schedule" && can("schedule.read") && (
+        <StudentTimetable
+          studentId={studentId}
+          studentName={data.student.full_name}
+          studentStatus={status}
+          canManage={can("schedule.manage")}
+          onError={setError}
+        />
+      )}
+
+      {tab === "settings" && canEdit && (
+        // A deactivated student had no route back from this page before — the reactivate panel
+        // existed but was never rendered anywhere. Now the tab shows whichever applies.
+        isActive ? (
+          <DangerZone
+            studentId={studentId}
+            onDeactivated={() => router.push("/students")}
+            onError={setError}
+          />
+        ) : (
+          <ReactivatePanel
+            studentId={studentId}
+            onReactivated={() => {
               setNotice(t("form.saved"));
               void refresh();
             }}
             onError={setError}
           />
-        )}
-
-        {tab === "subscription" && (
-          <SubscriptionSection
-            data={data}
-            teachers={teachers}
-            canEdit={canEdit}
-            locale={locale}
-            studentId={studentId}
-            onChanged={(msg) => {
-              setNotice(msg);
-              void refresh();
-            }}
-            onError={setError}
-            onGoToSchedule={
-              can("schedule.read") ? () => setTab("schedule") : undefined
-            }
-          />
-        )}
-
-        {tab === "teacher" && (
-          <TeacherSection
-            data={data}
-            history={history}
-            teachers={teachers}
-            canEdit={canEdit}
-            studentId={studentId}
-            onChanged={() => void refresh()}
-            onError={setError}
-          />
-        )}
-
-        {tab === "schedule" && can("schedule.read") && (
-          <StudentTimetable
-            studentId={studentId}
-            studentName={data.student.full_name}
-            studentStatus={status}
-            canManage={can("schedule.manage")}
-            onError={setError}
-          />
-        )}
-
-        {tab === "settings" && canEdit && isActive && (
-          <div className="space-y-4">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-                {t("profile.settingsTitle")}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("profile.settingsSubtitle")}
-              </p>
-            </div>
-            <DangerZone
-              studentId={studentId}
-              onDeactivated={() => router.push("/students")}
-              onError={setError}
-            />
-          </div>
-        )}
-      </div>
+        )
+      )}
 
       {/* ── Schedule trial ──────────────────────────────────────────── */}
       {action === "trial" && (
@@ -421,40 +443,77 @@ export function StudentProfile({ studentId }: { studentId: string }) {
   );
 }
 
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+
+/**
+ * Shown while the profile loads — and exported so the route's `loading.tsx` can show the SAME
+ * shape the instant a row is clicked. A spinner in the middle of an empty page tells the user
+ * "wait"; a skeleton tells them what is arriving and keeps the layout from jumping when it does.
+ */
+export function StudentProfileSkeleton() {
+  return (
+    <div className="space-y-5" data-testid="student-profile-skeleton">
+      <div className="bg-muted h-5 w-24 animate-pulse rounded" />
+      <div
+        className="relative h-[8.5rem] overflow-hidden rounded-2xl shadow-lg"
+        style={{
+          background:
+            "linear-gradient(135deg, oklch(0.30 0.065 163) 0%, oklch(0.38 0.105 168) 48%, oklch(0.32 0.085 196) 100%)",
+        }}
+      >
+        <KhatamLattice
+          id="student-skeleton-lattice"
+          size={64}
+          className="pointer-events-none absolute inset-0 h-full w-full text-white opacity-[0.16]"
+        />
+        <div className="relative flex items-center gap-4 p-6">
+          <div className="size-16 shrink-0 animate-pulse rounded-2xl bg-white/20" />
+          <div className="space-y-2">
+            <div className="h-6 w-52 animate-pulse rounded bg-white/25" />
+            <div className="h-4 w-36 animate-pulse rounded bg-white/15" />
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="bg-card flex items-start gap-3 rounded-xl border p-3.5 shadow-sm"
+          >
+            <div className="bg-muted size-9 shrink-0 animate-pulse rounded-xl" />
+            <div className="flex-1 space-y-2 py-0.5">
+              <div className="bg-muted h-2.5 w-16 animate-pulse rounded" />
+              <div className="bg-muted h-3.5 w-24 animate-pulse rounded" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="bg-card h-13 animate-pulse rounded-2xl border shadow-sm" />
+      <div className="grid gap-4 lg:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="bg-card rounded-2xl border shadow-sm">
+            <div className="bg-muted/40 h-16 rounded-t-2xl border-b" />
+            <div className="space-y-3 p-5">
+              <div className="bg-muted h-9 animate-pulse rounded-xl" />
+              <div className="bg-muted h-9 animate-pulse rounded-xl" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function BackLink({ t }: { t: ReturnType<typeof useTranslations> }) {
   return (
     <Link
       href="/students"
-      className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
     >
       <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
       {t("profile.back")}
     </Link>
-  );
-}
-
-function MetaRow({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: typeof UserCircle2;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/60 ring-1 ring-border/60">
-        <Icon className="size-4 text-muted-foreground" aria-hidden />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-          {label}
-        </p>
-        <p className="truncate text-sm font-medium">{children}</p>
-      </div>
-    </div>
   );
 }

@@ -15,6 +15,7 @@ import { FinalizePeriodModal } from "@/components/payroll/finalize-period-modal"
 import { PayoutDetailModal } from "@/components/payroll/payout-detail-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { PageHero } from "@/components/ui/page-hero";
 import {
   DataTable,
   type ColumnDef,
@@ -434,34 +435,26 @@ export function PayrollScreen() {
     "border-input bg-background focus:border-primary focus:ring-primary/15 h-8 rounded-lg border px-3 text-sm outline-none transition-colors focus:ring-3";
 
   return (
-    <div className="space-y-6">
-      {/* Premium hero header */}
-      <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/[0.10] via-card to-card p-5 shadow-sm ring-1 ring-foreground/[0.04]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3.5">
-            <div className="bg-primary/12 text-primary flex size-11 items-center justify-center rounded-xl">
-              <Wallet className="size-5.5" aria-hidden />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-              <p className="text-muted-foreground mt-0.5 text-sm">
-                {isOwner ? t("subtitle") : t("subtitleTeacher")}
-              </p>
-            </div>
-          </div>
-          {isOwner && can("payout.finalize") && (
+    <div className="space-y-5">
+      <PageHero
+        latticeId="payroll-hero-lattice"
+        icon={Wallet}
+        title={t("title")}
+        subtitle={isOwner ? t("subtitle") : t("subtitleTeacher")}
+        actions={
+          isOwner && can("payout.finalize") ? (
             <Button
               type="button"
-              variant="outline"
-              size="sm"
+              size="lg"
               onClick={() => setFinalizeOpen(true)}
+              className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
             >
-              <Lock className="size-3.5" aria-hidden />
+              <Lock className="size-4" aria-hidden />
               {t("finalizePeriod")}
             </Button>
-          )}
-        </div>
-      </div>
+          ) : undefined
+        }
+      />
 
       {flash && (
         <AlertBanner

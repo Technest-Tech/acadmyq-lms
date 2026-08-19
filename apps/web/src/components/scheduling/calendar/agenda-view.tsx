@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarX2, ChevronRight, Clock, GraduationCap } from "lucide-react";
+import { CalendarX2, ChevronRight, Clock, GraduationCap, Sparkles } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
 import type { CalendarSession } from "@/lib/api";
@@ -172,14 +172,15 @@ export function AgendaView({
                         </span>
                       </span>
 
-                      {/* Status */}
+                      {/* Status — or, for a trial, what it actually is. */}
                       <span
                         className={cn(
-                          "hidden shrink-0 rounded-full border px-2.5 py-1 text-[0.7rem] font-semibold sm:inline-flex",
+                          "hidden shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[0.7rem] font-semibold sm:inline-flex",
                           STATUS_CHIP[s.status],
                         )}
                       >
-                        {t(`status.${s.status}`)}
+                        {s.trial && <Sparkles className="size-3" aria-hidden />}
+                        {s.trial ? t("calendar.trialEvent") : t(`status.${s.status}`)}
                       </span>
 
                       <ChevronRight

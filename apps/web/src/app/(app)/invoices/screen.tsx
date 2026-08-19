@@ -14,12 +14,14 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { Octagram } from "@/components/ornaments";
 import { ClosePeriodModal } from "@/components/invoices/close-period-modal";
 import { InvoiceDetailModal } from "@/components/invoices/invoice-detail-modal";
 import { InvoiceRowActions } from "@/components/invoices/invoice-row-actions";
 import { ManualBillModal } from "@/components/invoices/manual-bill-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { PageHero } from "@/components/ui/page-hero";
 import {
   DataTable,
   type ColumnDef,
@@ -105,6 +107,14 @@ const TONE_ICON: Record<Tone, string> = {
   blue: "bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300",
 };
 
+/** The faint tint that ties a money card to its tone — the same wash the segment tiles use. */
+const TONE_WASH: Record<Tone, string> = {
+  primary: "from-primary/[0.07]",
+  amber: "from-amber-500/[0.08]",
+  emerald: "from-emerald-500/[0.07]",
+  blue: "from-blue-500/[0.07]",
+};
+
 const TONE_BAR: Record<Tone, string> = {
   primary: "bg-primary",
   amber: "bg-amber-500",
@@ -129,7 +139,13 @@ function StatCard({
   progress?: number;
 }) {
   return (
-    <div className="group bg-card relative overflow-hidden rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.03] transition-shadow hover:shadow-md">
+    <div
+      className={cn(
+        "group bg-card relative overflow-hidden rounded-2xl border p-5 shadow-sm transition-shadow hover:shadow-md",
+        "bg-gradient-to-br to-transparent",
+        TONE_WASH[tone],
+      )}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-muted-foreground text-[0.7rem] font-semibold uppercase tracking-wider">
@@ -141,7 +157,7 @@ function StatCard({
         </div>
         <div
           className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-xl",
+            "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-current/15",
             TONE_ICON[tone],
           )}
         >
@@ -686,30 +702,55 @@ function AutomaticTab() {
         </select>
       </div>
 
-      <DataTable<InvoiceRow>
-        fetcher={fetcher}
-        columns={columns}
-        getRowId={(row) => row.id}
-        searchable
-        filters={[STATUS_FILTER_OPTIONS(t)]}
-        defaultSort="-period"
-        onRowClick={(row) => setSelectedId(row.id)}
-        rowActions={(row) => (
-          <InvoiceRowActions
-            row={row}
-            onView={() => setSelectedId(row.id)}
-            onChanged={refreshAll}
+      {/* ── Panel ────────────────────────────────────────────────────── */}
+      <section className="bg-card overflow-hidden rounded-2xl border shadow-sm">
+        <div className="relative border-b">
+          <div className="from-primary/[0.07] via-primary/[0.025] flex items-center gap-3 bg-gradient-to-r to-transparent px-5 py-4">
+            <div className="bg-primary/10 ring-primary/15 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1">
+              <Receipt className="text-primary size-5" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight">
+                {t("panelAuto")}
+                <Octagram className="text-gold/60 size-2 shrink-0" />
+              </h2>
+              <p className="text-muted-foreground mt-0.5 truncate text-xs">
+                {t("panelAutoHint")}
+              </p>
+            </div>
+          </div>
+          <span
+            className="via-gold/45 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
+            aria-hidden
           />
-        )}
-        emptyMessage={t("empty")}
-        testId="invoices-table"
-        exportConfig={{
-          fileName: "invoices-automatic",
-          sheetName: t("tabs.auto"),
-          columns: exportColumns,
-        }}
-        refreshToken={refreshToken}
-      />
+        </div>
+        <div className="p-4">
+        <DataTable<InvoiceRow>
+          fetcher={fetcher}
+          columns={columns}
+          getRowId={(row) => row.id}
+          searchable
+          filters={[STATUS_FILTER_OPTIONS(t)]}
+          defaultSort="-period"
+          onRowClick={(row) => setSelectedId(row.id)}
+          rowActions={(row) => (
+            <InvoiceRowActions
+              row={row}
+              onView={() => setSelectedId(row.id)}
+              onChanged={refreshAll}
+            />
+          )}
+          emptyMessage={t("empty")}
+          testId="invoices-table"
+          exportConfig={{
+            fileName: "invoices-automatic",
+            sheetName: t("tabs.auto"),
+            columns: exportColumns,
+          }}
+          refreshToken={refreshToken}
+        />
+        </div>
+      </section>
 
       <InvoiceDetailModal
         invoiceId={selectedId}
@@ -817,30 +858,55 @@ function ManualTab() {
 
       <SummaryCards summary={summary} locale={locale} />
 
-      <DataTable<InvoiceRow>
-        fetcher={fetcher}
-        columns={columns}
-        getRowId={(row) => row.id}
-        searchable
-        filters={[STATUS_FILTER_OPTIONS(t)]}
-        defaultSort="-period"
-        onRowClick={(row) => setSelectedId(row.id)}
-        rowActions={(row) => (
-          <InvoiceRowActions
-            row={row}
-            onView={() => setSelectedId(row.id)}
-            onChanged={refreshAll}
+      {/* ── Panel ────────────────────────────────────────────────────── */}
+      <section className="bg-card overflow-hidden rounded-2xl border shadow-sm">
+        <div className="relative border-b">
+          <div className="from-primary/[0.07] via-primary/[0.025] flex items-center gap-3 bg-gradient-to-r to-transparent px-5 py-4">
+            <div className="bg-primary/10 ring-primary/15 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1">
+              <FilePlus2 className="text-primary size-5" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight">
+                {t("panelManual")}
+                <Octagram className="text-gold/60 size-2 shrink-0" />
+              </h2>
+              <p className="text-muted-foreground mt-0.5 truncate text-xs">
+                {t("panelManualHint")}
+              </p>
+            </div>
+          </div>
+          <span
+            className="via-gold/45 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
+            aria-hidden
           />
-        )}
-        emptyMessage={t("manualEmpty")}
-        testId="manual-invoices-table"
-        exportConfig={{
-          fileName: "invoices-manual",
-          sheetName: t("tabs.manual"),
-          columns: exportColumns,
-        }}
-        refreshToken={refreshToken}
-      />
+        </div>
+        <div className="p-4">
+        <DataTable<InvoiceRow>
+          fetcher={fetcher}
+          columns={columns}
+          getRowId={(row) => row.id}
+          searchable
+          filters={[STATUS_FILTER_OPTIONS(t)]}
+          defaultSort="-period"
+          onRowClick={(row) => setSelectedId(row.id)}
+          rowActions={(row) => (
+            <InvoiceRowActions
+              row={row}
+              onView={() => setSelectedId(row.id)}
+              onChanged={refreshAll}
+            />
+          )}
+          emptyMessage={t("manualEmpty")}
+          testId="manual-invoices-table"
+          exportConfig={{
+            fileName: "invoices-manual",
+            sheetName: t("tabs.manual"),
+            columns: exportColumns,
+          }}
+          refreshToken={refreshToken}
+        />
+        </div>
+      </section>
 
       <ManualBillModal
         open={createOpen}
@@ -888,18 +954,19 @@ export function InvoicesScreen() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-        <p className="text-muted-foreground mt-0.5 text-sm">{t("subtitle")}</p>
-      </div>
+    <div className="space-y-5">
+      <PageHero
+        latticeId="invoices-hero-lattice"
+        icon={Receipt}
+        title={t("title")}
+        subtitle={t("subtitle")}
+      />
 
       {/* Segmented tabs */}
       <div
         role="tablist"
         aria-label={t("title")}
-        className="flex gap-1 rounded-2xl border bg-muted/40 p-1.5 shadow-sm sm:max-w-md"
+        className="bg-card flex gap-1 rounded-2xl border p-1.5 shadow-sm sm:max-w-md"
       >
         {TABS.map(({ key, icon: Icon }) => {
           const selected = tab === key;
@@ -912,12 +979,19 @@ export function InvoicesScreen() {
               onClick={() => setTab(key)}
               data-testid={`invoices-tab-${key}`}
               className={cn(
-                "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all",
+                "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all",
                 selected
-                  ? "bg-card text-foreground shadow-sm ring-1 ring-black/5"
-                  : "text-muted-foreground hover:bg-card/50 hover:text-foreground",
+                  ? "bg-primary/10 text-primary ring-primary/20 ring-1"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
               )}
             >
+              {/* The gold thread marks the open tab — the frame's own way of saying "here". */}
+              {selected && (
+                <span
+                  className="via-gold absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent to-transparent"
+                  aria-hidden
+                />
+              )}
               <Icon className="size-4" aria-hidden />
               <span>{t(`tabs.${key}`)}</span>
             </button>

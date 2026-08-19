@@ -77,15 +77,23 @@ function splitPhone(phone: string | null | undefined): {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 /**
- * A single, general "create student" form. It captures only the student's own details and
- * always saves them as a TRIAL — scheduling a trial session, assigning a teacher, and pricing
- * are completed afterwards from the student's profile (see the trial banner there). This keeps
- * intake fast: get the person into the system, then act on them from the details page.
+ * A single, general "create student" form. It captures only the student's own details; assigning
+ * a teacher and pricing are completed afterwards from the student's profile. This keeps intake
+ * fast: get the person into the system, then act on them from the details page.
+ *
+ * `intent` decides which lifecycle the new student starts in, because the two ways people arrive
+ * are genuinely different:
+ *   • "trial" (default) — walk-in intake. Saved as a TRIAL; the trial session is scheduled from
+ *     their profile afterwards.
+ *   • "enrolled" — the CRM's SUBSCRIBED stage. They already had their trial in the pipeline and
+ *     are subscribing now, so they are saved REGULAR and land on the Students page as a learner,
+ *     not back in a trial queue.
  */
 export function StudentForm({
   fixedGuardianId,
   initialFullName,
   initialPhone,
+  intent = "trial",
   onCreated,
   onCancel,
 }: {
@@ -94,6 +102,8 @@ export function StudentForm({
   initialFullName?: string;
   /** Prefill the phone from a stored E.164 number, split into dial-code + local. */
   initialPhone?: string | null;
+  /** Which lifecycle the student starts in — see the note above. */
+  intent?: "trial" | "enrolled";
   onCreated: (studentId: string) => void;
   onCancel: () => void;
 }) {
@@ -185,7 +195,7 @@ export function StudentForm({
         country: country || null,
         is_self_guardian: selfGuardian,
         guardian_id: selfGuardian ? undefined : ((fixedGuardianId ?? guardianId) || undefined),
-        status: "TRIAL",
+        status: intent === "enrolled" ? "REGULAR" : "TRIAL",
       });
       onCreated(res.studentId);
     } catch (err) {
@@ -201,18 +211,32 @@ export function StudentForm({
         <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
       )}
 
-      {/* Trial intake banner — the student is saved as a trial; setup happens in their profile. */}
-      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-950/20">
-        <Zap className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-        <div>
-          <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
-            {t("form.trialBannerTitle")}
-          </p>
-          <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-400/70">
-            {t("form.trialBannerBody")}
-          </p>
+      {/* What this save will produce — a trial intake, or an enrolled student. */}
+      {intent === "enrolled" ? (
+        <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800/40 dark:bg-emerald-950/20">
+          <UserCheck className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <div>
+            <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+              {t("form.enrolledBannerTitle")}
+            </p>
+            <p className="mt-0.5 text-xs text-emerald-700/80 dark:text-emerald-400/70">
+              {t("form.enrolledBannerBody")}
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-950/20">
+          <Zap className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div>
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
+              {t("form.trialBannerTitle")}
+            </p>
+            <p className="mt-0.5 text-xs text-amber-700/80 dark:text-amber-400/70">
+              {t("form.trialBannerBody")}
+            </p>
+          </div>
+        </div>
+      )}
 
       <Field label={t("form.fullName")} required>
         <div className="relative">
@@ -312,10 +336,12 @@ export function StudentForm({
         >
           {busy ? (
             <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+          ) : intent === "enrolled" ? (
+            <UserCheck className="size-3.5" />
           ) : (
             <Zap className="size-3.5" />
           )}
-          {t("form.create")}
+          {intent === "enrolled" ? t("form.createEnrolled") : t("form.create")}
         </Button>
       </div>
     </div>

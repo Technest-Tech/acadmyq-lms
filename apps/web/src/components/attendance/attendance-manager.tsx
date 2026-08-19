@@ -5,6 +5,7 @@ import {
   CalendarClock,
   CalendarPlus,
   CheckCircle2,
+  ClipboardCheck,
   Clock,
   FileSpreadsheet,
   Loader2,
@@ -22,7 +23,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ComponentType,
 } from "react";
 import { AttendanceReportModal } from "@/components/attendance/attendance-report-modal";
 import { CreateClassModal } from "@/components/attendance/create-class-modal";
@@ -31,6 +31,8 @@ import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { PageHero } from "@/components/ui/page-hero";
+import { SegmentTile } from "@/components/ui/segment-tile";
 import {
   getSessionsByDay,
   listTeachers,
@@ -152,12 +154,15 @@ export function AttendanceManager() {
     setError(null);
     try {
       const { from, to } = dayBounds(date);
+      // Status and trial-only are applied on the CLIENT (below), not sent here. The endpoint
+      // returns one whole day either way, and asking the server to pre-filter it made the four
+      // counts above the list describe the filtered set rather than the day — so pressing
+      // "Attended" left every other tile reading zero. Now the counts always describe the day,
+      // the tiles can honestly act as filters, and changing one costs no round trip.
       const res = await getSessionsByDay({
         from,
         to,
         teacher_id: teacherId || undefined,
-        status: status || undefined,
-        trial_only: trialOnly || undefined,
       });
       if (seq !== reqSeq.current) return; // superseded
       setSessions(res.sessions);
@@ -165,7 +170,7 @@ export function AttendanceManager() {
       if (seq !== reqSeq.current) return; // superseded
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [date, teacherId, status, trialOnly]);
+  }, [date, teacherId]);
 
   useEffect(() => {
     void load();
@@ -176,17 +181,29 @@ export function AttendanceManager() {
   const today = todayStr();
   const isToday = date === today;
 
-  // Client-side text search over student / teacher name
+  /** The day, narrowed by the status tile / select, the trial toggle and the text search. */
   const filteredSessions = useMemo(() => {
     if (!sessions) return null;
-    if (!search.trim()) return sessions;
-    const q = search.toLowerCase();
-    return sessions.filter(
-      (s) =>
-        s.student_name?.toLowerCase().includes(q) ||
-        s.teacher_name?.toLowerCase().includes(q),
-    );
-  }, [sessions, search]);
+    const q = search.trim().toLowerCase();
+    return sessions.filter((s) => {
+      if (status && s.status !== status) return false;
+      if (
+        trialOnly &&
+        s.student_status !== "TRIAL" &&
+        s.student_status !== "TRIAL_BOOKED"
+      ) {
+        return false;
+      }
+      if (
+        q &&
+        !s.student_name?.toLowerCase().includes(q) &&
+        !s.teacher_name?.toLowerCase().includes(q)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [sessions, search, status, trialOnly]);
 
   const total = sessions?.length ?? 0;
   const attendedCount = sessions?.filter((s) => s.status === "ATTENDED").length ?? 0;
@@ -195,6 +212,10 @@ export function AttendanceManager() {
     sessions?.filter(
       (s) => s.student_status === "TRIAL" || s.student_status === "TRIAL_BOOKED",
     ).length ?? 0;
+
+  /** Each cut's share of the whole day — the context a bare count never carries. */
+  const dayShare = (value: number) =>
+    total > 0 ? Math.round((value / total) * 100) : null;
 
   // Per-teacher free (trial) lesson breakdown — owner sees all teachers; teacher sees their own row only
   const teacherTrials = useMemo(() => {
@@ -286,39 +307,106 @@ export function AttendanceManager() {
 
   return (
     <div className="space-y-5">
-      {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t("managerTitle")}</h1>
-          <p className="text-muted-foreground mt-0.5 text-sm">{t("managerSubtitle")}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {!isToday && (
-            <Button type="button" variant="outline" size="sm" onClick={() => setDate(today)}>
-              {t("today")}
-            </Button>
-          )}
-          {canCreateClass && (
-            <Button
-              type="button"
-              size="sm"
-              data-testid="create-class"
-              className="gap-1.5"
-              onClick={() => setCreating(true)}
-            >
-              <CalendarPlus className="size-4" />
-              {t("createClass")}
-            </Button>
-          )}
-        </div>
-      </div>
+      <PageHero
+        latticeId="attendance-hero-lattice"
+        icon={ClipboardCheck}
+        title={t("managerTitle")}
+        subtitle={t("managerSubtitle")}
+        actions={
+          <>
+            {pendingCount > 0 && (
+              <span className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm">
+                <UserX className="size-3.5" aria-hidden />
+                {t("pendingCount")} {pendingCount}
+              </span>
+            )}
+            {!isToday && (
+              <Button
+                type="button"
+                size="lg"
+                onClick={() => setDate(today)}
+                className="gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25"
+              >
+                {t("today")}
+              </Button>
+            )}
+            {canCreateClass && (
+              <Button
+                type="button"
+                size="lg"
+                data-testid="create-class"
+                className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
+                onClick={() => setCreating(true)}
+              >
+                <CalendarPlus className="size-4" aria-hidden />
+                {t("createClass")}
+              </Button>
+            )}
+          </>
+        }
+      />
 
-      {/* ── 4-stat strip ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard icon={CalendarClock} label={t("totalCount")} value={total} color="blue" loading={sessions === null} />
-        <StatCard icon={CheckCircle2} label={t("attendedCount")} value={attendedCount} color="green" loading={sessions === null} />
-        <StatCard icon={UserX} label={t("pendingCount")} value={pendingCount} color="amber" loading={sessions === null} />
-        <StatCard icon={Sparkles} label={t("trialsCount")} value={trialCount} color="violet" loading={sessions === null} />
+      {/* ── The day, cut four ways ───────────────────────────────────────
+          These were a read-only scoreboard. Each one is now the filter that produces it, so the
+          number and the worklist below it always agree. */}
+      <div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <SegmentTile
+            testKey="all"
+            icon={CalendarClock}
+            label={t("totalCount")}
+            value={sessions === null ? null : total}
+            share={null}
+            tone="emerald"
+            selected={!status && !trialOnly}
+            onSelect={() => {
+              setStatus("");
+              setTrialOnly(false);
+            }}
+          />
+          <SegmentTile
+            testKey="attended"
+            icon={CheckCircle2}
+            label={t("attendedCount")}
+            value={sessions === null ? null : attendedCount}
+            share={dayShare(attendedCount)}
+            tone="teal"
+            selected={status === "ATTENDED"}
+            onSelect={() => {
+              setTrialOnly(false);
+              setStatus((prev) => (prev === "ATTENDED" ? "" : "ATTENDED"));
+            }}
+          />
+          <SegmentTile
+            testKey="pending"
+            icon={UserX}
+            label={t("pendingCount")}
+            value={sessions === null ? null : pendingCount}
+            share={dayShare(pendingCount)}
+            tone="gold"
+            selected={status === "SCHEDULED"}
+            onSelect={() => {
+              setTrialOnly(false);
+              setStatus((prev) => (prev === "SCHEDULED" ? "" : "SCHEDULED"));
+            }}
+          />
+          <SegmentTile
+            testKey="trials"
+            icon={Sparkles}
+            label={t("trialsCount")}
+            value={sessions === null ? null : trialCount}
+            share={dayShare(trialCount)}
+            tone="violet"
+            selected={trialOnly}
+            onSelect={() => {
+              setStatus("");
+              setTrialOnly((prev) => !prev);
+            }}
+          />
+        </div>
+        <p className="text-muted-foreground/80 mt-2 text-[11px]">
+          {t("tilesHint")}
+        </p>
       </div>
 
       {/* ── Free (trial) lessons breakdown ──────────────────────────────── */}
@@ -842,64 +930,3 @@ export function AttendanceManager() {
 }
 
 // ── Stat card ────────────────────────────────────────────────────────────────
-
-const STAT_COLORS = {
-  blue: {
-    bg: "bg-blue-50 dark:bg-blue-950/30",
-    icon: "text-blue-500 dark:text-blue-400",
-    value: "text-blue-700 dark:text-blue-300",
-  },
-  green: {
-    bg: "bg-emerald-50 dark:bg-emerald-950/30",
-    icon: "text-emerald-500 dark:text-emerald-400",
-    value: "text-emerald-700 dark:text-emerald-300",
-  },
-  amber: {
-    bg: "bg-amber-50 dark:bg-amber-950/30",
-    icon: "text-amber-500 dark:text-amber-400",
-    value: "text-amber-700 dark:text-amber-300",
-  },
-  violet: {
-    bg: "bg-violet-50 dark:bg-violet-950/30",
-    icon: "text-violet-500 dark:text-violet-400",
-    value: "text-violet-700 dark:text-violet-300",
-  },
-} as const;
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  color,
-  loading,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  color: keyof typeof STAT_COLORS;
-  loading: boolean;
-}) {
-  const c = STAT_COLORS[color];
-  return (
-    <div className="bg-card flex items-center gap-3 rounded-2xl border p-4 shadow-sm sm:gap-4 sm:p-5">
-      <div
-        className={cn(
-          "flex size-10 shrink-0 items-center justify-center rounded-xl sm:size-11",
-          c.bg,
-        )}
-      >
-        <Icon className={cn("size-4 sm:size-5", c.icon)} aria-hidden />
-      </div>
-      <div>
-        {loading ? (
-          <div className="bg-muted mb-1 h-6 w-10 animate-pulse rounded" />
-        ) : (
-          <div className={cn("text-xl font-bold tabular-nums sm:text-2xl", c.value)}>
-            {value.toLocaleString()}
-          </div>
-        )}
-        <div className="text-muted-foreground text-xs font-medium">{label}</div>
-      </div>
-    </div>
-  );
-}

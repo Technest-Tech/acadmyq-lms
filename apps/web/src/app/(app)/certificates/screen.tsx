@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Loader2, Save } from "lucide-react";
+import { Award, Download, Loader2, Save } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import {
   useCallback,
@@ -18,6 +18,7 @@ import {
   type CertLang,
 } from "@/components/certificates/certificate-designs";
 import { Button } from "@/components/ui/button";
+import { PageHero } from "@/components/ui/page-hero";
 import {
   listCertificateTemplates,
   saveCertificateTemplate,
@@ -152,11 +153,13 @@ export function CertificatesScreen() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-foreground text-xl font-bold tracking-tight sm:text-2xl">{t("title")}</h1>
-        <p className="text-muted-foreground mt-1 text-sm">{t("subtitle")}</p>
-      </div>
+    <div className="space-y-5">
+      <PageHero
+        latticeId="certificates-hero-lattice"
+        icon={Award}
+        title={t("title")}
+        subtitle={t("subtitle")}
+      />
 
       {loadError && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
@@ -164,24 +167,38 @@ export function CertificatesScreen() {
         </div>
       )}
 
-      {/* Template selector */}
-      <div className="flex flex-wrap gap-2" data-testid="template-tabs">
+      {/* Template selector — the same rail every other screen uses to switch what it shows.
+          Deliberately plain buttons rather than a tablist: there is no tabpanel to own here, the
+          two templates are a choice of WHICH document the one editor below is editing. */}
+      <div
+        className="bg-card flex gap-1 rounded-2xl border p-1.5 shadow-sm sm:max-w-md"
+        data-testid="template-tabs"
+      >
         {([1, 2] as const).map((n) => (
           <button
             key={n}
             type="button"
+            aria-pressed={active === n}
             data-template-tab={n}
             onClick={() => {
               setActive(n);
               setSavedTick(false);
             }}
             className={cn(
-              "rounded-lg border px-4 py-2 text-sm font-semibold transition-colors",
+              "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all",
               active === n
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border text-muted-foreground hover:bg-muted",
+                ? "bg-primary/10 text-primary ring-primary/20 ring-1"
+                : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
+            {/* The gold thread marks the open template. */}
+            {active === n && (
+              <span
+                className="via-gold absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent to-transparent"
+                aria-hidden
+              />
+            )}
+            <Award className="size-4" aria-hidden />
             {t(n === 1 ? "template1Name" : "template2Name")}
           </button>
         ))}

@@ -37,6 +37,7 @@ import {
   type StatusFilter,
 } from "@/components/student-reports/report-ui";
 import { AlertBanner } from "@/components/ui/alert";
+import { PageHero } from "@/components/ui/page-hero";
 import { Button } from "@/components/ui/button";
 import {
   ApiError,
@@ -168,31 +169,19 @@ export function StudentReportReviewsScreen() {
   const filtersActive = query.trim() !== "" || teacher !== "";
 
   return (
-    <div className="w-full space-y-6 pb-24">
-      {/* ── Hero header ──────────────────────────────────────────────── */}
-      <div className="from-primary/[0.07] via-card to-card ring-foreground/[0.06] relative overflow-hidden rounded-2xl bg-gradient-to-br p-5 shadow-sm ring-1">
-        <div className="bg-primary/10 pointer-events-none absolute -top-16 -end-16 size-40 rounded-full blur-3xl" />
-        <div className="relative flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-primary/10 ring-primary/15 flex size-11 shrink-0 items-center justify-center rounded-xl ring-1">
-              <ClipboardCheck className="text-primary size-5.5" aria-hidden />
-            </div>
-            <div>
-              <h1 className="text-xl leading-tight font-semibold">
-                {t("title")}
-              </h1>
-              <p className="text-muted-foreground mt-0.5 text-sm">
-                {t("subtitle")}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+    <div className="w-full space-y-5 pb-24">
+      <PageHero
+        latticeId="report-reviews-hero-lattice"
+        icon={ClipboardCheck}
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          <>
+            {/* The queue depth is the one number this page exists for — gold, so it stops
+                the eye before anything else in the band does. */}
             {counts.PENDING > 0 && (
               <span
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 ring-inset",
-                  STATUS_STYLE.PENDING.chip,
-                )}
+                className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm"
                 data-testid="pending-banner"
               >
                 <Clock3 className="size-3.5" aria-hidden />
@@ -201,18 +190,17 @@ export function StudentReportReviewsScreen() {
             )}
             <Button
               type="button"
-              variant="outline"
-              size="sm"
+              size="lg"
               onClick={() => void load()}
-              className="gap-1.5"
+              className="gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25"
               data-testid="refresh"
             >
-              <RefreshCw className="size-3.5" />
+              <RefreshCw className="size-4" aria-hidden />
               {t("actions.refresh")}
             </Button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {error && (
         <AlertBanner

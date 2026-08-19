@@ -105,6 +105,7 @@ describe("calendar views", () => {
       from: today,
       to: today,
       sessions: feed(),
+      trials: [],
     });
     vi.mocked(api.listTeachers).mockResolvedValue({
       rows: [

@@ -415,10 +415,18 @@ function PaypalCard({
   );
 }
 
-// ── XPay placeholder card ─────────────────────────────────────────────────────
+// ── XPay card (read-only) ────────────────────────────────────────────────────
 
-function XPayCard() {
+/**
+ * Unlike the two cards above, this one has no controls. XPay is the academy's own merchant account
+ * but WE hold the keys: Academiq provisions them from the Super Admin panel and the API refuses any
+ * academy-side write to the XPAY channel. So the card's whole job is to answer one question —
+ * "is card payment live on my invoices?" — and point elsewhere for changes.
+ */
+function XPayCard({ setting }: { setting: PaymentSetting }) {
   const t = useTranslations("settings.payment");
+  const active = setting.is_active;
+
   return (
     <SectionCard
       icon={CreditCard}
@@ -427,9 +435,32 @@ function XPayCard() {
       iconClassName="bg-gradient-to-br from-violet-500 to-purple-600 shadow-violet-500/25"
       testId="payment-xpay"
     >
-      <div className="flex items-center gap-3 rounded-xl border border-dashed border-muted-foreground/25 bg-muted/20 px-4 py-5">
-        <CreditCard className="size-5 shrink-0 text-muted-foreground/50" aria-hidden />
-        <p className="text-sm text-muted-foreground">{t("xpay.placeholder")}</p>
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-xl border px-4 py-5",
+          active
+            ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+            : "border-dashed border-muted-foreground/25 bg-muted/20",
+        )}
+      >
+        <CreditCard
+          className={cn(
+            "size-5 shrink-0",
+            active ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground/50",
+          )}
+          aria-hidden
+        />
+        <div className="min-w-0">
+          <p
+            className={cn(
+              "text-sm font-semibold",
+              active ? "text-emerald-800 dark:text-emerald-300" : "text-muted-foreground",
+            )}
+          >
+            {active ? t("xpay.active") : t("xpay.inactive")}
+          </p>
+          <p className="text-muted-foreground mt-0.5 text-xs">{t("xpay.managed")}</p>
+        </div>
       </div>
     </SectionCard>
   );
@@ -466,6 +497,7 @@ export function PaymentSettingsManager() {
 
   const bankSetting  = settings.find((s) => s.method === "BANK_TRANSFER") ?? { method: "BANK_TRANSFER" as const, is_active: false, config: {} };
   const paypalSetting = settings.find((s) => s.method === "PAYPAL")        ?? { method: "PAYPAL" as const, is_active: false, config: {} };
+  const xpaySetting   = settings.find((s) => s.method === "XPAY")          ?? { method: "XPAY" as const, is_active: false, config: {} };
 
   return (
     <div className="space-y-4">
@@ -474,7 +506,7 @@ export function PaymentSettingsManager() {
       )}
       <BankTransferCard setting={bankSetting} onSaved={refresh} />
       <PaypalCard setting={paypalSetting} onSaved={refresh} />
-      <XPayCard />
+      <XPayCard setting={xpaySetting} />
     </div>
   );
 }

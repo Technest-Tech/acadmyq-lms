@@ -142,7 +142,6 @@
     "myPayroll": "My Payroll",
     "billing": "Billing & Subscriptions",
     "plans": "Plans",
-    "plan": "My Plan",
     "financialStats": "Financial Statistics",
     "audit": "Audit Log",
     "certificates": "Certificates",
@@ -154,8 +153,6 @@
     "adminLms": "Course Platform",
     "platformSettings": "Platform Settings",
     "roles": "Roles & Permissions",
-    "upgradeBadge": "Upgrade",
-    "upgradeHint": "Upgrade your plan to unlock this feature",
     "academyRoles": "Roles & Permissions",
     "teacherQuality": "Teacher Quality",
     "discountsAwards": "Discounts & Awards",
@@ -184,7 +181,7 @@
   },
   "clients": {
     "title": "Clients",
-    "subtitle": "Every client with its Management / Video / WhatsApp subscriptions — open a client to manage them.",
+    "subtitle": "Every client with the modules it holds — open a client to change them.",
     "newClient": "New client",
     "searchPlaceholder": "Search clients…",
     "allModules": "All modules",
@@ -203,7 +200,7 @@
       "MANAGEMENT": "Management",
       "VIDEO": "Video",
       "WHATSAPP": "WhatsApp",
-      "CRM": "CRM"
+      "LMS": "Courses"
     },
     "chip": {
       "paused": "paused",
@@ -221,10 +218,9 @@
       "people": "People"
     },
     "subs": {
-      "title": "Subscriptions — the only place to change them",
+      "title": "Modules — the only place to change them",
       "total": "Total {total}/mo",
       "off": "Not enabled",
-      "noPlan": "No plan",
       "paused": "Paused",
       "trialLeft": "Trial · {days} days left",
       "trialExpired": "Trial expired",
@@ -235,19 +231,24 @@
       "extend": "Extend…",
       "activate": "Activate",
       "resume": "Resume",
-      "changePlan": "Change plan…",
       "pause": "Pause",
       "remove": "Remove",
       "confirmPause": "Pause this module? The client keeps its other modules; this one stops working until resumed.",
       "confirmEnd": "Remove this module from the client? Its subscription ends (kept as history).",
       "cancel": "Cancel",
-      "plan": "Plan",
       "mode": "Start as",
       "modeTrial": "Trial",
       "modeActive": "Paid (active now)",
       "trialDays": "Trial days",
       "extendByDays": "Extend by (days)",
-      "noPlansForModule": "No plans for this module yet"
+      "free": "Free",
+      "price": "Price ({currency})",
+      "interval": "Billed",
+      "monthly": "Monthly",
+      "yearly": "Yearly",
+      "perYearSuffix": "/yr",
+      "changePrice": "Price…",
+      "savePrice": "Save price"
     },
     "detail": {
       "back": "All clients",
@@ -262,7 +263,8 @@
         "billing": "Billing",
         "whatsapp": "WhatsApp",
         "video": "Video",
-        "settings": "Settings"
+        "settings": "Settings",
+        "payments": "Payments"
       },
       "videoCardTitle": "Video settings & rooms",
       "videoCardHint": "Tier, room limits, recordings and room logs live in Video Ops for this client.",
@@ -292,27 +294,83 @@
       "fieldName": "Name",
       "fieldBrandName": "Brand display name",
       "fieldSubdomain": "Subdomain",
-      "subdomainHint": "Lowercase letters, digits and hyphens. Powers the LMS learner site.",
-      "subdomainPreview": "Learner site: {url}",
+      "subdomainHint": "Lowercase letters, digits and hyphens. Gives the client its own address — their sign-in page, or their course site for a course-platform client.",
+      "subdomainPreview": "Client address: {url}",
       "subdomainInvalid": "Use only lowercase letters, digits and hyphens.",
       "subdomainReserved": "That handle is reserved — pick another.",
       "fieldLogoUrl": "Logo URL",
       "save": "Save",
-      "saved": "Saved"
+      "saved": "Saved",
+      "xpay": {
+        "title": "Card payments — XPay",
+        "subtitle": "Academiq holds this client's XPay keys. The academy never sees them.",
+        "loading": "Loading card payment settings…",
+        "openXpay": "Open XPay dashboard",
+        "statusOn": "Card payments are on",
+        "statusOff": "Set up, but switched off",
+        "statusNotSetUp": "Not set up yet",
+        "usingTest": "Using test keys",
+        "usingLive": "Using live keys",
+        "environmentLabel": "Which keys should this client charge with?",
+        "testMode": "Test",
+        "liveMode": "Live",
+        "testModeHint": "Test keys take fake cards only. Use these to check the setup end to end before real money is involved.",
+        "liveModeHint": "Live keys charge real cards. Only switch here once a test payment has gone through.",
+        "testKeysTitle": "Test keys",
+        "liveKeysTitle": "Live keys",
+        "inUse": "In use",
+        "empty": "Not entered",
+        "publishableKey": "Publishable key",
+        "secretKey": "Secret key",
+        "webhookSecret": "Webhook signing secret",
+        "savedEndingIn": "Saved — ending in {tail}",
+        "replaceHint": "Leave a secret blank to keep the one already saved.",
+        "noWebhookWarning": "No signing secret saved. Payments will only be recorded when the payer makes it back to the invoice page.",
+        "testConnection": "Test connection",
+        "webhookUrlLabel": "Webhook URL — paste this into XPay",
+        "webhookUrlHint": "In the client's XPay dashboard, go to Developers → Webhooks and add this URL for the event checkout.session.completed. Do it once per environment; XPay gives you a signing secret each time.",
+        "copy": "Copy",
+        "turnOn": "Turn on card payments",
+        "turnOff": "Turn off",
+        "saveChanges": "Save changes",
+        "saved": "Card payment settings saved"
+      }
     },
     "new": {
       "back": "All clients",
       "title": "New client",
       "subtitle": "Create the academy, pick its modules, and it starts configured from day one.",
-      "modulesTitle": "Also enable for this client",
-      "modulesHint": "Management comes from the plan you pick in the form below. Tick Video or WhatsApp to enable them with their own plan and trial from day one — you can always change this later on the client page.",
+      "modulesTitle": "Also sell them",
+      "modulesHint": "Tick a module and set what this client pays for it. Everything the module includes is on by default.",
       "enableFailed": "Could not enable {module}: {error}",
-      "waOnlyTitle": "WhatsApp-only client (no login)",
-      "waOnlyHint": "For a client outside the management system: just a name and a WhatsApp plan — no owner account. Connect them by QR from their client page and serve them over the API.",
+      "waOnlyTitle": "WhatsApp client",
+      "waOnlyHint": "A name and a price — no owner login. Connect it by QR from its profile.",
       "waOnlyStart": "Create WhatsApp-only…",
       "waOnlyName": "Client name",
       "waOnlyNamePlaceholder": "e.g. Sunrise Nursery",
-      "waOnlyCreate": "Create client"
+      "waOnlyCreate": "Create client",
+      "typeTitle": "What kind of client is this?",
+      "typeHint": "The type decides which modules it can hold. It cannot be changed later."
+    },
+    "type": {
+      "MANAGEMENT": "Management system",
+      "VIDEO": "Video platform",
+      "WHATSAPP": "WhatsApp",
+      "LMS": "Course platform",
+      "MANAGEMENTHint": "The full school system. Can also take Video and WhatsApp.",
+      "VIDEOHint": "The video classroom on its own.",
+      "WHATSAPPHint": "WhatsApp automation over the API. No login.",
+      "LMSHint": "Sells online courses on its own learner site."
+    },
+    "features": {
+      "title": "Features",
+      "hint": "Every feature its modules include is on. Switch one off and this client alone loses it.",
+      "allOn": "All features on",
+      "someOff": "{count} of {total} switched off",
+      "caps": "Caps (blank = unlimited)",
+      "unlimited": "Unlimited",
+      "save": "Save",
+      "reset": "Reset"
     }
   },
   "header": {
@@ -349,7 +407,9 @@
     "feature1": "Students, teachers & scheduling in one place",
     "feature2": "Automated invoicing & payroll",
     "feature3": "Bilingual & RTL-ready — Arabic and English",
-    "trustedBy": "Trusted by academies across the region"
+    "trustedBy": "Trusted by academies across the region",
+    "poweredBy": "Powered by Acadmyq",
+    "cardSubtitle": "Sign in to continue to your academy’s workspace"
   },
   "roles": {
     "SUPER_ADMIN": "Platform Admin",
@@ -425,7 +485,12 @@
       "createHint": "Creates the academy, seeds its report fields, and invites the owner.",
       "create": "Create academy",
       "creating": "Creating…",
-      "created": "Academy created. The owner will receive a set-password link."
+      "created": "Academy created. The owner will receive a set-password link.",
+      "start": "Start as",
+      "startTrial": "Trial",
+      "startTrialHint": "Every module starts on the trial clock and pauses when it ends.",
+      "startPaid": "Paid",
+      "startPaidHint": "Modules open a paid period straight away — no free days."
     },
     "detail": {
       "config": "Configuration",
@@ -498,7 +563,14 @@
     "prev": "Previous",
     "next": "Next",
     "export": "Export Excel",
-    "exportError": "Export failed. Please try again."
+    "exportError": "Export failed. Please try again.",
+    "clearAll": "Clear all",
+    "clearSearch": "Clear search",
+    "refreshing": "Updating…",
+    "density": "Row density",
+    "compact": "Compact rows",
+    "comfortable": "Comfortable rows",
+    "showing": "{from}–{to} of {total}"
   },
   "guardians": {
     "title": "Guardians",
@@ -514,7 +586,8 @@
       "status": "Active & inactive",
       "active": "Active only",
       "inactive": "Inactive only",
-      "all": "All"
+      "all": "All",
+      "currency": "Any currency"
     },
     "form": {
       "fullName": "Full name",
@@ -529,7 +602,9 @@
       "creating": "Creating…",
       "save": "Save changes",
       "saving": "Saving…",
-      "saved": "Saved."
+      "saved": "Saved.",
+      "none": "None",
+      "notesPlaceholder": "Optional notes…"
     },
     "detail": {
       "children": "Students",
@@ -540,7 +615,43 @@
       "noChildren": "No students yet.",
       "deactivate": "Deactivate guardian",
       "deactivateBlocked": "Deactivate this guardian's active students first.",
-      "selfGuardian": "Self-guardian"
+      "selfGuardian": "Self-guardian",
+      "loading": "Loading profile…",
+      "profileTitle": "Billing contact",
+      "profileDesc": "Name, phone and the currency this family is invoiced in",
+      "billingCurrency": "Invoiced in",
+      "childrenDesc": "The students this guardian sponsors and is billed for",
+      "dangerDesc": "Remove this guardian from your active lists",
+      "deactivated": "Guardian deactivated.",
+      "deactivateSafe": "No active students — safe to deactivate.",
+      "deactivateBlockedCount": "Blocked — deactivate {count, plural, one {# active student} other {# active students}} first.",
+      "deactivateConfirmTitle": "Deactivate this guardian?",
+      "deactivateConfirmBody": "This deactivates the guardian record. An admin can reverse it.",
+      "deactivateCancel": "Cancel",
+      "deactivateYes": "Yes, deactivate"
+    },
+    "subtitle": "Billing contacts, families & the students they sponsor",
+    "colStatus": "Status",
+    "colAdded": "Added",
+    "hero": {
+      "onBook": "{count} on the book"
+    },
+    "stats": {
+      "total": "Guardians",
+      "totalSub": "All records",
+      "active": "Active",
+      "activeSub": "Currently billable",
+      "inactive": "Inactive",
+      "inactiveSub": "Deactivated",
+      "filterHint": "Pick a tile to narrow the list below — pick it again to see everyone."
+    },
+    "list": {
+      "title": "All guardians",
+      "hint": "Click any row to view the profile, contact details or linked students",
+      "searchPlaceholder": "Search by name or phone…"
+    },
+    "newModal": {
+      "description": "Add a billing contact who sponsors one or more students"
     }
   },
   "teachers": {
@@ -577,13 +688,18 @@
     "colStudents": "Students",
     "list": {
       "title": "All teachers",
-      "hint": "Click any row to manage rates, availability & students"
+      "hint": "Click any row to manage rates, availability & students",
+      "searchPlaceholder": "Search by name, phone or specialization…"
     },
     "stat": {
       "total": "Teachers",
       "active": "Active",
       "inactive": "Inactive",
-      "avgRate": "Avg. hourly"
+      "avgRate": "Avg. hourly",
+      "totalSub": "All records",
+      "activeSub": "Currently teaching",
+      "inactiveSub": "Deactivated",
+      "filterHint": "Pick a tile to narrow the roster below — pick it again to see everyone."
     },
     "tabs": {
       "profile": "Profile",
@@ -652,7 +768,8 @@
       "creating": "Creating…",
       "save": "Save changes",
       "saving": "Saving…",
-      "saved": "Saved."
+      "saved": "Saved.",
+      "none": "None"
     },
     "detail": {
       "profile": "Profile",
@@ -681,7 +798,15 @@
       "deleteYes": "Yes, delete permanently",
       "noSpecialization": "No specialization",
       "since": "since",
-      "nextDay": "Next day (+1)"
+      "nextDay": "Next day (+1)",
+      "loading": "Loading profile…",
+      "profileTitle": "Identity & pay",
+      "profileDesc": "Name, contact, specialization and the hourly rate payroll uses",
+      "availabilityDesc": "The weekly windows this teacher can be scheduled in",
+      "availabilitySaveHint": "Availability is saved with the profile — use Save changes above.",
+      "studentsDesc": "Students currently assigned to this teacher",
+      "deactivateSafe": "No assigned students — safe to deactivate.",
+      "deactivateBlockedCount": "Blocked — reassign {count, plural, one {# student} other {# students}} first."
     },
     "weekday": {
       "0": "Sunday",
@@ -691,6 +816,14 @@
       "4": "Thursday",
       "5": "Friday",
       "6": "Saturday"
+    },
+    "colStatus": "Status",
+    "fact": {
+      "perHour": "Per teaching hour",
+      "currentLoad": "Currently assigned",
+      "hoursWeek": "{hours} hrs / week",
+      "windows": "{count, plural, one {# window} other {# windows}}",
+      "noAvailability": "Not set"
     }
   },
   "settings": {
@@ -767,9 +900,11 @@
         "keysOptional": "Leave blank to use email-only mode."
       },
       "xpay": {
-        "title": "XPay",
-        "desc": "XPay integration — coming soon.",
-        "placeholder": "XPay configuration will be available in a future update."
+        "title": "Card payments (XPay)",
+        "desc": "Accept Visa, Mastercard and Meeza on your invoices.",
+        "active": "Card payment is live on your invoices",
+        "inactive": "Card payment is not enabled yet",
+        "managed": "XPay is set up and managed by Academiq. Contact support to enable it or change the account."
       }
     },
     "branding": {
@@ -818,13 +953,19 @@
       "inactive": "Inactive only",
       "all": "All",
       "teacher": "Any teacher",
-      "subscriptionStatus": "Any subscription"
+      "subscriptionStatus": "Any subscription",
+      "stage": "Any stage"
     },
     "stats": {
       "total": "Students",
       "active": "Active",
       "trials": "Trials",
-      "inactive": "Inactive"
+      "inactive": "Inactive",
+      "totalSub": "All records",
+      "activeSub": "Currently enrolled",
+      "trialsSub": "Trial or booked",
+      "inactiveSub": "Deactivated",
+      "filterHint": "Pick a tile to narrow the list below — pick it again to see everyone."
     },
     "tabs": {
       "all": "All Students",
@@ -838,7 +979,11 @@
       "colStudent": "Student",
       "colTrialStatus": "Trial Status",
       "selfGuardian": "Self-guardian",
-      "emptyTrials": "No trial students found"
+      "emptyTrials": "No trial students found",
+      "unassigned": "No teacher",
+      "noSubscription": "No subscription",
+      "sessionsPerMonth": "{n} / month",
+      "searchPlaceholder": "Search by name, parent or phone…"
     },
     "trialBadge": {
       "scheduled": "Trial Scheduled",
@@ -942,7 +1087,10 @@
       "pricingHint": "Set up the pricing plan now, or skip and configure it later from the student's profile.",
       "planPlaceholder": "e.g. Standard Plan",
       "currencyPlaceholder": "Currency…",
-      "searchCurrency": "Search currency…"
+      "searchCurrency": "Search currency…",
+      "enrolledBannerTitle": "Enrolling a student",
+      "enrolledBannerBody": "Saved as a regular student and listed on the Students page; subscription and teacher are set from their profile.",
+      "createEnrolled": "Add student"
     },
     "subscription": {
       "title": "Subscription",
@@ -979,7 +1127,9 @@
       "addTimetable": "Add timetable",
       "repriceOpenLabel": "Also update open invoices",
       "repriceOpenHint": "Recalculate {sessions, plural, one {# billed session} other {# billed sessions}} on {invoices, plural, one {# open invoice} other {# open invoices}} at the new rate. Use this when the old rate was entered by mistake — closed and paid invoices are never changed.",
-      "savedRepriced": "Subscription saved. Recalculated {sessions, plural, one {# session} other {# sessions}} on {invoices, plural, one {# open invoice} other {# open invoices}}."
+      "savedRepriced": "Subscription saved. Recalculated {sessions, plural, one {# session} other {# sessions}} on {invoices, plural, one {# open invoice} other {# open invoices}}.",
+      "perMonthShort": "/mo",
+      "perSessionShort": "/session"
     },
     "teacher": {
       "title": "Teacher",
@@ -1033,7 +1183,14 @@
       "trialBookedHint": "The trial session is booked. Once it's recorded, activate them with pricing to start billing.",
       "trialDoneTitle": "Trial done — activate this student",
       "trialDoneHint": "The trial session has been recorded. Activate them with pricing to start billing.",
-      "activate": "Activate"
+      "activate": "Activate",
+      "identityTitle": "Student record",
+      "identityDesc": "Name, and where they are in the enrolment flow",
+      "guardianDesc": "The adult the academy bills and contacts",
+      "subscriptionDesc": "What this student is billed, and from when",
+      "teacherDesc": "Who teaches this student today",
+      "historyDesc": "Every assignment, kept for payroll and session history",
+      "noChanges": "No changes to save"
     },
     "trial": {
       "title": "Schedule Trial Session",
@@ -1055,6 +1212,13 @@
       "errTeacher": "Please select a teacher.",
       "errDate": "Please select a date.",
       "errTime": "Please select a time."
+    },
+    "colSubscription": "Subscription",
+    "colRate": "Rate",
+    "colContact": "Contact",
+    "colAdded": "Added",
+    "hero": {
+      "onRoll": "{count} on the roll"
     }
   },
   "scheduling": {
@@ -1165,7 +1329,8 @@
       "emptyGridHint": "Click any empty slot to add a session.",
       "unnamedStudent": "Unnamed student",
       "sessionCount": "{count, plural, =0 {no sessions} one {# session} other {# sessions}}",
-      "showingCount": "Showing {shown} of {total}"
+      "showingCount": "Showing {shown} of {total}",
+      "trialEvent": "Trial"
     },
     "quickCreate": {
       "title": "New session",
@@ -1217,6 +1382,15 @@
       "time": "Time",
       "durationLabel": "Duration",
       "cancelWho": "Who cancelled?"
+    },
+    "trialEvent": {
+      "title": "Trial",
+      "intro": "A booked trial — managed from the Trials page, and the person from the CRM.",
+      "when": "When",
+      "teacher": "Teacher",
+      "openCrm": "Open the CRM",
+      "openTrials": "Open Trials",
+      "close": "Close"
     }
   },
   "notifications": {
@@ -1615,7 +1789,11 @@
     "advanceCalculating": "Calculating remaining sessions…",
     "advanceSessionsCount": "{count} session(s) this month",
     "advanceNoSessions": "No remaining billable sessions in this period for the student.",
-    "advanceNoSubscription": "This student has no active subscription to price the sessions."
+    "advanceNoSubscription": "This student has no active subscription to price the sessions.",
+    "panelAuto": "Automatic invoices",
+    "panelAutoHint": "Generated from delivered lessons — click a row to open it",
+    "panelManual": "Manual invoices",
+    "panelManualHint": "Raised by hand for anything outside the lesson billing"
   },
   "attendance": {
     "title": "Attendance & report",
@@ -1748,7 +1926,8 @@
     "saveAnywayAction": "Save anyway",
     "freeTrialsTitle": "Free (Trial) Lessons Today",
     "trialSession": "trial session",
-    "trialSessions": "trial sessions"
+    "trialSessions": "trial sessions",
+    "tilesHint": "Pick a tile to narrow the day below — pick it again to see everything."
   },
   "payroll": {
     "title": "Payroll",
@@ -1859,7 +2038,9 @@
       "SUPER_ADMIN": "Platform Admin",
       "ACADEMY_OWNER": "Academy Owner",
       "TEACHER": "Teacher"
-    }
+    },
+    "panelTitle": "Activity trail",
+    "panelHint": "Click any entry to see exactly what changed"
   },
   "entitlements": {
     "title": "My Plan",
@@ -1885,9 +2066,9 @@
     "billingYearly": "billed yearly",
     "freeDuringTrial": "Free during trial",
     "allUnlocked": "Your plan unlocks every available feature.",
-    "upgradeTitle": "Unlock more with an upgrade",
-    "upgradeBody": "Your current plan does not include these features. Upgrade to unlock them for your academy.",
-    "upgradeCta": "Upgrade plan",
+    "upgradeTitle": "Not part of this subscription",
+    "upgradeBody": "This feature isn't included in your subscription. Talk to us and we'll switch it on.",
+    "upgradeCta": "Contact us",
     "feature": {
       "staff": "Staff management",
       "custom_roles": "Custom roles & permissions",
@@ -1924,15 +2105,12 @@
     "kpiGuardians": "Guardians",
     "recentSignups": "{count} new in the last 30 days",
     "statusBreakdown": "Academies by status",
-    "planDistribution": "Plan distribution",
-    "noPlans": "No active plans yet.",
-    "planAcademies": "{count, plural, one {# academy} other {# academies}}",
     "recentActivity": "Recent activity",
     "viewAllActivity": "View full audit log",
     "noActivity": "No activity recorded yet.",
     "systemActor": "System",
     "manageAcademies": "Manage clients",
-    "managePlans": "Manage plans",
+    "managePlans": "Pricing →",
     "manageBilling": "Manage billing",
     "mrr": "Monthly revenue",
     "mrrSub": "Recurring across active academies",
@@ -1951,7 +2129,11 @@
     "inDays": "{count, plural, one {in # day} other {in # days}}",
     "paymentsTitle": "Payments to review",
     "reviewQueue": "Review queue",
-    "noPayments": "No payment proofs awaiting review."
+    "noPayments": "No payment proofs awaiting review.",
+    "moduleDistribution": "Modules in use",
+    "noModules": "No modules sold yet",
+    "moduleClients": "{count} clients",
+    "onTrial": "{count} on trial"
   },
   "roleEditor": {
     "title": "Roles & Permissions",
@@ -2092,8 +2274,8 @@
     }
   },
   "planAdmin": {
-    "title": "Plans",
-    "subtitle": "Manage pricing tiers, limits, and feature entitlements — and see how academies are distributed across them.",
+    "title": "Pricing",
+    "subtitle": "Default price per module. Each client's own price is set on its profile.",
     "noPermission": "You don't have permission to manage plans.",
     "loadError": "Could not load the plan catalog. Please try again.",
     "toggleError": "Could not update the plan. Please try again.",
@@ -2154,7 +2336,15 @@
       "save": "Save",
       "saving": "Saving…",
       "cancel": "Cancel"
-    }
+    },
+    "modulePricing": "Module defaults",
+    "modulePricingHint": "These only pre-fill the form when a module is sold. Changing them never reprices an existing client.",
+    "defaultPrice": "Default price",
+    "currency": "Currency",
+    "currentDefault": "Now {amount}",
+    "noDefault": "No default",
+    "savePricing": "Save defaults",
+    "saved": "Saved"
   },
   "staff": {
     "title": "Staff",
@@ -2171,13 +2361,18 @@
     "colStatus": "Status",
     "list": {
       "title": "All staff",
-      "hint": "Click any row to view profile and edit details"
+      "hint": "Click any row to view profile and edit details",
+      "searchPlaceholder": "Search by name, phone or department…"
     },
     "stat": {
       "total": "Staff",
       "active": "Active",
       "inactive": "Inactive",
-      "departments": "Departments"
+      "departments": "Departments",
+      "totalSub": "All records",
+      "activeSub": "Currently employed",
+      "inactiveSub": "Deactivated",
+      "filterHint": "Pick a tile to narrow the roster below — pick it again to see everyone."
     },
     "department": {
       "SUPPORT": "Support",
@@ -2255,9 +2450,20 @@
       "deactivateConfirm": "Confirm deactivation?",
       "deactivateConfirmBody": "This staff member will be removed from the active roster. You can reactivate them at any time.",
       "deactivateCancel": "Cancel",
-      "deactivateYes": "Yes, deactivate"
+      "deactivateYes": "Yes, deactivate",
+      "notFound": "Staff member not found.",
+      "retry": "Retry",
+      "profileDesc": "Department, access and how long they have been here",
+      "notesDesc": "Internal notes — visible to staff with access to this page",
+      "noSalary": "Not set",
+      "noPhone": "Not set",
+      "perMonth": "Per month"
     },
-    "backToList": "All staff"
+    "backToList": "All staff",
+    "colAdded": "Added",
+    "hero": {
+      "onRoster": "{count} on the roster"
+    }
   },
   "errors": {
     "notFoundCode": "404",
@@ -2585,7 +2791,6 @@
       "colLive": "Live",
       "roomsOf": "{used} / {cap}",
       "unlimited": "∞",
-      "noPlan": "—",
       "empty": "No academy is on the video platform yet.",
       "liveRecording": "Recording",
       "addAcademy": "Add academy to video",
@@ -2594,10 +2799,10 @@
     "status": {
       "ENABLED": "Enabled",
       "TRIAL": "Trial",
-      "PLAN": "On (plan)",
       "EXPIRED": "Trial expired",
       "DISABLED": "Disabled",
-      "NONE": "Not on video"
+      "NONE": "No video module",
+      "PAUSED": "Paused"
     },
     "add": {
       "title": "Add academy to video",
@@ -2783,9 +2988,9 @@
       "colEnrollments": "Active enrolments",
       "colStorage": "Storage",
       "empty": "No client is selling courses yet.",
-      "noPlan": "No plan",
       "noSite": "Not set",
-      "publishedOf": "{used} of {total}"
+      "publishedOf": "{used} of {total}",
+      "noSubdomain": "No subdomain"
     },
     "activity": {
       "title": "Course platform activity",
@@ -3923,7 +4128,7 @@
   },
   "crm": {
     "title": "CRM — Leads",
-    "subtitle": "Capture interested people, follow up on time, and turn them into students.",
+    "subtitle": "Capture interested people, follow up on time, book their trial, and turn them into subscribed students.",
     "noAccess": "You don't have access to the CRM.",
     "newLead": "New lead",
     "whatsapp": "WhatsApp",
@@ -3931,8 +4136,15 @@
     "stats": {
       "open": "Open leads",
       "due": "Follow-ups due",
-      "won": "Won",
-      "conversionRate": "Conversion"
+      "conversionRate": "Conversion",
+      "trial": "Trials booked",
+      "subscribed": "Subscribed",
+      "total": "All leads",
+      "totalSub": "Every lead on file",
+      "dueSub": "Follow-up reached or passed",
+      "trialSub": "Trial booked",
+      "subscribedSub": "Became students",
+      "filterHint": "Pick a tile to open the list, narrowed to exactly those leads."
     },
     "view": {
       "board": "Board",
@@ -3942,8 +4154,9 @@
       "NEW": "New",
       "CONTACTED": "Contacted",
       "INTERESTED": "Interested",
-      "WON": "Won",
-      "LOST": "Lost"
+      "LOST": "Lost",
+      "TRIAL": "Trial",
+      "SUBSCRIBED": "Subscribed"
     },
     "source": {
       "FACEBOOK": "Facebook",
@@ -3965,9 +4178,11 @@
       "loadFailed": "Couldn't load the board — try refreshing the page.",
       "cardMenu": "Lead actions",
       "moveTo": "Move to {status}",
-      "convert": "Convert to student",
+      "convert": "Subscribe as a student",
       "delete": "Delete",
-      "convertedTag": "Student ✓"
+      "convertedTag": "Student ✓",
+      "bookTrial": "Book a trial",
+      "rebookTrial": "Book another trial"
     },
     "filters": {
       "status": "Status",
@@ -3983,10 +4198,17 @@
       "status": "Status",
       "followUp": "Follow-up",
       "created": "Added",
-      "convert": "Convert",
+      "convert": "Subscribe",
       "moveTo": "Change status",
       "delete": "Delete",
-      "empty": "No leads yet — add your first lead with the button above."
+      "empty": "No leads yet — add your first lead with the button above.",
+      "trial": "Trial",
+      "bookTrial": "Trial",
+      "rebookTrial": "Re-book",
+      "title": "Lead pipeline",
+      "hint": "Click any row to open the lead, its timeline and next steps",
+      "searchPlaceholder": "Search by name, phone or interest…",
+      "noInterest": "No interest recorded"
     },
     "form": {
       "title": "New lead",
@@ -4012,7 +4234,11 @@
       "status": "Status",
       "followUp": "Follow up on",
       "lostReason": "Reason",
-      "convertedNote": "Converted to student <b>{name}</b> — details are locked, but you can still add notes."
+      "convertedNote": "Converted to student <b>{name}</b> — details are locked, but you can still add notes.",
+      "trial": "Trial",
+      "noTrial": "No trial booked yet.",
+      "bookTrial": "Book a trial",
+      "rebookTrial": "Book another"
     },
     "timeline": {
       "title": "Activity",
@@ -4023,13 +4249,19 @@
       "statusChange": "Moved from {from} to {to}",
       "followUpSet": "Follow-up set to {date}",
       "followUpCleared": "Follow-up removed",
-      "converted": "Converted to a student 🎉"
+      "converted": "Converted to a student 🎉",
+      "trialBooked": "Trial booked for {when} with {teacher}",
+      "trialMoved": "Trial moved to {when} with {teacher}",
+      "trialOutcome": "Trial result: {status}"
     },
     "convert": {
-      "title": "Convert to student",
-      "description": "Create the student record — the name and number are already filled in.",
-      "markWonHint": "Already added as a student elsewhere?",
-      "markWonOnly": "Mark Won only"
+      "title": "Subscribe as a student",
+      "description": "Enter the student's details — saving puts them on the Students page and moves the lead to Subscribed.",
+      "linkExistingHint": "Already added as a student elsewhere?",
+      "selectStudent": "Select the student",
+      "searchStudent": "Search students…",
+      "linkExisting": "Link them",
+      "footnote": "A lead only reaches Subscribed with a real student record behind it — there is no other route."
     },
     "lost": {
       "title": "Mark as lost",
@@ -4047,77 +4279,65 @@
     "alerts": {
       "created": "Lead added.",
       "moved": "Moved to {status}.",
-      "converted": "Lead converted — the student is now in the Students page.",
-      "wonOnly": "Marked as won.",
+      "converted": "Subscribed — they're now on the Students page.",
       "deleted": "Lead deleted.",
-      "failed": "That didn't save — please try again."
+      "failed": "That didn't save — please try again.",
+      "trialBooked": "Trial booked — it's on the calendar.",
+      "linked": "Linked to the existing student."
+    },
+    "trialStatus": {
+      "SCHEDULED": "Booked",
+      "COMPLETED": "Completed",
+      "NO_SHOW": "No-show",
+      "CANCELLED": "Cancelled",
+      "CONVERTED": "Became a student"
+    },
+    "trial": {
+      "title": "Book the trial",
+      "description": "Give the trial its details — it appears on the calendar and in the trials page at once.",
+      "intro": "Moving to the Trial stage means booking a real lesson for this person.",
+      "existingHint": "This lead already has a trial — the new booking becomes the current one, and the old stays on record.",
+      "teacher": "Teacher",
+      "selectTeacher": "Select a teacher",
+      "searchTeacher": "Search teachers…",
+      "teacherRequired": "Pick the teacher who will take the trial.",
+      "date": "Date",
+      "time": "Time",
+      "slotRequired": "Pick a date and a time.",
+      "duration": "Duration",
+      "minutes": "{count} min",
+      "notes": "Notes",
+      "notesPlaceholder": "Anything the teacher should know beforehand… (optional)",
+      "preview": "What gets booked",
+      "confirm": "Book the trial",
+      "cancel": "Back",
+      "chipTitle": "Trial: {status} — with {teacher}"
+    },
+    "hero": {
+      "openCount": "{count} open"
     }
   },
   "trials": {
     "title": "Free Trials",
-    "subtitle": "Find an available teacher, book a trial, and turn prospects into students.",
+    "subtitle": "Every trial and how it went — booking happens in the CRM.",
     "back": "Back",
     "empty": "You don't have access to free trials.",
     "stats": {
       "upcoming": "Upcoming",
-      "completed": "Completed",
-      "converted": "Converted",
-      "conversionRate": "Conversion rate"
-    },
-    "tabs": {
-      "find": "Find a teacher",
-      "pipeline": "Scheduled trials"
-    },
-    "finder": {
-      "dateLabel": "Date",
-      "timeLabel": "Time",
-      "anyTime": "Any time",
-      "duration": "Duration",
-      "minutes": "{count} min",
-      "busy": "busy",
       "today": "Today",
-      "reset": "Reset",
-      "cellFree": "{count} free",
-      "cellBusy": "{count} busy",
-      "cellNone": "No teachers available at this time",
-      "cellNoneShort": "·",
-      "legendAvailable": "Teachers available",
-      "legendBooked": "All booked at this time",
-      "legendNone": "No availability",
-      "noAvailabilityTitle": "No availability this week",
-      "noAvailabilityHint": "Your teachers haven't set availability covering this week. Set it from each teacher's profile.",
-      "pickSlotTitle": "Pick a slot",
-      "pickSlotHint": "Choose a date and time, or click a slot on the calendar, to see who's available.",
-      "noneAtSlot": "No teachers available at this exact time.",
-      "slotHeading": "{date} at {time}",
-      "resultCount": "{count, plural, =0 {No teachers available} one {# teacher available} other {# teachers available}}",
-      "book": "Book trial",
-      "conflict": "Already booked"
-    },
-    "book": {
-      "title": "Book a trial",
-      "description": "Schedule this trial for an existing student or a new prospect.",
-      "slotSummary": "{date} at {time} · {duration} min",
-      "conflictWarning": "This teacher already has a session or trial overlapping this time.",
-      "existing": "Existing student",
-      "newLead": "New prospect",
-      "student": "Student",
-      "selectStudent": "Select a student",
-      "searchStudent": "Search students…",
-      "studentRequired": "Select a student.",
-      "leadRequired": "A new prospect needs a name and WhatsApp number.",
-      "leadName": "Full name",
-      "leadNamePlaceholder": "e.g. Sara Ahmed",
-      "whatsapp": "WhatsApp number",
-      "email": "Email",
-      "emailPlaceholder": "name@example.com (optional)",
-      "confirm": "Book trial"
-    },
-    "pipeline": {
-      "title": "Scheduled trials"
+      "awaitingOutcome": "Awaiting result",
+      "completed": "Completed",
+      "converted": "Became students",
+      "conversionRate": "Conversion rate",
+      "total": "All trials",
+      "totalSub": "Every trial on record",
+      "upcomingSub": "Scheduled, still ahead",
+      "completedSub": "Outcome recorded",
+      "convertedSub": "Became students",
+      "filterHint": "Pick a tile to narrow the list below — pick it again to see everyone."
     },
     "table": {
-      "empty": "No trials yet. Find a teacher above to book the first one.",
+      "empty": "No trials yet — move a lead into the Trial stage in the CRM to book the first one.",
       "name": "Name",
       "leadTag": "Lead",
       "teacher": "Teacher",
@@ -4126,10 +4346,20 @@
       "status": "Status",
       "recordOutcome": "Outcome",
       "convert": "Convert",
-      "cancel": "Cancel trial"
+      "cancel": "Cancel trial",
+      "crmTag": "CRM",
+      "awaitingOutcome": "Result missing",
+      "minutes": "{count} min",
+      "title": "Trial record",
+      "hint": "Every trial booked, with what came of it — click a row for its details"
     },
     "filters": {
-      "status": "Status"
+      "status": "Status",
+      "origin": "Source",
+      "originCrm": "From the CRM",
+      "originDirect": "Booked directly",
+      "when": "When",
+      "upcomingOnly": "Upcoming only"
     },
     "status": {
       "SCHEDULED": "Scheduled",
@@ -4146,7 +4376,7 @@
     },
     "convert": {
       "title": "Convert to student",
-      "description": "Create a full student record from this trial prospect.",
+      "description": "Create the student record from this prospect — they are enrolled, not left as a trial.",
       "intro": "We've prefilled the prospect's details. Add the guardian and any missing information to enroll them as a student.",
       "linkFailed": "The student was created, but linking the trial failed. Check the students list before retrying."
     },
@@ -4162,6 +4392,20 @@
       "converted": "Prospect converted to a student.",
       "cancelled": "Trial cancelled.",
       "cancelFailed": "Couldn't cancel the trial. Please try again."
+    },
+    "bookInCrm": "Book in the CRM",
+    "breakdown": {
+      "title": "Where the trials landed",
+      "total": "{count} in total",
+      "fromCrm": "{count} from the CRM",
+      "scheduled": "Booked",
+      "completed": "Completed",
+      "converted": "Became students",
+      "no_show": "No-show",
+      "cancelled": "Cancelled"
+    },
+    "hero": {
+      "awaiting": "{count} awaiting outcome"
     }
   },
   "academyRoles": {
@@ -4206,7 +4450,14 @@
     "featuresLabel": "What this role can do",
     "noFeatures": "No capabilities granted.",
     "selectAll": "Select all",
-    "clearAll": "Clear"
+    "clearAll": "Clear",
+    "customRolesSub": "Built by your academy — editable",
+    "systemRolesSub": "Built in — the same at every academy",
+    "assignedTotal": "People assigned",
+    "assignedTotalSub": "Across every role",
+    "hero": {
+      "capabilities": "{count} capabilities"
+    }
   },
   "permissions": {
     "groups": {
@@ -5082,5 +5333,8 @@
         "links": "No extra links."
       }
     }
+  },
+  "calendar": {
+    "sessionsInView": "{count, plural, one {# lesson in view} other {# lessons in view}}"
   }
 }

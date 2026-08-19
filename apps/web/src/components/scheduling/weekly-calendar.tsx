@@ -1,6 +1,7 @@
 "use client";
 
-import { CalendarDays, Users } from "lucide-react";
+import { CalendarDays, GraduationCap, Sparkles, Users } from "lucide-react";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import {
   type ComponentType,
@@ -37,12 +38,16 @@ import { ScheduleSection } from "@/components/scheduling/schedule-editor";
 import { SessionActions } from "@/components/scheduling/session-actions";
 import { TimetableLogModal } from "@/components/scheduling/timetable-log-modal";
 import { AlertBanner } from "@/components/ui/alert";
+import { HeroPill, PageHero } from "@/components/ui/page-hero";
+import { buttonVariants } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/modal";
 import {
   ApiError,
+  type AvailabilityWindow,
   type CalendarSession,
+  type CalendarTrial,
   getCalendar,
   listStudents,
   listTeachers,
@@ -57,8 +62,12 @@ type PageTab = "calendar" | "timetables";
 
 /**
  * The premium calendar (§5.5, AC-5.9). Two top-level tabs:
- *   • Calendar — one session feed, three ways to read it (Month, Week, Day) with a navigation
- *     toolbar, an at-a-glance summary strip, and a session actions modal.
+ *   • Calendar — one feed, three ways to read it (Month, Week, Day) with a navigation toolbar,
+ *     an at-a-glance summary strip, and a session actions modal. The feed carries BOOKED TRIALS
+ *     alongside the lessons: a trial is a real hour of a real teacher (booked from the CRM when
+ *     a lead reaches the TRIAL stage), so leaving it off this screen would invite double-booking
+ *     it. Trials are painted, not managed — no drag-to-reschedule, no attendance; clicking one
+ *     shows what it is and points at the Trials page.
  *   • Student timetables — the academy's full roster of recurring weekly schedules
  *     (period-independent), with update / lesson-log / new-timetable affordances.
  * Every session renders at its time in the VIEWER's timezone (the stored UTC never changes); a
@@ -106,6 +115,7 @@ export function WeeklyCalendar({
   const [studentId, setStudentId] = useState("");
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [sessions, setSessions] = useState<CalendarSession[]>([]);
+  const [trials, setTrials] = useState<CalendarTrial[]>([]);
   const [selected, setSelected] = useState<CalendarSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Non-blocking info banner (e.g. conflict/availability warnings after a drag-reschedule).
@@ -180,9 +190,11 @@ export function WeeklyCalendar({
         studentId: studentId || undefined,
       });
       setSessions(res.sessions);
+      setTrials(res.trials ?? []);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
       setSessions([]);
+      setTrials([]);
     } finally {
       setLoading(false);
     }
@@ -277,11 +289,40 @@ export function WeeklyCalendar({
     setView("day");
   }, []);
 
+  /**
+   * A booked trial, shaped so the views can draw it next to the lessons. It borrows the SCHEDULED
+   * status because that is exactly what it is — an hour that is going to happen — and carries the
+   * trial itself so everything downstream can tell the two apart (`s.trial !== undefined`).
+   */
+  const trialEvents = useMemo<CalendarSession[]>(
+    () =>
+      trials.map((tr) => ({
+        id: tr.id,
+        student_id: tr.student_id ?? "",
+        teacher_id: tr.teacher_id,
+        schedule_id: null,
+        scheduled_at_utc: tr.scheduled_at_utc,
+        duration_minutes: tr.duration_minutes,
+        status: "SCHEDULED" as SessionStatus,
+        status_reason: null,
+        original_session_id: null,
+        student_name: tr.display_name,
+        teacher_name: tr.teacher_name,
+        trial: tr,
+      })),
+    [trials],
+  );
+
+  const events = useMemo(
+    () => [...sessions, ...trialEvents],
+    [sessions, trialEvents],
+  );
+
   // Apply the search + status filters to the fetched feed (everything downstream — views and
   // the summary strip — reads this so the numbers always match what's on screen).
   const visibleSessions = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return sessions.filter((s) => {
+    return events.filter((s) => {
       if (statuses.size > 0 && !statuses.has(s.status)) return false;
       if (!q) return true;
       return (
@@ -289,7 +330,7 @@ export function WeeklyCalendar({
         (s.teacher_name ?? "").toLowerCase().includes(q)
       );
     });
-  }, [sessions, query, statuses]);
+  }, [events, query, statuses]);
 
   const toggleStatus = useCallback((s: SessionStatus) => {
     setStatuses((prev) => {
@@ -303,6 +344,9 @@ export function WeeklyCalendar({
   // Drag-drop landing: move a session to a new day + start-minute (viewer tz → wall clock).
   const rescheduleTo = useCallback(
     async (s: CalendarSession, day: string, startMin: number) => {
+      // Trials are painted here, not managed — moving one is the Trials page's job (its id is a
+      // trial id, which the session endpoint would rightly refuse).
+      if (s.trial) return;
       const hh = String(Math.floor(startMin / 60)).padStart(2, "0");
       const mm = String(startMin % 60).padStart(2, "0");
       try {
@@ -351,32 +395,45 @@ export function WeeklyCalendar({
   // can see at a glance whether they're dropping a lesson into a window the teacher works.
   // With "All teachers" picked there is no single set of windows to draw, so none are.
   const availability = useMemo(
-    () => teachers.find((tch) => tch.id === teacherId)?.availability ?? [],
+    () => {
+      // Same json-column caveat as the roster: a cached row can still carry the raw string.
+      const raw = teachers.find((tch) => tch.id === teacherId)?.availability;
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === "string") {
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          return Array.isArray(parsed) ? (parsed as AvailabilityWindow[]) : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    },
     [teachers, teacherId],
   );
 
   return (
-    <div className="space-y-4" data-testid="weekly-calendar">
-      {/* Page header */}
-      <div className="flex items-start gap-3">
-        <span className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl">
-          <CalendarDays className="size-5" aria-hidden />
-        </span>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            {t("calendar.title")}
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            {t("calendar.subtitle")}
-          </p>
-        </div>
-      </div>
+    <div className="space-y-5" data-testid="weekly-calendar">
+      <PageHero
+        latticeId="calendar-hero-lattice"
+        icon={CalendarDays}
+        title={t("calendar.title")}
+        subtitle={t("calendar.subtitle")}
+        actions={
+          !loading ? (
+            <HeroPill>
+              <CalendarDays className="size-3.5" aria-hidden />
+              {t("calendar.sessionsInView", { count: visibleSessions.length })}
+            </HeroPill>
+          ) : undefined
+        }
+      />
 
       {/* ── Top-level tabs (teachers get the Calendar tab only) ──────────── */}
       {!isTeacher && (
         <div
           role="tablist"
-          className="bg-muted/40 flex gap-1 rounded-2xl border p-1.5"
+          className="bg-card flex gap-1 rounded-2xl border p-1.5 shadow-sm"
         >
           <PageTabButton
             tabKey="calendar"
@@ -461,13 +518,13 @@ export function WeeklyCalendar({
             onToggleStatus={toggleStatus}
             onClear={() => setStatuses(new Set())}
             shown={visibleSessions.length}
-            total={sessions.length}
+            total={events.length}
           />
 
           {/* The first load has nothing to show yet, so it gets a skeleton rather than an empty
               grid that would flash "no sessions" before the feed lands. A refetch (navigating a
               week, switching teacher) keeps the current grid and just dims it. */}
-          {loading && sessions.length === 0 ? (
+          {loading && events.length === 0 ? (
             <CalendarSkeleton view={view} />
           ) : (
             <div
@@ -564,30 +621,44 @@ export function WeeklyCalendar({
         </>
       )}
 
-      {/* Session actions modal */}
+      {/* Session actions modal — or, for a trial, the read-only card that says what it is. */}
       {selected && canOpenDetails && (
         <Modal
           open
           onClose={() => setSelected(null)}
           // The date, time and duration are the detail card's job now — repeating them in the
           // modal's subtitle just said the same thing twice.
-          title={t("actions.title", {
-            name: selected.student_name ?? t("calendar.unnamedStudent"),
-          })}
+          title={
+            selected.trial
+              ? t("trialEvent.title")
+              : t("actions.title", {
+                  name: selected.student_name ?? t("calendar.unnamedStudent"),
+                })
+          }
           size="md"
         >
-          <SessionActions
-            session={selected}
-            timeZone={tz}
-            hideHeader
-            readOnly={isTeacher}
-            onClose={() => setSelected(null)}
-            onDone={() => {
-              setSelected(null);
-              void load();
-            }}
-            onError={setError}
-          />
+          {selected.trial ? (
+            <TrialEventCard
+              trial={selected.trial}
+              tz={tz}
+              locale={locale}
+              t={t}
+              onClose={() => setSelected(null)}
+            />
+          ) : (
+            <SessionActions
+              session={selected}
+              timeZone={tz}
+              hideHeader
+              readOnly={isTeacher}
+              onClose={() => setSelected(null)}
+              onDone={() => {
+                setSelected(null);
+                void load();
+              }}
+              onError={setError}
+            />
+          )}
         </Modal>
       )}
 
@@ -658,6 +729,97 @@ export function WeeklyCalendar({
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ── Trial event card ──────────────────────────────────────────────────────────
+
+/**
+ * What a booked trial is, read-only: who it is for, who is taking it, when, and where to go to
+ * act on it. Nothing here writes — a trial's outcome, cancellation and conversion belong to the
+ * Trials page, and the person it was booked for belongs to the CRM.
+ */
+function TrialEventCard({
+  trial,
+  tz,
+  locale,
+  t,
+  onClose,
+}: {
+  trial: CalendarTrial;
+  tz: string;
+  locale: string;
+  t: ReturnType<typeof useTranslations<"scheduling">>;
+  onClose: () => void;
+}) {
+  const start = new Date(trial.scheduled_at_utc);
+  const end = new Date(start.getTime() + trial.duration_minutes * 60_000);
+  const fmt = (d: Date) =>
+    new Intl.DateTimeFormat(locale, { timeStyle: "short", timeZone: tz }).format(d);
+  const dayLabel = new Intl.DateTimeFormat(locale, {
+    dateStyle: "full",
+    timeZone: tz,
+  }).format(start);
+
+  return (
+    <div className="space-y-4" data-testid="calendar-trial-card">
+      <div className="flex items-start gap-3 rounded-xl border border-sky-500/20 bg-sky-500/5 px-4 py-3">
+        <Sparkles className="mt-0.5 size-4 shrink-0 text-sky-600 dark:text-sky-400" aria-hidden />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">
+            {trial.display_name ?? t("calendar.unnamedStudent")}
+          </p>
+          <p className="text-muted-foreground text-xs">{t("trialEvent.intro")}</p>
+        </div>
+      </div>
+
+      <dl className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <dt className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
+            {t("trialEvent.when")}
+          </dt>
+          <dd className="text-sm font-medium">
+            {dayLabel}
+            <span className="text-muted-foreground ms-1 tabular-nums" dir="ltr">
+              {fmt(start)} – {fmt(end)}
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
+            {t("trialEvent.teacher")}
+          </dt>
+          <dd className="flex items-center gap-1.5 text-sm font-medium">
+            <GraduationCap className="text-muted-foreground size-3.5" aria-hidden />
+            {trial.teacher_name ?? "—"}
+          </dd>
+        </div>
+      </dl>
+
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
+        {trial.lead_id !== null && (
+          <Link
+            href="/crm"
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+          >
+            {t("trialEvent.openCrm")}
+          </Link>
+        )}
+        <Link
+          href="/trials"
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+        >
+          {t("trialEvent.openTrials")}
+        </Link>
+        <button
+          type="button"
+          onClick={onClose}
+          className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+        >
+          {t("trialEvent.close")}
+        </button>
+      </div>
     </div>
   );
 }
@@ -783,12 +945,19 @@ function PageTabButton({
       data-testid={`calendar-tab-${tabKey}`}
       onClick={onClick}
       className={cn(
-        "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors",
+        "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all",
         active
-          ? "bg-card shadow-sm ring-1 ring-black/5"
-          : "text-muted-foreground hover:bg-card/50",
+          ? "bg-primary/10 text-primary ring-primary/20 ring-1"
+          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
       )}
     >
+      {/* The gold thread marks the open tab — the frame's own way of saying "here". */}
+      {active && (
+        <span
+          className="via-gold absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent to-transparent"
+          aria-hidden
+        />
+      )}
       <Icon className="size-4" />
       <span>{label}</span>
       {count != null && count > 0 && (

@@ -5,9 +5,11 @@ import {
   Banknote,
   CalendarClock,
   Check,
+  Clock,
   MessageCircle,
   ShieldAlert,
   User,
+  Users,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -21,6 +23,8 @@ import {
   type ComboboxOption,
   DialCodePicker,
 } from "@/components/ui/combobox";
+import { Modal } from "@/components/ui/modal";
+import { FactCard, ProfileCard } from "@/components/ui/profile-card";
 import {
   ApiError,
   type AvailabilityWindow,
@@ -201,7 +205,7 @@ export function TeacherDetail({
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16">
         <div className="border-primary size-7 animate-spin rounded-full border-2 border-t-transparent" />
-        <p className="text-muted-foreground text-xs">Loading profile…</p>
+        <p className="text-muted-foreground text-xs">{t("detail.loading")}</p>
       </div>
     );
   }
@@ -233,57 +237,52 @@ export function TeacherDetail({
   }
 
   return (
-    <div className="space-y-6" data-testid="teacher-detail">
-      {/* ── Profile hero ────────────────────────────────────────────── */}
+    <div className="space-y-4" data-testid="teacher-detail">
+      {/* ── Profile hero ────────────────────────────────────────────────
+          Only when this component stands alone (the modal path). Inside the workspace the page
+          already carries a hero and a fact strip, so it renders straight into the cards. */}
       {showHero && (
-      <div className="flex items-start gap-4 rounded-2xl border bg-gradient-to-br from-muted/60 to-muted/10 p-5">
-        <Avatar name={teacher.full_name} size="lg" />
-        <div className="min-w-0 flex-1">
-          <h3 className="text-lg font-bold leading-tight">
-            {teacher.full_name}
-          </h3>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {isActive ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                <span className="size-1.5 rounded-full bg-emerald-500" />
-                {t("stat.active")}
+        <div className="grid gap-3 sm:grid-cols-3">
+          <FactCard
+            icon={isActive ? BadgeCheck : ShieldAlert}
+            label={t("filter.status")}
+            tone={isActive ? "emerald" : "slate"}
+            value={isActive ? t("stat.active") : t("stat.inactive")}
+            sub={teacher.specialization ?? undefined}
+          />
+          <FactCard
+            icon={Banknote}
+            label={t("colRate")}
+            tone="violet"
+            value={
+              <span data-testid="teacher-rate">
+                {formatMoney(
+                  {
+                    amount: teacher.session_rate_minor,
+                    currency: teacher.currency,
+                  },
+                  locale,
+                )}
               </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
-                <span className="size-1.5 rounded-full bg-slate-400" />
-                {t("stat.inactive")}
-              </span>
-            )}
-            {teacher.specialization && (
-              <span className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
-                <BadgeCheck className="size-3" />
-                {teacher.specialization}
-              </span>
-            )}
-          </div>
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-              data-testid="teacher-rate"
-            >
-              <Banknote className="size-3.5 shrink-0" aria-hidden />
-              {formatMoney(
-                {
-                  amount: teacher.session_rate_minor,
-                  currency: teacher.currency,
-                },
-                locale,
-              )}
-            </span>
-            {teacher.phone && (
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
-                <MessageCircle className="size-3.5 shrink-0" aria-hidden />
-                {teacher.phone}
-              </span>
-            )}
-          </div>
+            }
+            sub={t("fact.perHour")}
+          />
+          <FactCard
+            icon={MessageCircle}
+            label={t("colWhatsapp")}
+            tone="emerald"
+            muted={!teacher.phone}
+            value={
+              teacher.phone ? (
+                <span dir="ltr" className="tabular-nums">
+                  {teacher.phone}
+                </span>
+              ) : (
+                t("form.none")
+              )
+            }
+          />
         </div>
-      </div>
       )}
 
       {/* ── Alerts ──────────────────────────────────────────────────── */}
@@ -302,132 +301,153 @@ export function TeacherDetail({
         />
       )}
 
-      {/* ── Profile section ──────────────────────────────────────────── */}
-      <section className="space-y-4" data-testid="teacher-profile">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-          {t("detail.profile")}
-        </p>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* ── Identity & pay ─────────────────────────────────────────── */}
+        <ProfileCard
+          icon={User}
+          title={t("detail.profileTitle")}
+          description={t("detail.profileDesc")}
+          tone="emerald"
+          testId="teacher-profile"
+        >
+          <div className="space-y-4">
+            <Field label={t("form.fullName")}>
+              <div className="relative">
+                <User className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                <input
+                  aria-label={t("form.fullName")}
+                  className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                  value={fullName}
+                  disabled={!canEdit}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
+              </div>
+            </Field>
 
-        <Field label={t("form.fullName")}>
-          <div className="relative">
-            <User className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              aria-label={t("form.fullName")}
-              className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-              value={fullName}
-              disabled={!canEdit}
-              onChange={(e) => setFullName(e.target.value)}
-            />
-          </div>
-        </Field>
+            <Field label={t("form.whatsapp")}>
+              <div
+                dir="ltr"
+                className={cn(
+                  "border-input flex h-10 overflow-hidden rounded-xl border transition-all",
+                  "focus-within:border-primary focus-within:ring-primary/20 focus-within:ring-2",
+                  !canEdit && "opacity-50",
+                )}
+              >
+                <DialCodePicker
+                  options={dialOptions}
+                  value={dialCountry}
+                  onChange={setDialCountry}
+                  searchPlaceholder={t("form.dialSearch")}
+                />
+                <input
+                  dir="ltr"
+                  type="tel"
+                  inputMode="numeric"
+                  aria-label={t("form.whatsapp")}
+                  placeholder="1001234567"
+                  value={localNumber}
+                  disabled={!canEdit}
+                  onChange={(e) =>
+                    setLocalNumber(e.target.value.replace(/[^\d]/g, ""))
+                  }
+                  className="placeholder:text-muted-foreground flex-1 bg-transparent px-3 text-sm tabular-nums outline-none"
+                />
+              </div>
+            </Field>
 
-        <Field label={t("form.whatsapp")}>
-          <div
-            dir="ltr"
-            className={cn(
-              "border-input flex h-10 overflow-hidden rounded-xl border transition-all",
-              "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
-              !canEdit && "opacity-50",
-            )}
-          >
-            <DialCodePicker
-              options={dialOptions}
-              value={dialCountry}
-              onChange={setDialCountry}
-              searchPlaceholder={t("form.dialSearch")}
-            />
-            <input
-              dir="ltr"
-              type="tel"
-              inputMode="numeric"
-              aria-label={t("form.whatsapp")}
-              placeholder="1001234567"
-              value={localNumber}
-              disabled={!canEdit}
-              onChange={(e) =>
-                setLocalNumber(e.target.value.replace(/[^\d]/g, ""))
-              }
-              className="flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground tabular-nums"
-            />
-          </div>
-        </Field>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={t("form.specialization")}>
-            <Combobox
-              options={specOptions}
-              value={specialization}
-              onChange={setSpecialization}
-              placeholder={t("form.noSpecialization")}
-              searchPlaceholder={t("form.searchSpecialization")}
-              disabled={!canEdit}
-              data-testid="specialization-select"
-            />
-          </Field>
-
-          <Field label={t("form.rate")}>
-            <div className="relative">
-              <Banknote className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="number"
-                step="0.01"
-                aria-label={t("form.rate")}
-                className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
-                value={rate}
+            <Field label={t("form.specialization")}>
+              <Combobox
+                options={specOptions}
+                value={specialization}
+                onChange={setSpecialization}
+                placeholder={t("form.noSpecialization")}
+                searchPlaceholder={t("form.searchSpecialization")}
                 disabled={!canEdit}
-                onChange={(e) => setRate(e.target.value)}
+                data-testid="specialization-select"
               />
+            </Field>
+
+            {/* The rate and its currency are one decision — they sit on one row so nobody
+                changes 80 → 90 without noticing it is EGP and not USD. */}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={t("form.rate")}>
+                <div className="relative">
+                  <Banknote className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    type="number"
+                    step="0.01"
+                    aria-label={t("form.rate")}
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
+                    value={rate}
+                    disabled={!canEdit}
+                    onChange={(e) => setRate(e.target.value)}
+                  />
+                </div>
+              </Field>
+
+              <Field label={t("form.currency")}>
+                <Combobox
+                  options={currencyOptions}
+                  value={currency}
+                  onChange={setCurrency}
+                  placeholder={t("form.currency")}
+                  searchPlaceholder={t("form.searchCurrency")}
+                  disabled={!canEdit}
+                  data-testid="currency-select"
+                />
+              </Field>
             </div>
-          </Field>
 
-          <Field label={t("form.currency")}>
-            <Combobox
-              options={currencyOptions}
-              value={currency}
-              onChange={setCurrency}
-              placeholder={t("form.currency")}
-              searchPlaceholder={t("form.searchCurrency")}
-              disabled={!canEdit}
-              data-testid="currency-select"
-            />
-          </Field>
-        </div>
-
-        <Field label={t("detail.availability")}>
-          <AvailabilityEditor
-            value={availability}
-            onChange={setAvailability}
-            disabled={!canEdit}
-          />
-        </Field>
-
-        {canEdit && (
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              size="sm"
-              disabled={saving}
-              onClick={() => void save()}
-              data-testid="save-teacher"
-              className="gap-1.5"
-            >
-              {saving ? (
-                <>
-                  <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
-                  {t("form.saving")}
-                </>
-              ) : (
-                <>
-                  <Check className="size-3.5" />
-                  {t("form.save")}
-                </>
-              )}
-            </Button>
+            {canEdit && (
+              <div className="flex justify-end border-t pt-4">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() => void save()}
+                  data-testid="save-teacher"
+                  className="gap-1.5"
+                >
+                  {saving ? (
+                    <>
+                      <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+                      {t("form.saving")}
+                    </>
+                  ) : (
+                    <>
+                      <Check className="size-3.5" />
+                      {t("form.save")}
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
-        )}
-      </section>
+        </ProfileCard>
 
-      {/* ── Account / login section ──────────────────────────────────── */}
+        {/* ── Availability ───────────────────────────────────────────── */}
+        <ProfileCard
+          icon={Clock}
+          title={t("detail.availability")}
+          description={t("detail.availabilityDesc")}
+          tone="gold"
+        >
+          <div className="space-y-4">
+            <AvailabilityEditor
+              value={availability}
+              onChange={setAvailability}
+              disabled={!canEdit}
+            />
+            {canEdit && (
+              <p className="text-muted-foreground/80 border-t pt-3 text-[11px]">
+                {t("detail.availabilitySaveHint")}
+              </p>
+            )}
+          </div>
+        </ProfileCard>
+      </div>
+
+      {/* ── Account / login ──────────────────────────────────────────── */}
       {login && (
         <TeacherLoginSection
           teacherId={teacherId}
@@ -436,32 +456,38 @@ export function TeacherDetail({
         />
       )}
 
-      {/* ── Students section ─────────────────────────────────────────── */}
-      <section className="space-y-3" data-testid="teacher-students">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
-          {t("detail.students")}
-          {students.length > 0 && (
-            <span className="ms-1.5 text-muted-foreground/50">
-              ({students.length})
-            </span>
-          )}
-        </p>
+      {/* ── Students ─────────────────────────────────────────────────── */}
+      <ProfileCard
+        icon={Users}
+        title={t("detail.students")}
+        description={t("detail.studentsDesc")}
+        tone="violet"
+        testId="teacher-students"
+        action={
+          <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums">
+            {students.length}
+          </span>
+        }
+      >
         {students.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            {t("detail.noStudents")}
-          </p>
+          <div className="flex flex-col items-center rounded-xl border border-dashed py-8 text-center">
+            <Users className="text-muted-foreground/30 mb-2 size-8" aria-hidden />
+            <p className="text-muted-foreground text-sm">{t("detail.noStudents")}</p>
+          </div>
         ) : (
-          <ul className="divide-y overflow-hidden rounded-xl border text-sm">
+          <ul className="divide-border/70 divide-y overflow-hidden rounded-xl border text-sm">
             {students.map((s) => (
               <li
                 key={s.id}
-                className="flex items-center gap-3 px-4 py-2.5"
+                className="hover:bg-muted/30 flex items-center gap-3 px-4 py-2.5 transition-colors"
                 data-student={s.id}
               >
                 <Avatar name={s.full_name} />
-                <span className="flex-1 font-medium">{s.full_name}</span>
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {s.full_name}
+                </span>
                 {s.started_at && (
-                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+                  <span className="text-muted-foreground inline-flex items-center gap-1 whitespace-nowrap text-xs tabular-nums">
                     <CalendarClock className="size-3 shrink-0" aria-hidden />
                     {t("detail.since")} {s.started_at.slice(0, 10)}
                   </span>
@@ -470,12 +496,13 @@ export function TeacherDetail({
             ))}
           </ul>
         )}
-      </section>
+      </ProfileCard>
 
       {/* ── Danger zone ──────────────────────────────────────────────── */}
       {can("teacher.deactivate") && isActive && (
         <DangerZone
           teacherId={teacherId}
+          studentCount={students.length}
           onDeactivated={() => {
             onDeactivated?.();
             onBack();
@@ -489,59 +516,70 @@ export function TeacherDetail({
 
 // ── DangerZone ────────────────────────────────────────────────────────────────
 
+/**
+ * Deactivating a teacher is refused by the server while students are still assigned to them —
+ * so the card says so, and disables the button, instead of letting the click fail.
+ */
 function DangerZone({
   teacherId,
+  studentCount,
   onDeactivated,
   onError,
 }: {
   teacherId: string;
+  studentCount: number;
   onDeactivated: () => void;
   onError: (msg: string) => void;
 }) {
   const t = useTranslations("teachers");
   const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const blocked = studentCount > 0;
 
   return (
-    <section className="rounded-2xl border border-destructive/20 bg-destructive/5 p-4">
-      {!confirm ? (
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <ShieldAlert
-              className="mt-0.5 size-4 shrink-0 text-destructive/60"
-              aria-hidden
-            />
-            <div>
-              <p className="text-sm font-semibold text-destructive">
-                {t("detail.deactivate")}
-              </p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
-                {t("detail.deactivateHint")}
-              </p>
-            </div>
-          </div>
-          <Button
-            type="button"
-            variant="destructive"
-            size="xs"
-            onClick={() => setConfirm(true)}
-            data-testid="deactivate-teacher"
-          >
-            {t("detail.deactivate")}
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-sm font-semibold text-destructive">
-            {t("detail.deactivateConfirm")}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {t("detail.deactivateConfirmBody")}
-          </p>
-          <div className="flex gap-2">
+    <ProfileCard
+      icon={ShieldAlert}
+      title={t("detail.deactivate")}
+      description={t("detail.deactivateHint")}
+      tone="danger"
+      className="border-destructive/25"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p
+          className={cn(
+            "min-w-0 text-xs",
+            blocked ? "text-destructive font-medium" : "text-muted-foreground",
+          )}
+        >
+          {blocked
+            ? t("detail.deactivateBlockedCount", { count: studentCount })
+            : t("detail.deactivateSafe")}
+        </p>
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          disabled={blocked}
+          onClick={() => setConfirm(true)}
+          data-testid="deactivate-teacher"
+          className="shrink-0"
+        >
+          {t("detail.deactivate")}
+        </Button>
+      </div>
+
+      <Modal
+        open={confirm}
+        onClose={() => !busy && setConfirm(false)}
+        title={t("detail.deactivateConfirm")}
+        size="sm"
+        footer={
+          <>
             <Button
               type="button"
               variant="outline"
-              size="xs"
+              size="sm"
+              disabled={busy}
               onClick={() => setConfirm(false)}
             >
               {t("detail.deactivateCancel")}
@@ -549,9 +587,11 @@ function DangerZone({
             <Button
               type="button"
               variant="destructive"
-              size="xs"
+              size="sm"
+              disabled={busy}
               data-testid="confirm-deactivate-teacher"
               onClick={async () => {
+                setBusy(true);
                 try {
                   await deactivateTeacher(teacherId);
                   onDeactivated();
@@ -562,14 +602,18 @@ function DangerZone({
                       : String(err),
                   );
                   setConfirm(false);
+                } finally {
+                  setBusy(false);
                 }
               }}
             >
               {t("detail.deactivateYes")}
             </Button>
-          </div>
-        </div>
-      )}
-    </section>
+          </>
+        }
+      >
+        <p className="text-sm">{t("detail.deactivateConfirmBody")}</p>
+      </Modal>
+    </ProfileCard>
   );
 }

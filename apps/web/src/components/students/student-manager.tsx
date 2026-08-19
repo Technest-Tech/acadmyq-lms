@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowUpRight,
   GraduationCap,
   Plus,
   Sparkles,
@@ -11,7 +10,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { EnrollmentWizard } from "@/components/students/enrollment-wizard";
 import { StudentForm } from "@/components/students/student-form";
@@ -20,8 +19,9 @@ import { TeacherStudentSessions } from "@/components/students/teacher-student-se
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { HeroPill, PageHero } from "@/components/ui/page-hero";
+import { SegmentTile } from "@/components/ui/segment-tile";
 import { deactivateStudent, listStudents } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -39,6 +39,23 @@ interface Stats {
   inactive: number;
 }
 
+/**
+ * The roll, cut four ways. Each tile is a SAVED VIEW, not a decoration: the number it shows and
+ * the rows the table lists below it come from the same server filter, so a count can never
+ * disagree with the list it claims to summarise.
+ *
+ * `trials` is `trial_any` rather than a `student_status` value because a trial is two stages —
+ * booked and not yet booked — and an academy thinks of them as one pile.
+ */
+type SegmentKey = "total" | "active" | "trials" | "inactive";
+
+const SEGMENT_FILTERS: Record<SegmentKey, Record<string, string>> = {
+  total: {},
+  active: { status: "active" },
+  trials: { trial_any: "1" },
+  inactive: { status: "inactive" },
+};
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export function StudentManager() {
@@ -47,12 +64,29 @@ export function StudentManager() {
   const { can, session } = useAuth();
   const isTeacher = session?.role === "TEACHER";
 
+  /**
+   * Opening a profile is a real navigation — the segment has to be fetched before anything
+   * renders. Left bare it looked like a dead click, so: mark the row pending (spinner + highlight)
+   * for as long as React is transitioning, and warm the route on hover so most clicks land on an
+   * already-loaded page. The route's own `loading.tsx` takes over the moment the swap happens.
+   */
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [, startNavigation] = useTransition();
+  const prefetched = useRef<Set<string>>(new Set());
+
+  const prefetchStudent = (id: string) => {
+    if (isTeacher || prefetched.current.has(id)) return;
+    prefetched.current.add(id);
+    router.prefetch(`/students/${id}`);
+  };
+
   const openStudent = (id: string, name: string) => {
     if (isTeacher) {
       setModal({ kind: "teacher-sessions", id, name });
-    } else {
-      router.push(`/students/${id}`);
+      return;
     }
+    setPendingId(id);
+    startNavigation(() => router.push(`/students/${id}`));
   };
 
   const [modal, setModal] = useState<ModalState>({ kind: "closed" });
@@ -63,6 +97,16 @@ export function StudentManager() {
     message: string;
   } | null>(null);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [segment, setSegment] = useState<SegmentKey>("total");
+  // Bumped on every tile click — the table applies a preset only when this changes, so the
+  // selects the user touches by hand are never overwritten by a re-render.
+  const [presetToken, setPresetToken] = useState(0);
+
+  /** Clicking the active tile returns to the whole roll — a toggle, not a one-way trip. */
+  function selectSegment(key: SegmentKey) {
+    setSegment((prev) => (prev === key ? "total" : key));
+    setPresetToken((n) => n + 1);
+  }
 
   function refresh() {
     setRefreshToken((n) => n + 1);
@@ -108,77 +152,96 @@ export function StudentManager() {
     }
   }
 
+  const pct = (value: number | null) =>
+    stats && stats.total > 0 && value !== null
+      ? Math.round((value / stats.total) * 100)
+      : null;
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
 
-      {/* ── Page header ───────────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="relative shrink-0">
-            <div className="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30">
-              <GraduationCap className="size-6 text-white" aria-hidden />
-            </div>
-            <span className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-background bg-emerald-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-            <p className="text-muted-foreground mt-0.5 text-sm">
-              {t("subtitle")}
-            </p>
-          </div>
+      <PageHero
+        latticeId="students-hero-lattice"
+        icon={GraduationCap}
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          <>
+            {stats && (
+              <HeroPill>
+                <Users className="size-3.5" aria-hidden />
+                {t("hero.onRoll", { count: stats.total })}
+              </HeroPill>
+            )}
+            {can("student.create") && (
+              <Button
+                type="button"
+                size="lg"
+                onClick={() => setModal({ kind: "new" })}
+                data-testid="new-student"
+                className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
+              >
+                <Plus className="size-4" aria-hidden />
+                {t("new")}
+              </Button>
+            )}
+          </>
+        }
+      />
+
+      {/* ── Segment tiles ───────────────────────────────────────────────────
+          Not a scoreboard — a filter. Each tile narrows the table below it, so the number and the
+          rows can never tell two different stories. */}
+      <div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <SegmentTile
+            testKey="total"
+            icon={Users}
+            label={t("stats.total")}
+            hint={t("stats.totalSub")}
+            value={stats?.total ?? null}
+            share={null}
+            tone="emerald"
+            selected={segment === "total"}
+            onSelect={() => selectSegment("total")}
+          />
+          <SegmentTile
+            testKey="active"
+            icon={UserCheck}
+            label={t("stats.active")}
+            hint={t("stats.activeSub")}
+            value={stats?.active ?? null}
+            share={pct(stats?.active ?? null)}
+            tone="teal"
+            selected={segment === "active"}
+            onSelect={() => selectSegment("active")}
+          />
+          <SegmentTile
+            testKey="trials"
+            icon={Sparkles}
+            label={t("stats.trials")}
+            hint={t("stats.trialsSub")}
+            value={stats?.trials ?? null}
+            share={pct(stats?.trials ?? null)}
+            tone="gold"
+            selected={segment === "trials"}
+            onSelect={() => selectSegment("trials")}
+          />
+          <SegmentTile
+            testKey="inactive"
+            icon={UserX}
+            label={t("stats.inactive")}
+            hint={t("stats.inactiveSub")}
+            value={stats?.inactive ?? null}
+            share={pct(stats?.inactive ?? null)}
+            tone="slate"
+            selected={segment === "inactive"}
+            onSelect={() => selectSegment("inactive")}
+          />
         </div>
-        {can("student.create") && (
-          <Button
-            type="button"
-            size="lg"
-            onClick={() => setModal({ kind: "new" })}
-            data-testid="new-student"
-            className="gap-2 px-4 shadow-md shadow-primary/25"
-          >
-            <Plus className="size-4" aria-hidden />
-            {t("new")}
-          </Button>
-        )}
-      </div>
-
-      {/* ── Stat cards ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard
-          icon={Users}
-          label={t("stats.total")}
-          value={stats?.total ?? null}
-          colorClass="text-primary"
-          bgClass="bg-primary/10"
-          ringClass="ring-primary/20"
-          gradientFrom="from-primary/8"
-        />
-        <StatCard
-          icon={UserCheck}
-          label={t("stats.active")}
-          value={stats?.active ?? null}
-          colorClass="text-emerald-600 dark:text-emerald-400"
-          bgClass="bg-emerald-500/10"
-          ringClass="ring-emerald-500/20"
-          gradientFrom="from-emerald-500/8"
-        />
-        <StatCard
-          icon={Sparkles}
-          label={t("stats.trials")}
-          value={stats?.trials ?? null}
-          colorClass="text-amber-600 dark:text-amber-400"
-          bgClass="bg-amber-500/10"
-          ringClass="ring-amber-500/20"
-          gradientFrom="from-amber-500/8"
-        />
-        <StatCard
-          icon={UserX}
-          label={t("stats.inactive")}
-          value={stats?.inactive ?? null}
-          colorClass="text-slate-500 dark:text-slate-400"
-          bgClass="bg-slate-400/10"
-          ringClass="ring-slate-400/20"
-          gradientFrom="from-slate-400/8"
-        />
+        <p className="text-muted-foreground/80 mt-2 text-[11px]">
+          {t("stats.filterHint")}
+        </p>
       </div>
 
       {/* ── Alert ──────────────────────────────────────────────────────────── */}
@@ -193,6 +256,9 @@ export function StudentManager() {
       {/* ── Content ────────────────────────────────────────────────────────── */}
       <StudentsList
         refreshToken={refreshToken}
+        filterPreset={{ values: SEGMENT_FILTERS[segment], token: presetToken }}
+        pendingRowId={pendingId}
+        onPrefetch={prefetchStudent}
         onNew={() => setModal({ kind: "new" })}
         onOpen={(id, name) => openStudent(id, name)}
         onConfirmEnroll={(id, name, teacherId) =>
@@ -304,78 +370,6 @@ export function StudentManager() {
           </div>
         )}
       </Modal>
-    </div>
-  );
-}
-
-// ── Stat card ──────────────────────────────────────────────────────────────────
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  colorClass,
-  bgClass,
-  ringClass,
-  gradientFrom,
-  onClick,
-  badge,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  value: number | null;
-  colorClass: string;
-  bgClass: string;
-  ringClass: string;
-  gradientFrom: string;
-  onClick?: () => void;
-  badge?: number;
-}) {
-  return (
-    <div
-      onClick={onClick}
-      className={cn(
-        "flex items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm",
-        "bg-gradient-to-r to-transparent",
-        gradientFrom,
-        onClick && "cursor-pointer hover:shadow-md transition-shadow",
-      )}
-    >
-      <div
-        className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-xl ring-1",
-          bgClass,
-          ringClass,
-        )}
-      >
-        <Icon className={cn("size-4", colorClass)} aria-hidden />
-      </div>
-      <div className="min-w-0">
-        {value === null ? (
-          <div className="h-5 w-10 animate-pulse rounded bg-muted" />
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <div className="text-xl font-bold tabular-nums tracking-tight leading-tight">
-              {value.toLocaleString()}
-            </div>
-            {badge != null && badge > 0 && (
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white">
-                {badge > 99 ? "99+" : badge}
-              </span>
-            )}
-          </div>
-        )}
-        <div className="text-muted-foreground truncate text-[11px] font-medium uppercase tracking-wide">
-          {label}
-        </div>
-      </div>
-      <ArrowUpRight
-        className={cn(
-          "ms-auto size-3.5 shrink-0 transition-opacity",
-          onClick ? "text-foreground/20 hover:text-foreground/40" : "text-foreground/[0.1]",
-        )}
-        aria-hidden
-      />
     </div>
   );
 }
