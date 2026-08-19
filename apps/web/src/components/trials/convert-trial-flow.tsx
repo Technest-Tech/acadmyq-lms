@@ -8,9 +8,14 @@ import { AlertBanner } from "@/components/ui/alert";
 import { ApiError, convertTrial, type TrialRow } from "@/lib/api";
 
 /**
- * Turns a completed lead trial into a real student. It reuses the standard student-creation form
- * (prefilled with the lead's name + WhatsApp) so the owner just fills the missing pieces — guardian
- * and the rest — then a second call links the new student back to the trial (status → CONVERTED).
+ * Turns a completed trial into a real student. It reuses the standard student-creation form
+ * (prefilled with the prospect's name + WhatsApp) so the owner just fills the missing pieces —
+ * guardian and the rest — then a second call links the new student back to the trial
+ * (status → CONVERTED). If the trial came from a CRM lead, that lead is subscribed by the same
+ * call, so the pipeline never shows someone as a prospect after they have enrolled.
+ *
+ * The student is saved ENROLLED, not as another trial: the trial they are being converted from
+ * is the one they already sat.
  */
 export function ConvertTrialFlow({
   trial,
@@ -44,7 +49,8 @@ export function ConvertTrialFlow({
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
 
       <StudentForm
-        initialFullName={trial.lead_name ?? undefined}
+        intent="enrolled"
+        initialFullName={trial.display_name ?? trial.lead_name ?? undefined}
         initialPhone={trial.lead_whatsapp}
         onCreated={handleCreated}
         onCancel={onCancel}

@@ -2,49 +2,63 @@
 
 import {
   CalendarClock,
-  CalendarSearch,
   CheckCircle2,
+  ClipboardCheck,
   ListChecks,
   Sparkles,
   TrendingUp,
-  type LucideIcon,
+  UserPlus,
 } from "lucide-react";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { useEffect, useState, type ComponentType } from "react";
-import { BookTrialForm } from "@/components/trials/book-trial-form";
+import { useEffect, useState } from "react";
 import { ConvertTrialFlow } from "@/components/trials/convert-trial-flow";
-import { TrialFinder, type TrialSlot } from "@/components/trials/trial-finder";
 import { TrialOutcomeForm } from "@/components/trials/trial-outcome-form";
 import { TrialsTable } from "@/components/trials/trials-table";
 import { AlertBanner } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import {
-  cancelTrial,
-  getTrialSummary,
-  type TrialAvailabilityTeacher,
-  type TrialRow,
-  type TrialSummary,
-} from "@/lib/api";
+import { HeroPill, PageHero } from "@/components/ui/page-hero";
+import { SegmentTile } from "@/components/ui/segment-tile";
+import { cancelTrial, getTrialSummary, type TrialRow, type TrialSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+/**
+ * The record, cut four ways. Each tile carries the server filter behind its own count, so the
+ * number and the rows below it can never drift apart.
+ *
+ * Two figures are deliberately NOT tiles. "Awaiting outcome" (scheduled, slot already passed)
+ * and the conversion rate have no single server filter that reproduces them — offering either as
+ * a tile would mean a count that the table cannot show. They read out in the hero instead, and
+ * awaiting-outcome wears gold because it is the one number that is actually a work queue.
+ */
+type SegmentKey = "all" | "upcoming" | "completed" | "converted";
+
+const SEGMENT_FILTERS: Record<SegmentKey, Record<string, string>> = {
+  all: {},
+  upcoming: { upcoming: "1" },
+  completed: { status: "COMPLETED" },
+  converted: { status: "CONVERTED" },
+};
 
 type ModalState =
   | { kind: "closed" }
-  | { kind: "book"; teacher: TrialAvailabilityTeacher; slot: TrialSlot }
   | { kind: "outcome"; trial: TrialRow }
   | { kind: "convert"; trial: TrialRow }
   | { kind: "cancel"; trial: TrialRow };
 
-type TabKey = "find" | "pipeline";
-
 /**
- * The Free Trials cockpit: headline stats, the availability finder (find a teacher for a slot →
- * book for an existing student or a new lead), and the scheduled-trials pipeline with outcome,
- * cancel and convert-to-student actions.
+ * The Free Trials overview: every trial the academy has run, what came of it, and the numbers
+ * over them.
+ *
+ * Booking is not here. A trial exists because a lead reached the TRIAL stage of the CRM, so the
+ * teacher-and-slot form lives next to the person it is for — this page is the record and the
+ * scoreboard: who is coming, whose result is still missing, and how many of them subscribe.
+ * Recording an outcome, cancelling and converting all stay here, and each one reports back to
+ * the lead's CRM timeline so the two screens never disagree.
  */
 export function TrialsManager() {
   const t = useTranslations("trials");
-  const [tab, setTab] = useState<TabKey>("find");
   const [modal, setModal] = useState<ModalState>({ kind: "closed" });
   const [refreshToken, setRefreshToken] = useState(0);
   const [summary, setSummary] = useState<TrialSummary | null>(null);
@@ -52,6 +66,14 @@ export function TrialsManager() {
     null,
   );
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [segment, setSegment] = useState<SegmentKey>("all");
+  const [presetToken, setPresetToken] = useState(0);
+
+  /** Pressing the active tile returns to the whole record — a toggle, not a one-way trip. */
+  function selectSegment(key: SegmentKey) {
+    setSegment((prev) => (prev === key ? "all" : key));
+    setPresetToken((n) => n + 1);
+  }
 
   function refresh() {
     setRefreshToken((n) => n + 1);
@@ -82,61 +104,100 @@ export function TrialsManager() {
     }
   }
 
-  return (
-    <div className="space-y-8">
-      {/* ── Page header ───────────────────────────────────────────────── */}
-      <div className="flex items-center gap-4">
-        <div className="relative shrink-0">
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/60 shadow-lg shadow-primary/30">
-            <Sparkles className="size-6 text-white" aria-hidden />
-          </div>
-          <span className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full border-2 border-background bg-amber-400" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t("title")}</h1>
-          <p className="text-muted-foreground mt-0.5 text-sm">{t("subtitle")}</p>
-        </div>
-      </div>
+  const pct = (value: number | null) =>
+    summary && summary.total > 0 && value !== null
+      ? Math.round((value / summary.total) * 100)
+      : null;
 
-      {/* ── Stat cards ────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard
-          icon={CalendarClock}
-          label={t("stats.upcoming")}
-          value={summary?.upcoming ?? null}
-          colorClass="text-blue-600 dark:text-blue-400"
-          bgClass="bg-blue-500/10"
-          ringClass="ring-blue-500/20"
-          gradientFrom="from-blue-500/8"
-        />
-        <StatCard
-          icon={ListChecks}
-          label={t("stats.completed")}
-          value={summary?.completed ?? null}
-          colorClass="text-emerald-600 dark:text-emerald-400"
-          bgClass="bg-emerald-500/10"
-          ringClass="ring-emerald-500/20"
-          gradientFrom="from-emerald-500/8"
-        />
-        <StatCard
-          icon={CheckCircle2}
-          label={t("stats.converted")}
-          value={summary?.converted ?? null}
-          colorClass="text-primary"
-          bgClass="bg-primary/10"
-          ringClass="ring-primary/20"
-          gradientFrom="from-primary/8"
-        />
-        <StatCard
-          icon={TrendingUp}
-          label={t("stats.conversionRate")}
-          value={summary?.conversion_rate ?? null}
-          suffix="%"
-          colorClass="text-amber-600 dark:text-amber-400"
-          bgClass="bg-amber-500/10"
-          ringClass="ring-amber-500/20"
-          gradientFrom="from-amber-500/8"
-        />
+  return (
+    <div className="space-y-5">
+      <PageHero
+        latticeId="trials-hero-lattice"
+        icon={Sparkles}
+        title={t("title")}
+        subtitle={t("subtitle")}
+        actions={
+          <>
+            {summary !== null && summary.awaiting_outcome > 0 && (
+              <span className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm">
+                <ClipboardCheck className="size-3.5" aria-hidden />
+                {t("hero.awaiting", { count: summary.awaiting_outcome })}
+              </span>
+            )}
+            {summary !== null && (
+              <HeroPill>
+                <TrendingUp className="size-3.5" aria-hidden />
+                {t("stats.conversionRate")} {summary.conversion_rate}%
+              </HeroPill>
+            )}
+            {/* Booking lives in the CRM — say where, rather than offering a button that
+                isn't here. */}
+            <Link
+              href="/crm"
+              data-testid="trials-to-crm"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "lg" }),
+                "gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25 hover:text-white",
+              )}
+            >
+              <UserPlus className="size-4" aria-hidden />
+              {t("bookInCrm")}
+            </Link>
+          </>
+        }
+      />
+
+      {/* ── Segment tiles ─────────────────────────────────────────────── */}
+      <div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <SegmentTile
+            testKey="all"
+            icon={ListChecks}
+            label={t("stats.total")}
+            hint={t("stats.totalSub")}
+            value={summary?.total ?? null}
+            share={null}
+            tone="emerald"
+            selected={segment === "all"}
+            onSelect={() => selectSegment("all")}
+          />
+          <SegmentTile
+            testKey="upcoming"
+            icon={CalendarClock}
+            label={t("stats.upcoming")}
+            hint={t("stats.upcomingSub")}
+            value={summary?.upcoming ?? null}
+            share={pct(summary?.upcoming ?? null)}
+            tone="violet"
+            selected={segment === "upcoming"}
+            onSelect={() => selectSegment("upcoming")}
+          />
+          <SegmentTile
+            testKey="completed"
+            icon={ClipboardCheck}
+            label={t("stats.completed")}
+            hint={t("stats.completedSub")}
+            value={summary?.completed ?? null}
+            share={pct(summary?.completed ?? null)}
+            tone="gold"
+            selected={segment === "completed"}
+            onSelect={() => selectSegment("completed")}
+          />
+          <SegmentTile
+            testKey="converted"
+            icon={CheckCircle2}
+            label={t("stats.converted")}
+            hint={t("stats.convertedSub")}
+            value={summary?.converted ?? null}
+            share={pct(summary?.converted ?? null)}
+            tone="teal"
+            selected={segment === "converted"}
+            onSelect={() => selectSegment("converted")}
+          />
+        </div>
+        <p className="text-muted-foreground/80 mt-2 text-[11px]">
+          {t("stats.filterHint")}
+        </p>
       </div>
 
       {alert && (
@@ -147,58 +208,17 @@ export function TrialsManager() {
         />
       )}
 
-      {/* ── Tabs ──────────────────────────────────────────────────────── */}
-      <div role="tablist" className="bg-muted/40 flex gap-1 rounded-2xl border p-1.5">
-        <TabButton
-          tabKey="find"
-          icon={CalendarSearch}
-          label={t("tabs.find")}
-          active={tab === "find"}
-          onClick={() => setTab("find")}
-        />
-        <TabButton
-          tabKey="pipeline"
-          icon={ListChecks}
-          label={t("tabs.pipeline")}
-          active={tab === "pipeline"}
-          onClick={() => setTab("pipeline")}
-          count={summary?.upcoming}
-        />
-      </div>
+      {/* ── Where the outcomes landed ─────────────────────────────────── */}
+      <OutcomeBreakdown summary={summary} />
 
-      {/* ── Tab panels ────────────────────────────────────────────────── */}
-      {tab === "find" ? (
-        <TrialFinder onBook={(teacher, slot) => setModal({ kind: "book", teacher, slot })} />
-      ) : (
-        <TrialsTable
-          refreshToken={refreshToken}
-          onOutcome={(trial) => setModal({ kind: "outcome", trial })}
-          onConvert={(trial) => setModal({ kind: "convert", trial })}
-          onCancel={(trial) => setModal({ kind: "cancel", trial })}
-        />
-      )}
-
-      {/* ── Book modal ────────────────────────────────────────────────── */}
-      <Modal
-        open={modal.kind === "book"}
-        onClose={() => setModal({ kind: "closed" })}
-        title={t("book.title")}
-        description={t("book.description")}
-        size="md"
-      >
-        {modal.kind === "book" && (
-          <BookTrialForm
-            teacher={modal.teacher}
-            slot={modal.slot}
-            onCancel={() => setModal({ kind: "closed" })}
-            onBooked={() => {
-              setModal({ kind: "closed" });
-              refresh();
-              showAlert("success", t("alerts.booked"));
-            }}
-          />
-        )}
-      </Modal>
+      {/* ── The trials themselves ─────────────────────────────────────── */}
+      <TrialsTable
+        refreshToken={refreshToken}
+        filterPreset={{ values: SEGMENT_FILTERS[segment], token: presetToken }}
+        onOutcome={(trial) => setModal({ kind: "outcome", trial })}
+        onConvert={(trial) => setModal({ kind: "convert", trial })}
+        onCancel={(trial) => setModal({ kind: "cancel", trial })}
+      />
 
       {/* ── Outcome modal ─────────────────────────────────────────────── */}
       <Modal
@@ -250,10 +270,10 @@ export function TrialsManager() {
       >
         {modal.kind === "cancel" && (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-muted-foreground text-sm">
               {t.rich("cancelModal.body", {
                 name: modal.trial.display_name ?? "",
-                b: (chunks) => <span className="font-semibold text-foreground">{chunks}</span>,
+                b: (chunks) => <span className="text-foreground font-semibold">{chunks}</span>,
               })}
             </p>
             <div className="flex justify-end gap-2">
@@ -287,97 +307,73 @@ export function TrialsManager() {
   );
 }
 
-// ── Tab button ───────────────────────────────────────────────────────────────
+// ── Outcome breakdown ────────────────────────────────────────────────────────
 
-function TabButton({
-  tabKey,
-  icon: Icon,
-  label,
-  active,
-  onClick,
-  count,
-}: {
-  tabKey: TabKey;
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  count?: number;
-}) {
-  return (
-    <button
-      role="tab"
-      type="button"
-      aria-selected={active}
-      data-testid={`tab-${tabKey}`}
-      onClick={onClick}
-      className={cn(
-        "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors",
-        active ? "bg-card shadow-sm ring-1 ring-black/5" : "text-muted-foreground hover:bg-card/50",
-      )}
-    >
-      <Icon className="size-4" />
-      <span>{label}</span>
-      {count != null && count > 0 && (
-        <span className="bg-primary text-primary-foreground ms-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums">
-          {count}
-        </span>
-      )}
-    </button>
+const BAR_TONE: Record<string, string> = {
+  scheduled: "bg-sky-500",
+  completed: "bg-emerald-500",
+  converted: "bg-primary",
+  no_show: "bg-red-500",
+  cancelled: "bg-slate-400",
+};
+
+/**
+ * Every trial ever booked, split by where it ended up — one bar, because the useful question is
+ * proportional ("how many no-shows are we running?"), not absolute. The footnote says how many
+ * came from the CRM pipeline, which is the honest measure of whether the pipeline is feeding it.
+ */
+function OutcomeBreakdown({ summary }: { summary: TrialSummary | null }) {
+  const t = useTranslations("trials");
+
+  if (summary === null) {
+    return <div className="bg-muted h-24 animate-pulse rounded-2xl" />;
+  }
+  if (summary.total === 0) {
+    return null;
+  }
+
+  const parts = (["scheduled", "completed", "converted", "no_show", "cancelled"] as const).map(
+    (key) => ({ key, value: summary[key] }),
   );
-}
 
-// ── Stat card ────────────────────────────────────────────────────────────────
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  suffix,
-  colorClass,
-  bgClass,
-  ringClass,
-  gradientFrom,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: number | null;
-  suffix?: string;
-  colorClass: string;
-  bgClass: string;
-  ringClass: string;
-  gradientFrom: string;
-}) {
   return (
-    <div
-      className={cn(
-        "flex items-center gap-3 rounded-xl border bg-card px-4 py-3 shadow-sm",
-        "bg-gradient-to-r to-transparent",
-        gradientFrom,
-      )}
-    >
-      <div
-        className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-xl ring-1",
-          bgClass,
-          ringClass,
-        )}
-      >
-        <Icon className={cn("size-4", colorClass)} aria-hidden />
+    <section className="bg-card space-y-3 rounded-2xl border p-4 shadow-sm" data-testid="trials-breakdown">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold">{t("breakdown.title")}</h2>
+        <p className="text-muted-foreground text-xs">
+          {t("breakdown.total", { count: summary.total })}
+          {summary.from_crm > 0 && (
+            <>
+              <span className="mx-1.5 opacity-50">·</span>
+              {t("breakdown.fromCrm", { count: summary.from_crm })}
+            </>
+          )}
+        </p>
       </div>
-      <div className="min-w-0">
-        {value === null ? (
-          <div className="h-5 w-10 animate-pulse rounded bg-muted" />
-        ) : (
-          <div className="text-xl font-bold tabular-nums tracking-tight leading-tight">
-            {value.toLocaleString()}
-            {suffix}
-          </div>
+
+      <div className="bg-muted flex h-2.5 w-full overflow-hidden rounded-full">
+        {parts.map(
+          ({ key, value }) =>
+            value > 0 && (
+              <span
+                key={key}
+                className={cn("h-full", BAR_TONE[key])}
+                style={{ width: `${(value / summary.total) * 100}%` }}
+                title={`${t(`breakdown.${key}`)}: ${value}`}
+              />
+            ),
         )}
-        <div className="text-muted-foreground truncate text-[11px] font-medium uppercase tracking-wide">
-          {label}
-        </div>
       </div>
-    </div>
+
+      <ul className="flex flex-wrap gap-x-5 gap-y-2">
+        {parts.map(({ key, value }) => (
+          <li key={key} className="flex items-center gap-1.5 text-xs">
+            <span className={cn("size-2 rounded-full", BAR_TONE[key])} aria-hidden />
+            <span className="text-muted-foreground">{t(`breakdown.${key}`)}</span>
+            <span className="font-semibold tabular-nums">{value}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

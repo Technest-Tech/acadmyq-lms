@@ -1,13 +1,16 @@
 "use client";
 
-import { MessageCircle, Trash2, UserPlus } from "lucide-react";
+import { CalendarClock, MessageCircle, Trash2, UserPlus, Users } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import {
   FollowUpChip,
+  isClosed,
   SourceBadge,
   StatusBadge,
+  TrialChip,
   waLink,
 } from "@/components/crm/lead-badges";
+import { Octagram } from "@/components/ornaments";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import {
@@ -21,20 +24,26 @@ import { formatLocalDateTime } from "@/lib/time";
 
 /**
  * The list view — the search/filter workhorse next to the board. A status change here goes
- * through the same onMove funnel as a board drag (WON → convert flow, LOST → reason prompt).
+ * through the same onMove funnel as a board drag, so the stages that need details first
+ * (TRIAL → booking form, SUBSCRIBED → student form) behave identically in both views.
  */
 export function LeadsTable({
   refreshToken,
+  filterPreset,
   canManage,
   onOpen,
   onMove,
+  onBookTrial,
   onConvert,
   onDelete,
 }: {
   refreshToken: number;
+  /** Set by the pipeline tiles above the table — see `crm-manager`. */
+  filterPreset?: { values: Record<string, string>; token: number };
   canManage: boolean;
   onOpen: (lead: LeadRow) => void;
   onMove: (lead: LeadRow, status: LeadStatus) => void;
+  onBookTrial: (lead: LeadRow) => void;
   onConvert: (lead: LeadRow) => void;
   onDelete: (lead: LeadRow) => void;
 }) {
@@ -42,12 +51,39 @@ export function LeadsTable({
   const locale = useLocale();
 
   return (
+    <section className="bg-card overflow-hidden rounded-2xl border shadow-sm">
+      {/* ── Panel header ─────────────────────────────────────────────── */}
+      <div className="relative border-b">
+        <div className="from-primary/[0.07] via-primary/[0.025] flex items-center gap-3 bg-gradient-to-r to-transparent px-5 py-4">
+          <div className="bg-primary/10 ring-primary/15 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1">
+            <Users className="text-primary size-5" aria-hidden />
+          </div>
+          <div className="min-w-0">
+            <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight">
+              {t("table.title")}
+              <Octagram className="text-gold/60 size-2 shrink-0" />
+            </h2>
+            <p className="text-muted-foreground mt-0.5 truncate text-xs">
+              {t("table.hint")}
+            </p>
+          </div>
+        </div>
+        <span
+          className="via-gold/45 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
+          aria-hidden
+        />
+      </div>
+
+      <div className="p-4">
     <DataTable<LeadRow>
       testId="crm-leads-table"
       refreshToken={refreshToken}
+      filterPreset={filterPreset}
       fetcher={(q) => listLeads(q)}
       getRowId={(row) => row.id}
       searchable
+      searchPlaceholder={t("table.searchPlaceholder")}
+      showIndex
       defaultSort="-created_at"
       onRowClick={onOpen}
       filters={[
@@ -76,14 +112,19 @@ export function LeadsTable({
           key: "name",
           header: t("table.name"),
           sortKey: "name",
+          headerClassName: "min-w-56",
+          hideOnCard: true,
           render: (row) => (
-            <div className="min-w-0">
-              <span className="font-medium">{row.full_name}</span>
-              {row.interested_in && (
-                <span className="text-muted-foreground block truncate text-xs">
-                  {row.interested_in}
-                </span>
-              )}
+            <div className="flex items-center gap-3">
+              <LeadAvatar name={row.full_name} />
+              <div className="min-w-0">
+                <div className="truncate font-semibold">{row.full_name}</div>
+                {/* What they asked about is what a follow-up call opens with — it belongs
+                    beside the name, not in a column nobody scans. */}
+                <div className="text-muted-foreground mt-0.5 truncate text-xs">
+                  {row.interested_in ?? t("table.noInterest")}
+                </div>
+              </div>
             </div>
           ),
         },
@@ -122,15 +163,20 @@ export function LeadsTable({
           render: (row) => <StatusBadge status={row.status} />,
         },
         {
+          key: "trial",
+          header: t("table.trial"),
+          render: (row) =>
+            row.trial_id === null ? (
+              <span className="text-muted-foreground/40 text-sm">—</span>
+            ) : (
+              <TrialChip lead={row} />
+            ),
+        },
+        {
           key: "followUp",
           header: t("table.followUp"),
           sortKey: "follow_up",
-          render: (row) => (
-            <FollowUpChip
-              date={row.follow_up_at}
-              closed={row.status === "WON" || row.status === "LOST"}
-            />
-          ),
+          render: (row) => <FollowUpChip date={row.follow_up_at} closed={isClosed(row.status)} />,
         },
         {
           key: "created",
@@ -145,7 +191,20 @@ export function LeadsTable({
         canManage
           ? (row) => (
               <div className="flex items-center justify-end gap-1">
-                {row.converted_student_id === null && row.status !== "WON" && (
+                {row.converted_student_id === null && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={() => onBookTrial(row)}
+                    className="gap-1"
+                    data-testid="crm-row-trial"
+                  >
+                    <CalendarClock className="size-3" aria-hidden />
+                    {row.trial_id === null ? t("table.bookTrial") : t("table.rebookTrial")}
+                  </Button>
+                )}
+                {row.converted_student_id === null && (
                   <Button
                     type="button"
                     size="xs"
@@ -187,6 +246,37 @@ export function LeadsTable({
             )
           : undefined
       }
-    />
+      />
+      </div>
+    </section>
+  );
+}
+
+// ── Avatar ─────────────────────────────────────────────────────────────────────
+
+function nameHue(name: string) {
+  return name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360;
+}
+
+/** Stable hue per name — a lead becomes recognisable before its name is read. */
+function LeadAvatar({ name }: { name: string }) {
+  const initials = name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0] ?? "")
+    .join("")
+    .toUpperCase();
+  const hue = nameHue(name);
+  return (
+    <div
+      className="ring-gold/25 flex size-10 shrink-0 items-center justify-center rounded-xl text-[11px] font-bold text-white shadow-sm ring-1"
+      style={{
+        backgroundImage: `linear-gradient(135deg, hsl(${hue} 58% 50%), hsl(${(hue + 32) % 360} 56% 40%))`,
+      }}
+      aria-hidden
+    >
+      {initials}
+    </div>
   );
 }

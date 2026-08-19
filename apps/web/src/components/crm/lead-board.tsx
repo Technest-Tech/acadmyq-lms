@@ -1,12 +1,21 @@
 "use client";
 
-import { ArrowRightLeft, MessageCircle, MoreHorizontal, Trash2, UserPlus } from "lucide-react";
+import {
+  ArrowRightLeft,
+  CalendarClock,
+  MessageCircle,
+  MoreHorizontal,
+  Trash2,
+  UserPlus,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import {
   FollowUpChip,
+  isClosed,
   SourceBadge,
   STATUS_DOT,
+  TrialChip,
   waLink,
 } from "@/components/crm/lead-badges";
 import {
@@ -28,14 +37,16 @@ import { cn } from "@/lib/utils";
 /**
  * The pipeline board. Drag a card onto another column to move it — or, for touch screens and
  * anyone who'd rather not drag, the exact same moves live under each card's ⋯ menu ("Move to…").
- * Both paths funnel through onMove, where the manager intercepts WON (convert flow) and LOST
- * (reason prompt). Cards are ordered by follow-up urgency (server-side): overdue first.
+ * Both paths funnel through onMove, where the manager intercepts the stages that need details
+ * first (TRIAL → the booking form, SUBSCRIBED → the student form) and LOST (reason prompt).
+ * Cards are ordered by follow-up urgency (server-side): overdue first.
  */
 export function LeadBoard({
   refreshToken,
   canManage,
   onOpen,
   onMove,
+  onBookTrial,
   onConvert,
   onDelete,
 }: {
@@ -43,6 +54,7 @@ export function LeadBoard({
   canManage: boolean;
   onOpen: (lead: LeadRow) => void;
   onMove: (lead: LeadRow, status: LeadStatus) => void;
+  onBookTrial: (lead: LeadRow) => void;
   onConvert: (lead: LeadRow) => void;
   onDelete: (lead: LeadRow) => void;
 }) {
@@ -112,19 +124,27 @@ export function LeadBoard({
             onDragLeave={canManage ? () => setDragOver(null) : undefined}
             onDrop={canManage ? (e) => handleDrop(e, status) : undefined}
             className={cn(
-              "bg-muted/30 w-72 shrink-0 snap-start rounded-2xl border p-2.5 transition-shadow",
+              "bg-muted/25 w-72 shrink-0 snap-start overflow-hidden rounded-2xl border transition-all",
               dragOver === status && "ring-primary/40 bg-primary/5 ring-2",
             )}
           >
-            <header className="flex items-center gap-2 px-1.5 pb-2.5 pt-1">
+            {/* Each stage gets a real header — dot, name, count — closed by the frame's gold
+                hairline, so a column reads as a panel rather than a grey rectangle. */}
+            <header className="bg-card/60 relative flex items-center gap-2 border-b px-3 py-2.5">
               <span className={cn("size-2 rounded-full", STATUS_DOT[status])} aria-hidden />
-              <h3 className="text-sm font-semibold">{t(`status.${status}`)}</h3>
-              <span className="text-muted-foreground ms-auto text-xs font-medium tabular-nums">
+              <h3 className="min-w-0 truncate text-sm font-bold tracking-tight">
+                {t(`status.${status}`)}
+              </h3>
+              <span className="bg-muted text-muted-foreground ms-auto rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums">
                 {count}
               </span>
+              <span
+                className="via-gold/40 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
+                aria-hidden
+              />
             </header>
 
-            <div className="space-y-2">
+            <div className="space-y-2 p-2.5">
               {board === null ? (
                 <>
                   <div className="bg-card h-20 animate-pulse rounded-xl border" />
@@ -143,6 +163,7 @@ export function LeadBoard({
                     canManage={canManage}
                     onOpen={onOpen}
                     onMove={onMove}
+                    onBookTrial={onBookTrial}
                     onConvert={onConvert}
                     onDelete={onDelete}
                   />
@@ -164,6 +185,7 @@ function LeadCard({
   canManage,
   onOpen,
   onMove,
+  onBookTrial,
   onConvert,
   onDelete,
 }: {
@@ -172,12 +194,13 @@ function LeadCard({
   canManage: boolean;
   onOpen: (lead: LeadRow) => void;
   onMove: (lead: LeadRow, status: LeadStatus) => void;
+  onBookTrial: (lead: LeadRow) => void;
   onConvert: (lead: LeadRow) => void;
   onDelete: (lead: LeadRow) => void;
 }) {
   const t = useTranslations("crm");
   const wa = waLink(lead.whatsapp_phone);
-  const closed = lead.status === "WON" || lead.status === "LOST";
+  const closed = isClosed(lead.status);
   const converted = lead.converted_student_id !== null;
 
   return (
@@ -234,6 +257,12 @@ function LeadCard({
               </DropdownMenuItem>
             )}
             {canManage && !converted && (
+              <DropdownMenuItem onClick={() => onBookTrial(lead)}>
+                <CalendarClock aria-hidden />
+                {lead.trial_id === null ? t("board.bookTrial") : t("board.rebookTrial")}
+              </DropdownMenuItem>
+            )}
+            {canManage && !converted && (
               <DropdownMenuItem onClick={() => onConvert(lead)}>
                 <UserPlus aria-hidden />
                 {t("board.convert")}
@@ -251,6 +280,7 @@ function LeadCard({
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <SourceBadge source={lead.source} />
+        <TrialChip lead={lead} />
         <FollowUpChip date={lead.follow_up_at} today={today} closed={closed} />
         {converted && (
           <span className="bg-primary/10 text-primary ring-primary/20 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1">

@@ -15,8 +15,10 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import {
   FollowUpChip,
+  isClosed,
   SourceBadge,
   STATUS_TONE,
+  TrialChip,
   waLink,
 } from "@/components/crm/lead-badges";
 import { AlertBanner } from "@/components/ui/alert";
@@ -35,10 +37,10 @@ import { formatLocalDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
- * One lead, fully readable in one glance: contact + source header, the clickable status
- * stepper (WON/LOST route through the manager's convert/lost flows), the follow-up date
- * editor, and the activity timeline with an add-note box on top. A converted lead is locked —
- * only notes stay open, mirroring the server rule.
+ * One lead, fully readable in one glance: contact + source header, the booked trial, the
+ * clickable status stepper (TRIAL/SUBSCRIBED/LOST route through the manager's forms), the
+ * follow-up date editor, and the activity timeline with an add-note box on top. A converted
+ * lead is locked — only notes stay open, mirroring the server rule.
  */
 export function LeadDetail({
   leadId,
@@ -46,6 +48,7 @@ export function LeadDetail({
   refreshToken,
   onChanged,
   onMove,
+  onBookTrial,
 }: {
   leadId: string;
   canManage: boolean;
@@ -53,6 +56,7 @@ export function LeadDetail({
   refreshToken: number;
   onChanged: () => void;
   onMove: (lead: LeadRow, status: LeadStatus) => void;
+  onBookTrial: (lead: LeadRow) => void;
 }) {
   const t = useTranslations("crm");
   const locale = useLocale();
@@ -128,7 +132,7 @@ export function LeadDetail({
 
   const wa = waLink(lead.whatsapp_phone);
   const converted = lead.converted_student_id !== null;
-  const closed = lead.status === "WON" || lead.status === "LOST";
+  const closed = isClosed(lead.status);
   const editable = canManage && !converted;
 
   return (
@@ -177,6 +181,38 @@ export function LeadDetail({
               b: (chunks) => <span className="text-foreground font-semibold">{chunks}</span>,
             })}
           </p>
+        </div>
+      )}
+
+      {/* ── The booked trial ───────────────────────────────────────────── */}
+      {(lead.trial_id !== null || editable) && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3">
+          <div className="min-w-0 flex-1 space-y-1">
+            <span className="text-sm font-medium">{t("detail.trial")}</span>
+            {lead.trial_id === null ? (
+              <p className="text-muted-foreground text-xs">{t("detail.noTrial")}</p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <TrialChip lead={lead} />
+                {lead.trial_notes && (
+                  <span className="text-muted-foreground text-xs">· {lead.trial_notes}</span>
+                )}
+              </div>
+            )}
+          </div>
+          {editable && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onBookTrial(lead)}
+              className="shrink-0 gap-1.5"
+              data-testid="crm-detail-book-trial"
+            >
+              <CalendarClock className="size-3.5" aria-hidden />
+              {lead.trial_id === null ? t("detail.bookTrial") : t("detail.rebookTrial")}
+            </Button>
+          )}
         </div>
       )}
 
@@ -296,6 +332,10 @@ function ActivityItem({ activity, locale }: { activity: LeadActivity; locale: st
     to?: string;
     lost_reason?: string | null;
     follow_up_at?: string | null;
+    teacher_name?: string | null;
+    scheduled_at_utc?: string | null;
+    rescheduled?: boolean;
+    status?: string | null;
   };
 
   const icon =
@@ -305,6 +345,8 @@ function ActivityItem({ activity, locale }: { activity: LeadActivity; locale: st
       <ArrowRightLeft className="size-3.5" aria-hidden />
     ) : activity.type === "FOLLOW_UP_SET" ? (
       <CalendarClock className="size-3.5" aria-hidden />
+    ) : activity.type === "TRIAL_BOOKED" || activity.type === "TRIAL_OUTCOME" ? (
+      <Sparkles className="size-3.5" aria-hidden />
     ) : activity.type === "CONVERTED" ? (
       <CheckCircle2 className="size-3.5" aria-hidden />
     ) : (
@@ -325,9 +367,20 @@ function ActivityItem({ activity, locale }: { activity: LeadActivity; locale: st
           ? meta.follow_up_at
             ? t("timeline.followUpSet", { date: meta.follow_up_at })
             : t("timeline.followUpCleared")
-          : activity.type === "CONVERTED"
-            ? t("timeline.converted")
-            : t("timeline.created");
+          : activity.type === "TRIAL_BOOKED"
+            ? t(meta.rescheduled ? "timeline.trialMoved" : "timeline.trialBooked", {
+                when: meta.scheduled_at_utc
+                  ? formatLocalDateTime(meta.scheduled_at_utc, locale)
+                  : "—",
+                teacher: meta.teacher_name ?? "—",
+              }) + (activity.body ? ` — ${activity.body}` : "")
+            : activity.type === "TRIAL_OUTCOME"
+              ? t("timeline.trialOutcome", {
+                  status: meta.status ? t(`trialStatus.${meta.status}` as never) : "—",
+                }) + (activity.body ? ` — ${activity.body}` : "")
+              : activity.type === "CONVERTED"
+                ? t("timeline.converted")
+                : t("timeline.created");
 
   return (
     <li className="flex items-start gap-3">
@@ -338,7 +391,9 @@ function ActivityItem({ activity, locale }: { activity: LeadActivity; locale: st
             ? "bg-muted text-muted-foreground ring-border"
             : activity.type === "CONVERTED"
               ? "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-400"
-              : "bg-primary/10 text-primary ring-primary/20",
+              : activity.type === "TRIAL_BOOKED" || activity.type === "TRIAL_OUTCOME"
+                ? "bg-sky-500/10 text-sky-600 ring-sky-500/20 dark:text-sky-400"
+                : "bg-primary/10 text-primary ring-primary/20",
         )}
       >
         {icon}

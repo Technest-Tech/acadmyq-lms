@@ -8,27 +8,31 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Support\Audit;
 use App\Support\DataTable;
-use App\Support\Phone;
-use App\Support\TimeHelper;
+use App\Support\LeadTimeline;
+use App\Support\TrialBooking;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Free Trials (Free-Trials module). The owner finds an available teacher for a requested slot,
- * books a one-off trial — for an existing student OR a freshly-captured lead — tracks the
- * pipeline of scheduled/past trials, and converts a successful lead into a real student.
+ * Free Trials (Free-Trials module) — the READ side of the taster lesson: every trial the academy
+ * has run, what came of it, and the numbers that say whether trials are working.
  *
- * Two capabilities gate this surface: `trial.read` (list, stats, availability search) and
- * `trial.manage` (book, update outcome, cancel, convert). Both are OWNER-only; RLS scopes every
- * query to the current academy. The availability matcher is CONFLICT-AWARE — it cross-checks the
- * teacher's declared `availability` windows AND any overlapping session/trial already on the
- * books — but, consistent with §3.7, conflicts are surfaced as flags, never a hard block.
+ * Booking now belongs to the CRM: a trial exists because a lead reached the TRIAL stage, so the
+ * teacher-and-slot form lives next to the person it is for (POST /crm/leads/{id}/trial), and this
+ * surface is where you watch the pipeline, record outcomes, cancel, and convert. POST /api/trials
+ * remains as the module's own booking endpoint for a trial that has no lead behind it.
+ *
+ * Two capabilities gate it: `trial.read` (list, stats) and `trial.manage` (book, record outcome,
+ * cancel, convert). Both are OWNER-only; RLS scopes every query to the current academy.
+ *
+ * Every write here flows back to the CRM when the trial came from a lead: an outcome, a
+ * cancellation and a conversion all land on that lead's timeline, and converting moves the lead
+ * to SUBSCRIBED — so the two screens can never disagree about what happened to a person.
  */
 final class TrialController extends Controller
 {
@@ -37,7 +41,7 @@ final class TrialController extends Controller
     /** Outcomes an owner may set directly; CONVERTED is reached only through convert(). */
     private const EDITABLE_STATUSES = ['SCHEDULED', 'COMPLETED', 'NO_SHOW', 'CANCELLED'];
 
-    /** GET /api/trials — server-driven pipeline of trials joined to teacher + (optional) student. */
+    /** GET /api/trials — server-driven pipeline of trials joined to teacher, student and lead. */
     public function index(Request $request): JsonResponse
     {
         Gate::authorize('trial.read');
@@ -45,13 +49,17 @@ final class TrialController extends Controller
         $query = DB::table('trials as tr')
             ->leftJoin('teachers as t', 't.id', '=', 'tr.teacher_id')
             ->leftJoin('students as s', 's.id', '=', 'tr.student_id')
+            ->leftJoin('crm_leads as cl', 'cl.id', '=', 'tr.lead_id')
             ->whereNull('tr.deleted_at')
             ->select([
-                'tr.id', 'tr.teacher_id', 'tr.student_id', 'tr.lead_name', 'tr.lead_whatsapp',
-                'tr.lead_email', 'tr.timezone', 'tr.scheduled_at_utc', 'tr.duration_minutes',
-                'tr.status', 'tr.outcome_notes', 'tr.converted_student_id', 'tr.created_at',
+                'tr.id', 'tr.teacher_id', 'tr.student_id', 'tr.lead_id', 'tr.lead_name',
+                'tr.lead_whatsapp', 'tr.lead_email', 'tr.timezone', 'tr.scheduled_at_utc',
+                'tr.duration_minutes', 'tr.status', 'tr.outcome_notes',
+                'tr.converted_student_id', 'tr.created_at',
                 't.full_name as teacher_name',
                 's.full_name as student_name',
+                'cl.full_name as crm_lead_name',
+                'cl.source as crm_source',
             ]);
 
         $result = DataTable::paginate($query, $request, [
@@ -65,6 +73,13 @@ final class TrialController extends Controller
             'filters' => [
                 'status' => fn ($q, $value) => $q->where('tr.status', strtoupper((string) $value)),
                 'teacher_id' => fn ($q, $value) => $q->where('tr.teacher_id', (string) $value),
+                // Where the trial came from: the CRM pipeline, or booked directly here.
+                'origin' => fn ($q, $value) => strtolower((string) $value) === 'crm'
+                    ? $q->whereNotNull('tr.lead_id')
+                    : $q->whereNull('tr.lead_id'),
+                'upcoming' => fn ($q, $value) => (string) $value === '1'
+                    ? $q->where('tr.status', 'SCHEDULED')->where('tr.scheduled_at_utc', '>=', now()->format('Y-m-d H:i:sP'))
+                    : null,
             ],
             'defaultSort' => '-scheduled',
         ]);
@@ -73,8 +88,9 @@ final class TrialController extends Controller
             $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
             $r->created_at = Carbon::parse($r->created_at)->utc()->toIso8601String();
             $r->duration_minutes = (int) $r->duration_minutes;
-            $r->display_name = $r->student_name ?? $r->lead_name;
+            $r->display_name = $r->student_name ?? $r->crm_lead_name ?? $r->lead_name;
             $r->is_lead = $r->student_id === null;
+            $r->from_crm = $r->lead_id !== null;
 
             return $r;
         });
@@ -110,208 +126,48 @@ final class TrialController extends Controller
             ->where('scheduled_at_utc', '>=', now()->format('Y-m-d H:i:sP'))
             ->count();
 
+        // "Today" is the academy's day, not the server's — an academy in Cairo reading this at
+        // 01:00 UTC is still looking at yesterday's trials otherwise.
+        $timezone = $this->academyTimezone($this->currentAcademyId());
+        $dayStart = Carbon::now($timezone)->startOfDay();
+        $today = (int) $base()
+            ->whereIn('status', ['SCHEDULED', 'COMPLETED', 'NO_SHOW'])
+            ->whereBetween('scheduled_at_utc', [
+                $dayStart->copy()->utc()->format('Y-m-d H:i:sP'),
+                $dayStart->copy()->addDay()->utc()->format('Y-m-d H:i:sP'),
+            ])
+            ->count();
+
+        // A trial that missed its slot and was never resolved — the queue of "what happened?"
+        // work this page exists to surface.
+        $awaitingOutcome = (int) $base()
+            ->where('status', 'SCHEDULED')
+            ->where('scheduled_at_utc', '<', now()->format('Y-m-d H:i:sP'))
+            ->count();
+
+        $fromCrm = (int) $base()->whereNotNull('lead_id')->count();
+
         return response()->json([
             'total' => $scheduled + $completed + $noShow + $cancelled + $converted,
             'scheduled' => $scheduled,
             'upcoming' => $upcoming,
+            'today' => $today,
+            'awaiting_outcome' => $awaitingOutcome,
             'completed' => $completed,
             'no_show' => $noShow,
             'cancelled' => $cancelled,
             'converted' => $converted,
+            'from_crm' => $fromCrm,
             'conversion_rate' => $conversionRate,
         ]);
     }
 
     /**
-     * GET /api/trials/availability — the matcher. For a requested local date + time + duration,
-     * return the teachers who can take it: their declared availability covers the slot (or they
-     * have declared none, surfaced as "availability not set"), each annotated with whether they
-     * already have an overlapping session/trial. Teachers whose declared windows clearly do NOT
-     * cover the slot are excluded — this is a "who's free at Monday 9pm?" answer.
+     * POST /api/trials — book a trial for an existing student OR a prospect captured inline.
+     * The CRM's own booking path (POST /crm/leads/{id}/trial) writes through the same
+     * {@see TrialBooking} so both produce identical rows; this one exists for a trial with no
+     * lead behind it — an existing student trying a second teacher, say.
      */
-    public function availability(Request $request): JsonResponse
-    {
-        Gate::authorize('trial.read');
-
-        $data = $request->validate([
-            'date' => ['required', 'date'],
-            'time' => ['required', 'regex:/^\d{2}:\d{2}$/'],
-            'duration_minutes' => ['required', 'integer', 'min:1', 'max:600'],
-            'timezone' => ['sometimes', 'nullable', 'string', 'timezone'],
-            'specialization' => ['sometimes', 'nullable', 'string', 'max:255'],
-        ]);
-
-        $academyId = $this->currentAcademyId();
-        $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
-        $duration = (int) $data['duration_minutes'];
-
-        $startUtc = TimeHelper::toUtc($data['date'].' '.$data['time'], $timezone);
-        $local = $startUtc->copy()->setTimezone($timezone);
-        $weekday = $local->dayOfWeek;            // 0=Sun … 6=Sat
-        $startMin = $local->hour * 60 + $local->minute;
-        $endMin = $startMin + $duration;
-
-        $teachers = DB::table('teachers')
-            ->whereNull('deleted_at')
-            ->when(! empty($data['specialization']), fn ($q) => $q->where('specialization', $data['specialization']))
-            ->orderBy('full_name')
-            ->get(['id', 'full_name', 'specialization', 'session_rate_minor', 'currency', 'availability']);
-
-        $matches = [];
-        foreach ($teachers as $teacher) {
-            $raw = $teacher->availability;
-            $windows = is_string($raw) ? (json_decode($raw, true) ?: []) : (array) ($raw ?? []);
-            $known = $windows !== [];
-            $covers = $known && $this->availabilityCovers($windows, $weekday, $startMin, $endMin);
-
-            // Keep teachers who fit, plus those who simply haven't declared availability yet
-            // (empty = "unspecified", not "never available", §3.7). Drop the definitively-busy.
-            if ($known && ! $covers) {
-                continue;
-            }
-
-            $conflict = $this->teacherConflicts((string) $teacher->id, $startUtc, $duration) !== []
-                || $this->trialConflicts((string) $teacher->id, $startUtc, $duration) !== [];
-
-            $matches[] = [
-                'id' => (string) $teacher->id,
-                'full_name' => $teacher->full_name,
-                'specialization' => $teacher->specialization,
-                'session_rate_minor' => (int) $teacher->session_rate_minor,
-                'currency' => $teacher->currency,
-                'availability_known' => $known,
-                'available' => $covers,
-                'has_conflict' => $conflict,
-            ];
-        }
-
-        // Best first: declared-available & free → declared-available & conflicting → unspecified.
-        usort($matches, function (array $a, array $b): int {
-            $rank = fn (array $m): int => match (true) {
-                $m['available'] && ! $m['has_conflict'] => 0,
-                $m['available'] => 1,
-                default => 2,
-            };
-
-            return [$rank($a), $a['full_name']] <=> [$rank($b), $b['full_name']];
-        });
-
-        return response()->json([
-            'slot' => [
-                'scheduled_at_utc' => $startUtc->toIso8601String(),
-                'timezone' => $timezone,
-                'weekday' => $weekday,
-                'duration_minutes' => $duration,
-            ],
-            'teachers' => $matches,
-        ]);
-    }
-
-    /**
-     * GET /api/trials/availability-grid — a whole week of bookable slots for the calendar finder.
-     * For the 7 days from `week_start`, returns the candidate start times (rows) and, per day×time
-     * cell, the teachers whose declared availability covers that slot — each flagged for whether
-     * they already have an overlapping session/trial. Bookings are loaded once for the week and
-     * overlaps computed in memory, so the grid is a couple of queries, not one-per-cell.
-     */
-    public function availabilityGrid(Request $request): JsonResponse
-    {
-        Gate::authorize('trial.read');
-
-        $data = $request->validate([
-            'week_start' => ['required', 'date'],
-            'duration_minutes' => ['required', 'integer', 'min:1', 'max:600'],
-            'timezone' => ['sometimes', 'nullable', 'string', 'timezone'],
-            'specialization' => ['sometimes', 'nullable', 'string', 'max:255'],
-        ]);
-
-        $academyId = $this->currentAcademyId();
-        $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
-        $duration = (int) $data['duration_minutes'];
-        $step = 30; // calendar granularity, in minutes
-
-        // The 7 local dates of the week (week_start is day 0).
-        $start = Carbon::parse($data['week_start'])->startOfDay();
-        $days = [];
-        for ($i = 0; $i < 7; $i++) {
-            $d = $start->copy()->addDays($i);
-            $days[] = ['date' => $d->format('Y-m-d'), 'weekday' => (int) $d->dayOfWeek];
-        }
-
-        $teachers = DB::table('teachers')
-            ->whereNull('deleted_at')
-            ->when(! empty($data['specialization']), fn ($q) => $q->where('specialization', $data['specialization']))
-            ->orderBy('full_name')
-            ->get(['id', 'full_name', 'specialization', 'session_rate_minor', 'currency', 'availability']);
-
-        // Decode each teacher's windows once and collect the distinct candidate start times.
-        $windowsByTeacher = [];
-        $rowMinutes = [];
-        foreach ($teachers as $teacher) {
-            $raw = $teacher->availability;
-            $windows = is_string($raw) ? (json_decode($raw, true) ?: []) : (array) ($raw ?? []);
-            $windowsByTeacher[(string) $teacher->id] = $windows;
-            foreach ($windows as $w) {
-                $ws = $this->hhmmToMinutes((string) ($w['start_local'] ?? '00:00'));
-                $we = $this->hhmmToMinutes((string) ($w['end_local'] ?? '24:00'));
-                if ($we === 0) {
-                    $we = 1440;
-                }
-                $end = $we > $ws ? $we : $we + 1440; // unwrap a midnight-crossing window
-                for ($t = $ws; $t + $duration <= $end; $t += $step) {
-                    $rowMinutes[$t % 1440] = true;
-                }
-            }
-        }
-        ksort($rowMinutes);
-        $times = array_map(fn (int $m) => sprintf('%02d:%02d', intdiv($m, 60), $m % 60), array_keys($rowMinutes));
-
-        // Load the week's bookings (sessions + scheduled trials) once, grouped by teacher.
-        $weekFrom = TimeHelper::toUtc($days[0]['date'].' 00:00', $timezone);
-        $weekTo = TimeHelper::toUtc($start->copy()->addDays(7)->format('Y-m-d').' 00:00', $timezone);
-        $busy = $this->teacherBusyIntervals($windowsByTeacher === [] ? [] : array_keys($windowsByTeacher), $weekFrom, $weekTo);
-
-        $cells = [];
-        foreach ($days as $day) {
-            foreach ($times as $time) {
-                $startMin = $this->hhmmToMinutes($time);
-                $endMin = $startMin + $duration;
-                $slotUtc = null; // computed lazily on first covering teacher
-                $here = [];
-                foreach ($teachers as $teacher) {
-                    $tid = (string) $teacher->id;
-                    if (! $this->availabilityCovers($windowsByTeacher[$tid], $day['weekday'], $startMin, $endMin)) {
-                        continue;
-                    }
-                    $slotUtc ??= TimeHelper::toUtc($day['date'].' '.$time, $timezone);
-                    $here[] = [
-                        'id' => $tid,
-                        'full_name' => $teacher->full_name,
-                        'specialization' => $teacher->specialization,
-                        'session_rate_minor' => (int) $teacher->session_rate_minor,
-                        'currency' => $teacher->currency,
-                        'availability_known' => true,
-                        'available' => true,
-                        'has_conflict' => $this->overlapsBusy($busy[$tid] ?? [], $slotUtc, $duration),
-                    ];
-                }
-                if ($here !== []) {
-                    $cells[$day['date'].'T'.$time] = $here;
-                }
-            }
-        }
-
-        return response()->json([
-            'week_start' => $days[0]['date'],
-            'timezone' => $timezone,
-            'duration_minutes' => $duration,
-            'times' => $times,
-            'days' => $days,
-            'cells' => $cells,
-        ]);
-    }
-
-    /** POST /api/trials — book a trial for an existing student OR a freshly-captured lead. */
     public function store(Request $request): JsonResponse
     {
         Gate::authorize('trial.manage');
@@ -330,57 +186,24 @@ final class TrialController extends Controller
             'outcome_notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ]);
 
-        $this->assertActiveTeacher($data['teacher_id']);
-
-        // Identity: an existing student, or a lead with at least a name + WhatsApp number.
-        $studentId = $data['student_id'] ?? null;
-        if ($studentId !== null) {
-            if (DB::table('students')->where('id', $studentId)->whereNull('deleted_at')->doesntExist()) {
-                throw ValidationException::withMessages(['student_id' => ['Unknown or inactive student.']]);
-            }
-            $leadName = $leadWhatsapp = $leadEmail = null;
-        } else {
-            $leadName = trim((string) ($data['lead_name'] ?? ''));
-            $leadWhatsapp = Phone::normalize($data['lead_whatsapp'] ?? null, 'lead_whatsapp');
-            $leadEmail = $data['lead_email'] ?? null;
-            if ($leadName === '' || $leadWhatsapp === null) {
-                throw ValidationException::withMessages([
-                    'lead_name' => ['Pick an existing student, or give the new lead a name and WhatsApp number.'],
-                ]);
-            }
-        }
-
         $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
         $startUtc = $this->resolveInstant($data, $timezone);
         $duration = (int) $data['duration_minutes'];
 
-        $trialId = (string) Str::uuid();
-        DB::table('trials')->insert([
-            'id' => $trialId,
-            'academy_id' => $academyId,
+        $trialId = TrialBooking::book($academyId, [
             'teacher_id' => $data['teacher_id'],
-            'student_id' => $studentId,
-            'lead_name' => $leadName,
-            'lead_whatsapp' => $leadWhatsapp,
-            'lead_email' => $leadEmail,
+            'student_id' => $data['student_id'] ?? null,
+            'lead_name' => $data['lead_name'] ?? null,
+            'lead_whatsapp' => $data['lead_whatsapp'] ?? null,
+            'lead_email' => $data['lead_email'] ?? null,
             'timezone' => $timezone,
-            'scheduled_at_utc' => $startUtc->format('Y-m-d H:i:sP'),
             'duration_minutes' => $duration,
-            'status' => 'SCHEDULED',
             'outcome_notes' => $data['outcome_notes'] ?? null,
-        ]);
-
-        Audit::log('trial.create', 'trial', $trialId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
-            'teacher_id' => $data['teacher_id'],
-            'student_id' => $studentId,
-            'lead' => $studentId === null ? $leadName : null,
-            'scheduled_at_utc' => $startUtc->toIso8601String(),
-            'duration_minutes' => $duration,
-        ]);
+        ], $startUtc, $this->ctx()->userId, $this->ctx()->role);
 
         return response()->json([
             'trialId' => $trialId,
-            'warnings' => $this->schedulingWarnings((string) $data['teacher_id'], $startUtc, $duration, $timezone),
+            'warnings' => $this->schedulingWarnings((string) $data['teacher_id'], $startUtc, $duration, $timezone, excludeTrialId: $trialId),
         ], 201);
     }
 
@@ -438,6 +261,22 @@ final class TrialController extends Controller
         DB::table('trials')->where('id', $id)->update($after + ['updated_at' => now()]);
         Audit::log('trial.update', 'trial', $id, $academyId, $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
 
+        // The lead this trial came from must hear about it — the CRM board is where someone
+        // decides what to do next, and "she came and loved it" is that decision's whole input.
+        if (isset($after['status'])) {
+            $this->noteOnLead($trial, LeadTimeline::TRIAL_OUTCOME, [
+                'trial_id' => $id,
+                'status' => (string) $after['status'],
+            ], $after['outcome_notes'] ?? $trial->outcome_notes);
+        } elseif (isset($after['scheduled_at_utc'])) {
+            $this->noteOnLead($trial, LeadTimeline::TRIAL_BOOKED, [
+                'trial_id' => $id,
+                'rescheduled' => true,
+                'scheduled_at_utc' => Carbon::parse($after['scheduled_at_utc'])->utc()->toIso8601String(),
+                'duration_minutes' => (int) ($after['duration_minutes'] ?? $trial->duration_minutes),
+            ]);
+        }
+
         return response()->json(['ok' => true, 'changed' => array_keys($after)]);
     }
 
@@ -446,6 +285,10 @@ final class TrialController extends Controller
      * The student is created first via the normal student-creation flow (POST /students), so this
      * endpoint only records the linkage: stamp `converted_student_id`, adopt `student_id`, and move
      * the trial to CONVERTED. Idempotency: a trial that is already CONVERTED is rejected.
+     *
+     * A trial that came from a lead carries that lead across with it: the lead is linked to the
+     * same student and lands on SUBSCRIBED, because converting the trial and subscribing the lead
+     * are the same event seen from two screens.
      */
     public function convert(Request $request, string $id): JsonResponse
     {
@@ -477,6 +320,24 @@ final class TrialController extends Controller
             after: ['converted_student_id' => $data['student_id'], 'status' => 'CONVERTED'],
             before: ['status' => $trial->status]);
 
+        if ($trial->lead_id !== null) {
+            $subscribed = DB::table('crm_leads')
+                ->where('id', $trial->lead_id)
+                ->whereNull('deleted_at')
+                ->whereNull('converted_student_id')
+                ->update([
+                    'converted_student_id' => $data['student_id'],
+                    'status' => 'SUBSCRIBED',
+                    'lost_reason' => null,
+                    'updated_at' => now(),
+                ]);
+            if ($subscribed > 0) {
+                LeadTimeline::log($academyId, (string) $trial->lead_id, LeadTimeline::CONVERTED,
+                    meta: ['student_id' => $data['student_id'], 'trial_id' => $id],
+                    userId: $this->ctx()->userId);
+            }
+        }
+
         return response()->json(['ok' => true, 'studentId' => $data['student_id']]);
     }
 
@@ -498,155 +359,35 @@ final class TrialController extends Controller
         Audit::log('trial.cancel', 'trial', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
             after: ['status' => 'CANCELLED'], before: ['status' => $trial->status]);
 
+        $this->noteOnLead($trial, LeadTimeline::TRIAL_OUTCOME, [
+            'trial_id' => $id,
+            'status' => 'CANCELLED',
+        ]);
+
         return response()->json(['ok' => true]);
     }
 
     // ── internals ────────────────────────────────────────────────────────────
 
     /**
-     * True when the slot [startMin, endMin) on $weekday fits ENTIRELY inside one declared
-     * availability window. Windows are {weekday, start_local, end_local} in local wall-clock;
-     * a window whose end ≤ start crosses midnight (the tail lands on the next weekday), matching
-     * the convention in {@see InteractsWithScheduling::outsideAvailability()}.
+     * Mirror something that happened to a trial onto the CRM lead it belongs to. A no-op for a
+     * trial booked straight from this page (no lead) — the link is what makes it meaningful.
      *
-     * @param  list<array<string,mixed>>  $windows
+     * @param  array<string,mixed>  $meta
      */
-    private function availabilityCovers(array $windows, int $weekday, int $startMin, int $endMin): bool
+    private function noteOnLead(object $trial, string $type, array $meta, ?string $body = null): void
     {
-        foreach ($windows as $w) {
-            $wday = (int) ($w['weekday'] ?? -1);
-            $ws = $this->hhmmToMinutes((string) ($w['start_local'] ?? '00:00'));
-            $we = $this->hhmmToMinutes((string) ($w['end_local'] ?? '24:00'));
-            if ($we === 0) {
-                $we = 1440; // an end of 00:00 means midnight — the end of the start day.
-            }
-
-            if ($we > $ws) {
-                // Same-day window: the whole slot must sit within [ws, we) on this weekday.
-                if ($wday === $weekday && $startMin >= $ws && $endMin <= $we) {
-                    return true;
-                }
-            } else {
-                // Crosses midnight: evening [ws, 24:00) on `wday` (+ its early-morning tail next day).
-                if ($wday === $weekday && $startMin >= $ws && $endMin <= 1440 + $we) {
-                    return true;
-                }
-                // The early-morning tail [00:00, we) belongs to the following weekday.
-                if (((($wday + 1) % 7) === $weekday) && $startMin >= 0 && $endMin <= $we) {
-                    return true;
-                }
-            }
+        if ($trial->lead_id === null) {
+            return;
         }
 
-        return false;
-    }
-
-    private function hhmmToMinutes(string $hhmm): int
-    {
-        [$h, $m] = array_pad(explode(':', $hhmm), 2, '0');
-
-        return ((int) $h) * 60 + (int) $m;
-    }
-
-    /**
-     * Trials of the same teacher whose [start, start+duration) overlaps the candidate window.
-     * Only still-SCHEDULED trials can clash (a cancelled/converted/past-outcome one cannot).
-     *
-     * @return list<array{id:string, scheduled_at_utc:string, duration_minutes:int}>
-     */
-    private function trialConflicts(string $teacherId, Carbon $startUtc, int $durationMinutes, ?string $excludeTrialId = null): array
-    {
-        $endUtc = $startUtc->copy()->addMinutes($durationMinutes);
-
-        $candidates = DB::table('trials')
-            ->where('teacher_id', $teacherId)
-            ->where('status', 'SCHEDULED')
-            ->whereNull('deleted_at')
-            ->when($excludeTrialId !== null, fn ($q) => $q->where('id', '!=', $excludeTrialId))
-            ->whereBetween('scheduled_at_utc', [
-                $startUtc->copy()->subDay()->format('Y-m-d H:i:sP'),
-                $endUtc->copy()->addDay()->format('Y-m-d H:i:sP'),
-            ])
-            ->get(['id', 'scheduled_at_utc', 'duration_minutes']);
-
-        $conflicts = [];
-        foreach ($candidates as $row) {
-            $rowStart = Carbon::parse($row->scheduled_at_utc)->utc();
-            $rowEnd = $rowStart->copy()->addMinutes((int) $row->duration_minutes);
-            if ($startUtc->lessThan($rowEnd) && $rowStart->lessThan($endUtc)) {
-                $conflicts[] = [
-                    'id' => (string) $row->id,
-                    'scheduled_at_utc' => $rowStart->toIso8601String(),
-                    'duration_minutes' => (int) $row->duration_minutes,
-                ];
-            }
-        }
-
-        return $conflicts;
-    }
-
-    private function assertActiveTeacher(string $teacherId): void
-    {
-        if (DB::table('teachers')->where('id', $teacherId)->whereNull('deleted_at')->doesntExist()) {
-            throw ValidationException::withMessages(['teacher_id' => ['Unknown or inactive teacher.']]);
-        }
-    }
-
-    /**
-     * Busy [start, end) UTC intervals per teacher across [from, to) — every booked session and
-     * still-scheduled trial. Loaded once for the calendar grid so per-cell conflict checks are
-     * pure in-memory comparisons (no query per slot).
-     *
-     * @param  list<string>  $teacherIds
-     * @return array<string, list<array{0:Carbon,1:Carbon}>>
-     */
-    private function teacherBusyIntervals(array $teacherIds, Carbon $fromUtc, Carbon $toUtc): array
-    {
-        if ($teacherIds === []) {
-            return [];
-        }
-
-        $from = $fromUtc->format('Y-m-d H:i:sP');
-        $to = $toUtc->format('Y-m-d H:i:sP');
-
-        $sessions = DB::table('sessions')
-            ->whereIn('teacher_id', $teacherIds)
-            ->whereIn('status', ['SCHEDULED', 'ATTENDED', 'FREE', 'ABSENT_UNEXCUSED', 'ABSENT_EXCUSED'])
-            ->whereBetween('scheduled_at_utc', [$from, $to])
-            ->get(['teacher_id', 'scheduled_at_utc', 'duration_minutes']);
-
-        $trials = DB::table('trials')
-            ->whereIn('teacher_id', $teacherIds)
-            ->where('status', 'SCHEDULED')
-            ->whereNull('deleted_at')
-            ->whereBetween('scheduled_at_utc', [$from, $to])
-            ->get(['teacher_id', 'scheduled_at_utc', 'duration_minutes']);
-
-        $map = [];
-        foreach ([$sessions, $trials] as $set) {
-            foreach ($set as $row) {
-                $s = Carbon::parse($row->scheduled_at_utc)->utc();
-                $map[(string) $row->teacher_id][] = [$s, $s->copy()->addMinutes((int) $row->duration_minutes)];
-            }
-        }
-
-        return $map;
-    }
-
-    /**
-     * True when [start, start+duration) overlaps any of the teacher's busy intervals (half-open).
-     *
-     * @param  list<array{0:Carbon,1:Carbon}>  $intervals
-     */
-    private function overlapsBusy(array $intervals, Carbon $startUtc, int $durationMinutes): bool
-    {
-        $endUtc = $startUtc->copy()->addMinutes($durationMinutes);
-        foreach ($intervals as [$busyStart, $busyEnd]) {
-            if ($startUtc->lessThan($busyEnd) && $busyStart->lessThan($endUtc)) {
-                return true;
-            }
-        }
-
-        return false;
+        LeadTimeline::log(
+            (string) $trial->academy_id,
+            (string) $trial->lead_id,
+            $type,
+            $body,
+            $meta,
+            $this->ctx()->userId,
+        );
     }
 }
