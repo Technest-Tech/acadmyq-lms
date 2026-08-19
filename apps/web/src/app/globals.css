@@ -126,13 +126,19 @@
 }
 
 /*
- * The public LMS course site (docs/lms/09) is a student-facing marketing site, so it is LIGHT-only
- * — it must not inherit a staff member's OS/dark preference the way the dashboard does. Re-declaring
- * the light palette on the site wrapper forces light for the whole subtree even when `<html>` still
- * carries `.dark`, with no flash and without mutating the global element. The brand colour set
- * inline by `components/learn/theme.tsx` overrides `--primary`/`--ring` on top of this.
+ * CLIENT-FACING surfaces are LIGHT-only — they must not inherit a staff member's OS/dark preference
+ * the way the dashboard does. Re-declaring the light palette on the wrapper forces light for the
+ * whole subtree even when `<html>` still carries `.dark`, with no flash and without mutating the
+ * global element.
+ *
+ *  - `.learn-site` — the public LMS course site (docs/lms/09), a student-facing marketing site. The
+ *    brand colour set inline by `components/learn/theme.tsx` overrides `--primary`/`--ring` on top.
+ *  - `.client-door` — a management client's own sign-in at `<handle>.<root>` (docs/lms/02). It is
+ *    the client's front door, not staff chrome, so it always reads light and always looks the same
+ *    to everyone at that academy.
  */
-.learn-site {
+.learn-site,
+.client-door {
   color-scheme: light;
   overflow-x: clip;
   --background: oklch(0.982 0.004 248);
@@ -159,6 +165,45 @@
   * {
     @apply border-border outline-ring/50;
   }
+
+  /*
+   * The app's scrollbars. A default macOS/Windows bar is a grey slab that cuts straight through the
+   * frame's ornament; this is a slim gold-into-emerald rule that reads as part of it — the same two
+   * colours as the khatam lattice behind it. Applied to everything that scrolls (sidebar, page
+   * canvas, tables, modals, dropdowns) so no panel is the odd one out.
+   *
+   * Both syntaxes are needed: `scrollbar-*` is the standard (Firefox), `::-webkit-scrollbar` is
+   * what Chrome and Safari honour, and neither alone covers the browsers we ship to. The
+   * client-facing surfaces inherit it too — `--gold`/`--primary` are redefined inside `.learn-site`
+   * / `.client-door`, so the bar follows whichever palette it sits in.
+   */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--gold) 55%, transparent) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+    background-image: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--gold) 70%, transparent),
+      color-mix(in oklab, var(--primary) 70%, transparent)
+    );
+  }
+  *:hover::-webkit-scrollbar-thumb {
+    background-image: linear-gradient(to bottom, var(--gold), var(--primary));
+  }
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
   body {
     @apply bg-background text-foreground;
   }
@@ -181,5 +226,37 @@
 @layer utilities {
   .animate-page-enter {
     animation: page-enter 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  }
+
+  /*
+   * `.scroll-ornate` is the same bar as the app default below, as an explicit opt-in for anything
+   * that resets its own scrollbar styling.
+   */
+  .scroll-ornate {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--gold) 55%, transparent) transparent;
+  }
+  .scroll-ornate::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-ornate::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scroll-ornate::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+    background-image: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--gold) 70%, transparent),
+      color-mix(in oklab, var(--primary) 70%, transparent)
+    );
+  }
+  .scroll-ornate:hover::-webkit-scrollbar-thumb {
+    background-image: linear-gradient(to bottom, var(--gold), var(--primary));
+  }
+  .scroll-ornate::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }

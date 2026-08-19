@@ -67,6 +67,7 @@ function actionTone(action: string): string {
 
 export function AdminVideoScreen() {
   const t = useTranslations("adminVideo");
+  const tc = useTranslations("clients");
   const locale = useLocale();
   const { can } = useAuth();
   const router = useRouter();
@@ -216,7 +217,7 @@ export function AdminVideoScreen() {
                       </Link>
                     </td>
                     <td className="px-4 py-2.5"><VideoStatusBadge status={a.video_status} /></td>
-                    <td className="text-muted-foreground px-4 py-2.5 text-xs">{a.plan_name ?? t("usage.noPlan")}</td>
+                    <td className="text-muted-foreground px-4 py-2.5 text-xs">{tc(`type.${a.client_type ?? "MANAGEMENT"}`)}</td>
                     <td className="px-4 py-2.5">
                       <RoomsCell used={a.active_rooms} cap={a.max_rooms} label={t("usage.roomsOf", { used: formatNumber(a.active_rooms, locale), cap: a.max_rooms === null ? t("usage.unlimited") : formatNumber(a.max_rooms, locale) })} />
                     </td>

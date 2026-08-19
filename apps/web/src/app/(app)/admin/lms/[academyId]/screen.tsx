@@ -116,7 +116,7 @@ export function AdminLmsAcademyScreen({ academyId }: { academyId: string }) {
             }
             subtitle={
               <>
-                {detail.academy.lms_plan_name ?? detail.academy.plan_name ?? t("clients.noPlan")} ·{" "}
+                {detail.academy.subdomain ?? t("clients.noSubdomain")} ·{" "}
                 {t("detail.createdAt", { date: fmtDate(detail.academy.created_at) })}
               </>
             }

@@ -1,7 +1,7 @@
 "use client";
 
 import { Dialog } from "@base-ui/react/dialog";
-import { CornerDownLeft, Lock, Search } from "lucide-react";
+import { CornerDownLeft, Search } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import {
@@ -20,14 +20,13 @@ export interface CommandItem {
   href: string;
   icon: ComponentType<{ className?: string }>;
   group: string;
-  locked: boolean;
 }
 
 /**
  * ⌘K / Ctrl-K destination search. With two dozen nav entries across four groups, the fastest path
  * to a page shouldn't be "scan the sidebar" — it should be "type three letters". Only items the
- * caller passes in are searchable, so the palette inherits the sidebar's permission and plan gating
- * for free; a plan-locked item still appears (that is the upsell) but routes to /plan.
+ * caller passes in are searchable, so the palette inherits the sidebar's permission and entitlement
+ * gating for free — a feature switched off for this client is not in the list at all.
  */
 export function CommandPalette({ items }: { items: CommandItem[] }) {
   const t = useTranslations();
@@ -70,7 +69,7 @@ export function CommandPalette({ items }: { items: CommandItem[] }) {
   const go = (item: CommandItem | undefined) => {
     if (item === undefined) return;
     setOpen(false);
-    router.push(item.locked ? "/plan" : item.href);
+    router.push(item.href);
   };
 
   const onInputKeyDown = (e: React.KeyboardEvent) => {
@@ -174,12 +173,6 @@ export function CommandPalette({ items }: { items: CommandItem[] }) {
                       <span className="flex-1 text-start font-medium">
                         {item.label}
                       </span>
-                      {item.locked && (
-                        <Lock
-                          className="size-3 shrink-0 text-amber-600 dark:text-amber-400"
-                          aria-hidden
-                        />
-                      )}
                       <span className="text-muted-foreground/50 text-[11px]">
                         {item.group}
                       </span>

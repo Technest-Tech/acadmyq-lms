@@ -1,5 +1,6 @@
 "use client";
 
+import { apiBase } from "@/lib/api-base";
 import { Check, Copy, Loader2, Upload } from "lucide-react";
 import { useState } from "react";
 
@@ -11,7 +12,7 @@ export interface ReceivingMethod {
 }
 export type ReceivingMethods = Record<string, ReceivingMethod>;
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE = apiBase();
 
 function T({ en, ar }: { en: string; ar: string }) {
   return (

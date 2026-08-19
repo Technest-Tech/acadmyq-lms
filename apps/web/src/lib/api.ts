@@ -7,6 +7,7 @@ import type {
 } from "@academiq/contracts";
 // The LMS public site's content shape is defined once, next to the client that reads it on the site
 // itself (docs/lms/09); the staff editor here writes exactly the same document.
+import { apiBase } from "@/lib/api-base";
 import type { LearnSiteContent } from "@/lib/learn-api";
 
 /**
@@ -22,7 +23,8 @@ import type { LearnSiteContent } from "@/lib/learn-api";
  *
  * No business logic lives here; this is a transport wrapper only.
  */
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Resolved per call, not once: with a port-only NEXT_PUBLIC_API_URL the origin follows the page
+// host, which is what lets a client subdomain talk to a same-site API (see lib/api-base).
 const AUTH_MODE: "cookie" | "token" =
   process.env.NEXT_PUBLIC_AUTH_MODE === "token" ? "token" : "cookie";
 
@@ -60,7 +62,7 @@ function readCookie(name: string): string | null {
 async function ensureCsrfCookie(force = false): Promise<void> {
   if (AUTH_MODE !== "cookie") return;
   if (!force && readCookie("XSRF-TOKEN")) return;
-  await fetch(`${BASE_URL}/sanctum/csrf-cookie`, { credentials: "include" });
+  await fetch(`${apiBase()}/sanctum/csrf-cookie`, { credentials: "include" });
 }
 
 export async function apiFetch<T>(
@@ -86,7 +88,7 @@ export async function apiFetch<T>(
       if (xsrf) headers.set("X-XSRF-TOKEN", xsrf);
     }
 
-    return fetch(`${BASE_URL}${path}`, {
+    return fetch(`${apiBase()}${path}`, {
       ...init,
       method,
       headers,
@@ -148,6 +150,20 @@ export interface Session {
    * fuller `getEntitlements()` payload is still the source.
    */
   capabilities: string[] | null;
+  /**
+   * WHO the panel belongs to — the academy's name and logo, for the shell's own chrome. Ships with
+   * the session for the same reason `capabilities` does: the sidebar paints before anything else.
+   * `null` for a platform Super Admin, who has no academy — the chrome then keeps the platform's
+   * own identity.
+   */
+  academy: SessionAcademy | null;
+}
+
+export interface SessionAcademy {
+  name: string;
+  /** The brand name when the client set one, else the academy name. Never empty. */
+  displayName: string;
+  logoUrl: string | null;
 }
 
 export interface LoginResult {
@@ -155,11 +171,23 @@ export interface LoginResult {
   academyId: string | null;
 }
 
-/** POST /api/auth/login — email/password → established Sanctum session. */
-export function login(email: string, password: string): Promise<LoginResult> {
+/**
+ * POST /api/auth/login — email/password → established Sanctum session.
+ *
+ * `subdomain` is the client handle the sign-in came through (`<handle>.<root>`). Sent only from a
+ * client's own door, where the API binds the attempt to that client's people; the platform login
+ * omits it.
+ */
+export function login(
+  email: string,
+  password: string,
+  subdomain?: string | null,
+): Promise<LoginResult> {
   return apiFetch<LoginResult>("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(
+      subdomain ? { email, password, subdomain } : { email, password },
+    ),
   });
 }
 
@@ -256,11 +284,18 @@ export interface Plan {
   is_active: boolean;
 }
 
-/** The wizard payload for creating an academy + seeding fields + first owner. */
+/** The wizard payload for creating a client + seeding fields + first owner. */
 export interface CreateAcademyInput {
   name: string;
   academy_type_id: string;
-  plan_id?: string | null;
+  /** Which of the four client types this is (05 §2); defaults to MANAGEMENT server-side. */
+  client_type?: ClientType;
+  /** Extra modules to provision beyond the type's own, each at its own price. */
+  modules?: {
+    module: ModuleCode;
+    price_minor?: number;
+    billing_interval?: "MONTHLY" | "YEARLY";
+  }[];
   default_currency: string;
   timezone: string;
   invoice_grouping?: InvoiceGrouping;
@@ -408,19 +443,31 @@ export function getMySubscription(): Promise<{
   return apiFetch("/api/my-subscription");
 }
 
-// ── Client-first Super Admin surface (R1/R2, docs/superadmin-modules/04) ─────
-// One client (academies row) holds up to three module subscriptions — MANAGEMENT / VIDEO /
-// WHATSAPP — each with its own plan, trial clock and lifecycle. These endpoints are THE one
-// writer for module on/off / plan / trial / activate / pause ("one writer per fact").
+// ── Client-first Super Admin surface (docs/superadmin-modules/05-MODULES-NOT-PACKAGES) ──────
+// A client is one of four TYPES and holds the MODULES that type allows, each with its own price,
+// trial clock and lifecycle. A module grants every feature it owns; the client profile is where a
+// single feature gets switched off. These endpoints are THE one writer for all of it.
 
-export type ModuleCode = "MANAGEMENT" | "VIDEO" | "WHATSAPP" | "CRM";
+export type ClientType = "MANAGEMENT" | "VIDEO" | "WHATSAPP" | "LMS";
+
+export const CLIENT_TYPES: readonly ClientType[] = ["MANAGEMENT", "VIDEO", "WHATSAPP", "LMS"];
+
+export type ModuleCode = "MANAGEMENT" | "VIDEO" | "WHATSAPP" | "LMS";
 
 export const MODULE_CODES: readonly ModuleCode[] = [
   "MANAGEMENT",
   "VIDEO",
   "WHATSAPP",
-  "CRM",
+  "LMS",
 ];
+
+/** Which modules each client type may hold — mirrors FeatureCatalog::CLIENT_TYPE_MODULES. */
+export const CLIENT_TYPE_MODULES: Record<ClientType, ModuleCode[]> = {
+  MANAGEMENT: ["MANAGEMENT", "VIDEO", "WHATSAPP"],
+  VIDEO: ["VIDEO"],
+  WHATSAPP: ["WHATSAPP"],
+  LMS: ["LMS"],
+};
 
 /** One module's live subscription as returned by the client endpoints. */
 export interface ModuleSubscription {
@@ -462,6 +509,7 @@ export interface ClientModuleChip {
 export interface ClientDirectoryEntry {
   id: string;
   name: string;
+  client_type: ClientType;
   status: "ACTIVE" | "TRIAL" | "SUSPENDED";
   suspended_reason: string | null;
   default_currency: string;
@@ -474,10 +522,27 @@ export interface ClientDirectoryEntry {
   modules: ClientModuleChip[];
 }
 
+/**
+ * What a client's modules can switch: every capability the module owns (key → label) and the caps
+ * a Super Admin may set. The profile renders its toggles straight off this, so it can never offer a
+ * key the server would reject.
+ */
+export interface ClientFeatureCatalog {
+  clientType: ClientType;
+  allowedModules: ModuleCode[];
+  modules: Partial<
+    Record<
+      ModuleCode,
+      { capabilities: Record<string, string>; limits: Record<string, string> }
+    >
+  >;
+}
+
 export interface ClientDetail {
   client: {
     id: string;
     name: string;
+    client_type: ClientType;
     status: "ACTIVE" | "TRIAL" | "SUSPENDED";
     suspended_at: string | null;
     suspended_reason: string | null;
@@ -491,6 +556,7 @@ export interface ClientDetail {
     subdomain: string | null;
     created_at: string;
   };
+  catalog: ClientFeatureCatalog;
   modules: ModuleSubscription[];
   addOns: {
     code: string;
@@ -515,9 +581,10 @@ export function getClient(id: string): Promise<ClientDetail> {
  */
 export function createWhatsappOnlyClient(input: {
   name: string;
-  plan_id?: string | null;
   mode: "trial" | "active";
   trial_days?: number;
+  price_minor?: number;
+  billing_interval?: "MONTHLY" | "YEARLY";
 }): Promise<{ clientId: string }> {
   return apiFetch("/api/admin/clients", {
     method: "POST",
@@ -525,11 +592,17 @@ export function createWhatsappOnlyClient(input: {
   });
 }
 
-/** Enable a module: attach a plan and start a trial or an immediately-active paid period. */
+/** Enable a module at this client's own price, on a trial or an immediately-active paid period. */
 export function enableClientModule(
   clientId: string,
   module: ModuleCode,
-  input: { plan_id?: string | null; mode: "trial" | "active"; trial_days?: number },
+  input: {
+    mode: "trial" | "active";
+    trial_days?: number;
+    price_minor?: number;
+    currency?: string;
+    billing_interval?: "MONTHLY" | "YEARLY";
+  },
 ): Promise<{ subscription: ModuleSubscription }> {
   return apiFetch(
     `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/subscription`,
@@ -541,7 +614,8 @@ export function updateClientModule(
   clientId: string,
   module: ModuleCode,
   patch: {
-    plan_id?: string | null;
+    price_minor?: number;
+    currency?: string;
     billing_interval?: "MONTHLY" | "YEARLY";
     activated_at?: string | null;
     current_period_start?: string | null;
@@ -551,6 +625,22 @@ export function updateClientModule(
   return apiFetch(
     `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/subscription`,
     { method: "PUT", body: JSON.stringify(patch) },
+  );
+}
+
+/**
+ * The per-client feature switches (05 §4): `disabled` lists the module features this ONE client
+ * does not get; `limits` is its optional cap map (omit a key ⇒ unlimited). Sending `disabled: []`
+ * restores the module's full feature set.
+ */
+export function updateClientModuleFeatures(
+  clientId: string,
+  module: ModuleCode,
+  input: { disabled?: string[]; limits?: Record<string, number> | null },
+): Promise<{ subscription: ModuleSubscription }> {
+  return apiFetch(
+    `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/features`,
+    { method: "PUT", body: JSON.stringify(input) },
   );
 }
 
@@ -1038,14 +1128,14 @@ export function updateGatewaySettings(
 // Cross-tenant usage, the monitor/recording compliance feed, and live service health for the
 // self-hosted video platform. Backed by the audited SECURITY DEFINER readers; platform.manage-gated.
 
-/** Effective per-academy video state (the academies.video_access override resolved against the plan). */
+/** Effective per-client video state, derived from its VIDEO module subscription (05 §7). */
 export type VideoAccessStatus =
-  | "ENABLED" // force-on (permanent)
-  | "TRIAL" // force-on, auto-expires at video_trial_ends_at
-  | "PLAN" // entitled via the plan / add-on
+  | "ENABLED" // holds the module, paid
+  | "TRIAL" // holds the module, inside its trial window
+  | "PAUSED" // module paused — the classroom is off until it resumes
   | "EXPIRED" // a trial that has lapsed
-  | "DISABLED" // force-off
-  | "NONE"; // not entitled, no override
+  | "DISABLED" // the ops force-off switch
+  | "NONE"; // does not hold the module
 
 export type VideoAccessOverride = "ENABLED" | "DISABLED" | null;
 
@@ -1053,9 +1143,11 @@ export interface VideoUsageRow {
   academy_id: string;
   academy_name: string;
   currency: string | null;
-  plan_name: string | null;
-  plan_code: string | null;
-  video_plan_name: string | null;
+  client_type?: ClientType;
+  /** Legacy package columns — always null since 05-MODULES-NOT-PACKAGES; dropped with the tables. */
+  plan_name?: string | null;
+  plan_code?: string | null;
+  video_plan_name?: string | null;
   video_access: VideoAccessOverride;
   video_trial_ends_at: string | null;
   video_status: VideoAccessStatus;
@@ -1501,7 +1593,7 @@ export async function fetchPaymentScreenshot(
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
   const res = await fetch(
-    `${BASE_URL}/api/admin/academies/${academyId}/payment-submissions/${subId}/screenshot`,
+    `${apiBase()}/api/admin/academies/${academyId}/payment-submissions/${subId}/screenshot`,
     {
       headers,
       credentials: AUTH_MODE === "cookie" ? "include" : "same-origin",
@@ -1558,6 +1650,7 @@ export function deleteReportField(
   });
 }
 
+/** @deprecated Packages are gone (05-MODULES-NOT-PACKAGES). Legacy catalog read; not used by the panel. */
 export function listPlans(): Promise<{ plans: Plan[]; addOns: unknown[] }> {
   return apiFetch("/api/admin/plans");
 }
@@ -2024,10 +2117,24 @@ export interface PaypalConfig {
   mode: "sandbox" | "live";
 }
 
+/**
+ * What an academy is allowed to know about its own XPay channel. The merchant keys are
+ * Super-Admin-provisioned and live in a separate, encrypted table, so nothing secret is
+ * reachable from an academy-facing endpoint — only the publishable key and which mode it runs in.
+ */
+export interface XpayPublicConfig {
+  publishable_key: string;
+  mode: "test" | "live";
+}
+
 export interface PaymentSetting {
   method: PaymentMethodKey;
   is_active: boolean;
-  config: BankTransferConfig | PaypalConfig | Record<string, never>;
+  config:
+    | BankTransferConfig
+    | PaypalConfig
+    | XpayPublicConfig
+    | Record<string, never>;
 }
 
 // ── Academy profile (Settings → General) ─────────────────────────────────────
@@ -2069,6 +2176,74 @@ export function savePaymentSetting(
   return apiFetch(`/api/payment-settings/${method}`, {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+// ── XPay provisioning (Super Admin → client → Payments) ──────────────────────
+
+export type XpayMode = "test" | "live";
+
+/**
+ * One environment's stored credentials as the panel sees them. Note what is NOT here: the secret key
+ * and the webhook signing secret. They are write-only by design — the API stores them encrypted and
+ * only ever returns the last four characters so an admin can tell which key is loaded.
+ */
+export interface XpayModeState {
+  configured: boolean;
+  publishable_key: string | null;
+  secret_last4: string | null;
+  webhook_last4: string | null;
+  has_webhook_secret: boolean;
+  updated_at: string | null;
+}
+
+/**
+ * A client holds both key sets at once; `mode` says which one every payment path resolves. Going
+ * live is a one-field flip, and dropping back to test to reproduce a problem loses nothing.
+ */
+export interface XpaySettings {
+  is_active: boolean;
+  configured: boolean;
+  mode: XpayMode;
+  modes: Record<XpayMode, XpayModeState>;
+  /** Paste this into the client's XPay dashboard → Developers → Webhooks. */
+  webhook_url: string;
+}
+
+export interface XpayKeyInput {
+  publishable_key?: string;
+  secret_key?: string;
+  webhook_secret?: string;
+}
+
+export function getClientXpay(clientId: string): Promise<{ xpay: XpaySettings }> {
+  return apiFetch(`/api/admin/clients/${clientId}/payments/xpay`);
+}
+
+/** Blank `secret_key` / `webhook_secret` keep whatever is already stored for that environment. */
+export function saveClientXpay(
+  clientId: string,
+  payload: {
+    is_active: boolean;
+    mode: XpayMode;
+    test?: XpayKeyInput;
+    live?: XpayKeyInput;
+  },
+): Promise<{ xpay: XpaySettings }> {
+  return apiFetch(`/api/admin/clients/${clientId}/payments/xpay`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Omit `mode` to check whichever environment is currently in force. */
+export function testClientXpay(
+  clientId: string,
+  mode?: XpayMode,
+): Promise<{ ok: boolean; status: number | null; message: string; mode: XpayMode }> {
+  return apiFetch(`/api/admin/clients/${clientId}/payments/xpay/test`, {
+    method: "POST",
+    body: JSON.stringify(mode ? { mode } : {}),
   });
 }
 
@@ -2359,6 +2534,35 @@ export interface CalendarSession {
   original_session_id: string | null;
   student_name: string | null;
   teacher_name: string | null;
+  /**
+   * Set ONLY on a trial folded into the feed so the calendar views can paint it at its hour
+   * (see `CalendarTrial`). Its presence is what marks the event as not-a-session: no attendance,
+   * no reschedule-by-drag, no cancel — those belong to lessons and, for a trial, to the Trials
+   * page. A real session never carries it.
+   */
+  trial?: CalendarTrial;
+}
+
+/**
+ * A booked trial as the calendar feed returns it. It is deliberately NOT a session: the person
+ * may not be a student yet, so none of the session actions (attendance, reschedule, cancel)
+ * apply — the calendar paints it so the hour is visibly taken, and the Trials page is where it
+ * is managed. Only SCHEDULED trials travel in this feed.
+ */
+export interface CalendarTrial {
+  id: string;
+  teacher_id: string;
+  student_id: string | null;
+  lead_id: string | null;
+  scheduled_at_utc: string;
+  duration_minutes: number;
+  status: "SCHEDULED";
+  teacher_name: string | null;
+  student_name: string | null;
+  crm_lead_name: string | null;
+  lead_name: string | null;
+  /** Who the hour is for — student, CRM lead, or the inline prospect, in that order. */
+  display_name: string | null;
 }
 
 /** One student's active weekly timetable as the roster endpoint returns it (period-independent). */
@@ -2408,7 +2612,12 @@ export interface CalendarQuery {
 
 export function getCalendar(
   q: CalendarQuery,
-): Promise<{ sessions: CalendarSession[]; from: string; to: string }> {
+): Promise<{
+  sessions: CalendarSession[];
+  trials: CalendarTrial[];
+  from: string;
+  to: string;
+}> {
   const params = new URLSearchParams({ from: q.from, to: q.to });
   if (q.teacherId) params.set("teacherId", q.teacherId);
   if (q.studentId) params.set("studentId", q.studentId);
@@ -3140,12 +3349,14 @@ export interface AdminDashboardStats {
     recent: number;
   };
   people: { students: number; teachers: number; guardians: number };
-  plan_distribution: Array<{
-    plan_id: string;
-    plan_code: string;
-    plan_name: string;
-    academy_count: number;
+  /** How many clients hold each module, and how many of those are still on trial (05 §2). */
+  module_distribution: Array<{
+    module: ModuleCode;
+    client_count: number;
+    trial_count: number;
   }>;
+  /** How many clients of each type there are. */
+  type_distribution: Array<{ client_type: ClientType; client_count: number }>;
 }
 
 export interface AdminMrr {
@@ -3156,7 +3367,6 @@ export interface AdminMrr {
 export interface AdminEndingSoon {
   academy_id: string;
   academy_name: string;
-  plan_name: string | null;
   kind: "trial" | "renewal";
   ends_at: string;
   days_left: number;
@@ -3421,6 +3631,7 @@ export interface PlanInput {
   is_active: boolean;
 }
 
+/** @deprecated Packages are gone. The plans table survives only for the legacy resolver fallback. */
 export function createPlan(
   input: PlanInput & { code: string },
 ): Promise<{ planId: string }> {
@@ -3430,6 +3641,7 @@ export function createPlan(
   });
 }
 
+/** @deprecated Packages are gone. The plans table survives only for the legacy resolver fallback. */
 export function updatePlan(
   id: string,
   patch: Partial<PlanInput>,
@@ -3482,6 +3694,7 @@ export function getAcademyAddOns(
   return apiFetch(`/api/admin/academies/${academyId}/addons`);
 }
 
+/** @deprecated Packages are gone — a client's modules and price are written from its profile. */
 export function setAcademyPlan(
   academyId: string,
   planId: string,
@@ -3744,6 +3957,11 @@ export interface TrialRow {
   teacher_name: string | null;
   student_id: string | null;
   student_name: string | null;
+  /** The CRM lead this trial was booked for, when it came from the pipeline. */
+  lead_id: string | null;
+  crm_lead_name: string | null;
+  crm_source: LeadSource | null;
+  from_crm: boolean;
   lead_name: string | null;
   lead_whatsapp: string | null;
   lead_email: string | null;
@@ -3762,50 +3980,18 @@ export interface TrialSummary {
   total: number;
   scheduled: number;
   upcoming: number;
+  /** Trials sitting on the academy's own calendar day (scheduled, or already resolved). */
+  today: number;
+  /** Scheduled trials whose slot has passed with no outcome recorded — the work queue. */
+  awaiting_outcome: number;
   completed: number;
   no_show: number;
   cancelled: number;
   converted: number;
+  /** Trials that came from a CRM lead rather than being booked directly. */
+  from_crm: number;
   /** Percentage of resolved trials that became students (0–100). */
   conversion_rate: number;
-}
-
-/** A teacher returned by the availability matcher for a requested slot. */
-export interface TrialAvailabilityTeacher {
-  id: string;
-  full_name: string;
-  specialization: string | null;
-  session_rate_minor: number;
-  currency: string;
-  /** False when the teacher hasn't declared any availability windows. */
-  availability_known: boolean;
-  /** True when their declared availability covers the requested slot. */
-  available: boolean;
-  /** True when they already have an overlapping session or trial. */
-  has_conflict: boolean;
-}
-
-export interface TrialAvailabilityResult {
-  slot: {
-    scheduled_at_utc: string;
-    timezone: string;
-    weekday: number;
-    duration_minutes: number;
-  };
-  teachers: TrialAvailabilityTeacher[];
-}
-
-/** A whole week of bookable slots for the calendar finder. */
-export interface TrialAvailabilityGrid {
-  week_start: string;
-  timezone: string;
-  duration_minutes: number;
-  /** Row labels — candidate local start times "HH:mm", sorted. */
-  times: string[];
-  /** Column headers — the 7 dates of the week. */
-  days: { date: string; weekday: number }[];
-  /** Keyed "YYYY-MM-DDTHH:mm" → teachers available for that slot (only non-empty cells). */
-  cells: Record<string, TrialAvailabilityTeacher[]>;
 }
 
 export interface TrialWarning {
@@ -3836,40 +4022,6 @@ export function listTrials(
 
 export function getTrialSummary(): Promise<TrialSummary> {
   return apiFetch("/api/trials/summary");
-}
-
-/** GET /api/trials/availability — who can take a trial at a given local date + time. */
-export function findAvailableTeachers(params: {
-  date: string;
-  time: string;
-  duration_minutes: number;
-  timezone?: string;
-  specialization?: string;
-}): Promise<TrialAvailabilityResult> {
-  const qs = new URLSearchParams({
-    date: params.date,
-    time: params.time,
-    duration_minutes: String(params.duration_minutes),
-  });
-  if (params.timezone) qs.set("timezone", params.timezone);
-  if (params.specialization) qs.set("specialization", params.specialization);
-  return apiFetch(`/api/trials/availability?${qs.toString()}`);
-}
-
-/** GET /api/trials/availability-grid — a week of bookable slots for the calendar finder. */
-export function getAvailabilityGrid(params: {
-  week_start: string;
-  duration_minutes: number;
-  timezone?: string;
-  specialization?: string;
-}): Promise<TrialAvailabilityGrid> {
-  const qs = new URLSearchParams({
-    week_start: params.week_start,
-    duration_minutes: String(params.duration_minutes),
-  });
-  if (params.timezone) qs.set("timezone", params.timezone);
-  if (params.specialization) qs.set("specialization", params.specialization);
-  return apiFetch(`/api/trials/availability-grid?${qs.toString()}`);
 }
 
 export function createTrial(
@@ -3907,18 +4059,28 @@ export function cancelTrial(id: string): Promise<{ ok: boolean }> {
 }
 
 // ── CRM / Leads (CRM module) ─────────────────────────────────────────────────
-// A prospective student captured as a lead and walked through a fixed pipeline
-// (NEW → CONTACTED → INTERESTED → WON/LOST) on a board or list, with a per-lead
-// activity timeline. Plan-gated by the CRM module (entitled:crm → 402) and
+// A prospective student captured as a lead and walked through one pipeline
+// (NEW → CONTACTED → INTERESTED → TRIAL → SUBSCRIBED, + LOST) on a board or list,
+// with a per-lead activity timeline. The last two stages are backed by real
+// records — a booked trial (which appears on the calendar) and a real student
+// (which appears on the Students page) — so the server refuses a bare status
+// write to either. Plan-gated by the CRM module (entitled:crm → 402) and
 // capability-gated by crm.read / crm.manage (403). Transport only.
 
-export type LeadStatus = "NEW" | "CONTACTED" | "INTERESTED" | "WON" | "LOST";
+export type LeadStatus =
+  | "NEW"
+  | "CONTACTED"
+  | "INTERESTED"
+  | "TRIAL"
+  | "SUBSCRIBED"
+  | "LOST";
 
 export const LEAD_STATUSES: readonly LeadStatus[] = [
   "NEW",
   "CONTACTED",
   "INTERESTED",
-  "WON",
+  "TRIAL",
+  "SUBSCRIBED",
   "LOST",
 ];
 
@@ -3956,11 +4118,29 @@ export interface LeadRow {
   converted_student_id: string | null;
   student_name?: string | null;
   created_at: string;
+  /**
+   * The lead's current trial, flattened onto the row so a board card renders without a request
+   * per card. "Current" = the newest trial that still counts; null when none was ever booked.
+   */
+  trial_id: string | null;
+  trial_status: TrialStatus | null;
+  trial_teacher_id: string | null;
+  trial_teacher_name: string | null;
+  trial_scheduled_at_utc: string | null;
+  trial_duration_minutes: number | null;
+  trial_notes: string | null;
 }
 
 export interface LeadActivity {
   id: string;
-  type: "CREATED" | "NOTE" | "STATUS_CHANGE" | "FOLLOW_UP_SET" | "CONVERTED";
+  type:
+    | "CREATED"
+    | "NOTE"
+    | "STATUS_CHANGE"
+    | "FOLLOW_UP_SET"
+    | "TRIAL_BOOKED"
+    | "TRIAL_OUTCOME"
+    | "CONVERTED";
   body: string | null;
   meta: Record<string, unknown> | null;
   author_name: string | null;
@@ -3978,9 +4158,11 @@ export interface LeadSummary {
   new: number;
   contacted: number;
   interested: number;
-  won: number;
+  trial: number;
+  subscribed: number;
   lost: number;
   total: number;
+  /** Every lead still being worked — a booked trial included. */
   open: number;
   due_today: number;
   overdue: number;
@@ -4048,7 +4230,48 @@ export function addLeadNote(
   });
 }
 
-/** Link the lead to the real student it became (POST /students happens first). */
+/** What the trial form sends: a teacher, a local wall-clock slot, and how long it runs. */
+export interface LeadTrialInput {
+  teacher_id: string;
+  /** Local wall-clock "YYYY-MM-DD HH:mm", read in `timezone` (the academy's by default). */
+  local_datetime: string;
+  timezone?: string | null;
+  duration_minutes: number;
+  notes?: string | null;
+}
+
+/**
+ * POST /api/crm/leads/{id}/trial — book the trial that moves a lead into the TRIAL stage.
+ * The booking is what puts it on the calendar and into the trials statistics; conflicts come
+ * back as `warnings`, never as a refusal.
+ */
+export function bookLeadTrial(
+  id: string,
+  input: LeadTrialInput,
+): Promise<{ trialId: string; warnings: TrialWarning[] }> {
+  return apiFetch(`/api/crm/leads/${id}/trial`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * The teacher roster the trial form picks from. The CRM serves its own so a delegated sales
+ * role never needs `teacher.read` — which would hand it rates, payouts and profiles.
+ */
+export function listCrmTeachers(): Promise<{
+  teachers: { id: string; full_name: string; specialization: string | null }[];
+  durations: number[];
+  timezone: string;
+}> {
+  return apiFetch("/api/crm/teachers");
+}
+
+/**
+ * POST /api/crm/leads/{id}/convert — the SUBSCRIBED stage. The student is created first
+ * through the normal student form (POST /students), so every required detail is collected by
+ * the one form that owns them; this records the linkage that puts them on the Students page.
+ */
 export function convertLead(
   id: string,
   studentId: string,

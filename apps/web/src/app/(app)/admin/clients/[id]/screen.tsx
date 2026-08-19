@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Ban,
   CheckCircle2,
+  CreditCard,
   LogIn,
   MonitorPlay,
   ReceiptText,
@@ -19,8 +20,10 @@ import { AcademySubscriptionPanel } from "@/components/academies/academy-subscri
 import { AdminPageHeader } from "@/components/admin/page-header";
 import { StatusChip, SUBSCRIPTION_TONE } from "@/components/admin/status-chip";
 import { useAuth } from "@/components/auth-provider";
+import { FeaturesCard } from "@/components/clients/features-card";
 import { ClientVideoCard, ClientWhatsappCard } from "@/components/clients/module-tabs";
-import { SubscriptionsCard } from "@/components/clients/subscriptions-card";
+import { ModulesCard } from "@/components/clients/modules-card";
+import { ClientXpayCard } from "@/components/clients/client-xpay-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -28,33 +31,37 @@ import {
   ApiError,
   enterAcademy,
   getClient,
-  listPlans,
+  getPlatformSettings,
   reactivateAcademy,
   suspendAcademy,
   updateAcademy,
   type ClientDetail,
-  type Plan,
+  type ModuleCode,
+  type PlatformSettings,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
- * /admin/clients/[id] — the client control center (R2, 04-CLIENT-FIRST-REDESIGN §4): header with
- * the derived status + Enter/Suspend, the Subscriptions card (THE writer for module/plan/trial
- * state), and tabs that appear only for enabled modules — Billing (the client's bills + proofs),
- * WhatsApp (connection/toggles/keys), Video (link to its ops detail), Settings (name/branding/
- * owner). A real route at last, so every trial chip and proof row can deep-link here.
+ * /admin/clients/[id] — the client control center (05-MODULES-NOT-PACKAGES §4): header with the
+ * derived status + Enter/Suspend, the Modules card (THE writer for which modules this client holds,
+ * at what price, on what trial), the Features card (every feature its modules grant, with the
+ * switches that take one away for this client alone), and tabs that appear only for the modules it
+ * holds — Billing, WhatsApp, Video, Settings.
  */
 
-type Tab = "billing" | "whatsapp" | "video" | "settings";
+type Tab = "billing" | "payments" | "whatsapp" | "video" | "settings";
 
-/** Subdomain provisioning (docs/lms/02): DNS-safe handle → the LMS learner site. Mirrors the API's
- *  validation + the learner-site middleware's reserved list so the admin sees the resulting URL and
- *  never round-trips an avoidable 422. */
+/** Subdomain provisioning (docs/lms/02): a DNS-safe handle gives the client its own address —
+ *  their branded sign-in and panel, or the public course site when the course platform is their
+ *  whole product. Mirrors the API's validation + the routing middleware's reserved list so the
+ *  admin sees the resulting URL and never round-trips an avoidable 422. */
 const SUBDOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 const RESERVED_SUBDOMAINS = new Set(["www", "app", "api", "admin", "mail", "static", "assets", "cdn"]);
-const LEARNER_ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN;
+/** The CANONICAL root: `NEXT_PUBLIC_ROOT_DOMAIN` may list several (see middleware.ts), and a link
+ *  handed to a client has to name exactly one — the first. */
+const CLIENT_ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN?.split(",")[0]?.trim();
 /** `http` for local development, `https` in prod — mirror of the API's LMS_SITE_SCHEME. */
-const LEARNER_SCHEME =
+const CLIENT_SCHEME =
   process.env.NEXT_PUBLIC_ROOT_SCHEME === "http" ? "http" : "https";
 
 export function ClientScreen({ clientId }: { clientId: string }) {
@@ -66,7 +73,10 @@ export function ClientScreen({ clientId }: { clientId: string }) {
   const toast = useToast();
 
   const [data, setData] = useState<ClientDetail | null>(null);
-  const [plans, setPlans] = useState<Plan[]>([]);
+  /** Per-module default prices from platform settings — they only PRE-FILL the enable form. */
+  const [defaultPricing, setDefaultPricing] = useState<
+    Partial<Record<ModuleCode, { price_minor: number; currency: string }>>
+  >({});
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("billing");
   const [confirmEnter, setConfirmEnter] = useState(false);
@@ -76,12 +86,16 @@ export function ClientScreen({ clientId }: { clientId: string }) {
 
   const load = useCallback(async () => {
     try {
-      const [client, catalog] = await Promise.all([
+      const [client, settings] = await Promise.all([
         getClient(clientId),
-        can("plan.manage") ? listPlans() : Promise.resolve({ plans: [] as Plan[] }),
+        can("platform.manage")
+          ? getPlatformSettings().catch(() => ({ settings: {} as PlatformSettings }))
+          : Promise.resolve({ settings: {} as PlatformSettings }),
       ]);
       setData(client);
-      setPlans(catalog.plans);
+      setDefaultPricing(
+        (settings.settings.module_pricing as typeof defaultPricing | undefined) ?? {},
+      );
       setError(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -100,6 +114,9 @@ export function ClientScreen({ clientId }: { clientId: string }) {
   const tabs = useMemo(() => {
     const list: { key: Tab; icon: typeof ReceiptText }[] = [
       { key: "billing", icon: ReceiptText },
+      // Unconditional: how a client collects money from its own students is not a module, it is a
+      // property of every client that bills anyone.
+      { key: "payments", icon: CreditCard },
     ];
     if (activeModules.has("WHATSAPP")) list.push({ key: "whatsapp", icon: MessageCircle });
     if (activeModules.has("VIDEO")) list.push({ key: "video", icon: MonitorPlay });
@@ -239,11 +256,21 @@ export function ClientScreen({ clientId }: { clientId: string }) {
         </div>
       )}
 
-      {/* ── The Subscriptions card — the one writer ─────────────────────── */}
-      <SubscriptionsCard
+      {/* ── Modules: what this client is subscribed to, and what it pays ── */}
+      <ModulesCard
         clientId={clientId}
+        clientType={data.catalog.clientType}
         modules={data.modules}
-        plans={plans}
+        currency={client.default_currency}
+        defaultPricing={defaultPricing}
+        onChanged={() => void load()}
+      />
+
+      {/* ── Features: everything those modules grant, and what we switched off ── */}
+      <FeaturesCard
+        clientId={clientId}
+        catalog={data.catalog}
+        modules={data.modules}
         onChanged={() => void load()}
       />
 
@@ -274,6 +301,7 @@ export function ClientScreen({ clientId }: { clientId: string }) {
           {tab === "billing" && (
             <AcademySubscriptionPanel academyId={clientId} onChanged={() => void load()} />
           )}
+          {tab === "payments" && <ClientXpayCard clientId={clientId} />}
           {tab === "whatsapp" && activeModules.has("WHATSAPP") && (
             <ClientWhatsappCard clientId={clientId} />
           )}
@@ -330,9 +358,11 @@ function ClientSettingsForm({
   const subUrl =
     sub === "" || !subValid || subReserved
       ? null
-      : LEARNER_ROOT_DOMAIN
-        ? `${LEARNER_SCHEME}://${sub}.${LEARNER_ROOT_DOMAIN}`
-        : `/learn/${sub}`;
+      : CLIENT_ROOT_DOMAIN
+        ? `${CLIENT_SCHEME}://${sub}.${CLIENT_ROOT_DOMAIN}`
+        : // Subdomain routing is off (no root domain configured): the only address that resolves
+          // is the in-app course-site path, so show that rather than a link that would not open.
+          `/learn/${sub}`;
 
   const save = async () => {
     setSaving(true);

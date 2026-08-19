@@ -255,15 +255,17 @@ describe("AppShell header", () => {
     expect(push).toHaveBeenCalledWith("/invoices");
   });
 
-  it("routes a plan-locked hit to the upgrade page instead of the gated feature", async () => {
+  it("does not offer a feature we switched off for this client", async () => {
     const user = userEvent.setup();
-    // No `invoicing` capability → Invoices is locked. The palette must not shortcut the plan gate;
-    // the server would 402 the page anyway, so send the owner somewhere that can actually help.
+    // No `invoicing` capability → we switched Invoices off for this client. There is no tier to
+    // upgrade to (05-MODULES-NOT-PACKAGES §6), so the feature simply does not exist for them.
     renderShell("ACADEMY_OWNER", { capabilities: [] });
     await ready();
 
+    expect(navKeys()).not.toContain("invoices");
+
     await search(user, arMessages.nav.invoices.slice(0, 3));
 
-    expect(push).toHaveBeenCalledWith("/plan");
+    expect(push).not.toHaveBeenCalled();
   });
 });

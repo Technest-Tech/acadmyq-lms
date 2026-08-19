@@ -53,15 +53,36 @@ export function makeSession(
     permissions: PERMISSIONS_BY_ROLE[role],
     locale: "ar",
     capabilities: null,
+    // The panel's own identity travels with the session; a platform Super Admin has no academy, so
+    // the chrome keeps the platform's mark.
+    academy:
+      role === "SUPER_ADMIN"
+        ? null
+        : { name: "Noor Academy", displayName: "Noor Academy", logoUrl: null },
     ...overrides,
   };
 
-  // Plan capabilities ship with the session (GET /auth/me), so they follow the academy scope:
-  // an academy resolves a plan, a platform Super Admin has none. A test that cares about a
-  // specific plan — a locked feature, a video-only academy — passes `capabilities` explicitly.
+  // Capabilities ship with the session (GET /auth/me) and follow the academy scope: a client
+  // resolves everything its modules grant, a platform Super Admin has none. Since packages are
+  // gone (05-MODULES-NOT-PACKAGES) the default client here holds the management module plus video
+  // — a test that cares about a switched-off feature passes `capabilities` explicitly.
   if (!("capabilities" in overrides)) {
     session.capabilities =
-      session.academyId === null ? null : ["video.conferencing"];
+      session.academyId === null
+        ? null
+        : [
+            "invoicing",
+            "payroll",
+            "certificates",
+            "staff",
+            "custom_roles",
+            "trials",
+            "crm",
+            "student_reports",
+            "audit.full",
+            "report_field.custom",
+            "video.conferencing",
+          ];
   }
 
   return session;

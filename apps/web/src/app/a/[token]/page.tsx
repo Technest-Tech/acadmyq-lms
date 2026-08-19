@@ -1,3 +1,4 @@
+import { apiBase } from "@/lib/api-base";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { formatMoney } from "@/lib/money";
@@ -19,10 +20,9 @@ interface AcademyBillDTO {
   payment_methods: ReceivingMethods;
 }
 
-const API_URL =
-  process.env.API_URL ??
-  process.env.NEXT_PUBLIC_API_URL ??
-  "http://localhost:8000";
+// `API_URL` lets a deploy point server-side fetches at an internal address; otherwise the shared
+// resolver applies (and turns a port-only value into a loopback origin — there is no page host here).
+const API_URL = process.env.API_URL ?? apiBase();
 
 async function fetchBill(token: string): Promise<AcademyBillDTO | null> {
   const res = await fetch(`${API_URL}/api/a/${token}`, {

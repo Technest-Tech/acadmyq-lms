@@ -3,15 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthContext } from "@/components/auth-provider";
-import { SubscriptionsCard } from "@/components/clients/subscriptions-card";
+import { FeaturesCard } from "@/components/clients/features-card";
+import { ModulesCard } from "@/components/clients/modules-card";
 import { ToastProvider } from "@/components/ui/toast";
 import { authValue, makeSession } from "@/test/auth";
 import enMessages from "../../../../../messages/en.json";
 import { ClientsScreen } from "./screen";
 
-// R2 (docs/superadmin-modules/04-CLIENT-FIRST-REDESIGN §3–4): the client roster shows one row per
-// client with its three module chips, and the Subscriptions card is the one writer for per-module
-// enable / trial / activate / pause.
+// 05-MODULES-NOT-PACKAGES: the client roster shows one row per client with the module chips its
+// TYPE can fill; the Modules card is the one writer for enable / price / trial / activate / pause;
+// the Features card is where a single feature gets switched off for one client.
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -36,6 +37,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/api")>()),
   listClients: vi.fn(),
   enableClientModule: vi.fn(),
+  updateClientModuleFeatures: vi.fn(),
   extendClientModuleTrial: vi.fn(),
   activateClientModule: vi.fn(),
   pauseClientModule: vi.fn(),
@@ -77,6 +79,7 @@ describe("ClientsScreen (the client hub)", () => {
         {
           id: "c1",
           name: "Bright Steps Center",
+          client_type: "MANAGEMENT",
           status: "ACTIVE",
           suspended_reason: null,
           default_currency: "EGP",
@@ -101,6 +104,7 @@ describe("ClientsScreen (the client hub)", () => {
         {
           id: "c2",
           name: "Sunrise Nursery",
+          client_type: "WHATSAPP",
           status: "TRIAL",
           suspended_reason: null,
           default_currency: "EGP",
@@ -122,7 +126,7 @@ describe("ClientsScreen (the client hub)", () => {
     expect(await screen.findByText("Bright Steps Center")).toBeInTheDocument();
     expect(screen.getByText("Sunrise Nursery")).toBeInTheDocument();
 
-    // Bright Steps: MANAGEMENT active + VIDEO trial on, WHATSAPP off.
+    // Bright Steps is a management client: MANAGEMENT active + VIDEO trial on, WHATSAPP off.
     const row = screen.getByTestId("client-row-c1");
     expect(
       row.querySelector('[data-module="MANAGEMENT"][data-state="active"]'),
@@ -147,7 +151,7 @@ describe("ClientsScreen (the client hub)", () => {
   });
 });
 
-describe("SubscriptionsCard (the one writer)", () => {
+describe("ModulesCard (the one writer)", () => {
   const modules: api.ModuleSubscription[] = [
     {
       id: "ms1",
@@ -165,29 +169,7 @@ describe("SubscriptionsCard (the one writer)", () => {
       total_cost_minor: 99900,
       currency: "EGP",
       overrides: null,
-      plan_id: "p1",
-      plan_code: "PRO",
-      plan_name: "Pro",
-    },
-  ];
-  const plans: api.Plan[] = [
-    {
-      id: "p1",
-      code: "PRO",
-      name: "Pro",
-      price_minor: 99900,
-      currency: "EGP",
-      module: "MANAGEMENT",
-      is_active: true,
-    },
-    {
-      id: "pv",
-      code: "MEET",
-      name: "Meet",
-      price_minor: 40000,
-      currency: "EGP",
-      module: "VIDEO",
-      is_active: true,
+      plan_id: null,
     },
   ];
 
@@ -198,13 +180,14 @@ describe("SubscriptionsCard (the one writer)", () => {
     vi.mocked(api.extendClientModuleTrial).mockResolvedValue({ subscription });
   });
 
-  it("shows three fixed rows with trial countdown and enable buttons for empty modules", () => {
+  it("shows one row per module the client type allows, with enable actions for the empty ones", () => {
     render(
       wrap(
-        <SubscriptionsCard
+        <ModulesCard
           clientId="c1"
+          clientType="MANAGEMENT"
           modules={modules}
-          plans={plans}
+          currency="EGP"
           onChanged={vi.fn()}
         />,
         ["academy_billing.manage"],
@@ -214,20 +197,23 @@ describe("SubscriptionsCard (the one writer)", () => {
     expect(screen.getByTestId("module-row-MANAGEMENT")).toHaveTextContent(
       "Trial · 3 days left",
     );
-    // VIDEO + WHATSAPP are off → enable actions.
+    // VIDEO + WHATSAPP are off → enable actions. A management client never offers Courses.
     expect(screen.getByTestId("enable-VIDEO")).toBeInTheDocument();
     expect(screen.getByTestId("enable-WHATSAPP")).toBeInTheDocument();
+    expect(screen.queryByTestId("module-row-LMS")).not.toBeInTheDocument();
   });
 
-  it("enables VIDEO with a trial through the module-filtered plan picker", async () => {
+  it("sells a module at the price typed for this client", async () => {
     const user = userEvent.setup();
     const onChanged = vi.fn();
     render(
       wrap(
-        <SubscriptionsCard
+        <ModulesCard
           clientId="c1"
+          clientType="MANAGEMENT"
           modules={modules}
-          plans={plans}
+          currency="EGP"
+          defaultPricing={{ VIDEO: { price_minor: 40000, currency: "EGP" } }}
           onChanged={onChanged}
         />,
         ["academy_billing.manage"],
@@ -236,16 +222,14 @@ describe("SubscriptionsCard (the one writer)", () => {
 
     await user.click(screen.getByTestId("enable-VIDEO"));
     const form = screen.getByTestId("enable-form-VIDEO");
-    // Only the VIDEO-module plan is offered.
-    expect(form).toHaveTextContent("Meet");
-    expect(form).not.toHaveTextContent("Pro");
-
     await user.click(within(form).getByRole("button", { name: "Enable…" }));
 
     await waitFor(() =>
       expect(api.enableClientModule).toHaveBeenCalledWith("c1", "VIDEO", {
-        plan_id: "pv",
         mode: "trial",
+        price_minor: 40000, // pre-filled from the platform default
+        currency: "EGP",
+        billing_interval: "MONTHLY",
         trial_days: 5,
       }),
     );
@@ -255,10 +239,11 @@ describe("SubscriptionsCard (the one writer)", () => {
   it("hides all write actions without academy_billing.manage", () => {
     render(
       wrap(
-        <SubscriptionsCard
+        <ModulesCard
           clientId="c1"
+          clientType="MANAGEMENT"
           modules={modules}
-          plans={plans}
+          currency="EGP"
           onChanged={vi.fn()}
         />,
         ["academy.read"],
@@ -267,5 +252,72 @@ describe("SubscriptionsCard (the one writer)", () => {
 
     expect(screen.queryByTestId("enable-VIDEO")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Activate" })).not.toBeInTheDocument();
+  });
+});
+
+describe("FeaturesCard (switching a feature off for one client)", () => {
+  const catalog: api.ClientFeatureCatalog = {
+    clientType: "MANAGEMENT",
+    allowedModules: ["MANAGEMENT", "VIDEO", "WHATSAPP"],
+    modules: {
+      MANAGEMENT: {
+        capabilities: {
+          invoicing: "Invoice management & billing",
+          certificates: "Student certificates",
+        },
+        limits: { maxStudents: "Max students" },
+      },
+    },
+  };
+
+  const sub: api.ModuleSubscription = {
+    id: "ms1",
+    module: "MANAGEMENT",
+    status: "ACTIVE",
+    is_trial: false,
+    trial_start: null,
+    trial_end: null,
+    activated_at: null,
+    current_period_start: null,
+    current_period_end: null,
+    billing_interval: "MONTHLY",
+    base_price_minor: 99900,
+    addons_price_minor: 0,
+    total_cost_minor: 99900,
+    currency: "EGP",
+    overrides: { disabled: ["certificates"], limits: { maxStudents: 120 } },
+    plan_id: null,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.updateClientModuleFeatures).mockResolvedValue({ subscription: sub });
+  });
+
+  it("reflects what is switched off and saves a change", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn();
+    render(
+      wrap(
+        <FeaturesCard clientId="c1" catalog={catalog} modules={[sub]} onChanged={onChanged} />,
+        ["academy_billing.manage"],
+      ),
+    );
+
+    // Everything the module owns is listed; only what we switched off is unchecked.
+    expect(screen.getByTestId("feature-invoicing")).toBeChecked();
+    expect(screen.getByTestId("feature-certificates")).not.toBeChecked();
+    expect(screen.getByTestId("cap-maxStudents")).toHaveValue(120);
+
+    await user.click(screen.getByTestId("feature-invoicing"));
+    await user.click(screen.getByTestId("save-MANAGEMENT"));
+
+    await waitFor(() =>
+      expect(api.updateClientModuleFeatures).toHaveBeenCalledWith("c1", "MANAGEMENT", {
+        disabled: ["certificates", "invoicing"],
+        limits: { maxStudents: 120 },
+      }),
+    );
+    expect(onChanged).toHaveBeenCalled();
   });
 });

@@ -83,7 +83,7 @@ export function AdminVideoAcademyScreen({ academyId }: { academyId: string }) {
             titleExtra={<VideoStatusBadge status={detail.academy.video_status} />}
             subtitle={
               <>
-                {detail.academy.plan_name ?? t("usage.noPlan")} · {t("detail.createdAt", { date: fmtDate(detail.academy.created_at) })}
+                {t("detail.createdAt", { date: fmtDate(detail.academy.created_at) })}
               </>
             }
           />

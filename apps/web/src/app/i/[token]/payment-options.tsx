@@ -1,17 +1,19 @@
 "use client";
 
+import { apiBase } from "@/lib/api-base";
 import {
-  Building2,
   Check,
   ChevronDown,
   Copy,
+  CreditCard,
   Landmark,
   ShieldCheck,
   Wallet,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE = apiBase();
 
 export interface PublicPaymentMethod {
   method: "BANK_TRANSFER" | "PAYPAL" | "XPAY";
@@ -262,6 +264,162 @@ function PaypalCheckout({
   );
 }
 
+// ── XPay hosted checkout ─────────────────────────────────────────────────────
+
+/**
+ * XPay runs as a HOSTED redirect: we ask the API to open a Checkout Session, send the payer to
+ * XPay's page (card entry + 3-D Secure live there, so no card data ever touches this app), and they
+ * come back to `/i/{token}?xpay=cs_…`.
+ *
+ * That return is a courtesy, not the confirmation — the payer can close the tab and the payment
+ * still lands. The real settlement is the `checkout.session.completed` webhook. What the return
+ * does is let us ASK the API to confirm, which also covers the case where the academy's webhook
+ * endpoint was never configured.
+ */
+function XpayCheckout({
+  invoiceToken,
+  onPaid,
+}: {
+  invoiceToken: string;
+  onPaid: () => void;
+}) {
+  const [state, setState] = useState<
+    "idle" | "redirecting" | "confirming" | "success" | "cancelled" | "error"
+  >("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  // On return from XPay, confirm the session named in the query string.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("xpay_cancelled") === "1") {
+      setState("cancelled");
+      return;
+    }
+
+    const sessionId = params.get("xpay");
+    if (!sessionId) return;
+
+    setState("confirming");
+    void (async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/i/${invoiceToken}/xpay/session/${encodeURIComponent(sessionId)}`,
+          { headers: { Accept: "application/json" } },
+        );
+        const body = (await res.json().catch(() => ({}))) as {
+          paid?: boolean;
+          message?: string;
+        };
+        if (res.ok && body.paid) {
+          setState("success");
+          onPaid();
+        } else {
+          setState("error");
+          setError(
+            body.message ??
+              "We could not confirm the payment yet. If you were charged, it will update shortly.",
+          );
+        }
+      } catch {
+        setState("error");
+        setError("We could not reach the payment service. Please refresh.");
+      }
+    })();
+  }, [invoiceToken, onPaid]);
+
+  const start = async () => {
+    setState("redirecting");
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/i/${invoiceToken}/xpay/session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        url?: string;
+        message?: string;
+      };
+      if (!res.ok || !body.url) {
+        setState("error");
+        setError(body.message ?? "Could not start the payment. Please try again.");
+        return;
+      }
+      window.location.href = body.url;
+    } catch {
+      setState("error");
+      setError("Could not reach the payment service. Please try again.");
+    }
+  };
+
+  if (state === "success") {
+    return (
+      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-center">
+        <div className="mx-auto mb-2 flex size-10 items-center justify-center rounded-full bg-emerald-100">
+          <Check className="size-5 text-emerald-600" aria-hidden />
+        </div>
+        <p className="text-sm font-semibold text-emerald-800">
+          <T en="Payment successful! Thank you." ar="تمّ الدفع بنجاح! شكراً لك." />
+        </p>
+      </div>
+    );
+  }
+
+  if (state === "confirming") {
+    return (
+      <div className="flex items-center justify-center gap-2 py-3 text-sm text-gray-600">
+        <div className="size-4 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
+        <T en="Confirming your payment…" ar="جارٍ تأكيد عملية الدفع…" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {state === "cancelled" && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <T
+            en="The payment was not completed. You can try again below."
+            ar="لم تكتمل عملية الدفع. يمكنك المحاولة مرة أخرى أدناه."
+          />
+        </div>
+      )}
+      {state === "error" && error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          {error}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => void start()}
+        disabled={state === "redirecting"}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60 print:hidden"
+      >
+        {state === "redirecting" ? (
+          <>
+            <div className="size-4 animate-spin rounded-full border-2 border-white/50 border-t-transparent" />
+            <T en="Opening secure checkout…" ar="جارٍ فتح صفحة الدفع الآمنة…" />
+          </>
+        ) : (
+          <>
+            <CreditCard className="size-4" aria-hidden />
+            <T en="Pay by card" ar="ادفع بالبطاقة" />
+          </>
+        )}
+      </button>
+
+      <p className="text-center text-xs text-gray-400">
+        <T
+          en="You will be taken to XPay's secure page to enter your card details."
+          ar="سيتم تحويلك إلى صفحة XPay الآمنة لإدخال بيانات بطاقتك."
+        />
+      </p>
+    </div>
+  );
+}
+
 // ── Method metadata ──────────────────────────────────────────────────────────
 
 const METHOD_META: Record<
@@ -289,11 +447,11 @@ const METHOD_META: Record<
     hintAr: "ادفع بأمان عبر الإنترنت",
   },
   XPAY: {
-    icon: Building2,
-    en: "XPay",
-    ar: "إكس باي",
-    hintEn: "Pay securely online",
-    hintAr: "ادفع بأمان عبر الإنترنت",
+    icon: CreditCard,
+    en: "Card",
+    ar: "بطاقة بنكية",
+    hintEn: "Visa, Mastercard & Meeza",
+    hintAr: "فيزا وماستركارد وميزة",
   },
 };
 
@@ -301,10 +459,12 @@ function MethodBody({
   pm,
   currency,
   invoiceToken,
+  onPaid,
 }: {
   pm: PublicPaymentMethod;
   currency: string;
   invoiceToken: string;
+  onPaid: () => void;
 }) {
   if (pm.method === "BANK_TRANSFER") {
     const c = pm.config;
@@ -343,6 +503,9 @@ function MethodBody({
       />
     );
   }
+  if (pm.method === "XPAY") {
+    return <XpayCheckout invoiceToken={invoiceToken} onPaid={onPaid} />;
+  }
   return (
     <p className="text-sm text-gray-500">
       <T
@@ -360,10 +523,17 @@ export function PaymentOptions({
   methods,
   invoiceToken,
 }: PaymentOptionsProps) {
-  // Open the first method by default so the payer immediately sees how to pay.
-  const [openKey, setOpenKey] = useState<string | null>(
-    methods.length > 0 ? methods[0]!.method : null,
-  );
+  const router = useRouter();
+
+  // Open the first method by default so the payer immediately sees how to pay — unless they are
+  // coming back from XPay, in which case open the panel that is about to confirm their payment.
+  const [openKey, setOpenKey] = useState<string | null>(() => {
+    if (typeof window !== "undefined" && methods.some((m) => m.method === "XPAY")) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("xpay") || params.has("xpay_cancelled")) return "XPAY";
+    }
+    return methods.length > 0 ? methods[0]!.method : null;
+  });
 
   if (methods.length === 0) {
     return (
@@ -429,6 +599,7 @@ export function PaymentOptions({
                   pm={pm}
                   currency={currency}
                   invoiceToken={invoiceToken}
+                  onPaid={() => router.refresh()}
                 />
               </div>
             )}

@@ -1,16 +1,16 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import type { ClientModuleChip, ModuleCode } from "@/lib/api";
-import { MODULE_CODES } from "@/lib/api";
+import type { ClientModuleChip, ClientType, ModuleCode } from "@/lib/api";
+import { CLIENT_TYPE_MODULES, MODULE_CODES } from "@/lib/api";
 import { daysUntil } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
- * The three module chips a client row carries (R2, 04-CLIENT-FIRST-REDESIGN §3): one per product —
- * Management / Video / WhatsApp — colored when the client has a live subscription for it, muted
- * when it doesn't. A trial shows its countdown in the tooltip; a paused module renders struck.
- * This is the at-a-glance answer to "what does this client have?".
+ * The module chips a client row carries (05-MODULES-NOT-PACKAGES §2): one per module the client's
+ * TYPE can hold — colored when it holds a live subscription, muted when it doesn't. A trial shows
+ * its countdown in the tooltip; a paused module renders struck. This is the at-a-glance answer to
+ * "what does this client have?".
  */
 
 export const MODULE_STYLE: Record<
@@ -29,26 +29,33 @@ export const MODULE_STYLE: Record<
     on: "bg-emerald-100 text-emerald-700 ring-emerald-300/50 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800/50",
     label: "W",
   },
-  CRM: {
+  LMS: {
     on: "bg-rose-100 text-rose-700 ring-rose-300/50 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-800/50",
-    label: "C",
+    label: "L",
   },
 };
 
 
 export function ModuleChips({
   modules,
+  clientType,
   size = "sm",
 }: {
   modules: ClientModuleChip[];
+  /** Show the slots this client type can fill; without it, only what it actually holds. */
+  clientType?: ClientType;
   size?: "sm" | "md";
 }) {
   const t = useTranslations("clients");
   const byModule = new Map(modules.map((m) => [m.module, m]));
+  const slots: readonly ModuleCode[] =
+    clientType !== undefined
+      ? CLIENT_TYPE_MODULES[clientType]
+      : MODULE_CODES.filter((code) => byModule.has(code));
 
   return (
     <div className="flex items-center gap-1.5">
-      {MODULE_CODES.map((code) => {
+      {slots.map((code) => {
         const sub = byModule.get(code);
         const style = MODULE_STYLE[code];
         const paused = sub?.status === "PAUSED";
@@ -59,7 +66,7 @@ export function ModuleChips({
             ? `${t(`modules.${code}`)} — ${t("chip.paused")}`
             : sub.is_trial
               ? `${t(`modules.${code}`)} — ${t("chip.trialDays", { days: trialDays ?? 0 })}`
-              : `${t(`modules.${code}`)} — ${sub.plan_name ?? t("chip.active")}`
+              : `${t(`modules.${code}`)} — ${t("chip.active")}`
           : `${t(`modules.${code}`)} — ${t("chip.off")}`;
 
         return (

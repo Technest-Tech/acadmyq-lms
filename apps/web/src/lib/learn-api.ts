@@ -2,7 +2,7 @@
 // public, per-academy surface authenticated by a Sanctum BEARER token (stored in localStorage),
 // with the academy carried in the `X-Academy` header (the subdomain handle). No cookies.
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { apiBase } from "@/lib/api-base";
 
 const tokenKey = (academy: string) => `lms_token_${academy}`;
 
@@ -40,7 +40,7 @@ async function learnFetch<T>(academy: string, path: string, opts: RequestInit = 
   const token = getLearnToken(academy);
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${BASE_URL}/api/learn${path}`, {
+  const res = await fetch(`${apiBase()}/api/learn${path}`, {
     ...opts,
     headers,
     credentials: "same-origin",

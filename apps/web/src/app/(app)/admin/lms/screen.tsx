@@ -193,7 +193,6 @@ export function AdminLmsScreen() {
                       >
                         {a.academy_name}
                       </Link>
-                      <p className="text-muted-foreground text-[11px]">{a.lms_plan_name ?? a.plan_name ?? t("clients.noPlan")}</p>
                     </td>
                     <td className="px-4 py-2.5"><LmsStatusBadge status={a.lms_status} /></td>
                     <td className="px-4 py-2.5">

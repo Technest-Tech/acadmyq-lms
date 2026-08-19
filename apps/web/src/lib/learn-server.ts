@@ -1,3 +1,4 @@
+import { apiBase } from "@/lib/api-base";
 import type { LearnSite, LearnSiteContent } from "@/lib/learn-api";
 
 /**
@@ -10,7 +11,7 @@ import type { LearnSite, LearnSiteContent } from "@/lib/learn-api";
  * worth paying a database round-trip on every page view of every tenant.
  */
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
 
 /** Distinguishes "this academy does not exist" (⇒ 404 the page) from "the API blinked". */
 export class UnknownAcademyError extends Error {}
@@ -18,7 +19,7 @@ export class UnknownAcademyError extends Error {}
 export async function fetchLearnSite(academy: string): Promise<LearnSite> {
   let res: Response;
   try {
-    res = await fetch(`${BASE_URL}/api/learn/site`, {
+    res = await fetch(`${apiBase()}/api/learn/site`, {
       headers: { Accept: "application/json", "X-Academy": academy },
       next: { revalidate: 60, tags: [`learn-site:${academy}`] },
     });

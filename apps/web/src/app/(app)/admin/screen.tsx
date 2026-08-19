@@ -133,12 +133,7 @@ function EndingSoonRow({
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{item.academy_name}</p>
           <p className="text-muted-foreground truncate text-xs">
-            {[
-              t(item.kind === "trial" ? "kindTrial" : "kindRenewal"),
-              item.plan_name,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+            {t(item.kind === "trial" ? "kindTrial" : "kindRenewal")}
           </p>
         </div>
       </div>
@@ -201,6 +196,7 @@ function ProofRow({
  */
 export function AdminDashboardScreen() {
   const t = useTranslations("adminDashboard");
+  const tc = useTranslations("clients");
   const locale = useLocale();
   const { can } = useAuth();
 
@@ -385,10 +381,10 @@ export function AdminDashboardScreen() {
           </CardContent>
         </Card>
 
-        {/* Plan distribution */}
+        {/* Module distribution — who holds what (05-MODULES-NOT-PACKAGES §2) */}
         <Card>
           <CardHeader>
-            <CardTitle>{t("planDistribution")}</CardTitle>
+            <CardTitle>{t("moduleDistribution")}</CardTitle>
             <CardAction>
               <Link
                 href="/admin/plans"
@@ -409,23 +405,27 @@ export function AdminDashboardScreen() {
                   />
                 ))}
               </div>
-            ) : stats && stats.plan_distribution.length === 0 ? (
+            ) : stats && stats.module_distribution.length === 0 ? (
               <p className="text-muted-foreground py-6 text-center text-sm">
-                {t("noPlans")}
+                {t("noModules")}
               </p>
             ) : (
               <div className="space-y-2">
-                {stats?.plan_distribution.map((p) => (
+                {stats?.module_distribution.map((m) => (
                   <div
-                    key={p.plan_id}
+                    key={m.module}
                     className="bg-muted/30 flex items-center justify-between rounded-lg px-3 py-2.5"
                   >
                     <div className="flex items-center gap-2.5">
-                      <StatusChip tone="accent">{p.plan_code}</StatusChip>
-                      <span className="text-sm font-medium">{p.plan_name}</span>
+                      <StatusChip tone="accent">{tc(`modules.${m.module}`)}</StatusChip>
+                      {m.trial_count > 0 && (
+                        <span className="text-muted-foreground text-xs">
+                          {t("onTrial", { count: m.trial_count })}
+                        </span>
+                      )}
                     </div>
                     <span className="text-muted-foreground text-xs tabular-nums">
-                      {t("planAcademies", { count: p.academy_count })}
+                      {t("moduleClients", { count: m.client_count })}
                     </span>
                   </div>
                 ))}

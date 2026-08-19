@@ -21,7 +21,6 @@ import {
   LibraryBig,
   LifeBuoy,
   ListChecks,
-  Lock,
   LogOut,
   Menu,
   MessageCircle,
@@ -34,7 +33,6 @@ import {
   Scale,
   Settings,
   ShieldCheck,
-  Sparkles,
   ToggleLeft,
   Users,
   UserCheck,
@@ -62,6 +60,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import { getDaySessionCount, getNotificationsSummary } from "@/lib/api";
+import {
+  KhatamLattice,
+  Octagram,
+  OrnateRule,
+} from "@/components/ornaments";
 import { applyBranding, loadBranding } from "@/lib/branding";
 import { cn } from "@/lib/utils";
 
@@ -173,6 +176,34 @@ const NAV: ReadonlyArray<{
     group: "people",
   },
   {
+    key: "attendance",
+    icon: ClipboardCheck,
+    permission: "session.read",
+    href: "/attendance",
+    group: "people",
+  },
+  {
+    key: "schedule",
+    icon: CalendarDays,
+    permission: "schedule.read",
+    href: "/calendar",
+    group: "people",
+  },
+  {
+    key: "trials",
+    icon: CalendarClock,
+    permission: "trial.read",
+    href: "/trials",
+    group: "people",
+  },
+  {
+    key: "crm",
+    icon: UserPlus,
+    permission: "crm.read",
+    href: "/crm",
+    group: "people",
+  },
+  {
     key: "guardians",
     icon: UserCheck,
     permission: "guardian.read",
@@ -184,27 +215,6 @@ const NAV: ReadonlyArray<{
     icon: UserCog,
     permission: "teacher.read",
     href: "/teachers",
-    group: "people",
-  },
-  {
-    key: "staff",
-    icon: Users,
-    permission: "staff.read",
-    href: "/staff",
-    group: "people",
-  },
-  {
-    key: "academyRoles",
-    icon: ShieldCheck,
-    permission: "role.manage",
-    href: "/roles",
-    group: "people",
-  },
-  {
-    key: "crm",
-    icon: UserPlus,
-    permission: "crm.read",
-    href: "/crm",
     group: "people",
   },
 
@@ -260,13 +270,6 @@ const NAV: ReadonlyArray<{
 
   // ── Academics ───────────────────────────────────────────────────────────
   {
-    key: "attendance",
-    icon: ClipboardCheck,
-    permission: "session.read",
-    href: "/attendance",
-    group: "academics",
-  },
-  {
     key: "studentReports",
     icon: NotebookPen,
     permission: "student_report.submit",
@@ -290,24 +293,10 @@ const NAV: ReadonlyArray<{
 
   // ── Scheduling ──────────────────────────────────────────────────────────
   {
-    key: "schedule",
-    icon: CalendarDays,
-    permission: "schedule.read",
-    href: "/calendar",
-    group: "scheduling",
-  },
-  {
     key: "videoClassroom",
     icon: Video,
     permission: "room.read",
     href: "/video-classroom",
-    group: "scheduling",
-  },
-  {
-    key: "trials",
-    icon: CalendarClock,
-    permission: "trial.read",
-    href: "/trials",
     group: "scheduling",
   },
 
@@ -354,13 +343,6 @@ const NAV: ReadonlyArray<{
     icon: BarChart3,
     permission: "invoice.read",
     href: "/financial-statistics",
-    group: "financial",
-  },
-  {
-    key: "plan",
-    icon: Sparkles,
-    permission: "invoice.read",
-    href: "/plan",
     group: "financial",
   },
   {
@@ -445,6 +427,20 @@ const NAV: ReadonlyArray<{
     group: "system",
   },
   {
+    key: "staff",
+    icon: Users,
+    permission: "staff.read",
+    href: "/staff",
+    group: "system",
+  },
+  {
+    key: "academyRoles",
+    icon: ShieldCheck,
+    permission: "role.manage",
+    href: "/roles",
+    group: "system",
+  },
+  {
     key: "platformSettings",
     icon: ToggleLeft,
     permission: "platform.manage",
@@ -481,11 +477,11 @@ const PLATFORM_NAV: readonly NavKey[] = [
 ];
 
 /**
- * Plan-gated nav items → the entitlement capability that unlocks them (Sprint 9 §3). Unlike
- * `permission` (which HIDES an item the role can't use), a missing capability keeps the item
- * visible but renders it disabled with an "Upgrade" badge that links to /plan — so an academy
- * owner can see what a higher tier offers. Items not listed here are never plan-locked. The
- * server still enforces the gate (entitled: middleware → 402); this is UX only.
+ * Entitlement-gated nav items → the capability that unlocks them. A client gets every feature its
+ * modules own, so a MISSING capability means we deliberately switched that feature off for this
+ * client (05-MODULES-NOT-PACKAGES §6) — there is no tier to upgrade to, so the item is HIDDEN
+ * rather than advertised. Items not listed here are never entitlement-gated. The server still
+ * enforces the gate (entitled: middleware → 402); this is UX only.
  */
 const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   videoClassroom: "video.conferencing",
@@ -500,7 +496,7 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   invoices: "invoicing",
   payroll: "payroll",
   // Both live behind the payroll entitlement — they are payroll features, not a separate module,
-  // so an academy without payroll sees them locked exactly as it sees payroll locked.
+  // so a client without payroll loses them exactly as it loses payroll.
   teacherQuality: "payroll",
   discountsAwards: "payroll",
   myPayroll: "payroll",
@@ -509,7 +505,7 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
 /**
  * The LMS workspace (docs/lms). `LMS_EXTRA_KEYS` are the surfaces that only make sense once the
  * module is on (they're hidden outright otherwise); `courses` is deliberately NOT one of them, so a
- * school without the module still sees a single locked "Courses" item advertising the platform.
+ * client without the module sees none of them (a school can never hold the course platform).
  * `LMS_ONLY_KEYS` is everything an `lms.only` client keeps: its workspace + the account screens.
  * Settings is deliberately NOT one of them — every knob on it (subjects, logo, colours, payment) is
  * either school-only or already owned by "My site", so for these clients it is a dead end.
@@ -703,6 +699,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // nav to the course platform plus the account screens every client still needs (docs/lms).
   const lmsOnly = capabilities !== null && capabilities.includes("lms.only");
   const hasLms = capabilities === null || capabilities.includes("lms");
+  /** Switched off for this client (or not part of its modules) ⇒ the item does not exist for them. */
+  const isLocked = (key: NavKey) => {
+    const requiredCap = NAV_CAPABILITY[key];
+    return (
+      requiredCap !== undefined &&
+      capabilities !== null &&
+      !capabilities.includes(requiredCap)
+    );
+  };
+
   const items = NAV.filter((item) => {
     if (item.permission !== null && !can(item.permission)) return false;
     if (item.key === "dashboard" && isPlatformAdmin) return false;
@@ -712,13 +718,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (item.key === "audit" && session.role !== "SUPER_ADMIN") return false;
     if (videoOnly && item.key !== "videoClassroom") return false;
     if (lmsOnly && !LMS_ONLY_KEYS.has(item.key)) return false;
-    // Without the module, only `courses` remains — visible-but-locked, as the LMS upsell. The rest
-    // of the workspace would be meaningless noise in a school's sidebar.
+    // A client without the course platform never sees any of its surfaces.
     if (!hasLms && LMS_EXTRA_KEYS.has(item.key)) return false;
+    if (isLocked(item.key)) return false;
     return true;
   });
   const inEnteredAcademy =
     session.role === "SUPER_ADMIN" && session.academyId !== null;
+
+  // The panel's own identity (see the Brand block below). A platform Super Admin has no academy, so
+  // these fall back to the platform's mark; an academy with no logo uploaded gets its initials.
+  const academyName = session.academy?.displayName || "Acadmyq";
+  const academyLogo = session.academy?.logoUrl ?? null;
+  const academyInitials = (session.academy?.displayName ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
 
   const initials = session.user.fullName
     .split(" ")
@@ -735,15 +753,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const matches = (href: string) =>
     pathname === href || (!isExactOnly(href) && pathname.startsWith(href));
   const activeItem = items.find((item) => matches(item.href));
-
-  const isLocked = (key: NavKey) => {
-    const requiredCap = NAV_CAPABILITY[key];
-    return (
-      requiredCap !== undefined &&
-      capabilities !== null &&
-      !capabilities.includes(requiredCap)
-    );
-  };
 
   /** The unread count owned by a nav item, if any. */
   const badgeFor = (key: NavKey): { count: number; label: string } | null => {
@@ -771,7 +780,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     href: item.href,
     icon: item.icon,
     group: t(`navGroup.${item.group}`),
-    locked: isLocked(item.key),
   }));
 
   /**
@@ -783,37 +791,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
    * — so "active" looked like a different thing depending on your unread count.
    */
   const renderNavItem = ({ key, icon: Icon, href }: (typeof NAV)[number]) => {
-    const locked = isLocked(key);
-    const isActive = !locked && matches(href);
-    const badge = locked ? null : badgeFor(key);
+    const isActive = matches(href);
+    const badge = badgeFor(key);
     const label = t(`nav.${key}`);
 
     const link = (
       <Link
-        // A locked item still renders, but routes to /plan (the upgrade page)
-        // instead of the gated feature — the server would 402 it anyway.
         key={key}
-        href={locked ? "/plan" : href}
+        href={href}
         data-nav={key}
-        data-locked={locked || undefined}
         data-active={isActive || undefined}
         aria-current={isActive ? "page" : undefined}
-        title={locked && !collapsed ? t("nav.upgradeHint") : undefined}
         className={cn(
           "group relative flex items-center rounded-lg text-sm font-medium transition-colors duration-150",
           "focus-visible:ring-ring/50 outline-none focus-visible:ring-2",
           collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
           isActive
             ? "bg-primary/[0.12] text-primary font-semibold"
-            : locked
-              ? "text-sidebar-foreground/40 hover:bg-sidebar-accent/60"
-              : "text-sidebar-foreground hover:bg-sidebar-accent",
+            : "text-sidebar-foreground hover:bg-sidebar-accent",
         )}
       >
-        {/* The accent bar. Absolutely positioned so it never shifts the label. */}
+        {/* The accent bar. Absolutely positioned so it never shifts the label; gold, because it is
+            the one warm mark in a column of emerald and has to be findable at a glance. */}
         {isActive && (
           <span
-            className="bg-primary absolute inset-y-1.5 start-0 w-[3px] rounded-full"
+            className="from-gold to-gold/40 absolute inset-y-1.5 start-0 w-[3px] rounded-full bg-gradient-to-b"
             aria-hidden
           />
         )}
@@ -822,9 +824,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             "size-4 shrink-0 transition-colors",
             isActive
               ? "text-primary"
-              : locked
-                ? "text-sidebar-foreground/30"
-                : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
+              : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
           )}
           aria-hidden
         />
@@ -842,19 +842,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ) : (
           <>
             <span className="flex-1 truncate">{label}</span>
-            {locked ? (
-              <span
-                data-testid="nav-upgrade-badge"
-                className="ms-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
-              >
-                <Lock className="size-2.5" aria-hidden />
-                {t("nav.upgradeBadge")}
-              </span>
-            ) : (
-              badge !== null && (
-                <NavBadge count={badge.count} label={badge.label} />
-              )
-            )}
+            {badge !== null && <NavBadge count={badge.count} label={badge.label} />}
           </>
         )}
       </Link>
@@ -871,11 +859,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   /** A labelled section header; on the rail it degrades to a plain rule. */
+  // The gold star that opens each group is the sign-in door's divider at chrome scale — enough to
+  // carry the motif through the panel, small enough to stay a bullet rather than an ornament.
   const groupLabel = (label: string) =>
     collapsed ? (
       <div className="bg-sidebar-border mx-auto mb-1.5 h-px w-6" aria-hidden />
     ) : (
-      <p className="text-sidebar-foreground/40 mb-1.5 select-none px-2.5 text-[10px] font-bold uppercase tracking-[0.1em]">
+      <p className="text-sidebar-foreground/40 mb-1.5 flex select-none items-center gap-1.5 px-2.5 text-[10px] font-bold tracking-[0.1em] uppercase">
+        <Octagram className="text-gold/70 size-2 shrink-0" />
         {label}
       </p>
     );
@@ -898,7 +889,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           data-open={open}
           data-collapsed={collapsed}
           className={cn(
-            "bg-sidebar text-sidebar-foreground border-sidebar-border fixed inset-y-0 z-30 flex shrink-0 flex-col border-e transition-[width,transform] duration-200 md:static md:h-full md:translate-x-0",
+            "bg-sidebar text-sidebar-foreground border-sidebar-border relative fixed inset-y-0 z-30 flex shrink-0 flex-col border-e transition-[width,transform] duration-200 md:static md:h-full md:translate-x-0",
             // The rail keeps the icons on the same optical axis as the expanded list.
             collapsed ? "w-[4.5rem]" : "w-60",
             open
@@ -906,24 +897,88 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               : "max-md:-translate-x-full max-md:rtl:translate-x-full",
           )}
         >
-          {/* ── Brand ──────────────────────────────────────────────────── */}
+          {/* The sidebar is a wall, so it carries the pattern: a khatam lattice down its full
+              height, fading as it descends, over a faint emerald wash. Everything below sits on
+              top of it (the nav is `relative`). */}
+          <div
+            className="text-primary pointer-events-none absolute inset-0 opacity-[0.09]"
+            style={{
+              maskImage: "linear-gradient(180deg, black 20%, transparent 100%)",
+              WebkitMaskImage:
+                "linear-gradient(180deg, black 20%, transparent 100%)",
+            }}
+            aria-hidden
+          >
+            <KhatamLattice id="sidebar-wall" size={56} className="size-full" />
+          </div>
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(180deg, oklch(0.519 0.158 163.2 / 0.10) 0%, transparent 42%)",
+            }}
+            aria-hidden
+          />
+          {/* A gold thread down the sidebar's outer edge — the frame's own hairline. */}
+          <span
+            aria-hidden
+            className="via-gold/45 pointer-events-none absolute inset-y-0 end-0 w-px bg-gradient-to-b from-transparent to-transparent"
+          />
+          {/* ── Brand ──────────────────────────────────────────────────────
+              WHOSE panel this is. A client sees their own academy — logo (or initials) and name,
+              from the session (docs/lms/02) — because the door they came through was theirs and the
+              chrome should not change hands behind it. A platform Super Admin has no academy, so
+              the platform's own mark stays. The khatam lattice behind it and the gold hairline
+              under it are the same ornament the sign-in door wears, at chrome strength. */}
           <div
             className={cn(
-              "border-sidebar-border flex h-14 shrink-0 items-center border-b",
+              "border-sidebar-border relative flex h-14 shrink-0 items-center overflow-hidden border-b",
               collapsed ? "justify-center px-2" : "justify-between px-4",
             )}
           >
-            <div className="flex min-w-0 items-center gap-2.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo.png"
-                alt="Acadmyq"
-                className="size-8 shrink-0 object-contain"
-              />
+            <div
+              className="text-primary pointer-events-none absolute inset-0 opacity-[0.10]"
+              style={{
+                maskImage: "linear-gradient(180deg, black, transparent 88%)",
+                WebkitMaskImage:
+                  "linear-gradient(180deg, black, transparent 88%)",
+              }}
+            >
+              <KhatamLattice id="sidebar-lattice" size={44} className="size-full" />
+            </div>
+            {/* The gold hairline sits ON the border, brightest under the name. */}
+            <span
+              aria-hidden
+              className="via-gold/50 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
+            />
+
+            <div className="relative flex min-w-0 items-center gap-2.5">
+              {academyLogo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={academyLogo}
+                  alt={academyName}
+                  className="ring-gold/30 size-8 shrink-0 rounded-lg bg-white object-contain p-0.5 ring-1"
+                />
+              ) : session.academy ? (
+                <span
+                  aria-hidden
+                  className="bg-primary/12 text-primary ring-gold/30 flex size-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1"
+                >
+                  {academyInitials}
+                </span>
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src="/logo.png"
+                  alt="Acadmyq"
+                  className="size-8 shrink-0 object-contain"
+                />
+              )}
               {!collapsed && (
                 <div className="min-w-0">
                   <div className="text-sidebar-foreground truncate text-[13px] font-semibold leading-tight">
-                    Acadmyq
+                    {academyName}
                   </div>
                   <div className="text-sidebar-foreground/35 truncate text-[10px] leading-tight tracking-wide">
                     {t(`roles.${session.role}`)}
@@ -933,7 +988,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <button
               type="button"
-              className="text-sidebar-foreground/40 hover:bg-sidebar-accent hover:text-sidebar-foreground rounded-lg p-1.5 transition-colors md:hidden"
+              className="text-sidebar-foreground/40 hover:bg-sidebar-accent hover:text-sidebar-foreground relative rounded-lg p-1.5 transition-colors md:hidden"
               onClick={() => setOpen(false)}
               aria-label={t("header.close")}
             >
@@ -944,7 +999,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* ── Nav ────────────────────────────────────────────────────── */}
           <nav
             className={cn(
-              "flex-1 overflow-y-auto py-3",
+              "scroll-ornate relative flex-1 overflow-y-auto py-3",
               collapsed ? "px-2.5" : "px-3",
             )}
             data-testid="nav"
@@ -1054,7 +1109,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* ── Main area ───────────────────────────────────────────────── */}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* ── Header ───────────────────────────────────────────────── */}
-          <header className="bg-background border-border flex h-14 shrink-0 items-center gap-3 border-b px-4 md:px-5">
+          <header className="bg-background border-border relative flex h-14 shrink-0 items-center gap-3 border-b px-4 md:px-5">
+            <span
+              aria-hidden
+              className="via-gold/35 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
+            />
             {/* Mobile menu toggle */}
             <button
               type="button"
@@ -1207,11 +1266,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           {/* The width cap stops tables from stretching to the far edge of a 27" display, where the
               eye has to travel the whole desk to tie a row back to its header. */}
-          <main className="min-w-0 flex-1 overflow-auto">
+          <main className="scroll-ornate relative min-w-0 flex-1 overflow-auto">
+            {/* The same lattice as the sidebar, at a whisper: enough to make the canvas feel like
+                part of the frame, faint enough that a table never fights it. Fixed to the viewport
+                so it does not slide around as the page scrolls. */}
+            <div
+              className="text-primary pointer-events-none fixed inset-0 opacity-[0.05]"
+              style={{
+                maskImage:
+                  "radial-gradient(120% 90% at 50% 0%, black, transparent 78%)",
+                WebkitMaskImage:
+                  "radial-gradient(120% 90% at 50% 0%, black, transparent 78%)",
+              }}
+              aria-hidden
+            >
+              <KhatamLattice id="canvas-lattice" size={92} className="size-full" />
+            </div>
             <div
               key={pathname}
-              className="animate-page-enter mx-auto max-w-[1600px] p-4 md:p-6"
+              className="animate-page-enter relative mx-auto max-w-[1600px] p-4 md:p-6"
             >
+              <OrnateRule className="mb-4 md:mb-5" />
               {children}
             </div>
           </main>

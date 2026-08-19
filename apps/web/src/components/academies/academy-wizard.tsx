@@ -3,7 +3,6 @@
 import {
   Building2,
   ChevronDown,
-  CreditCard,
   Eye,
   EyeOff,
   Settings2,
@@ -11,20 +10,19 @@ import {
   UserCircle,
   X,
 } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import {
   type AcademyType,
   ApiError,
+  type ClientType,
   type CreateAcademyInput,
   createAcademy,
   getAcademyTypes,
-  getPlanCatalog,
-  type PlanCatalogItem,
+  type ModuleCode,
 } from "@/lib/api";
-import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 const inputClass =
@@ -33,27 +31,28 @@ const inputClass =
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * The Super Admin "new academy" flow: a single screen that asks only for the essentials —
- * name, type, plan and the first owner — with optional branding tucked behind an "Advanced"
- * disclosure. Currency (EGP), timezone (Africa/Cairo) and invoice grouping (PER_GUARDIAN,
- * monthly) are fixed platform defaults, sent silently and never surfaced. The FREE plan is a
- * 5-day TRIAL (status TRIAL → expires unless converted); a paid tier (BASIC/PRO) goes straight
- * to ACTIVE with no free days. On submit the whole thing is created server-side in one
- * transaction, which seeds the chosen type's report fields, provisions the first owner, and
- * opens the subscription.
+ * The Super Admin "new client" wizard: name, academy type (its report-field template) and the first
+ * owner. There is no package to choose (05-MODULES-NOT-PACKAGES) — the page above picks the CLIENT
+ * TYPE and any extra modules, and passes them here. Currency (EGP), timezone (Africa/Cairo) and
+ * invoice grouping (PER_GUARDIAN, monthly) are platform defaults, sent silently. "Start as a trial"
+ * puts every provisioned module on the trial clock; otherwise they open as paid periods. On submit
+ * the whole thing is created server-side in one transaction: report fields, first owner, modules.
  */
 export function AcademyWizard({
+  clientType = "MANAGEMENT",
+  extraModules = [],
   onCreated,
   onCancel,
 }: {
+  clientType?: ClientType;
+  extraModules?: { module: ModuleCode; price_minor?: number; billing_interval?: "MONTHLY" | "YEARLY" }[];
   onCreated: (academyId: string) => void;
   onCancel: () => void;
 }) {
   const t = useTranslations("academies.wizard");
-  const locale = useLocale();
   const toast = useToast();
   const [types, setTypes] = useState<AcademyType[]>([]);
-  const [plans, setPlans] = useState<PlanCatalogItem[]>([]);
+  const [startAsTrial, setStartAsTrial] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -61,7 +60,6 @@ export function AcademyWizard({
   const [form, setForm] = useState<CreateAcademyInput>({
     name: "",
     academy_type_id: "",
-    plan_id: null,
     default_currency: "EGP",
     timezone: "Africa/Cairo",
     invoice_grouping: "PER_GUARDIAN",
@@ -82,9 +80,6 @@ export function AcademyWizard({
           : f,
       );
     });
-    void getPlanCatalog()
-      .then((res) => setPlans(res.plans.filter((p) => p.is_active)))
-      .catch(() => setPlans([]));
   }, []);
 
   function set<K extends keyof CreateAcademyInput>(
@@ -94,20 +89,17 @@ export function AcademyWizard({
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  const selectedPlan = plans.find((p) => p.id === form.plan_id);
-
   async function submit() {
     setSubmitting(true);
     try {
-      // FREE is a 5-day trial; a paid tier goes live immediately with no free days (backend reads `status`).
-      const status = selectedPlan?.code === "FREE" ? "TRIAL" : "ACTIVE";
       const payload: CreateAcademyInput = {
         ...form,
-        status,
+        client_type: clientType,
+        modules: extraModules,
+        status: startAsTrial ? "TRIAL" : "ACTIVE",
         brand_display_name: form.brand_display_name || null,
         brand_logo_url: form.brand_logo_url || null,
         subdomain: form.subdomain || null,
-        plan_id: form.plan_id || null,
       };
       const res = await createAcademy(payload);
       onCreated(res.academyId);
@@ -121,7 +113,6 @@ export function AcademyWizard({
   const canCreate =
     form.name.trim().length > 0 &&
     form.academy_type_id !== "" &&
-    form.plan_id != null &&
     EMAIL_RE.test(form.email) &&
     form.password.length >= 8;
 
@@ -202,35 +193,40 @@ export function AcademyWizard({
           </div>
         </Field>
 
-        <Field label={t("plan")} required>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {plans.map((p) => (
-              <PlanCard
-                key={p.id}
-                selected={form.plan_id === p.id}
-                onClick={() => set("plan_id", p.id)}
-                code={p.code}
-                name={p.name}
-                price={
-                  p.price_minor === 0
-                    ? t("free")
-                    : formatMoney(
-                        { amount: p.price_minor, currency: p.currency },
-                        locale,
-                      )
-                }
-                perMonth={p.price_minor > 0 ? t("perMonth") : undefined}
-                trial={p.code === "FREE" ? t("trialBadge") : undefined}
-                students={p.features?.limits?.maxStudents ?? null}
-                teachers={p.features?.limits?.maxTeachers ?? null}
-                studentsLabel={t("studentsLimit", {
-                  count: p.features?.limits?.maxStudents ?? 0,
-                })}
-                teachersLabel={t("teachersLimit", {
-                  count: p.features?.limits?.maxTeachers ?? 0,
-                })}
-              />
-            ))}
+        <Field label={t("start")}>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setStartAsTrial(true)}
+              data-testid="start-trial"
+              className={cn(
+                "rounded-lg border p-3 text-start transition-colors",
+                startAsTrial
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                  : "hover:bg-muted/40",
+              )}
+            >
+              <span className="font-medium">{t("startTrial")}</span>
+              <span className="text-muted-foreground mt-0.5 block text-xs">
+                {t("startTrialHint")}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStartAsTrial(false)}
+              data-testid="start-paid"
+              className={cn(
+                "rounded-lg border p-3 text-start transition-colors",
+                !startAsTrial
+                  ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                  : "hover:bg-muted/40",
+              )}
+            >
+              <span className="font-medium">{t("startPaid")}</span>
+              <span className="text-muted-foreground mt-0.5 block text-xs">
+                {t("startPaidHint")}
+              </span>
+            </button>
           </div>
         </Field>
       </div>
@@ -392,69 +388,6 @@ function SectionIntro({
   );
 }
 
-function PlanCard({
-  selected,
-  onClick,
-  code,
-  name,
-  price,
-  perMonth,
-  trial,
-  students,
-  teachers,
-  studentsLabel,
-  teachersLabel,
-}: {
-  selected: boolean;
-  onClick: () => void;
-  code: string;
-  name: string;
-  price: string;
-  perMonth?: string;
-  trial?: string;
-  students: number | null;
-  teachers: number | null;
-  studentsLabel: string;
-  teachersLabel: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      data-testid={`plan-${code}`}
-      className={cn(
-        "flex flex-col gap-2 rounded-xl border p-4 text-start transition-colors",
-        selected
-          ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-          : "hover:bg-muted/40",
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-2">
-          <CreditCard className="text-primary size-4" aria-hidden />
-          <span className="text-sm font-semibold">{name}</span>
-        </span>
-        {trial && (
-          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-            {trial}
-          </span>
-        )}
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className="text-base font-bold tabular-nums">{price}</span>
-        {perMonth && (
-          <span className="text-muted-foreground text-xs">{perMonth}</span>
-        )}
-      </div>
-      <div className="text-muted-foreground space-y-0.5 text-xs">
-        {students != null && <span className="block">{studentsLabel}</span>}
-        {teachers != null && <span className="block">{teachersLabel}</span>}
-      </div>
-      <span className="sr-only">{code}</span>
-    </button>
-  );
-}
 
 function Field({
   label,

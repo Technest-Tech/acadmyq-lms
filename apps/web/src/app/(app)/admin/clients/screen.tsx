@@ -238,13 +238,16 @@ export function ClientsScreen() {
                     className="hover:bg-accent/50 cursor-pointer border-b transition-colors last:border-b-0"
                   >
                     <td className="px-4 py-3">
-                      <div className="font-semibold">{c.name}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{c.name}</span>
+                        <StatusChip tone="neutral">{t(`type.${c.client_type}`)}</StatusChip>
+                      </div>
                       <div className="text-muted-foreground text-xs">
                         {c.owner_email ?? t("noOwner")}
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      <ModuleChips modules={c.modules} />
+                      <ModuleChips modules={c.modules} clientType={c.client_type} />
                     </td>
                     <td className="px-4 py-3">
                       <StatusChip
