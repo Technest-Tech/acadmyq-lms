@@ -272,16 +272,30 @@ tail -n 50 /var/www/acadmyq/apps/api/storage/logs/laravel.log
 | login fails cross-subdomain | `SESSION_DOMAIN=.acadmyq.com` + HTTPS + `SANCTUM_STATEFUL_DOMAINS` wildcard |
 | nginx won't start | cert missing — run §5 before enabling vhosts |
 | tenant subdomain 404 | app-level academy resolution from `Host` (see §9) |
+| `Session store not set on request.` on login | the sign-in host is not in `SANCTUM_STATEFUL_DOMAINS` — Sanctum saw a stateless request and bound no session. Needs the `*.acadmyq.com` wildcard (locally: see docs/lms/02 §"Local development" — `*.localhost` cannot work) |
+| client subdomain shows the course site (or a 404) instead of their sign-in | the client resolves as a course-platform client — check `GET /api/site` with `X-Academy: <handle>`; it reports `LMS` only when the LMS is their whole product |
 
 ---
 
-## 9. Tenant resolution (LMS learner sites)
+## 9. Tenant resolution (client subdomains)
 
 Infra routes every `*.acadmyq.com` to Next.js; the **application** turns that subdomain into
-a tenant. `apps/web/src/middleware.ts` reads the `Host` header and rewrites
-`<academy>.acadmyq.com/<path>` → `/learn/<academy>/<path>`, which is the LMS client's public
-course site (docs/lms/02). `www`, `app`, `api`, `admin`, `mail`, `static`, `assets` and `cdn`
+a tenant. `apps/web/src/middleware.ts` reads the `Host` header, asks the API which product that
+handle serves (`GET /api/site`, memoised per handle), and routes accordingly (docs/lms/02):
+
+- **course-platform client** (the LMS is their whole product) → rewrites
+  `<academy>.acadmyq.com/<path>` → `/learn/<academy>/<path>`, their public course site;
+- **management client** (everyone else) → the management app on their own host: `/` renders their
+  BRANDED sign-in (their name + logo, resolved server-side) and every other path passes straight
+  through to the normal app routes. After signing in they land on `/dashboard` **on their own
+  subdomain** — the session cookie is set on `.acadmyq.com`, so nothing bounces to `app.`.
+
+An unknown handle 404s. `www`, `app`, `api`, `admin`, `mail`, `static`, `assets` and `cdn`
 are reserved and never treated as academy handles.
+
+A client's own door is theirs alone: the sign-in posts the handle, and the API refuses a user
+who belongs to another academy (a platform Super Admin is exempt). `app.acadmyq.com/login` stays
+the unbranded platform door for everyone.
 
 ⚠️ **Both root-domain vars must be set, or the feature silently no-ops.** The middleware is a
 deliberate pass-through when `NEXT_PUBLIC_ROOT_DOMAIN` is empty — so `<academy>.acadmyq.com`
@@ -297,6 +311,11 @@ Both default the scheme to `https`; only override (`NEXT_PUBLIC_ROOT_SCHEME` /
 `LMS_SITE_SCHEME`) for local http. They are mirrors — set **both or neither**. Left empty, the
 API reports the in-app path (`/learn/<subdomain>`), which serves the same site, so the
 dashboard's "visit your site" link still works.
+
+One more consequence of the split: for a client who runs the management panel AND sells courses,
+`/` on their host is their sign-in, so their course-site link is `https://<sub>.acadmyq.com/learn/<sub>`.
+`App\Support\LmsSite::ownsRoot()` is the single place that decides this, and the routing above
+reads the same predicate — they cannot disagree.
 
 A client's subdomain is Super-Admin-owned: `PUT /api/admin/lms/academies/{id}/subdomain`
 (lowercase alnum + hyphens, ≤63 chars, unique). No per-tenant DNS work — the wildcard covers it.

@@ -52,5 +52,7 @@ become the **union across a client's active module subscriptions**. The Super Ad
 reorganized into a collapsible **module sidebar** where each module has its own client list, plans,
 subscriptions, and operational pages — replacing today's single flat list where all subscriptions are
 tangled together.
-</content>
-</invoke>
+
+- **[05-MODULES-NOT-PACKAGES.md](05-MODULES-NOT-PACKAGES.md)** — packages removed (2026-08-18).
+  Four client types, modules that grant every feature they own, per-client feature switches and
+  per-client pricing. Supersedes everything about plans/tiers in 00–04.
