@@ -74,6 +74,7 @@ export const COUNTRIES: readonly Country[] = [
   { code: "ZA", name: "South Africa",           dialCode: "+27",  flag: "🇿🇦", currency: "ZAR" },
   { code: "NG", name: "Nigeria",                dialCode: "+234", flag: "🇳🇬", currency: "NGN" },
   { code: "KE", name: "Kenya",                  dialCode: "+254", flag: "🇰🇪", currency: "KES" },
+  { code: "UG", name: "Uganda",                 dialCode: "+256", flag: "🇺🇬", currency: "UGX" },
   { code: "GH", name: "Ghana",                  dialCode: "+233", flag: "🇬🇭", currency: "GHS" },
   { code: "ET", name: "Ethiopia",               dialCode: "+251", flag: "🇪🇹", currency: "ETB" },
   // ── Oceania ───────────────────────────────────────────────────────────────────
@@ -141,6 +142,7 @@ export const CURRENCIES: readonly Currency[] = [
   { code: "ZAR", name: "South African Rand" },
   { code: "NGN", name: "Nigerian Naira" },
   { code: "KES", name: "Kenyan Shilling" },
+  { code: "UGX", name: "Ugandan Shilling" },
   { code: "GHS", name: "Ghanaian Cedi" },
   { code: "ETB", name: "Ethiopian Birr" },
 ] as const;
