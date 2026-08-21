@@ -32,8 +32,24 @@ return Application::configure(basePath: dirname(__DIR__))
         // plain XHR that carries no XSRF header. Session CSRF on top would reject every such upload
         // with a 419. Safe to exempt — `signed` still gates it on an unguessable, expiring signature
         // that only this API hands out, and the handler only accepts `lms/*` object keys.
+        //
+        // The PUBLIC, token-authenticated payer pages are the same shape. A payer opening an
+        // invoice link has NO session — the unguessable token in the URL is the entire
+        // authorisation — and those pages call the API with a plain `fetch` that carries no
+        // XSRF header. But they are served from app.acadmyq.com, which IS a stateful domain, so
+        // statefulApi() applies session CSRF to their POSTs and every payment attempt dies on a
+        // 419 before it reaches the controller.
+        //
+        // Exempting them costs nothing: CSRF exists to stop a third-party site spending a
+        // victim's AMBIENT session credentials. There are none here, so an attacker would first
+        // have to know the invoice token — and if they know it they can call the endpoint
+        // directly from anywhere, with or without a browser. The token is the credential, and
+        // each controller re-checks it against the invoice it names.
         $middleware->validateCsrfTokens(except: [
             'api/lms/media/*',
+            'api/i/*/xpay/session',   // start XPay hosted checkout
+            'api/i/*/paypal/*',       // create + capture a PayPal order
+            'api/a/*/submit',         // academy uploads its transfer screenshot
         ]);
 
         // All /api/* responses (and errors) negotiate to JSON.
