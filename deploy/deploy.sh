@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # deploy.sh — pull latest code and (re)build/release both apps on the droplet.
-# Idempotent; safe to re-run. Simplest invocation — as root, which is what `ssh academiq-s1`
-# already gives you:
-#     APP_BRANCH=feat/superadmin-reorg /var/www/acadmyq/deploy/deploy.sh
-#
-# Running it as the app user also works, but ONLY with the sudoers grant in
-# /etc/sudoers.d/acadmyq-deploy (NOPASSWD on the three service restarts). Without that grant the
-# restart step cannot succeed under non-interactive SSH — see the restart block at the bottom,
-# which now aborts loudly rather than leaving a stale process serving a deleted build.
+# Idempotent; safe to re-run. Run it as the app user — NOT as root:
 #     sudo -u acadmyq APP_BRANCH=feat/superadmin-reorg /var/www/acadmyq/deploy/deploy.sh
+#
+# Root is the wrong user even though `ssh academiq-s1` hands you a root shell: pnpm sees a
+# node_modules tree owned by someone else and aborts with ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY
+# rather than purge it, and anything it did write would leave root-owned files under a tree the
+# acadmyq-run services have to read and write. (Verified: a root run aborts cleanly at install,
+# before touching the build — the live site is unaffected, so this is a safe mistake, just a
+# wasted deploy.)
+#
+# As the app user the restart step needs a sudoers grant that DOES NOT EXIST YET:
+#     /etc/sudoers.d/acadmyq-deploy, mode 0440, containing —
+#     acadmyq ALL=(root) NOPASSWD: /usr/bin/systemctl restart php8.2-fpm, \
+#                                  /usr/bin/systemctl restart acadmyq-web, \
+#                                  /usr/bin/systemctl restart acadmyq-queue
+# Until that file exists the deploy stops at the restart block below and prints the manual
+# command — which is correct behaviour, not a regression: it is the difference between a deploy
+# that admits it is unfinished and one that leaves a stale process serving a deleted build.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
