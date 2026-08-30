@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -359,5 +359,82 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
 
     await screen.findByTestId("day-list");
     expect(screen.queryByTestId("create-class")).not.toBeInTheDocument();
+  });
+  // ── Picking the day, week or month ───────────────────────────────────────
+  // The page used to be nailed to today: a lesson on any other date was reachable only through
+  // a calendar deep link, and there was no way at all to see a whole month of lessons.
+
+  it("loads whichever day is picked in the navigator, and keeps it in the URL", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
+    renderManager();
+    await screen.findByTestId("day-list");
+
+    fireEvent.change(screen.getByTestId("period-date-input"), {
+      target: { value: "2026-03-09" },
+    });
+
+    await waitFor(() => {
+      const last = vi.mocked(api.getSessionsByDay).mock.calls.at(-1)![0];
+      expect(last.from).toBe(new Date("2026-03-09T00:00:00").toISOString());
+      expect(last.to).toBe(new Date("2026-03-10T00:00:00").toISOString());
+    });
+    expect(window.location.search).toBe("?date=2026-03-09");
+  });
+
+  it("steps a whole month at a time and groups the lessons by day", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({
+      sessions: [
+        { ...daySession, scheduled_at_utc: "2026-03-09T09:00:00Z" },
+        { ...daySession, id: "se2", scheduled_at_utc: "2026-03-09T11:00:00Z" },
+        { ...daySession, id: "se3", scheduled_at_utc: "2026-03-11T09:00:00Z" },
+      ],
+    });
+    renderManager();
+    await screen.findByTestId("day-list");
+
+    fireEvent.change(screen.getByTestId("period-date-input"), {
+      target: { value: "2026-03-09" },
+    });
+    await user.click(screen.getByTestId("range-month"));
+
+    // The whole calendar month is asked for in one window — [Mar 1, Apr 1).
+    await waitFor(() => {
+      const last = vi.mocked(api.getSessionsByDay).mock.calls.at(-1)![0];
+      expect(last.from).toBe(new Date("2026-03-01T00:00:00").toISOString());
+      expect(last.to).toBe(new Date("2026-04-01T00:00:00").toISOString());
+    });
+    expect(window.location.search).toBe("?date=2026-03-09&range=month");
+
+    // Three lessons across two days read as two day headers — a bare time column would be
+    // meaningless once the list spans more than one day.
+    const table = screen.getByTestId("day-list");
+    await waitFor(() =>
+      expect(within(table).getAllByTestId("day-group")).toHaveLength(2),
+    );
+
+    // Stepping back lands on the previous month, not the previous day.
+    await user.click(screen.getByTestId("period-prev"));
+    await waitFor(() => {
+      const last = vi.mocked(api.getSessionsByDay).mock.calls.at(-1)![0];
+      expect(last.from).toBe(new Date("2026-02-01T00:00:00").toISOString());
+      expect(last.to).toBe(new Date("2026-03-01T00:00:00").toISOString());
+    });
+  });
+
+  it("says so when the window holds more lessons than the server returns", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({
+      sessions: [daySession],
+      truncated: true,
+    });
+    renderManager();
+    await screen.findByTestId("day-list");
+    await user.click(screen.getByTestId("range-month"));
+
+    // Silently showing a short list would read as "this is every lesson in the month".
+    expect(
+      await screen.findByText(enMessages.attendance.periodTruncated),
+    ).toBeInTheDocument();
   });
 });

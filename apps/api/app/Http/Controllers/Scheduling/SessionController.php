@@ -38,6 +38,9 @@ final class SessionController extends Controller
         'student' => 'CANCELLED_BY_STUDENT',
     ];
 
+    /** Most rows {@see day()} will return for one window. Sized for a busy academy's month. */
+    private const DAY_WINDOW_LIMIT = 3000;
+
     /**
      * POST /api/sessions — a one-off session not tied to any schedule (AC-5.10).
      *
@@ -358,10 +361,12 @@ final class SessionController extends Controller
     }
 
     /**
-     * GET /api/sessions/day — every session within a local day window [from, to), for the
-     * attendance page's day view. Unlike pendingAttendance this is NOT restricted to past
-     * SCHEDULED rows, so a trial booked for later today shows up immediately. Supports teacher,
-     * status and trial-only filters; a TEACHER is still row-scoped to their own sessions (§3.6).
+     * GET /api/sessions/day — every session within a window [from, to), for the attendance page.
+     * The window is whatever the page asks for: a single local day, or the week/month the user
+     * picked, which is why the row cap below is sized for a busy month rather than a day. Unlike
+     * pendingAttendance this is NOT restricted to past SCHEDULED rows, so a trial booked for later
+     * today shows up immediately. Supports teacher, status and trial-only filters; a TEACHER is
+     * still row-scoped to their own sessions (§3.6).
      */
     public function day(Request $request): JsonResponse
     {
@@ -425,13 +430,19 @@ final class SessionController extends Controller
             $query->where('se.teacher_id', $ownTeacherId);
         }
 
-        $rows = $query->limit(500)->get()->map(function ($r) {
+        // One window is returned whole (the page filters and counts client-side), so the cap is
+        // the only guard against a pathological month. Ask for one row beyond it: if it comes
+        // back, the caller is told the window was cut rather than being shown a silently short
+        // list it would read as "these are all the lessons".
+        $rows = $query->limit(self::DAY_WINDOW_LIMIT + 1)->get();
+        $truncated = $rows->count() > self::DAY_WINDOW_LIMIT;
+        $rows = $rows->take(self::DAY_WINDOW_LIMIT)->values()->map(function ($r) {
             $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
 
             return $r;
         });
 
-        return response()->json(['sessions' => $rows]);
+        return response()->json(['sessions' => $rows, 'truncated' => $truncated]);
     }
 
     /**

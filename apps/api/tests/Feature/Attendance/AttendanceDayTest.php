@@ -69,6 +69,18 @@ it('includes the student status on each row', function () {
     expect($row['student_status'])->toBe('TRIAL_BOOKED');
 });
 
+// ── The window is not limited to one day (the page also asks for a week or month) ──
+it('returns every session across a multi-day window, and says it was not truncated', function () {
+    Sanctum::actingAs($this->owner);
+
+    $res = $this->getJson(dayUrl(['to' => '2026-06-13T00:00:00Z']))->assertOk();
+
+    // Today's two plus tomorrow's one — the same endpoint, a wider window.
+    expect($res->json('sessions'))->toHaveCount(3);
+    // The flag is what stops a capped month reading as "these are all the lessons".
+    expect($res->json('truncated'))->toBeFalse();
+});
+
 // ── Filters: teacher, status, trial-only ─────────────────────────────────────
 it('filters by teacher', function () {
     Sanctum::actingAs($this->owner);

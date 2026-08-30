@@ -5,6 +5,8 @@ import {
   CalendarClock,
   CalendarPlus,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   Clock,
   FileSpreadsheet,
@@ -18,6 +20,7 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -29,6 +32,15 @@ import { CreateClassModal } from "@/components/attendance/create-class-modal";
 import { RescheduleModal } from "@/components/attendance/reschedule-modal";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
+import {
+  addDays,
+  addMonths,
+  dayLongLabel,
+  monthYearLabel,
+  startOfMonth,
+  startOfWeek,
+  weekRangeLabel,
+} from "@/components/scheduling/calendar/utils";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/ui/page-hero";
@@ -44,17 +56,64 @@ import { cn } from "@/lib/utils";
 
 type Selected = { id: string; name: string | null } | null;
 
+/** How much of the calendar the worklist covers at once. */
+type RangeMode = "day" | "week" | "month";
+
+const RANGE_MODES: RangeMode[] = ["day", "week", "month"];
+
+function isRangeMode(v: string | null): v is RangeMode {
+  return v === "day" || v === "week" || v === "month";
+}
+
 function todayStr(): string {
   const d = new Date();
   const off = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - off).toISOString().slice(0, 10);
 }
 
-function dayBounds(dateStr: string): { from: string; to: string } {
-  const start = new Date(`${dateStr}T00:00:00`);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { from: start.toISOString(), to: end.toISOString() };
+/** The local calendar date (Y-m-d) an instant falls on, in the browser's timezone. */
+function localDay(utcIso: string): string {
+  const d = new Date(utcIso);
+  const off = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - off).toISOString().slice(0, 10);
+}
+
+/**
+ * The half-open window the list covers, from the anchor day and the range mode. The instants are
+ * built from LOCAL midnight, so "the 3rd" means the viewer's 3rd — exactly as the single-day
+ * view always did.
+ */
+function periodBounds(
+  anchor: string,
+  mode: RangeMode,
+): { firstDay: string; lastDay: string; from: string; to: string } {
+  const firstDay =
+    mode === "day"
+      ? anchor
+      : mode === "week"
+        ? startOfWeek(anchor)
+        : startOfMonth(anchor);
+  const endExclusive =
+    mode === "day"
+      ? addDays(anchor, 1)
+      : mode === "week"
+        ? addDays(firstDay, 7)
+        : addMonths(firstDay, 1);
+  return {
+    firstDay,
+    // The last day INSIDE the window — what a label reads to, and what "does this period
+    // contain today?" is measured against.
+    lastDay: addDays(endExclusive, -1),
+    from: new Date(`${firstDay}T00:00:00`).toISOString(),
+    to: new Date(`${endExclusive}T00:00:00`).toISOString(),
+  };
+}
+
+/** Move the anchor one whole period back (-1) or forward (+1). */
+function shiftAnchor(anchor: string, mode: RangeMode, step: -1 | 1): string {
+  if (mode === "day") return addDays(anchor, step);
+  if (mode === "week") return addDays(anchor, step * 7);
+  return addMonths(startOfMonth(anchor), step);
 }
 
 // ── Status → subtle row tint ────────────────────────────────────────────────
@@ -93,7 +152,9 @@ export function AttendanceManager() {
   // confines a teacher to their own roster.
   const canCreateClass = can("session.create");
 
+  // `date` is the ANCHOR day; `range` says how much of the calendar around it the list covers.
   const [date, setDate] = useState<string>(() => todayStr());
+  const [range, setRange] = useState<RangeMode>("day");
   const [teacherId, setTeacherId] = useState("");
   const [status, setStatus] = useState("");
   const [trialOnly, setTrialOnly] = useState(false);
@@ -110,30 +171,39 @@ export function AttendanceManager() {
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // The server returns at most one capped page per window; a busy month can reach it.
+  const [truncated, setTruncated] = useState(false);
 
   const timeFmt = useMemo(
     () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
     [locale],
   );
 
-  // Honour a deep link from the calendar — /attendance?session=<id>&date=<d>&name=<n> — by
-  // jumping to that day and opening the session's attendance report straight away.
+  // Honour a deep link from the calendar — /attendance?session=<id>&date=<d>&range=<r>&name=<n>
+  // — by jumping to that day and opening the session's attendance report straight away.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const linkedDate = params.get("date");
+    const linkedRange = params.get("range");
     const sid = params.get("session");
     if (linkedDate) setDate(linkedDate);
+    // A link to one session always lands on that session's own day: opening a whole month
+    // around it would bury the row the link is about.
+    if (!sid && isRangeMode(linkedRange)) setRange(linkedRange);
     if (sid) setSelected({ id: sid, name: params.get("name") });
   }, []);
 
-  // The day on screen IS the URL. Keeping ?date there means a refresh (or a shared link) lands
-  // back on the same day instead of silently snapping to today and appearing to lose rows —
-  // which is invisible now that the day navigator is gone. `session`/`name` are deliberately
-  // NOT carried over: they mean "open this report once", so a refresh must not reopen it.
+  // The period on screen IS the URL. Keeping ?date/?range there means a refresh (or a shared
+  // link) lands back on the same window instead of silently snapping to today and appearing to
+  // lose rows. `session`/`name` are deliberately NOT carried over: they mean "open this report
+  // once", so a refresh must not reopen it.
   useEffect(() => {
-    const url = date === todayStr() ? "/attendance" : `/attendance?date=${date}`;
-    window.history.replaceState(null, "", url);
-  }, [date]);
+    const qs = new URLSearchParams();
+    if (date !== todayStr()) qs.set("date", date);
+    if (range !== "day") qs.set("range", range);
+    const query = qs.toString();
+    window.history.replaceState(null, "", query ? `/attendance?${query}` : "/attendance");
+  }, [date, range]);
 
   useEffect(() => {
     if (isTeacher) return;
@@ -152,13 +222,14 @@ export function AttendanceManager() {
     setSessions(null);
     setStatusOverrides({});
     setError(null);
+    setTruncated(false);
     try {
-      const { from, to } = dayBounds(date);
+      const { from, to } = periodBounds(date, range);
       // Status and trial-only are applied on the CLIENT (below), not sent here. The endpoint
-      // returns one whole day either way, and asking the server to pre-filter it made the four
-      // counts above the list describe the filtered set rather than the day — so pressing
-      // "Attended" left every other tile reading zero. Now the counts always describe the day,
-      // the tiles can honestly act as filters, and changing one costs no round trip.
+      // returns the whole window either way, and asking the server to pre-filter it made the
+      // four counts above the list describe the filtered set rather than the period — so
+      // pressing "Attended" left every other tile reading zero. Now the counts always describe
+      // the period, the tiles can honestly act as filters, and changing one costs no round trip.
       const res = await getSessionsByDay({
         from,
         to,
@@ -166,22 +237,24 @@ export function AttendanceManager() {
       });
       if (seq !== reqSeq.current) return; // superseded
       setSessions(res.sessions);
+      setTruncated(res.truncated ?? false);
     } catch (err) {
       if (seq !== reqSeq.current) return; // superseded
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [date, teacherId]);
+  }, [date, range, teacherId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // With the day navigator gone the page sits on today, except when the calendar deep-links a
-  // past/future session — hence the "today" escape hatch in the header still has a job to do.
   const today = todayStr();
-  const isToday = date === today;
+  const bounds = useMemo(() => periodBounds(date, range), [date, range]);
+  const multiDay = range !== "day";
+  // Offering "today" is only useful when the window on screen does not already contain it.
+  const showsToday = today >= bounds.firstDay && today <= bounds.lastDay;
 
-  /** The day, narrowed by the status tile / select, the trial toggle and the text search. */
+  /** The period, narrowed by the status tile / select, the trial toggle and the text search. */
   const filteredSessions = useMemo(() => {
     if (!sessions) return null;
     const q = search.trim().toLowerCase();
@@ -213,7 +286,7 @@ export function AttendanceManager() {
       (s) => s.student_status === "TRIAL" || s.student_status === "TRIAL_BOOKED",
     ).length ?? 0;
 
-  /** Each cut's share of the whole day — the context a bare count never carries. */
+  /** Each cut's share of the whole period — the context a bare count never carries. */
   const dayShare = (value: number) =>
     total > 0 ? Math.round((value / total) * 100) : null;
 
@@ -234,12 +307,43 @@ export function AttendanceManager() {
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
   }, [sessions]);
 
-  const dayLabel = new Intl.DateTimeFormat(locale, {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(new Date(`${date}T00:00:00`));
+  const periodLabel =
+    range === "day"
+      ? dayLongLabel(date, locale)
+      : range === "week"
+        ? weekRangeLabel(bounds.firstDay, locale)
+        : monthYearLabel(bounds.firstDay, locale);
+
+  /** A short "Sat 3 Aug" stamp, for rows that no longer all belong to the same day. */
+  const dayStampFmt = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+      }),
+    [locale],
+  );
+
+  /**
+   * Once the window spans more than a day a flat list stops being readable — "9:00" means
+   * nothing without its date. Bucket the rows by their local day (the feed is already
+   * time-sorted, so each bucket keeps its order) and let the list print a header per day.
+   */
+  const dayGroups = useMemo(() => {
+    if (filteredSessions === null) return null;
+    const groups: { day: string; rows: DaySession[] }[] = [];
+    for (const s of filteredSessions) {
+      const day = localDay(s.scheduled_at_utc);
+      const last = groups[groups.length - 1];
+      if (last && last.day === day) last.rows.push(s);
+      else groups.push({ day, rows: [s] });
+    }
+    return groups;
+  }, [filteredSessions]);
+
+  /** Columns in the desktop table — the Teacher column is owner-only. */
+  const colCount = 5 + (isTeacher ? 0 : 1);
 
   const hasActiveFilters = !!(teacherId || status || trialOnly || search);
 
@@ -263,7 +367,11 @@ export function AttendanceManager() {
     setExportError(null);
     try {
       const columns: ExcelColumn<DaySession>[] = [
-        { header: t("date"), value: () => dayLabel, width: 22 },
+        {
+          header: t("date"),
+          value: (s) => dayStampFmt.format(new Date(s.scheduled_at_utc)),
+          width: 22,
+        },
         {
           header: t("colTime"),
           value: (s) => timeFmt.format(new Date(s.scheduled_at_utc)),
@@ -292,7 +400,9 @@ export function AttendanceManager() {
         },
       ];
       await exportRowsToExcel({
-        fileName: `attendance-${date}`,
+        fileName: multiDay
+          ? `attendance-${bounds.firstDay}_${bounds.lastDay}`
+          : `attendance-${date}`,
         sheetName: t("managerTitle"),
         columns,
         rows,
@@ -320,10 +430,11 @@ export function AttendanceManager() {
                 {t("pendingCount")} {pendingCount}
               </span>
             )}
-            {!isToday && (
+            {!showsToday && (
               <Button
                 type="button"
                 size="lg"
+                data-testid="hero-today"
                 onClick={() => setDate(today)}
                 className="gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25"
               >
@@ -346,7 +457,108 @@ export function AttendanceManager() {
         }
       />
 
-      {/* ── The day, cut four ways ───────────────────────────────────────
+      {/* ── Period navigator ──────────────────────────────────────────────
+          The page used to be nailed to today, which left a past or future lesson reachable only
+          through a calendar deep link. Pick any day here, or widen the window to a whole week or
+          month; the counts, filters, list and export below all follow it. */}
+      <div
+        className="bg-card flex flex-wrap items-center gap-3 rounded-2xl border p-3 shadow-sm"
+        data-testid="period-nav"
+      >
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            aria-label={t("prevPeriod")}
+            title={t("prevPeriod")}
+            data-testid="period-prev"
+            onClick={() => setDate((d) => shiftAnchor(d, range, -1))}
+          >
+            <ChevronLeft className="size-4 rtl:rotate-180" aria-hidden />
+          </Button>
+
+          {/* A month window is picked as a month; a day or week is picked by its day. */}
+          {range === "month" ? (
+            <input
+              type="month"
+              aria-label={t("pickMonth")}
+              data-testid="period-month-input"
+              value={date.slice(0, 7)}
+              onChange={(e) => {
+                // An empty value means the field is mid-edit — keep the month we are on.
+                if (e.target.value) setDate(`${e.target.value}-01`);
+              }}
+              className="border-input bg-background focus:border-primary focus:ring-primary/15 h-9 rounded-xl border px-3 text-sm outline-none focus:ring-3"
+            />
+          ) : (
+            <input
+              type="date"
+              aria-label={t("pickDate")}
+              data-testid="period-date-input"
+              value={date}
+              onChange={(e) => {
+                if (e.target.value) setDate(e.target.value);
+              }}
+              className="border-input bg-background focus:border-primary focus:ring-primary/15 h-9 rounded-xl border px-3 text-sm outline-none focus:ring-3"
+            />
+          )}
+
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            aria-label={t("nextPeriod")}
+            title={t("nextPeriod")}
+            data-testid="period-next"
+            onClick={() => setDate((d) => shiftAnchor(d, range, 1))}
+          >
+            <ChevronRight className="size-4 rtl:rotate-180" aria-hidden />
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="ms-1 h-9"
+            data-testid="period-today"
+            onClick={() => setDate(today)}
+          >
+            {t("today")}
+          </Button>
+        </div>
+
+        {/* Day / week / month */}
+        <div
+          role="group"
+          aria-label={t("rangeLabel")}
+          className="bg-muted/60 ms-auto inline-flex items-center gap-0.5 rounded-xl p-0.5"
+        >
+          {RANGE_MODES.map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              data-testid={`range-${mode}`}
+              aria-pressed={range === mode}
+              onClick={() => setRange(mode)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                range === mode
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t(`range_${mode}`)}
+            </button>
+          ))}
+        </div>
+
+        <p className="text-muted-foreground w-full text-xs" data-testid="period-label">
+          {periodLabel}
+        </p>
+      </div>
+
+      {/* ── The period, cut four ways ────────────────────────────────────
           These were a read-only scoreboard. Each one is now the filter that produces it, so the
           number and the worklist below it always agree. */}
       <div>
@@ -524,12 +736,16 @@ export function AttendanceManager() {
 
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
 
+      {truncated && <AlertBanner variant="info" message={t("periodTruncated")} />}
+
       {/* ── Sessions table ────────────────────────────────────────────────── */}
       <div className="bg-card overflow-hidden rounded-2xl border shadow-sm" data-testid="day-sessions">
         <div className="flex items-center justify-between border-b px-5 py-3.5">
           <div>
-            <h2 className="text-sm font-semibold">{dayLabel}</h2>
-            <p className="text-muted-foreground text-xs">{t("daySubtitle")}</p>
+            <h2 className="text-sm font-semibold">{periodLabel}</h2>
+            <p className="text-muted-foreground text-xs">
+              {multiDay ? t("periodSubtitle") : t("daySubtitle")}
+            </p>
           </div>
           {filteredSessions !== null && filteredSessions.length > 0 && (
             <div className="flex items-center gap-2">
@@ -586,7 +802,9 @@ export function AttendanceManager() {
             <div className="bg-muted mb-3 flex size-12 items-center justify-center rounded-full">
               <CalendarClock className="text-muted-foreground size-5" />
             </div>
-            <p className="text-sm font-medium">{t("dayNone")}</p>
+            <p className="text-sm font-medium">
+              {multiDay ? t("periodNone") : t("dayNone")}
+            </p>
             {hasActiveFilters && (
               <Button
                 type="button"
@@ -628,82 +846,228 @@ export function AttendanceManager() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {filteredSessions.map((s) => {
+                  {(dayGroups ?? []).map((group) => (
+                    <Fragment key={group.day}>
+                      {/* A day header, only once the window is wider than a single day. */}
+                      {multiDay && (
+                        <tr
+                          className="bg-muted/40"
+                          data-testid="day-group"
+                          data-day={group.day}
+                        >
+                          <th
+                            scope="colgroup"
+                            colSpan={colCount}
+                            className="text-muted-foreground px-5 py-2 text-start text-xs font-semibold"
+                          >
+                            {dayStampFmt.format(new Date(`${group.day}T12:00:00`))}
+                            <span className="ms-2 font-normal tabular-nums opacity-70">
+                              {group.rows.length}
+                            </span>
+                          </th>
+                        </tr>
+                      )}
+                      {group.rows.map((s) => {
+                        const isTrial =
+                          s.student_status === "TRIAL" || s.student_status === "TRIAL_BOOKED";
+                        const displayStatus = (statusOverrides[s.id] ?? s.status) as typeof s.status;
+                        const isRecorded = displayStatus !== "SCHEDULED";
+                        return (
+                          <tr
+                            key={s.id}
+                            data-row={s.id}
+                            onClick={() => openSession(s)}
+                            className={cn(
+                              "cursor-pointer transition-colors hover:bg-muted/30",
+                              STATUS_ROW[displayStatus] ?? "",
+                            )}
+                          >
+                            {/* Time + status dot */}
+                            <td className="px-5 py-3.5">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={cn(
+                                    "size-2 shrink-0 rounded-full transition-colors",
+                                    STATUS_DOT[displayStatus] ?? "bg-slate-400",
+                                  )}
+                                />
+                                <span className="font-medium tabular-nums">
+                                  {timeFmt.format(new Date(s.scheduled_at_utc))}
+                                </span>
+                                {/* Checkmark overlay once any outcome is recorded */}
+                                {isRecorded && statusOverrides[s.id] && (
+                                  <span className="inline-flex size-4 items-center justify-center rounded-full bg-emerald-500 text-white">
+                                    <svg className="size-2.5" viewBox="0 0 12 12" fill="none" aria-hidden>
+                                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Student + trial badge */}
+                            <td className="px-5 py-3.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{s.student_name ?? "—"}</span>
+                                {isTrial && (
+                                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                    <Sparkles className="size-2.5" />
+                                    {t("trial")}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Teacher (owner only) */}
+                            {!isTeacher && (
+                              <td className="text-muted-foreground px-5 py-3.5">
+                                {s.teacher_name ?? "—"}
+                              </td>
+                            )}
+
+                            {/* Duration */}
+                            <td className="text-muted-foreground px-5 py-3.5">
+                              <div className="flex items-center gap-1">
+                                <Clock className="size-3.5 shrink-0 opacity-60" />
+                                <span className="tabular-nums">
+                                  {s.duration_minutes} {t("min")}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Status badge */}
+                            <td className="px-5 py-3.5">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <StatusBadge status={displayStatus} />
+                                {s.pending_cancel_type && displayStatus === "SCHEDULED" && (
+                                  <span
+                                    data-testid="awaiting-approval"
+                                    title={t("awaitingApprovalHint")}
+                                    className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                                  >
+                                    <Clock className="size-2.5" />
+                                    {t("awaitingApproval")}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Action */}
+                            <td className="px-5 py-3.5 text-end">
+                              <div className="flex items-center justify-end gap-2">
+                                {/* WhatsApp send — placeholder, disabled until the feature ships. */}
+                                {isRecorded && (
+                                  <Button
+                                    type="button"
+                                    size="xs"
+                                    variant="outline"
+                                    disabled
+                                    title={t("whatsappSoon")}
+                                    data-testid="row-whatsapp"
+                                    className="gap-1.5"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <MessageCircle className="size-3.5" />
+                                    {t("sendWhatsapp")}
+                                  </Button>
+                                )}
+                                {canReschedule && displayStatus === "SCHEDULED" && (
+                                  <Button
+                                    type="button"
+                                    size="xs"
+                                    variant="outline"
+                                    data-testid="row-reschedule"
+                                    className="gap-1.5"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setRescheduling(s);
+                                    }}
+                                  >
+                                    <RotateCcw className="size-3.5" />
+                                    {tSched("actions.reschedule")}
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  size="xs"
+                                  variant={displayStatus === "SCHEDULED" ? "default" : "outline"}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openSession(s);
+                                  }}
+                                >
+                                  {displayStatus === "SCHEDULED" ? t("record") : t("open")}
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ── Mobile cards ──────────────────────────────────────── */}
+            <ul className="divide-y sm:hidden">
+              {(dayGroups ?? []).map((group) => (
+                <Fragment key={group.day}>
+                  {multiDay && (
+                    <li
+                      data-testid="day-group"
+                      data-day={group.day}
+                      className="bg-muted/40 text-muted-foreground px-5 py-2 text-xs font-semibold"
+                    >
+                      {dayStampFmt.format(new Date(`${group.day}T12:00:00`))}
+                      <span className="ms-2 font-normal tabular-nums opacity-70">
+                        {group.rows.length}
+                      </span>
+                    </li>
+                  )}
+                  {group.rows.map((s) => {
                     const isTrial =
                       s.student_status === "TRIAL" || s.student_status === "TRIAL_BOOKED";
                     const displayStatus = (statusOverrides[s.id] ?? s.status) as typeof s.status;
-                    const isRecorded = displayStatus !== "SCHEDULED";
                     return (
-                      <tr
+                      <li
                         key={s.id}
-                        data-row={s.id}
-                        onClick={() => openSession(s)}
                         className={cn(
-                          "cursor-pointer transition-colors hover:bg-muted/30",
+                          "cursor-pointer px-5 py-4 transition-colors hover:bg-muted/30",
                           STATUS_ROW[displayStatus] ?? "",
                         )}
+                        onClick={() => openSession(s)}
                       >
-                        {/* Time + status dot */}
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={cn(
-                                "size-2 shrink-0 rounded-full transition-colors",
-                                STATUS_DOT[displayStatus] ?? "bg-slate-400",
+                        <div className="mb-2 flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={cn(
+                                  "size-2 shrink-0 rounded-full transition-colors",
+                                  STATUS_DOT[displayStatus] ?? "bg-slate-400",
+                                )}
+                              />
+                              <p className="truncate font-semibold">{s.student_name ?? "—"}</p>
+                              {isTrial && (
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                  <Sparkles className="size-2.5" />
+                                  {t("trial")}
+                                </span>
                               )}
-                            />
-                            <span className="font-medium tabular-nums">
+                            </div>
+                            <p className="text-muted-foreground mt-0.5 text-xs">
+                              {s.teacher_name}
+                              {" · "}
                               {timeFmt.format(new Date(s.scheduled_at_utc))}
-                            </span>
-                            {/* Checkmark overlay once any outcome is recorded */}
-                            {isRecorded && statusOverrides[s.id] && (
-                              <span className="inline-flex size-4 items-center justify-center rounded-full bg-emerald-500 text-white">
-                                <svg className="size-2.5" viewBox="0 0 12 12" fill="none" aria-hidden>
-                                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                </svg>
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Student + trial badge */}
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">{s.student_name ?? "—"}</span>
-                            {isTrial && (
-                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                                <Sparkles className="size-2.5" />
-                                {t("trial")}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Teacher (owner only) */}
-                        {!isTeacher && (
-                          <td className="text-muted-foreground px-5 py-3.5">
-                            {s.teacher_name ?? "—"}
-                          </td>
-                        )}
-
-                        {/* Duration */}
-                        <td className="text-muted-foreground px-5 py-3.5">
-                          <div className="flex items-center gap-1">
-                            <Clock className="size-3.5 shrink-0 opacity-60" />
-                            <span className="tabular-nums">
+                              {" · "}
                               {s.duration_minutes} {t("min")}
-                            </span>
+                            </p>
                           </div>
-                        </td>
-
-                        {/* Status badge */}
-                        <td className="px-5 py-3.5">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <StatusBadge status={displayStatus} />
+                          <div className="flex shrink-0 flex-col items-end gap-1">
+                            <StatusBadge status={displayStatus} className="shrink-0" />
                             {s.pending_cancel_type && displayStatus === "SCHEDULED" && (
                               <span
                                 data-testid="awaiting-approval"
-                                title={t("awaitingApprovalHint")}
                                 className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
                               >
                                 <Clock className="size-2.5" />
@@ -711,164 +1075,57 @@ export function AttendanceManager() {
                               </span>
                             )}
                           </div>
-                        </td>
-
-                        {/* Action */}
-                        <td className="px-5 py-3.5 text-end">
-                          <div className="flex items-center justify-end gap-2">
-                            {/* WhatsApp send — placeholder, disabled until the feature ships. */}
-                            {isRecorded && (
-                              <Button
-                                type="button"
-                                size="xs"
-                                variant="outline"
-                                disabled
-                                title={t("whatsappSoon")}
-                                data-testid="row-whatsapp"
-                                className="gap-1.5"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <MessageCircle className="size-3.5" />
-                                {t("sendWhatsapp")}
-                              </Button>
-                            )}
-                            {canReschedule && displayStatus === "SCHEDULED" && (
-                              <Button
-                                type="button"
-                                size="xs"
-                                variant="outline"
-                                data-testid="row-reschedule"
-                                className="gap-1.5"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setRescheduling(s);
-                                }}
-                              >
-                                <RotateCcw className="size-3.5" />
-                                {tSched("actions.reschedule")}
-                              </Button>
-                            )}
+                        </div>
+                        <div className="flex items-center justify-end gap-2">
+                          {/* WhatsApp send — placeholder, disabled until the feature ships. */}
+                          {displayStatus !== "SCHEDULED" && (
                             <Button
                               type="button"
                               size="xs"
-                              variant={displayStatus === "SCHEDULED" ? "default" : "outline"}
+                              variant="outline"
+                              disabled
+                              title={t("whatsappSoon")}
+                              data-testid="row-whatsapp"
+                              className="gap-1.5"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MessageCircle className="size-3.5" />
+                              {t("sendWhatsapp")}
+                            </Button>
+                          )}
+                          {canReschedule && displayStatus === "SCHEDULED" && (
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="outline"
+                              data-testid="row-reschedule"
+                              className="gap-1.5"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                openSession(s);
+                                setRescheduling(s);
                               }}
                             >
-                              {displayStatus === "SCHEDULED" ? t("record") : t("open")}
+                              <RotateCcw className="size-3.5" />
+                              {tSched("actions.reschedule")}
                             </Button>
-                          </div>
-                        </td>
-                      </tr>
+                          )}
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant={displayStatus === "SCHEDULED" ? "default" : "outline"}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openSession(s);
+                            }}
+                          >
+                            {displayStatus === "SCHEDULED" ? t("record") : t("open")}
+                          </Button>
+                        </div>
+                      </li>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* ── Mobile cards ──────────────────────────────────────── */}
-            <ul className="divide-y sm:hidden">
-              {filteredSessions.map((s) => {
-                const isTrial =
-                  s.student_status === "TRIAL" || s.student_status === "TRIAL_BOOKED";
-                const displayStatus = (statusOverrides[s.id] ?? s.status) as typeof s.status;
-                return (
-                  <li
-                    key={s.id}
-                    className={cn(
-                      "cursor-pointer px-5 py-4 transition-colors hover:bg-muted/30",
-                      STATUS_ROW[displayStatus] ?? "",
-                    )}
-                    onClick={() => openSession(s)}
-                  >
-                    <div className="mb-2 flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={cn(
-                              "size-2 shrink-0 rounded-full transition-colors",
-                              STATUS_DOT[displayStatus] ?? "bg-slate-400",
-                            )}
-                          />
-                          <p className="truncate font-semibold">{s.student_name ?? "—"}</p>
-                          {isTrial && (
-                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                              <Sparkles className="size-2.5" />
-                              {t("trial")}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-muted-foreground mt-0.5 text-xs">
-                          {s.teacher_name}
-                          {" · "}
-                          {timeFmt.format(new Date(s.scheduled_at_utc))}
-                          {" · "}
-                          {s.duration_minutes} {t("min")}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <StatusBadge status={displayStatus} className="shrink-0" />
-                        {s.pending_cancel_type && displayStatus === "SCHEDULED" && (
-                          <span
-                            data-testid="awaiting-approval"
-                            className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-                          >
-                            <Clock className="size-2.5" />
-                            {t("awaitingApproval")}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-end gap-2">
-                      {/* WhatsApp send — placeholder, disabled until the feature ships. */}
-                      {displayStatus !== "SCHEDULED" && (
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          disabled
-                          title={t("whatsappSoon")}
-                          data-testid="row-whatsapp"
-                          className="gap-1.5"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <MessageCircle className="size-3.5" />
-                          {t("sendWhatsapp")}
-                        </Button>
-                      )}
-                      {canReschedule && displayStatus === "SCHEDULED" && (
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          data-testid="row-reschedule"
-                          className="gap-1.5"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRescheduling(s);
-                          }}
-                        >
-                          <RotateCcw className="size-3.5" />
-                          {tSched("actions.reschedule")}
-                        </Button>
-                      )}
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant={displayStatus === "SCHEDULED" ? "default" : "outline"}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openSession(s);
-                        }}
-                      >
-                        {displayStatus === "SCHEDULED" ? t("record") : t("open")}
-                      </Button>
-                    </div>
-                  </li>
-                );
-              })}
+                </Fragment>
+              ))}
             </ul>
           </>
         )}
@@ -915,9 +1172,11 @@ export function AttendanceManager() {
         }}
       />
 
-      {/* Log a one-off class the timetable never produced */}
+      {/* Log a one-off class the timetable never produced — on ANY date, not just today. It
+          opens on the day in view (today whenever the window contains it), and its date/time
+          field is free to move anywhere from there. */}
       <CreateClassModal
-        day={date}
+        day={showsToday ? today : bounds.firstDay}
         open={creating}
         onClose={() => setCreating(false)}
         onCreated={() => {

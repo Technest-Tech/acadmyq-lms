@@ -2933,8 +2933,10 @@ export interface DaySession extends PendingSession {
 }
 
 /**
- * GET /api/sessions/day — every session inside a local-day window [from, to), for the
- * attendance page. `from`/`to` are ISO instants (the browser computes the day's local bounds).
+ * GET /api/sessions/day — every session inside a window [from, to), for the attendance page.
+ * `from`/`to` are ISO instants (the browser computes the local bounds), and the window is not
+ * limited to one day: the page also asks for a whole week or month. `truncated` comes back true
+ * when the window held more lessons than the server's cap.
  */
 export function getSessionsByDay(params: {
   from: string;
@@ -2942,7 +2944,7 @@ export function getSessionsByDay(params: {
   teacher_id?: string;
   status?: string;
   trial_only?: boolean;
-}): Promise<{ sessions: DaySession[] }> {
+}): Promise<{ sessions: DaySession[]; truncated?: boolean }> {
   const qs = new URLSearchParams({ from: params.from, to: params.to });
   if (params.teacher_id) qs.set("teacher_id", params.teacher_id);
   if (params.status) qs.set("status", params.status);

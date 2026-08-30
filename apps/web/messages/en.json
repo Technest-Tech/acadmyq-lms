@@ -1881,6 +1881,17 @@
     "today": "Today",
     "prevDay": "Previous day",
     "nextDay": "Next day",
+    "prevPeriod": "Previous",
+    "nextPeriod": "Next",
+    "pickDate": "Pick a date",
+    "pickMonth": "Pick a month",
+    "rangeLabel": "Range",
+    "range_day": "Day",
+    "range_week": "Week",
+    "range_month": "Month",
+    "periodSubtitle": "Every lesson in this period, grouped by day — record an outcome on each.",
+    "periodNone": "No lessons match these filters in this period.",
+    "periodTruncated": "This period has more lessons than can be shown at once. Narrow the range or the filters to see the rest.",
     "allTeachers": "All teachers",
     "allStatuses": "All statuses",
     "trialsOnly": "Trials only",
@@ -1966,7 +1977,7 @@
     "freeTrialsTitle": "Free (Trial) Lessons Today",
     "trialSession": "trial session",
     "trialSessions": "trial sessions",
-    "tilesHint": "Pick a tile to narrow the day below — pick it again to see everything."
+    "tilesHint": "Pick a tile to narrow the list below — pick it again to see everything."
   },
   "payroll": {
     "title": "Payroll",
