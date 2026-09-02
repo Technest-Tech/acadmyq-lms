@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/profile-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { StudentPackagePanel } from "@/components/packages/student-package-panel";
 import { Combobox } from "@/components/ui/combobox";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -177,6 +178,9 @@ export function StudentDetail({
   }
 
   const canEdit = can("student.update");
+  // Editing a student and pricing one are now separate rights: a supervisor manages the student
+  // and never sees, let alone changes, what they pay.
+  const canPrice = can("student.set_price");
   const isActive = (data.student.deleted_at as string | null) == null;
 
   return (
@@ -254,7 +258,7 @@ export function StudentDetail({
       <SubscriptionSection
         data={data}
         teachers={teachers}
-        canEdit={canEdit}
+        canEdit={canPrice}
         locale={locale}
         studentId={studentId}
         onChanged={(msg) => {
@@ -582,10 +586,20 @@ export function SubscriptionSection({
 }) {
   const t = useTranslations("students");
   const sub = data.subscription;
-  const isHourly = sub?.price_basis === "PER_HOUR";
+  // A package student's rate is still quoted per hour — it is what pre-fills their next block —
+  // so both modes render the hourly figures. Only the CLOCK differs.
+  const isHourly =
+    sub?.price_basis === "PER_HOUR" || sub?.price_basis === "PER_PACKAGE";
+  const isPackaged = sub?.price_basis === "PER_PACKAGE";
 
   const [showSet, setShowSet] = useState(false);
   const [saving, setSaving] = useState(false);
+  /**
+   * WHICH billing clock this student is on. The two are mutually exclusive by design: a package
+   * student never also collects a monthly invoice line, because two clocks on one student is a
+   * double bill (docs/lesson-packages).
+   */
+  const [basis, setBasis] = useState<"PER_HOUR" | "PER_PACKAGE">("PER_HOUR");
 
   const [sessions, setSessions] = useState("");
   const [price, setPrice] = useState("");
@@ -620,6 +634,7 @@ export function SubscriptionSection({
       setPrice((sub.price_minor / 100).toString());
       setCurrency(sub.currency);
       setStartDate(sub.start_date);
+      setBasis(sub.price_basis === "PER_PACKAGE" ? "PER_PACKAGE" : "PER_HOUR");
     }
     setRepriceOpen(false);
     setPreview(null);
@@ -632,15 +647,23 @@ export function SubscriptionSection({
   async function save() {
     setSaving(true);
     try {
+      const packaged = basis === "PER_PACKAGE";
       const res = await setSubscription(studentId, {
-        // The package is always hourly now; derive a display label from the quota.
-        plan_label: sessions ? `${sessions} hrs/month` : "Hourly",
-        sessions_per_month: sessions ? Number(sessions) : null,
+        // The rate is always hourly now; derive a display label from the clock and the quota.
+        plan_label: packaged
+          ? t("subscription.modePackage")
+          : sessions
+            ? `${sessions} hrs/month`
+            : "Hourly",
+        // A monthly quota means nothing once the boundary is "N hours bought" rather than a month.
+        sessions_per_month: packaged || !sessions ? null : Number(sessions),
         price_minor: toMinor(price),
         currency: currency || undefined,
-        price_basis: "PER_HOUR",
+        price_basis: basis,
         start_date: startDate,
-        reprice_open: repriceOpen,
+        // Repricing walks the OPEN monthly invoices, of which a package student has none — the
+        // toggle is hidden in that mode, and this keeps it off even if state lingered.
+        reprice_open: packaged ? false : repriceOpen,
       });
       setShowSet(false);
       onChanged(
@@ -690,6 +713,11 @@ export function SubscriptionSection({
         </div>
       )}
 
+      {/* The live hour balance, for a student on package billing. It sits above the terms card
+          because when a parent rings up, "how many hours are left" is the question — the agreed
+          rate is what you check second. */}
+      {isPackaged && <StudentPackagePanel studentId={studentId} />}
+
       {sub ? (
         <ProfileCard
           icon={BookOpen}
@@ -726,7 +754,11 @@ export function SubscriptionSection({
               label={isHourly ? t("subscription.priceHourly") : t("subscription.price")}
             >
               <span data-testid="subscription-price">
-                {formatMoney({ amount: sub.price_minor, currency: sub.currency }, locale)}
+                {/* Blanked by the API for a role that may not see rates — the card still shows
+                    the plan, the quota and the start date, which are not money. */}
+                {sub.price_minor != null && sub.currency
+                  ? formatMoney({ amount: sub.price_minor, currency: sub.currency }, locale)
+                  : "—"}
               </span>
               {isHourly && (
                 <span className="text-muted-foreground ms-0.5 text-xs font-medium">
@@ -811,6 +843,40 @@ export function SubscriptionSection({
         }
       >
         <div className="space-y-4">
+          {/* Which clock. Stated first because it changes what every field below MEANS: in package
+              mode the price is a default rate for the next block rather than a monthly figure, and
+              the monthly quota stops existing. */}
+          <div className="space-y-1.5">
+            <span className="text-sm font-medium">{t("subscription.mode")}</span>
+            <div className="grid grid-cols-2 gap-2">
+              {(["PER_HOUR", "PER_PACKAGE"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  data-testid={`billing-mode-${option}`}
+                  onClick={() => setBasis(option)}
+                  className={cn(
+                    "rounded-xl border px-3 py-2.5 text-start text-sm font-medium transition-colors",
+                    basis === option
+                      ? "border-primary/40 bg-primary/8 text-primary"
+                      : "border-input bg-background text-muted-foreground hover:bg-muted/40",
+                  )}
+                >
+                  <span className="block">
+                    {t(option === "PER_HOUR" ? "subscription.modeMonthly" : "subscription.modePackage")}
+                  </span>
+                  <span className="text-muted-foreground/80 mt-0.5 block text-[11px] font-normal">
+                    {t(
+                      option === "PER_HOUR"
+                        ? "subscription.modeMonthlyHint"
+                        : "subscription.modePackageHint",
+                    )}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label={t("subscription.priceHourly")}>
               <div className="relative">
@@ -826,18 +892,22 @@ export function SubscriptionSection({
               </div>
             </Field>
 
-            <Field label={t("subscription.hoursPerMonth")}>
-              <div className="relative">
-                <Hash className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
-                <input
-                  type="number"
-                  aria-label={t("subscription.hoursPerMonth")}
-                  className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                  value={sessions}
-                  onChange={(e) => setSessions(e.target.value)}
-                />
-              </div>
-            </Field>
+            {/* A monthly quota is meaningless once the boundary is "N hours bought", so it is
+                absent rather than disabled — a greyed-out field still invites a question. */}
+            {basis === "PER_HOUR" && (
+              <Field label={t("subscription.hoursPerMonth")}>
+                <div className="relative">
+                  <Hash className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    type="number"
+                    aria-label={t("subscription.hoursPerMonth")}
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                    value={sessions}
+                    onChange={(e) => setSessions(e.target.value)}
+                  />
+                </div>
+              </Field>
+            )}
 
             <Field label={t("subscription.currency")}>
               <Combobox
@@ -865,7 +935,7 @@ export function SubscriptionSection({
 
           {/* Only offered when there is something to correct: sessions already billed onto an
               invoice that is still open. Nothing billed yet → the new rate applies anyway. */}
-          {preview && preview.sessions > 0 && (
+          {basis === "PER_HOUR" && preview && preview.sessions > 0 && (
             <label
               className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-300/60 bg-gradient-to-br from-amber-500/[0.08] to-transparent p-3.5 dark:border-amber-700/40"
               data-testid="reprice-open-toggle"

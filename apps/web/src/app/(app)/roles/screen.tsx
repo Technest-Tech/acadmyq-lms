@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Banknote,
   Check,
   KeyRound,
   Lock,
@@ -9,6 +10,7 @@ import {
   ShieldCheck,
   ShieldHalf,
   Trash2,
+  UserCog,
   Users,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -119,6 +121,13 @@ export function AcademyRolesScreen() {
     load();
   }, [load]);
 
+  // Which boxes hand over money. Marked rather than hidden: it is the academy's call to make,
+  // it just should not be a surprise (`payout.adjust` does not look like "pays an award").
+  const financial = useMemo(
+    () => new Set(data?.financial ?? []),
+    [data],
+  );
+
   const grantableGroups = useMemo(
     () => (data ? groupByDomain(data.grantable) : []),
     [data],
@@ -134,9 +143,23 @@ export function AcademyRolesScreen() {
     return <p className="text-muted-foreground text-sm">{t("noPermission")}</p>;
   }
 
-  function openCreate() {
+  /**
+   * Start a new role. With a preset key, the boxes come pre-ticked from the server's own
+   * definition of that role (clamped to what this user may delegate) — so building "a supervisor
+   * who only handles attendance" starts from the whole supervisor and unticks, rather than
+   * hunting forty-odd checkboxes for the ones that are not money.
+   */
+  function openCreate(presetKey?: string) {
     setNotice(null);
-    setDraft(emptyDraft());
+    const preset = presetKey
+      ? data?.presets?.find((p) => p.key === presetKey)
+      : undefined;
+    setDraft({
+      ...emptyDraft(),
+      name: preset ? t(`presets.${preset.key}.name`) : "",
+      description: preset ? t(`presets.${preset.key}.description`) : "",
+      permissions: new Set(preset?.permissions ?? []),
+    });
   }
 
   function openEdit(role: AcademyRoleSummary) {
@@ -256,11 +279,24 @@ export function AcademyRolesScreen() {
                 {t("hero.capabilities", { count: data.grantable.length })}
               </HeroPill>
             )}
+            {(data?.presets?.some((p) => p.key === "supervisor") ?? false) && (
+              <Button
+                type="button"
+                size="lg"
+                className="gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25"
+                onClick={() => openCreate("supervisor")}
+                data-testid="new-supervisor-role"
+                title={t("presets.supervisor.hint")}
+              >
+                <UserCog className="size-4" aria-hidden />
+                {t("newSupervisorRole")}
+              </Button>
+            )}
             <Button
               type="button"
               size="lg"
               className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
-              onClick={openCreate}
+              onClick={() => openCreate()}
               data-testid="new-role"
             >
               <Plus className="size-4" aria-hidden />
@@ -530,6 +566,15 @@ export function AcademyRolesScreen() {
                               <span className="min-w-0">
                                 <span className="block text-sm font-medium leading-tight">
                                   {permLabel(code)}
+                                  {financial.has(code) && (
+                                    <span
+                                      data-testid={`financial-${code}`}
+                                      className="ms-1.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300"
+                                    >
+                                      <Banknote className="size-2.5" aria-hidden />
+                                      {t("financialTag")}
+                                    </span>
+                                  )}
                                 </span>
                                 {desc && (
                                   <span className="text-muted-foreground block text-xs leading-snug">

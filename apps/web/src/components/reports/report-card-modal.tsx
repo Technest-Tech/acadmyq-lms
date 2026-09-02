@@ -40,6 +40,8 @@ const CARD_COPY = {
     student: "الطالب",
     date: "التاريخ",
     lesson: "الحلقة",
+    lessonInMonth: "الحلقة هذا الشهر",
+    lessonInPackage: "الحلقة في الباقة",
     duration: "المدة",
     attendance: "الحضور",
     teacher: "المعلم",
@@ -64,6 +66,8 @@ const CARD_COPY = {
     student: "Student",
     date: "Date",
     lesson: "Lesson",
+    lessonInMonth: "Lesson this month",
+    lessonInPackage: "Lesson in package",
     duration: "Duration",
     attendance: "Attendance",
     teacher: "Teacher",
@@ -256,12 +260,23 @@ export function ReportCardModal({
 
   // A trial is a session wearing a flag, not a separate document — so it takes the word "trial"
   // where a numbered lesson takes its number.
-  const lessonLabel =
-    values.is_free_trial === true
-      ? copy.trial
-      : session.session_number !== null
-        ? String(session.session_number)
-        : "—";
+  const isTrial = values.is_free_trial === true;
+  const lessonLabel = isTrial
+    ? copy.trial
+    : session.session_number !== null
+      ? String(session.session_number)
+      : "—";
+
+  // "3" is only meaningful next to "3 of what". The API counts the lesson inside the block the
+  // family is billed for — their package, else the month — so the caption names that block. A
+  // trial belongs to no block, and an unnumbered lesson gets the bare word.
+  const lessonHeading = isTrial
+    ? copy.lesson
+    : session.session_number_scope === "PACKAGE"
+      ? copy.lessonInPackage
+      : session.session_number_scope === "MONTH"
+        ? copy.lessonInMonth
+        : copy.lesson;
 
   const captureRef = useRef<HTMLDivElement>(null);
 
@@ -307,7 +322,7 @@ export function ReportCardModal({
     labels: {
       student: copy.student,
       date: copy.date,
-      lesson: copy.lesson,
+      lesson: lessonHeading,
       duration: copy.duration,
       attendance: copy.attendance,
       teacher: copy.teacher,

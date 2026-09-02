@@ -30,6 +30,8 @@ use Illuminate\Validation\ValidationException;
  */
 final class Invoicing implements BillingHook
 {
+    public function __construct(private readonly LessonPackages $packages) {}
+
     // -------------------------------------------------------------------------
     // BillingHook
     // -------------------------------------------------------------------------
@@ -51,6 +53,18 @@ final class Invoicing implements BillingHook
         // single invoice, so the parent never sees the trial split off as a second row (R-BIL-1).
         $studentStatus = DB::table('students')->where('id', $session->student_id)->value('status');
         if (in_array($studentStatus, [StudentStatus::TRIAL, StudentStatus::TRIAL_BOOKED], true)) {
+            return;
+        }
+
+        // The OTHER billing clock. A student who bought a block of hours burns this lesson's
+        // minutes out of that block instead of collecting a monthly invoice line. Delegating here
+        // — BEFORE any invoice is opened — is what keeps the two modes mutually exclusive, so a
+        // package student can never be billed twice for one lesson (the whole reason packages are
+        // a mode and not an addition). A free trial is skipped: it is on the house, so it must not
+        // eat paid-for minutes either. consume() returns false when it declines the lesson (the
+        // student is on package billing but has no open package) and the monthly path below takes
+        // over, because a delivered lesson still has to be billed to somebody.
+        if (! $this->isFreeTrial((string) $session->id) && $this->packages->consume($session)) {
             return;
         }
 
@@ -133,6 +147,15 @@ final class Invoicing implements BillingHook
      */
     public function onSessionUnbilled(object $session): void
     {
+        // Mirror of the delegation in onSessionBillable: if this lesson ate package minutes, the
+        // reversal is a package concern and there is no invoice line to undo. release() refuses
+        // once the package is closed AND its bill has moved past OPEN, which is the package-side
+        // equivalent of the closed-invoice immutability guard — the throw rolls the whole
+        // attendance change back.
+        if ($this->packages->release($session)) {
+            return;
+        }
+
         $line = DB::table('invoice_line_items')
             ->where('session_id', $session->id)
             ->first();
@@ -374,6 +397,15 @@ final class Invoicing implements BillingHook
         if ($student === null) {
             throw ValidationException::withMessages([
                 'student_id' => ['Student not found. / الطالب غير موجود.'],
+            ]);
+        }
+
+        // Advance invoicing is the MONTHLY engine's prepay: bill the rest of this calendar month
+        // up front. A package student already prepays (or postpays) a block of hours, so running
+        // both would bill the same lessons twice under two different clocks. Refuse loudly.
+        if ($this->packages->isPackageStudent($studentId)) {
+            throw ValidationException::withMessages([
+                'student_id' => ['This student is billed by lesson package. Open a package instead of an advance invoice. / يتم احتساب هذا الطالب عن طريق باقة الحصص. افتح باقة بدلًا من فاتورة مقدمة.'],
             ]);
         }
 
@@ -664,7 +696,13 @@ final class Invoicing implements BillingHook
     ): int {
         $priceMinor = (int) $subscription->price_minor;
 
-        if ($subscription->price_basis === 'PER_HOUR') {
+        // PER_PACKAGE only reaches here as a FALLBACK: the student is on package billing but has
+        // no open package, so LessonPackages::consume() declined the lesson and it must still be
+        // billed to somebody. For a package student subscriptions.price_minor is the default
+        // HOURLY rate (it is what pre-fills the next package), so the fallback prices by the hour
+        // — charging it as a flat per-session fee would silently bill a 90-minute lesson the same
+        // as a 30-minute one.
+        if ($subscription->price_basis === 'PER_HOUR' || $subscription->price_basis === 'PER_PACKAGE') {
             return (int) round($priceMinor * $durationMinutes / 60);
         }
 

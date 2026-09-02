@@ -272,11 +272,13 @@ export function ReportCard(props: ReportCardProps) {
 
   // Weighted, not equal: a spelled-out Arabic date needs roughly half again the room of a lesson
   // number, and an even four-way split makes it wrap to three lines and stretch the whole strip.
+  // The lesson column carries a two-word HEADING ("Lesson this month" / "الحلقة في الباقة") over a
+  // one-character value, so it is sized for its label rather than for its number.
   const facts: Array<{ label: string; value: string; weight: number }> = [
     { label: labels.student, value: studentName || "—", weight: 1.05 },
-    { label: labels.date, value: dateLabel, weight: 1.35 },
-    { label: labels.lesson, value: lessonLabel, weight: 0.8 },
-    { label: labels.duration, value: durationLabel, weight: 0.95 },
+    { label: labels.date, value: dateLabel, weight: 1.3 },
+    { label: labels.lesson, value: lessonLabel, weight: 1 },
+    { label: labels.duration, value: durationLabel, weight: 0.85 },
   ];
 
   const frame: CSSProperties = {
@@ -296,7 +298,7 @@ export function ReportCard(props: ReportCardProps) {
       <div
         style={{
           position: "relative",
-          padding: "56px 64px 92px",
+          padding: "34px 64px 72px",
           textAlign: "center",
           background: `radial-gradient(130% 150% at 50% 0%, ${accent} 0%, ${shade(accent, 0.42)} 62%, ${shade(accent, 0.62)} 100%)`,
           color: "#FFFFFF",
@@ -307,34 +309,34 @@ export function ReportCard(props: ReportCardProps) {
           <>
             <Confetti
               width={REPORT_CARD_WIDTH}
-              height={340}
+              height={250}
               colors={[JOY.gold, JOY.coral, JOY.sky, JOY.mint, JOY.grape]}
               opacity={0.5}
             />
             {/* Clouds low in the band, so the header reads as sky rather than as a slab. */}
-            <div style={{ position: "absolute", bottom: 96, left: 40 }}>
-              <Cloud width={130} fill="#FFFFFF" opacity={0.1} />
+            <div style={{ position: "absolute", bottom: 74, left: 40 }}>
+              <Cloud width={112} fill="#FFFFFF" opacity={0.1} />
             </div>
-            <div style={{ position: "absolute", bottom: 130, right: 56 }}>
-              <Cloud width={92} fill="#FFFFFF" opacity={0.08} />
+            <div style={{ position: "absolute", bottom: 100, right: 56 }}>
+              <Cloud width={80} fill="#FFFFFF" opacity={0.08} />
             </div>
           </>
         )}
 
         {/* Gold keyline, inset from the bleed — the frame a certificate would wear. */}
-        <div style={{ position: "absolute", inset: 20, border: `1px solid ${GOLD}`, opacity: 0.45, borderRadius: 4 }} />
-        <div style={{ position: "absolute", top: 30, left: 30 }}><Octagram size={38} stroke={GOLD_SOFT} strokeWidth={1.4} opacity={0.55} /></div>
-        <div style={{ position: "absolute", top: 30, right: 30 }}><Octagram size={38} stroke={GOLD_SOFT} strokeWidth={1.4} opacity={0.55} /></div>
+        <div style={{ position: "absolute", inset: 14, border: `1px solid ${GOLD}`, opacity: 0.45, borderRadius: 4 }} />
+        <div style={{ position: "absolute", top: 22, left: 24 }}><Octagram size={30} stroke={GOLD_SOFT} strokeWidth={1.4} opacity={0.55} /></div>
+        <div style={{ position: "absolute", top: 22, right: 24 }}><Octagram size={30} stroke={GOLD_SOFT} strokeWidth={1.4} opacity={0.55} /></div>
 
         <div style={{ position: "relative" }}>
           {/* Two fanoos hung either side of the identity mark — the first thing a child finds. */}
           {joyful && (
             <>
-              <div style={{ position: "absolute", top: -14, left: 150 }}>
-                <Lantern height={132} />
+              <div style={{ position: "absolute", top: -8, left: 180 }}>
+                <Lantern height={96} />
               </div>
-              <div style={{ position: "absolute", top: -14, right: 150 }}>
-                <Lantern height={132} />
+              <div style={{ position: "absolute", top: -8, right: 180 }}>
+                <Lantern height={96} />
               </div>
             </>
           )}
@@ -342,8 +344,8 @@ export function ReportCard(props: ReportCardProps) {
           {/* Identity: the academy's own mark, or a woven monogram when it has none. */}
           <div
             style={{
-              width: 128,
-              height: 128,
+              width: 92,
+              height: 92,
               margin: "0 auto",
               borderRadius: "50%",
               background: PAPER,
@@ -356,16 +358,16 @@ export function ReportCard(props: ReportCardProps) {
           >
             {logoDataUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoDataUrl} alt="" style={{ width: 112, height: 112, objectFit: "contain" }} />
+              <img src={logoDataUrl} alt="" style={{ width: 80, height: 80, objectFit: "contain" }} />
             ) : (
-              <Octagram size={86} stroke={accent} strokeWidth={2.4} />
+              <Octagram size={62} stroke={accent} strokeWidth={2.4} />
             )}
           </div>
 
           <div
             style={{
-              marginTop: 20,
-              fontSize: 26,
+              marginTop: 14,
+              fontSize: 22,
               fontWeight: 700,
               color: GOLD_SOFT,
               letterSpacing: isAr ? 0 : 4,
@@ -375,21 +377,21 @@ export function ReportCard(props: ReportCardProps) {
             {academyName}
           </div>
 
-          <div style={{ marginTop: 18, marginBottom: 18 }}>
-            <Divider color={GOLD} width={180} />
+          <div style={{ marginTop: 12, marginBottom: 12 }}>
+            <Divider color={GOLD} width={150} />
           </div>
 
-          <div style={{ fontFamily: DISPLAY, fontSize: 56, fontWeight: 700, lineHeight: 1.3, color: "#FFFFFF" }}>
+          <div style={{ fontFamily: DISPLAY, fontSize: 42, fontWeight: 700, lineHeight: 1.25, color: "#FFFFFF" }}>
             {headline}
           </div>
 
           {intro && (
             <div
               style={{
-                margin: "20px auto 0",
-                maxWidth: 800,
-                fontSize: 21,
-                lineHeight: 1.85,
+                margin: "12px auto 0",
+                maxWidth: 760,
+                fontSize: 18,
+                lineHeight: 1.7,
                 color: "rgba(255,255,255,0.82)",
               }}
             >
@@ -401,22 +403,22 @@ export function ReportCard(props: ReportCardProps) {
               rather than straddling its seam — the facts strip lifts 52px into that seam, and an
               illustration there buries the date. */}
           {joyful && (
-            <div style={{ marginTop: 18, display: "flex", justifyContent: "center" }}>
-              <MushafBurst width={232} cover={shade(accent, 0.3)} />
+            <div style={{ marginTop: 12, display: "flex", justifyContent: "center" }}>
+              <MushafBurst width={168} cover={shade(accent, 0.3)} />
             </div>
           )}
         </div>
       </div>
 
       {/* ── Facts strip — lifted over the header seam ─────────────────── */}
-      <div style={{ padding: "0 56px", marginTop: -52, position: "relative" }}>
+      <div style={{ padding: "0 56px", marginTop: -44, position: "relative" }}>
         <div
           style={{
             background: PAPER,
             border: `1px solid ${LINE}`,
             borderRadius: 24,
             boxShadow: "0 18px 40px rgba(22,38,31,0.12)",
-            padding: "26px 20px",
+            padding: "22px 20px",
             display: "flex",
             alignItems: "stretch",
           }}

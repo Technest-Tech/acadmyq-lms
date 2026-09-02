@@ -2,6 +2,7 @@
 
 import { SESSION_STATUS } from "@academiq/contracts";
 import {
+  AlarmClock,
   CalendarClock,
   CalendarPlus,
   CheckCircle2,
@@ -29,6 +30,10 @@ import {
 } from "react";
 import { AttendanceReportModal } from "@/components/attendance/attendance-report-modal";
 import { CreateClassModal } from "@/components/attendance/create-class-modal";
+import {
+  OverdueLessonsPanel,
+  useOverdueLessons,
+} from "@/components/attendance/overdue-lessons";
 import { RescheduleModal } from "@/components/attendance/reschedule-modal";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
@@ -173,6 +178,10 @@ export function AttendanceManager() {
   const [exportError, setExportError] = useState<string | null>(null);
   // The server returns at most one capped page per window; a busy month can reach it.
   const [truncated, setTruncated] = useState(false);
+
+  // الحصص المعلقة — lessons already past their grace window with no outcome. Deliberately NOT tied
+  // to the period on screen: the whole point is that they were left behind by it.
+  const overdue = useOverdueLessons();
 
   const timeFmt = useMemo(
     () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
@@ -424,6 +433,15 @@ export function AttendanceManager() {
         subtitle={t("managerSubtitle")}
         actions={
           <>
+            {overdue.count > 0 && (
+              <span
+                data-testid="hero-overdue"
+                className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/60 bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm"
+              >
+                <AlarmClock className="size-3.5" aria-hidden />
+                {t("overdueTitle")} {overdue.count}
+              </span>
+            )}
             {pendingCount > 0 && (
               <span className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm">
                 <UserX className="size-3.5" aria-hidden />
@@ -456,6 +474,11 @@ export function AttendanceManager() {
           </>
         }
       />
+
+      {/* ── الحصص المعلقة / Held-up lessons ───────────────────────────────
+          Sits ABOVE the period navigator on purpose: it is the only block on the page that is not
+          about the window you picked, and it is the only one that is already late. */}
+      <OverdueLessonsPanel state={overdue} onOpen={openSession} isTeacher={isTeacher} />
 
       {/* ── Period navigator ──────────────────────────────────────────────
           The page used to be nailed to today, which left a past or future lesson reachable only
@@ -1158,6 +1181,8 @@ export function AttendanceManager() {
         onClose={() => {
           setSelected(null);
           void load();
+          // Marking the outcome is exactly what takes a lesson OFF the overdue list.
+          overdue.reload();
         }}
       />
 
@@ -1169,6 +1194,8 @@ export function AttendanceManager() {
         onDone={() => {
           setRescheduling(null);
           void load();
+          // A reschedule retires the overdue occurrence and mints a future one.
+          overdue.reload();
         }}
       />
 

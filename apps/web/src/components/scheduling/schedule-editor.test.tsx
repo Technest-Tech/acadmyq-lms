@@ -31,6 +31,7 @@ describe("ScheduleSection (Sprint 5 §5.1)", () => {
         student_id: "s1",
         teacher_id: "t1",
         timezone: "Africa/Cairo",
+        start_date: "2026-06-01",
         is_active: true,
         version: 1,
       },

@@ -208,6 +208,7 @@ export function StudentsList({
   const locale = useLocale();
   const { can, session } = useAuth();
   const isTeacher = session?.role === "TEACHER";
+  const canPrice = can("student.set_price");
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
 
   useEffect(() => {
@@ -311,7 +312,10 @@ export function StudentsList({
         },
       ];
 
-      if (!isTeacher) {
+      // The rate column belongs to whoever may set it. A role denied pricing (SUPERVISOR) has the
+      // figure blanked by the API anyway, so showing the column would print a row of dashes and
+      // offer a sort the server refuses.
+      if (!isTeacher && canPrice) {
         cols.push({
           key: "price",
           header: t("colRate"),
@@ -399,7 +403,7 @@ export function StudentsList({
 
       return cols;
     },
-    [t, locale, isTeacher, priceSuffix],
+    [t, locale, isTeacher, canPrice, priceSuffix],
   );
 
   const filters = useMemo<FilterDef[]>(

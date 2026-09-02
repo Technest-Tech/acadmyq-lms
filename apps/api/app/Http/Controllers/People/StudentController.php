@@ -34,7 +34,7 @@ final class StudentController extends Controller
 {
     use InteractsWithPeople;
 
-    private const PRICE_BASES = ['PER_SESSION', 'PER_MONTH', 'PER_HOUR'];
+    private const PRICE_BASES = ['PER_SESSION', 'PER_MONTH', 'PER_HOUR', 'PER_PACKAGE'];
 
     private const SUB_STATUSES = ['ACTIVE', 'PAUSED', 'ENDED'];
 
@@ -49,12 +49,17 @@ final class StudentController extends Controller
         $this->applyActiveScope($query, $request, 's.deleted_at');
         $this->applyTeacherRowScope($query);
 
+        // Withholding the power to reprice is pointless if the rate is still printed in the list,
+        // so a caller without `student.set_price` gets neither the number nor a sort that would
+        // rank students by it (ordering by a hidden column leaks the ordering).
+        $seesPricing = $this->seesPricing();
+
         $result = DataTable::paginate($query, $request, [
             'idColumn' => 's.id',
             'searchable' => ['s.full_name', 'g.full_name', 's.whatsapp_phone'],
             'sortable' => [
                 'name' => 's.full_name',
-                'price' => 'sub.price_minor',
+                ...($seesPricing ? ['price' => 'sub.price_minor'] : []),
                 'start_date' => 'sub.start_date',
                 'created_at' => 's.created_at',
             ],
@@ -66,6 +71,10 @@ final class StudentController extends Controller
             ],
             'defaultSort' => 'name',
         ]);
+
+        if (! $seesPricing) {
+            $result['rows'] = $result['rows']->map($this->redactPricing(...));
+        }
 
         return response()->json($result);
     }
@@ -115,8 +124,11 @@ final class StudentController extends Controller
             'is_self_guardian' => $selfGuardian,
         ]);
 
-        // Optional inline subscription (the per-student price, R-STU-4).
+        // Optional inline subscription (the per-student price, R-STU-4). Naming a price is a
+        // pricing act wherever it happens, so it needs `student.set_price` even on the create
+        // form — otherwise a role denied repricing could set any rate it liked at enrolment.
         if (isset($data['subscription'])) {
+            Gate::authorize('student.set_price');
             $this->writeSubscription($academyId, $studentId, $data['subscription'], replace: false);
         }
 
@@ -163,7 +175,9 @@ final class StudentController extends Controller
         return response()->json([
             'student' => $student,
             'guardian' => $guardian,
-            'subscription' => $subscription,
+            'subscription' => $subscription !== null && ! $this->seesPricing()
+                ? $this->redactPricing($subscription)
+                : $subscription,
             'currentTeacher' => $current,
             'trialResolved' => $trialResolved,
         ]);
@@ -335,7 +349,7 @@ final class StudentController extends Controller
     /** PUT /api/students/{id}/subscription — set/replace the single active subscription (TC-4.9). */
     public function setSubscription(Request $request, string $id): JsonResponse
     {
-        Gate::authorize('student.update');
+        Gate::authorize('student.set_price');
 
         $academyId = $this->currentAcademyId();
         if (DB::table('students')->where('id', $id)->whereNull('deleted_at')->doesntExist()) {
@@ -358,7 +372,7 @@ final class StudentController extends Controller
      */
     public function repricePreview(string $id): JsonResponse
     {
-        Gate::authorize('student.read');
+        Gate::authorize('student.set_price');
 
         return response()->json(app(Invoicing::class)->previewOpenInvoiceReprice($id));
     }
@@ -366,7 +380,7 @@ final class StudentController extends Controller
     /** PATCH /api/students/{id}/subscription/price — change price (audited, future-only). */
     public function changePrice(Request $request, string $id): JsonResponse
     {
-        Gate::authorize('student.update');
+        Gate::authorize('student.set_price');
 
         $academyId = $this->currentAcademyId();
         $sub = $this->activeSubscription($id);
@@ -481,6 +495,32 @@ final class StudentController extends Controller
     }
 
     // ── internals ────────────────────────────────────────────────────────────
+
+    /**
+     * May the caller see what a student PAYS? The same capability that lets them change it —
+     * a role denied repricing (SUPERVISOR) is denied the rate itself, not just the button.
+     */
+    private function seesPricing(): bool
+    {
+        return Gate::allows('student.set_price');
+    }
+
+    /**
+     * Blank the money on one student/subscription row, leaving everything a non-financial role
+     * legitimately needs: the plan's label, how many sessions a month it buys, when it started
+     * and whether it is active. The keys stay PRESENT and null so the shape never changes —
+     * a missing key would read as "no subscription" rather than "not your business".
+     */
+    private function redactPricing(object $row): object
+    {
+        foreach (['price_minor', 'price_currency', 'price_basis', 'currency'] as $key) {
+            if (property_exists($row, $key)) {
+                $row->{$key} = null;
+            }
+        }
+
+        return $row;
+    }
 
     /** The DataTable base query: student + guardian + the one active sub + the active teacher. */
     private function baseListQuery(): Builder

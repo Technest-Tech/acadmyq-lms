@@ -3,6 +3,7 @@
 import { KhatamLattice } from "@/components/ornaments";
 import {
   Activity,
+  AlarmClock,
   ArrowRight,
   ArrowUpRight,
   BarChart3,
@@ -36,6 +37,7 @@ import {
   getCalendar,
   getEntitlements,
   getInvoiceSummary,
+  getOverdueSessions,
   getPendingAttendance,
   getProfitSummary,
   listMyPayouts,
@@ -44,6 +46,7 @@ import {
   type CalendarSession,
   type Entitlements,
   type InvoiceSummary,
+  type OverdueSession,
   type PendingSession,
   type ProfitSummary,
   type ProfitSummaryRow,
@@ -784,6 +787,13 @@ export function AcademyDashboard() {
   const [studentsTotal, setStudentsTotal] = useState<number | null>(null);
   const [teachersTotal, setTeachersTotal] = useState<number | null>(null);
   const [pending, setPending] = useState<PendingSession[] | null>(null);
+  // الحصص المعلقة — lessons that ended hours ago and STILL have no outcome. `pending` above is
+  // "past its start time"; this is the sharper, already-late cut that earns the urgent slot.
+  const [overdue, setOverdue] = useState<{
+    sessions: OverdueSession[];
+    count: number;
+    graceHours: number;
+  } | null>(null);
   const [invoiceSummary, setInvoiceSummary] = useState<InvoiceSummary | null>(null);
   const [profitMonths, setProfitMonths] = useState<MonthPoint[]>([]);
   // Current-month profit broken out per currency — drives the teacher-salary and net-profit
@@ -827,9 +837,15 @@ export function AcademyDashboard() {
 
     if (can("attendance.record") || can("attendance.read")) {
       getPendingAttendance().then((r) => setPending(r.sessions)).catch(() => setPending([])).finally(() => setLdAttend(false));
+      getOverdueSessions()
+        .then((r) => setOverdue({ sessions: r.sessions, count: r.count, graceHours: r.grace_hours }))
+        // The urgent banner is an extra signal, never the dashboard itself: if it cannot load it
+        // stays silent rather than shouting an error above every card.
+        .catch(() => setOverdue(null));
     } else {
       setLdAttend(false);
       setPending([]);
+      setOverdue(null);
     }
 
     if (can("invoice.view")) {
@@ -1070,6 +1086,60 @@ export function AcademyDashboard() {
       </header>
 
       <SubscriptionBanner />
+
+      {/* ── Urgent: الحصص المعلقة ──
+          The one block allowed to sit above the metrics, because it is the only thing on the page
+          that is already late: lessons that ended hours ago with no outcome recorded. Unbilled,
+          unpaid and invisible everywhere else until someone goes looking for their date. It renders
+          only when there IS a backlog — a clean academy never sees it. */}
+      {overdue !== null && overdue.count > 0 && (
+        <Link
+          href="/attendance"
+          data-testid="dashboard-overdue"
+          className="group flex flex-wrap items-center gap-4 rounded-2xl border-2 border-rose-300 bg-rose-50/80 p-5 shadow-sm transition-colors hover:bg-rose-100/70 dark:border-rose-900/60 dark:bg-rose-950/25 dark:hover:bg-rose-950/40"
+        >
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-rose-600 text-white shadow-sm">
+            <AlarmClock className="h-6 w-6" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-2 text-sm font-bold text-rose-900 dark:text-rose-100">
+              <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                {t("urgent.badge")}
+              </span>
+              {t("urgent.overdueTitle")}
+            </p>
+            <p className="mt-1 text-sm text-rose-800/90 dark:text-rose-200/90">
+              {t(isTeacher ? "urgent.overdueDescTeacher" : "urgent.overdueDesc", {
+                count: overdue.count,
+                hours: overdue.graceHours,
+              })}
+            </p>
+            {/* The oldest few by name — a number alone is a nag; names are a worklist. */}
+            {overdue.sessions.length > 0 && (
+              <p className="mt-1.5 truncate text-xs text-rose-700/80 dark:text-rose-300/80">
+                {overdue.sessions
+                  .slice(0, 3)
+                  .map((o) =>
+                    [o.student_name ?? "—", isTeacher ? null : o.teacher_name]
+                      .filter(Boolean)
+                      .join(" · "),
+                  )
+                  .join("  —  ")}
+                {overdue.count > 3 ? ` … +${formatNumber(overdue.count - 3, locale)}` : ""}
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <span className="text-3xl font-bold tabular-nums text-rose-600 dark:text-rose-400">
+              {formatNumber(overdue.count, locale)}
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white transition-transform group-hover:translate-x-0.5 rtl:group-hover:-translate-x-0.5">
+              {t("urgent.cta")}
+              <ArrowRight className="h-3.5 w-3.5 rtl:rotate-180" />
+            </span>
+          </div>
+        </Link>
+      )}
 
       {/* ── Key metrics ── */}
       <section className="space-y-3">

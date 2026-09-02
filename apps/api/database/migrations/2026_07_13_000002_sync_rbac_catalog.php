@@ -30,8 +30,21 @@ return new class extends Migration
             DB::table('permissions')->updateOrInsert(['code' => $code], ['description' => $code]);
         }
 
+        // The catalog is read at RUN time, so a system role introduced later (SUPERVISOR) appears
+        // in roleMap() here too — at a point in history where the `app_role` enum does not yet
+        // carry it, and `role_permissions.role` is that enum. Sync only what the schema of this
+        // moment can hold; the migration that adds the role grants its own capabilities.
+        $knownRoles = DB::table('pg_enum as e')
+            ->join('pg_type as t', 't.oid', '=', 'e.enumtypid')
+            ->where('t.typname', 'app_role')
+            ->pluck('e.enumlabel')
+            ->all();
+
         $permIds = DB::table('permissions')->pluck('id', 'code');
         foreach (PermissionCatalog::roleMap() as $role => $codes) {
+            if (! in_array($role, $knownRoles, true)) {
+                continue;
+            }
             foreach ($codes as $code) {
                 if (! isset($permIds[$code])) {
                     continue;

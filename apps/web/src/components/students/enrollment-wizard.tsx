@@ -12,6 +12,12 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
+import {
+  countPastLessons,
+  StartDateField,
+  todayLocal,
+} from "@/components/scheduling/start-date-field";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -115,7 +121,15 @@ export function EnrollmentWizard({
 }) {
   const t = useTranslations("students");
   const tSched = useTranslations("scheduling");
+  const { can } = useAuth();
+  // Whether this user may name a price at all. Drives the whole shape of the wizard below.
+  const canPrice = can("student.set_price");
   const [step, setStep] = useState(0);
+  // The timetable's own start date. It lives on THIS step because the schedule is saved before
+  // the pricing step below — by the time the enrolment start date is typed there, the lessons
+  // have already been generated.
+  const [scheduleStart, setScheduleStart] = useState<string>(() => todayLocal());
+  const [confirmingBackfill, setConfirmingBackfill] = useState(false);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -153,7 +167,13 @@ export function EnrollmentWizard({
     setSlots((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   }
 
+  const pastLessons = countPastLessons(slots, scheduleStart);
+
   async function saveSchedule() {
+    if (pastLessons > 0 && !confirmingBackfill) {
+      setConfirmingBackfill(true);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -163,6 +183,7 @@ export function EnrollmentWizard({
       if (slots.length > 0) {
         await putStudentSchedule(studentId, {
           timezone: timezone || undefined,
+          start_date: scheduleStart || undefined,
           slots: slots.map((s) => ({
             weekday: s.weekday,
             start_time_local: s.start_time_local,
@@ -170,7 +191,9 @@ export function EnrollmentWizard({
           })),
         });
       }
-      setStep(1);
+      // Without pricing rights there is no second step to advance to — the schedule IS the job.
+      if (canPrice) setStep(1);
+      else onCompleted();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -219,6 +242,19 @@ export function EnrollmentWizard({
           searchPlaceholder={t("form.searchTeacher")}
         />
       </Field>
+
+      {/* When the lessons start. Sits with the timetable, not with the price, because the
+          timetable is saved on THIS step — a start date typed later cannot reach it. */}
+      <StartDateField
+        className="sm:max-w-xs"
+        value={scheduleStart}
+        onChange={(v) => {
+          setScheduleStart(v);
+          setConfirmingBackfill(false);
+        }}
+        slots={slots}
+        disabled={busy}
+      />
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -373,10 +409,15 @@ export function EnrollmentWizard({
 
   return (
     <div className="space-y-0">
-      <StepIndicator
-        current={step}
-        labels={[t("enroll.stepSchedule"), t("enroll.stepPricing")]}
-      />
+      {/* Pricing is a step only for whoever may price. For a role without `student.set_price`
+          (SUPERVISOR) the wizard is schedule-and-teacher and then done — offering the step and
+          failing on save would be worse than not offering it. */}
+      {canPrice && (
+        <StepIndicator
+          current={step}
+          labels={[t("enroll.stepSchedule"), t("enroll.stepPricing")]}
+        />
+      )}
 
       {error && (
         <div className="mb-4">
@@ -406,10 +447,10 @@ export function EnrollmentWizard({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setStep(1)}
+                onClick={() => (canPrice ? setStep(1) : onCompleted())}
                 disabled={busy}
               >
-                {t("enroll.skipSchedule")}
+                {canPrice ? t("enroll.skipSchedule") : t("actions.cancel")}
               </Button>
               <Button
                 type="button"
@@ -423,7 +464,9 @@ export function EnrollmentWizard({
                 ) : (
                   <Check className="size-3.5" />
                 )}
-                {t("enroll.saveContinue")}
+                {confirmingBackfill
+                  ? tSched("startDateBackfillConfirm", { count: pastLessons })
+                  : t("enroll.saveContinue")}
               </Button>
             </div>
           </>

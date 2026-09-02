@@ -26,6 +26,27 @@ export function formatHm12(hm: string, locale: string): string {
   }).format(d);
 }
 
+/**
+ * Minutes → a duration a parent can read: "3h 20m", "2h", "45m".
+ *
+ * The single render boundary for package balances. Everything the API sends about a package is
+ * an integer minute count precisely so no fractional hour ever reaches a screen or an invoice —
+ * a balance shown as 3.3333h is a support ticket, and rounding it to 3.3h loses two minutes of
+ * paid-for time. Digits go through the same numbering-system handling as every other number, so
+ * Arabic renders Arabic-Indic (R-LOC / AC-9.12).
+ */
+export function formatHours(minutes: number, locale: string): string {
+  const total = Math.max(0, Math.round(minutes));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  const n = (value: number) => new Intl.NumberFormat(bcp47(locale)).format(value);
+  const hourMark = locale.startsWith("ar") ? "\u0633" : "h";
+  const minuteMark = locale.startsWith("ar") ? "\u062f" : "m";
+
+  if (h === 0) return `${n(m)}${minuteMark}`;
+  return m === 0 ? `${n(h)}${hourMark}` : `${n(h)}${hourMark} ${n(m)}${minuteMark}`;
+}
+
 function bcp47(locale: string): string {
   // Arabic renders Arabic-Indic digits via the explicit numbering system (R-LOC / AC-9.12).
   return locale.startsWith("ar") && !locale.includes("-nu-")

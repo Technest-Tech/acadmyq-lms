@@ -29,6 +29,7 @@ import {
   Package,
   PanelLeftClose,
   PanelLeftOpen,
+  Layers,
   ReceiptText,
   Scale,
   Settings,
@@ -59,7 +60,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
-import { getDaySessionCount, getNotificationsSummary } from "@/lib/api";
+import {
+  getDaySessionCount,
+  getLessonPackageSummary,
+  getNotificationsSummary,
+} from "@/lib/api";
 import {
   KhatamLattice,
   Octagram,
@@ -99,6 +104,7 @@ type NavKey =
   | "certificates"
   | "billing"
   | "invoices"
+  | "packages"
   | "payroll"
   | "teacherQuality"
   | "discountsAwards"
@@ -308,6 +314,15 @@ const NAV: ReadonlyArray<{
     href: "/invoices",
     group: "financial",
   },
+  // Lesson packages sit directly under Invoices because they ARE invoicing — the same money on a
+  // different clock (a block of hours instead of a calendar month), for the students on that mode.
+  {
+    key: "packages",
+    icon: Layers,
+    permission: "package.read",
+    href: "/packages",
+    group: "financial",
+  },
   {
     key: "payroll",
     icon: Wallet,
@@ -494,6 +509,9 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   studentReports: "student_reports",
   studentReportReviews: "student_reports",
   invoices: "invoicing",
+  // Packages ARE invoicing — the same money on a different clock — so they live and die with
+  // the same entitlement rather than being a module of their own.
+  packages: "invoicing",
   payroll: "payroll",
   // Both live behind the payroll entitlement — they are payroll features, not a separate module,
   // so a client without payroll loses them exactly as it loses payroll.
@@ -552,6 +570,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [notifCount, setNotifCount] = useState(0);
   const [srCount, setSrCount] = useState(0);
   const [attnCount, setAttnCount] = useState(0);
+  const [pkgCount, setPkgCount] = useState(0);
   // The academy's resolved plan capabilities, used to lock nav items the plan doesn't include.
   // They arrive with the session itself, so by the time we have a session we have these too — there
   // is no separate loading state to guard, and no window in which a video-only ("Meet Plan") academy
@@ -630,6 +649,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         .catch(() => {});
     };
     refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [session, can, pathname]);
+
+  // Packages badge: how many blocks of hours need the owner to DO something — running out,
+  // finished and unpaid, or an overdraft still to bill. Deliberately not "unread": the count is
+  // derived from package state, so it clears when the work is done rather than when it is seen.
+  useEffect(() => {
+    if (session === null || !can("package.read")) {
+      setPkgCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () =>
+      getLessonPackageSummary()
+        .then((s) => alive && setPkgCount(s.total))
+        .catch(() => {});
+    void refresh();
     const id = setInterval(refresh, 60_000);
     return () => {
       alive = false;
@@ -763,6 +803,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return {
         count: attnCount,
         label: `${attnCount} sessions awaiting attendance today`,
+      };
+    }
+    if (key === "packages" && pkgCount > 0) {
+      return {
+        count: pkgCount,
+        label: `${pkgCount} lesson packages need attention`,
       };
     }
     if (key === "studentReportReviews" && srCount > 0) {

@@ -33,6 +33,7 @@ function detail(overrides: Partial<api.SessionDetailResponse> = {}): api.Session
       scheduled_at_utc: "2026-06-01T15:00:00Z",
       duration_minutes: 30,
       session_number: null,
+      session_number_scope: null,
       status: "SCHEDULED",
       status_reason: null,
       billed: false,

@@ -1999,10 +1999,19 @@ export interface AcademyRoleSummary {
   name: string;
   description?: string | null;
   isActive?: boolean;
-  /** True for the built-in, non-editable system roles (OWNER/TEACHER/STAFF). */
+  /** True for the built-in, non-editable system roles (OWNER/SUPERVISOR/TEACHER/STAFF). */
   system: boolean;
   permissions: string[];
   assignedCount: number;
+}
+
+/** A starting point for a new custom role — a named set of boxes already ticked. */
+export interface AcademyRolePreset {
+  /** Stable handle (`supervisor`); the UI keys its label and copy off this. */
+  key: string;
+  /** The system role this preset mirrors, when it mirrors one. */
+  role?: string;
+  permissions: string[];
 }
 
 export interface AcademyRolesResponse {
@@ -2010,6 +2019,9 @@ export interface AcademyRolesResponse {
   custom: AcademyRoleSummary[];
   /** The capability codes the current user is allowed to grant to a custom role. */
   grantable: string[];
+  /** Those grantable codes that move or reveal money — marked in the builder. */
+  financial?: string[];
+  presets?: AcademyRolePreset[];
 }
 
 export interface AcademyRoleInput {
@@ -2378,7 +2390,12 @@ export interface SubscriptionInput {
   sessions_per_month?: number | null;
   price_minor: number;
   currency?: string | null;
-  price_basis?: "PER_SESSION" | "PER_MONTH" | "PER_HOUR";
+  /**
+   * PER_PACKAGE switches the student onto the hour-block billing mode (docs/lesson-packages):
+   * the monthly invoice stops running for them and `price_minor` becomes the DEFAULT hourly
+   * rate used to pre-fill their next package. The two clocks are mutually exclusive.
+   */
+  price_basis?: "PER_SESSION" | "PER_MONTH" | "PER_HOUR" | "PER_PACKAGE";
   start_date: string;
   /**
    * Also re-price the sessions already billed onto this student's OPEN invoices at the new
@@ -2520,7 +2537,7 @@ export function changeSubscriptionPrice(
   input: {
     price_minor: number;
     currency?: string;
-    price_basis?: "PER_SESSION" | "PER_MONTH" | "PER_HOUR";
+    price_basis?: "PER_SESSION" | "PER_MONTH" | "PER_HOUR" | "PER_PACKAGE";
     reprice_open?: boolean;
   },
 ): Promise<{ ok: boolean; repriced: RepricePreview }> {
@@ -2561,6 +2578,8 @@ export interface Schedule {
   student_id: string;
   teacher_id: string;
   timezone: string;
+  /** Local `Y-m-d` the timetable starts producing lessons. */
+  start_date: string | null;
   is_active: boolean;
   version: number;
 }
@@ -2568,6 +2587,12 @@ export interface Schedule {
 export interface ScheduleInput {
   timezone?: string;
   teacher_id?: string | null;
+  /**
+   * Local `Y-m-d` the timetable starts producing lessons. May be in the past — that is how a
+   * student enrolled on the 1st and entered on the 20th gets the three weeks already taught.
+   * Omitted, the server falls back to the student's subscription start date, then to today.
+   */
+  start_date?: string;
   slots: ScheduleSlot[];
 }
 
@@ -2636,6 +2661,8 @@ export interface TimetableSummary {
   teacher_id: string;
   teacher_name: string | null;
   timezone: string;
+  /** Local `Y-m-d` the timetable starts producing lessons. */
+  start_date: string | null;
   slots: ScheduleSlot[];
 }
 
@@ -2802,9 +2829,14 @@ export interface SessionDetail {
   academy_name: string | null;
   scheduled_at_utc: string;
   duration_minutes: number;
-  /** This student's Nth DELIVERED lesson (attended or free), for the report card's "Lesson #".
-   *  Null while the session is still scheduled or was cancelled — it has no number yet. */
+  /** The lesson's number for the report card's "Lesson #", counted inside the block the family
+   *  is billed for — their lesson package, or failing that the calendar month in the academy's
+   *  timezone. Null while the session is still scheduled or was cancelled: nothing was delivered,
+   *  so it has no number yet. */
   session_number: number | null;
+  /** Which block `session_number` counts within, so the card can say "3" of WHAT. Null exactly
+   *  when `session_number` is. */
+  session_number_scope: "PACKAGE" | "MONTH" | null;
   status: SessionStatus;
   status_reason: string | null;
   billed: boolean;
@@ -2950,6 +2982,28 @@ export function getSessionsByDay(params: {
   if (params.status) qs.set("status", params.status);
   if (params.trial_only) qs.set("trial_only", "1");
   return apiFetch(`/api/sessions/day?${qs.toString()}`);
+}
+
+/** A lesson that ended long enough ago to count as overdue (GET /api/sessions/overdue). */
+export interface OverdueSession extends DaySession {
+  /** True when a teacher-raised cancellation OR free request is awaiting the owner's approval —
+   *  the lesson is stuck on the owner, not on the teacher's marking. */
+  pending_approval: boolean;
+}
+
+/**
+ * GET /api/sessions/overdue — lessons that ENDED at least `grace_hours` ago and are still
+ * SCHEDULED, i.e. nobody recorded an outcome. Not scoped to any calendar window: a lesson
+ * forgotten three weeks ago is exactly the one this must surface. `count` is the true size of the
+ * backlog even when the row list was capped (`truncated`).
+ */
+export function getOverdueSessions(): Promise<{
+  sessions: OverdueSession[];
+  count: number;
+  truncated: boolean;
+  grace_hours: number;
+}> {
+  return apiFetch("/api/sessions/overdue");
 }
 
 /**
@@ -3260,6 +3314,50 @@ export function getProfitSummary(
   month: number,
 ): Promise<ProfitSummary> {
   return apiFetch(`/api/reports/profit-summary?year=${year}&month=${month}`);
+}
+
+/**
+ * Salaries for an arbitrary window (`GET /api/payouts/range`), rather than for a calendar month.
+ *
+ * A payout statement IS a month, so this cannot be read off `payouts.total_minor` — the server
+ * re-adds the parts: lessons sliced exactly on their academy-local date, and adjustments anchored
+ * on the date they refer to. Every figure is per currency; nothing is ever summed across them.
+ */
+export interface PayrollRangeTeacher {
+  teacher_id: string;
+  teacher_name: string | null;
+  currency: string;
+  sessions: number;
+  /** Minutes taught in the window — the figure a salary gets checked against. */
+  minutes: number;
+  lessons_minor: number;
+  rewards_minor: number;
+  deductions_minor: number;
+  net_minor: number;
+  /** At least one statement behind these figures is still OPEN, so the total can still move. */
+  has_open: boolean;
+}
+
+export interface PayrollRangeCurrency {
+  currency: string;
+  teachers: number;
+  sessions: number;
+  minutes: number;
+  lessons_minor: number;
+  rewards_minor: number;
+  deductions_minor: number;
+  net_minor: number;
+}
+
+export interface PayrollRange {
+  from: string;
+  to: string;
+  currencies: PayrollRangeCurrency[];
+  teachers: PayrollRangeTeacher[];
+}
+
+export function getPayrollRange(from: string, to: string): Promise<PayrollRange> {
+  return apiFetch(`/api/payouts/range?from=${from}&to=${to}`);
 }
 
 // ── Live FX rates (financial statistics) ─────────────────────────────────────
@@ -3889,14 +3987,24 @@ export function rejectCancellation(
   });
 }
 
-export type NotificationType = "REPORT_OVERDUE" | "REPORT_REMINDER";
+export type NotificationType =
+  | "REPORT_OVERDUE"
+  | "REPORT_REMINDER"
+  // Lesson-package alerts (docs/lesson-packages). PACKAGE_UNPAID is the one that answers
+  // "he started a new package without paying the old one" — visibility, never a block.
+  | "PACKAGE_LOW"
+  | "PACKAGE_COMPLETED"
+  | "PACKAGE_UNPAID"
+  | "NO_ACTIVE_PACKAGE";
 
 /** One report-overdue alert (Notifications "Reports" tab). */
 export interface NotificationRow {
   id: string;
   type: NotificationType;
-  category: "REPORTS";
+  category: "REPORTS" | "PACKAGES";
   session_id: string | null;
+  /** Anchor for non-session alerts — a lesson_packages.id for the PACKAGE_* types. */
+  subject_id: string | null;
   data: {
     student_name?: string | null;
     teacher_name?: string | null;
@@ -3904,6 +4012,17 @@ export interface NotificationRow {
     scheduled_at_utc?: string;
     duration_minutes?: number;
     session_status?: string;
+    // Package alerts
+    package_id?: string;
+    student_id?: string;
+    label?: string;
+    minutes_left?: number;
+    minutes_consumed?: number;
+    minutes_overdrawn?: number;
+    outstanding_minor?: number;
+    currency?: string;
+    invoice_id?: string | null;
+    reason?: string;
   };
   read_at: string | null;
   created_at: string;
@@ -3917,6 +4036,8 @@ export function listNotifications(): Promise<{ notifications: NotificationRow[] 
 export interface NotificationSummary {
   classes: number;
   reports: number;
+  /** Unread lesson-package alerts — its own tab, so it never inflates the reports count. */
+  packages: number;
   /** Pending student progress reports awaiting review (drives the tab badge, not the bell). */
   studentReports: number;
   total: number;
@@ -5767,4 +5888,159 @@ export function listMyAdjustments(
   q: DataTableQuery = {},
 ): Promise<ListResult<TeacherAdjustmentRow>> {
   return apiFetch(`/api/me/adjustments${toQueryString(q)}`);
+}
+
+// ── Lesson packages (hour-based billing mode, docs/lesson-packages) ────────────
+
+export type PackageStatus = "ACTIVE" | "COMPLETED" | "CANCELLED";
+export type PackageBillTiming = "ON_START" | "ON_COMPLETION";
+
+/**
+ * One package, with its live balance.
+ *
+ * Everything is MINUTES — the server never sends fractional hours, because a package balance
+ * that renders as 3.3333h is a support ticket waiting to happen. `formatHours` is the single
+ * render boundary that turns them into "3h 20m".
+ *
+ * `minutes_remaining` is clamped at zero and `minutes_overdrawn` is reported separately: "how
+ * much is left" and "how far past the end the last lesson went" are two different facts, and a
+ * single signed number reads wrong on a progress bar.
+ */
+export interface LessonPackageRow {
+  id: string;
+  student_id: string;
+  student_name: string;
+  label: string;
+  sequence_no: number;
+  status: PackageStatus;
+  bill_timing: PackageBillTiming;
+  minutes_total: number;
+  carried_over_minutes: number;
+  /** minutes_total + carried_over_minutes — the balance the student actually has. */
+  minutes_sold: number;
+  minutes_consumed: number;
+  minutes_remaining: number;
+  minutes_overdrawn: number;
+  percent_used: number;
+  price_minor: number;
+  hourly_rate_minor: number;
+  currency: string;
+  starts_on: string;
+  expires_on: string | null;
+  closed_at: string | null;
+  closed_reason: string | null;
+  invoice_id: string | null;
+  invoice_status: string | null;
+  invoice_token: string | null;
+  outstanding_minor: number;
+  overdraft_billed: boolean;
+  created_at: string;
+}
+
+/**
+ * The attention counters behind the sidebar badge. These are things to DO, not things unread:
+ * a closed package with no bill, an overdraft still travelling, a finished package nobody paid
+ * for, and a balance about to run out.
+ */
+export interface LessonPackageSummary {
+  active: number;
+  lowBalance: number;
+  needsBilling: number;
+  pendingOverdraft: number;
+  unpaid: number;
+  total: number;
+}
+
+/** A student on package billing, with their open package (if any) and default hourly rate. */
+export interface PackageStudent {
+  id: string;
+  full_name: string;
+  currency: string;
+  default_hourly_rate_minor: number;
+  active_package_id: string | null;
+  active_package_label: string | null;
+}
+
+/** One lesson that consumed minutes from a package. */
+export interface LessonPackageCredit {
+  id: string;
+  session_id: string | null;
+  minutes: number;
+  minutes_overdrawn: number;
+  amount_minor: number;
+  currency: string;
+  description: string;
+  consumed_at: string;
+  scheduled_at_utc: string | null;
+  session_status: string | null;
+  teacher_name: string | null;
+}
+
+export function listLessonPackages(
+  filters: { status?: PackageStatus; student_id?: string; q?: string } = {},
+): Promise<{ packages: LessonPackageRow[] }> {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.student_id) params.set("student_id", filters.student_id);
+  if (filters.q) params.set("q", filters.q);
+  const qs = params.toString();
+  return apiFetch(`/api/packages${qs ? `?${qs}` : ""}`);
+}
+
+export function getLessonPackageSummary(): Promise<LessonPackageSummary> {
+  return apiFetch("/api/packages/summary");
+}
+
+export function listPackageStudents(): Promise<{ students: PackageStudent[] }> {
+  return apiFetch("/api/packages/students");
+}
+
+export function getLessonPackage(
+  id: string,
+): Promise<{ package: LessonPackageRow; credits: LessonPackageCredit[] }> {
+  return apiFetch(`/api/packages/${id}`);
+}
+
+/**
+ * Open a package. `hours` is what the academy sells and what the form asks for; the server
+ * converts to minutes on arrival and nothing downstream ever sees a fraction again.
+ */
+export function openLessonPackage(input: {
+  student_id: string;
+  label: string;
+  hours: number;
+  price_minor: number;
+  currency?: string;
+  bill_timing?: PackageBillTiming;
+  starts_on?: string;
+  expires_on?: string | null;
+  carry_over?: boolean;
+}): Promise<{ id: string; invoice_id: string | null; carried_over_minutes: number }> {
+  return apiFetch("/api/packages", { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Close a package early. One that runs out closes itself. */
+export function closeLessonPackage(
+  id: string,
+  reason?: string,
+): Promise<{ ok: boolean; invoice_id: string | null }> {
+  return apiFetch(`/api/packages/${id}/close`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/** Void a package opened by mistake — unused ones only. */
+export function cancelLessonPackage(id: string, note?: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/packages/${id}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
+}
+
+/** Put a stranded overdraft on its own invoice (when no next package was ever opened). */
+export function billPackageOverdraft(
+  id: string,
+): Promise<{ ok: boolean; invoice_id: string }> {
+  return apiFetch(`/api/packages/${id}/bill-overdraft`, { method: "POST" });
 }

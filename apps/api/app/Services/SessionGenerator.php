@@ -28,7 +28,13 @@ use Illuminate\Support\Str;
  *                                 plain re-run, TC-5.5; moves the time on an edit, TC-5.17)
  *   - future & untouched no longer implied → DELETE (slot removed / schedule edited, TC-5.19)
  *   - anything past or "touched" → never read, never written (§4.5, TC-5.9/5.11/5.20)
- *   - occurrences before `now` are never back-filled (TC-5.3)
+ *   - occurrences before the FLOOR are never created (TC-5.3)
+ *
+ * The floor defaults to `now` — the rolling window job and every incidental regeneration must
+ * never invent history. The one caller that passes an earlier floor is saving a timetable, where
+ * a start date in the past is a deliberate statement: "these lessons happened, put them on the
+ * board so we can mark them." Back-filling stays idempotent (the unique occurrence index), and a
+ * back-filled row is still SCHEDULED, so nothing is billed until somebody records an outcome.
  */
 final class SessionGenerator
 {
@@ -65,9 +71,11 @@ final class SessionGenerator
      *
      * @return array{created:int, removed:int}
      */
-    public function generateForSchedule(string $scheduleId, Carbon $windowStart, Carbon $windowEnd, ?Carbon $now = null): array
+    public function generateForSchedule(string $scheduleId, Carbon $windowStart, Carbon $windowEnd, ?Carbon $now = null, ?Carbon $floor = null): array
     {
         $now ??= Carbon::now();
+        // Nothing is created before this instant. `now` unless a caller deliberately reaches back.
+        $floor ??= $now;
 
         $schedule = DB::table('schedules')->where('id', $scheduleId)->first();
         if ($schedule === null) {
@@ -103,12 +111,37 @@ final class SessionGenerator
         $teacherId = $this->currentTeacherFor((string) $schedule->student_id) ?? (string) $schedule->teacher_id;
 
         $nowUtc = $now->copy()->utc();
+        $floorUtc = $floor->copy()->utc();
 
         // Index intended by its idempotency key (occurrence_local_date|slot_id).
         $intendedByKey = [];
         foreach ($intended as $o) {
             $intendedByKey[$o['occurrence_local_date'].'|'.$o['slot_id']] = $o;
         }
+
+        // Back-fill bookkeeping, per local date: how many lessons the schedule INTENDS on that
+        // date, and how many already exist. The slot-id lookup below is not enough on its own for
+        // history, because editing a lesson's time deletes the old slot and detaches (slot_id →
+        // null) the past sessions it produced. Matching by slot alone would then miss them and
+        // create a second copy of every lesson already taught — the same lesson twice on the
+        // attendance page, markable and billable twice. Counting per date catches that while
+        // still allowing an academy that genuinely teaches twice on a Monday to get both.
+        $intendedPerDate = [];
+        foreach ($intended as $o) {
+            if ($o['scheduled_at_utc']->lessThan($nowUtc)) {
+                $intendedPerDate[$o['occurrence_local_date']] = ($intendedPerDate[$o['occurrence_local_date']] ?? 0) + 1;
+            }
+        }
+        $existingPerDate = $intendedPerDate === []
+            ? []
+            : DB::table('sessions')
+                ->where('schedule_id', $scheduleId)
+                ->whereIn('occurrence_local_date', array_keys($intendedPerDate))
+                ->selectRaw('occurrence_local_date, count(*) as c')
+                ->groupBy('occurrence_local_date')
+                ->pluck('c', 'occurrence_local_date')
+                ->map(fn ($c) => (int) $c)
+                ->all();
 
         $created = 0;
         $removed = 0;
@@ -127,8 +160,8 @@ final class SessionGenerator
 
         // 2) Insert missing future occurrences; align existing untouched ones in place.
         foreach ($intended as $o) {
-            if ($o['scheduled_at_utc']->lessThan($nowUtc)) {
-                continue; // never back-fill the past (TC-5.3)
+            if ($o['scheduled_at_utc']->lessThan($floorUtc)) {
+                continue; // before the timetable starts — never created (TC-5.3)
             }
 
             $existing = DB::table('sessions')
@@ -140,6 +173,14 @@ final class SessionGenerator
             $utc = $o['scheduled_at_utc']->format('Y-m-d H:i:sP');
 
             if ($existing === null) {
+                // A past date whose lessons are already on the board — however they got there —
+                // is history, not a gap to fill.
+                $date = $o['occurrence_local_date'];
+                $isBackfill = $o['scheduled_at_utc']->lessThan($nowUtc);
+                if ($isBackfill && ($existingPerDate[$date] ?? 0) >= ($intendedPerDate[$date] ?? 0)) {
+                    continue;
+                }
+
                 $inserted = DB::table('sessions')->insertOrIgnore([
                     'id' => (string) Str::uuid(),
                     'academy_id' => (string) $schedule->academy_id,
@@ -153,6 +194,9 @@ final class SessionGenerator
                     'status' => 'SCHEDULED',
                 ]);
                 $created += $inserted; // 0 if a concurrent run won the unique index (TC-5.7)
+                if ($isBackfill) {
+                    $existingPerDate[$date] = ($existingPerDate[$date] ?? 0) + $inserted;
+                }
 
                 continue;
             }

@@ -31,7 +31,7 @@ final class NotificationController extends Controller
         $rows = $this->visibleQuery()
             ->orderByDesc('n.created_at')
             ->limit(200)
-            ->get(['n.id', 'n.type', 'n.category', 'n.session_id', 'n.data', 'n.read_at', 'n.created_at'])
+            ->get(['n.id', 'n.type', 'n.category', 'n.session_id', 'n.subject_id', 'n.data', 'n.read_at', 'n.created_at'])
             ->map(function ($n) {
                 $n->data = $n->data !== null ? (json_decode($n->data, true) ?: []) : [];
                 $n->read_at = $n->read_at !== null ? Carbon::parse($n->read_at)->utc()->toIso8601String() : null;
@@ -52,7 +52,17 @@ final class NotificationController extends Controller
     {
         Gate::authorize('notification.read');
 
-        $reports = (int) $this->visibleQuery()->whereNull('n.read_at')->count();
+        // The "Reports" tab is about overdue session reports, so package alerts must not inflate
+        // it just because they share the notifications table. Each category counts for its own tab.
+        $reports = (int) $this->visibleQuery()
+            ->whereNull('n.read_at')
+            ->where('n.category', '!=', 'PACKAGES')
+            ->count();
+
+        $packages = (int) $this->visibleQuery()
+            ->whereNull('n.read_at')
+            ->where('n.category', 'PACKAGES')
+            ->count();
 
         $classes = (int) DB::table('session_cancellation_requests')->where('status', 'PENDING')->count();
 
@@ -63,8 +73,9 @@ final class NotificationController extends Controller
         return response()->json([
             'classes' => $classes,
             'reports' => $reports,
+            'packages' => $packages,
             'studentReports' => $studentReports,
-            'total' => $classes + $reports,
+            'total' => $classes + $reports + $packages,
         ]);
     }
 

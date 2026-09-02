@@ -49,6 +49,12 @@ final class PayoutController extends Controller
                 'teacher_id' => fn ($q, $v) => $q->where('p.teacher_id', $v),
                 'period_year' => fn ($q, $v) => $q->where('p.period_year', (int) $v),
                 'period_month' => fn ($q, $v) => $q->where('p.period_month', (int) $v),
+                // The statements a date window TOUCHES. A window is measured in days but a payout
+                // is a month, so overlap is the only honest relation between them: `2026-06` and
+                // `2026-07` are both "in" a window running from 25 June to 5 July. Compared as
+                // year*100+month so a single integer orders and bounds the period.
+                'period_from' => fn ($q, $v) => $q->whereRaw('p.period_year * 100 + p.period_month >= ?', [self::periodKey($v)]),
+                'period_to' => fn ($q, $v) => $q->whereRaw('p.period_year * 100 + p.period_month <= ?', [self::periodKey($v)]),
                 'status' => function ($q, $v): void {
                     if ($v === 'OPEN') {
                         $q->whereNull('p.finalized_at');
@@ -374,8 +380,174 @@ final class PayoutController extends Controller
     }
 
     // -------------------------------------------------------------------------
+    // GET /api/payouts/range  — what each teacher earned between two dates
+    // -------------------------------------------------------------------------
+
+    /**
+     * Salaries for an arbitrary window, rather than for a calendar month.
+     *
+     * Payouts are month-bucketed by construction (one statement per teacher per month), so this
+     * does NOT read `payouts.total_minor` — that figure belongs to a month and cannot answer
+     * "the 10th to the 24th". It re-adds the parts instead:
+     *
+     *   • Lessons are sliced EXACTLY, on `payout_line_items.session_date` — the academy-local date
+     *     the payroll engine already snapshotted onto every line, so a window never disagrees with
+     *     the statement a line came from.
+     *
+     *   • Adjustments have no lesson to sit on, so they are anchored on the date they REFER to:
+     *     the lesson's own date for the unmarked-lesson sweep (which is about one specific
+     *     session), and otherwise the date the reward or deduction was recorded. A window
+     *     therefore reports "adjustments recorded in this window", which is a fact you can point
+     *     at — as opposed to pro-rating a month's adjustments across days, which would invent
+     *     money that was never agreed.
+     *
+     * Amounts are never summed across currencies (§3.6); every figure is grouped per currency, and
+     * a teacher paid in two currencies appears once per currency.
+     *
+     * Owner-only (`payout.read`). A teacher's own view stays the monthly statement list, because
+     * what they are owed is settled per statement, not per arbitrary window.
+     */
+    public function range(Request $request): JsonResponse
+    {
+        Gate::authorize('payout.read');
+
+        $validated = $request->validate([
+            'from' => ['required', 'date'],
+            'to' => ['required', 'date', 'after_or_equal:from'],
+        ]);
+
+        $from = (string) $validated['from'];
+        $to = (string) $validated['to'];
+
+        // Lessons: one row per (teacher, currency). `duration_minutes` comes off the session so the
+        // window can report hours taught, which is the figure an owner checks a salary against.
+        $lessons = DB::table('payout_line_items as li')
+            ->join('payouts as p', 'p.id', '=', 'li.payout_id')
+            ->leftJoin('teachers as t', 't.id', '=', 'p.teacher_id')
+            ->leftJoin('sessions as se', 'se.id', '=', 'li.session_id')
+            ->whereBetween('li.session_date', [$from, $to])
+            ->groupBy('p.teacher_id', 't.full_name', 'li.currency')
+            ->select([
+                'p.teacher_id',
+                'li.currency',
+                DB::raw('t.full_name as teacher_name'),
+                DB::raw('count(*) as sessions'),
+                DB::raw('coalesce(sum(se.duration_minutes), 0) as minutes'),
+                DB::raw('coalesce(sum(li.amount_minor), 0) as lessons_minor'),
+                DB::raw('bool_or(p.finalized_at is null) as has_open'),
+            ])
+            ->get();
+
+        // Adjustments, anchored as described above. The academy timezone converts the sweep's
+        // session instant to the same local date the line items were stamped with.
+        $adjustments = DB::table('payout_adjustments as adj')
+            ->join('payouts as p', 'p.id', '=', 'adj.payout_id')
+            ->join('academies as a', 'a.id', '=', 'adj.academy_id')
+            ->leftJoin('sessions as se', 'se.id', '=', 'adj.session_id')
+            ->whereRaw(
+                'coalesce((se.scheduled_at_utc at time zone a.timezone)::date, adj.created_at::date) between ?::date and ?::date',
+                [$from, $to],
+            )
+            ->groupBy('p.teacher_id', 'adj.currency', 'adj.type')
+            ->select([
+                'p.teacher_id',
+                'adj.currency',
+                'adj.type',
+                DB::raw('coalesce(sum(adj.amount_minor), 0) as amount_minor'),
+            ])
+            ->get();
+
+        /** @var array<string, array<string,mixed>> $rows keyed by "teacherId|CUR" */
+        $rows = [];
+
+        $key = static fn (?string $teacherId, string $currency): string => ($teacherId ?? '—').'|'.$currency;
+
+        foreach ($lessons as $row) {
+            $rows[$key($row->teacher_id, (string) $row->currency)] = [
+                'teacher_id' => (string) $row->teacher_id,
+                'teacher_name' => $row->teacher_name !== null ? (string) $row->teacher_name : null,
+                'currency' => (string) $row->currency,
+                'sessions' => (int) $row->sessions,
+                'minutes' => (int) $row->minutes,
+                'lessons_minor' => (int) $row->lessons_minor,
+                'rewards_minor' => 0,
+                'deductions_minor' => 0,
+                'has_open' => (bool) $row->has_open,
+            ];
+        }
+
+        foreach ($adjustments as $row) {
+            $k = $key($row->teacher_id, (string) $row->currency);
+
+            // A teacher can have an adjustment in the window with no lessons in it (a deduction
+            // recorded after their last class, say) — they still belong on the list.
+            $rows[$k] ??= [
+                'teacher_id' => (string) $row->teacher_id,
+                'teacher_name' => (string) DB::table('teachers')->where('id', $row->teacher_id)->value('full_name'),
+                'currency' => (string) $row->currency,
+                'sessions' => 0,
+                'minutes' => 0,
+                'lessons_minor' => 0,
+                'rewards_minor' => 0,
+                'deductions_minor' => 0,
+                'has_open' => false,
+            ];
+
+            $field = $row->type === 'REWARD' ? 'rewards_minor' : 'deductions_minor';
+            $rows[$k][$field] += (int) $row->amount_minor;
+        }
+
+        $teachers = array_values(array_map(static function (array $row): array {
+            $row['net_minor'] = $row['lessons_minor'] + $row['rewards_minor'] - $row['deductions_minor'];
+
+            return $row;
+        }, $rows));
+
+        // Biggest salary first — the list is read to check the payroll bill, not alphabetically.
+        usort($teachers, static fn (array $a, array $b): int => $b['net_minor'] <=> $a['net_minor']);
+
+        $currencies = [];
+        foreach ($teachers as $row) {
+            $cur = $row['currency'];
+            $currencies[$cur] ??= [
+                'currency' => $cur,
+                'teachers' => 0,
+                'sessions' => 0,
+                'minutes' => 0,
+                'lessons_minor' => 0,
+                'rewards_minor' => 0,
+                'deductions_minor' => 0,
+                'net_minor' => 0,
+            ];
+            $currencies[$cur]['teachers']++;
+            foreach (['sessions', 'minutes', 'lessons_minor', 'rewards_minor', 'deductions_minor', 'net_minor'] as $field) {
+                $currencies[$cur][$field] += $row[$field];
+            }
+        }
+
+        return response()->json([
+            'from' => $from,
+            'to' => $to,
+            'currencies' => array_values($currencies),
+            'teachers' => $teachers,
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * A `YYYY-MM` or `YYYY-MM-DD` string as the sortable integer `year * 100 + month`, the same
+     * key the period sort uses. Anything unparseable collapses to 0 / 999912 at the callers'
+     * comparison, which is why the bounds are applied as separate filters rather than a range.
+     */
+    private static function periodKey(string $value): int
+    {
+        [$year, $month] = array_pad(array_map('intval', explode('-', $value)), 2, 0);
+
+        return $year * 100 + max(1, min(12, $month));
+    }
 
     /** The teacher row id linked to the current login, or null if none (§3.6). */
     private function ownTeacherId(): ?string

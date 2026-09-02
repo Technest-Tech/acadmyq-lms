@@ -32,6 +32,7 @@ use App\Http\Controllers\Learner\PlayerController as LearnerPlayerController;
 use App\Http\Controllers\Learner\QuizController as LearnerQuizController;
 use App\Http\Controllers\Learner\RedemptionController as LearnerRedemptionController;
 use App\Http\Controllers\Learner\SiteController as LearnerSiteController;
+use App\Http\Controllers\LessonPackageController;
 use App\Http\Controllers\Lms\CodeController;
 use App\Http\Controllers\Lms\CourseController;
 use App\Http\Controllers\Lms\DashboardController as LmsDashboardController;
@@ -724,6 +725,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // academy's report_field_definitions and stores values keyed by field key. Every route is
     // capability-gated, RLS-scoped, and (for Teachers) row-filtered to their own sessions (§3.6).
     Route::get('/sessions/pending-attendance', [SessionController::class, 'pendingAttendance']);
+    // The overdue worklist (الحصص المعلقة): lessons that ended more than the grace window ago and
+    // still have no outcome. Literal segment, so it precedes /{id}.
+    Route::get('/sessions/overdue', [SessionController::class, 'overdue']);
     // Day view for the attendance page (date-range + filters); before /{id} so it isn't captured.
     Route::get('/sessions/day', [SessionController::class, 'day']);
     // Count of today's SCHEDULED sessions for the sidebar Attendance badge; before /{id}.
@@ -777,6 +781,19 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/invoices/{id}', [InvoiceController::class, 'show']);
         Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
         Route::post('/invoices/{id}/send-link', [InvoiceController::class, 'sendLink']);
+
+        // Lesson packages (docs/lesson-packages) — the hour-based billing mode that replaces the
+        // monthly invoice for the students on it. Same plan gate as invoicing because it IS
+        // invoicing, just on a different clock. Literal segments (`summary`, `students`) are
+        // declared before `{id}` so they are never captured as a package ID.
+        Route::get('/packages', [LessonPackageController::class, 'index']);
+        Route::get('/packages/summary', [LessonPackageController::class, 'summary']);
+        Route::get('/packages/students', [LessonPackageController::class, 'students']);
+        Route::post('/packages', [LessonPackageController::class, 'store']);
+        Route::get('/packages/{id}', [LessonPackageController::class, 'show']);
+        Route::post('/packages/{id}/close', [LessonPackageController::class, 'close']);
+        Route::post('/packages/{id}/cancel', [LessonPackageController::class, 'cancel']);
+        Route::post('/packages/{id}/bill-overdraft', [LessonPackageController::class, 'billOverdraft']);
     });
 
     // Live FX rates (owner) — converts every academy currency into the home currency (EGP) so the
@@ -790,6 +807,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // the teacher self-view requires payout.read_own (§3.6). Profit summary is payout.read.
     Route::middleware('entitled:payroll')->group(function () {
         Route::get('/payouts', [PayoutController::class, 'index']);
+        // Salaries for an arbitrary window rather than a calendar month. Declared before `{id}`
+        // so the literal segment is never read as a payout ID.
+        Route::get('/payouts/range', [PayoutController::class, 'range']);
         Route::post('/payouts/finalize', [PayoutController::class, 'finalize']);
         Route::get('/me/payouts', [PayoutController::class, 'mePayouts']);
         Route::get('/payouts/{id}', [PayoutController::class, 'show']);

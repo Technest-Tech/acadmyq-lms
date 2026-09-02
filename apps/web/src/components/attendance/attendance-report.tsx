@@ -344,6 +344,13 @@ export function AttendanceReport({
       const noOutcome = target === null && session.status === "SCHEDULED";
       await load();
       flash("success", noOutcome ? t("savedNoOutcome") : t("saved"));
+      // A teacher who has just recorded a delivered lesson gets the card straight away — that
+      // moment is the only one where they have the lesson in mind, and chasing a button after
+      // the save is how the card went unsent. Admins keep their own pacing: they usually mark a
+      // batch of lessons and dispatch the cards afterwards, so a modal per save would fight them.
+      if (isTeacher && (backendStatus === "ATTENDED" || backendStatus === "FREE")) {
+        setCardOpen(true);
+      }
       // Tell parent the effective backend status
       onChange?.(backendStatus ?? session.status);
     } catch (error) {
@@ -707,11 +714,13 @@ export function AttendanceReport({
 
           <div className="mt-3">
             <div className="flex items-center justify-end gap-2">
-              {/* Report card — the branded image the guardian actually receives. Same audience
-                  rule as the WhatsApp send (the academy speaks to the family, not the teacher),
-                  but allowed in readOnly too: producing the card changes nothing, and looking
+              {/* Report card — the branded image the guardian actually receives. The teacher who
+                  taught the lesson gets it too: they write the report, and the card is how a
+                  family sees that work, so making them ask an admin for a PNG helped nobody.
+                  Dispatching it (the WhatsApp button below) stays an academy-admin action.
+                  Allowed in readOnly as well: producing the card changes nothing, and looking
                   back at a past lesson to re-send its card is the common case. */}
-              {!isTeacher && canWrite && isAttended && report && (
+              {canWrite && isAttended && report && (
                 <Button
                   type="button"
                   size="sm"

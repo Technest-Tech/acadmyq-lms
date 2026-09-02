@@ -6,6 +6,11 @@ import { useMemo, useState } from "react";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
+import {
+  countPastLessons,
+  StartDateField,
+  todayLocal,
+} from "@/components/scheduling/start-date-field";
 import { Modal } from "@/components/ui/modal";
 import {
   ApiError,
@@ -18,7 +23,9 @@ import { cn } from "@/lib/utils";
 const fieldClass =
   "border-input bg-background focus:border-primary focus:ring-primary/15 rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:cursor-not-allowed disabled:opacity-60";
 
-const DURATION_PRESETS = [30, 45, 60, 90, 120];
+/** Backend bounds for a slot's length (ScheduleController: integer, min:1, max:600). */
+const DURATION_MIN = 1;
+const DURATION_MAX = 600;
 
 /** Region-relevant zones; mirrors the inline editor's curated list. */
 const TZ_CURATED = [
@@ -54,6 +61,11 @@ export function AddTimetableModal({
   ]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The date the timetable starts producing lessons. Defaults to today, which is what the page
+  // silently did before it was askable.
+  const [startDate, setStartDate] = useState<string>(() => todayLocal());
+  // A back-dated timetable writes history, so it takes a second, deliberate press.
+  const [confirmingBackfill, setConfirmingBackfill] = useState(false);
 
   const studentOptions = useMemo(
     () =>
@@ -70,13 +82,6 @@ export function AddTimetableModal({
     [t],
   );
 
-  const durationOptions = (current: number) => {
-    const vals = DURATION_PRESETS.includes(current)
-      ? DURATION_PRESETS
-      : [...DURATION_PRESETS, current].sort((a, b) => a - b);
-    return vals.map((v) => ({ value: String(v), label: `${v} ${t("timetable.durationUnit")}` }));
-  };
-
   const tzOptions = useMemo(() => {
     const set = new Set(TZ_CURATED);
     if (timezone) set.add(timezone);
@@ -89,6 +94,16 @@ export function AddTimetableModal({
 
   const studentName = students.find((s) => s.id === studentId)?.full_name ?? "";
 
+  const pastLessons = countPastLessons(slots, startDate);
+
+  /** Every slot needs a whole number of minutes the backend will accept. */
+  const durationsValid = slots.every(
+    (s) =>
+      Number.isInteger(s.duration_minutes) &&
+      s.duration_minutes >= DURATION_MIN &&
+      s.duration_minutes <= DURATION_MAX,
+  );
+
   async function submit() {
     if (!studentId) {
       setError(t("timetables.errStudent"));
@@ -98,11 +113,20 @@ export function AddTimetableModal({
       setError(t("timetables.errSlots"));
       return;
     }
+    if (!durationsValid) {
+      setError(t("timetables.errDuration", { min: DURATION_MIN, max: DURATION_MAX }));
+      return;
+    }
+    if (pastLessons > 0 && !confirmingBackfill) {
+      setConfirmingBackfill(true);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       await putStudentSchedule(studentId, {
         timezone: timezone || undefined,
+        start_date: startDate || undefined,
         slots: slots.map((s) => ({
           weekday: s.weekday,
           start_time_local: s.start_time_local,
@@ -189,11 +213,19 @@ export function AddTimetableModal({
                 <span className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
                   {t("duration")}
                 </span>
-                <Combobox
-                  options={durationOptions(s.duration_minutes)}
-                  value={String(s.duration_minutes)}
-                  onChange={(v) => update(i, { duration_minutes: Number(v) })}
-                  placeholder={t("duration")}
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={DURATION_MIN}
+                  max={DURATION_MAX}
+                  step={5}
+                  aria-label={t("duration")}
+                  className={cn(fieldClass, "w-full px-3 py-2")}
+                  value={s.duration_minutes || ""}
+                  onChange={(e) =>
+                    update(i, { duration_minutes: Number(e.target.value) })
+                  }
+                  placeholder={t("timetable.durationPlaceholder")}
                 />
               </div>
 
@@ -230,6 +262,18 @@ export function AddTimetableModal({
           </button>
         </div>
 
+        {/* Starts from — the date the lessons begin, which may be in the past. */}
+        <StartDateField
+          className="sm:max-w-xs"
+          value={startDate}
+          onChange={(v) => {
+            setStartDate(v);
+            setConfirmingBackfill(false);
+          }}
+          slots={slots}
+          disabled={busy}
+        />
+
         {/* Timezone */}
         <div className="space-y-1.5 sm:max-w-xs">
           <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
@@ -255,7 +299,7 @@ export function AddTimetableModal({
             size="sm"
             data-testid="create-timetable"
             onClick={() => void submit()}
-            disabled={busy || !studentId || slots.length === 0}
+            disabled={busy || !studentId || slots.length === 0 || !durationsValid}
             className="gap-1.5"
           >
             {busy ? (
@@ -263,8 +307,9 @@ export function AddTimetableModal({
             ) : (
               <CalendarPlus className="size-3.5" />
             )}
-            {t("timetables.create")}
-            {studentName ? ` · ${studentName}` : ""}
+            {confirmingBackfill
+              ? t("startDateBackfillConfirm", { count: pastLessons })
+              : `${t("timetables.create")}${studentName ? ` · ${studentName}` : ""}`}
           </Button>
         </div>
       </div>

@@ -53,6 +53,9 @@ function toMinor(major: string): number {
   return Math.round(parseFloat(major || "0") * 100);
 }
 
+/** Built-in roles the staff form may assign, weakest first. Mirrors StaffController. */
+const ASSIGNABLE_SYSTEM_ROLES = ["STAFF", "SUPERVISOR"] as const;
+
 // ── Section card ───────────────────────────────────────────────────────────────
 
 function Section({
@@ -122,6 +125,9 @@ export function StaffForm({
 }) {
   const t = useTranslations("staff");
   const tp = useTranslations("permissions");
+  // Built-in role names live with the Roles page, so the two screens never drift apart on what
+  // "Supervisor" is called.
+  const tRoles = useTranslations("academyRoles");
   // Friendly, localized label for a raw capability code (falls back to the code).
   const permLabel = (code: string) => {
     const k = `items.${code.replace(/\./g, "_")}.label`;
@@ -169,18 +175,21 @@ export function StaffForm({
     return opts;
   }, [departments, department]);
 
-  // The roles an employee can be given: the STAFF baseline plus the academy's OWN active custom
-  // roles (built on the Roles page). Fetched on mount in create mode; listing needs role.manage,
-  // which the owner holds — a failure just leaves the STAFF baseline.
+  // The roles an employee can be given: the two assignable BUILT-IN roles — the minimal STAFF
+  // baseline and SUPERVISOR, who runs the academy but never its money — plus the academy's OWN
+  // active custom roles (built on the Roles page). Fetched on mount in create mode; listing needs
+  // role.manage, which the owner holds — a failure just leaves the STAFF baseline.
+  //
+  // The order is deliberate: least access first, so picking a stronger role is a decision rather
+  // than the top of a dropdown.
   useEffect(() => {
     if (isEditing) return;
     listAcademyRoles()
       .then((res) => {
-        const staff = res.system.find((r) => r.code === "STAFF");
-        setRoles([
-          ...(staff ? [staff] : []),
-          ...res.custom.filter((r) => r.isActive !== false),
-        ]);
+        const builtIn = ASSIGNABLE_SYSTEM_ROLES.map((code) =>
+          res.system.find((r) => r.code === code),
+        ).filter((r): r is AcademyRoleSummary => r !== undefined);
+        setRoles([...builtIn, ...res.custom.filter((r) => r.isActive !== false)]);
       })
       .catch(() => {});
   }, [isEditing]);
@@ -189,6 +198,7 @@ export function StaffForm({
   const roleList: AcademyRoleSummary[] = roles.length > 0
     ? roles
     : [{ code: "STAFF", name: "STAFF", system: true, permissions: [], assignedCount: 0 }];
+
   const selectedRole = roleList.find((r) => r.code === role) ?? null;
 
   function buildPhone(): string | null {
@@ -419,8 +429,10 @@ export function StaffForm({
                 <Combobox
                   options={roleList.map<ComboboxOption>((r) => ({
                     value: r.code,
-                    label: r.code === "STAFF" ? t("form.roleStaff") : r.name,
-                    sublabel: r.description ?? undefined,
+                    label: r.system ? tRoles(`role.${r.code}`) : r.name,
+                    sublabel: r.system
+                      ? tRoles(`systemRoleHint.${r.code}`)
+                      : (r.description ?? undefined),
                   }))}
                   value={role}
                   onChange={setRole}

@@ -26,6 +26,11 @@ final class PermissionCatalog
         'teacher.read', 'teacher.read_own', 'teacher.create', 'teacher.update', 'teacher.deactivate',
         'guardian.read', 'guardian.create', 'guardian.update',
         'student.read', 'student.create', 'student.update', 'student.deactivate',
+        // Set or change what a student PAYS. Split off `student.update` deliberately: editing a
+        // student's name, status or teacher is day-to-day admin, while repricing them is a money
+        // decision that reaches straight into their invoices. Keeping them on one capability made
+        // "manage students but not their rates" impossible to express (SUPERVISOR).
+        'student.set_price',
         'schedule.read', 'schedule.manage',
         'session.read', 'session.mark_attendance', 'session.write_report',
         // Add a one-off class that no timetable produced (the Attendance page's "create class").
@@ -50,6 +55,10 @@ final class PermissionCatalog
         'notification.read',
         'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
         'payout.read', 'payout.read_own', 'payout.finalize', 'payout.adjust',
+        // Lesson packages — the hour-based second billing clock (docs/lesson-packages). Seeded
+        // straight into `role_permissions` when the module shipped; listed here so the role
+        // builder can see them and the SUPERVISOR preset can deliberately leave them out.
+        'package.read', 'package.manage',
         'report_field.manage',
         'specialization.manage',
         'payment_settings.manage',
@@ -73,6 +82,41 @@ final class PermissionCatalog
     ];
 
     /**
+     * Capabilities that move money or reveal it: invoices and payments, salaries and profit,
+     * discounts and awards, the payment gateway's keys, package billing, and what a student pays.
+     *
+     * This is the line the SUPERVISOR role is drawn against, and the UI marks these in the role
+     * builder so an academy can see what it is handing over. Anything added to the catalog later
+     * is operational UNLESS it is listed here — the default is deliberately "not money", so a new
+     * money capability has to be named rather than silently leaking into every supervisor.
+     */
+    public const FINANCIAL = [
+        'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
+        'payout.read', 'payout.read_own', 'payout.finalize', 'payout.adjust',
+        'payment_settings.manage',
+        'package.read', 'package.manage',
+        'student.set_price',
+    ];
+
+    /**
+     * Capabilities a SUPERVISOR is denied on top of {@see FINANCIAL}.
+     *
+     * Delegation: a supervisor supervises PEOPLE, not permissions. Handing out logins and roles
+     * stays with the owner, so a supervisor reads the staff list but cannot grow the staff or
+     * rewrite what anyone may do. (The role builder's clamp already stops anyone granting a
+     * capability they lack, so this is about who runs the academy, not about escalation.)
+     *
+     * `audit.read`: the trail prints the money it is a trail OF — `subscription.price_changed`
+     * from 500 to 600, `invoice.mark_paid`. Handing it to a supervisor would give back through
+     * the audit page exactly the rates and payments the role exists to withhold.
+     */
+    private const SUPERVISOR_EXCLUDES = [
+        'user.invite', 'role.assign', 'role.manage',
+        'staff.create', 'staff.update', 'staff.deactivate',
+        'audit.read',
+    ];
+
+    /**
      * Default role → capability mapping (§5.4).
      *
      * @return array<string, list<string>>
@@ -84,6 +128,7 @@ final class PermissionCatalog
             'teacher.read', 'teacher.create', 'teacher.update', 'teacher.deactivate',
             'guardian.read', 'guardian.create', 'guardian.update',
             'student.read', 'student.create', 'student.update', 'student.deactivate',
+            'student.set_price',
             'schedule.read', 'schedule.manage',
             'session.read', 'session.mark_attendance', 'session.write_report',
             'session.create',
@@ -96,6 +141,7 @@ final class PermissionCatalog
             'notification.read',
             'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
             'payout.read', 'payout.finalize', 'payout.adjust',
+            'package.read', 'package.manage',
             'report_field.manage',
             'specialization.manage',
             'payment_settings.manage',
@@ -111,6 +157,20 @@ final class PermissionCatalog
         ];
 
         return [
+            // The whole academy MINUS the money. A supervisor runs students, teachers, schedules,
+            // attendance, trials, reports, quality and the classroom — everything the academy does
+            // day to day — and never sees an invoice, a salary, the profit, or what a student pays.
+            //
+            // Subtracted rather than listed, so the promise stays true as the product grows: a new
+            // operational capability reaches supervisors the moment an owner gets it, while a new
+            // MONEY capability has to be named in FINANCIAL to be withheld. Getting that wrong
+            // fails safe in the direction of "the supervisor sees it", so FINANCIAL is the list to
+            // update when a money surface ships.
+            'SUPERVISOR' => array_values(array_diff(
+                $academyScoped,
+                self::FINANCIAL,
+                self::SUPERVISOR_EXCLUDES,
+            )),
             // Platform capabilities + the ability to act within an entered academy.
             // Onboarding (Sprint 3) is Super-Admin-only: provisioning the first owner login
             // (user.invite) and seeding/editing an academy's report fields

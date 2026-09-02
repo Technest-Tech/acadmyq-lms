@@ -9,6 +9,8 @@ use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
+use App\Services\Invoicing;
+use App\Services\LessonPackages;
 use App\Support\Audit;
 use App\Support\ReportFields;
 use Illuminate\Http\JsonResponse;
@@ -40,6 +42,17 @@ final class SessionController extends Controller
 
     /** Most rows {@see day()} will return for one window. Sized for a busy academy's month. */
     private const DAY_WINDOW_LIMIT = 3000;
+
+    /**
+     * How long after a lesson ENDS the teacher still has to record its outcome before the lesson
+     * counts as overdue ({@see overdue()}). Four hours is the grace the academy asked for: long
+     * enough that a teacher marking their day in one sitting is never chased, short enough that a
+     * forgotten lesson surfaces the same day.
+     */
+    private const OVERDUE_GRACE_HOURS = 4;
+
+    /** Row cap for {@see overdue()}. The exact count is returned separately, so a cap never lies. */
+    private const OVERDUE_LIMIT = 500;
 
     /**
      * POST /api/sessions — a one-off session not tied to any schedule (AC-5.10).
@@ -249,7 +262,8 @@ final class SessionController extends Controller
 
         $student = DB::table('students')->where('id', $session->student_id)->first(['id', 'full_name', 'guardian_id']);
         $teacherName = DB::table('teachers')->where('id', $session->teacher_id)->value('full_name');
-        $academyName = DB::table('academies')->where('id', $session->academy_id)->value('name');
+        $academy = DB::table('academies')->where('id', $session->academy_id)->first(['name', 'timezone']);
+        $academyName = $academy?->name;
         $report = DB::table('session_reports')->where('session_id', $sessionId)->first();
         $values = $report !== null ? (json_decode($report->values, true) ?: []) : [];
 
@@ -266,17 +280,12 @@ final class SessionController extends Controller
         $pendingCancellation = ($pending !== null && ! $pendingIsFree) ? $pending : null;
         $pendingFree = $pendingIsFree ? $pending : null;
 
-        // "Lesson #N" for the guardian-facing report card: this student's Nth DELIVERED lesson,
-        // counted chronologically up to and including this one. Cancellations don't take a number
-        // (nothing was delivered), so the sequence a parent sees never skips. Null while the
-        // session is still SCHEDULED or was cancelled — it has no number yet.
-        $sessionNumber = in_array((string) $session->status, ['ATTENDED', 'FREE'], true)
-            ? DB::table('sessions')
-                ->where('student_id', $session->student_id)
-                ->whereIn('status', ['ATTENDED', 'FREE'])
-                ->where('scheduled_at_utc', '<=', $session->scheduled_at_utc)
-                ->count()
-            : null;
+        // "Lesson #N" for the guardian-facing report card, counted WITHIN THE BLOCK THE FAMILY
+        // PAID FOR rather than across the student's whole history — a parent reads "lesson 3"
+        // against the package or the month they are being billed for, and a lifetime "lesson 47"
+        // told them nothing. Cancellations take no number (nothing was delivered), so the
+        // sequence never skips; null while the session is still SCHEDULED or was cancelled.
+        [$sessionNumber, $sessionNumberScope] = $this->lessonNumber($session, $academy?->timezone);
 
         return response()->json([
             'session' => [
@@ -289,6 +298,7 @@ final class SessionController extends Controller
                 'scheduled_at_utc' => Carbon::parse($session->scheduled_at_utc)->utc()->toIso8601String(),
                 'duration_minutes' => (int) $session->duration_minutes,
                 'session_number' => $sessionNumber,
+                'session_number_scope' => $sessionNumberScope,
                 'status' => (string) $session->status,
                 'status_reason' => $session->status_reason,
                 'billed' => (bool) $session->billed,
@@ -320,6 +330,83 @@ final class SessionController extends Controller
             'reportFields' => ReportFields::active((string) $session->academy_id),
             'inactiveReportFields' => ReportFields::inactiveWithValues((string) $session->academy_id, $values),
         ]);
+    }
+
+    /**
+     * The lesson's number as the GUARDIAN counts it, plus the block it is counted against.
+     *
+     * A family does not track lesson 47 of forever; they track lesson 3 of the twenty hours they
+     * bought, or lesson 3 of this month's bill. So the count restarts at the boundary of whichever
+     * clock is billing this student ({@see LessonPackages} — the two modes are
+     * mutually exclusive by construction, which is exactly why one number can serve both):
+     *
+     *  - PACKAGE — the lesson sits inside a lesson package. The count is taken over DELIVERED
+     *    SESSIONS since the package opened rather than over the consumption ledger: a FREE lesson
+     *    writes no credit but still happened, and counting credits alone would make the sequence
+     *    a parent reads jump.
+     *  - MONTH — everyone else: the Nth delivered lesson of the calendar month in the ACADEMY's
+     *    timezone, the same boundary {@see Invoicing} bills on. A card for a
+     *    1 August lesson in Cairo must not be numbered into July because UTC still says 31 July.
+     *
+     * Cancellations take no number — nothing was delivered — so the sequence never skips.
+     *
+     * @return array{0: int|null, 1: string|null} [number, scope]; [null, null] when unnumbered.
+     */
+    private function lessonNumber(object $session, ?string $timezone): array
+    {
+        if (! in_array((string) $session->status, ['ATTENDED', 'FREE'], true)) {
+            return [null, null];
+        }
+
+        $tz = $timezone ?: 'UTC';
+        $at = Carbon::parse($session->scheduled_at_utc)->utc();
+        $package = $this->packageCovering($session, $at, $tz);
+
+        $since = $package !== null
+            ? Carbon::parse((string) $package->starts_on, $tz)->startOfDay()->utc()
+            : $at->copy()->setTimezone($tz)->startOfMonth()->utc();
+
+        $number = DB::table('sessions')
+            ->where('student_id', $session->student_id)
+            ->whereIn('status', ['ATTENDED', 'FREE'])
+            ->where('scheduled_at_utc', '>=', $since)
+            ->where('scheduled_at_utc', '<=', $session->scheduled_at_utc)
+            ->count();
+
+        return [$number, $package !== null ? 'PACKAGE' : 'MONTH'];
+    }
+
+    /**
+     * The lesson package this session belongs to, or null when the student is billed by month.
+     *
+     * The consumption credit is authoritative wherever it exists (the database allows exactly one
+     * per session), because it names the block that actually absorbed the lesson — including the
+     * overdrawing lesson that closed a package. The date window is the fallback for the lessons
+     * that never wrote a credit: a FREE one, or one delivered while the block was open but not
+     * billable. A CANCELLED package governs nothing; a closed or expired one governs only the
+     * lessons that fell inside it.
+     */
+    private function packageCovering(object $session, Carbon $at, string $tz): ?object
+    {
+        $credited = DB::table('lesson_package_credits as c')
+            ->join('lesson_packages as p', 'p.id', '=', 'c.package_id')
+            ->where('c.session_id', $session->id)
+            ->first(['p.id', 'p.starts_on', 'p.sequence_no']);
+
+        if ($credited !== null) {
+            return $credited;
+        }
+
+        $localDate = $at->copy()->setTimezone($tz)->format('Y-m-d');
+
+        return DB::table('lesson_packages')
+            ->where('student_id', $session->student_id)
+            ->whereIn('status', ['ACTIVE', 'COMPLETED'])
+            ->where('starts_on', '<=', $localDate)
+            ->where(fn ($q) => $q->whereNull('expires_on')->orWhere('expires_on', '>=', $localDate))
+            ->where(fn ($q) => $q->whereNull('closed_at')->orWhere('closed_at', '>=', $at))
+            ->orderByDesc('sequence_no')
+            ->first(['id', 'starts_on', 'sequence_no']);
     }
 
     /**
@@ -358,6 +445,84 @@ final class SessionController extends Controller
         });
 
         return response()->json(['sessions' => $rows]);
+    }
+
+    /**
+     * GET /api/sessions/overdue — the "held-up" lessons (الحصص المعلقة): occurrences that ENDED at
+     * least {@see OVERDUE_GRACE_HOURS} hours ago and are still SCHEDULED, i.e. nobody ever recorded
+     * an outcome for them.
+     *
+     * This is deliberately sharper than {@see pendingAttendance()}, which returns everything whose
+     * start time has passed — a lesson that finished ten minutes ago is not late, it is simply not
+     * marked yet. Only a lesson past its grace window is a lesson somebody has to be chased about,
+     * and unlike the day view this is NOT scoped to a calendar window: a lesson forgotten three
+     * weeks ago is exactly the one the page must not lose.
+     *
+     * A pending cancellation/free request is NOT filtered out. Those lessons are just as stuck —
+     * they are only stuck on the OWNER's approval rather than on the teacher's marking — so the row
+     * carries `pending_cancel_type`/`pending_free` and the page says who is actually holding it up.
+     *
+     * Oldest first: the longest-forgotten lesson is the one to deal with first. A Teacher sees only
+     * their own (§3.6); RLS keeps every caller inside their academy. session.read.
+     */
+    public function overdue(): JsonResponse
+    {
+        Gate::authorize('session.read');
+
+        // The instant a lesson must have ENDED at or before to count as overdue.
+        $cutoff = now()->subHours(self::OVERDUE_GRACE_HOURS)->format('Y-m-d H:i:sP');
+
+        $base = DB::table('sessions as se')
+            ->where('se.status', 'SCHEDULED')
+            ->whereRaw('se.scheduled_at_utc + make_interval(mins => se.duration_minutes) <= ?', [$cutoff]);
+
+        if ($this->ctx()->role === 'TEACHER') {
+            $ownTeacherId = $this->callerTeacherId();
+            if ($ownTeacherId === null) {
+                abort(403, 'No teacher record for this user.');
+            }
+            $base->where('se.teacher_id', $ownTeacherId);
+        }
+
+        // Count before the cap so a truncated list still reports the true size of the backlog.
+        $count = (int) (clone $base)->count();
+
+        $rows = (clone $base)
+            ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
+            ->leftJoin('teachers as te', 'te.id', '=', 'se.teacher_id')
+            // At most one PENDING request can exist per session (unique index), so this never fans
+            // rows out. cancel_type is null on a FREE request, hence the separate marker column.
+            ->leftJoin('session_cancellation_requests as cr', function ($join) {
+                $join->on('cr.session_id', '=', 'se.id')->where('cr.status', '=', 'PENDING');
+            })
+            ->select([
+                'se.id', 'se.student_id', 'se.teacher_id', 'se.scheduled_at_utc',
+                'se.duration_minutes', 'se.status',
+                'st.full_name as student_name', 'st.status as student_status',
+                'te.full_name as teacher_name',
+                'cr.cancel_type as pending_cancel_type',
+                'cr.id as pending_request_id',
+            ])
+            ->orderBy('se.scheduled_at_utc')->orderBy('se.id')
+            ->limit(self::OVERDUE_LIMIT)
+            ->get()
+            ->map(function ($r) {
+                $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
+                // A pending request with no cancel_type is a "mark this FREE" request; the page
+                // shows both as "waiting on the owner", but they read differently.
+                $r->pending_approval = $r->pending_request_id !== null;
+                unset($r->pending_request_id);
+
+                return $r;
+            })
+            ->values();
+
+        return response()->json([
+            'sessions' => $rows,
+            'count' => $count,
+            'truncated' => $count > $rows->count(),
+            'grace_hours' => self::OVERDUE_GRACE_HOURS,
+        ]);
     }
 
     /**

@@ -8,8 +8,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\SessionGenerator;
 use App\Support\Audit;
+use App\Support\TimeHelper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -50,7 +52,7 @@ final class ScheduleController extends Controller
             ->whereNull('st.deleted_at')
             ->select([
                 'sch.id as schedule_id', 'sch.student_id', 'sch.teacher_id',
-                'sch.timezone',
+                'sch.timezone', 'sch.start_date',
                 'st.full_name as student_name', 'te.full_name as teacher_name',
             ])
             ->orderBy('st.full_name');
@@ -90,6 +92,7 @@ final class ScheduleController extends Controller
             'teacher_id' => (string) $s->teacher_id,
             'teacher_name' => $s->teacher_name,
             'timezone' => (string) $s->timezone,
+            'start_date' => $s->start_date !== null ? Carbon::parse($s->start_date)->format('Y-m-d') : null,
             'slots' => $slotsBySchedule[(string) $s->schedule_id] ?? [],
         ])->values();
 
@@ -139,6 +142,7 @@ final class ScheduleController extends Controller
 
         $existing = $this->activeSchedule($studentId);
         $creating = $existing === null;
+        $startDate = $this->resolveStartDate($data, $existing, $studentId);
 
         if ($creating) {
             $scheduleId = (string) Str::uuid();
@@ -148,6 +152,7 @@ final class ScheduleController extends Controller
                 'student_id' => $studentId,
                 'teacher_id' => $teacherId,
                 'timezone' => $timezone,
+                'start_date' => $startDate,
                 'is_active' => true,
                 'version' => 1,
             ]);
@@ -156,6 +161,7 @@ final class ScheduleController extends Controller
             DB::table('schedules')->where('id', $scheduleId)->update([
                 'teacher_id' => $teacherId,
                 'timezone' => $timezone,
+                'start_date' => $startDate,
                 'is_active' => true,
                 'deleted_at' => null,
                 'version' => DB::raw('version + 1'),
@@ -165,15 +171,23 @@ final class ScheduleController extends Controller
 
         $this->reconcileSlots($academyId, $scheduleId, $data['slots']);
 
-        // Materialise over the rolling window (current month → end of next month, §3.8).
+        // Materialise over the rolling window (current month → end of next month, §3.8), widened
+        // BACK to the start date when the timetable begins in the past. Both halves are needed:
+        // the window decides which dates are enumerated at all, the floor decides which of those
+        // become rows — leave either at "now" and a back-dated timetable silently starts today.
         [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
-        $counts = $this->generator->generateForSchedule($scheduleId, $windowStart, $windowEnd);
+        $floor = TimeHelper::toUtc($startDate.' 00:00:00', $timezone);
+        if ($floor->lessThan($windowStart)) {
+            $windowStart = Carbon::parse($startDate)->startOfDay();
+        }
+        $counts = $this->generator->generateForSchedule($scheduleId, $windowStart, $windowEnd, null, $floor);
 
         $action = $creating ? 'schedule.created' : 'schedule.updated';
         Audit::log($action, 'schedule', $scheduleId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
             'student_id' => $studentId,
             'teacher_id' => $teacherId,
             'timezone' => $timezone,
+            'start_date' => $startDate,
             'slots' => array_map(fn ($s) => ['weekday' => $s['weekday'], 'start_time_local' => $s['start_time_local'], 'duration_minutes' => $s['duration_minutes']], $data['slots']),
         ]);
         $this->auditGeneratorRun($academyId, $scheduleId, $counts);
@@ -276,6 +290,41 @@ final class ScheduleController extends Controller
         }
     }
 
+    /**
+     * The local date this timetable starts producing lessons, in order of authority:
+     *   1. what the caller sent — the owner typed it, it wins, past or future;
+     *   2. the date the timetable already had, so an unrelated edit never moves it;
+     *   3. the student's active subscription start — the date they were enrolled from;
+     *   4. today.
+     *
+     * (3) is what makes the normal flow work without anyone typing the date twice. It cannot be
+     * the ONLY source: the enrolment wizard saves the timetable before the pricing step, so at
+     * that moment there is no subscription to read — which is exactly why the field exists.
+     *
+     * @param  array<string,mixed>  $data
+     */
+    private function resolveStartDate(array $data, ?object $existing, string $studentId): string
+    {
+        if (! empty($data['start_date'])) {
+            return (string) $data['start_date'];
+        }
+
+        if ($existing !== null && $existing->start_date !== null) {
+            return Carbon::parse($existing->start_date)->format('Y-m-d');
+        }
+
+        $subStart = DB::table('subscriptions')
+            ->where('student_id', $studentId)
+            ->where('status', 'ACTIVE')
+            ->whereNull('deleted_at')
+            ->orderByDesc('created_at')
+            ->value('start_date');
+
+        return $subStart !== null
+            ? Carbon::parse($subStart)->format('Y-m-d')
+            : Carbon::now()->format('Y-m-d');
+    }
+
     private function activeSchedule(string $studentId): ?object
     {
         return DB::table('schedules')
@@ -327,6 +376,10 @@ final class ScheduleController extends Controller
         return $request->validate([
             'timezone' => ['sometimes', 'nullable', 'string', 'max:64', 'timezone'],
             'teacher_id' => ['sometimes', 'nullable', 'uuid'],
+            // The local date the timetable begins producing lessons. May be in the past: that is
+            // the whole point — a student enrolled on the 1st and entered on the 20th still owes
+            // three weeks of lessons somebody has to mark.
+            'start_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'slots' => ['required', 'array', 'min:1'],
             'slots.*.weekday' => ['required', 'integer', 'between:'.self::WEEKDAY_MIN.','.self::WEEKDAY_MAX],
             'slots.*.start_time_local' => ['required', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],

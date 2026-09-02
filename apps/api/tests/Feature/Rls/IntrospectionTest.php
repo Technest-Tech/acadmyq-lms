@@ -132,7 +132,7 @@ it('defines each enum type with exactly the documented labels', function (string
     ['academy_status', ['ACTIVE', 'SUSPENDED', 'TRIAL']],
     ['subscription_status', ['ACTIVE', 'PAUSED', 'ENDED']],
     ['report_field_type', ['TEXT', 'TEXTAREA', 'NUMBER', 'SELECT', 'RATING']],
-    ['app_role', ['SUPER_ADMIN', 'ACADEMY_OWNER', 'TEACHER', 'STAFF']],
+    ['app_role', ['SUPER_ADMIN', 'ACADEMY_OWNER', 'TEACHER', 'STAFF', 'SUPERVISOR']],
     ['invoice_grouping', ['PER_GUARDIAN', 'PER_STUDENT']],
 ]);
 

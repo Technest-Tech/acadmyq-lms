@@ -46,6 +46,13 @@
       "operations": "Operations",
       "operationsDesc": "This week's lessons and what needs your attention"
     },
+    "urgent": {
+      "badge": "Urgent",
+      "overdueTitle": "Held-up lessons",
+      "overdueDesc": "{count, plural, one {# lesson} other {# lessons}} ended over {hours} hours ago with no attendance recorded. Until someone marks them they stay unbilled and unpaid.",
+      "overdueDescTeacher": "{count, plural, one {# lesson} other {# lessons}} you taught ended over {hours} hours ago and still have no attendance recorded.",
+      "cta": "Mark them"
+    },
     "empty": {
       "noData": "No data available yet"
     },
@@ -134,6 +141,7 @@
     "schedule": "Schedule",
     "videoClassroom": "Video Classroom",
     "invoices": "Invoices",
+    "packages": "Lesson Packages",
     "payroll": "Payroll",
     "settings": "Settings",
     "attendance": "Attendance",
@@ -1050,7 +1058,8 @@
     "basis": {
       "PER_SESSION": "Per session",
       "PER_MONTH": "Per month",
-      "PER_HOUR": "Per hour"
+      "PER_HOUR": "Per hour",
+      "PER_PACKAGE": "Lesson package"
     },
     "newModal": {
       "description": "Save as a trial, or set up timetable and pricing right away"
@@ -1167,7 +1176,12 @@
       "repriceOpenHint": "Recalculate {sessions, plural, one {# billed session} other {# billed sessions}} on {invoices, plural, one {# open invoice} other {# open invoices}} at the new rate. Use this when the old rate was entered by mistake — closed and paid invoices are never changed.",
       "savedRepriced": "Subscription saved. Recalculated {sessions, plural, one {# session} other {# sessions}} on {invoices, plural, one {# open invoice} other {# open invoices}}.",
       "perMonthShort": "/mo",
-      "perSessionShort": "/session"
+      "perSessionShort": "/session",
+      "mode": "Billing mode",
+      "modeMonthly": "Monthly invoice",
+      "modeMonthlyHint": "Lessons collect on one bill per month.",
+      "modePackage": "Lesson package",
+      "modePackageHint": "Sell blocks of hours; lessons burn the balance."
     },
     "teacher": {
       "title": "Teacher",
@@ -1272,6 +1286,10 @@
     "duration": "Minutes",
     "removeSlot": "Remove slot",
     "addSlot": "Add slot",
+    "startDate": "Starts from",
+    "startDateHint": "The date lessons begin. Leave it as today unless the student started earlier.",
+    "startDateBackfill": "{count, plural, one {# lesson has} other {# lessons have}} already passed since then. They will be added as unmarked, so the academy can record what was taught.",
+    "startDateBackfillConfirm": "Create {count, plural, one {# past lesson} other {# past lessons}}",
     "timezone": "Timezone",
     "timezonePlaceholder": "Academy default",
     "save": "Save schedule",
@@ -1286,6 +1304,7 @@
       "sessionsSubtitle": "Click any session to reschedule or cancel",
       "scheduleTrial": "Schedule trial",
       "durationUnit": "min",
+      "durationPlaceholder": "e.g. 45",
       "slotsCount": "{count} slots",
       "emptyMonth": "No sessions this month",
       "regenHint": "Saving regenerates upcoming sessions to match. Past and attended sessions are kept.",
@@ -1315,6 +1334,7 @@
       "emptyHint": "Add a timetable or switch to another month.",
       "errStudent": "Please choose a student.",
       "errSlots": "Add at least one weekly slot.",
+      "errDuration": "Enter a session length between {min} and {max} minutes.",
       "hoursShort": "h",
       "perWeek": "week",
       "summary": {
@@ -1439,12 +1459,14 @@
     "tabs": {
       "classes": "Classes",
       "reports": "Reports",
-      "studentReports": "Student Reports"
+      "studentReports": "Student Reports",
+      "packages": "Packages"
     },
     "empty": {
       "classes": "No pending class requests.",
       "reports": "No report alerts. You're all caught up.",
-      "studentReports": "No student reports to review."
+      "studentReports": "No student reports to review.",
+      "packages": "No package alerts. Every balance is healthy and every finished package is settled."
     },
     "status": {
       "PENDING": "Pending",
@@ -1471,6 +1493,25 @@
       "reject": "Reject",
       "markRead": "Mark read",
       "markAllRead": "Mark all read"
+    },
+    "package": {
+      "open": "Open the packages page",
+      "PACKAGE_LOW": {
+        "title": "{student} is running low on hours",
+        "body": "Only {left} left on “{label}”. The next lesson may run past the end of the package."
+      },
+      "PACKAGE_COMPLETED": {
+        "title": "{student} finished their package",
+        "body": "“{label}” is used up. The bill is ready."
+      },
+      "PACKAGE_UNPAID": {
+        "title": "{student} started a new package with an unpaid one behind it",
+        "body": "{amount} is still outstanding on an earlier package. Lessons carry on — this is a heads-up, not a block."
+      },
+      "NO_ACTIVE_PACKAGE": {
+        "title": "{student} has no open package",
+        "body": "A lesson was delivered with no package to take it. It has been billed the ordinary way — open the next block."
+      }
     }
   },
   "studentReports": {
@@ -1833,6 +1874,122 @@
     "panelManual": "Manual invoices",
     "panelManualHint": "Raised by hand for anything outside the lesson billing"
   },
+  "packages": {
+    "title": "Lesson Packages",
+    "subtitle": "Blocks of hours sold up front. Every lesson burns its own length; when a block runs out it closes itself and the bill goes out.",
+    "loading": "Loading packages…",
+    "empty": "No packages yet.",
+    "emptyAttention": "Nothing needs your attention. Every open package has hours left and every finished one is paid.",
+    "forbidden": "You do not have access to lesson packages.",
+    "searchPlaceholder": "Search by student…",
+    "hero": {
+      "attention": "{count} need attention",
+      "active": "{count} open"
+    },
+    "stats": {
+      "attention": "Needs attention",
+      "attentionSub": "Running out, unpaid, or overdrawn",
+      "low": "Running low",
+      "lowSub": "An hour or less left",
+      "unpaid": "Finished & unpaid",
+      "unpaidSub": "The block is used up, the bill is not settled",
+      "active": "Open packages",
+      "activeSub": "Currently being consumed",
+      "filterHint": "Press a tile to narrow the list below it. Press it again to see everything."
+    },
+    "segments": {
+      "attention": "Needs attention",
+      "active": "Open",
+      "completed": "Finished",
+      "all": "All"
+    },
+    "status": {
+      "ACTIVE": "Open",
+      "COMPLETED": "Finished",
+      "CANCELLED": "Cancelled"
+    },
+    "timing": {
+      "ON_START": "Paid up front",
+      "ON_COMPLETION": "Paid at the end"
+    },
+    "timingHint": {
+      "ON_START": "The bill goes out the moment the package opens.",
+      "ON_COMPLETION": "The bill is raised from what was actually used when it closes."
+    },
+    "badges": {
+      "low": "Running low"
+    },
+    "card": {
+      "used": "{used} of {total} used",
+      "remaining": "{left} left",
+      "carried": "{carried} carried over",
+      "overdrawn": "{over} past the end"
+    },
+    "actions": {
+      "open": "Open a package",
+      "cancel": "Cancel",
+      "close": "Close early",
+      "viewLessons": "Lessons",
+      "viewInvoice": "Invoice",
+      "billOverdraft": "Bill the extra hours"
+    },
+    "form": {
+      "title": "Open a package",
+      "description": "Sell a block of hours. Only students set to package billing appear here — a student is on the monthly clock or on this one, never both.",
+      "student": "Student",
+      "studentPlaceholder": "Choose a student",
+      "hasOpenPackage": "already has an open package",
+      "noEligibleStudents": "No students are on package billing yet. Set a student's subscription basis to package on their profile first.",
+      "alreadyOpen": "This student already has an open package. Close it before opening another.",
+      "label": "Name",
+      "labelPlaceholder": "e.g. 20 hours — autumn term",
+      "hours": "Hours",
+      "price": "Total price",
+      "derivedRate": "That works out at {rate} per hour.",
+      "timing": "When is it billed?",
+      "startsOn": "Starts",
+      "expiresOn": "Expires",
+      "expiresHint": "Leave empty for no expiry.",
+      "carryOver": "Carry over unused hours from the last package",
+      "carryOverHint": "Off by default — unused hours are yours to keep or forgive, so moving them is always a decision."
+    },
+    "detail": {
+      "sold": "Bought",
+      "used": "Used",
+      "remaining": "Left",
+      "rate": "Per hour",
+      "lessons": "Lessons on this package",
+      "loading": "Loading lessons…",
+      "noLessons": "No lesson has consumed this package yet.",
+      "overdraftNote": "The last lesson ran {over} past the end of this package, charged at {amount}.",
+      "overBy": "+{over} · {amount}"
+    },
+    "close": {
+      "title": "Close this package early",
+      "description": "A package that runs out closes itself. Use this when the student leaves or the terms change.",
+      "remaining": "{left} still unused.",
+      "proRataNote": "This package is paid at the end, so closing it now bills only the hours actually used — not the full block.",
+      "reason": "Reason",
+      "reasonPlaceholder": "e.g. Student switched to monthly",
+      "confirm": "Close package"
+    },
+    "alerts": {
+      "opened": "Package opened.",
+      "openedAndBilled": "Package opened and the invoice was raised.",
+      "closed": "Package closed.",
+      "closeFailed": "Could not close the package.",
+      "overdraftBilled": "The extra hours were billed.",
+      "overdraftFailed": "Could not bill the extra hours."
+    },
+    "panel": {
+      "title": "Lesson package",
+      "subtitle": "Hours bought, and what is left of them",
+      "manage": "Manage packages",
+      "noActive": "No open package. Open one on the packages page so the next lesson has hours to take.",
+      "owed": "{amount} still outstanding on finished packages.",
+      "settled": "Settled"
+    }
+  },
   "attendance": {
     "title": "Attendance & report",
     "loading": "Loading…",
@@ -1977,7 +2134,14 @@
     "freeTrialsTitle": "Free (Trial) Lessons Today",
     "trialSession": "trial session",
     "trialSessions": "trial sessions",
-    "tilesHint": "Pick a tile to narrow the list below — pick it again to see everything."
+    "tilesHint": "Pick a tile to narrow the list below — pick it again to see everything.",
+    "overdueTitle": "Held-up Lessons",
+    "overdueSubtitle": "These lessons ended over {hours} hours ago and still have no outcome recorded. Oldest first — they will not appear in the day, week or month below unless you happen to be on their date.",
+    "overdueSubtitleTeacher": "You have not recorded an outcome for these lessons yet, and they ended over {hours} hours ago. Oldest first.",
+    "overdueLateBy": "Ended {when}",
+    "overdueShowAll": "Show {count} more",
+    "overdueShowLess": "Show less",
+    "overdueTruncated": "Showing the oldest {shown} of {total}."
   },
   "payroll": {
     "title": "Payroll",
@@ -1992,8 +2156,6 @@
     "colTotal": "Total",
     "view": "View",
     "filterStatus": "Status",
-    "filterYear": "Year",
-    "filterMonth": "Month",
     "status": {
       "OPEN": "Open",
       "FINALIZED": "Finalized"
@@ -2024,18 +2186,7 @@
     "year": "Year",
     "month": "Month",
     "cancel": "Cancel",
-    "profitTitle": "Academy profit",
-    "profitEmpty": "No revenue or payouts for this period yet.",
     "profitCurrency": "Currency",
-    "profitRevenue": "Revenue",
-    "profitPayouts": "Payouts",
-    "profitNet": "Net profit",
-    "duesTitle": "Outstanding dues",
-    "duesHint": "Owed until now · all periods",
-    "duesEmpty": "No invoices yet — nothing is due.",
-    "dueLabel": "Due until now",
-    "dueOfBilled": "of {billed} billed",
-    "dueSettled": "All billed amounts collected",
     "netPay": "Net pay",
     "breakdownSessions": "Sessions",
     "breakdownRewards": "Rewards",
@@ -2058,7 +2209,27 @@
     "detailsLabel": "Details",
     "detailsPlaceholder": "Optional full context for this adjustment…",
     "optional": "(optional)",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "rangeTitle": "Salary period",
+    "rangeFrom": "From",
+    "rangeTo": "To",
+    "rangeEmpty": "No lessons or adjustments in this period.",
+    "rangePayable": "Payable",
+    "rangeLessons": "Lessons",
+    "rangeRewards": "Rewards",
+    "rangeDeductions": "Deductions",
+    "rangeTeachers": "{count} teachers",
+    "rangeTaught": "{hours} taught",
+    "rangeTaughtShort": "Hours",
+    "rangeByTeacher": "Salary per teacher",
+    "rangeByTeacherHint": "For the chosen period, across every statement it touches",
+    "rangePreset": {
+      "thisMonth": "This month",
+      "lastMonth": "Last month",
+      "last30": "Last 30 days"
+    },
+    "statementsTitle": "Monthly statements",
+    "statementsHint": "Every statement the period touches — open one to see its lessons or finalize it"
   },
   "audit": {
     "title": "Audit Log",
@@ -4464,6 +4635,15 @@
     "noPermission": "You don't have permission to manage roles.",
     "loadError": "Couldn't load roles.",
     "newRole": "New role",
+    "newSupervisorRole": "New supervisor",
+    "financialTag": "money",
+    "presets": {
+      "supervisor": {
+        "name": "Supervisor",
+        "description": "Runs the academy day to day. No invoices, salaries, profit or student rates.",
+        "hint": "Starts a role holding everything a supervisor gets — untick anything they should not manage."
+      }
+    },
     "customRoles": "Custom roles",
     "systemRoles": "Built-in roles",
     "noCustomRoles": "No custom roles yet. Create one to tailor access for your team.",
@@ -4492,8 +4672,13 @@
     "viewPlans": "View plans",
     "role": {
       "ACADEMY_OWNER": "Academy Owner",
+      "SUPERVISOR": "Supervisor",
       "TEACHER": "Teacher",
       "STAFF": "Staff"
+    },
+    "systemRoleHint": {
+      "STAFF": "Reception desk — sees students and the schedule, changes nothing",
+      "SUPERVISOR": "Runs the academy. No invoices, salaries, profit or student rates"
     },
     "close": "Close",
     "customBadge": "Custom",
@@ -4512,6 +4697,7 @@
   "permissions": {
     "groups": {
       "student": "Students",
+      "package": "Lesson packages",
       "guardian": "Guardians",
       "teacher": "Teachers",
       "schedule": "Scheduling",
@@ -4559,6 +4745,18 @@
       "student_update": {
         "label": "Edit students",
         "desc": "Update student details"
+      },
+      "student_set_price": {
+        "label": "Set student rates",
+        "desc": "Set or change what a student pays, and see their rate"
+      },
+      "package_read": {
+        "label": "View lesson packages",
+        "desc": "See package balances, history and the attention queue"
+      },
+      "package_manage": {
+        "label": "Manage lesson packages",
+        "desc": "Open, close, carry over and bill hour packages"
       },
       "student_deactivate": {
         "label": "Deactivate students",

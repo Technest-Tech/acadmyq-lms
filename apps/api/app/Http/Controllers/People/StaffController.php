@@ -211,16 +211,20 @@ final class StaffController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /** System roles the staff form may assign: the minimal baseline and the supervisor. */
+    private const ASSIGNABLE_SYSTEM_ROLES = ['STAFF', 'SUPERVISOR'];
+
     /**
-     * Resolve the login role for a new staff member. Either the STAFF system baseline or one of
-     * the academy's own active CUSTOM roles (academy_roles, tenant-scoped by RLS). Any other
-     * value — including the privileged ACADEMY_OWNER/TEACHER/SUPER_ADMIN codes — is rejected, so
-     * the staff form can never escalate a hire into an owner/teacher.
+     * Resolve the login role for a new staff member. Either an assignable SYSTEM role (the STAFF
+     * baseline or SUPERVISOR — the whole academy minus the money) or one of the academy's own
+     * active CUSTOM roles (academy_roles, tenant-scoped by RLS). Any other value — including the
+     * privileged ACADEMY_OWNER/TEACHER/SUPER_ADMIN codes — is rejected, so the staff form can
+     * never escalate a hire into an owner or a teacher.
      */
     private function resolveStaffRole(string $role): string
     {
-        if ($role === 'STAFF') {
-            return 'STAFF';
+        if (in_array($role, self::ASSIGNABLE_SYSTEM_ROLES, true)) {
+            return $role;
         }
 
         $exists = DB::table('academy_roles')

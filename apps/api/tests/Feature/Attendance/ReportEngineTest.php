@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\LessonPackages;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -261,17 +262,27 @@ it('lists the per-student report archive, paginated, own-academy only', function
 });
 
 // ── The guardian-facing "Lesson #N" the report card prints ──
-it('numbers a session by the student\'s delivered lessons, skipping cancellations', function () {
+it('numbers a delivered lesson within its own month, in the academy timezone', function () {
     Sanctum::actingAs($this->owner);
 
-    // The one seeded in beforeEach is this student's first DELIVERED lesson.
-    expect($this->getJson("/api/sessions/{$this->session}")->assertOk()->json('session.session_number'))->toBe(1);
+    // A lesson from the PREVIOUS month is not part of this month's count. Numbering restarts at
+    // the month boundary because that is the block the family is billed for.
+    $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-05-20 15:00:00+00', 'status' => 'ATTENDED',
+    ]);
+
+    // The one seeded in beforeEach is this student's first delivered lesson OF JUNE.
+    $body = $this->getJson("/api/sessions/{$this->session}")->assertOk()->json('session');
+    expect($body['session_number'])->toBe(1)
+        ->and($body['session_number_scope'])->toBe('MONTH');
 
     // A cancellation between them takes no number — nothing was delivered.
     $cancelled = $this->createSession($this->academy, $this->student, $this->teacher, [
         'scheduled_at_utc' => '2026-06-02 15:00:00+00', 'status' => 'CANCELLED_BY_STUDENT',
     ]);
-    expect($this->getJson("/api/sessions/{$cancelled}")->assertOk()->json('session.session_number'))->toBeNull();
+    $body = $this->getJson("/api/sessions/{$cancelled}")->assertOk()->json('session');
+    expect($body['session_number'])->toBeNull()
+        ->and($body['session_number_scope'])->toBeNull();
 
     // A free lesson was still delivered, so the sequence a parent sees never skips.
     $free = $this->createSession($this->academy, $this->student, $this->teacher, [
@@ -285,10 +296,63 @@ it('numbers a session by the student\'s delivered lessons, skipping cancellation
     ]);
     expect($this->getJson("/api/sessions/{$scheduled}")->assertOk()->json('session.session_number'))->toBeNull();
 
+    // THE MONTH IS THE ACADEMY'S, NOT UTC'S. 30 June 22:00 UTC is 1 July in Cairo (+03), so this
+    // lesson opens July's count rather than continuing June's — the same boundary the invoice uses.
+    $july = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-30 22:00:00+00', 'status' => 'ATTENDED',
+    ]);
+    expect($this->getJson("/api/sessions/{$july}")->assertOk()->json('session.session_number'))->toBe(1);
+
     // Another student's lessons are counted separately.
     $other = $this->createStudent($this->academy);
     $otherFirst = $this->createSession($this->academy, $other, $this->teacher, [
         'scheduled_at_utc' => '2026-06-05 15:00:00+00', 'status' => 'ATTENDED',
     ]);
     expect($this->getJson("/api/sessions/{$otherFirst}")->assertOk()->json('session.session_number'))->toBe(1);
+});
+
+it('numbers a package student\'s lesson within the package, not the calendar month', function () {
+    Sanctum::actingAs($this->owner);
+
+    // A block of hours opened mid-month. ON_COMPLETION so opening it raises no invoice — this
+    // test is about the numbering, not the billing.
+    $this->asAcademy($this->academy);
+    app(LessonPackages::class)->open([
+        'student_id' => $this->student,
+        'label' => '10 hours',
+        'minutes_total' => 600,
+        'price_minor' => 200000,
+        'currency' => 'EGP',
+        'bill_timing' => 'ON_COMPLETION',
+        'starts_on' => '2026-06-03',
+    ], (string) $this->owner->id, 'ACADEMY_OWNER');
+    $this->clearTenantContext();
+
+    // The 1 June lesson predates the package, so it keeps its month number.
+    $before = $this->getJson("/api/sessions/{$this->session}")->assertOk()->json('session');
+    expect($before['session_number'])->toBe(1)
+        ->and($before['session_number_scope'])->toBe('MONTH');
+
+    // The package's first lesson restarts the count at 1 even though June already had one, and
+    // the second continues it — that is what "lesson 2 of the ten hours you bought" means.
+    $first = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-04 15:00:00+00', 'status' => 'ATTENDED',
+    ]);
+    $second = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-05 15:00:00+00', 'status' => 'ATTENDED',
+    ]);
+
+    $firstBody = $this->getJson("/api/sessions/{$first}")->assertOk()->json('session');
+    expect($firstBody['session_number'])->toBe(1)
+        ->and($firstBody['session_number_scope'])->toBe('PACKAGE');
+    expect($this->getJson("/api/sessions/{$second}")->assertOk()->json('session.session_number'))->toBe(2);
+
+    // A lesson in the NEXT month still belongs to the same package — the block outlives the
+    // calendar, so the count keeps running rather than resetting on 1 July.
+    $july = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-07-02 15:00:00+00', 'status' => 'ATTENDED',
+    ]);
+    $julyBody = $this->getJson("/api/sessions/{$july}")->assertOk()->json('session');
+    expect($julyBody['session_number'])->toBe(3)
+        ->and($julyBody['session_number_scope'])->toBe('PACKAGE');
 });

@@ -3,6 +3,11 @@
 import { CalendarDays, Clock, Globe, Info, Plus, Save, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  countPastLessons,
+  StartDateField,
+  todayLocal,
+} from "@/components/scheduling/start-date-field";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import {
@@ -17,7 +22,9 @@ import { cn } from "@/lib/utils";
 const fieldClass =
   "border-input bg-background focus:border-primary focus:ring-primary/15 rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:cursor-not-allowed disabled:opacity-60";
 
-const DURATION_PRESETS = [30, 45, 60, 90, 120];
+/** Backend bounds for a slot's length (ScheduleController: integer, min:1, max:600). */
+const DURATION_MIN = 1;
+const DURATION_MAX = 600;
 
 /** Region-relevant zones; the active schedule's own zone is always folded in. */
 const TZ_CURATED = [
@@ -54,19 +61,15 @@ export function ScheduleSection({
   const t = useTranslations("scheduling");
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [timezone, setTimezone] = useState("");
+  // An existing timetable keeps the start it was saved with; a new one begins today.
+  const [startDate, setStartDate] = useState<string>(() => todayLocal());
+  // What the timetable already starts from. Only the stretch BEFORE this is new history, so
+  // re-saving an old timetable never claims it is about to create lessons that already exist.
+  const [savedStart, setSavedStart] = useState<string | null>(null);
+  const [confirmingBackfill, setConfirmingBackfill] = useState(false);
 
   const weekdayOptions = useMemo(
     () => [0, 1, 2, 3, 4, 5, 6].map((d) => ({ value: String(d), label: t(`weekday.${d}`) })),
-    [t],
-  );
-
-  const durationOptions = useCallback(
-    (current: number) => {
-      const vals = DURATION_PRESETS.includes(current)
-        ? DURATION_PRESETS
-        : [...DURATION_PRESETS, current].sort((a, b) => a - b);
-      return vals.map((v) => ({ value: String(v), label: `${v} ${t("timetable.durationUnit")}` }));
-    },
     [t],
   );
 
@@ -85,6 +88,10 @@ export function ScheduleSection({
       const res = await getStudentSchedule(studentId);
       setActive(res.schedule !== null);
       setTimezone(res.schedule?.timezone ?? "");
+      const saved = res.schedule?.start_date?.slice(0, 10) ?? null;
+      setSavedStart(saved);
+      setStartDate(saved ?? todayLocal());
+      setConfirmingBackfill(false);
       setSlots(
         res.slots.map((s) => ({
           weekday: s.weekday,
@@ -109,12 +116,33 @@ export function ScheduleSection({
     );
   }
 
+  /** Every slot needs a whole number of minutes the backend will accept. */
+  const durationsValid = slots.every(
+    (s) =>
+      Number.isInteger(s.duration_minutes) &&
+      s.duration_minutes >= DURATION_MIN &&
+      s.duration_minutes <= DURATION_MAX,
+  );
+
+  const pastLessons = countPastLessons(
+    slots,
+    startDate,
+    todayLocal(),
+    savedStart ?? undefined,
+  );
+
   async function save() {
+    // Reaching into the past writes lessons somebody has to mark, so it takes a second press.
+    if (pastLessons > 0 && !confirmingBackfill) {
+      setConfirmingBackfill(true);
+      return;
+    }
     setSaving(true);
     setNotice(null);
     try {
       const res = await putStudentSchedule(studentId, {
         timezone: timezone || undefined,
+        start_date: startDate || undefined,
         slots: slots.map((s) => ({
           weekday: s.weekday,
           start_time_local: s.start_time_local,
@@ -247,12 +275,20 @@ export function ScheduleSection({
                   <span className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
                     {t("duration")}
                   </span>
-                  <Combobox
-                    options={durationOptions(s.duration_minutes)}
-                    value={String(s.duration_minutes)}
-                    onChange={(v) => update(i, { duration_minutes: Number(v) })}
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={DURATION_MIN}
+                    max={DURATION_MAX}
+                    step={5}
+                    aria-label={t("duration")}
+                    className={cn(fieldClass, "w-full px-3 py-2")}
+                    value={s.duration_minutes || ""}
                     disabled={!canManage}
-                    placeholder={t("duration")}
+                    onChange={(e) =>
+                      update(i, { duration_minutes: Number(e.target.value) })
+                    }
+                    placeholder={t("timetable.durationPlaceholder")}
                   />
                 </div>
 
@@ -312,6 +348,19 @@ export function ScheduleSection({
                 />
               </div>
 
+              {/* Starts from */}
+              <StartDateField
+                className="sm:max-w-xs"
+                value={startDate}
+                onChange={(v) => {
+                  setStartDate(v);
+                  setConfirmingBackfill(false);
+                }}
+                slots={slots}
+                coveredFrom={savedStart ?? undefined}
+                disabled={saving}
+              />
+
               {/* Regeneration hint */}
               <div className="flex items-start gap-2 rounded-lg bg-background/60 px-3 py-2 ring-1 ring-border/60">
                 <Info className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
@@ -337,7 +386,7 @@ export function ScheduleSection({
                 <Button
                   type="button"
                   size="sm"
-                  disabled={saving || slots.length === 0}
+                  disabled={saving || slots.length === 0 || !durationsValid}
                   data-testid="save-schedule"
                   onClick={() => void save()}
                   className="gap-1.5"
@@ -347,7 +396,11 @@ export function ScheduleSection({
                   ) : (
                     <Save className="size-3.5" />
                   )}
-                  {saving ? t("saving") : t("save")}
+                  {saving
+                    ? t("saving")
+                    : confirmingBackfill
+                      ? t("startDateBackfillConfirm", { count: pastLessons })
+                      : t("save")}
                 </Button>
               </div>
             </div>

@@ -10,9 +10,11 @@ import {
   Gift,
   GraduationCap,
   Inbox,
+  Layers,
   RefreshCw,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import {
@@ -36,9 +38,11 @@ import {
   type NotificationRow,
   rejectCancellation,
 } from "@/lib/api";
+import { formatMoney } from "@/lib/money";
+import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-type TabKey = "classes" | "reports";
+type TabKey = "classes" | "reports" | "packages";
 
 const STATUS_CHIP: Record<CancellationStatus, string> = {
   PENDING:
@@ -57,7 +61,7 @@ export function NotificationsScreen() {
   const [tab, setTab] = useState<TabKey>("classes");
   const [requests, setRequests] = useState<CancellationRequestRow[]>([]);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
-  const [counts, setCounts] = useState({ classes: 0, reports: 0 });
+  const [counts, setCounts] = useState({ classes: 0, reports: 0, packages: 0 });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -84,6 +88,7 @@ export function NotificationsScreen() {
       setCounts({
         classes: summary.classes,
         reports: summary.reports,
+        packages: summary.packages,
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -105,7 +110,14 @@ export function NotificationsScreen() {
   const TABS: { key: TabKey; icon: ComponentType<{ className?: string }>; count: number }[] = [
     { key: "classes", icon: Ban, count: counts.classes },
     { key: "reports", icon: ClipboardX, count: counts.reports },
+    { key: "packages", icon: Layers, count: counts.packages },
   ];
+
+  // One feed, two audiences. Package alerts share the notifications table with the overdue-report
+  // ones, so the split happens on `category` — a package alert rendered with report copy would
+  // read as nonsense ("teacher — hasn't filed a report" about a balance running out).
+  const reportNotifications = notifications.filter((n) => n.category !== "PACKAGES");
+  const packageNotifications = notifications.filter((n) => n.category === "PACKAGES");
 
   return (
     <div className="w-full space-y-5">
@@ -176,10 +188,16 @@ export function NotificationsScreen() {
           onChanged={load}
           onError={setError}
         />
-      ) : (
+      ) : tab === "reports" ? (
         <ReportsTab
-          notifications={notifications}
+          notifications={reportNotifications}
           fmt={fmt}
+          onChanged={load}
+          onError={setError}
+        />
+      ) : (
+        <PackagesTab
+          notifications={packageNotifications}
           onChanged={load}
           onError={setError}
         />
@@ -510,6 +528,150 @@ function ReportsTab({
                   size="sm"
                   onClick={() => void markRead(n.id)}
                   data-testid="mark-read"
+                  className="shrink-0 gap-1.5"
+                >
+                  <Check className="size-3.5" />
+                  {t("actions.markRead")}
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// ── Packages (lesson-package alerts) ─────────────────────────────────────────
+
+/**
+ * What the package engine wants the owner to know.
+ *
+ * Four alerts, and the ordering of severity in the colour is deliberate. PACKAGE_UNPAID is the
+ * loud one — it is the answer to "he started a new package without paying for the last one" —
+ * and it is an alert rather than a block on purpose: a lesson is never stopped because a parent
+ * owes money, so this screen is where the pressure lives instead.
+ */
+function PackagesTab({
+  notifications,
+  onChanged,
+  onError,
+}: {
+  notifications: NotificationRow[];
+  onChanged: () => Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const t = useTranslations("notifications");
+  const locale = useLocale();
+  const [busy, setBusy] = useState(false);
+  const hasUnread = notifications.some((n) => n.read_at === null);
+
+  async function markRead(id: string) {
+    try {
+      await markNotificationRead(id);
+      await onChanged();
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+
+  async function markAll() {
+    setBusy(true);
+    try {
+      await markAllNotificationsRead();
+      await onChanged();
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (notifications.length === 0) {
+    return <EmptyState message={t("empty.packages")} />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {hasUnread && (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={() => void markAll()}
+            className="gap-1.5"
+          >
+            <CheckCheck className="size-3.5" />
+            {t("actions.markAllRead")}
+          </Button>
+        </div>
+      )}
+      <ul className="space-y-3" data-testid="packages-list">
+        {notifications.map((n) => {
+          const unread = n.read_at === null;
+          const alarming = n.type === "PACKAGE_UNPAID" || n.type === "NO_ACTIVE_PACKAGE";
+          return (
+            <li
+              key={n.id}
+              data-testid="package-alert"
+              data-unread={unread}
+              className={cn(
+                "bg-card flex items-start justify-between gap-3 rounded-2xl border p-4",
+                unread && "border-primary/30 bg-primary/[0.03]",
+                alarming && "border-destructive/30",
+              )}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={cn(
+                    "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1",
+                    alarming
+                      ? "bg-destructive/10 ring-destructive/20"
+                      : "bg-primary/10 ring-primary/20",
+                  )}
+                >
+                  <Layers
+                    className={cn("size-5", alarming ? "text-destructive" : "text-primary")}
+                    aria-hidden
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold leading-tight">
+                    {t(`package.${n.type}.title`, { student: n.data.student_name ?? "—" })}
+                  </p>
+                  <p className="text-muted-foreground mt-1 text-sm">
+                    {t(`package.${n.type}.body`, {
+                      label: n.data.label ?? "—",
+                      left: formatHours(n.data.minutes_left ?? 0, locale),
+                      over: formatHours(n.data.minutes_overdrawn ?? 0, locale),
+                      amount:
+                        n.data.outstanding_minor !== undefined
+                          ? formatMoney(
+                              {
+                                amount: n.data.outstanding_minor,
+                                currency: n.data.currency ?? "EGP",
+                              },
+                              locale,
+                            )
+                          : "—",
+                    })}
+                  </p>
+                  <Link
+                    href="/packages"
+                    className="text-primary mt-1.5 inline-block text-xs font-semibold hover:underline"
+                  >
+                    {t("package.open")}
+                  </Link>
+                </div>
+              </div>
+              {unread && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void markRead(n.id)}
                   className="shrink-0 gap-1.5"
                 >
                   <Check className="size-3.5" />

@@ -1,0 +1,845 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Support\Audit;
+use App\Support\PublicInvoiceToken;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * The lesson-package engine (docs/lesson-packages). Owns the *balance*: how many minutes a
+ * student has bought, how many each lesson burns, when the block runs out and what that costs.
+ *
+ * It is the second billing mode, and it is mutually exclusive with the monthly one. A student
+ * whose subscription reads price_basis = PER_PACKAGE never gets an AUTO monthly invoice line —
+ * {@see Invoicing::onSessionBillable} delegates here instead. Two billing clocks running on one
+ * student is a double-bill, so the exclusivity is the whole point, not a detail.
+ *
+ * Three invariants, all of them load-bearing:
+ *
+ *  1. MINUTES. Everything is an integer minute count. Hours exist only in labels.
+ *
+ *  2. A LESSON NEVER SPLITS. 90 minutes against a 30-minute balance does not put 30 on the old
+ *     package and 60 on the new one. It overdraws: the package closes at −60 and those minutes
+ *     are charged at the package's own snapshotted hourly rate, as one line, on one invoice.
+ *     `lesson_package_credits.session_id` is UNIQUE, so this is enforced by the database and
+ *     not merely by this class.
+ *
+ *  3. CONSUMPTION IS NEVER GATED ON PAYMENT. {@see consume()} cannot fail because a parent owes
+ *     money — a teacher marking attendance must never be blocked by the accounts. An unpaid
+ *     previous package raises a notification and shows up in the attention queue; it does not
+ *     stop a lesson from being recorded.
+ *
+ * Everything runs inside the caller's tenant transaction (GUCs already set by
+ * TenantContextMiddleware), so every write here is RLS-scoped to the student's academy.
+ */
+final class LessonPackages
+{
+    /** The subscription price basis that puts a student on package billing. */
+    public const BASIS = 'PER_PACKAGE';
+
+    /** Balance at or below this many minutes fires the "running low" alert. */
+    private const DEFAULT_LOW_MINUTES = 60;
+
+    // =========================================================================
+    // Reads
+    // =========================================================================
+
+    /** True when this student is billed by package rather than by month. */
+    public function isPackageStudent(string $studentId): bool
+    {
+        return $this->activeSubscriptionBasis($studentId) === self::BASIS;
+    }
+
+    /** The student's one open package, or null when they have none. */
+    public function activeFor(string $studentId): ?object
+    {
+        return DB::table('lesson_packages')
+            ->where('student_id', $studentId)
+            ->where('status', 'ACTIVE')
+            ->first();
+    }
+
+    /**
+     * Minutes still available on a package row: what they bought, plus anything carried over,
+     * minus what has been burnt. Can be zero but is clamped, never negative — an overdraw is
+     * recorded as `minutes_overdrawn`, which is a different fact from "balance".
+     */
+    public function remainingMinutes(object $package): int
+    {
+        $balance = (int) $package->minutes_total
+            + (int) $package->carried_over_minutes
+            - (int) $package->minutes_consumed;
+
+        return max(0, $balance);
+    }
+
+    // =========================================================================
+    // Consumption — driven by the attendance outcome, via Invoicing
+    // =========================================================================
+
+    /**
+     * A lesson became billable to a package student → burn its full duration.
+     *
+     * Returns TRUE when the package engine has taken responsibility for this lesson, FALSE when
+     * it has not and the caller must fall back to normal invoicing. The false case is deliberate
+     * and important: a package student with no open package still had a lesson delivered, and
+     * silently swallowing it would be lost revenue. The lesson bills the ordinary way and the
+     * owner gets a NO_ACTIVE_PACKAGE alert telling them to open the next block.
+     */
+    public function consume(object $session): bool
+    {
+        $studentId = (string) $session->student_id;
+
+        if (! $this->isPackageStudent($studentId)) {
+            return false;
+        }
+
+        $package = $this->activeFor($studentId);
+
+        if ($package === null) {
+            $this->notify(
+                (string) $session->academy_id,
+                'NO_ACTIVE_PACKAGE',
+                $studentId,
+                [
+                    'student_id' => $studentId,
+                    'student_name' => $this->studentName($studentId),
+                    'session_id' => (string) $session->id,
+                ],
+            );
+
+            return false;
+        }
+
+        $minutes = max(1, (int) $session->duration_minutes);
+        $available = $this->remainingMinutes($package);
+
+        // The whole lesson lands on THIS package. Whatever part of it exceeds the balance is an
+        // overdraw, priced at the package's snapshotted hourly rate — never a second package.
+        $overdrawn = max(0, $minutes - $available);
+        $overdraftAmount = $this->rateFor($package, $overdrawn);
+
+        $inserted = DB::table('lesson_package_credits')->insertOrIgnore([
+            'id' => (string) Str::uuid(),
+            'academy_id' => $session->academy_id,
+            'package_id' => $package->id,
+            'student_id' => $studentId,
+            'session_id' => $session->id,
+            'minutes' => $minutes,
+            'minutes_overdrawn' => $overdrawn,
+            'amount_minor' => $overdraftAmount,
+            'currency' => $package->currency,
+            'description' => $this->creditDescription($session, $minutes, $overdrawn),
+            'consumed_at' => now(),
+            'created_at' => now(),
+        ]);
+
+        if (! $inserted) {
+            // Already recorded (concurrency backstop on the unique session_id) — nothing to do.
+            return true;
+        }
+
+        DB::table('lesson_packages')->where('id', $package->id)->update([
+            'minutes_consumed' => DB::raw("minutes_consumed + {$minutes}"),
+            'minutes_overdrawn' => DB::raw("minutes_overdrawn + {$overdrawn}"),
+            'updated_at' => now(),
+        ]);
+
+        Audit::log(
+            'lesson_package.consumed',
+            'lesson_package',
+            (string) $package->id,
+            (string) $session->academy_id,
+            null,
+            'SUPER_ADMIN',
+            after: [
+                'session_id' => (string) $session->id,
+                'minutes' => $minutes,
+                'minutes_overdrawn' => $overdrawn,
+                'overdraft_minor' => $overdraftAmount,
+            ],
+        );
+
+        $left = $available - $minutes;
+
+        if ($left <= 0) {
+            $this->complete((string) $package->id, 'EXHAUSTED', null, null);
+        } elseif ($left <= max(self::DEFAULT_LOW_MINUTES, $minutes)) {
+            // "Low" is measured against the lesson the student actually takes: the meaningful
+            // moment is when the NEXT lesson of this size will overdraw, not some fixed number.
+            $this->notify(
+                (string) $session->academy_id,
+                'PACKAGE_LOW',
+                (string) $package->id,
+                [
+                    'package_id' => (string) $package->id,
+                    'student_id' => $studentId,
+                    'student_name' => $this->studentName($studentId),
+                    'label' => (string) $package->label,
+                    'minutes_left' => $left,
+                ],
+            );
+        }
+
+        return true;
+    }
+
+    /**
+     * A lesson stopped being billable (an outcome corrected before the money was settled) →
+     * hand the minutes back.
+     *
+     * Refuses once the package has been closed AND its bill is no longer OPEN, mirroring the
+     * closed-invoice immutability guard in AttendanceService: you cannot un-consume minutes a
+     * parent has already been billed for. The throw rolls back the whole attendance change.
+     */
+    public function release(object $session): bool
+    {
+        $credit = DB::table('lesson_package_credits')
+            ->where('session_id', $session->id)
+            ->first();
+
+        if ($credit === null) {
+            return false;
+        }
+
+        $package = DB::table('lesson_packages')->where('id', $credit->package_id)->first();
+
+        if ($package !== null && $package->status !== 'ACTIVE' && $this->packageIsSettled($package)) {
+            throw ValidationException::withMessages([
+                'status' => ["This lesson's package is already closed and billed, so it can no longer be changed. / باقة هذه الحصة مُقفلة وتمّت فوترتها ولا يمكن تعديلها."],
+            ]);
+        }
+
+        DB::table('lesson_package_credits')->where('id', $credit->id)->delete();
+
+        if ($package !== null) {
+            $minutes = (int) $credit->minutes;
+            $overdrawn = (int) $credit->minutes_overdrawn;
+
+            DB::table('lesson_packages')->where('id', $package->id)->update([
+                'minutes_consumed' => DB::raw("greatest(0, minutes_consumed - {$minutes})"),
+                'minutes_overdrawn' => DB::raw("greatest(0, minutes_overdrawn - {$overdrawn})"),
+                // Giving minutes back re-opens a package that closed only because it ran out.
+                'status' => $package->status === 'COMPLETED' && $package->closed_reason === 'EXHAUSTED'
+                    ? 'ACTIVE'
+                    : $package->status,
+                'closed_at' => $package->closed_reason === 'EXHAUSTED' ? null : $package->closed_at,
+                'closed_reason' => $package->closed_reason === 'EXHAUSTED' ? null : $package->closed_reason,
+                'updated_at' => now(),
+            ]);
+
+            Audit::log(
+                'lesson_package.released',
+                'lesson_package',
+                (string) $package->id,
+                (string) $session->academy_id,
+                null,
+                'SUPER_ADMIN',
+                after: ['session_id' => (string) $session->id, 'minutes' => $minutes],
+            );
+        }
+
+        return true;
+    }
+
+    // =========================================================================
+    // Lifecycle — open, close, bill
+    // =========================================================================
+
+    /**
+     * Open a new package for a student.
+     *
+     * The hourly rate is DERIVED from the agreed total and the size, then SNAPSHOTTED onto the
+     * row — the same discipline as invoice_line_items.amount_minor. Changing the student's
+     * default rate later never re-prices a package that is already running.
+     *
+     * Two things happen here that answer the "he started a new package without paying the old
+     * one" case, and neither of them blocks anything:
+     *   - an unpaid previous package raises a PACKAGE_UNPAID alert;
+     *   - an unbilled overdraft from the previous package rolls onto THIS package's invoice
+     *     (the ON_START case, where the previous invoice was already issued and is immutable).
+     *
+     * @param  array{student_id:string,label:string,minutes_total:int,price_minor:int,currency?:?string,bill_timing?:?string,starts_on?:?string,expires_on?:?string,carry_over?:bool}  $data
+     * @return array{package_id:string, invoice_id:?string, carried_over_minutes:int}
+     */
+    public function open(array $data, ?string $actorUserId, ?string $actorRole): array
+    {
+        $studentId = (string) $data['student_id'];
+        $student = DB::table('students')->where('id', $studentId)->first(['id', 'academy_id', 'full_name']);
+
+        if ($student === null) {
+            throw ValidationException::withMessages([
+                'student_id' => ['Student not found. / الطالب غير موجود.'],
+            ]);
+        }
+
+        if ($this->activeFor($studentId) !== null) {
+            throw ValidationException::withMessages([
+                'student_id' => ['This student already has an open package. Close it before opening another. / لدى هذا الطالب باقة مفتوحة بالفعل. أغلقها قبل فتح باقة جديدة.'],
+            ]);
+        }
+
+        $academyId = (string) $student->academy_id;
+        $academy = DB::table('academies')->where('id', $academyId)->first();
+        $minutesTotal = (int) $data['minutes_total'];
+        $priceMinor = (int) $data['price_minor'];
+        $currency = strtoupper((string) ($data['currency'] ?? $this->studentCurrency($studentId, $academy)));
+        $billTiming = (string) ($data['bill_timing'] ?? $academy->package_bill_timing ?? 'ON_START');
+        $startsOn = (string) ($data['starts_on'] ?? Carbon::now($academy->timezone ?: 'UTC')->toDateString());
+
+        $previous = $this->latestClosedFor($studentId);
+
+        // Carry-over is deliberately an explicit choice, never automatic: unused minutes are the
+        // academy's money to forgive or keep, and silently moving them is how disputes start.
+        $carried = 0;
+        if (($data['carry_over'] ?? false) === true && $previous !== null) {
+            $carried = $this->remainingMinutes($previous);
+        }
+
+        $packageId = (string) Str::uuid();
+        $sequenceNo = ((int) DB::table('lesson_packages')->where('student_id', $studentId)->max('sequence_no')) + 1;
+
+        DB::table('lesson_packages')->insert([
+            'id' => $packageId,
+            'academy_id' => $academyId,
+            'student_id' => $studentId,
+            'label' => (string) $data['label'],
+            'minutes_total' => $minutesTotal,
+            'minutes_consumed' => 0,
+            'carried_over_minutes' => $carried,
+            'minutes_overdrawn' => 0,
+            'price_minor' => $priceMinor,
+            'currency' => $currency,
+            'hourly_rate_minor' => $this->deriveHourlyRate($priceMinor, $minutesTotal),
+            'bill_timing' => $billTiming,
+            'status' => 'ACTIVE',
+            'sequence_no' => $sequenceNo,
+            'starts_on' => $startsOn,
+            'expires_on' => $data['expires_on'] ?? null,
+            'opened_by_user_id' => $actorUserId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        if ($carried > 0 && $previous !== null) {
+            DB::table('lesson_packages')->where('id', $previous->id)->update([
+                'closed_reason' => 'CARRIED_OVER',
+                'updated_at' => now(),
+            ]);
+        }
+
+        $invoiceId = null;
+        if ($billTiming === 'ON_START') {
+            $lines = [[
+                'description' => $this->packageLineDescription($data['label'], $minutesTotal, $carried),
+                'amount_minor' => $priceMinor,
+            ]];
+
+            // Roll the previous package's unbilled overdraft onto this bill. Its own invoice was
+            // raised (and possibly paid) up front and is immutable — the debt has to travel.
+            $overdraft = $this->pendingOverdraft($studentId, $currency);
+            if ($overdraft !== null) {
+                $lines[] = [
+                    'description' => $overdraft['description'],
+                    'amount_minor' => $overdraft['amount_minor'],
+                ];
+            }
+
+            $invoiceId = $this->raiseInvoice($academyId, $studentId, $currency, $lines, $startsOn, $actorUserId, $actorRole);
+
+            if ($overdraft !== null) {
+                DB::table('lesson_packages')->where('id', $overdraft['package_id'])->update([
+                    'overdraft_invoice_id' => $invoiceId,
+                    'updated_at' => now(),
+                ]);
+            }
+
+            DB::table('lesson_packages')->where('id', $packageId)->update([
+                'invoice_id' => $invoiceId,
+                'updated_at' => now(),
+            ]);
+        }
+
+        $this->flagUnpaidPredecessors($academyId, $studentId, $packageId);
+
+        Audit::log(
+            'lesson_package.opened',
+            'lesson_package',
+            $packageId,
+            $academyId,
+            $actorUserId,
+            $actorRole,
+            after: [
+                'student_id' => $studentId,
+                'minutes_total' => $minutesTotal,
+                'carried_over_minutes' => $carried,
+                'price_minor' => $priceMinor,
+                'currency' => $currency,
+                'bill_timing' => $billTiming,
+                'invoice_id' => $invoiceId,
+            ],
+        );
+
+        return ['package_id' => $packageId, 'invoice_id' => $invoiceId, 'carried_over_minutes' => $carried];
+    }
+
+    /**
+     * Close a package: exhausted by its last lesson, or closed early by the owner.
+     *
+     * ON_COMPLETION packages are billed HERE, from what was actually consumed — a package closed
+     * early bills pro-rata at the snapshotted rate rather than the full agreed block, which is
+     * the only fair reading of "pay at the end". A package that ran its full course bills exactly
+     * the agreed price, so full consumption never drifts by a rounding unit.
+     *
+     * @return array{package_id:string, invoice_id:?string}
+     */
+    public function complete(string $packageId, string $reason, ?string $actorUserId, ?string $actorRole): array
+    {
+        $package = DB::table('lesson_packages')->where('id', $packageId)->first();
+
+        if ($package === null) {
+            throw ValidationException::withMessages([
+                'package_id' => ['Package not found. / الباقة غير موجودة.'],
+            ]);
+        }
+
+        if ($package->status !== 'ACTIVE') {
+            return ['package_id' => $packageId, 'invoice_id' => $package->invoice_id !== null ? (string) $package->invoice_id : null];
+        }
+
+        $invoiceId = $package->invoice_id !== null ? (string) $package->invoice_id : null;
+
+        if ($package->bill_timing === 'ON_COMPLETION') {
+            $lines = [];
+            $sold = (int) $package->minutes_total + (int) $package->carried_over_minutes;
+            $insideMinutes = min((int) $package->minutes_consumed, $sold);
+            $overdrawn = (int) $package->minutes_overdrawn;
+
+            // Full block → the agreed price verbatim. Partial → pro-rata at the snapshot rate.
+            $base = $insideMinutes >= $sold
+                ? (int) $package->price_minor
+                : $this->rateFor($package, $insideMinutes);
+
+            if ($base > 0 || $insideMinutes > 0) {
+                $lines[] = [
+                    'description' => $this->packageLineDescription($package->label, (int) $package->minutes_total, (int) $package->carried_over_minutes)
+                        .' — '.$this->humanHours($insideMinutes).' used',
+                    'amount_minor' => $base,
+                ];
+            }
+
+            if ($overdrawn > 0) {
+                $lines[] = [
+                    'description' => 'Extra '.$this->humanHours($overdrawn).' beyond the package',
+                    'amount_minor' => $this->rateFor($package, $overdrawn),
+                ];
+            }
+
+            if ($lines !== []) {
+                $invoiceId = $this->raiseInvoice(
+                    (string) $package->academy_id,
+                    (string) $package->student_id,
+                    (string) $package->currency,
+                    $lines,
+                    (string) $package->starts_on,
+                    $actorUserId,
+                    $actorRole,
+                );
+            }
+        }
+
+        DB::table('lesson_packages')->where('id', $packageId)->update([
+            'status' => 'COMPLETED',
+            'closed_at' => now(),
+            'closed_reason' => $reason,
+            'invoice_id' => $invoiceId,
+            // ON_COMPLETION settles the overdraft on the same bill; ON_START leaves it pending
+            // so it can travel to the next package (or be billed on its own from the UI).
+            'overdraft_invoice_id' => $package->bill_timing === 'ON_COMPLETION'
+                ? $invoiceId
+                : $package->overdraft_invoice_id,
+            'updated_at' => now(),
+        ]);
+
+        $this->notify(
+            (string) $package->academy_id,
+            'PACKAGE_COMPLETED',
+            $packageId,
+            [
+                'package_id' => $packageId,
+                'student_id' => (string) $package->student_id,
+                'student_name' => $this->studentName((string) $package->student_id),
+                'label' => (string) $package->label,
+                'reason' => $reason,
+                'minutes_consumed' => (int) $package->minutes_consumed,
+                'minutes_overdrawn' => (int) $package->minutes_overdrawn,
+                'invoice_id' => $invoiceId,
+                'currency' => (string) $package->currency,
+            ],
+        );
+
+        Audit::log(
+            'lesson_package.completed',
+            'lesson_package',
+            $packageId,
+            (string) $package->academy_id,
+            $actorUserId,
+            $actorRole,
+            after: ['reason' => $reason, 'invoice_id' => $invoiceId],
+            before: ['status' => (string) $package->status],
+        );
+
+        return ['package_id' => $packageId, 'invoice_id' => $invoiceId];
+    }
+
+    /**
+     * Void a package that was opened by mistake. Only possible while nothing has been consumed —
+     * once a lesson has burnt minutes the package has to be CLOSED (and billed for what was
+     * used), never made to disappear underneath a delivered lesson.
+     */
+    public function cancel(string $packageId, ?string $note, ?string $actorUserId, ?string $actorRole): void
+    {
+        $package = DB::table('lesson_packages')->where('id', $packageId)->first();
+
+        if ($package === null) {
+            throw ValidationException::withMessages([
+                'package_id' => ['Package not found. / الباقة غير موجودة.'],
+            ]);
+        }
+
+        if ((int) $package->minutes_consumed > 0) {
+            throw ValidationException::withMessages([
+                'package_id' => ['This package has already been used. Close it instead so the used hours are billed. / تم استخدام هذه الباقة بالفعل. أغلقها بدلًا من ذلك ليتم احتساب الساعات المستهلكة.'],
+            ]);
+        }
+
+        DB::table('lesson_packages')->where('id', $packageId)->update([
+            'status' => 'CANCELLED',
+            'closed_at' => now(),
+            'closed_reason' => $note ?? 'CANCELLED',
+            'updated_at' => now(),
+        ]);
+
+        Audit::log(
+            'lesson_package.cancelled',
+            'lesson_package',
+            $packageId,
+            (string) $package->academy_id,
+            $actorUserId,
+            $actorRole,
+            after: ['note' => $note],
+            before: ['status' => (string) $package->status],
+        );
+    }
+
+    /**
+     * Bill a completed ON_START package's leftover overdraft on its own invoice — the escape
+     * hatch for when no next package is ever opened, so the debt would otherwise sit pending
+     * forever. Idempotent: a package whose overdraft is already on an invoice is left alone.
+     */
+    public function billOverdraft(string $packageId, ?string $actorUserId, ?string $actorRole): ?string
+    {
+        $package = DB::table('lesson_packages')->where('id', $packageId)->first();
+
+        if ($package === null || (int) $package->minutes_overdrawn <= 0 || $package->overdraft_invoice_id !== null) {
+            return null;
+        }
+
+        $amount = $this->rateFor($package, (int) $package->minutes_overdrawn);
+
+        $invoiceId = $this->raiseInvoice(
+            (string) $package->academy_id,
+            (string) $package->student_id,
+            (string) $package->currency,
+            [[
+                'description' => 'Extra '.$this->humanHours((int) $package->minutes_overdrawn).' beyond package "'.$package->label.'"',
+                'amount_minor' => $amount,
+            ]],
+            (string) ($package->closed_at ?? $package->starts_on),
+            $actorUserId,
+            $actorRole,
+        );
+
+        DB::table('lesson_packages')->where('id', $packageId)->update([
+            'overdraft_invoice_id' => $invoiceId,
+            'updated_at' => now(),
+        ]);
+
+        Audit::log(
+            'lesson_package.overdraft_billed',
+            'lesson_package',
+            $packageId,
+            (string) $package->academy_id,
+            $actorUserId,
+            $actorRole,
+            after: ['invoice_id' => $invoiceId, 'amount_minor' => $amount],
+        );
+
+        return $invoiceId;
+    }
+
+    // =========================================================================
+    // Private helpers
+    // =========================================================================
+
+    /** price for N minutes at the package's snapshotted hourly rate. */
+    private function rateFor(object $package, int $minutes): int
+    {
+        if ($minutes <= 0) {
+            return 0;
+        }
+
+        return (int) round((int) $package->hourly_rate_minor * $minutes / 60);
+    }
+
+    /** The agreed total spread over the block, expressed per hour. */
+    private function deriveHourlyRate(int $priceMinor, int $minutesTotal): int
+    {
+        return $minutesTotal > 0 ? (int) round($priceMinor * 60 / $minutesTotal) : $priceMinor;
+    }
+
+    private function activeSubscriptionBasis(string $studentId): ?string
+    {
+        $basis = DB::table('subscriptions')
+            ->where('student_id', $studentId)
+            ->where('status', 'ACTIVE')
+            ->whereNull('deleted_at')
+            ->orderByDesc('start_date')
+            ->value('price_basis');
+
+        return $basis !== null ? (string) $basis : null;
+    }
+
+    private function studentCurrency(string $studentId, ?object $academy): string
+    {
+        $currency = DB::table('subscriptions')
+            ->where('student_id', $studentId)
+            ->where('status', 'ACTIVE')
+            ->whereNull('deleted_at')
+            ->orderByDesc('start_date')
+            ->value('currency');
+
+        return (string) ($currency ?? $academy?->default_currency ?? 'EGP');
+    }
+
+    private function studentName(string $studentId): string
+    {
+        return (string) (DB::table('students')->where('id', $studentId)->value('full_name') ?? '');
+    }
+
+    /** The student's most recently closed package (the one a carry-over would come from). */
+    private function latestClosedFor(string $studentId): ?object
+    {
+        return DB::table('lesson_packages')
+            ->where('student_id', $studentId)
+            ->where('status', 'COMPLETED')
+            ->orderByDesc('sequence_no')
+            ->first();
+    }
+
+    /** Whether a package's bill has moved past OPEN (and so can no longer be edited). */
+    private function packageIsSettled(object $package): bool
+    {
+        if ($package->invoice_id === null) {
+            return false;
+        }
+
+        $status = DB::table('invoices')->where('id', $package->invoice_id)->value('status');
+
+        return $status !== null && $status !== 'OPEN';
+    }
+
+    /**
+     * A previous package's overdraft that has been recorded but never put on a bill, in the same
+     * currency as the package about to be opened. Cross-currency debt is deliberately left alone
+     * rather than converted (§3.6: no FX inside invoicing).
+     *
+     * @return array{package_id:string, description:string, amount_minor:int}|null
+     */
+    private function pendingOverdraft(string $studentId, string $currency): ?array
+    {
+        $package = DB::table('lesson_packages')
+            ->where('student_id', $studentId)
+            ->where('status', 'COMPLETED')
+            ->where('bill_timing', 'ON_START')
+            ->where('minutes_overdrawn', '>', 0)
+            ->whereNull('overdraft_invoice_id')
+            ->where('currency', $currency)
+            ->orderByDesc('sequence_no')
+            ->first();
+
+        if ($package === null) {
+            return null;
+        }
+
+        return [
+            'package_id' => (string) $package->id,
+            'description' => 'Extra '.$this->humanHours((int) $package->minutes_overdrawn).' beyond package "'.$package->label.'"',
+            'amount_minor' => $this->rateFor($package, (int) $package->minutes_overdrawn),
+        ];
+    }
+
+    /**
+     * Raise the alert when a student starts a new block while an earlier one is still unpaid.
+     * Visibility, not enforcement: the lessons keep running, the owner gets told.
+     */
+    private function flagUnpaidPredecessors(string $academyId, string $studentId, string $newPackageId): void
+    {
+        $unpaid = DB::table('lesson_packages as p')
+            ->join('invoices as i', 'i.id', '=', 'p.invoice_id')
+            ->where('p.student_id', $studentId)
+            ->where('p.id', '!=', $newPackageId)
+            ->whereIn('i.status', ['OPEN', 'CLOSED', 'PARTIALLY_PAID'])
+            ->select(['p.id', 'p.label', 'p.sequence_no', 'i.total_minor', 'i.amount_paid_minor', 'i.currency'])
+            ->get();
+
+        if ($unpaid->isEmpty()) {
+            return;
+        }
+
+        $outstanding = $unpaid->sum(fn ($row) => (int) $row->total_minor - (int) $row->amount_paid_minor);
+
+        if ($outstanding <= 0) {
+            return;
+        }
+
+        $this->notify($academyId, 'PACKAGE_UNPAID', $newPackageId, [
+            'package_id' => $newPackageId,
+            'student_id' => $studentId,
+            'student_name' => $this->studentName($studentId),
+            'unpaid_packages' => $unpaid->map(fn ($row) => [
+                'id' => (string) $row->id,
+                'label' => (string) $row->label,
+                'sequence_no' => (int) $row->sequence_no,
+            ])->values()->all(),
+            'outstanding_minor' => (int) $outstanding,
+            'currency' => (string) $unpaid->first()->currency,
+        ]);
+    }
+
+    /**
+     * Create the MANUAL, per-student invoice a package bills onto.
+     *
+     * Always PER_STUDENT even in a PER_GUARDIAN academy: a package belongs to one child, so
+     * folding it into a shared guardian invoice would make "which of my kids used their hours"
+     * unanswerable. Lines carry no session_id — manual invoices allow that since Sprint 9 — the
+     * per-lesson breakdown lives on the package page, where it belongs.
+     *
+     * @param  list<array{description:string, amount_minor:int}>  $lines
+     */
+    private function raiseInvoice(
+        string $academyId,
+        string $studentId,
+        string $currency,
+        array $lines,
+        string $periodDate,
+        ?string $actorUserId,
+        ?string $actorRole,
+    ): string {
+        $invoiceId = (string) Str::uuid();
+        $period = Carbon::parse($periodDate);
+        $total = array_sum(array_map(static fn (array $l): int => (int) $l['amount_minor'], $lines));
+
+        DB::table('invoices')->insert([
+            'id' => $invoiceId,
+            'academy_id' => $academyId,
+            'kind' => 'MANUAL',
+            'guardian_id' => null,
+            'student_id' => $studentId,
+            'period_year' => (int) $period->year,
+            'period_month' => (int) $period->month,
+            'status' => 'OPEN',
+            'currency' => $currency,
+            'subtotal_minor' => $total,
+            'total_minor' => $total,
+            'public_token' => PublicInvoiceToken::forAcademyId($academyId),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        foreach ($lines as $line) {
+            DB::table('invoice_line_items')->insert([
+                'id' => (string) Str::uuid(),
+                'academy_id' => $academyId,
+                'invoice_id' => $invoiceId,
+                'session_id' => null,
+                'student_id' => $studentId,
+                'description' => (string) $line['description'],
+                'amount_minor' => (int) $line['amount_minor'],
+                'currency' => $currency,
+                'session_date' => $period->toDateString(),
+                'created_at' => now(),
+            ]);
+        }
+
+        Audit::log(
+            'invoice.created',
+            'invoice',
+            $invoiceId,
+            $academyId,
+            $actorUserId,
+            $actorRole,
+            after: ['kind' => 'MANUAL', 'mode' => 'PACKAGE', 'total_minor' => $total, 'currency' => $currency],
+        );
+
+        return $invoiceId;
+    }
+
+    /**
+     * Write an owner alert, deduped on (subject_id, type) by the partial unique index — the same
+     * one-alert-per-subject guarantee the overdue-report job gets per session.
+     *
+     * @param  array<string,mixed>  $data
+     */
+    private function notify(string $academyId, string $type, string $subjectId, array $data): void
+    {
+        DB::table('notifications')->insertOrIgnore([
+            'id' => (string) Str::uuid(),
+            'academy_id' => $academyId,
+            'type' => $type,
+            'category' => 'PACKAGES',
+            'audience_role' => 'ACADEMY_OWNER',
+            'recipient_user_id' => null,
+            'session_id' => null,
+            'subject_id' => $subjectId,
+            'data' => json_encode($data),
+            'created_at' => now(),
+        ]);
+    }
+
+    private function creditDescription(object $session, int $minutes, int $overdrawn): string
+    {
+        $date = Carbon::parse($session->scheduled_at_utc)->toDateString();
+        $label = $this->humanHours($minutes).' — '.$date;
+
+        return $overdrawn > 0
+            ? $label.' ('.$this->humanHours($overdrawn).' beyond the package)'
+            : $label;
+    }
+
+    private function packageLineDescription(string $label, int $minutesTotal, int $carried): string
+    {
+        $text = 'Package: '.$label.' — '.$this->humanHours($minutesTotal);
+
+        return $carried > 0 ? $text.' (+'.$this->humanHours($carried).' carried over)' : $text;
+    }
+
+    /** Minutes → "2h 30m" / "45m". Display only; the stored quantity is always minutes. */
+    public function humanHours(int $minutes): string
+    {
+        $h = intdiv($minutes, 60);
+        $m = $minutes % 60;
+
+        if ($h === 0) {
+            return $m.'m';
+        }
+
+        return $m === 0 ? $h.'h' : $h.'h '.$m.'m';
+    }
+}

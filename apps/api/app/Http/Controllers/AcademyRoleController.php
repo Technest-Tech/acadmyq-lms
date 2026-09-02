@@ -38,7 +38,7 @@ use Illuminate\Validation\ValidationException;
 final class AcademyRoleController extends Controller
 {
     /** System roles an academy may VIEW/assign (never SUPER_ADMIN, never editable here). */
-    private const ASSIGNABLE_SYSTEM_ROLES = ['ACADEMY_OWNER', 'TEACHER', 'STAFF'];
+    private const ASSIGNABLE_SYSTEM_ROLES = ['ACADEMY_OWNER', 'SUPERVISOR', 'TEACHER', 'STAFF'];
 
     private function ctx(): AuthContext
     {
@@ -142,10 +142,30 @@ final class AcademyRoleController extends Controller
             'assignedCount' => $this->assignedCount($r->code),
         ])->all();
 
+        $grantable = $this->grantable();
+
         return response()->json([
             'system'    => $system,
             'custom'    => $custom,
-            'grantable' => $this->grantable(),
+            'grantable' => $grantable,
+            // Which of the grantable capabilities move or reveal money. The builder marks these
+            // so an academy can SEE what it is handing over, rather than having to know that
+            // `payout.adjust` is how an award gets paid.
+            'financial' => array_values(array_intersect($grantable, PermissionCatalog::FINANCIAL)),
+            // Starting points for a new role. `supervisor` is the built-in SUPERVISOR's own set,
+            // clamped to what the acting user may actually delegate — so building a narrowed
+            // supervisor ("attendance and students only") starts from the full preset and unticks,
+            // instead of hunting forty-six checkboxes for the ones that are not money.
+            'presets'   => [
+                [
+                    'key'         => 'supervisor',
+                    'role'        => 'SUPERVISOR',
+                    'permissions' => array_values(array_intersect(
+                        $grantable,
+                        PermissionCatalog::roleMap()['SUPERVISOR'],
+                    )),
+                ],
+            ],
         ]);
     }
 
