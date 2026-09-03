@@ -15,6 +15,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -33,13 +34,16 @@ final class RollSessionWindowJob implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
-    /** A system actor for audit attribution of the scheduled run (no human user). */
-    private const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+    /** A system actor for audit attribution of the scheduled run (no human user). Audit maps it
+     *  to a null actor — it is not a `users` row, and writing it would violate the FK. */
+    private const SYSTEM_USER_ID = Audit::SYSTEM_ACTOR_ID;
 
     public function __construct(
         private readonly ?string $from = null,
         private readonly ?string $to = null,
         private readonly ?string $onlyAcademyId = null,
+        /** Earliest date a lesson may be created at; null = `now` (never invent history). */
+        private readonly ?string $floor = null,
     ) {}
 
     /**
@@ -57,6 +61,9 @@ final class RollSessionWindowJob implements ShouldQueue
             $windowEnd = Carbon::parse($this->to);
         }
 
+        $floor = $this->floor !== null ? Carbon::parse($this->floor)->startOfDay() : null;
+        $now = Carbon::now();
+
         $results = [];
         foreach ($this->targetAcademyIds() as $academyId) {
             $ctx = new AuthContext(
@@ -66,19 +73,26 @@ final class RollSessionWindowJob implements ShouldQueue
                 permissions: [],
             );
 
-            $results[$academyId] = Tenancy::withContext($ctx, function () use ($generator, $academyId, $windowStart, $windowEnd) {
-                $counts = $generator->generateForAcademy($academyId, $windowStart, $windowEnd);
+            $results[$academyId] = Tenancy::withContext($ctx, function () use ($generator, $academyId, $windowStart, $windowEnd, $floor) {
+                $counts = $generator->generateForAcademy($academyId, $windowStart, $windowEnd, null, $floor);
 
                 Audit::log('generator.run', 'academy', $academyId, $academyId, self::SYSTEM_USER_ID, 'SUPER_ADMIN', after: [
                     'created' => $counts['created'],
                     'removed' => $counts['removed'],
                     'window' => [$windowStart->format('Y-m-d'), $windowEnd->format('Y-m-d')],
+                    'floor' => $floor?->format('Y-m-d'),
                     'trigger' => 'scheduled',
                 ]);
 
                 return $counts;
             });
         }
+
+        // What the roll actually achieved, for GET /api/health. A heartbeat proves the scheduler
+        // is alive; this proves the work it exists to do is landing. A horizon that stops
+        // shrinking-and-refilling is the early warning nobody had when generation broke.
+        Cache::put('scheduler.last_roll_at', $now->toIso8601String(), $now->copy()->addDays(30));
+        Cache::put('scheduler.last_roll_created', array_sum(array_column($results, 'created')), $now->copy()->addDays(30));
 
         return $results;
     }

@@ -15,6 +15,7 @@ use App\Jobs\RollSessionWindowJob;
 use App\Jobs\SendAcademyBillRemindersJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
@@ -22,12 +23,28 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 /*
-| Monthly session roll-forward (Sprint 5 §6, §3.8). On the 1st of each month the generator
-| extends every active academy's rolling window (current month → end of next month) and
-| reconciles. The job is idempotent, so a missed/duplicated run is harmless; each academy's
-| work runs in its own tenant context (Tenancy::withContext) inside the job.
+| Scheduler heartbeat. Every minute the scheduler stamps the cache with the time it last ran, and
+| GET /api/health reports that stamp's age — so "the cron is dead" becomes a number any uptime
+| monitor can alert on, instead of something nobody discovers until an academy reports missing
+| lessons two months later. Cheap: one cache write per minute.
 */
-Schedule::job(new RollSessionWindowJob)->monthlyOn(1, '00:30')->name('roll-session-window')->withoutOverlapping();
+Schedule::call(fn () => Cache::put('scheduler.heartbeat_at', now()->toIso8601String(), now()->addDay()))
+    ->everyMinute()->name('scheduler-heartbeat');
+
+/*
+| DAILY session roll-forward (Sprint 5 §6, §3.8). The generator extends every active academy's
+| rolling window (current month → end of next month) and reconciles. Each academy's work runs in
+| its own tenant context (Tenancy::withContext) inside the job.
+|
+| This used to run monthly, on the 1st. Monthly means a single missed or failed run leaves a
+| month-shaped hole in the timetable that nothing repairs — which is exactly what happened: the
+| run never fired for two months and 19 timetables in one academy simply stopped producing
+| lessons, with no error anywhere because the job had never been dispatched. Daily is the same
+| idempotent work (a no-op once the window is full, a few hundred milliseconds per academy), and
+| it makes every failure mode self-healing: tomorrow's run repairs whatever today's missed, and
+| the horizon is never less than a month out.
+*/
+Schedule::job(new RollSessionWindowJob)->dailyAt('00:30')->name('roll-session-window')->withoutOverlapping();
 
 /*
 | Monthly invoice close (Sprint 7). On the 2nd of each month (after the session window has

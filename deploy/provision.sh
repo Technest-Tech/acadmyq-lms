@@ -76,7 +76,14 @@ install -m 0644 "$APP_DIR/deploy/systemd/acadmyq-queue.service" /etc/systemd/sys
 systemctl daemon-reload
 
 echo "▶ Laravel scheduler cron ..."
-CRON="* * * * * cd $APP_DIR/apps/api && /usr/bin/php8.2 artisan schedule:run >> /var/log/acadmyq-schedule.log 2>&1"
-( crontab -u "$APP_USER" -l 2>/dev/null | grep -v 'artisan schedule:run' ; echo "$CRON" ) | crontab -u "$APP_USER" -
+# A cron.d drop-in, NOT a user crontab. The crontab this script used to write was simply absent
+# on the Contabo box — invisible in the repo, invisible in any diff, and nothing checked it — so
+# every recurring job (session generation, invoice/payout close, overdue flags, reminders) was
+# dead for two months and the first sign was an academy asking where its lessons had gone. A file
+# is shippable, greppable, and deploy.sh now refuses to call a deploy finished without it.
+install -m 0644 "$APP_DIR/deploy/cron/acadmyq-scheduler" /etc/cron.d/acadmyq-scheduler
+# Stale user crontab from older provisions — remove so there is exactly one scheduler.
+( crontab -u "$APP_USER" -l 2>/dev/null | grep -v 'artisan schedule:run' ) | crontab -u "$APP_USER" - || true
+touch /var/log/acadmyq-schedule.log && chown "$APP_USER:$APP_USER" /var/log/acadmyq-schedule.log
 
 echo "✅ Provision complete. Next: configure .env, run deploy.sh, obtain wildcard cert, enable nginx vhosts."

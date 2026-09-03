@@ -41,9 +41,16 @@ final class SessionGenerator
     /**
      * Generate (and reconcile) sessions for every active schedule in the current academy.
      *
+     * `$floor` is the earliest instant a lesson may be created at, and defaults (in
+     * {@see generateForSchedule}) to `now` — the rolling window must never invent history. A
+     * caller passes an earlier floor only to repair a gap: lessons the timetable always implied
+     * but that were never materialised, because generation was broken or never ran. Back-filling
+     * stays idempotent (the per-date guard plus the unique occurrence index), and a back-filled
+     * row is SCHEDULED, so nothing is billed until someone records an outcome.
+     *
      * @return array{created:int, removed:int}
      */
-    public function generateForAcademy(string $academyId, Carbon $windowStart, Carbon $windowEnd, ?Carbon $now = null): array
+    public function generateForAcademy(string $academyId, Carbon $windowStart, Carbon $windowEnd, ?Carbon $now = null, ?Carbon $floor = null): array
     {
         $now ??= Carbon::now();
         $created = 0;
@@ -56,7 +63,7 @@ final class SessionGenerator
             ->pluck('id');
 
         foreach ($scheduleIds as $scheduleId) {
-            $r = $this->generateForSchedule((string) $scheduleId, $windowStart, $windowEnd, $now);
+            $r = $this->generateForSchedule((string) $scheduleId, $windowStart, $windowEnd, $now, $floor);
             $created += $r['created'];
             $removed += $r['removed'];
         }

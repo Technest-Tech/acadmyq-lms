@@ -81,6 +81,8 @@ use App\Http\Controllers\WhatsAppWebhookController;
 use App\Http\Controllers\XpayCheckoutController;
 use App\Http\Controllers\XpayWebhookController;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
@@ -98,9 +100,26 @@ Route::get('/health', function (): JsonResponse {
         $db = 'error';
     }
 
+    // Is the scheduler alive, and is it doing its job? Two ages, no tenant data. The cron that
+    // drives every recurring job was missing from the production box for two months and nothing
+    // noticed, because nothing anywhere reported on it. `scheduler_age_seconds` goes stale within
+    // minutes of cron dying; `last_roll_age_hours` goes stale if cron lives but the daily session
+    // roll-forward is failing — the pair that would have caught this in a day instead of a
+    // quarter. Both null until the first run after deploy.
+    $scheduler = ['age_seconds' => null, 'last_roll_age_hours' => null];
+    try {
+        $beat = Cache::get('scheduler.heartbeat_at');
+        $roll = Cache::get('scheduler.last_roll_at');
+        $scheduler['age_seconds'] = $beat !== null ? now()->diffInSeconds(Carbon::parse($beat), true) : null;
+        $scheduler['last_roll_age_hours'] = $roll !== null ? now()->diffInHours(Carbon::parse($roll), true) : null;
+    } catch (Throwable) {
+        // A health check never fails on its own instrumentation.
+    }
+
     return response()->json([
         'app' => 'ok',
         'db' => $db,
+        'scheduler' => $scheduler,
         'version' => config('app.version'),
         'time' => now()->utc()->toIso8601String(),
     ]);

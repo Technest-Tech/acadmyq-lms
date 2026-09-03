@@ -1,0 +1,13 @@
+# Laravel scheduler for Acadmyq — runs every minute; Laravel itself decides which jobs are due.
+# Installed to /etc/cron.d/acadmyq-scheduler by deploy/provision.sh and verified by deploy/deploy.sh.
+#
+# This file is the ONLY thing that makes any recurring work happen on the box: the monthly
+# session roll-forward, invoice/payout close, overdue-report flags, reminders, trial expiry.
+# It went missing on the Contabo server (the user crontab provision.sh wrote was empty), and
+# nothing noticed for two months — 19 timetables in one academy silently stopped producing
+# lessons. A cron.d drop-in is used instead of a user crontab because it is a file: it can be
+# shipped in the repo, diffed, and checked by the deploy.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+* * * * * acadmyq cd /var/www/acadmyq/apps/api && /usr/bin/php8.2 artisan schedule:run >> /var/log/acadmyq-schedule.log 2>&1
