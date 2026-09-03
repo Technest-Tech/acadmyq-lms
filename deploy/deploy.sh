@@ -31,6 +31,36 @@ git fetch --prune origin
 git checkout "$APP_BRANCH"
 git reset --hard "origin/$APP_BRANCH"
 
+# ── Preflight: the scheduler must exist, and must be running ─────────────────
+# Everything recurring in this product lives behind one cron line: the daily session
+# roll-forward, monthly invoice and payout close, hourly overdue-report flags and deductions,
+# lesson reminders, trial expiry. On the Contabo box that line was never installed, and because
+# nothing looked for it, the failure was invisible for two months — until an academy noticed its
+# students' lessons had stopped appearing.
+#
+# Checked HERE, before anything is built or restarted, so a failure costs nothing: the old build
+# is still running and still being served. At the end it would be worse than useless — the
+# restart step exits first whenever the sudoers grant is missing, so the check would never run.
+CRON_FILE=/etc/cron.d/acadmyq-scheduler
+if [ ! -f "$CRON_FILE" ] && ! crontab -l 2>/dev/null | grep -q 'artisan schedule:run'; then
+  echo >&2
+  echo "✗ NO SCHEDULER — refusing to deploy. Nothing recurring runs without it: no session" >&2
+  echo "  generation, no invoice or payout close, no overdue-report flags, no reminders. The" >&2
+  echo "  app looks perfectly healthy and quietly stops producing lessons. Install it, as root:" >&2
+  echo "    install -m 0644 $APP_DIR/deploy/cron/acadmyq-scheduler /etc/cron.d/acadmyq-scheduler" >&2
+  exit 1
+fi
+
+# The file existing is not proof cron is executing it (a bad line, a stopped daemon). The
+# scheduler appends to its log every minute, so a log older than 5 minutes means it is not.
+SCHED_LOG=/var/log/acadmyq-schedule.log
+if [ -f "$SCHED_LOG" ]; then
+  log_age=$(( $(date +%s) - $(stat -c %Y "$SCHED_LOG") ))
+  if [ "$log_age" -gt 300 ]; then
+    echo "  ⚠ scheduler cron is installed but its log is ${log_age}s stale — check: systemctl status cron" >&2
+  fi
+fi
+
 echo "▶ Installing JS workspace deps ..."
 # --ignore-scripts: the deploy box never runs dependency build scripts. Every native dep here
 # (sharp, esbuild, @swc/core, electron, …) ships prebuilt platform binaries via optional deps, so
@@ -100,33 +130,6 @@ if [ -f "$BUILD_ID_FILE" ]; then
     exit 1
   fi
   echo "  build $(cat "$BUILD_ID_FILE") · web restarted $web_started"
-fi
-
-# ── The scheduler must exist, and must be running ────────────────────────────
-# Everything recurring in this product lives behind one cron line: the daily session
-# roll-forward, monthly invoice and payout close, hourly overdue-report flags and deductions,
-# lesson reminders, trial expiry. On the Contabo box that line was never installed, and because
-# nothing looked for it, the failure was invisible for two months — until an academy noticed its
-# students' lessons had stopped appearing. A deploy that leaves the scheduler dead is not a
-# finished deploy, so this refuses to report success, exactly like the stale-build check above.
-CRON_FILE=/etc/cron.d/acadmyq-scheduler
-if [ ! -f "$CRON_FILE" ] && ! crontab -l 2>/dev/null | grep -q 'artisan schedule:run'; then
-  echo >&2
-  echo "✗ NO SCHEDULER. Nothing recurring will run: no session generation, no invoice or" >&2
-  echo "  payout close, no overdue-report flags, no reminders. The app looks fine and quietly" >&2
-  echo "  stops producing lessons. Install it, as root:" >&2
-  echo "    install -m 0644 $APP_DIR/deploy/cron/acadmyq-scheduler /etc/cron.d/acadmyq-scheduler" >&2
-  exit 1
-fi
-
-# The file existing is not proof cron is executing it (a bad line, a stopped daemon). The
-# scheduler appends to its log every minute, so a log older than 5 minutes means it is not.
-SCHED_LOG=/var/log/acadmyq-schedule.log
-if [ -f "$SCHED_LOG" ]; then
-  log_age=$(( $(date +%s) - $(stat -c %Y "$SCHED_LOG") ))
-  if [ "$log_age" -gt 300 ]; then
-    echo "  ⚠ scheduler log last written ${log_age}s ago — check: systemctl status cron" >&2
-  fi
 fi
 
 echo "✅ Deploy complete."
