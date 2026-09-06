@@ -351,3 +351,37 @@ it('flags the owner when a new package opens with an earlier one unpaid', functi
     $this->asAcademy($this->academy);
     expect(DB::table('notifications')->where('type', 'PACKAGE_UNPAID')->count())->toBe(1);
 });
+
+it('bills a package in the currency it was sold in, not the student\'s default', function () {
+    // The student's subscription is EGP; this block was agreed in USD. Every figure the package
+    // owns — its invoice, its snapshotted hourly rate, and any later overdraft — follows the
+    // package, because nothing in invoicing ever converts (§3.6).
+    $this->asAcademy($this->academy);
+    $package = app(LessonPackages::class)->open([
+        'student_id' => $this->student,
+        'label' => '10 hours (USD)',
+        'minutes_total' => 600,
+        'price_minor' => 50000,
+        'currency' => 'usd',
+        'bill_timing' => 'ON_START',
+        'starts_on' => '2026-06-01',
+    ], (string) $this->owner->id, 'ACADEMY_OWNER');
+
+    $this->asAcademy($this->academy);
+    $row = DB::table('lesson_packages')->where('id', $package['package_id'])->first();
+    $invoice = DB::table('invoices')->where('id', $package['invoice_id'])->first();
+
+    expect($row->currency)->toBe('USD')
+        ->and((int) $row->hourly_rate_minor)->toBe(5000)
+        ->and($invoice->currency)->toBe('USD')
+        ->and((int) $invoice->total_minor)->toBe(50000);
+
+    // The lesson's credit is stamped in the package's currency too.
+    $session = ($this->lesson)(60);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('lesson_package_credits')->where('session_id', $session)->value('currency'))
+        ->toBe('USD');
+});

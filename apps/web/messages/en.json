@@ -1951,7 +1951,11 @@
       "expiresOn": "Expires",
       "expiresHint": "Leave empty for no expiry.",
       "carryOver": "Carry over unused hours from the last package",
-      "carryOverHint": "Off by default — unused hours are yours to keep or forgive, so moving them is always a decision."
+      "carryOverHint": "Off by default — unused hours are yours to keep or forgive, so moving them is always a decision.",
+      "currency": "Currency",
+      "currencyPlaceholder": "Choose a currency",
+      "searchCurrency": "Search currency…",
+      "currencyDiffers": "The student's agreed currency is {currency}. This package will be billed — and any extra hours charged — in the currency chosen here."
     },
     "detail": {
       "sold": "Bought",

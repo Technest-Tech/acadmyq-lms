@@ -4,6 +4,8 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
+import { CURRENCIES } from "@/lib/countries";
 import {
   ApiError,
   listPackageStudents,
@@ -15,6 +17,12 @@ import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 const TIMINGS: PackageBillTiming[] = ["ON_START", "ON_COMPLETION"];
+
+const CURRENCY_OPTIONS = CURRENCIES.map((c) => ({
+  value: c.code,
+  label: c.code,
+  sublabel: c.name,
+}));
 
 /**
  * Open a block of hours for a student.
@@ -42,6 +50,8 @@ export function OpenPackageForm({
   const [label, setLabel] = useState("");
   const [hours, setHours] = useState("");
   const [price, setPrice] = useState("");
+  const [priceWasEdited, setPriceWasEdited] = useState(false);
+  const [currency, setCurrency] = useState("");
   const [timing, setTiming] = useState<PackageBillTiming>("ON_START");
   const [startsOn, setStartsOn] = useState(() => new Date().toISOString().slice(0, 10));
   const [expiresOn, setExpiresOn] = useState("");
@@ -56,7 +66,6 @@ export function OpenPackageForm({
   }, []);
 
   const student = students?.find((s) => s.id === studentId) ?? null;
-  const currency = student?.currency ?? "EGP";
 
   const hoursNum = Number.parseFloat(hours);
   const priceMinor = Math.round(Number.parseFloat(price || "0") * 100);
@@ -67,17 +76,27 @@ export function OpenPackageForm({
     return Math.round((priceMinor * 60) / Math.round(hoursNum * 60));
   }, [hoursNum, priceMinor]);
 
-  // Pre-fill the price from the student's standing hourly rate the moment both are known —
-  // the owner is usually confirming a rate, not inventing one.
+  // Keep the suggested total in step with the package size until the owner deliberately edits
+  // it. Checking `price !== ""` is not enough here: typing "16" fires this effect after the first
+  // keystroke, so it used to lock in the price for ONE hour (12.50) before the second digit arrived,
+  // then display 0.78/hour for a 16-hour package. A manual total still wins from that point on.
   useEffect(() => {
     if (student === null || !Number.isFinite(hoursNum) || hoursNum <= 0) return;
-    if (price !== "") return;
+    if (priceWasEdited) return;
     setPrice(((student.default_hourly_rate_minor * hoursNum) / 100).toFixed(2));
-  }, [student, hoursNum, price]);
+  }, [student, hoursNum, priceWasEdited]);
+
+  // The student's agreed currency is the default, not the ceiling: a package can be sold in
+  // another one (a family paying in USD for a term abroad), so the field is a real choice rather
+  // than a label. Selecting a student seeds it; typing over it wins from then on.
+  useEffect(() => {
+    if (student !== null) setCurrency(student.currency);
+  }, [student]);
 
   const alreadyOpen = student?.active_package_id != null;
   const valid =
     studentId !== "" &&
+    currency !== "" &&
     label.trim() !== "" &&
     Number.isFinite(hoursNum) &&
     hoursNum >= 0.5 &&
@@ -123,6 +142,7 @@ export function OpenPackageForm({
           onChange={(e) => {
             setStudentId(e.target.value);
             setPrice("");
+            setPriceWasEdited(false);
           }}
           className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
         >
@@ -181,14 +201,37 @@ export function OpenPackageForm({
             min="0"
             step="0.01"
             value={price}
-            onChange={(e) => setPrice(e.target.value)}
+            onChange={(e) => {
+              setPrice(e.target.value);
+              setPriceWasEdited(true);
+            }}
             placeholder="4000"
             className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
           />
         </div>
       </div>
 
-      {hourlyRate !== null && (
+      {/* The currency the total is agreed in. It defaults to the student's, but it is a field and
+          not a caption: the price, the derived hourly rate, the invoice and every later overdraft
+          are all snapshotted in THIS currency, and nothing downstream ever converts (§3.6). */}
+      <div className="space-y-1.5">
+        <span className="text-sm font-medium">{t("form.currency")}</span>
+        <Combobox
+          options={CURRENCY_OPTIONS}
+          value={currency}
+          onChange={setCurrency}
+          placeholder={t("form.currencyPlaceholder")}
+          searchPlaceholder={t("form.searchCurrency")}
+          data-testid="package-currency"
+        />
+        {student !== null && currency !== student.currency && currency !== "" && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            {t("form.currencyDiffers", { currency: student.currency })}
+          </p>
+        )}
+      </div>
+
+      {hourlyRate !== null && currency !== "" && (
         <p className="text-muted-foreground text-xs">
           {t("form.derivedRate", {
             rate: formatMoney({ amount: hourlyRate, currency }, locale),
