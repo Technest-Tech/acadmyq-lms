@@ -15,11 +15,15 @@ import { PackagesManager } from "./packages-manager";
 
 const listLessonPackages = vi.fn();
 const getLessonPackageSummary = vi.fn();
+const syncLessonPackage = vi.fn();
+const sendInvoicePaymentLink = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   listLessonPackages: (...args: unknown[]) => listLessonPackages(...args),
   getLessonPackageSummary: () => getLessonPackageSummary(),
+  syncLessonPackage: (id: string) => syncLessonPackage(id),
+  sendInvoicePaymentLink: (id: string) => sendInvoicePaymentLink(id),
   listPackageStudents: () => Promise.resolve({ students: [] }),
 }));
 
@@ -38,6 +42,9 @@ function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
     minutes_consumed: 600,
     minutes_remaining: 600,
     minutes_overdrawn: 0,
+    lesson_count: 10,
+    upcoming_lesson_count: 4,
+    next_lesson_at: "2026-09-08T10:00:00Z",
     percent_used: 50,
     price_minor: 400000,
     hourly_rate_minor: 20000,
@@ -65,11 +72,11 @@ const summary: LessonPackageSummary = {
   total: 1,
 };
 
-function renderManager() {
+function renderManager(extraPermissions: string[] = []) {
   return render(
     withAuth(
       makeSession("ACADEMY_OWNER", {
-        permissions: ["package.read", "package.manage"],
+        permissions: ["package.read", "package.manage", ...extraPermissions],
       }),
       <PackagesManager />,
     ),
@@ -78,6 +85,14 @@ function renderManager() {
 
 beforeEach(() => {
   getLessonPackageSummary.mockResolvedValue(summary);
+  syncLessonPackage.mockResolvedValue({ imported: 2, skipped_locked: 0 });
+  sendInvoicePaymentLink.mockResolvedValue({
+    phone: "+201001112222",
+    message: "Pay here",
+    url: "https://app.test/i/tok",
+    transport: "WASENDER",
+    sent: true,
+  });
 });
 
 describe("PackagesManager", () => {
@@ -91,7 +106,9 @@ describe("PackagesManager", () => {
     // The screen opens on the work queue, and a half-used healthy package is not work — so the
     // whole record has to be asked for before this row exists at all.
     await userEvent.click(
-      await screen.findByRole("button", { name: arMessages.packages.segments.all }),
+      await screen.findByRole("button", {
+        name: arMessages.packages.segments.all,
+      }),
     );
 
     const card = await screen.findByTestId("package-card");
@@ -141,5 +158,46 @@ describe("PackagesManager", () => {
       screen.getByRole("button", { name: arMessages.packages.segments.all }),
     );
     expect(await screen.findByTestId("package-card")).toBeInTheDocument();
+  });
+
+  it("shows lesson, date, package total and payment actions on the richer card", async () => {
+    listLessonPackages.mockResolvedValue({ packages: [pkg()] });
+    renderManager(["invoice.send_link"]);
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: arMessages.packages.segments.all,
+      }),
+    );
+    const card = await screen.findByTestId("package-card");
+
+    expect(card).toHaveTextContent(arMessages.packages.card.totalHours);
+    expect(card).toHaveTextContent(arMessages.packages.card.lessonsUsed);
+    expect(card).toHaveTextContent(arMessages.packages.card.startDate);
+    expect(
+      within(card).getByText(arMessages.packages.actions.paymentLink),
+    ).toBeInTheDocument();
+    expect(
+      within(card).getByText(arMessages.packages.actions.sendPayment),
+    ).toBeInTheDocument();
+  });
+
+  it("syncs historical lessons into an existing active package", async () => {
+    listLessonPackages.mockResolvedValue({ packages: [pkg()] });
+    renderManager();
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: arMessages.packages.segments.all,
+      }),
+    );
+    await userEvent.click(
+      within(await screen.findByTestId("package-card")).getByText(
+        arMessages.packages.actions.syncLessons,
+      ),
+    );
+
+    expect(syncLessonPackage).toHaveBeenCalledWith("p1");
+    expect(await screen.findByRole("status")).toHaveTextContent("2");
   });
 });

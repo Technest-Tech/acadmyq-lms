@@ -53,7 +53,9 @@ export function OpenPackageForm({
   const [priceWasEdited, setPriceWasEdited] = useState(false);
   const [currency, setCurrency] = useState("");
   const [timing, setTiming] = useState<PackageBillTiming>("ON_START");
-  const [startsOn, setStartsOn] = useState(() => new Date().toISOString().slice(0, 10));
+  const [startsOn, setStartsOn] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [expiresOn, setExpiresOn] = useState("");
   const [carryOver, setCarryOver] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -119,7 +121,16 @@ export function OpenPackageForm({
         carry_over: carryOver,
       });
       onSaved(
-        result.invoice_id !== null ? t("alerts.openedAndBilled") : t("alerts.opened"),
+        result.skipped_locked_lessons > 0
+          ? t("alerts.openedWithLocked", {
+              imported: result.imported_lessons,
+              locked: result.skipped_locked_lessons,
+            })
+          : result.imported_lessons > 0
+            ? t("alerts.openedWithLessons", { count: result.imported_lessons })
+            : result.invoice_id !== null
+              ? t("alerts.openedAndBilled")
+              : t("alerts.opened"),
       );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -130,7 +141,13 @@ export function OpenPackageForm({
 
   return (
     <div className="space-y-4">
-      {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
+      {error && (
+        <AlertBanner
+          variant="error"
+          message={error}
+          onDismiss={() => setError(null)}
+        />
+      )}
 
       <div className="space-y-1.5">
         <label htmlFor="pkg-student" className="text-sm font-medium">
@@ -150,12 +167,16 @@ export function OpenPackageForm({
           {(students ?? []).map((s) => (
             <option key={s.id} value={s.id}>
               {s.full_name}
-              {s.active_package_id !== null ? ` — ${t("form.hasOpenPackage")}` : ""}
+              {s.active_package_id !== null
+                ? ` — ${t("form.hasOpenPackage")}`
+                : ""}
             </option>
           ))}
         </select>
         {students !== null && students.length === 0 && (
-          <p className="text-muted-foreground text-xs">{t("form.noEligibleStudents")}</p>
+          <p className="text-muted-foreground text-xs">
+            {t("form.noEligibleStudents")}
+          </p>
         )}
         {alreadyOpen && (
           <p className="text-destructive text-xs">{t("form.alreadyOpen")}</p>
@@ -224,11 +245,13 @@ export function OpenPackageForm({
           searchPlaceholder={t("form.searchCurrency")}
           data-testid="package-currency"
         />
-        {student !== null && currency !== student.currency && currency !== "" && (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            {t("form.currencyDiffers", { currency: student.currency })}
-          </p>
-        )}
+        {student !== null &&
+          currency !== student.currency &&
+          currency !== "" && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {t("form.currencyDiffers", { currency: student.currency })}
+            </p>
+          )}
       </div>
 
       {hourlyRate !== null && currency !== "" && (
@@ -288,7 +311,9 @@ export function OpenPackageForm({
             onChange={(e) => setExpiresOn(e.target.value)}
             className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
           />
-          <p className="text-muted-foreground/80 text-[11px]">{t("form.expiresHint")}</p>
+          <p className="text-muted-foreground/80 text-[11px]">
+            {t("form.expiresHint")}
+          </p>
         </div>
       </div>
 
@@ -310,7 +335,13 @@ export function OpenPackageForm({
       </label>
 
       <div className="flex items-center justify-end gap-2 border-t pt-4">
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onCancel}
+          disabled={busy}
+        >
           {t("actions.cancel")}
         </Button>
         <Button

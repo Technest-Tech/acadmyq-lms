@@ -24,6 +24,8 @@ import {
   closeLessonPackage,
   getLessonPackageSummary,
   listLessonPackages,
+  sendInvoicePaymentLink,
+  syncLessonPackage,
   type LessonPackageRow,
   type LessonPackageSummary,
 } from "@/lib/api";
@@ -54,6 +56,7 @@ export function PackagesManager() {
   const locale = useLocale();
   const { can } = useAuth();
   const canManage = can("package.manage");
+  const canSendInvoice = can("invoice.send_link");
   const timezone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
     [],
@@ -70,10 +73,13 @@ export function PackagesManager() {
     | { kind: "close"; row: LessonPackageRow }
   >({ kind: "closed" });
   const [busy, setBusy] = useState(false);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
   const [closeReason, setCloseReason] = useState("");
-  const [alert, setAlert] = useState<{ variant: "success" | "error"; message: string } | null>(
-    null,
-  );
+  const [alert, setAlert] = useState<{
+    variant: "success" | "error";
+    message: string;
+  } | null>(null);
 
   const refresh = useCallback(() => {
     void listLessonPackages()
@@ -100,7 +106,9 @@ export function PackagesManager() {
     (row: LessonPackageRow) =>
       (row.status === "ACTIVE" && row.minutes_remaining <= 60) ||
       (row.status === "COMPLETED" && row.outstanding_minor > 0) ||
-      (row.status === "COMPLETED" && row.invoice_id === null && row.minutes_consumed > 0) ||
+      (row.status === "COMPLETED" &&
+        row.invoice_id === null &&
+        row.minutes_consumed > 0) ||
       (row.minutes_overdrawn > 0 && !row.overdraft_billed),
     [],
   );
@@ -147,6 +155,51 @@ export function PackagesManager() {
       showAlert("success", t("alerts.overdraftBilled"));
     } catch {
       showAlert("error", t("alerts.overdraftFailed"));
+    }
+  }
+
+  async function syncLessons(row: LessonPackageRow) {
+    setSyncingId(row.id);
+    try {
+      const result = await syncLessonPackage(row.id);
+      refresh();
+      showAlert(
+        "success",
+        result.skipped_locked > 0
+          ? t("alerts.syncedWithLocked", {
+              imported: result.imported,
+              locked: result.skipped_locked,
+            })
+          : t("alerts.synced", { count: result.imported }),
+      );
+    } catch {
+      showAlert("error", t("alerts.syncFailed"));
+    } finally {
+      setSyncingId(null);
+    }
+  }
+
+  async function sendPayment(row: LessonPackageRow) {
+    if (row.invoice_id === null) return;
+    setSendingId(row.id);
+    try {
+      const result = await sendInvoicePaymentLink(row.invoice_id);
+      if (!result.sent && result.phone) {
+        const digits = result.phone.replace(/\D+/g, "");
+        window.open(
+          `https://wa.me/${digits}?text=${encodeURIComponent(result.message)}`,
+          "_blank",
+          "noopener,noreferrer",
+        );
+      }
+      showAlert(
+        "success",
+        result.sent ? t("alerts.paymentSent") : t("alerts.paymentReady"),
+      );
+    } catch {
+      showAlert("error", t("alerts.paymentFailed"));
+    } finally {
+      setSendingId(null);
     }
   }
 
@@ -235,7 +288,9 @@ export function PackagesManager() {
             onSelect={() => selectSegment("active")}
           />
         </div>
-        <p className="text-muted-foreground/80 mt-2 text-[11px]">{t("stats.filterHint")}</p>
+        <p className="text-muted-foreground/80 mt-2 text-[11px]">
+          {t("stats.filterHint")}
+        </p>
       </div>
 
       {alert && (
@@ -257,24 +312,28 @@ export function PackagesManager() {
             className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full max-w-xs rounded-xl border px-3 py-2 text-sm outline-none transition-colors focus:ring-3"
           />
           <div className="flex gap-1.5">
-            {(["attention", "active", "completed", "all"] as const).map((key) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setSegment(key)}
-                className={
-                  segment === key
-                    ? "bg-primary/10 text-primary rounded-lg px-2.5 py-1 text-xs font-semibold"
-                    : "text-muted-foreground hover:bg-muted/50 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors"
-                }
-              >
-                {t(`segments.${key}`)}
-              </button>
-            ))}
+            {(["attention", "active", "completed", "all"] as const).map(
+              (key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setSegment(key)}
+                  className={
+                    segment === key
+                      ? "bg-primary/10 text-primary rounded-lg px-2.5 py-1 text-xs font-semibold"
+                      : "text-muted-foreground hover:bg-muted/50 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors"
+                  }
+                >
+                  {t(`segments.${key}`)}
+                </button>
+              ),
+            )}
           </div>
         </div>
 
-        {rows === null && <p className="text-muted-foreground text-sm">{t("loading")}</p>}
+        {rows === null && (
+          <p className="text-muted-foreground text-sm">{t("loading")}</p>
+        )}
 
         {rows !== null && visible.length === 0 && (
           <p className="text-muted-foreground rounded-2xl border border-dashed p-8 text-center text-sm">
@@ -282,18 +341,24 @@ export function PackagesManager() {
           </p>
         )}
 
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {visible.map((row) => (
             <PackageCard
               key={row.id}
               row={row}
+              timezone={timezone}
               canManage={canManage}
+              canSendInvoice={canSendInvoice}
+              syncing={syncingId === row.id}
+              sendingPayment={sendingId === row.id}
               onOpenDetail={() => setModal({ kind: "detail", row })}
               onClose={() => {
                 setCloseReason("");
                 setModal({ kind: "close", row });
               }}
               onBillOverdraft={() => void billOverdraft(row)}
+              onSyncLessons={() => void syncLessons(row)}
+              onSendPayment={() => void sendPayment(row)}
             />
           ))}
         </div>
@@ -327,7 +392,9 @@ export function PackagesManager() {
         description={modal.kind === "detail" ? modal.row.label : undefined}
         size="lg"
       >
-        {modal.kind === "detail" && <PackageDetail row={modal.row} timezone={timezone} />}
+        {modal.kind === "detail" && (
+          <PackageDetail row={modal.row} timezone={timezone} />
+        )}
       </Modal>
 
       {/* ── Close early ──────────────────────────────────────────────── */}
@@ -371,7 +438,11 @@ export function PackagesManager() {
               >
                 {t("actions.cancel")}
               </Button>
-              <Button size="sm" onClick={() => void confirmClose(modal.row)} disabled={busy}>
+              <Button
+                size="sm"
+                onClick={() => void confirmClose(modal.row)}
+                disabled={busy}
+              >
                 {t("close.confirm")}
               </Button>
             </div>

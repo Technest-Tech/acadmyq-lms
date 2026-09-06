@@ -810,6 +810,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/packages/students', [LessonPackageController::class, 'students']);
         Route::post('/packages', [LessonPackageController::class, 'store']);
         Route::get('/packages/{id}', [LessonPackageController::class, 'show']);
+        Route::post('/packages/{id}/sync-lessons', [LessonPackageController::class, 'syncLessons']);
         Route::post('/packages/{id}/close', [LessonPackageController::class, 'close']);
         Route::post('/packages/{id}/cancel', [LessonPackageController::class, 'cancel']);
         Route::post('/packages/{id}/bill-overdraft', [LessonPackageController::class, 'billOverdraft']);

@@ -237,7 +237,20 @@ final class LessonPackageController extends Controller
             'id' => $result['package_id'],
             'invoice_id' => $result['invoice_id'],
             'carried_over_minutes' => $result['carried_over_minutes'],
+            'imported_lessons' => $result['imported_lessons'],
+            'skipped_locked_lessons' => $result['skipped_locked_lessons'],
         ], 201);
+    }
+
+    /** POST /api/packages/{id}/sync-lessons — repair/import lessons since the package start. */
+    public function syncLessons(string $id): JsonResponse
+    {
+        Gate::authorize('package.manage');
+
+        $ctx = app(AuthContext::class);
+        $result = app(LessonPackages::class)->syncBackdatedLessons($id, $ctx->userId, $ctx->role);
+
+        return response()->json($result);
     }
 
     /**
@@ -321,7 +334,31 @@ final class LessonPackageController extends Controller
                 's.full_name as student_name',
                 'i.status as invoice_status', 'i.total_minor as invoice_total_minor',
                 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
-            ]);
+            ])
+            ->selectSub(
+                DB::table('lesson_package_credits as pc')
+                    ->selectRaw('count(*)')
+                    ->whereColumn('pc.package_id', 'p.id'),
+                'lesson_count',
+            )
+            ->selectSub(
+                DB::table('sessions as upcoming')
+                    ->selectRaw('count(*)')
+                    ->whereColumn('upcoming.student_id', 'p.student_id')
+                    ->whereIn('upcoming.status', ['SCHEDULED', 'RESCHEDULED'])
+                    ->where('upcoming.scheduled_at_utc', '>=', now()),
+                'upcoming_lesson_count',
+            )
+            ->selectSub(
+                DB::table('sessions as next_session')
+                    ->select('next_session.scheduled_at_utc')
+                    ->whereColumn('next_session.student_id', 'p.student_id')
+                    ->whereIn('next_session.status', ['SCHEDULED', 'RESCHEDULED'])
+                    ->where('next_session.scheduled_at_utc', '>=', now())
+                    ->orderBy('next_session.scheduled_at_utc')
+                    ->limit(1),
+                'next_lesson_at',
+            );
     }
 
     /**
@@ -354,6 +391,9 @@ final class LessonPackageController extends Controller
             'minutes_consumed' => $consumed,
             'minutes_remaining' => $remaining,
             'minutes_overdrawn' => (int) $row->minutes_overdrawn,
+            'lesson_count' => (int) $row->lesson_count,
+            'upcoming_lesson_count' => (int) $row->upcoming_lesson_count,
+            'next_lesson_at' => $row->next_lesson_at !== null ? Carbon::parse($row->next_lesson_at)->utc()->toIso8601String() : null,
             'percent_used' => $sold > 0 ? min(100, (int) round($consumed / $sold * 100)) : 0,
             'price_minor' => (int) $row->price_minor,
             'hourly_rate_minor' => (int) $row->hourly_rate_minor,

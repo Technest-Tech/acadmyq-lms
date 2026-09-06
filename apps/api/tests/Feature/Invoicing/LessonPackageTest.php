@@ -274,6 +274,72 @@ it('bills a package student by the hour and alerts the owner when no package is 
     expect(DB::table('notifications')->where('type', 'NO_ACTIVE_PACKAGE')->count())->toBe(1);
 });
 
+it('imports already billed lessons from the package start date when the package opens', function () {
+    $session = ($this->lesson)(60, '2026-06-02 10:00:00+00');
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $oldInvoiceId = (string) DB::table('invoice_line_items')->where('session_id', $session)->value('invoice_id');
+
+    $package = ($this->openPackage)(4, 80000);
+
+    $this->asAcademy($this->academy);
+    $row = ($this->packageRow)($package['package_id']);
+    expect($package['imported_lessons'])->toBe(1)
+        ->and($package['skipped_locked_lessons'])->toBe(0)
+        ->and((int) $row->minutes_consumed)->toBe(60)
+        ->and(DB::table('lesson_package_credits')->where('session_id', $session)->count())->toBe(1)
+        ->and(DB::table('invoice_line_items')->where('session_id', $session)->count())->toBe(0)
+        ->and((int) DB::table('invoices')->where('id', $oldInvoiceId)->value('total_minor'))->toBe(0);
+});
+
+it('never moves a historical lesson off a settled invoice', function () {
+    $session = ($this->lesson)(60, '2026-06-02 10:00:00+00');
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $oldInvoiceId = (string) DB::table('invoice_line_items')->where('session_id', $session)->value('invoice_id');
+    app(Invoicing::class)->closeInvoice($oldInvoiceId, $this->academy, (string) $this->owner->id, 'ACADEMY_OWNER');
+
+    $package = ($this->openPackage)(4, 80000);
+
+    $this->asAcademy($this->academy);
+    expect($package['imported_lessons'])->toBe(0)
+        ->and($package['skipped_locked_lessons'])->toBe(1)
+        ->and((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(0)
+        ->and(DB::table('invoice_line_items')->where('session_id', $session)->count())->toBe(1)
+        ->and(DB::table('lesson_package_credits')->where('session_id', $session)->count())->toBe(0);
+});
+
+it('can sync an existing package after its start date is corrected', function () {
+    $session = ($this->lesson)(60, '2026-06-02 10:00:00+00');
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $package = app(LessonPackages::class)->open([
+        'student_id' => $this->student,
+        'label' => '4 hours',
+        'minutes_total' => 240,
+        'price_minor' => 80000,
+        'currency' => 'EGP',
+        'bill_timing' => 'ON_START',
+        'starts_on' => '2026-06-05',
+    ], (string) $this->owner->id, 'ACADEMY_OWNER');
+    expect($package['imported_lessons'])->toBe(0);
+
+    DB::table('lesson_packages')->where('id', $package['package_id'])->update(['starts_on' => '2026-06-01']);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/{$package['package_id']}/sync-lessons")
+        ->assertOk()
+        ->assertJson(['imported' => 1, 'skipped_locked' => 0]);
+
+    $this->asAcademy($this->academy);
+    expect((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(60);
+});
+
 it('refuses an advance invoice for a package student', function () {
     Sanctum::actingAs($this->owner);
 

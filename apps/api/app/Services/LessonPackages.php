@@ -266,7 +266,7 @@ final class LessonPackages
      *     (the ON_START case, where the previous invoice was already issued and is immutable).
      *
      * @param  array{student_id:string,label:string,minutes_total:int,price_minor:int,currency?:?string,bill_timing?:?string,starts_on?:?string,expires_on?:?string,carry_over?:bool}  $data
-     * @return array{package_id:string, invoice_id:?string, carried_over_minutes:int}
+     * @return array{package_id:string, invoice_id:?string, carried_over_minutes:int, imported_lessons:int, skipped_locked_lessons:int}
      */
     public function open(array $data, ?string $actorUserId, ?string $actorRole): array
     {
@@ -386,7 +386,124 @@ final class LessonPackages
             ],
         );
 
-        return ['package_id' => $packageId, 'invoice_id' => $invoiceId, 'carried_over_minutes' => $carried];
+        // A package may deliberately start before the day it is entered. Move lessons already
+        // billed on still-open monthly invoices onto this package immediately, so a package that
+        // starts on 24 Aug and is entered on 6 Sep does not misleadingly begin at zero. Settled
+        // invoices are immutable and are reported back instead of being touched.
+        $sync = $this->syncBackdatedLessons($packageId, $actorUserId, $actorRole);
+        $invoiceId = DB::table('lesson_packages')->where('id', $packageId)->value('invoice_id');
+
+        return [
+            'package_id' => $packageId,
+            'invoice_id' => $invoiceId !== null ? (string) $invoiceId : null,
+            'carried_over_minutes' => $carried,
+            'imported_lessons' => $sync['imported'],
+            'skipped_locked_lessons' => $sync['skipped_locked'],
+        ];
+    }
+
+    /**
+     * Move already-billed lessons between this package's start and now from OPEN monthly bills
+     * into the package ledger. This is both the creation-time backfill and the repair action for
+     * packages created before that behavior existed.
+     *
+     * A settled invoice is never modified. A lesson without an invoice line is also left alone:
+     * `sessions.billed` is only an idempotency flag, while the line/credit ledger is the financial
+     * evidence needed to move it safely.
+     *
+     * @return array{imported:int, skipped_locked:int}
+     */
+    public function syncBackdatedLessons(string $packageId, ?string $actorUserId, ?string $actorRole): array
+    {
+        $package = DB::table('lesson_packages')->where('id', $packageId)->first();
+
+        if ($package === null) {
+            throw ValidationException::withMessages([
+                'package_id' => ['Package not found. / الباقة غير موجودة.'],
+            ]);
+        }
+
+        if ($package->status !== 'ACTIVE') {
+            return ['imported' => 0, 'skipped_locked' => 0];
+        }
+
+        if (! $this->isPackageStudent((string) $package->student_id)) {
+            throw ValidationException::withMessages([
+                'student_id' => ['The student is no longer on package billing. / لم يعد نظام فوترة الطالب بنظام الباقات.'],
+            ]);
+        }
+
+        $timezone = (string) (DB::table('academies')->where('id', $package->academy_id)->value('timezone') ?: 'UTC');
+        $from = Carbon::parse((string) $package->starts_on, $timezone)->startOfDay()->utc();
+        $through = Carbon::now()->utc();
+
+        $sessions = DB::table('sessions as sess')
+            ->join('invoice_line_items as li', 'li.session_id', '=', 'sess.id')
+            ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+            ->leftJoin('lesson_package_credits as credit', 'credit.session_id', '=', 'sess.id')
+            ->leftJoin('session_reports as report', 'report.session_id', '=', 'sess.id')
+            ->where('sess.student_id', $package->student_id)
+            ->where('sess.billed', true)
+            ->whereBetween('sess.scheduled_at_utc', [$from, $through])
+            ->whereNull('credit.id')
+            // A free trial intentionally carries a zero invoice line for visibility but must not
+            // burn paid package minutes.
+            ->whereRaw("coalesce((report.values->>'is_free_trial')::boolean, false) = false")
+            ->orderBy('sess.scheduled_at_utc')
+            ->select('sess.*', 'li.id as line_id', 'li.invoice_id', 'i.status as invoice_status')
+            ->get();
+
+        $imported = 0;
+        $skippedLocked = 0;
+
+        foreach ($sessions as $session) {
+            // Once an imported lesson exhausts the package, later lessons remain on their
+            // original invoices; this mirrors real-time consumption after a package runs out.
+            if ((string) (DB::table('lesson_packages')->where('id', $packageId)->value('status') ?? '') !== 'ACTIVE') {
+                break;
+            }
+
+            if ($session->invoice_status !== 'OPEN') {
+                $skippedLocked++;
+
+                continue;
+            }
+
+            $invoiceId = (string) $session->invoice_id;
+            DB::table('invoice_line_items')->where('id', $session->line_id)->delete();
+
+            // Recalculate from the remaining ledger rather than subtracting blindly. It is safe
+            // under retries and preserves unrelated children on a guardian's shared invoice.
+            $newTotal = (int) DB::table('invoice_line_items')
+                ->where('invoice_id', $invoiceId)
+                ->sum('amount_minor');
+            DB::table('invoices')->where('id', $invoiceId)->update([
+                'subtotal_minor' => $newTotal,
+                'total_minor' => $newTotal,
+                'updated_at' => now(),
+            ]);
+
+            $before = DB::table('lesson_package_credits')->where('session_id', $session->id)->exists();
+            $this->consume($session);
+            $after = DB::table('lesson_package_credits')->where('session_id', $session->id)->exists();
+            if (! $before && $after) {
+                $imported++;
+            }
+        }
+
+        if ($imported > 0 || $skippedLocked > 0) {
+            Audit::log(
+                'lesson_package.lessons_synced',
+                'lesson_package',
+                $packageId,
+                (string) $package->academy_id,
+                $actorUserId,
+                $actorRole,
+                after: ['imported' => $imported, 'skipped_locked' => $skippedLocked, 'from' => (string) $package->starts_on],
+            );
+        }
+
+        return ['imported' => $imported, 'skipped_locked' => $skippedLocked];
     }
 
     /**

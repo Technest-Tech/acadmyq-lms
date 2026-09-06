@@ -473,7 +473,12 @@ export function getMySubscription(): Promise<{
 
 export type ClientType = "MANAGEMENT" | "VIDEO" | "WHATSAPP" | "LMS";
 
-export const CLIENT_TYPES: readonly ClientType[] = ["MANAGEMENT", "VIDEO", "WHATSAPP", "LMS"];
+export const CLIENT_TYPES: readonly ClientType[] = [
+  "MANAGEMENT",
+  "VIDEO",
+  "WHATSAPP",
+  "LMS",
+];
 
 export type ModuleCode = "MANAGEMENT" | "VIDEO" | "WHATSAPP" | "LMS";
 
@@ -751,10 +756,13 @@ export function markAcademyBillPaid(
   billId: string,
   body: { method: string; reason?: string },
 ): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/admin/academies/${academyId}/bills/${billId}/mark-paid`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  return apiFetch(
+    `/api/admin/academies/${academyId}/bills/${billId}/mark-paid`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export function setAcademyBillStatus(
@@ -938,7 +946,12 @@ export function whatsappSendTest(
   academyId: string,
   to: string,
   text: string,
-): Promise<{ ok: boolean; transport: string; error: string | null; deeplink: string }> {
+): Promise<{
+  ok: boolean;
+  transport: string;
+  error: string | null;
+  deeplink: string;
+}> {
   return apiFetch(`/api/admin/academies/${academyId}/whatsapp/send-test`, {
     method: "POST",
     body: JSON.stringify({ to, text }),
@@ -968,7 +981,9 @@ export interface WhatsAppApiKey {
 }
 
 /** The academy's API keys (never the secret — only prefix + metadata). */
-export function getApiKeys(academyId: string): Promise<{ keys: WhatsAppApiKey[] }> {
+export function getApiKeys(
+  academyId: string,
+): Promise<{ keys: WhatsAppApiKey[] }> {
   return apiFetch(`/api/admin/academies/${academyId}/api-keys`);
 }
 
@@ -984,7 +999,10 @@ export function createApiKey(
 }
 
 /** Revoke a key (irreversible). */
-export function revokeApiKey(academyId: string, keyId: string): Promise<{ ok: boolean }> {
+export function revokeApiKey(
+  academyId: string,
+  keyId: string,
+): Promise<{ ok: boolean }> {
   return apiFetch(`/api/admin/academies/${academyId}/api-keys/${keyId}`, {
     method: "DELETE",
   });
@@ -1097,7 +1115,9 @@ export interface WhatsAppActivityRow {
 }
 
 /** Cross-academy recent WhatsApp send feed (Super Admin Activity tab). */
-export function getWhatsappActivity(limit = 50): Promise<{ activity: WhatsAppActivityRow[] }> {
+export function getWhatsappActivity(
+  limit = 50,
+): Promise<{ activity: WhatsAppActivityRow[] }> {
   return apiFetch(`/api/admin/automation/activity?limit=${limit}`);
 }
 
@@ -1133,7 +1153,10 @@ export function getGatewayHealth(): Promise<GatewayHealth> {
 }
 
 /** Current live send-pacing (rate-limit) settings. */
-export function getGatewaySettings(): Promise<{ ok: boolean; settings?: GatewaySettings }> {
+export function getGatewaySettings(): Promise<{
+  ok: boolean;
+  settings?: GatewaySettings;
+}> {
   return apiFetch("/api/admin/automation/gateway/settings");
 }
 
@@ -1278,8 +1301,13 @@ export interface VideoAdminRoomLog {
 }
 
 /** A room's cross-tenant access log (who joined / when / how long + audited actions). */
-export function getVideoAcademyRoomLog(academyId: string, roomId: string): Promise<VideoAdminRoomLog> {
-  return apiFetch(`/api/admin/video/academies/${academyId}/rooms/${roomId}/logs`);
+export function getVideoAcademyRoomLog(
+  academyId: string,
+  roomId: string,
+): Promise<VideoAdminRoomLog> {
+  return apiFetch(
+    `/api/admin/video/academies/${academyId}/rooms/${roomId}/logs`,
+  );
 }
 
 export interface VideoTierPlan {
@@ -1588,7 +1616,10 @@ export function setLmsCourseStatus(
 ): Promise<{ ok: boolean; status: LmsCourseStatus }> {
   return apiFetch(
     `/api/admin/lms/academies/${academyId}/courses/${courseId}/status`,
-    { method: "POST", body: JSON.stringify({ status, reason: reason ?? null }) },
+    {
+      method: "POST",
+      body: JSON.stringify({ status, reason: reason ?? null }),
+    },
   );
 }
 
@@ -1601,7 +1632,10 @@ export function setLmsLearnerStatus(
 ): Promise<{ ok: boolean; status: "ACTIVE" | "BLOCKED" }> {
   return apiFetch(
     `/api/admin/lms/academies/${academyId}/learners/${learnerId}/status`,
-    { method: "POST", body: JSON.stringify({ status, reason: reason ?? null }) },
+    {
+      method: "POST",
+      body: JSON.stringify({ status, reason: reason ?? null }),
+    },
   );
 }
 
@@ -1831,9 +1865,7 @@ export function listTeachers(
   return apiFetch(`/api/teachers${toQueryString(q)}`);
 }
 
-export function getTeacher(
-  id: string,
-): Promise<{
+export function getTeacher(id: string): Promise<{
   teacher: TeacherRow;
   students: TeacherStudent[];
   login: TeacherLogin;
@@ -1893,7 +1925,9 @@ export interface StaffDepartment {
   sort_order: number;
 }
 
-export function listStaffDepartments(): Promise<{ departments: StaffDepartment[] }> {
+export function listStaffDepartments(): Promise<{
+  departments: StaffDepartment[];
+}> {
   return apiFetch("/api/staff-departments");
 }
 
@@ -1951,7 +1985,9 @@ export interface StaffInput {
   role?: string | null;
 }
 
-export function listStaff(q: DataTableQuery = {}): Promise<ListResult<StaffRow>> {
+export function listStaff(
+  q: DataTableQuery = {},
+): Promise<ListResult<StaffRow>> {
   return apiFetch(`/api/staff${toQueryString(q)}`);
 }
 
@@ -2035,9 +2071,11 @@ export function listAcademyRoles(): Promise<AcademyRolesResponse> {
   return apiFetch("/api/roles");
 }
 
-export function createAcademyRole(
-  input: { name: string; description?: string | null; permissions: string[] },
-): Promise<{ roleId: string; code: string }> {
+export function createAcademyRole(input: {
+  name: string;
+  description?: string | null;
+  permissions: string[];
+}): Promise<{ roleId: string; code: string }> {
   return apiFetch("/api/roles", {
     method: "POST",
     body: JSON.stringify(input),
@@ -2163,7 +2201,9 @@ export interface ReportCardContent {
   cardStyle: "joyful" | "classic";
 }
 
-export function getReportCardTemplate(): Promise<{ content: ReportCardContent }> {
+export function getReportCardTemplate(): Promise<{
+  content: ReportCardContent;
+}> {
   return apiFetch("/api/report-card-template");
 }
 
@@ -2227,9 +2267,10 @@ export function getAcademyProfile(): Promise<{ academy: AcademyProfile }> {
   return apiFetch("/api/academy");
 }
 
-export function updateAcademyProfile(
-  patch: { name: string; timezone?: string },
-): Promise<{ ok: boolean }> {
+export function updateAcademyProfile(patch: {
+  name: string;
+  timezone?: string;
+}): Promise<{ ok: boolean }> {
   return apiFetch("/api/academy", {
     method: "PATCH",
     body: JSON.stringify(patch),
@@ -2291,7 +2332,9 @@ export interface XpayKeyInput {
   webhook_secret?: string;
 }
 
-export function getClientXpay(clientId: string): Promise<{ xpay: XpaySettings }> {
+export function getClientXpay(
+  clientId: string,
+): Promise<{ xpay: XpaySettings }> {
   return apiFetch(`/api/admin/clients/${clientId}/payments/xpay`);
 }
 
@@ -2315,7 +2358,12 @@ export function saveClientXpay(
 export function testClientXpay(
   clientId: string,
   mode?: XpayMode,
-): Promise<{ ok: boolean; status: number | null; message: string; mode: XpayMode }> {
+): Promise<{
+  ok: boolean;
+  status: number | null;
+  message: string;
+  mode: XpayMode;
+}> {
   return apiFetch(`/api/admin/clients/${clientId}/payments/xpay/test`, {
     method: "POST",
     body: JSON.stringify(mode ? { mode } : {}),
@@ -2700,9 +2748,7 @@ export interface CalendarQuery {
   studentId?: string;
 }
 
-export function getCalendar(
-  q: CalendarQuery,
-): Promise<{
+export function getCalendar(q: CalendarQuery): Promise<{
   sessions: CalendarSession[];
   trials: CalendarTrial[];
   from: string;
@@ -3356,7 +3402,10 @@ export interface PayrollRange {
   teachers: PayrollRangeTeacher[];
 }
 
-export function getPayrollRange(from: string, to: string): Promise<PayrollRange> {
+export function getPayrollRange(
+  from: string,
+  to: string,
+): Promise<PayrollRange> {
   return apiFetch(`/api/payouts/range?from=${from}&to=${to}`);
 }
 
@@ -3767,7 +3816,11 @@ export function resetUserPassword(id: string): Promise<{ ok: boolean }> {
 
 export function setUserRole(
   id: string,
-  input: { academy_id: string; role: "ACADEMY_OWNER" | "TEACHER"; grant: boolean },
+  input: {
+    academy_id: string;
+    role: "ACADEMY_OWNER" | "TEACHER";
+    grant: boolean;
+  },
 ): Promise<{ ok: boolean }> {
   return apiFetch(`/api/admin/users/${id}/roles`, {
     method: "POST",
@@ -3970,7 +4023,11 @@ export function approveCancellation(
     /** Reason shown to the parent on the invoice line; defaults to the teacher's request reason. */
     reason?: string;
   } = {},
-): Promise<{ ok: boolean; status: CancellationStatus; sessionStatus: string | null }> {
+): Promise<{
+  ok: boolean;
+  status: CancellationStatus;
+  sessionStatus: string | null;
+}> {
   return apiFetch(`/api/cancellation-requests/${requestId}/approve`, {
     method: "POST",
     body: JSON.stringify(input),
@@ -3980,7 +4037,11 @@ export function approveCancellation(
 export function rejectCancellation(
   requestId: string,
   note?: string,
-): Promise<{ ok: boolean; status: CancellationStatus; sessionStatus: string | null }> {
+): Promise<{
+  ok: boolean;
+  status: CancellationStatus;
+  sessionStatus: string | null;
+}> {
   return apiFetch(`/api/cancellation-requests/${requestId}/reject`, {
     method: "POST",
     body: JSON.stringify({ note }),
@@ -4028,7 +4089,9 @@ export interface NotificationRow {
   created_at: string;
 }
 
-export function listNotifications(): Promise<{ notifications: NotificationRow[] }> {
+export function listNotifications(): Promise<{
+  notifications: NotificationRow[];
+}> {
   return apiFetch("/api/notifications");
 }
 
@@ -4051,7 +4114,10 @@ export function markNotificationRead(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/notifications/${id}/read`, { method: "POST" });
 }
 
-export function markAllNotificationsRead(): Promise<{ ok: boolean; marked: number }> {
+export function markAllNotificationsRead(): Promise<{
+  ok: boolean;
+  marked: number;
+}> {
   return apiFetch("/api/notifications/read-all", { method: "POST" });
 }
 
@@ -4084,11 +4150,15 @@ export interface StudentReportRow {
   teacher_name?: string | null;
 }
 
-export function listStudentReportStudents(): Promise<{ students: StudentReportStudent[] }> {
+export function listStudentReportStudents(): Promise<{
+  students: StudentReportStudent[];
+}> {
   return apiFetch("/api/student-reports/students");
 }
 
-export function listMyStudentReports(): Promise<{ reports: StudentReportRow[] }> {
+export function listMyStudentReports(): Promise<{
+  reports: StudentReportRow[];
+}> {
   return apiFetch("/api/student-reports");
 }
 
@@ -4670,11 +4740,18 @@ export function getLmsSiteProfile(): Promise<LmsSiteProfile> {
   return apiFetch("/api/courses/site");
 }
 
-export function saveLmsSiteProfile(content: LearnSiteContent): Promise<LmsSiteProfile> {
-  return apiFetch("/api/courses/site", { method: "PUT", body: JSON.stringify(content) });
+export function saveLmsSiteProfile(
+  content: LearnSiteContent,
+): Promise<LmsSiteProfile> {
+  return apiFetch("/api/courses/site", {
+    method: "PUT",
+    body: JSON.stringify(content),
+  });
 }
 
-export function createCourse(input: CourseInput): Promise<{ courseId: string }> {
+export function createCourse(
+  input: CourseInput,
+): Promise<{ courseId: string }> {
   return apiFetch("/api/courses", {
     method: "POST",
     body: JSON.stringify(input),
@@ -4687,7 +4764,10 @@ export function getCourse(id: string): Promise<CourseDetail> {
 
 export function updateCourse(
   id: string,
-  patch: Partial<CourseInput> & { slug?: string; cover_image_path?: string | null },
+  patch: Partial<CourseInput> & {
+    slug?: string;
+    cover_image_path?: string | null;
+  },
 ): Promise<{ ok: boolean; changed: string[] }> {
   return apiFetch(`/api/courses/${id}`, {
     method: "PATCH",
@@ -4796,7 +4876,12 @@ export function reorderLessons(
 // The READY asset's id goes on a VIDEO_UPLOAD / AUDIO lesson.
 
 export type MediaKind = "VIDEO" | "AUDIO" | "IMAGE";
-export type MediaStatus = "PENDING" | "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
+export type MediaStatus =
+  | "PENDING"
+  | "UPLOADING"
+  | "PROCESSING"
+  | "READY"
+  | "FAILED";
 
 export interface MediaUploadTarget {
   url: string;
@@ -4852,7 +4937,8 @@ export function uploadFileToTarget(
       xhr.setRequestHeader("Content-Type", file.type);
     }
     xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+      if (e.lengthComputable && onProgress)
+        onProgress(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
@@ -4870,7 +4956,11 @@ export function uploadFileToTarget(
 
 export type QuestionType = "SINGLE" | "MULTIPLE" | "TRUE_FALSE";
 
-export const QUESTION_TYPES: readonly QuestionType[] = ["SINGLE", "MULTIPLE", "TRUE_FALSE"];
+export const QUESTION_TYPES: readonly QuestionType[] = [
+  "SINGLE",
+  "MULTIPLE",
+  "TRUE_FALSE",
+];
 
 export interface QuizOptionInput {
   id?: string;
@@ -4912,7 +5002,11 @@ export interface QuizSaveInput {
 
 export function createQuiz(
   courseId: string,
-  input: { title?: string | null; pass_mark?: number; max_attempts?: number | null } = {},
+  input: {
+    title?: string | null;
+    pass_mark?: number;
+    max_attempts?: number | null;
+  } = {},
 ): Promise<{ quizId: string }> {
   return apiFetch(`/api/courses/${courseId}/quizzes`, {
     method: "POST",
@@ -4935,8 +5029,13 @@ export function saveQuiz(
   });
 }
 
-export function deleteQuiz(courseId: string, quizId: string): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/courses/${courseId}/quizzes/${quizId}`, { method: "DELETE" });
+export function deleteQuiz(
+  courseId: string,
+  quizId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/${courseId}/quizzes/${quizId}`, {
+    method: "DELETE",
+  });
 }
 
 // ── LMS quizzes: cross-course listing + results ──────────────────────────────
@@ -5068,7 +5167,11 @@ export function generateCodes(input: {
 
 export function updateCode(
   id: string,
-  patch: { is_active?: boolean; label?: string | null; expires_at?: string | null },
+  patch: {
+    is_active?: boolean;
+    label?: string | null;
+    expires_at?: string | null;
+  },
 ): Promise<{ ok: boolean }> {
   return apiFetch(`/api/courses/codes/${id}`, {
     method: "PATCH",
@@ -5080,7 +5183,9 @@ export function deleteCode(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/courses/codes/${id}`, { method: "DELETE" });
 }
 
-export function listCourseLearners(): Promise<{ learners: CourseLearnerRow[] }> {
+export function listCourseLearners(): Promise<{
+  learners: CourseLearnerRow[];
+}> {
   return apiFetch("/api/courses/learners");
 }
 
@@ -5229,7 +5334,9 @@ export interface RoomPresence {
  * Live occupancy across the academy's rooms, keyed by room id. Rooms with nobody in them are
  * omitted (an absent id = empty room). Polled by the classroom panel; fails soft to `{}`.
  */
-export function getRoomPresence(): Promise<{ presence: Record<string, RoomPresence> }> {
+export function getRoomPresence(): Promise<{
+  presence: Record<string, RoomPresence>;
+}> {
   return apiFetch("/api/video/rooms/presence");
 }
 
@@ -5266,7 +5373,12 @@ export type RoomLinkKind = "guest" | "host" | "monitor";
 export function rotateRoomLink(
   id: string,
   which: RoomLinkKind = "guest",
-): Promise<{ which: string; token: string; join_token?: string; host_token?: string }> {
+): Promise<{
+  which: string;
+  token: string;
+  join_token?: string;
+  host_token?: string;
+}> {
   return apiFetch(`/api/video/rooms/${id}/rotate-link`, {
     method: "POST",
     body: JSON.stringify({ which }),
@@ -5329,7 +5441,12 @@ export interface RoomLogStats {
 }
 
 export interface RoomLogs {
-  room: { id: string; name: string; status: VideoRoomStatus; created_at: string };
+  room: {
+    id: string;
+    name: string;
+    status: VideoRoomStatus;
+    created_at: string;
+  };
   sessions: RoomLogSession[];
   events: RoomLogEvent[];
   stats: RoomLogStats;
@@ -5439,7 +5556,10 @@ export function joinRoomBySlug(
   });
 }
 
-function joinBody(displayName?: string, password?: string): Record<string, string> {
+function joinBody(
+  displayName?: string,
+  password?: string,
+): Record<string, string> {
   const body: Record<string, string> = {};
   const name = displayName?.trim();
   if (name) body.display_name = name;
@@ -5479,7 +5599,9 @@ export interface PendingKnock {
 }
 
 /** The host's pending-knock queue, authenticated by the manage credential (= the room's host_token). */
-export function listKnocks(manageToken: string): Promise<{ knocks: PendingKnock[] }> {
+export function listKnocks(
+  manageToken: string,
+): Promise<{ knocks: PendingKnock[] }> {
   return apiFetch(`/api/video/manage/${manageToken}/knocks`);
 }
 
@@ -5519,7 +5641,10 @@ export function deleteRecording(id: string): Promise<{ ok: boolean }> {
  * host_token), so the no-login host link drives recording from the link alone; a logged-in manager
  * without one falls back to the session-authenticated room endpoint.
  */
-export function startRoomRecording(roomId: string, manageToken?: string | null): Promise<{ recordingId: string }> {
+export function startRoomRecording(
+  roomId: string,
+  manageToken?: string | null,
+): Promise<{ recordingId: string }> {
   const path = manageToken
     ? `/api/video/manage/${manageToken}/recording`
     : `/api/video/rooms/${roomId}/recording`;
@@ -5527,7 +5652,10 @@ export function startRoomRecording(roomId: string, manageToken?: string | null):
 }
 
 /** Stop the room's active recording (host link via manageToken, else session-authenticated). */
-export function stopRoomRecording(roomId: string, manageToken?: string | null): Promise<{ ok: boolean }> {
+export function stopRoomRecording(
+  roomId: string,
+  manageToken?: string | null,
+): Promise<{ ok: boolean }> {
   const path = manageToken
     ? `/api/video/manage/${manageToken}/recording`
     : `/api/video/rooms/${roomId}/recording`;
@@ -5539,7 +5667,11 @@ export function stopRoomRecording(roomId: string, manageToken?: string | null): 
 // manager without one, the session-authenticated room endpoint. Possession of the link is authority.
 
 /** Force-mute a participant's microphone. */
-export function muteParticipant(roomId: string, identity: string, manageToken?: string | null): Promise<{ ok: boolean }> {
+export function muteParticipant(
+  roomId: string,
+  identity: string,
+  manageToken?: string | null,
+): Promise<{ ok: boolean }> {
   const id = encodeURIComponent(identity);
   const path = manageToken
     ? `/api/video/manage/${manageToken}/participants/${id}/mute`
@@ -5548,7 +5680,11 @@ export function muteParticipant(roomId: string, identity: string, manageToken?: 
 }
 
 /** Force a participant's camera off (host "stop video"). They can re-enable it themselves. */
-export function muteParticipantVideo(roomId: string, identity: string, manageToken?: string | null): Promise<{ ok: boolean }> {
+export function muteParticipantVideo(
+  roomId: string,
+  identity: string,
+  manageToken?: string | null,
+): Promise<{ ok: boolean }> {
   const id = encodeURIComponent(identity);
   const path = manageToken
     ? `/api/video/manage/${manageToken}/participants/${id}/mute-video`
@@ -5557,7 +5693,11 @@ export function muteParticipantVideo(roomId: string, identity: string, manageTok
 }
 
 /** Remove (kick) a participant from the call. */
-export function removeParticipant(roomId: string, identity: string, manageToken?: string | null): Promise<{ ok: boolean }> {
+export function removeParticipant(
+  roomId: string,
+  identity: string,
+  manageToken?: string | null,
+): Promise<{ ok: boolean }> {
   const id = encodeURIComponent(identity);
   const path = manageToken
     ? `/api/video/manage/${manageToken}/participants/${id}/remove`
@@ -5566,8 +5706,13 @@ export function removeParticipant(roomId: string, identity: string, manageToken?
 }
 
 /** End the live call for everyone (the room stays available to rejoin later). */
-export function endRoomForAll(roomId: string, manageToken?: string | null): Promise<{ ok: boolean }> {
-  const path = manageToken ? `/api/video/manage/${manageToken}/end` : `/api/video/rooms/${roomId}/end`;
+export function endRoomForAll(
+  roomId: string,
+  manageToken?: string | null,
+): Promise<{ ok: boolean }> {
+  const path = manageToken
+    ? `/api/video/manage/${manageToken}/end`
+    : `/api/video/rooms/${roomId}/end`;
   return apiFetch(path, { method: "POST" });
 }
 
@@ -5682,7 +5827,12 @@ export function createQualityCategory(input: {
 
 export function updateQualityCategory(
   id: string,
-  patch: { name?: string; description?: string | null; sort_order?: number; is_active?: boolean },
+  patch: {
+    name?: string;
+    description?: string | null;
+    sort_order?: number;
+    is_active?: boolean;
+  },
 ): Promise<{ ok: boolean; changed: string[] }> {
   return apiFetch(`/api/quality/rubric/categories/${id}`, {
     method: "PATCH",
@@ -5708,7 +5858,12 @@ export function createQualityCriterion(input: {
 
 export function updateQualityCriterion(
   id: string,
-  patch: { name?: string; discount_percent?: number; sort_order?: number; is_active?: boolean },
+  patch: {
+    name?: string;
+    discount_percent?: number;
+    sort_order?: number;
+    is_active?: boolean;
+  },
 ): Promise<{ ok: boolean; changed: string[] }> {
   return apiFetch(`/api/quality/rubric/criteria/${id}`, {
     method: "PATCH",
@@ -5804,7 +5959,11 @@ export interface TeacherAdjustmentRow {
 export interface AdjustmentSummary {
   year: number;
   month: number;
-  totals: { currency: string; rewards_minor: number; deductions_minor: number }[];
+  totals: {
+    currency: string;
+    rewards_minor: number;
+    deductions_minor: number;
+  }[];
   reward_count: number;
   deduction_count: number;
   auto_count: number;
@@ -5830,7 +5989,9 @@ export function getAdjustmentSummary(
   year: number,
   month: number,
 ): Promise<AdjustmentSummary> {
-  return apiFetch(`/api/quality/adjustments/summary?year=${year}&month=${month}`);
+  return apiFetch(
+    `/api/quality/adjustments/summary?year=${year}&month=${month}`,
+  );
 }
 
 /** Award or dock a teacher for a period; opens their statement if it doesn't exist yet. */
@@ -5921,6 +6082,11 @@ export interface LessonPackageRow {
   minutes_consumed: number;
   minutes_remaining: number;
   minutes_overdrawn: number;
+  /** Billable lessons already attached to this package's credit ledger. */
+  lesson_count: number;
+  /** Generated future lessons which have not reached an attendance outcome yet. */
+  upcoming_lesson_count: number;
+  next_lesson_at: string | null;
   percent_used: number;
   price_minor: number;
   hourly_rate_minor: number;
@@ -6015,8 +6181,40 @@ export function openLessonPackage(input: {
   starts_on?: string;
   expires_on?: string | null;
   carry_over?: boolean;
-}): Promise<{ id: string; invoice_id: string | null; carried_over_minutes: number }> {
-  return apiFetch("/api/packages", { method: "POST", body: JSON.stringify(input) });
+}): Promise<{
+  id: string;
+  invoice_id: string | null;
+  carried_over_minutes: number;
+  imported_lessons: number;
+  skipped_locked_lessons: number;
+}> {
+  return apiFetch("/api/packages", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Import already-billed lessons between a package's start date and now. */
+export function syncLessonPackage(id: string): Promise<{
+  imported: number;
+  skipped_locked: number;
+}> {
+  return apiFetch(`/api/packages/${id}/sync-lessons`, { method: "POST" });
+}
+
+export interface InvoiceSendLinkResult {
+  phone: string;
+  message: string;
+  url: string;
+  transport: string;
+  sent: boolean;
+}
+
+/** Send an invoice link through the configured WhatsApp transport, or return its deep link. */
+export function sendInvoicePaymentLink(
+  id: string,
+): Promise<InvoiceSendLinkResult> {
+  return apiFetch(`/api/invoices/${id}/send-link`, { method: "POST" });
 }
 
 /** Close a package early. One that runs out closes itself. */
@@ -6031,7 +6229,10 @@ export function closeLessonPackage(
 }
 
 /** Void a package opened by mistake — unused ones only. */
-export function cancelLessonPackage(id: string, note?: string): Promise<{ ok: boolean }> {
+export function cancelLessonPackage(
+  id: string,
+  note?: string,
+): Promise<{ ok: boolean }> {
   return apiFetch(`/api/packages/${id}/cancel`, {
     method: "POST",
     body: JSON.stringify({ note }),
