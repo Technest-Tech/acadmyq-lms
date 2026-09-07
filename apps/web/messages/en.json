@@ -926,7 +926,9 @@
         "desc": "Accept Visa, Mastercard and Meeza on your invoices.",
         "active": "Card payment is live on your invoices",
         "inactive": "Card payment is not enabled yet",
-        "managed": "XPay is set up and managed by Academiq. Contact support to enable it or change the account."
+        "managed": "The merchant account is set up and managed by Academiq — you choose whether the button appears on your invoices.",
+        "notProvisioned": "Card payment has not been set up for your academy yet. Contact Academiq to have it enabled.",
+        "toggleHint": "Turning this off hides the card button. Bills already sent keep working through your other payment methods."
       }
     },
     "branding": {

@@ -256,16 +256,74 @@ it('keeps the academy away from its own XPay keys', function () {
     $owner = $this->makeUser($academyId, 'ACADEMY_OWNER');
     Sanctum::actingAs($owner);
 
-    // The owner may SEE that the channel is live...
+    // The owner may SEE that the channel is live, and that keys exist behind it...
     $res = $this->getJson('/api/payment-settings')->assertOk();
     $xpay = collect($res->json('payment_settings'))->firstWhere('method', 'XPAY');
     expect($xpay['is_active'])->toBeTrue();
+    expect($xpay['configured'])->toBeTrue();
     expect(json_encode($res->json()))->not->toContain(SK);
     expect(json_encode($res->json()))->not->toContain(WHSEC);
 
-    // ...but never write it, and never reach the Super Admin surface.
-    $this->putJson('/api/payment-settings/XPAY', ['is_active' => false])->assertForbidden();
+    // ...but never the keys themselves, and never the Super Admin surface that holds them.
     $this->getJson("/api/admin/clients/{$academyId}/payments/xpay")->assertForbidden();
+    $this->putJson("/api/admin/clients/{$academyId}/payments/xpay", [
+        'is_active' => true,
+        'mode' => 'test',
+    ])->assertForbidden();
+});
+
+it('lets the academy switch its own card button off and on', function () {
+    $academyId = $this->createAcademy();
+    provisionXpay($this, $academyId);
+
+    Sanctum::actingAs($this->makeUser($academyId, 'ACADEMY_OWNER'));
+
+    $this->putJson('/api/payment-settings/XPAY', ['is_active' => false])->assertOk();
+
+    xpayContext($academyId);
+    $row = DB::table('academy_payment_settings')->where('method', 'XPAY')->first();
+    xpayContext(null);
+
+    expect((bool) $row->is_active)->toBeFalse();
+    // The Super Admin's half of the row is not the academy's to move.
+    expect(json_decode((string) $row->config, true))
+        ->toEqualCanonicalizing(['publishable_key' => 'pk_test_pub123', 'mode' => 'test']);
+
+    $this->putJson('/api/payment-settings/XPAY', ['is_active' => true])->assertOk();
+
+    xpayContext($academyId);
+    expect((bool) DB::table('academy_payment_settings')->where('method', 'XPAY')->value('is_active'))->toBeTrue();
+    xpayContext(null);
+});
+
+it('ignores any config an academy tries to smuggle into the XPay toggle', function () {
+    $academyId = $this->createAcademy();
+    provisionXpay($this, $academyId);
+
+    Sanctum::actingAs($this->makeUser($academyId, 'ACADEMY_OWNER'));
+
+    $this->putJson('/api/payment-settings/XPAY', [
+        'is_active' => true,
+        'config' => ['publishable_key' => 'pk_live_theirs', 'mode' => 'live'],
+    ])->assertOk();
+
+    xpayContext($academyId);
+    $config = json_decode((string) DB::table('academy_payment_settings')->where('method', 'XPAY')->value('config'), true);
+    xpayContext(null);
+
+    expect($config)->toEqualCanonicalizing(['publishable_key' => 'pk_test_pub123', 'mode' => 'test']);
+});
+
+it('refuses to switch card payment on when no keys are provisioned', function () {
+    $academyId = $this->createAcademy();
+
+    Sanctum::actingAs($this->makeUser($academyId, 'ACADEMY_OWNER'));
+
+    $res = $this->getJson('/api/payment-settings')->assertOk();
+    expect(collect($res->json('payment_settings'))->firstWhere('method', 'XPAY')['configured'])->toBeFalse();
+
+    // A button that 422s the moment a parent presses it is worse than no button at all.
+    $this->putJson('/api/payment-settings/XPAY', ['is_active' => true])->assertStatus(422);
 });
 
 it('keeps secrets out of the public invoice payload', function () {

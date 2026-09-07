@@ -415,17 +415,53 @@ function PaypalCard({
   );
 }
 
-// ── XPay card (read-only) ────────────────────────────────────────────────────
+// ── XPay card (toggle only — the keys are never the academy's) ───────────────
 
 /**
- * Unlike the two cards above, this one has no controls. XPay is the academy's own merchant account
- * but WE hold the keys: Academiq provisions them from the Super Admin panel and the API refuses any
- * academy-side write to the XPAY channel. So the card's whole job is to answer one question —
- * "is card payment live on my invoices?" — and point elsewhere for changes.
+ * The odd one out. XPay is the academy's own merchant account but WE hold the keys: Academiq
+ * provisions them from the Super Admin panel and no academy-facing endpoint will ever hand them
+ * back. So this card has exactly one control — show the card button on my invoices, or don't —
+ * and no fields at all.
+ *
+ * With nothing provisioned there is nothing to switch: turning it on would put a button on the
+ * public invoice that fails the moment a parent presses it, so the API refuses and the card says
+ * who to ask instead.
  */
-function XPayCard({ setting }: { setting: PaymentSetting }) {
+function XPayCard({
+  setting,
+  onSaved,
+}: {
+  setting: PaymentSetting;
+  onSaved: () => void;
+}) {
   const t = useTranslations("settings.payment");
-  const active = setting.is_active;
+
+  const [isActive, setIsActive] = useState(setting.is_active);
+  const [busy, setBusy]         = useState(false);
+  const [error, setError]       = useState<string | null>(null);
+
+  const configured = setting.configured ?? false;
+
+  // The parent refetches on save, so a fresh setting has to win over stale local state.
+  useEffect(() => {
+    setIsActive(setting.is_active);
+  }, [setting.is_active]);
+
+  async function toggleActive() {
+    const next = !isActive;
+    setIsActive(next);
+    setBusy(true);
+    setError(null);
+    try {
+      await savePaymentSetting("XPAY", { is_active: next });
+      onSaved();
+    } catch (err) {
+      setIsActive(!next); // revert on failure
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <SectionCard
@@ -435,32 +471,53 @@ function XPayCard({ setting }: { setting: PaymentSetting }) {
       iconClassName="bg-gradient-to-br from-violet-500 to-purple-600 shadow-violet-500/25"
       testId="payment-xpay"
     >
-      <div
-        className={cn(
-          "flex items-center gap-3 rounded-xl border px-4 py-5",
-          active
-            ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20"
-            : "border-dashed border-muted-foreground/25 bg-muted/20",
+      <div className="space-y-4">
+        {error && (
+          <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
         )}
-      >
-        <CreditCard
+
+        {configured && (
+          <MethodHeader
+            method="XPAY"
+            isActive={isActive}
+            busy={busy}
+            onToggle={() => void toggleActive()}
+          />
+        )}
+
+        <div
           className={cn(
-            "size-5 shrink-0",
-            active ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground/50",
+            "flex items-center gap-3 rounded-xl border px-4 py-5",
+            isActive
+              ? "border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+              : "border-dashed border-muted-foreground/25 bg-muted/20",
           )}
-          aria-hidden
-        />
-        <div className="min-w-0">
-          <p
+        >
+          <CreditCard
             className={cn(
-              "text-sm font-semibold",
-              active ? "text-emerald-800 dark:text-emerald-300" : "text-muted-foreground",
+              "size-5 shrink-0",
+              isActive ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground/50",
             )}
-          >
-            {active ? t("xpay.active") : t("xpay.inactive")}
-          </p>
-          <p className="text-muted-foreground mt-0.5 text-xs">{t("xpay.managed")}</p>
+            aria-hidden
+          />
+          <div className="min-w-0">
+            <p
+              className={cn(
+                "text-sm font-semibold",
+                isActive ? "text-emerald-800 dark:text-emerald-300" : "text-muted-foreground",
+              )}
+            >
+              {isActive ? t("xpay.active") : t("xpay.inactive")}
+            </p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {configured ? t("xpay.managed") : t("xpay.notProvisioned")}
+            </p>
+          </div>
         </div>
+
+        {configured && (
+          <p className="text-muted-foreground/70 text-[11px]">{t("xpay.toggleHint")}</p>
+        )}
       </div>
     </SectionCard>
   );
@@ -506,7 +563,7 @@ export function PaymentSettingsManager() {
       )}
       <BankTransferCard setting={bankSetting} onSaved={refresh} />
       <PaypalCard setting={paypalSetting} onSaved={refresh} />
-      <XPayCard setting={xpaySetting} />
+      <XPayCard setting={xpaySetting} onSaved={refresh} />
     </div>
   );
 }

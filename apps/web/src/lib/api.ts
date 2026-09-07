@@ -2250,6 +2250,12 @@ export interface PaymentSetting {
     | PaypalConfig
     | XpayPublicConfig
     | Record<string, never>;
+  /**
+   * XPAY only: whether Academiq has provisioned merchant keys for this academy. The academy owns
+   * the on/off switch but not the keys, so this is what separates "you can turn card payment on"
+   * from "there is nothing to turn on yet" — without revealing anything about the keys themselves.
+   */
+  configured?: boolean;
 }
 
 // ── Academy profile (Settings → General) ─────────────────────────────────────
