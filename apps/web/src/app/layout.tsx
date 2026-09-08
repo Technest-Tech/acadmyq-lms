@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { Amiri, Tajawal } from "next/font/google";
+import { headers } from "next/headers";
 import { THEME_INIT_SCRIPT, ThemeProvider } from "@/components/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
 import { direction, type Locale } from "@/i18n/config";
+import { PATHNAME_HEADER } from "@/lib/request-headers";
 import "./globals.css";
 
 const tajawal = Tajawal({
@@ -32,12 +34,43 @@ export const metadata: Metadata = {
   description: "Academy Management Platform",
 };
 
+/**
+ * The public marketing routes (`app/(marketing)`). They are listed rather than inferred because
+ * the decision below has to be exact: an app route mistaken for a marketing one would render with
+ * no translations at all.
+ */
+const MARKETING_PATHS = new Set([
+  "/",
+  "/course-platform",
+  "/academy-management",
+  "/contact",
+  "/privacy",
+  "/terms",
+]);
+
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const locale = await getLocale();
-  const messages = await getMessages();
   const dir = direction(locale as Locale);
+
+  /*
+   * What the browser is handed.
+   *
+   * The application needs the whole catalogue: hundreds of client components read from every
+   * namespace in it. A MARKETING page reads exactly one — `locale`, for the language switch in the
+   * header and footer — and shipping the other ~300KB of JSON to a landing page is both dead weight
+   * on the metric that matters most there and a copy of the app's entire vocabulary (module names,
+   * feature labels, everything) embedded in a public sales page.
+   *
+   * The pathname arrives as a header the middleware sets on every request. When it is absent for
+   * any reason the FULL catalogue is sent — the fail-safe direction, since a missing message breaks
+   * a screen while a surplus one merely costs bytes.
+   */
+  const pathname = (await headers()).get(PATHNAME_HEADER);
+  const all = await getMessages();
+  const messages =
+    pathname !== null && MARKETING_PATHS.has(pathname) ? { locale: all.locale } : all;
 
   return (
     <html

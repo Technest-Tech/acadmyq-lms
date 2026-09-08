@@ -24,7 +24,7 @@ import {
   SiteWhatsappButton,
 } from "@/components/learn/site-chrome";
 import { SiteTheme } from "@/components/learn/theme";
-import { Modal } from "@/components/ui/modal";
+import { SiteModal } from "@/components/learn/site-modal";
 import { resolveSiteName } from "@/lib/learn-brand";
 import {
   clearLearnToken,
@@ -195,14 +195,13 @@ export function LearnProvider({
       </SiteTheme>
 
       {authMode !== null && (
-        <Modal
+        <SiteModal
           open
           onClose={() => {
             setAuthMode(null);
             setAuthIntent(null);
           }}
           title={authMode === "login" ? t("auth.signIn") : t("auth.register")}
-          closeLabel={t("player.close")}
         >
           <AuthForm
             academy={academy}
@@ -220,15 +219,14 @@ export function LearnProvider({
               cb?.();
             }}
           />
-        </Modal>
+        </SiteModal>
       )}
 
       {redeemOpen && (
-        <Modal
+        <SiteModal
           open
           onClose={() => setRedeemOpen(false)}
           title={t("redeem.title")}
-          closeLabel={t("player.close")}
         >
           <RedeemForm
             academy={academy}
@@ -237,7 +235,7 @@ export function LearnProvider({
               await refresh();
             }}
           />
-        </Modal>
+        </SiteModal>
       )}
     </LearnContext.Provider>
   );

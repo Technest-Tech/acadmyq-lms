@@ -145,7 +145,10 @@ export function DemoForm({
     return (
       <div
         className={cn(
-          "border-border bg-card rounded-2xl border p-6 sm:p-8",
+          // `text-foreground` is not redundant: this card is dropped into the closing INK band on
+          // the product pages, which sets a near-white text colour for the section. Without the
+          // reset, every heading and label inside the white card inherits it and disappears.
+          "border-border bg-card text-foreground rounded-2xl border p-6 sm:p-8",
           className,
         )}
       >
@@ -171,7 +174,10 @@ export function DemoForm({
 
   return (
     <div
-      className={cn("border-border bg-card rounded-2xl border p-6 sm:p-8", className)}
+      className={cn(
+        "border-border bg-card text-foreground rounded-2xl border p-6 sm:p-8",
+        className,
+      )}
     >
       <h3 className="text-xl font-bold">{f.title}</h3>
       <p className="text-muted-foreground mt-2 text-sm leading-relaxed">{f.body}</p>

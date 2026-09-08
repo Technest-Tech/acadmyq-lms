@@ -14,6 +14,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Sprint 7 invoice surface. Covers listing, detail, period-close, mark-paid, send-link, and
@@ -547,7 +550,9 @@ final class InvoiceController extends Controller
 
         $validated = $request->validate([
             'payment_method' => ['required', 'string', 'in:CASH,BANK_TRANSFER,OTHER'],
-            'payment_reason' => ['nullable', 'string'],
+            'payment_reason' => ['nullable', 'string', 'max:1000'],
+            'payment_reference' => ['nullable', 'string', 'max:255'],
+            'payment_proof' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
             'amount_paid_minor' => ['nullable', 'integer', 'min:0'],
         ]);
 
@@ -569,11 +574,34 @@ final class InvoiceController extends Controller
         $amountProvided = isset($validated['amount_paid_minor']);
         $amountPaid = $amountProvided ? (int) $validated['amount_paid_minor'] : null;
         $totalMinor = (int) $invoice->total_minor;
+        $oldProofPath = $invoice->payment_proof_path ?? null;
+        $proofPath = $oldProofPath;
+
+        if ($request->hasFile('payment_proof')) {
+            $proof = $request->file('payment_proof');
+            $extension = strtolower((string) ($proof?->extension() ?: 'jpg'));
+            $proofPath = $proof?->storeAs(
+                "invoice-payment-proofs/{$academyId}/{$id}",
+                Str::uuid().'.'.$extension,
+                'local',
+            );
+
+            if (! is_string($proofPath) || $proofPath === '') {
+                abort(500, 'Payment proof could not be stored.');
+            }
+        }
+
+        $evidence = [
+            'payment_reference' => isset($validated['payment_reference']) && trim((string) $validated['payment_reference']) !== ''
+                ? trim((string) $validated['payment_reference'])
+                : null,
+            'payment_proof_path' => $proofPath,
+        ];
 
         if ($amountProvided && $amountPaid !== null && $amountPaid < $totalMinor) {
             // Partial payment
             $newStatus = 'PARTIALLY_PAID';
-            $updates = [
+            $updates = $evidence + [
                 'status' => $newStatus,
                 'amount_paid_minor' => $amountPaid,
                 'payment_method' => $validated['payment_method'],
@@ -583,7 +611,7 @@ final class InvoiceController extends Controller
         } else {
             // Full payment
             $newStatus = 'PAID';
-            $updates = [
+            $updates = $evidence + [
                 'status' => $newStatus,
                 'paid_at' => now(),
                 'amount_paid_minor' => $totalMinor,
@@ -594,6 +622,10 @@ final class InvoiceController extends Controller
         }
 
         DB::table('invoices')->where('id', $id)->update($updates);
+
+        if (is_string($oldProofPath) && $oldProofPath !== '' && $oldProofPath !== $proofPath) {
+            Storage::disk('local')->delete($oldProofPath);
+        }
 
         Audit::log(
             'invoice.marked_paid',
@@ -606,10 +638,35 @@ final class InvoiceController extends Controller
                 'status' => $newStatus,
                 'payment_method' => $validated['payment_method'],
                 'amount_paid_minor' => $updates['amount_paid_minor'],
+                'payment_reference' => $evidence['payment_reference'],
+                'has_payment_proof' => $proofPath !== null,
             ],
         );
 
-        return response()->json(['ok' => true, 'status' => $newStatus]);
+        return response()->json([
+            'ok' => true,
+            'status' => $newStatus,
+            'amount_paid_minor' => $updates['amount_paid_minor'],
+            'payment_reference' => $evidence['payment_reference'],
+            'payment_proof_url' => $proofPath !== null ? "/api/invoices/{$id}/payment-proof" : null,
+        ]);
+    }
+
+    /** Stream privately stored offline-payment evidence to an authorized invoice reader. */
+    public function paymentProof(string $id): StreamedResponse
+    {
+        Gate::authorize('invoice.read');
+
+        $invoice = DB::table('invoices')->where('id', $id)->first(['id', 'payment_proof_path']);
+        $path = $invoice?->payment_proof_path;
+
+        if (! is_string($path) || $path === '' || ! Storage::disk('local')->exists($path)) {
+            abort(404, 'Payment proof not found.');
+        }
+
+        $extension = pathinfo($path, PATHINFO_EXTENSION) ?: 'jpg';
+
+        return Storage::disk('local')->download($path, "invoice-{$id}-payment-proof.{$extension}");
     }
 
     // -------------------------------------------------------------------------

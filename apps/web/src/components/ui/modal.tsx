@@ -1,7 +1,13 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +32,18 @@ export interface ModalProps {
   footer?: ReactNode;
   /** Accessible name for the close button. Defaults to "Close"; pass a translated one. */
   closeLabel?: string;
+  /**
+   * Palette for the portal.
+   *
+   * The dialog is rendered into `document.body`, which puts it OUTSIDE whatever surface opened it.
+   * That is fine inside the staff app, where body and surface share a theme — but the public course
+   * site pins itself to a light palette on its own wrapper (`.learn-site`), and a modal escaping it
+   * inherits the staff dark theme instead: black inputs, invisible labels, on a page a stranger is
+   * trying to sign in on. Passing the surface's class and CSS variables here carries the palette
+   * across the portal. See components/learn/site-modal.tsx.
+   */
+  themeClassName?: string;
+  themeStyle?: CSSProperties;
 }
 
 export function Modal({
@@ -37,6 +55,8 @@ export function Modal({
   children,
   footer,
   closeLabel = "Close",
+  themeClassName,
+  themeStyle,
 }: ModalProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -101,7 +121,9 @@ export function Modal({
   if (!open) return null;
 
   return createPortal(
-    <>
+    // `display: contents` — the wrapper carries the palette (custom properties and color-scheme
+    // both inherit) without adding a box that would change the fixed positioning below it.
+    <div className={cn("contents", themeClassName)} style={themeStyle}>
       {/* Backdrop — rendered in document.body, always covers full viewport */}
       <div
         className="animate-in fade-in fixed inset-0 z-50 bg-black/40 duration-150"
@@ -165,7 +187,7 @@ export function Modal({
           </div>
         </div>
       </div>
-    </>,
+    </div>,
     document.body,
   );
 }

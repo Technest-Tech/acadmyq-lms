@@ -1,4 +1,4 @@
-import { shot } from "./shots";
+import { heroImage, shot } from "./shots";
 import { ROUTES } from "./site";
 import type { MarketingContent } from "./types";
 
@@ -91,10 +91,8 @@ export const en: MarketingContent = {
       ],
     },
 
-    heroShot: shot(
-      "cpSiteHome",
-      "The home page of a course website showing an academy's name and logo above its list of published courses.",
-      "A real course site on the platform — under its owner's name and colour, not ours",
+    heroImage: heroImage(
+      "An example course website in a browser window: a fictional academy's name and logo, a headline, a button to browse the courses, and a row of course cards below.",
     ),
 
     products: {
@@ -670,7 +668,7 @@ export const en: MarketingContent = {
     hero: {
       title: "Talk to the Acadmyq team",
       subtitle:
-        "Fill in the form and we'll come back with a time to walk you through the system itself — not a recording, not a slide deck.",
+        "Fill in the form and we'll come back with a time to walk you through the system itself — not a pre-made video, not a slide deck.",
     },
     expect: {
       title: "What happens next",
@@ -763,7 +761,7 @@ export const en: MarketingContent = {
       {
         heading: "Why we use it",
         paragraphs: [
-          "To reply to your request and arrange the demo; to run the service you subscribed to; to issue invoices and manage the subscription; to protect the system against automated or abusive use; and to meet legal obligations.",
+          "To reply to your request and arrange the demo; to run the service you subscribed to; to issue invoices and manage the subscription; to protect the system against automated or abusive use; and to comply with legal obligations.",
           "We do not sell your data, do not share it with advertisers, and do not use your students' data for any purpose of our own.",
         ],
       },

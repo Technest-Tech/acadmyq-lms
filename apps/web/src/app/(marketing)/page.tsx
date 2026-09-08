@@ -1,5 +1,6 @@
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { ProductShot } from "@/components/marketing/product-shot";
 import {
@@ -19,7 +20,7 @@ import { pageMetadata } from "./page-meta";
  *
  * Its job is to answer one question — which of the two systems is the visitor here for — and hand
  * them to the right product page. The Course Platform leads: it is first, it carries the hero
- * capture, and it is the destination of the hero's secondary button, because that is where the
+ * picture, and it is the destination of the hero's secondary button, because that is where the
  * advertising sends people.
  */
 
@@ -88,8 +89,22 @@ export default async function HomePage() {
             </ul>
           </div>
 
-          <div className="mx-auto mt-14 max-w-5xl">
-            <ProductShot shot={home.heroShot} priority />
+          {/*
+            The hero picture is a drawn example, not a capture (see `heroImage` in content/shots),
+            and it arrives with its own window frame, its own shadow and a transparent ground. So it
+            is rendered bare — no `ProductShot` border, no card, no caption — and simply floats on
+            the page's paper. Every screenshot further down still goes through `ProductShot`.
+          */}
+          <div className="mx-auto mt-10 max-w-5xl">
+            <Image
+              src={home.heroImage.src}
+              alt={home.heroImage.alt}
+              width={home.heroImage.width}
+              height={home.heroImage.height}
+              sizes="(min-width: 1024px) 1024px, 100vw"
+              priority
+              className="h-auto w-full"
+            />
           </div>
         </Container>
       </section>

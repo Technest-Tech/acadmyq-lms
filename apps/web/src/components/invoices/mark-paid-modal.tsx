@@ -13,12 +13,6 @@ import { formatMoney } from "@/lib/money";
 
 type PaymentMethod = "CASH" | "BANK_TRANSFER" | "OTHER";
 
-interface MarkPaidPayload {
-  payment_method: PaymentMethod;
-  payment_reason?: string;
-  amount_paid_minor?: number;
-}
-
 interface MarkPaidResult {
   ok: boolean;
   status: string;
@@ -54,6 +48,8 @@ export function MarkPaidModal({
 
   const [method, setMethod] = useState<PaymentMethod>("CASH");
   const [reason, setReason] = useState("");
+  const [reference, setReference] = useState("");
+  const [proof, setProof] = useState<File | null>(null);
   const [amountInput, setAmountInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,17 +70,18 @@ export function MarkPaidModal({
     setError(null);
     setSubmitting(true);
     try {
-      const payload: MarkPaidPayload = {
-        payment_method: method,
-        ...(reason.trim() ? { payment_reason: reason.trim() } : {}),
-        ...(amountMinorParsed !== null
-          ? { amount_paid_minor: amountMinorParsed }
-          : {}),
-      };
-      await apiFetch<MarkPaidResult>(
-        `/api/invoices/${invoiceId}/mark-paid`,
-        { method: "POST", body: JSON.stringify(payload) },
-      );
+      const payload = new FormData();
+      payload.set("payment_method", method);
+      if (reason.trim()) payload.set("payment_reason", reason.trim());
+      if (reference.trim()) payload.set("payment_reference", reference.trim());
+      if (amountMinorParsed !== null) {
+        payload.set("amount_paid_minor", String(amountMinorParsed));
+      }
+      if (proof !== null) payload.set("payment_proof", proof);
+      await apiFetch<MarkPaidResult>(`/api/invoices/${invoiceId}/mark-paid`, {
+        method: "POST",
+        body: payload,
+      });
       onSuccess();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -98,6 +95,8 @@ export function MarkPaidModal({
     setError(null);
     setMethod("CASH");
     setReason("");
+    setReference("");
+    setProof(null);
     setAmountInput("");
     onClose();
   }
@@ -192,6 +191,46 @@ export function MarkPaidModal({
               })}
             </p>
           )}
+        </div>
+
+        {/* Optional payment reason / notes */}
+        <div>
+          <label htmlFor="mp-reference" className={labelClass}>
+            {t("paymentReference")}{" "}
+            <span className="text-muted-foreground font-normal">
+              ({t("optional")})
+            </span>
+          </label>
+          <input
+            id="mp-reference"
+            type="text"
+            maxLength={255}
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+            disabled={submitting}
+            className={inputClass}
+            placeholder={t("paymentReferencePlaceholder")}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="mp-proof" className={labelClass}>
+            {t("paymentProof")}{" "}
+            <span className="text-muted-foreground font-normal">
+              ({t("optional")})
+            </span>
+          </label>
+          <input
+            id="mp-proof"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) => setProof(e.target.files?.[0] ?? null)}
+            disabled={submitting}
+            className={inputClass}
+          />
+          <p className="text-muted-foreground mt-1 text-xs">
+            {t("paymentProofHint")}
+          </p>
         </div>
 
         {/* Optional payment reason / notes */}

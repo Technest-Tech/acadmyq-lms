@@ -44,6 +44,8 @@ async function run(host: string, path: string, root: string | null = "acadmyq.co
     rewrite: res.headers.get("x-middleware-rewrite"),
     /** The handle handed to the render, if any. */
     academy: res.headers.get("x-middleware-request-x-academy"),
+    /** The route the root layout is told is rendering (after any rewrite). */
+    pathname: res.headers.get("x-middleware-request-x-pathname"),
     status: res.status,
     /** Where the visitor is sent, for a real (non-rewrite) redirect. */
     location: res.headers.get("location"),
@@ -52,6 +54,35 @@ async function run(host: string, path: string, root: string | null = "acadmyq.co
 
 beforeEach(() => resolveTenantSite.mockReset());
 afterEach(() => vi.unstubAllEnvs());
+
+/**
+ * The root layout decides how much of the translation catalogue to serialise from this header, so
+ * it has to name the route that actually RENDERS — which after a rewrite is not the path the
+ * visitor typed. Getting this wrong would hand a client's course site the marketing page's tiny
+ * message set and blank every label on it.
+ */
+describe("the pathname handed to the render", () => {
+  it("names the requested path on the platform host", async () => {
+    expect((await run("acadmyq.com", "/course-platform")).pathname).toBe("/course-platform");
+  });
+
+  it("is set even when subdomain routing is switched off", async () => {
+    expect((await run("acadmyq.com", "/contact", null)).pathname).toBe("/contact");
+  });
+
+  it("names the REWRITTEN path for a course-platform client's home page", async () => {
+    resolveTenantSite.mockResolvedValue(LMS);
+
+    expect((await run("skills.acadmyq.com", "/")).pathname).toBe("/learn/skills");
+    expect((await run("skills.acadmyq.com", "/courses")).pathname).toBe("/learn/skills/courses");
+  });
+
+  it("names /login for a management client's branded front door", async () => {
+    resolveTenantSite.mockResolvedValue(MANAGEMENT);
+
+    expect((await run("noor.acadmyq.com", "/")).pathname).toBe("/login");
+  });
+});
 
 describe("subdomain routing", () => {
   it("passes everything through when no root domain is configured", async () => {

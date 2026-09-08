@@ -2949,10 +2949,7 @@ export interface SessionDurationImpact {
   duration_after: number;
   can_change: boolean;
   blockers: Array<
-    | "NOT_ATTENDED"
-    | "INVOICE_LOCKED"
-    | "PACKAGE_CLOSED"
-    | "PAYOUT_FINALIZED"
+    "NOT_ATTENDED" | "INVOICE_LOCKED" | "PACKAGE_CLOSED" | "PAYOUT_FINALIZED"
   >;
   invoice: {
     invoice_id: string;
@@ -4747,7 +4744,9 @@ export interface CourseSalesFields {
 
 /** The full editor payload: the course row (with description) + its section→lesson outline. */
 export interface CourseDetail {
-  course: CourseRow & { description: string | null } & Partial<CourseSalesFields>;
+  course: CourseRow & {
+    description: string | null;
+  } & Partial<CourseSalesFields>;
   sections: CourseSection[];
 }
 
@@ -6224,7 +6223,13 @@ export interface LessonPackageRow {
   invoice_id: string | null;
   invoice_status: string | null;
   invoice_token: string | null;
+  invoice_total_minor: number;
+  invoice_paid_minor: number;
   outstanding_minor: number;
+  payment_method: string | null;
+  payment_reason: string | null;
+  payment_reference: string | null;
+  payment_proof_url: string | null;
   overdraft_billed: boolean;
   created_at: string;
 }
@@ -6236,11 +6241,23 @@ export interface LessonPackageRow {
  */
 export interface LessonPackageSummary {
   active: number;
+  completed: number;
+  cancelled: number;
   lowBalance: number;
   needsBilling: number;
   pendingOverdraft: number;
   unpaid: number;
   total: number;
+  financials: PackageFinancialSummary[];
+}
+
+export interface PackageFinancialSummary {
+  currency: string;
+  active_value_minor: number;
+  completed_value_minor: number;
+  collected_minor: number;
+  outstanding_minor: number;
+  completed_outstanding_minor: number;
 }
 
 /** A student on package billing, with their open package (if any) and default hourly rate. */
@@ -6404,7 +6421,11 @@ export type CourseOrderStatus =
   | "CANCELLED"
   | "REFUNDED";
 
-export type PaymentMethodType = "INSTAPAY" | "VODAFONE_CASH" | "BANK_TRANSFER" | "OTHER";
+export type PaymentMethodType =
+  | "INSTAPAY"
+  | "VODAFONE_CASH"
+  | "BANK_TRANSFER"
+  | "OTHER";
 
 /** One row of the sales queue. Money is integer minor units + a currency, never a float. */
 export interface CourseOrderRow {
@@ -6527,7 +6548,10 @@ export async function fetchCourseOrderReceipt(
   }
   const res = await fetch(
     `${apiBase()}/api/courses/orders/${orderId}/receipts/${receiptId}/file`,
-    { headers, credentials: AUTH_MODE === "cookie" ? "include" : "same-origin" },
+    {
+      headers,
+      credentials: AUTH_MODE === "cookie" ? "include" : "same-origin",
+    },
   );
   if (!res.ok) throw new ApiError(res.status, "Receipt fetch failed");
   return URL.createObjectURL(await res.blob());
@@ -6594,7 +6618,11 @@ export function getLmsPaymentMethods(): Promise<{
 /** Saves all four slots in one write — no half-configured method can exist. */
 export function saveLmsPaymentMethods(
   methods: LmsPaymentMethod[],
-): Promise<{ methods: LmsPaymentMethod[]; currency: string; active_count: number }> {
+): Promise<{
+  methods: LmsPaymentMethod[];
+  currency: string;
+  active_count: number;
+}> {
   return apiFetch("/api/courses/payment-methods", {
     method: "PUT",
     body: JSON.stringify({ methods }),
@@ -6602,7 +6630,9 @@ export function saveLmsPaymentMethods(
 }
 
 /** Refused once a sale exists: prices are stored bare, so this re-denominates rather than converts. */
-export function setLmsCurrency(currency: string): Promise<{ ok: boolean; currency: string }> {
+export function setLmsCurrency(
+  currency: string,
+): Promise<{ ok: boolean; currency: string }> {
   return apiFetch("/api/courses/payment-currency", {
     method: "PUT",
     body: JSON.stringify({ currency }),

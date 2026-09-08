@@ -1,4 +1,4 @@
-import { shot } from "./shots";
+import { heroImage, shot } from "./shots";
 import { ROUTES } from "./site";
 import type { MarketingContent } from "./types";
 
@@ -94,10 +94,8 @@ export const ar: MarketingContent = {
       ],
     },
 
-    heroShot: shot(
-      "cpSiteHome",
-      "الصفحة الرئيسية لموقع كورسات يحمل اسم الأكاديمية وشعارها، وتحته قائمة الكورسات المنشورة.",
-      "موقع كورسات حقيقي على المنصّة — باسم صاحبه ولونه، لا باسمنا",
+    heroImage: heroImage(
+      "مثال لموقع كورسات داخل نافذة متصفّح: اسم أكاديمية وشعارها، وعنوان رئيسي، وزر لتصفّح الدورات، وتحته صفّ من بطاقات الدورات.",
     ),
 
     products: {

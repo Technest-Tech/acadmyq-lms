@@ -870,6 +870,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/invoices/close', [InvoiceController::class, 'close']);
         Route::get('/invoices/{id}', [InvoiceController::class, 'show']);
         Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
+        Route::get('/invoices/{id}/payment-proof', [InvoiceController::class, 'paymentProof']);
         Route::post('/invoices/{id}/send-link', [InvoiceController::class, 'sendLink']);
 
         // Lesson packages (docs/lesson-packages) — the hour-based billing mode that replaces the

@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { PATHNAME_HEADER } from "@/lib/request-headers";
 import { resolveTenantSite } from "@/lib/tenant-site";
 
 /**
@@ -57,7 +58,15 @@ function handleFor(host: string): string | null {
 }
 
 export async function middleware(req: NextRequest) {
-  if (ROOTS.length === 0) return NextResponse.next();
+  // The route that will actually render, forwarded to the root layout (see lib/request-headers).
+  // Set on EVERY branch below, and re-set before a rewrite so it names the REWRITTEN path — a
+  // client's course site is served from `/learn/<handle>`, not from the `/` the visitor typed.
+  const headers = new Headers(req.headers);
+  headers.set(PATHNAME_HEADER, req.nextUrl.pathname);
+  /** Pass the request through untouched apart from the headers we add to it. */
+  const pass = () => NextResponse.next({ request: { headers } });
+
+  if (ROOTS.length === 0) return pass();
 
   const host = ((req.headers.get("host") ?? "").split(":")[0] ?? "").toLowerCase();
 
@@ -73,13 +82,13 @@ export async function middleware(req: NextRequest) {
   }
 
   const sub = handleFor(host);
-  if (sub === null) return NextResponse.next();
+  if (sub === null) return pass();
 
   const url = req.nextUrl;
   // Already the learner path / API / internal → leave alone. The course site builds `/learn/<handle>`
   // hrefs, so rewriting this prefix again would nest it.
   if (url.pathname.startsWith("/learn/") || url.pathname.startsWith("/api")) {
-    return NextResponse.next();
+    return pass();
   }
 
   const site = await resolveTenantSite(sub);
@@ -88,20 +97,23 @@ export async function middleware(req: NextRequest) {
   // the branded sign-in, not the platform's marketing page. `/login` renders the same screen, so a
   // signed-out visitor deep in the app lands on the branded door too (the shell redirects there).
   if (site?.kind === "MANAGEMENT") {
-    const headers = new Headers(req.headers);
     headers.set("x-academy", sub);
 
     if (url.pathname === "/") {
       url.pathname = "/login";
+      headers.set(PATHNAME_HEADER, url.pathname);
+
       return NextResponse.rewrite(url, { request: { headers } });
     }
 
-    return NextResponse.next({ request: { headers } });
+    return pass();
   }
 
   // Course-platform client — and an unknown handle, which lands on the course site's own 404.
   url.pathname = `/learn/${sub}${url.pathname === "/" ? "" : url.pathname}`;
-  return NextResponse.rewrite(url);
+  headers.set(PATHNAME_HEADER, url.pathname);
+
+  return NextResponse.rewrite(url, { request: { headers } });
 }
 
 export const config = {

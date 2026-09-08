@@ -10,7 +10,7 @@ import { absoluteUrl } from "@/content/marketing";
  *
  *  - the signed-in application (also `noindex` at the `(app)` layout, since a crawler that follows
  *    a link into it lands on a login page rather than a 404);
- *  - the token links — a public invoice, an academy's bill, a video room, a WhatsApp connect page.
+ *  - the token links — a public invoice, an academy's bill, a room join link, a connect page.
  *    These are secret URLs, and a secret URL in an index is not secret.
  *
  * One file serves every host this app answers on, so the rules are written as paths that mean the

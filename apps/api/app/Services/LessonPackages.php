@@ -434,8 +434,16 @@ final class LessonPackages
         }
 
         $timezone = (string) (DB::table('academies')->where('id', $package->academy_id)->value('timezone') ?: 'UTC');
-        $from = Carbon::parse((string) $package->starts_on, $timezone)->startOfDay()->utc();
-        $through = Carbon::now()->utc();
+        // Query Builder serializes Carbon values without their offset. PostgreSQL then interprets
+        // that wall-clock string in the connection timezone, which made a just-finished Cairo
+        // lesson appear two hours *after* "now" and excluded it from the backfill. Keep an
+        // explicit offset at the SQL boundary so the selected start date really owns every
+        // billable lesson from its local midnight through the current instant.
+        $from = Carbon::parse((string) $package->starts_on, $timezone)
+            ->startOfDay()
+            ->utc()
+            ->toIso8601String();
+        $through = Carbon::now()->utc()->toIso8601String();
 
         $sessions = DB::table('sessions as sess')
             ->join('invoice_line_items as li', 'li.session_id', '=', 'sess.id')

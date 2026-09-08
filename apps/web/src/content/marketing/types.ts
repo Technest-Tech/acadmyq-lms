@@ -54,6 +54,21 @@ export interface Shot {
   caption: string;
 }
 
+/**
+ * The drawn example that leads the homepage — see `heroImage` in `shots.ts` for why it is drawn.
+ *
+ * No `caption`: the picture is an illustration, and a caption under it could only either lie about
+ * what it is or apologise for it. The line that has to be true is `alt`, and it says "an example".
+ */
+export interface HeroImage {
+  src: string;
+  /** Intrinsic pixel size — reserved by the layout so nothing shifts on load. */
+  width: number;
+  height: number;
+  /** Describes the example site the picture draws, for a reader who cannot see it. */
+  alt: string;
+}
+
 export interface Feature {
   icon: IconName;
   title: string;
@@ -104,8 +119,8 @@ export interface SectionHead {
 
 export interface HomeContent {
   hero: Hero;
-  /** The one wide capture directly under the hero — the Course Platform, which leads the site. */
-  heroShot: Shot;
+  /** The one wide picture directly under the hero — a drawn example of a course site, not a capture. */
+  heroImage: HeroImage;
   products: {
     head: SectionHead;
     course: ProductBand;

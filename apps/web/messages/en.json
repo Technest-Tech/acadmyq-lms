@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "Acadmyq",
-    "tagline": "Academy Management Platform"
+    "tagline": "A course platform under your brand, and a system to run your academy"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -427,10 +427,10 @@
     "hidePassword": "Hide password"
   },
   "login": {
-    "heroSubtitle": "The all-in-one platform to manage students, teachers, schedules, and billing — built for modern academies.",
-    "feature1": "Students, teachers & scheduling in one place",
-    "feature2": "Automated invoicing & payroll",
-    "feature3": "Bilingual & RTL-ready — Arabic and English",
+    "heroSubtitle": "Sign in to reach your dashboard: build courses and manage learners, or run your academy from schedules through to invoices.",
+    "feature1": "Students, teachers and schedules in one place",
+    "feature2": "Invoices built from lessons, and teacher earnings",
+    "feature3": "Arabic and English, laid out right to left and left to right",
     "trustedBy": "Trusted by academies across the region",
     "poweredBy": "Powered by Acadmyq",
     "cardSubtitle": "Sign in to continue to your academy’s workspace"
@@ -1397,6 +1397,7 @@
     "calendar": {
       "title": "Calendar",
       "subtitle": "Your sessions across the month, week, day and as a list.",
+      "sessionsInView": "{count, plural, =0 {No lessons in view} one {# lesson in view} other {# lessons in view}}",
       "teacher": "Teacher",
       "allTeachers": "All teachers",
       "allStudents": "All students",
@@ -1840,6 +1841,10 @@
     "partialWarning": "Amount is less than the total — invoice will be marked {status}.",
     "paymentReason": "Notes / reference",
     "paymentReasonPlaceholder": "Optional transaction reference or note",
+    "paymentReference": "Transaction reference",
+    "paymentReferencePlaceholder": "Bank, wallet, or transfer reference",
+    "paymentProof": "Payment proof",
+    "paymentProofHint": "JPG, PNG, or WebP up to 5 MB.",
     "optional": "optional",
     "confirmMarkPaid": "Confirm",
     "saving": "Saving…",
@@ -1942,7 +1947,20 @@
       "attention": "Needs attention",
       "active": "Open",
       "completed": "Finished",
+      "history": "History",
       "all": "All"
+    },
+    "finance": {
+      "title": "Package finances",
+      "currencyNote": "Each currency is kept separate",
+      "activeValue": "Open package value",
+      "activeValueHint": "Full contracted value of packages currently running",
+      "completedValue": "Finished package value",
+      "completedValueHint": "{count} finished packages in history",
+      "collected": "Collected",
+      "collectedHint": "Payments recorded against package invoices",
+      "outstanding": "Outstanding",
+      "outstandingHint": "Still due across open and finished package invoices"
     },
     "status": {
       "ACTIVE": "Open",
@@ -1981,7 +1999,8 @@
       "notBilledYet": "Billed at completion",
       "paid": "Paid",
       "amountDue": "{amount} due",
-      "invoiceOpen": "Invoice open"
+      "invoiceOpen": "Invoice open",
+      "paymentReference": "Reference: {reference}"
     },
     "actions": {
       "open": "Open a package",
@@ -1993,8 +2012,12 @@
       "copyLink": "Copy link",
       "copied": "Copied",
       "sendPayment": "Send payment link",
+      "markPaid": "Mark as paid",
+      "viewProof": "Payment proof",
       "syncLessons": "Sync lessons",
-      "billOverdraft": "Bill the extra hours"
+      "billOverdraft": "Bill the extra hours",
+      "edit": "Edit",
+      "saveEdit": "Save changes"
     },
     "form": {
       "title": "Open a package",
@@ -2031,6 +2054,13 @@
       "overdraftNote": "The last lesson ran {over} past the end of this package, charged at {amount}.",
       "overBy": "+{over} · {amount}"
     },
+    "edit": {
+      "title": "Edit this package",
+      "description": "Correct terms that were entered wrong. What has already been taught stays as it is.",
+      "consumed": "{used} already used across {lessons, plural, =0 {no lessons} one {one lesson} other {# lessons}}.",
+      "tooSmall": "This package has already used {used}. Close it instead of shrinking it to what was taught.",
+      "billNote": "This package has already been billed. While that invoice is still open and unpaid it is corrected along with the package; once anything has been paid, the price can only be changed on the invoice itself."
+    },
     "close": {
       "title": "Close this package early",
       "description": "A package that runs out closes itself. Use this when the student leaves or the terms change.",
@@ -2053,8 +2083,10 @@
       "paymentSent": "Payment link sent by WhatsApp.",
       "paymentReady": "Payment message opened in WhatsApp.",
       "paymentFailed": "Could not prepare the payment link.",
+      "markedPaid": "Payment recorded and the package invoice was updated.",
       "overdraftBilled": "The extra hours were billed.",
-      "overdraftFailed": "Could not bill the extra hours."
+      "overdraftFailed": "Could not bill the extra hours.",
+      "edited": "Package updated."
     },
     "panel": {
       "title": "Lesson package",

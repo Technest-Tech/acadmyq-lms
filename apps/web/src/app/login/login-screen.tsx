@@ -1,20 +1,31 @@
 "use client";
 
-import { ArrowRight, Check, Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LocaleSwitcher } from "@/components/locale-switcher";
-import { Button } from "@/components/ui/button";
-import { ApiError, getMe, login } from "@/lib/api";
 import { ArchPanel, KhatamLattice, StarDivider } from "@/components/ornaments";
+import {
+  CheckItem,
+  Container,
+  ctaClass,
+  Eyebrow,
+} from "@/components/marketing/ui";
+import { ApiError, getMe, login } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 /**
  * The sign-in screen (Sprint 2 §6.1) — one screen serving two doors, in two deliberately different
  * layouts:
  *
- *  - THE PLATFORM door (`app.<root>/login`, `brand` absent): the immersive split-screen — a branded
- *    marketing panel on the left, the form on the right. It sells Acadmyq to whoever lands on it.
+ *  - THE PLATFORM door (`app.<root>/login`, `brand` absent): the last page of the marketing site.
+ *    It is rendered INSIDE that site's chrome (see page.tsx) and built from its kit — the same
+ *    Container, Eyebrow, CheckItem and CTA shape as the homepage — because someone arriving from
+ *    "Log in" in the site header should not feel handed off to a different product. What it
+ *    replaced was a dark split-screen with blurred glow orbs and a dot grid, a look the marketing
+ *    site does not use anywhere: one soft radial wash is the only ambient treatment on this site,
+ *    and this page now uses that one.
  *  - A CLIENT's door (`<handle>.<root>`, `brand` present, docs/lms/02): a single centred card
  *    carrying their logo and name. Nothing to sell here — the person already knows where they are
  *    and is only passing through, so the card says who this belongs to and gets out of the way.
@@ -87,8 +98,11 @@ export function LoginScreen({ brand }: { brand?: LoginBrand | null }) {
     }
   }
 
+  // The marketing kit's note applies here too: a landing page wants 48px targets and wider radii,
+  // and this door is one of its pages now. The client door below inherits the same controls, which
+  // is right — the two doors differ in what surrounds the form, never in the form itself.
   const inputClass =
-    "border-input bg-background placeholder:text-muted-foreground/60 focus:border-primary focus:ring-primary/15 h-11 w-full rounded-xl border text-sm shadow-xs outline-none transition-colors focus:ring-3";
+    "border-input bg-background placeholder:text-muted-foreground/60 focus:border-primary focus:ring-primary/15 h-12 w-full rounded-xl border text-base shadow-xs outline-none transition-colors focus:ring-3 sm:text-sm";
 
   /** The credentials form itself — identical on both doors, so it lives in one place. */
   const form = (
@@ -160,10 +174,9 @@ export function LoginScreen({ brand }: { brand?: LoginBrand | null }) {
         </div>
       )}
 
-      <Button
+      <button
         type="submit"
-        size="lg"
-        className="group/submit h-11 w-full rounded-xl text-sm font-semibold shadow-sm"
+        className={cn(ctaClass.primary, "group/submit w-full disabled:opacity-60")}
         disabled={submitting}
       >
         {submitting ? (
@@ -174,7 +187,7 @@ export function LoginScreen({ brand }: { brand?: LoginBrand | null }) {
             <ArrowRight className="size-4 transition-transform group-hover/submit:translate-x-0.5 rtl:rotate-180 rtl:group-hover/submit:-translate-x-0.5" />
           </>
         )}
-      </Button>
+      </button>
     </form>
   );
 
@@ -291,124 +304,57 @@ export function LoginScreen({ brand }: { brand?: LoginBrand | null }) {
     t("login.feature3"),
   ];
 
+  // ── The platform door ──────────────────────────────────────────────────────
+  // A marketing-site page, not a product screen. It sits inside SiteHeader/SiteFooter (page.tsx),
+  // so it owns no chrome of its own: no logo lockup (the header carries it), no locale switcher
+  // (the header carries it), no copyright line (the footer carries it). What is left is the one
+  // thing this page is for — the pitch on one side, the form on the other.
   return (
-    <div className="bg-background flex min-h-dvh">
-      {/* Left: immersive branded panel — visible lg+ only */}
-      <div className="relative hidden flex-col justify-between overflow-hidden p-12 text-white lg:flex lg:w-[44%] xl:w-[42%]">
-        {/* Base gradient */}
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              "linear-gradient(155deg, oklch(0.16 0.03 250) 0%, oklch(0.19 0.05 200) 45%, oklch(0.21 0.08 163) 100%)",
-          }}
-        />
-        {/* Glow orbs */}
-        <div
-          className="pointer-events-none absolute -top-32 -end-24 size-96 rounded-full opacity-40 blur-3xl"
-          style={{
-            background:
-              "radial-gradient(circle, oklch(0.55 0.16 163), transparent 70%)",
-          }}
-        />
-        <div
-          className="pointer-events-none absolute -bottom-40 -start-24 size-[28rem] rounded-full opacity-25 blur-3xl"
-          style={{
-            background:
-              "radial-gradient(circle, oklch(0.7 0.13 85), transparent 70%)",
-          }}
-        />
-        {/* Dot-grid overlay */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.05]"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 1.5px 1.5px, white 1.5px, transparent 0)",
-            backgroundSize: "30px 30px",
-          }}
-        />
+    <section className="relative overflow-hidden">
+      {/* The site's single ambient treatment, reused verbatim from the homepage hero. It lifts the
+          headline off the paper ground and does nothing else; the orbs and dot-grid this replaced
+          were decoration competing with the one action on the page. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(70%_100%_at_50%_0%,color-mix(in_oklab,var(--primary)_10%,transparent),transparent_70%)]"
+      />
 
-        {/* Logo */}
-        <div className="relative flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/logo.png"
-            alt={t("app.name")}
-            className="size-10 rounded-xl bg-white/10 object-contain p-1 ring-1 ring-white/15 backdrop-blur-sm"
-          />
-          <span className="text-lg font-bold tracking-tight">
-            {t("app.name")}
-          </span>
-        </div>
-
-        {/* Centre copy */}
-        <div className="relative max-w-md space-y-8">
-          <div className="space-y-4">
-            <h2 className="text-4xl font-bold leading-[1.15] tracking-tight">
-              {t("app.tagline")}
-            </h2>
-            <p className="text-base leading-relaxed text-white/60">
+      <Container className="relative py-14 sm:py-20 lg:py-24">
+        <div className="grid items-center gap-12 lg:grid-cols-[1fr_25rem] lg:gap-16">
+          {/* The pitch. Ordered SECOND on mobile: a visitor who tapped "Log in" wants the form
+              first, and reading three feature lines before reaching it is the phone version of
+              the split-screen's problem. */}
+          <div className="order-2 max-w-xl lg:order-1">
+            <Eyebrow>{t("app.tagline")}</Eyebrow>
+            <h1 className="mt-3 text-4xl font-bold text-balance sm:text-5xl">
+              {t("auth.welcomeBack")}
+            </h1>
+            <p className="text-muted-foreground mt-5 text-lg leading-relaxed text-pretty">
               {t("login.heroSubtitle")}
             </p>
+            <ul className="mt-8 space-y-3.5">
+              {features.map((feature) => (
+                <CheckItem key={feature}>{feature}</CheckItem>
+              ))}
+            </ul>
           </div>
 
-          <ul className="space-y-3.5">
-            {features.map((feature) => (
-              <li
-                key={feature}
-                className="flex items-center gap-3 text-sm text-white/85"
-              >
-                <span className="bg-gold/20 ring-gold/30 flex size-5 shrink-0 items-center justify-center rounded-full ring-1">
-                  <Check className="text-gold size-3" aria-hidden />
-                </span>
-                {feature}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Footer */}
-        <div className="relative flex items-center justify-between text-xs text-white/40">
-          <span>{t("login.trustedBy")}</span>
-          <span>© 2025 {t("app.name")}</span>
-        </div>
-      </div>
-
-      {/* Right: form panel */}
-      <div className="flex flex-1 flex-col">
-        <div className="flex justify-end p-5">
-          <LocaleSwitcher />
-        </div>
-
-        <div className="flex flex-1 items-center justify-center px-6 pb-16 sm:px-10">
-          <div className="animate-page-enter w-full max-w-[400px] space-y-8">
-            {/* Mobile/tablet logo (left panel hidden below lg) */}
-            <div className="flex items-center gap-2.5 lg:hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo.png"
-                alt={t("app.name")}
-                className="size-9 shrink-0 object-contain"
-              />
-              <span className="text-lg font-bold tracking-tight">
-                {t("app.name")}
-              </span>
+          {/* The form. A plain card on the site's own paper — the same border, radius and shadow
+              every other panel on the site wears. */}
+          <div className="order-1 w-full lg:order-2 lg:justify-self-end">
+            <div className="animate-page-enter bg-card border-border rounded-2xl border p-6 shadow-sm sm:p-8">
+              <div className="mb-6 space-y-1.5">
+                <h2 className="text-xl font-bold">{t("auth.signIn")}</h2>
+                <p className="text-muted-foreground text-sm">
+                  {t("auth.signInSubtitle")}
+                </p>
+              </div>
+              {form}
             </div>
-
-            <div className="space-y-2">
-              <h1 className="text-3xl font-bold tracking-tight">
-                {t("auth.welcomeBack")}
-              </h1>
-              <p className="text-muted-foreground text-sm">
-                {t("auth.signInSubtitle")}
-              </p>
-            </div>
-
-            {form}
           </div>
         </div>
-      </div>
-    </div>
+      </Container>
+    </section>
   );
 }
 

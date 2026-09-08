@@ -45,18 +45,82 @@ context, and the public site, which runs inside the academy's context via `Resol
 ### Content blocks
 
 `brand` · `hero` · `stats` · `about` · `features` (“why learn here”) · `steps` (“how it works”) ·
-`instructors` · `testimonials` · `faq` · `cta` · `contact` · `footer` · `seo` · `pages`. Every
-optional block carries a `show` flag; `instructors`/`testimonials` render nothing when empty (a site
-never invents teachers or reviews), while `features`/`steps`/`faq` fall back to translated default
-copy. Images are **URLs, not uploads** — same as `courses.cover_image_path`; no new upload
+`instructors` · `testimonials` · `faq` · `cta` · `contact` · `footer` · `seo` · `pages` · `legal`.
+Every optional block carries a `show` flag; `instructors`/`testimonials` render nothing when empty (a
+site never invents teachers or reviews), while `features`/`steps`/`faq` fall back to translated
+default copy. Images are **URLs, not uploads** — same as `courses.cover_image_path`; no new upload
 infrastructure.
+
+Storefront fields worth calling out because they exist to prevent a specific kind of unfinished-
+looking page:
+
+| Field | Why |
+|---|---|
+| `brand.logo_mark_url` | The square mark for the header and small spaces. Falls back to the full logo, then a monogram — one uploaded file is enough. |
+| `brand.favicon_url` | The browser tab. Falls back to the mark, then the logo. |
+| `hero.cta_label` | Overrides the primary button's words without changing which action it is. |
+| `about.mission`, `about.approach` | Rendered **only on the About page**, which is what stops that page being a second copy of the home page. |
+| `instructors[].expertise`, `instructors[].link_url` | Comma-separated topics (chips) and one profile link. |
+| `contact.hours` | When someone actually answers — the cheapest trust signal on a contact page. |
+
+## The identity rule
+
+An academy created for the course platform is normally seeded with its **subdomain as its name**, so
+"lms" or "academy-2" is the DEFAULT state of a new client — and putting it in 48px type at the top of
+a public page ("تعلّم مع lms") is the single most amateur thing this template can do.
+
+`apps/web/src/lib/learn-brand.ts` is the one place that decides: the client's brand name wins, then
+the academy's own name, and a "name" that is merely the URL handle (compared folded — case,
+spacing and punctuation ignored) counts as **no name at all**. The template then renders translated
+neutral copy — "المنصة التعليمية" / "The learning platform" — in the header, the headline, the page
+title and the footer. The moment the client types a real name it wins everywhere, with no other
+logic. The outage fallback in `learn-server.ts` follows the same rule: it never fills the brand name
+with the handle.
+
+## What the storefront adapts to — `commerce`
+
+One template serves a Qur'an teacher who hands out access codes by hand and a training company
+running full checkout. The difference is not styling; it is **which buttons the page is allowed to
+draw**, and that is decided server-side from real rows and shipped with the site document:
+
+```
+commerce: { free, free_course: {slug,title}|null, checkout, codes, paid }
+```
+
+- `checkout` is **not** just "a course has checkout switched on" — it also requires a live
+  `lms_payment_methods` row, because a Buy button with nowhere to send the money strands the buyer.
+- `free_course` is the newest free course **that has lessons in it**; an empty one is a dead end.
+- `codes` is false when every published course has code redemption switched off.
+
+`components/learn/storefront.tsx` turns that into behaviour: the hero's CTAs (`useHeroCta`), the
+starter FAQ (`useDefaultFaq` — never explains a checkout that is off, never leads with access codes
+on a shop that sells online), the closing CTA's label, and a course's single primary action
+(`courseAction`, shared by the sales card and the sticky mobile bar so they cannot disagree).
+
+**The access code is demoted, not removed.** Where checkout or a free course exists it is a text
+link under the hero buttons and a footer entry; on a code-only site it is promoted back to the
+primary button. Nothing invents a channel that is not open.
+
+## A course's sales page
+
+Migration `2026_09_08_000003_lms_course_sales_fields` adds the half of a course that the curriculum
+cannot say: `level` (closed enum — it drives a catalogue facet), `category` (free text: a Qur'an
+academy and a coding school do not share a taxonomy, and the catalogue derives its filter options
+from the values actually in use), and three jsonb string lists — `outcomes` ("what you'll learn"),
+`requirements` ("before you start") and `audience` ("this course is for you if…").
+
+All optional, all defaulting to empty, and the public page **hides what is unset** rather than
+inventing filler. Edited in the course editor's "Sales page" block; served on both the card (level +
+category chips) and the sales page.
 
 ## API
 
 **Public** — `GET /api/learn/site` (`Learner\SiteController`), inside the existing subdomain-resolved
 `learn` group. Returns `{ site: <merged content>, stats: {courses,lessons,learners,certificates},
-academy }`. The stats are live catalogue counters, so the stats band says something true even for an
-unconfigured site.
+commerce, academy: {name, subdomain, url} }`. The stats are live catalogue counters, so the stats
+band says something true even for an unconfigured site; `commerce` is the block above; `academy.url`
+is this tenant's own canonical origin, so each client emits its own canonical link and OG URL and no
+tenant's SEO can leak into another's.
 
 **Staff** — `GET|PUT /api/courses/site` (`Lms\SiteProfileController`, `entitled:lms`). `GET`
 (`course.read`) returns the merged document, the bare defaults and the site URL; `PUT`
@@ -77,11 +141,29 @@ unknown handle 404s.
   dark-mode preference.
 - `components/learn/sections.tsx` — the shared section kit (`Hero`, `StatsBand`, `FeatureGrid`,
   `StepsRail`, `AboutSplit`, `InstructorGrid`, `TestimonialGrid`, `FaqAccordion`, `CtaBand`,
-  `PageHero`). Pure presentational, content in props.
+  `PageHero`) and the one button (`CtaButton`: two sizes, four surfaces, one focus ring). Pure
+  presentational, content in props.
+- `components/learn/storefront.tsx` — the adaptive layer (see `commerce` above): CTAs, the starter
+  FAQ, the shop-style price (`useCoursePrice` — "400 ج.م", not "400.00 ج.م") and `courseAction`.
 - `components/learn/site-chrome.tsx` — header (logo, nav, language toggle, redeem CTA, account
-  menu) and footer. Hidden on `/watch/*` so the player stays focus-mode.
+  menu) and footer. Hidden on `/watch/*` so the player stays focus-mode. `useBottomBarInset`
+  publishes the sales page's sticky bar height so the floating WhatsApp button lifts clear of it.
+- `components/learn/site-modal.tsx` — every storefront dialog. `Modal` portals into `document.body`,
+  escaping the `.learn-site` wrapper; this carries the light palette and the brand variables across
+  the portal, so a visitor in OS dark mode does not get black fields on a white sign-in card.
 - `components/learn/auth-forms.tsx` — sign-in / register / redeem, shared by the header modals and
-  the standalone `/login`, `/register`, `/redeem` pages.
+  the standalone `/login`, `/register`, `/redeem` pages. Persistent labels (never placeholders
+  alone), a show/hide password toggle, localized validation, and errors mapped by HTTP status so no
+  raw framework message reaches a student.
+
+Two template-wide rules that only show up when they are missing:
+
+- **`dir="auto"` on every piece of tenant-authored text** — titles, subtitles, section and lesson
+  names, bios, quotes, policies. The paragraph direction is the *visitor's* language; a course title
+  is the *academy's*, and an Arabic title in an English page reorders its Latin words without it.
+- **The site has one closing CTA.** The footer used to open with a panel rendering `cta.title` /
+  `cta.subtitle` — the same words `CtaBand` had just printed, one block above. The footer no longer
+  carries a CTA of its own.
 
 Pages: `/` (home) · `/courses` · `/c/[slug]` · `/about` · `/faq` · `/contact` · `/redeem` ·
 `/login` · `/register` · `/me` (“my learning”) · `/watch/[slug]` (player) · `/certificate/[slug]`.
@@ -100,3 +182,16 @@ editor itself needs `course.manage`), in both `LMS_EXTRA_KEYS` and `LMS_ONLY_KEY
 serve on the public site; `javascript:`/`data:` URLs rejected while legitimate links survive; length
 and list caps; blank rows dropped; tenant isolation; 404 on an unknown handle; read-only without
 `course.manage`. (Academies here need `plan_id => LMS_BASIC`, else `entitled:lms` 402s.)
+
+`apps/api/tests/Feature/Lms/LmsStorefrontTest.php` — the adaptive half: every door reported shut for
+an empty catalogue; no `checkout` without a live payment method; the free-course CTA skips a
+lesson-less course; drafts ignored; the canonical URL; the new profile fields round-tripping and
+still rejecting `javascript:`; the course sales fields from editor → card → sales page, with blank
+rows dropped, the level enum enforced, list caps enforced, and a partial PATCH not blanking them.
+
+Web (`apps/web`): `lib/learn-brand.test.ts` (the identity rule), `lib/money.test.ts`
+(`trimZeroDecimals`), `components/learn/storefront.test.tsx` (the CTA/FAQ/action matrix),
+`components/learn/site-chrome.test.tsx` (the footer never announces missing configuration) and
+`i18n/messages.test.ts` (ar/en parity — next-intl prints the key path when a message is missing, and
+on this site that is visible to a client's customers). `src/test/learn-site.tsx` builds fixtures on
+top of `emptySiteContent()`, so they cannot drift from the schema.

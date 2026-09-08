@@ -1,10 +1,8 @@
 import type { CSSProperties } from "react";
 import {
   Balloon,
-  Cloud,
   Confetti,
   JOY,
-  Lantern,
   Medal,
   MushafBurst,
   Seedling,
@@ -34,11 +32,16 @@ import type { ReportCardContent } from "@/lib/api";
  * that is their voice, not our scaffolding.
  *
  * TWO STYLES, ONE SKELETON. `content.cardStyle` gates an ILLUSTRATION LAYER (`report-card-art.tsx`)
- * on top of the identical structure — a lantern-lit header, spot marks beside the headings, a medal
- * over the ratings, a balloon by the note to the child, a dome-and-minaret skyline in the footer.
- * "joyful" is the default because the reader who has to WANT to see this card is a seven-year-old;
- * "classic" drops the artwork for the academies whose students are adults. Nothing else moves, so
- * there is one design to maintain rather than two.
+ * on top of the identical structure — confetti and an open mushaf in the header, spot marks beside
+ * the headings, a medal over the ratings, a balloon by the note to the child, a dome-and-minaret
+ * skyline in the footer. "joyful" is the default because the reader who has to WANT to see this
+ * card is a seven-year-old; "classic" drops the artwork for the academies whose students are
+ * adults. Nothing else moves, so there is one design to maintain rather than two.
+ *
+ * EVERY ORNAMENT IS ABSOLUTELY POSITIONED. Height is the scarce resource on this card — see the
+ * header note below — so artwork decorates the bands it sits in without lengthening them. An
+ * illustration that costs the reader vertical space is an illustration that pushed the lesson
+ * further down a picture somebody has to scroll.
  */
 
 export const REPORT_CARD_WIDTH = 1080;
@@ -156,17 +159,6 @@ function Octagram({
   );
 }
 
-/** A tapered rule · star · tapered rule divider. */
-function Divider({ color, width = 220 }: { color: string; width?: number }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
-      <div style={{ height: 2, width, background: `linear-gradient(90deg, rgba(0,0,0,0), ${color})` }} />
-      <Octagram size={22} stroke={color} fill={color} strokeWidth={1} />
-      <div style={{ height: 2, width, background: `linear-gradient(270deg, rgba(0,0,0,0), ${color})` }} />
-    </div>
-  );
-}
-
 /** A five-point star, filled or hollow — the rating unit a parent reads at a glance. */
 function RatingStar({ filled }: { filled: boolean }) {
   const pts: string[] = [];
@@ -274,6 +266,19 @@ export function ReportCard(props: ReportCardProps) {
   // number, and an even four-way split makes it wrap to three lines and stretch the whole strip.
   // The lesson column carries a two-word HEADING ("Lesson this month" / "الحلقة في الباقة") over a
   // one-character value, so it is sized for its label rather than for its number.
+  /**
+   * Whether the filled fields pair up two-to-a-row.
+   *
+   * Most report templates are short structured facts — "Memorised: al-Baqarah 1–5", "Homework:
+   * page 12" — and stacked full-width each one spends 1080px of width to say ten words while
+   * costing the card another ~90px of height. On a document whose only real constraint is height,
+   * that is the waste worth removing: six such fields go from six rows to three.
+   *
+   * Anything carrying actual prose keeps the full measure. A paragraph broken to a 460px column is
+   * harder to read than a card that is taller, and readability is the point of the exercise.
+   */
+  const pairSections = sections.length > 2 && sections.every((s) => s.value.length <= 180);
+
   const facts: Array<{ label: string; value: string; weight: number }> = [
     { label: labels.student, value: studentName || "—", weight: 1.05 },
     { label: labels.date, value: dateLabel, weight: 1.3 },
@@ -294,59 +299,54 @@ export function ReportCard(props: ReportCardProps) {
 
   return (
     <div style={frame}>
-      {/* ── Header band ───────────────────────────────────────────────── */}
+      {/* ── Header band ───────────────────────────────────────────────────
+          A letterhead, not a title page.
+
+          This was a centred ceremonial stack — a 92px medallion, the academy name, a rule, a 42px
+          display headline, the intro, and a 168px mushaf below it — about 470px of fixed chrome
+          before the reader met a single word of the lesson. On a card whose width is fixed and
+          whose height is free, that overhead is what made a two-line trial read as an empty poster
+          and what pushed a six-section lesson past the browser's canvas ceiling on capture.
+
+          The ceremony now happens ONCE, at the du'a, which is the moment that earns it. The top of
+          the page does the job a letterhead does: who is writing, and about what. Everything
+          decorative here is absolutely positioned, so the artwork costs the card no height at all. */}
       <div
         style={{
           position: "relative",
-          padding: "34px 64px 72px",
-          textAlign: "center",
-          background: `radial-gradient(130% 150% at 50% 0%, ${accent} 0%, ${shade(accent, 0.42)} 62%, ${shade(accent, 0.62)} 100%)`,
+          padding: "26px 56px 30px",
+          background: `radial-gradient(120% 170% at 50% 0%, ${accent} 0%, ${shade(accent, 0.42)} 70%, ${shade(accent, 0.6)} 100%)`,
           color: "#FFFFFF",
         }}
       >
         <LatticeWatermark id="rc-header-lattice" color={GOLD_SOFT} opacity={0.1} />
         {joyful && (
-          <>
-            <Confetti
-              width={REPORT_CARD_WIDTH}
-              height={250}
-              colors={[JOY.gold, JOY.coral, JOY.sky, JOY.mint, JOY.grape]}
-              opacity={0.5}
-            />
-            {/* Clouds low in the band, so the header reads as sky rather than as a slab. */}
-            <div style={{ position: "absolute", bottom: 74, left: 40 }}>
-              <Cloud width={112} fill="#FFFFFF" opacity={0.1} />
-            </div>
-            <div style={{ position: "absolute", bottom: 100, right: 56 }}>
-              <Cloud width={80} fill="#FFFFFF" opacity={0.08} />
-            </div>
-          </>
+          <Confetti
+            width={REPORT_CARD_WIDTH}
+            height={150}
+            colors={[JOY.gold, JOY.coral, JOY.sky, JOY.mint, JOY.grape]}
+            opacity={0.42}
+          />
         )}
 
         {/* Gold keyline, inset from the bleed — the frame a certificate would wear. */}
-        <div style={{ position: "absolute", inset: 14, border: `1px solid ${GOLD}`, opacity: 0.45, borderRadius: 4 }} />
-        <div style={{ position: "absolute", top: 22, left: 24 }}><Octagram size={30} stroke={GOLD_SOFT} strokeWidth={1.4} opacity={0.55} /></div>
-        <div style={{ position: "absolute", top: 22, right: 24 }}><Octagram size={30} stroke={GOLD_SOFT} strokeWidth={1.4} opacity={0.55} /></div>
+        <div style={{ position: "absolute", inset: 10, border: `1px solid ${GOLD}`, opacity: 0.4, borderRadius: 4 }} />
 
-        <div style={{ position: "relative" }}>
-          {/* Two fanoos hung either side of the identity mark — the first thing a child finds. */}
-          {joyful && (
-            <>
-              <div style={{ position: "absolute", top: -8, left: 180 }}>
-                <Lantern height={96} />
-              </div>
-              <div style={{ position: "absolute", top: -8, right: 180 }}>
-                <Lantern height={96} />
-              </div>
-            </>
-          )}
+        {/* The hero object, out of the flow. In the corner opposite the mark it still opens the
+            card, but it no longer pushes the lesson 120px further down the image. */}
+        {joyful && (
+          <div style={{ position: "absolute", insetInlineEnd: 42, top: 24 }}>
+            <MushafBurst width={124} cover={shade(accent, 0.3)} />
+          </div>
+        )}
 
-          {/* Identity: the academy's own mark, or a woven monogram when it has none. */}
+        {/* Identity row: the academy's own mark, or a woven monogram when it has none. */}
+        <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 18 }}>
           <div
             style={{
-              width: 92,
-              height: 92,
-              margin: "0 auto",
+              width: 68,
+              height: 68,
+              flexShrink: 0,
               borderRadius: "50%",
               background: PAPER,
               border: `3px solid ${GOLD}`,
@@ -358,72 +358,65 @@ export function ReportCard(props: ReportCardProps) {
           >
             {logoDataUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoDataUrl} alt="" style={{ width: 80, height: 80, objectFit: "contain" }} />
+              <img src={logoDataUrl} alt="" style={{ width: 58, height: 58, objectFit: "contain" }} />
             ) : (
-              <Octagram size={62} stroke={accent} strokeWidth={2.4} />
+              <Octagram size={46} stroke={accent} strokeWidth={2.4} />
             )}
           </div>
-
-          <div
-            style={{
-              marginTop: 14,
-              fontSize: 22,
-              fontWeight: 700,
-              color: GOLD_SOFT,
-              letterSpacing: isAr ? 0 : 4,
-              textTransform: isAr ? "none" : "uppercase",
-            }}
-          >
-            {academyName}
-          </div>
-
-          <div style={{ marginTop: 12, marginBottom: 12 }}>
-            <Divider color={GOLD} width={150} />
-          </div>
-
-          <div style={{ fontFamily: DISPLAY, fontSize: 42, fontWeight: 700, lineHeight: 1.25, color: "#FFFFFF" }}>
-            {headline}
-          </div>
-
-          {intro && (
+          <div style={{ minWidth: 0 }}>
             <div
               style={{
-                margin: "12px auto 0",
-                maxWidth: 760,
-                fontSize: 18,
-                lineHeight: 1.7,
-                color: "rgba(255,255,255,0.82)",
+                fontSize: 21,
+                fontWeight: 700,
+                color: GOLD_SOFT,
+                letterSpacing: isAr ? 0 : 3,
+                textTransform: isAr ? "none" : "uppercase",
+                lineHeight: 1.3,
               }}
             >
-              {intro}
+              {academyName}
             </div>
-          )}
+            {/* The tagline lives here now rather than in the footer, where it was a second, larger
+                copy of the same two facts. */}
+            {tagline && (
+              <div style={{ marginTop: 3, fontSize: 15, lineHeight: 1.5, color: "rgba(255,255,255,0.6)" }}>
+                {tagline}
+              </div>
+            )}
+          </div>
+        </div>
 
-          {/* The hero object: an open mushaf with light coming off the page. It closes the header
-              rather than straddling its seam — the facts strip lifts 52px into that seam, and an
-              illustration there buries the date. */}
-          {joyful && (
-            <div style={{ marginTop: 12, display: "flex", justifyContent: "center" }}>
-              <MushafBurst width={168} cover={shade(accent, 0.3)} />
+        {/* The headline keeps the display face and the ceremony of scale; it just no longer needs
+            a whole page to itself. maxWidth clears the artwork in the opposite corner. */}
+        <div style={{ position: "relative", marginTop: 20, maxWidth: joyful ? 740 : 880 }}>
+          <div style={{ fontFamily: DISPLAY, fontSize: 34, fontWeight: 700, lineHeight: 1.3, color: "#FFFFFF" }}>
+            {headline}
+          </div>
+          {intro && (
+            <div style={{ marginTop: 8, fontSize: 17, lineHeight: 1.65, color: "rgba(255,255,255,0.8)" }}>
+              {intro}
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Facts strip — lifted over the header seam ─────────────────── */}
-      <div style={{ padding: "0 56px", marginTop: -44, position: "relative" }}>
+      {/* ── Facts strip — lifted over the header seam ───────────────────
+          Five cells on one row. Attendance used to sit below the strip as its own centred pill,
+          which bought a fact everyone already reads first another 62px of page. It keeps the
+          colour that made it findable and gives back the row. */}
+      <div style={{ padding: "0 56px", marginTop: -22, position: "relative" }}>
         <div
           style={{
             background: PAPER,
             border: `1px solid ${LINE}`,
-            borderRadius: 24,
-            boxShadow: "0 18px 40px rgba(22,38,31,0.12)",
-            padding: "22px 20px",
+            borderRadius: 18,
+            boxShadow: "0 12px 30px rgba(22,38,31,0.11)",
+            padding: "16px 14px",
             display: "flex",
-            alignItems: "stretch",
+            alignItems: "center",
           }}
         >
-          {facts.map((f, i) => (
+          {facts.map((f) => (
             <div
               key={f.label}
               style={{
@@ -431,53 +424,69 @@ export function ReportCard(props: ReportCardProps) {
                 minWidth: 0,
                 textAlign: "center",
                 padding: "0 10px",
-                borderInlineEnd: i < facts.length - 1 ? `1px solid ${LINE}` : "none",
+                borderInlineEnd: `1px solid ${LINE}`,
               }}
             >
-              <div style={{ fontSize: 15, color: INK_SOFT, letterSpacing: isAr ? 0 : 1 }}>{f.label}</div>
-              <div style={{ marginTop: 8, fontSize: 23, fontWeight: 700, color: INK, lineHeight: 1.35 }}>{f.value}</div>
+              <div style={{ fontSize: 14, color: INK_SOFT, letterSpacing: isAr ? 0 : 1 }}>{f.label}</div>
+              <div style={{ marginTop: 6, fontSize: 21, fontWeight: 700, color: INK, lineHeight: 1.3 }}>{f.value}</div>
             </div>
           ))}
-        </div>
 
-        {/* Attendance verdict — the one fact a parent looks for first, so it gets its own pill. */}
-        <div style={{ textAlign: "center", marginTop: 18 }}>
-          <span
-            style={{
-              display: "inline-block",
-              padding: "9px 30px",
-              borderRadius: 999,
-              background: `${accent}14`,
-              border: `1.5px solid ${accent}59`,
-              color: accent,
-              fontSize: 19,
-              fontWeight: 700,
-            }}
-          >
-            {labels.attendance} · {attendanceLabel}
-          </span>
+          <div style={{ flex: 1.15, minWidth: 0, textAlign: "center", padding: "0 10px" }}>
+            <div style={{ fontSize: 14, color: INK_SOFT, letterSpacing: isAr ? 0 : 1 }}>{labels.attendance}</div>
+            <div
+              style={{
+                marginTop: 5,
+                display: "inline-block",
+                padding: "4px 18px",
+                borderRadius: 999,
+                background: `${accent}14`,
+                border: `1.5px solid ${accent}59`,
+                color: accent,
+                fontSize: 18,
+                fontWeight: 700,
+              }}
+            >
+              {attendanceLabel}
+            </div>
+          </div>
         </div>
       </div>
 
       {/* ── The lesson itself ─────────────────────────────────────────── */}
       {(sections.length > 0 || bodyHtml) && (
-        <div style={{ padding: "38px 56px 0" }}>
+        <div style={{ padding: "30px 56px 0" }}>
           <SectionHeading title={labels.journey} accent={accent} isAr={isAr} joyful={joyful} spot={0} />
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {sections.map((s) => (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: pairSections ? "1fr 1fr" : "1fr",
+              gap: 14,
+              alignItems: "start",
+            }}
+          >
+            {sections.map((s, i) => (
               <div
                 key={s.label}
                 style={{
+                  // An odd last field spans the row rather than leaving a hole beside it — a gap
+                  // at the end of a grid reads as a missing field, not as a finished document.
+                  gridColumn:
+                    pairSections && i === sections.length - 1 && sections.length % 2 === 1
+                      ? "1 / -1"
+                      : undefined,
                   background: PAPER,
                   border: `1px solid ${LINE}`,
                   borderRadius: 18,
                   borderInlineStart: `5px solid ${accent}`,
-                  padding: "22px 26px",
+                  padding: pairSections ? "18px 22px" : "20px 26px",
+                  height: "100%",
+                  boxSizing: "border-box",
                 }}
               >
-                <div style={{ fontSize: 19, fontWeight: 700, color: accent, marginBottom: 8 }}>{s.label}</div>
-                <div style={{ fontSize: 24, lineHeight: 1.7, color: INK, whiteSpace: "pre-wrap" }}>{s.value}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: accent, marginBottom: 6 }}>{s.label}</div>
+                <div style={{ fontSize: 23, lineHeight: 1.65, color: INK, whiteSpace: "pre-wrap" }}>{s.value}</div>
               </div>
             ))}
 
@@ -485,6 +494,7 @@ export function ReportCard(props: ReportCardProps) {
             {bodyHtml && (
               <div
                 style={{
+                  gridColumn: "1 / -1",
                   background: PAPER,
                   border: `1px solid ${LINE}`,
                   borderRadius: 18,
@@ -503,7 +513,7 @@ export function ReportCard(props: ReportCardProps) {
 
       {/* ── Ratings ───────────────────────────────────────────────────── */}
       {ratings.length > 0 && (
-        <div style={{ padding: "34px 56px 0" }}>
+        <div style={{ padding: "28px 56px 0" }}>
           <SectionHeading title={labels.ratings} accent={accent} isAr={isAr} joyful={joyful} spot={2} />
           <div
             style={{
@@ -547,7 +557,7 @@ export function ReportCard(props: ReportCardProps) {
 
       {/* ── The academy's voice: a word to the child, then the du'a ────── */}
       {championMessage && (
-        <div style={{ padding: "34px 56px 0" }}>
+        <div style={{ padding: "28px 56px 0" }}>
           <SectionHeading title={labels.message} accent={accent} isAr={isAr} joyful={joyful} spot={3} />
           <div
             style={{
@@ -575,14 +585,14 @@ export function ReportCard(props: ReportCardProps) {
       )}
 
       {dua && (
-        <div style={{ padding: "26px 56px 0" }}>
+        <div style={{ padding: "24px 56px 0" }}>
           <div
             style={{
               position: "relative",
               border: `2px solid ${GOLD}`,
               borderRadius: 18,
               background: "#FFFDF6",
-              padding: "34px 40px 30px",
+              padding: "26px 36px 24px",
               textAlign: "center",
             }}
           >
@@ -602,17 +612,20 @@ export function ReportCard(props: ReportCardProps) {
             <div style={{ fontSize: 15, letterSpacing: isAr ? 0 : 2, color: GOLD, fontWeight: 700, textTransform: isAr ? "none" : "uppercase" }}>
               {labels.dua}
             </div>
-            <div style={{ marginTop: 12, fontFamily: DISPLAY, fontSize: 30, lineHeight: 1.95, color: INK }}>{dua}</div>
+            <div style={{ marginTop: 10, fontFamily: DISPLAY, fontSize: 28, lineHeight: 1.85, color: INK }}>{dua}</div>
           </div>
         </div>
       )}
 
-      {/* ── Footer band ───────────────────────────────────────────────── */}
+      {/* ── Footer band ──────────────────────────────────────────────────
+          One line, not a second title page. The academy's name and tagline are already the first
+          thing on the card; restating them here at 27px only lengthened an image that was too tall
+          already. What IS new below the fold is who taught the lesson, so that is what it says. */}
       <div
         style={{
-          marginTop: 40,
+          marginTop: 34,
           position: "relative",
-          padding: joyful ? "34px 64px 62px" : "34px 64px 38px",
+          padding: joyful ? "22px 56px 44px" : "22px 56px 24px",
           textAlign: "center",
           background: `linear-gradient(180deg, ${shade(accent, 0.42)} 0%, ${shade(accent, 0.66)} 100%)`,
           color: "#FFFFFF",
@@ -621,29 +634,33 @@ export function ReportCard(props: ReportCardProps) {
         <LatticeWatermark id="rc-footer-lattice" color={GOLD_SOFT} opacity={0.09} />
         {joyful && (
           <>
-            {/* A night sky over domes and minarets: the card closes on somewhere, not on a colour. */}
+            {/* A night sky over domes and minarets: the card still closes on somewhere. */}
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0 }}>
-              <Skyline width={REPORT_CARD_WIDTH} height={96} fill="#000000" opacity={0.3} />
+              <Skyline width={REPORT_CARD_WIDTH} height={58} fill="#000000" opacity={0.3} />
             </div>
-            <div style={{ position: "absolute", top: 22, left: 74 }}><Star size={20} fill={GOLD_SOFT} opacity={0.7} /></div>
-            <div style={{ position: "absolute", top: 58, left: 132 }}><Star size={13} fill={GOLD_SOFT} opacity={0.5} /></div>
-            <div style={{ position: "absolute", top: 30, right: 88 }}><Star size={17} fill={GOLD_SOFT} opacity={0.65} /></div>
-            <div style={{ position: "absolute", top: 70, right: 156 }}><Star size={12} fill={GOLD_SOFT} opacity={0.45} /></div>
+            <div style={{ position: "absolute", top: 16, left: 78 }}><Star size={16} fill={GOLD_SOFT} opacity={0.65} /></div>
+            <div style={{ position: "absolute", top: 30, right: 96 }}><Star size={13} fill={GOLD_SOFT} opacity={0.5} /></div>
           </>
         )}
-        <div style={{ position: "relative" }}>
-          <Divider color={GOLD} width={150} />
-          <div style={{ marginTop: 16, fontSize: 27, fontWeight: 700, color: "#FFFFFF" }}>{academyName}</div>
-          {tagline && (
-            <div style={{ marginTop: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-              {joyful && <Seedling size={30} />}
-              <span style={{ fontSize: 20, color: GOLD_SOFT, lineHeight: 1.7 }}>{tagline}</span>
-            </div>
-          )}
+        <div
+          style={{
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          {joyful && <Seedling size={24} />}
+          <span style={{ fontSize: 19, fontWeight: 700, color: "#FFFFFF" }}>{academyName}</span>
           {teacherName && (
-            <div style={{ marginTop: 16, fontSize: 17, color: "rgba(255,255,255,0.62)" }}>
-              {labels.teacher} · {teacherName}
-            </div>
+            <>
+              <span style={{ color: GOLD_SOFT, opacity: 0.55 }}>·</span>
+              <span style={{ fontSize: 17, color: "rgba(255,255,255,0.66)" }}>
+                {labels.teacher} · {teacherName}
+              </span>
+            </>
           )}
         </div>
       </div>
@@ -666,9 +683,9 @@ function SectionHeading({
   spot?: number;
 }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 16 }}>
-      {joyful ? <SpotMark index={spot} accent={accent} /> : <Octagram size={24} stroke={accent} fill={accent} strokeWidth={1} />}
-      <div style={{ fontSize: 25, fontWeight: 700, color: INK, letterSpacing: isAr ? 0 : 0.5, whiteSpace: "nowrap" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+      {joyful ? <SpotMark index={spot} accent={accent} /> : <Octagram size={22} stroke={accent} fill={accent} strokeWidth={1} />}
+      <div style={{ fontSize: 22, fontWeight: 700, color: INK, letterSpacing: isAr ? 0 : 0.5, whiteSpace: "nowrap" }}>
         {title}
       </div>
       <div style={{ flex: 1, height: 1.5, background: `linear-gradient(${isAr ? 270 : 90}deg, ${accent}66, rgba(0,0,0,0))` }} />

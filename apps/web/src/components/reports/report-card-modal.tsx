@@ -287,17 +287,35 @@ export function ReportCardModal({
     setDownloadError(false);
     try {
       const html2canvas = (await import("html2canvas-pro")).default;
+      const width = REPORT_CARD_WIDTH;
+      const height = Math.max(1, Math.ceil(node.scrollHeight));
+
       const canvas = await html2canvas(node, {
-        scale: 2,
+        scale: captureScale(width, height),
         backgroundColor: "#FBF8F1",
         logging: false,
-        windowWidth: REPORT_CARD_WIDTH,
+        // The capture node lives inside a 0×0 overflow-hidden box (see below), so html2canvas is
+        // told the card's real geometry rather than left to infer it from a clipped ancestor.
+        windowWidth: width,
+        width,
+        height,
       });
+
+      // toBlob, not toDataURL: a tall card's base64 string runs to tens of megabytes of JS heap
+      // before a single byte is written, and Safari throws outright somewhere past that.
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/png"),
+      );
+      if (!blob) throw new Error("The report card could not be encoded.");
+
       const safe = (s: string) => s.replace(/[^\p{L}\p{N}_-]+/gu, "_");
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.download = `${safe(session.student_name ?? "report")}-${session.scheduled_at_utc.slice(0, 10)}.png`;
-      link.href = canvas.toDataURL("image/png");
+      link.href = url;
       link.click();
+      // Freed on the next tick — revoking synchronously races the browser's read of the href.
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch {
       setDownloadError(true);
     } finally {
@@ -412,6 +430,29 @@ export function ReportCardModal({
       )}
     </Modal>
   );
+}
+
+/**
+ * How many device pixels to render the card at.
+ *
+ * A browser caps a canvas by AREA, not only by side length — iOS Safari at roughly 16.7 megapixels,
+ * desktop Chrome far higher but still finite — and past the cap the canvas comes back blank or
+ * silently downscaled. Nothing throws. That is exactly the "a long report downloads pixelated and
+ * enormous" bug: the card is a fixed 1080 wide and free-height, so a six-section lesson runs past
+ * 4000px, and a flat `scale: 2` asked for 2160×8000 = 17Mpx — over the edge on the phones these
+ * cards are actually opened on.
+ *
+ * So the multiplier is derived from the card's real height instead of hard-coded. Short cards still
+ * get the crisp 2×; a long one steps down to whatever fits, and never below 1× — a card is always
+ * captured at least at its own size, so text stays legible even at the extreme.
+ */
+const MAX_CANVAS_PIXELS = 16_000_000;
+
+export function captureScale(width: number, height: number): number {
+  const fit = Math.sqrt(MAX_CANVAS_PIXELS / (width * height));
+  // Floored, not rounded: squaring a scale that came out of a square root lands a hair ABOVE the
+  // budget in binary floating point, and "a hair above" is the whole failure mode being fixed.
+  return Math.min(2, Math.max(1, Math.floor(fit * 100) / 100));
 }
 
 /**

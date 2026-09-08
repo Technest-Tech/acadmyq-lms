@@ -47,7 +47,7 @@ import {
   useBottomBarInset,
   useRequestCodeHref,
 } from "@/components/learn/site-chrome";
-import { Modal } from "@/components/ui/modal";
+import { SiteModal } from "@/components/learn/site-modal";
 import {
   courseAction,
   offersCode,
@@ -604,13 +604,12 @@ export default function CourseDetailPage() {
       )}
 
       {preview && (
-        <Modal
+        <SiteModal
           open
           size="xl"
           onClose={() => setPreview(null)}
           title={preview.title}
           description={t("course.previewNote")}
-          closeLabel={t("player.close")}
         >
           <LessonContent lesson={preview} academy={academy} />
           {previews.length > 1 && (
@@ -637,7 +636,7 @@ export default function CourseDetailPage() {
                 ))}
             </div>
           )}
-        </Modal>
+        </SiteModal>
       )}
     </>
   );

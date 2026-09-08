@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  BadgeCheck,
   BookOpenCheck,
   CalendarDays,
   CalendarClock,
@@ -9,6 +10,7 @@ import {
   Clock3,
   Copy,
   ExternalLink,
+  FileImage,
   Link2,
   Loader2,
   MessageCircle,
@@ -21,6 +23,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useState, type ReactNode } from "react";
 import type { LessonPackageRow } from "@/lib/api";
+import { apiBase } from "@/lib/api-base";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { formatDateTime, formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -35,8 +38,10 @@ export function PackageCard({
   onBillOverdraft,
   onSyncLessons,
   onSendPayment,
+  onMarkPaid,
   canManage,
   canSendInvoice,
+  canMarkPaid,
   syncing,
   sendingPayment,
 }: {
@@ -48,8 +53,10 @@ export function PackageCard({
   onBillOverdraft: () => void;
   onSyncLessons: () => void;
   onSendPayment: () => void;
+  onMarkPaid: () => void;
   canManage: boolean;
   canSendInvoice: boolean;
+  canMarkPaid: boolean;
   syncing: boolean;
   sendingPayment: boolean;
 }) {
@@ -234,6 +241,13 @@ export function PackageCard({
                       })
                     : t("card.invoiceOpen")
             }
+            hint={
+              row.payment_reference !== null
+                ? t("card.paymentReference", {
+                    reference: row.payment_reference,
+                  })
+                : (row.payment_reason ?? undefined)
+            }
             danger={owes}
           />
         </dl>
@@ -295,11 +309,33 @@ export function PackageCard({
             </ActionButton>
           )}
 
+          {row.payment_proof_url !== null && (
+            <a
+              href={`${apiBase()}${row.payment_proof_url}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={actionClass()}
+            >
+              <FileImage className="size-3.5" aria-hidden />
+              {t("actions.viewProof")}
+            </a>
+          )}
+
+          {canMarkPaid && row.invoice_id !== null && owes && (
+            <ActionButton icon={BadgeCheck} onClick={onMarkPaid} full>
+              {t("actions.markPaid")}
+            </ActionButton>
+          )}
+
           {canManage && isActive && (
             <>
               {/* Correcting the terms sits with the other things you do TO a running package,
                   not up in the header: it is a repair, not the card's main verb. */}
-              <ActionButton icon={Pencil} onClick={onEdit} testId="edit-package">
+              <ActionButton
+                icon={Pencil}
+                onClick={onEdit}
+                testId="edit-package"
+              >
                 {t("actions.edit")}
               </ActionButton>
               <ActionButton
@@ -406,7 +442,12 @@ function InfoRow({
         )}
         aria-hidden
       />
-      <dt className={cn("shrink-0", highlight ? "text-destructive/80" : "text-muted-foreground")}>
+      <dt
+        className={cn(
+          "shrink-0",
+          highlight ? "text-destructive/80" : "text-muted-foreground",
+        )}
+      >
         {label}
       </dt>
       <dd

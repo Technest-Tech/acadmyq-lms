@@ -105,14 +105,41 @@ final class LessonPackageController extends Controller
             ->count();
 
         $active = (int) DB::table('lesson_packages')->where('status', 'ACTIVE')->count();
+        $completed = (int) DB::table('lesson_packages')->where('status', 'COMPLETED')->count();
+        $cancelled = (int) DB::table('lesson_packages')->where('status', 'CANCELLED')->count();
+
+        // Money is never combined across currencies. Each row is a complete package-finance
+        // snapshot for one currency: contracted value, finished value, cash collected and debt.
+        $financials = DB::table('lesson_packages as p')
+            ->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')
+            ->groupBy('p.currency')
+            ->orderBy('p.currency')
+            ->selectRaw('p.currency')
+            ->selectRaw("coalesce(sum(case when p.status = 'ACTIVE' then p.price_minor else 0 end), 0) as active_value_minor")
+            ->selectRaw("coalesce(sum(case when p.status = 'COMPLETED' then p.price_minor else 0 end), 0) as completed_value_minor")
+            ->selectRaw('coalesce(sum(least(coalesce(i.amount_paid_minor, 0), coalesce(i.total_minor, 0))), 0) as collected_minor')
+            ->selectRaw('coalesce(sum(greatest(coalesce(i.total_minor, 0) - coalesce(i.amount_paid_minor, 0), 0)), 0) as outstanding_minor')
+            ->selectRaw("coalesce(sum(case when p.status = 'COMPLETED' then greatest(coalesce(i.total_minor, 0) - coalesce(i.amount_paid_minor, 0), 0) else 0 end), 0) as completed_outstanding_minor")
+            ->get()
+            ->map(fn ($row) => [
+                'currency' => (string) $row->currency,
+                'active_value_minor' => (int) $row->active_value_minor,
+                'completed_value_minor' => (int) $row->completed_value_minor,
+                'collected_minor' => (int) $row->collected_minor,
+                'outstanding_minor' => (int) $row->outstanding_minor,
+                'completed_outstanding_minor' => (int) $row->completed_outstanding_minor,
+            ]);
 
         return response()->json([
             'active' => $active,
+            'completed' => $completed,
+            'cancelled' => $cancelled,
             'lowBalance' => $lowBalance,
             'needsBilling' => $needsBilling,
             'pendingOverdraft' => $pendingOverdraft,
             'unpaid' => $unpaid,
             'total' => $lowBalance + $needsBilling + $pendingOverdraft + $unpaid,
+            'financials' => $financials,
         ]);
     }
 
@@ -375,6 +402,7 @@ final class LessonPackageController extends Controller
                 's.full_name as student_name',
                 'i.status as invoice_status', 'i.total_minor as invoice_total_minor',
                 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
+                'i.payment_method', 'i.payment_reason', 'i.payment_reference', 'i.payment_proof_path',
             ])
             ->selectSub(
                 DB::table('lesson_package_credits as pc')
@@ -446,7 +474,15 @@ final class LessonPackageController extends Controller
             'invoice_id' => $row->invoice_id !== null ? (string) $row->invoice_id : null,
             'invoice_status' => $row->invoice_status !== null ? (string) $row->invoice_status : null,
             'invoice_token' => $row->invoice_token !== null ? (string) $row->invoice_token : null,
+            'invoice_total_minor' => $row->invoice_total_minor !== null ? (int) $row->invoice_total_minor : 0,
+            'invoice_paid_minor' => $row->invoice_paid_minor !== null ? (int) $row->invoice_paid_minor : 0,
             'outstanding_minor' => $outstanding,
+            'payment_method' => $row->payment_method !== null ? (string) $row->payment_method : null,
+            'payment_reason' => $row->payment_reason !== null ? (string) $row->payment_reason : null,
+            'payment_reference' => $row->payment_reference !== null ? (string) $row->payment_reference : null,
+            'payment_proof_url' => $row->payment_proof_path !== null
+                ? "/api/invoices/{$row->invoice_id}/payment-proof"
+                : null,
             'overdraft_billed' => $row->overdraft_invoice_id !== null,
             'created_at' => Carbon::parse($row->created_at)->utc()->toIso8601String(),
         ];

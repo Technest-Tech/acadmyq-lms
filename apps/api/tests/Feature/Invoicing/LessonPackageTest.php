@@ -6,8 +6,10 @@ use App\Services\Invoicing;
 use App\Services\LessonPackages;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Sanctum;
@@ -294,6 +296,34 @@ it('imports already billed lessons from the package start date when the package 
         ->and((int) DB::table('invoices')->where('id', $oldInvoiceId)->value('total_minor'))->toBe(0);
 });
 
+it('imports a lesson completed today when the database uses the academy Cairo timezone', function () {
+    DB::statement("set time zone 'Africa/Cairo'");
+
+    try {
+        Carbon::setTestNow(Carbon::parse('2026-09-08T01:20:00+00:00'));
+        $session = ($this->lesson)(40, '2026-09-08 00:19:00+00');
+        Sanctum::actingAs($this->owner);
+        $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+        $this->asAcademy($this->academy);
+        $package = app(LessonPackages::class)->open([
+            'student_id' => $this->student,
+            'label' => '16 lessons',
+            'minutes_total' => 960,
+            'price_minor' => 30000,
+            'currency' => 'AED',
+            'bill_timing' => 'ON_COMPLETION',
+            'starts_on' => '2026-09-08',
+        ], (string) $this->owner->id, 'ACADEMY_OWNER');
+
+        expect($package['imported_lessons'])->toBe(1)
+            ->and((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(40)
+            ->and(DB::table('lesson_package_credits')->where('session_id', $session)->count())->toBe(1);
+    } finally {
+        DB::statement("set time zone 'UTC'");
+    }
+});
+
 it('never moves a historical lesson off a settled invoice', function () {
     $session = ($this->lesson)(60, '2026-06-02 10:00:00+00');
     Sanctum::actingAs($this->owner);
@@ -402,7 +432,37 @@ it('counts an unpaid finished package in the attention summary', function () {
     $this->getJson('/api/packages/summary')
         ->assertOk()
         ->assertJsonPath('unpaid', 1)
-        ->assertJsonPath('active', 0);
+        ->assertJsonPath('active', 0)
+        ->assertJsonPath('completed', 1)
+        ->assertJsonPath('financials.0.currency', 'EGP')
+        ->assertJsonPath('financials.0.completed_value_minor', 20000)
+        ->assertJsonPath('financials.0.outstanding_minor', 20000);
+});
+
+it('records a package payment with its transaction reference and private proof', function () {
+    Storage::fake('local');
+    $package = ($this->openPackage)(1, 20000);
+    $session = ($this->lesson)(60);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->post("/api/invoices/{$package['invoice_id']}/mark-paid", [
+        'payment_method' => 'BANK_TRANSFER',
+        'payment_reason' => 'Paid by the parent',
+        'payment_reference' => 'BANK-77881',
+        'payment_proof' => UploadedFile::fake()->image('receipt.jpg'),
+    ])->assertOk()
+        ->assertJsonPath('status', 'PAID')
+        ->assertJsonPath('payment_reference', 'BANK-77881');
+
+    $this->asAcademy($this->academy);
+    $invoice = DB::table('invoices')->where('id', $package['invoice_id'])->first();
+    expect($invoice->payment_reference)->toBe('BANK-77881')
+        ->and($invoice->payment_proof_path)->not->toBeNull();
+    Storage::disk('local')->assertExists((string) $invoice->payment_proof_path);
+
+    Sanctum::actingAs($this->owner);
+    $this->get("/api/invoices/{$package['invoice_id']}/payment-proof")->assertOk();
 });
 
 it('flags the owner when a new package opens with an earlier one unpaid', function () {

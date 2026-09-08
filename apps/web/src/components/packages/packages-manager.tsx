@@ -2,16 +2,21 @@
 
 import {
   AlertTriangle,
+  Banknote,
   CircleDollarSign,
+  History,
   Hourglass,
   Layers,
+  PackageCheck,
   Plus,
+  ReceiptText,
   Timer,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { EditPackageForm } from "@/components/packages/edit-package-form";
+import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { OpenPackageForm } from "@/components/packages/open-package-form";
 import { PackageCard } from "@/components/packages/package-card";
 import { PackageDetail } from "@/components/packages/package-detail";
@@ -29,7 +34,9 @@ import {
   syncLessonPackage,
   type LessonPackageRow,
   type LessonPackageSummary,
+  type PackageFinancialSummary,
 } from "@/lib/api";
+import { formatMoney } from "@/lib/money";
 import { formatHours } from "@/lib/time";
 
 /**
@@ -41,7 +48,7 @@ import { formatHours } from "@/lib/time";
  * overdraft still stranded) that no single query parameter expresses — and the list is capped at
  * 500 rows, which is one academy's entire package history.
  */
-type SegmentKey = "attention" | "active" | "completed" | "all";
+type SegmentKey = "attention" | "active" | "history" | "all";
 
 /**
  * The Packages screen: every block of hours the academy has sold, how much of each is left, and
@@ -58,6 +65,7 @@ export function PackagesManager() {
   const { can } = useAuth();
   const canManage = can("package.manage");
   const canSendInvoice = can("invoice.send_link");
+  const canMarkPaid = can("invoice.mark_paid");
   const timezone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
     [],
@@ -73,6 +81,7 @@ export function PackagesManager() {
     | { kind: "detail"; row: LessonPackageRow }
     | { kind: "edit"; row: LessonPackageRow }
     | { kind: "close"; row: LessonPackageRow }
+    | { kind: "markPaid"; row: LessonPackageRow }
   >({ kind: "closed" });
   const [busy, setBusy] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
@@ -128,8 +137,8 @@ export function PackagesManager() {
         return matched.filter(needsAttention);
       case "active":
         return matched.filter((r) => r.status === "ACTIVE");
-      case "completed":
-        return matched.filter((r) => r.status === "COMPLETED");
+      case "history":
+        return matched.filter((r) => r.status !== "ACTIVE");
       default:
         return matched;
     }
@@ -295,6 +304,56 @@ export function PackagesManager() {
         </p>
       </div>
 
+      <section aria-label={t("finance.title")} className="space-y-2">
+        <div className="flex items-center gap-2">
+          <ReceiptText className="text-primary size-4" aria-hidden />
+          <h2 className="text-sm font-bold">{t("finance.title")}</h2>
+          <span className="text-muted-foreground text-xs">
+            {t("finance.currencyNote")}
+          </span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <FinanceTile
+            icon={Timer}
+            label={t("finance.activeValue")}
+            hint={t("finance.activeValueHint")}
+            rows={summary?.financials ?? null}
+            field="active_value_minor"
+            tone="violet"
+            locale={locale}
+          />
+          <FinanceTile
+            icon={PackageCheck}
+            label={t("finance.completedValue")}
+            hint={t("finance.completedValueHint", {
+              count: summary?.completed ?? 0,
+            })}
+            rows={summary?.financials ?? null}
+            field="completed_value_minor"
+            tone="blue"
+            locale={locale}
+          />
+          <FinanceTile
+            icon={Banknote}
+            label={t("finance.collected")}
+            hint={t("finance.collectedHint")}
+            rows={summary?.financials ?? null}
+            field="collected_minor"
+            tone="emerald"
+            locale={locale}
+          />
+          <FinanceTile
+            icon={CircleDollarSign}
+            label={t("finance.outstanding")}
+            hint={t("finance.outstandingHint")}
+            rows={summary?.financials ?? null}
+            field="outstanding_minor"
+            tone="rose"
+            locale={locale}
+          />
+        </div>
+      </section>
+
       {alert && (
         <AlertBanner
           variant={alert.variant}
@@ -314,22 +373,20 @@ export function PackagesManager() {
             className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full max-w-xs rounded-xl border px-3 py-2 text-sm outline-none transition-colors focus:ring-3"
           />
           <div className="flex gap-1.5">
-            {(["attention", "active", "completed", "all"] as const).map(
-              (key) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setSegment(key)}
-                  className={
-                    segment === key
-                      ? "bg-primary/10 text-primary rounded-lg px-2.5 py-1 text-xs font-semibold"
-                      : "text-muted-foreground hover:bg-muted/50 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors"
-                  }
-                >
-                  {t(`segments.${key}`)}
-                </button>
-              ),
-            )}
+            {(["attention", "active", "history", "all"] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSegment(key)}
+                className={
+                  segment === key
+                    ? "bg-primary/10 text-primary rounded-lg px-2.5 py-1 text-xs font-semibold"
+                    : "text-muted-foreground hover:bg-muted/50 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors"
+                }
+              >
+                {t(`segments.${key}`)}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -351,6 +408,7 @@ export function PackagesManager() {
               timezone={timezone}
               canManage={canManage}
               canSendInvoice={canSendInvoice}
+              canMarkPaid={canMarkPaid}
               syncing={syncingId === row.id}
               sendingPayment={sendingId === row.id}
               onOpenDetail={() => setModal({ kind: "detail", row })}
@@ -362,6 +420,7 @@ export function PackagesManager() {
               onBillOverdraft={() => void billOverdraft(row)}
               onSyncLessons={() => void syncLessons(row)}
               onSendPayment={() => void sendPayment(row)}
+              onMarkPaid={() => setModal({ kind: "markPaid", row })}
             />
           ))}
         </div>
@@ -473,6 +532,90 @@ export function PackagesManager() {
           </div>
         )}
       </Modal>
+
+      {modal.kind === "markPaid" && modal.row.invoice_id !== null && (
+        <MarkPaidModal
+          open
+          invoiceId={modal.row.invoice_id}
+          totalMinor={modal.row.invoice_total_minor}
+          currency={modal.row.currency}
+          onClose={() => setModal({ kind: "closed" })}
+          onSuccess={() => {
+            setModal({ kind: "closed" });
+            refresh();
+            showAlert("success", t("alerts.markedPaid"));
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+type FinanceField =
+  | "active_value_minor"
+  | "completed_value_minor"
+  | "collected_minor"
+  | "outstanding_minor";
+
+function FinanceTile({
+  icon: Icon,
+  label,
+  hint,
+  rows,
+  field,
+  tone,
+  locale,
+}: {
+  icon: typeof History;
+  label: string;
+  hint: string;
+  rows: PackageFinancialSummary[] | null;
+  field: FinanceField;
+  tone: "violet" | "blue" | "emerald" | "rose";
+  locale: string;
+}) {
+  const tones = {
+    violet: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
+    blue: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
+    emerald: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
+    rose: "bg-rose-500/10 text-rose-600 ring-rose-500/20",
+  } as const;
+  const visible = rows?.filter((row) => row[field] !== 0) ?? [];
+
+  return (
+    <article className="bg-card rounded-2xl border p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <span
+          className={`flex size-10 shrink-0 items-center justify-center rounded-xl ring-1 ${tones[tone]}`}
+        >
+          <Icon className="size-5" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-muted-foreground text-xs font-semibold">{label}</p>
+          {rows === null ? (
+            <p className="mt-1 text-lg font-bold">—</p>
+          ) : visible.length === 0 ? (
+            <p className="mt-1 text-lg font-bold">0</p>
+          ) : (
+            <div className="mt-1 space-y-0.5">
+              {visible.map((row) => (
+                <p
+                  key={row.currency}
+                  className="text-base font-bold tabular-nums"
+                >
+                  {formatMoney(
+                    { amount: row[field], currency: row.currency },
+                    locale,
+                  )}
+                </p>
+              ))}
+            </div>
+          )}
+          <p className="text-muted-foreground mt-1 text-[11px] leading-4">
+            {hint}
+          </p>
+        </div>
+      </div>
+    </article>
   );
 }
