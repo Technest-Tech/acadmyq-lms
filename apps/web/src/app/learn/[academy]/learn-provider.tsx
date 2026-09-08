@@ -23,6 +23,7 @@ import {
   SiteHeader,
   SiteWhatsappButton,
 } from "@/components/learn/site-chrome";
+import { useSitePreview } from "@/components/learn/preview-bridge";
 import { SiteTheme } from "@/components/learn/theme";
 import { SiteModal } from "@/components/learn/site-modal";
 import { resolveSiteName } from "@/lib/learn-brand";
@@ -59,7 +60,7 @@ const NO_COMMERCE: LearnSiteCommerce = {
 
 export function LearnProvider({
   academy,
-  site,
+  site: published,
   stats,
   commerce,
   academyName,
@@ -76,6 +77,11 @@ export function LearnProvider({
 }) {
   const t = useTranslations("learn");
   const pathname = usePathname();
+
+  // Inside the site builder's preview frame this is the unsaved draft, updated on every keystroke;
+  // everywhere else it is null and the site renders what the server sent (preview-bridge.tsx).
+  const draft = useSitePreview();
+  const site = draft ?? published;
 
   const [learner, setLearner] = useState<LearnProfile | null>(null);
   const [enrolled, setEnrolled] = useState<Set<string>>(new Set());

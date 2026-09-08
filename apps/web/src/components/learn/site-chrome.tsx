@@ -97,12 +97,15 @@ interface NavItem {
 
 function useNavItems(): NavItem[] {
   const t = useTranslations("learn.nav");
-  const { academy, site } = useLearn();
+  const { academy, site, commerce } = useLearn();
   const base = `/learn/${academy}`;
 
   return [
     { href: base, label: t("home") },
     { href: `${base}/courses`, label: t("courses") },
+    // Books only appear for a client who actually sells one (docs/lms/11). The answer travels with
+    // the site document, so the link is right on the first frame instead of appearing a beat late.
+    ...(commerce?.books?.any === true ? [{ href: `${base}/books`, label: t("books") }] : []),
     ...(site.pages.about ? [{ href: `${base}/about`, label: t("about") }] : []),
     ...(site.pages.faq ? [{ href: `${base}/faq`, label: t("faq") }] : []),
     ...(site.pages.contact
@@ -145,6 +148,7 @@ export function SiteHeader() {
 
   return (
     <header
+      id="site-header"
       className={cn(
         "sticky top-0 z-40 border-b transition-all duration-300",
         scrolled
@@ -593,7 +597,7 @@ export function SiteFooter() {
         ] as const);
 
   return (
-    <footer className="relative isolate mt-16 overflow-hidden rounded-t-[2rem] bg-[oklch(0.15_0.025_245)] text-white sm:mt-20 sm:rounded-t-[2.75rem]">
+    <footer id="site-footer" className="relative isolate mt-16 overflow-hidden rounded-t-[2rem] bg-[oklch(0.15_0.025_245)] text-white sm:mt-20 sm:rounded-t-[2.75rem]">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--brand)] to-transparent" />
       <div className="pointer-events-none absolute -top-48 -end-36 -z-10 size-[620px] rounded-full bg-[var(--brand)] opacity-15 blur-[150px]" />
       <span
@@ -672,6 +676,9 @@ export function SiteFooter() {
                 <FooterLink href={`/learn/${academy}/courses`}>
                   {t("nav.courses")}
                 </FooterLink>
+                {commerce?.books?.any === true && (
+                  <FooterLink href={`/learn/${academy}/books`}>{t("nav.books")}</FooterLink>
+                )}
               </li>
               {learner && (
                 <>

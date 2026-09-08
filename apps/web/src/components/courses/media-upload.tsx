@@ -43,8 +43,16 @@ export function MediaUpload({
   onBusyChange?: (busy: boolean) => void;
 }) {
   const t = useTranslations("courses.media");
-  // The copy is per-kind: a cover picker must not tell you to choose a video in MP4 or WebM.
+  // The copy is per-kind: a cover picker must not tell you to choose a video in MP4 or WebM, and a
+  // book upload must not either. IMAGE and DOCUMENT each carry their own three lines; every other
+  // kind keeps the original video wording.
   const isImage = kind === "IMAGE";
+  const copy = (base: "choose" | "hint" | "processing") =>
+    kind === "IMAGE"
+      ? (`${base}Image` as const)
+      : kind === "DOCUMENT"
+        ? (`${base}Doc` as const)
+        : base;
   const inputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<Phase>(hasExisting ? "ready" : "idle");
   const [percent, setPercent] = useState(0);
@@ -181,8 +189,8 @@ export function MediaUpload({
           >
             <UploadCloud className="size-5" />
           </span>
-          <span className="mt-1 font-medium">{t(isImage ? "chooseImage" : "choose")}</span>
-          <span className="text-muted-foreground text-xs">{t(isImage ? "hintImage" : "hint")}</span>
+          <span className="mt-1 font-medium">{t(copy("choose"))}</span>
+          <span className="text-muted-foreground text-xs">{t(copy("hint"))}</span>
         </button>
       )}
 
@@ -205,7 +213,7 @@ export function MediaUpload({
       {phase === "processing" && (
         <div className="border-input text-muted-foreground flex items-center gap-2.5 rounded-xl border p-4 text-sm">
           <Loader2 className="text-primary size-4 animate-spin" />
-          <span className="truncate">{t(isImage ? "processingImage" : "processing")}</span>
+          <span className="truncate">{t(copy("processing"))}</span>
         </div>
       )}
 

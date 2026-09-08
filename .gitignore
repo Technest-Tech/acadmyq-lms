@@ -10,6 +10,10 @@ out/
 
 # Next.js / Vercel
 apps/web/.next/
+# ...and as a bare path: a dev session may symlink .next out to /tmp (iCloud evicts build
+# files), and a trailing-slash pattern does not match a symlink — it would be committed as
+# a dangling link and break the prod build.
+apps/web/.next
 apps/web/out/
 apps/web/.vercel/
 apps/web/next-env.d.ts

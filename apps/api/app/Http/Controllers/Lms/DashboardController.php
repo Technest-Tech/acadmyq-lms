@@ -56,6 +56,14 @@ final class DashboardController extends Controller
         $certificates = (int) DB::table('course_certificates')->count();
         $lessons = (int) DB::table('lessons')->count();
 
+        // The bookshop (docs/lms/11). Same three shapes as courses so the dashboard's catalogue
+        // card can print "3 published / 1 draft" for books without a second query shape.
+        $products = DB::table('digital_products')->whereNull('deleted_at')
+            ->selectRaw('count(*) as total')
+            ->selectRaw("count(*) filter (where status = 'PUBLISHED') as published")
+            ->selectRaw("count(*) filter (where status = 'DRAFT') as draft")
+            ->first();
+
         return response()->json([
             'stats' => [
                 'courses' => (int) ($courses->total ?? 0),
@@ -70,6 +78,11 @@ final class DashboardController extends Controller
                 'active_codes' => (int) ($codes->active ?? 0),
                 'redeemed_codes' => (int) ($codes->redeemed ?? 0),
                 'certificates' => $certificates,
+                'products' => (int) ($products->total ?? 0),
+                'published_products' => (int) ($products->published ?? 0),
+                'draft_products' => (int) ($products->draft ?? 0),
+                'product_owners' => (int) DB::table('product_entitlements')
+                    ->where('status', 'ACTIVE')->count(),
             ],
             'storage' => [
                 'used_bytes' => LmsMedia::usedBytes(),

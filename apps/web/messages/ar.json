@@ -160,6 +160,7 @@
     "adminVideo": "عمليات الفيديو",
     "adminLms": "منصة الدورات",
     "demoRequests": "طلبات العروض",
+    "adminFinance": "المالية",
     "platformSettings": "إعدادات المنصة",
     "roles": "الأدوار والصلاحيات",
     "academyRoles": "الأدوار والصلاحيات",
@@ -171,7 +172,8 @@
     "lmsCodes": "أكواد الوصول",
     "lmsSite": "موقعي",
     "lmsSales": "المبيعات",
-    "lmsPayments": "وسائل الدفع"
+    "lmsPayments": "وسائل الدفع",
+    "lmsBooks": "الكتب وملفات PDF"
   },
   "navGroup": {
     "general": "عام",
@@ -799,7 +801,7 @@
       "payoutWallet": "محفظة إلكترونية",
       "payoutHandleInstapay": "عنوان أو رابط إنستاباي",
       "payoutHandleWallet": "رقم المحفظة",
-      "payoutHandleInstapayPlaceholder": "name@instapay أو ipn.eg/S/\u2026",
+      "payoutHandleInstapayPlaceholder": "name@instapay أو ipn.eg/S/…",
       "payoutHandleWalletPlaceholder": "01001234567",
       "none": "بدون"
     },
@@ -3876,7 +3878,10 @@
       "replace": "استبدال",
       "retry": "إعادة المحاولة",
       "failed": "فشل الرفع. حاول مرة أخرى.",
-      "processingFailed": "تعذّرت معالجة هذا الملف. جرّب ملفًا آخر."
+      "processingFailed": "تعذّرت معالجة هذا الملف. جرّب ملفًا آخر.",
+      "chooseDoc": "اختر ملفًا للرفع",
+      "hintDoc": "PDF أو EPUB أو DOCX أو ZIP. الملفات الكبيرة تُرفع مباشرة وقد تستغرق وقتًا.",
+      "processingDoc": "جارٍ الإنهاء…"
     },
     "quizzes": {
       "title": "الاختبارات",
@@ -4206,7 +4211,8 @@
       "requirementsHint": "بند في كل سطر: متطلّبات سابقة أو أدوات، أو لا شيء إطلاقًا.",
       "requirementsPlaceholder": "مثال: جهاز كمبيوتر عليه متصفّح",
       "add": "أضف سطرًا",
-      "max": "هذا هو الحد الأقصى لهذه القائمة."
+      "max": "هذا هو الحد الأقصى لهذه القائمة.",
+      "itemBook": "كتاب"
     },
     "payments": {
       "title": "وسائل الدفع",
@@ -4547,7 +4553,8 @@
       "contact": "تواصل معنا",
       "myLearning": "دوراتي",
       "menu": "القائمة",
-      "myOrders": "طلباتي"
+      "myOrders": "طلباتي",
+      "books": "الكتب"
     },
     "hero": {
       "eyebrow": "تعلّم أونلاين",
@@ -4915,6 +4922,49 @@
         "x": "إكس",
         "linkedin": "لينكدإن",
         "website": "الويب"
+      }
+    },
+    "books": {
+      "catalogTitle": "الكتب وملفات PDF",
+      "catalogSubtitle": "كتب وملفات PDF وكرّاسات قابلة للتنزيل — اقرأ عيّنة مجانية قبل الشراء.",
+      "search": "ابحث في الكتب…",
+      "filterAll": "الكل",
+      "filterPaid": "مدفوع",
+      "free": "مجاني",
+      "empty": "لا توجد كتب بعد",
+      "emptyHint": "لم يُنشر شيء في المتجر بعد — عُد قريبًا.",
+      "noResults": "لا شيء يطابق ذلك",
+      "noResultsHint": "جرّب بحثًا آخر أو امسح عوامل التصفية.",
+      "notFound": "لم نعثر على هذا العنصر.",
+      "backToShop": "العودة إلى الكتب",
+      "sampleBadge": "عيّنة مجانية",
+      "readSample": "اقرأ عيّنة مجانية",
+      "downloadFile": "تنزيل",
+      "locked": "يُضاف عند الشراء",
+      "pages": "{count, plural, one {صفحة واحدة} two {صفحتان} few {# صفحات} other {# صفحة}}",
+      "files": "{count, plural, one {ملف واحد} two {ملفان} few {# ملفات} other {# ملفًا}}",
+      "owners": "{count, plural, one {قارئ واحد} two {قارئان} few {# قرّاء} other {# قارئًا}}",
+      "about": "عن هذا الكتاب",
+      "highlights": "ماذا يحتوي",
+      "audience": "لمن هذا الكتاب",
+      "contents": "ماذا ستحصل عليه",
+      "contentsHint": "كل ما بالأسفل مشمول. والعيّنة المجانية متاحة للقراءة الآن.",
+      "contentsOwned": "أصبح ملكك — نزِّل أي ملف بالأسفل.",
+      "buy": "اشترِ هذا الكتاب",
+      "getFree": "احصل عليه مجانًا",
+      "signInToGet": "سجّل الدخول للتنزيل",
+      "download": "تنزيل",
+      "youOwnIt": "هذا الكتاب أصبح ملكك",
+      "notSold": "هذا الكتاب غير معروض للبيع أونلاين حاليًا.",
+      "contactUs": "تواصل معنا",
+      "claimFailed": "تعذّرت إضافته إلى مكتبتك. حاول مرة أخرى.",
+      "myLibrary": "مكتبتي",
+      "kind": {
+        "EBOOK": "كتاب إلكتروني",
+        "PDF": "ملف PDF",
+        "AUDIOBOOK": "كتاب صوتي",
+        "WORKBOOK": "كرّاسة تدريبات",
+        "BUNDLE": "حزمة"
       }
     }
   },
@@ -6176,8 +6226,49 @@
         "testimonials": "لم تُضَف آراء، لذلك يُخفى هذا القسم من موقعك.",
         "faq": "فارغ — يعرض موقعك أربعة أسئلة جاهزة.",
         "links": "لا روابط إضافية."
+      },
+      "builder": {
+        "published": "منشور",
+        "notPublished": "غير منشور بعد",
+        "copy": "نسخ العنوان",
+        "edit": "التحرير",
+        "preview": "المعاينة",
+        "saved": "محفوظ",
+        "progress": "{done} من {total} أقسام جاهزة",
+        "progressHint": "كل قسم لديه نص جاهز، فموقعك يعمل من أول يوم. املأ ما يجعله موقعك أنت.",
+        "group": {
+          "design": "الشكل والهوية",
+          "home": "الصفحة الرئيسية",
+          "site": "كل الصفحات",
+          "settings": "الإعدادات"
+        },
+        "back": "كل الأقسام",
+        "sectionShown": "هذا القسم ظاهر في موقعك.",
+        "sectionHidden": "هذا القسم مخفي عن الزوار.",
+        "device": {
+          "desktop": "كمبيوتر",
+          "tablet": "تابلت",
+          "mobile": "جوال"
+        },
+        "page": {
+          "home": "الرئيسية",
+          "courses": "الدورات",
+          "about": "من نحن",
+          "faq": "الأسئلة",
+          "contact": "التواصل",
+          "legal": "السياسات"
+        },
+        "live": "مباشر",
+        "reload": "إعادة تحميل المعاينة",
+        "noPreview": "بمجرد إعداد عنوان موقعك، سيظهر موقعك الحقيقي هنا أثناء التحرير.",
+        "noImage": "لا توجد صورة",
+        "clearImage": "إزالة الصورة",
+        "openPage": "فتح هذه الصفحة في تبويب جديد",
+        "loadingPreview": "جارٍ تحميل موقعك…"
       }
-    }
+    },
+    "books": "الكتب وملفات PDF",
+    "booksHint": "{published} منشور · {owners} قارئ"
   },
   "calendar": {
     "sessionsInView": "{count, plural, zero {# حصة معروضة} one {حصة واحدة معروضة} two {حصتان معروضتان} few {# حصص معروضة} many {# حصة معروضة} other {# حصة معروضة}}"
@@ -6236,6 +6327,421 @@
     "export": {
       "fileName": "طلبات-العروض",
       "sheet": "طلبات العروض"
+    }
+  },
+  "finance": {
+    "title": "المالية",
+    "subtitle": "دفترك المالي الخاص — ما اتفق العملاء على دفعه، وما وصل فعلًا.",
+    "tabs": {
+      "overview": "نظرة عامة",
+      "deals": "الصفقات",
+      "payments": "المدفوعات",
+      "clients": "العملاء"
+    },
+    "actions": {
+      "newDeal": "صفقة جديدة",
+      "recordIncome": "تسجيل دخل",
+      "recordPayment": "تسجيل دفعة",
+      "newClient": "عميل جديد",
+      "edit": "تعديل",
+      "editSchedule": "تعديل الجدول",
+      "delete": "حذف",
+      "save": "حفظ",
+      "saving": "جارٍ الحفظ…",
+      "cancel": "إلغاء",
+      "close": "إغلاق",
+      "create": "إنشاء",
+      "confirm": "تأكيد"
+    },
+    "service": {
+      "COURSE_SITE": "موقع الكورسات",
+      "MANAGEMENT_SYSTEM": "نظام الإدارة",
+      "VIDEO_PLATFORM": "منصّة الفيديو",
+      "WHATSAPP_SERVICE": "خدمة واتساب",
+      "CUSTOM_WORK": "عمل مخصّص",
+      "HOSTING": "استضافة ونطاقات",
+      "OTHER": "أخرى"
+    },
+    "kind": {
+      "ONE_TIME": "بيع لمرة واحدة",
+      "SUBSCRIPTION": "اشتراك"
+    },
+    "interval": {
+      "MONTHLY": "شهري",
+      "QUARTERLY": "ربع سنوي",
+      "YEARLY": "سنوي"
+    },
+    "intervalShort": {
+      "MONTHLY": "شهر",
+      "QUARTERLY": "ربع سنة",
+      "YEARLY": "سنة"
+    },
+    "dealStatus": {
+      "ACTIVE": "نشطة",
+      "COMPLETED": "مكتملة",
+      "CANCELLED": "ملغاة"
+    },
+    "installmentStatus": {
+      "PAID": "مدفوع",
+      "PARTIAL": "مدفوع جزئيًا",
+      "OVERDUE": "متأخر",
+      "PENDING": "قادم"
+    },
+    "method": {
+      "CASH": "نقدًا",
+      "BANK_TRANSFER": "تحويل بنكي",
+      "INSTAPAY": "إنستاباي",
+      "VODAFONE_CASH": "فودافون كاش",
+      "PAYPAL": "باي بال",
+      "CARD": "بطاقة",
+      "OTHER": "أخرى"
+    },
+    "overview": {
+      "thisMonth": "المحصَّل هذا الشهر",
+      "thisYear": "المحصَّل هذا العام",
+      "allTime": "الإجمالي الكلي",
+      "outstanding": "المستحق",
+      "overdue": "{amount} متأخرة",
+      "upcoming": "يستحق خلال 30 يومًا",
+      "mrr": "الاشتراكات / شهريًا",
+      "subscriptionsCount": "{count, plural, =0 {لا اشتراكات نشطة} one {اشتراك نشط واحد} two {اشتراكان نشطان} few {# اشتراكات نشطة} many {# اشتراكًا نشطًا} other {# اشتراك نشط}}",
+      "clients": "العملاء",
+      "activeDeals": "صفقات نشطة",
+      "activeSubscriptions": "اشتراكات نشطة",
+      "overdueDeals": "صفقات متأخرة",
+      "upcomingTitle": "الاستحقاقات القادمة",
+      "upcomingEmpty": "لا شيء مستحق.",
+      "recentTitle": "آخر المدفوعات",
+      "recentEmpty": "لم تُسجَّل مدفوعات بعد.",
+      "byServiceTitle": "هذا العام حسب الخدمة",
+      "byServiceEmpty": "لا دخل مسجَّل هذا العام.",
+      "monthlyTitle": "آخر 12 شهرًا",
+      "monthlyEmpty": "لا مدفوعات في آخر 12 شهرًا.",
+      "viewAll": "عرض الكل",
+      "error": "تعذّر تحميل النظرة العامة."
+    },
+    "deals": {
+      "subtitle": "كل عملية بيع واشتراك، مع ما دُفع وما لا يزال مستحقًا.",
+      "searchPlaceholder": "ابحث بالعنوان أو العميل أو الملاحظات…",
+      "empty": "لا صفقات بعد.",
+      "tiles": {
+        "total": "كل الصفقات",
+        "overdue": "متأخرة"
+      },
+      "columns": {
+        "deal": "الصفقة",
+        "service": "الخدمة",
+        "kind": "النوع",
+        "amount": "المبلغ",
+        "paid": "المدفوع",
+        "outstanding": "المستحق",
+        "nextDue": "الاستحقاق القادم",
+        "status": "الحالة",
+        "client": "العميل",
+        "started": "البداية",
+        "currency": "العملة",
+        "interval": "الدورة"
+      },
+      "filters": {
+        "status": "الحالة",
+        "kind": "النوع",
+        "service": "الخدمة",
+        "currency": "العملة",
+        "overdue": "التأخر",
+        "overdueOnly": "المتأخرة فقط"
+      },
+      "perCycle": "{amount} / {interval}",
+      "export": {
+        "fileName": "الصفقات-المالية",
+        "sheet": "الصفقات"
+      }
+    },
+    "deal": {
+      "back": "كل الصفقات",
+      "notFound": "هذه الصفقة لم تعد موجودة.",
+      "error": "تعذّر تحميل الصفقة.",
+      "tiles": {
+        "total": "إجمالي الصفقة",
+        "cyclePrice": "لكل دورة",
+        "paid": "المدفوع حتى الآن",
+        "outstanding": "المستحق",
+        "nextDue": "الاستحقاق القادم",
+        "nothingDue": "لا شيء مستحق"
+      },
+      "schedule": "الجدول",
+      "scheduleHint": "الأموال تُغطّي الجدول بالأقدم أولًا، فأي دفعة جزئية تُكمل أقدم قسط مفتوح.",
+      "scheduleEmpty": "لا أقساط.",
+      "payments": "المدفوعات",
+      "paymentsEmpty": "لم تُسجَّل مدفوعات بعد.",
+      "client": "العميل",
+      "notes": "ملاحظات",
+      "started": "البداية",
+      "created": "أُنشئت",
+      "columns": {
+        "seq": "#",
+        "dueOn": "الاستحقاق",
+        "amount": "المبلغ",
+        "paid": "المدفوع",
+        "remaining": "المتبقي",
+        "status": "الحالة",
+        "note": "ملاحظة",
+        "paidOn": "التاريخ",
+        "method": "الطريقة",
+        "reference": "المرجع"
+      },
+      "deleted": "تم حذف الصفقة.",
+      "paymentDeleted": "تم حذف الدفعة.",
+      "deletePayment": "حذف",
+      "confirmTitle": "تأكيد الحذف",
+      "confirmDeletePayment": "حذف هذه الدفعة؟ سيُعاد حساب الجدول بدونها.",
+      "confirmDelete": "حذف هذه الصفقة مع جدولها ومدفوعاتها؟ لا يمكن التراجع."
+    },
+    "form": {
+      "newTitle": "صفقة جديدة",
+      "editTitle": "تعديل الصفقة",
+      "incomeTitle": "تسجيل دخل",
+      "incomeHint": "بيع دُفع فورًا: صفقة واحدة ودفعة واحدة وانتهى.",
+      "client": "العميل",
+      "pickClient": "اختر عميلًا…",
+      "searchClient": "ابحث في العملاء…",
+      "newClient": "عميل جديد",
+      "existingClient": "عميل موجود",
+      "clientName": "اسم العميل",
+      "clientPhone": "الهاتف",
+      "clientEmail": "البريد",
+      "title": "ما الذي بيع؟",
+      "titlePlaceholder": "مثال: موقع كورسات للأزهري",
+      "service": "الخدمة",
+      "kind": "النوع",
+      "currency": "العملة",
+      "startedOn": "تاريخ البداية",
+      "notes": "ملاحظات",
+      "status": "الحالة",
+      "amount": "المبلغ الإجمالي",
+      "cyclePrice": "سعر الدورة",
+      "interval": "دورة الفوترة",
+      "amountHint": "اترك الخطة فارغة ليُستحق المبلغ كله في تاريخ البداية.",
+      "plan": "خطة الأقساط",
+      "planHint": "قسّم الإجمالي إلى أجزاء، لكل جزء تاريخ استحقاق.",
+      "addInstallment": "إضافة قسط",
+      "splitEvenly": "تقسيم بالتساوي",
+      "parts": "أجزاء",
+      "everyMonths": "كل (شهور)",
+      "planTotal": "إجمالي الخطة",
+      "removeInstallment": "إزالة",
+      "paidNow": "دُفع الآن",
+      "paidNowHint": "سجّل المال الذي وصل بالفعل مع هذه الصفقة.",
+      "paidOn": "تاريخ الدفع",
+      "paidAmount": "المبلغ المستلم",
+      "method": "الطريقة",
+      "reference": "المرجع",
+      "referencePlaceholder": "رقم التحويل، الإيصال…",
+      "paymentNote": "ملاحظة",
+      "currencyLocked": "وصلت أموال على هذه الصفقة، لذا عملتها ثابتة.",
+      "priceChangeHint": "يسري على الدورات القادمة؛ الدورة المفتوحة تحتفظ بمبلغها.",
+      "errors": {
+        "amount": "أدخل مبلغًا أو خطة أقساط.",
+        "plan": "كل قسط يحتاج تاريخًا ومبلغًا.",
+        "client": "اختر عميلًا أو أنشئ واحدًا.",
+        "title": "أعطِ الصفقة اسمًا.",
+        "payment": "أدخل المبلغ المستلم.",
+        "generic": "تعذّر الحفظ. راجع الحقول وحاول مرة أخرى."
+      }
+    },
+    "payment": {
+      "title": "تسجيل دفعة",
+      "hint": "على: {deal}",
+      "suggested": "الاستحقاق القادم: {amount}",
+      "recorded": "تم تسجيل الدفعة."
+    },
+    "schedule": {
+      "title": "تعديل الجدول",
+      "hint": "استبدل خطة الأقساط. تبقى المدفوعات كما هي وتُعاد تغطيتها على الخطة الجديدة."
+    },
+    "payments": {
+      "subtitle": "كل ما وصل من أموال، عبر كل الصفقات.",
+      "searchPlaceholder": "ابحث بالصفقة أو العميل أو المرجع…",
+      "empty": "لا مدفوعات بعد.",
+      "columns": {
+        "paidOn": "التاريخ",
+        "client": "العميل",
+        "deal": "الصفقة",
+        "service": "الخدمة",
+        "amount": "المبلغ",
+        "method": "الطريقة",
+        "reference": "المرجع",
+        "note": "ملاحظة"
+      },
+      "filters": {
+        "method": "الطريقة",
+        "service": "الخدمة",
+        "currency": "العملة",
+        "month": "الشهر",
+        "kind": "النوع"
+      },
+      "sums": "{count, plural, =0 {لا مدفوعات} one {دفعة واحدة} two {دفعتان} few {# دفعات} many {# دفعة} other {# دفعة}} في العرض",
+      "export": {
+        "fileName": "المدفوعات-المالية",
+        "sheet": "المدفوعات"
+      }
+    },
+    "clients": {
+      "subtitle": "الأشخاص والجهات الذين يدفعون لك. غير مرتبطين بحسابات المنصّة.",
+      "searchPlaceholder": "ابحث بالاسم أو الهاتف أو البريد…",
+      "empty": "لا عملاء بعد.",
+      "columns": {
+        "name": "العميل",
+        "contact": "التواصل",
+        "deals": "الصفقات",
+        "received": "المحصَّل",
+        "outstanding": "المستحق",
+        "lastPaid": "آخر دفعة"
+      },
+      "filters": {
+        "active": "النشاط",
+        "withActive": "لديهم صفقات نشطة",
+        "noActive": "بدون صفقات نشطة"
+      },
+      "dealsCount": "{count, plural, =0 {لا صفقات} one {صفقة واحدة} two {صفقتان} few {# صفقات} many {# صفقة} other {# صفقة}}",
+      "activeCount": "{count} نشطة",
+      "form": {
+        "newTitle": "عميل جديد",
+        "editTitle": "تعديل العميل",
+        "name": "الاسم",
+        "phone": "الهاتف",
+        "email": "البريد",
+        "notes": "ملاحظات",
+        "deleteHint": "لا يمكن حذف عميل لديه صفقات.",
+        "viewDeals": "عرض الصفقات",
+        "created": "تم إنشاء العميل.",
+        "saved": "تم حفظ العميل.",
+        "deleted": "تم حذف العميل.",
+        "nameRequired": "أدخل اسمًا."
+      },
+      "export": {
+        "fileName": "العملاء-الماليون",
+        "sheet": "العملاء"
+      }
+    },
+    "common": {
+      "today": "اليوم",
+      "inDays": "{count, plural, =0 {اليوم} one {بعد يوم} two {بعد يومين} few {بعد # أيام} many {بعد # يومًا} other {بعد # يوم}}",
+      "daysAgo": "{count, plural, one {منذ يوم} two {منذ يومين} few {منذ # أيام} many {منذ # يومًا} other {منذ # يوم}}",
+      "loadError": "تعذّر التحميل. حاول مرة أخرى.",
+      "retry": "إعادة المحاولة",
+      "saved": "تم الحفظ."
+    }
+  },
+  "books": {
+    "title": "الكتب وملفات PDF",
+    "subtitle": "بِع كتبًا وملفات PDF وكرّاسات قابلة للتنزيل إلى جانب كورساتك.",
+    "noAccess": "ليست لديك صلاحية على الكتالوج.",
+    "new": "كتاب جديد",
+    "delete": "حذف",
+    "search": "ابحث في الكتب…",
+    "empty": "لا توجد كتب بعد",
+    "emptyHint": "انشر ملف PDF أو كتابًا إلكترونيًا أو كرّاسة — مع فصل مجاني يقنع المشتري.",
+    "noResults": "لا شيء يطابق ذلك",
+    "noResultsHint": "جرّب بحثًا آخر أو امسح عوامل التصفية.",
+    "clearFilters": "مسح التصفية",
+    "noPaymentMethod": "لديك كتب منشورة بدون وسيلة دفع مفعّلة، لذلك يبقى زر الشراء مخفيًا. أضِف وسيلة من صفحة وسائل الدفع.",
+    "filter": {
+      "all": "الكل",
+      "DRAFT": "مسودة",
+      "PUBLISHED": "منشور",
+      "ARCHIVED": "مؤرشف"
+    },
+    "kind": {
+      "EBOOK": "كتاب إلكتروني",
+      "PDF": "ملف PDF",
+      "AUDIOBOOK": "كتاب صوتي",
+      "WORKBOOK": "كرّاسة تدريبات",
+      "BUNDLE": "حزمة"
+    },
+    "price": {
+      "free": "مجاني",
+      "paid": "مدفوع",
+      "amount": "السعر",
+      "placeholder": "0.00",
+      "freeHint": "أي متعلّم مسجّل يستطيع تنزيله بضغطة واحدة."
+    },
+    "card": {
+      "hasPreview": "عيّنة",
+      "files": "{count, plural, =0 {لا ملفات} one {ملف واحد} two {ملفان} few {# ملفات} other {# ملفًا}}",
+      "owners": "{count, plural, one {مالك واحد} two {مالكان} few {# مالكين} other {# مالكًا}}",
+      "edit": "تعديل",
+      "more": "إجراءات أخرى",
+      "publish": "نشر",
+      "unpublish": "إرجاع لمسودة",
+      "archive": "أرشفة",
+      "restore": "استعادة"
+    },
+    "files": {
+      "title": "الملفات",
+      "hint": "كل ما يحصل عليه المشتري. فعِّل «عيّنة مجانية» على الملف الوحيد الذي يُقرأ بدون دفع.",
+      "empty": "لا ملفات بعد — أضِف ملفًا قبل النشر.",
+      "hasPreview": "توجد عيّنة مجانية",
+      "noPreview": "لا توجد عيّنة مجانية",
+      "previewBadge": "عيّنة مجانية",
+      "previewToggle": "عيّنة",
+      "previewToggleHint": "يستطيع أي زائر قراءة هذا الملف بدون دفع.",
+      "pages": "{count, plural, one {صفحة واحدة} two {صفحتان} few {# صفحات} other {# صفحة}}",
+      "open": "فتح الملف",
+      "remove": "حذف",
+      "moveUp": "تحريك لأعلى",
+      "add": "إضافة ملف",
+      "newTitle": "ما هذا الملف؟",
+      "newTitlePlaceholder": "مثال: الفصل الأول — عيّنة",
+      "newFile": "الملف",
+      "markPreview": "عيّنة مجانية",
+      "markPreviewHint": "يستطيع أي زائر تنزيل هذا الملف بدون شراء — وهو ما يبيع الكتاب."
+    },
+    "form": {
+      "newTitle": "كتاب جديد",
+      "newHint": "سَمِّه وحدّد سعره، ثم أضِف الملفات في الخطوة التالية.",
+      "editTitle": "تعديل الكتاب",
+      "editHint": "الملفات تُحفظ فور تغييرها. أما بقية الحقول فتُحفظ عند الضغط على «حفظ».",
+      "title": "العنوان",
+      "titlePlaceholder": "مثال: النحو العربي ببساطة",
+      "subtitle": "العنوان الفرعي",
+      "description": "الوصف",
+      "author": "المؤلف",
+      "kind": "النوع",
+      "category": "التصنيف",
+      "language": "اللغة",
+      "pages": "عدد الصفحات",
+      "cover": "صورة الغلاف",
+      "price": "السعر",
+      "priceSection": "السعر والبيع",
+      "checkoutEnabled": "بيعه أونلاين",
+      "checkoutEnabledHint": "إظهار زر الشراء على الموقع العام. أوقفه إذا كنت تبيع هذا الكتاب خارج المنصة فقط.",
+      "notSellingHint": "لن يظهر زر الشراء لهذا الكتاب قبل إضافة وسيلة دفع مفعّلة.",
+      "highlights": "ماذا يحتوي",
+      "highlightsHint": "نقاط قليلة يزنها المشتري قبل الدفع. اتركها فارغة لإخفاء القسم.",
+      "highlightsPlaceholder": "مثال: 200 تمرين مع الإجابات",
+      "audience": "لمن هذا الكتاب",
+      "audienceHint": "اتركها فارغة لإخفاء القسم.",
+      "audiencePlaceholder": "مثال: للمبتدئين بلا خلفية سابقة",
+      "addBullet": "إضافة سطر",
+      "removeBullet": "حذف هذا السطر",
+      "optional": "اختياري",
+      "create": "إنشاء",
+      "save": "حفظ",
+      "cancel": "إلغاء",
+      "close": "إغلاق"
+    },
+    "confirm": {
+      "deleteTitle": "حذف هذا الكتاب؟",
+      "deleteBody": "سيختفي من الموقع. أما المشترون والطلبات القائمة فتبقى كما هي."
+    },
+    "alerts": {
+      "saved": "تم الحفظ",
+      "deleted": "تم حذف الكتاب",
+      "published": "تم نشر الكتاب",
+      "unpublished": "أُرجِع إلى مسودة",
+      "archived": "تمت أرشفة الكتاب",
+      "restored": "تمت استعادة الكتاب",
+      "failed": "حدث خطأ. حاول مرة أخرى."
     }
   }
 }

@@ -216,6 +216,8 @@ export interface LearnSiteStats {
   lessons: number;
   learners: number;
   certificates: number;
+  /** Published books. Optional: an older API build does not send it. */
+  books?: number;
 }
 
 /**
@@ -235,6 +237,27 @@ export interface LearnSiteCommerce {
   codes: boolean;
   /** The catalogue contains something that costs money. */
   paid: boolean;
+  /**
+   * The bookshop (docs/lms/11). Absent from an older API build — a missing block means "this client
+   * sells no books", which is what makes the header's Books link safe to render on the first frame
+   * instead of flickering in after a catalogue fetch.
+   */
+  books?: LearnSiteBooks;
+}
+
+/** Whether this client sells digital products at all, and on what terms. */
+export interface LearnSiteBooks {
+  /** At least one published book with a file behind it — the predicate the nav link turns on. */
+  any: boolean;
+  count: number;
+  free: boolean;
+  /** The newest free book — where a "start with a free download" CTA goes. */
+  free_book: { slug: string; title: string } | null;
+  paid: boolean;
+  /** A priced book can actually be bought: checkout on AND a live receiving account. */
+  checkout: boolean;
+  /** At least one free sample chapter exists anywhere in the shop. */
+  preview: boolean;
 }
 
 export interface LearnSite {
@@ -562,6 +585,14 @@ export interface LearnOrder {
   submitted_at: string | null;
   confirmed_at: string | null;
   created_at: string | null;
+  /**
+   * What was bought (docs/lms/11). The `course_*` keys below are filled from whichever catalogue the
+   * order points at, so they stay correct for a book; `item_type` is what decides where the "open
+   * it" link goes — the player for a course, the download page for a book.
+   */
+  item_type?: "COURSE" | "PRODUCT";
+  item_title?: string | null;
+  item_slug?: string | null;
   course_title?: string | null;
   course_slug?: string | null;
   course_cover?: string | null;
@@ -623,6 +654,8 @@ export function learnOrder(
 ): Promise<{
   order: LearnOrder;
   course: LearnCheckout["course"] | null;
+  /** The same row as `course`, plus which catalogue it came from. */
+  item?: (LearnCheckout["course"] & { item_type: "COURSE" | "PRODUCT" }) | null;
   receipts: LearnOrderReceipt[];
   payment_methods: LearnPaymentMethod[];
 }> {
@@ -668,6 +701,145 @@ export function learnUploadReceipt(
 
 export function learnCancelOrder(academy: string, number: string): Promise<{ ok: boolean }> {
   return learnFetch(academy, `/orders/${number}/cancel`, { method: "POST" });
+}
+
+// ── the bookshop (docs/lms/11) ───────────────────────────────────────────────
+// Books and PDFs sold alongside the courses. The catalogue and the sales page are PUBLIC — and so
+// is the free sample, deliberately: asking someone to register before they can read a sample
+// chapter is the friction that loses the sale. Paid files are only ever reachable through
+// `learnProductAccess`, which needs a signed-in learner holding an ACTIVE entitlement.
+
+export type LearnProductKind =
+  | "EBOOK"
+  | "PDF"
+  | "AUDIOBOOK"
+  | "WORKBOOK"
+  | "BUNDLE";
+
+export interface LearnProductCard {
+  id: string;
+  title: string;
+  slug: string;
+  subtitle: string | null;
+  cover_image_path: string | null;
+  kind: LearnProductKind;
+  author: string | null;
+  language: string | null;
+  category: string | null;
+  page_count: number | null;
+  file_count: number | null;
+  /** How many free samples this book offers — 0 hides the "read a sample" affordance. */
+  preview_count: number | null;
+  owner_count: number | null;
+  price_minor: number;
+  currency: string;
+  is_free: boolean;
+  checkout_enabled: boolean;
+  /** The honest Buy-button predicate: priced + checkout on + a live receiving account. */
+  sells_online: boolean;
+  published_at: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * One file in the bundle. `url` is null for every paid file on the public sales page — the visitor
+ * can see WHAT they would get (the title, the format, the page count) but reach only the sample.
+ */
+export interface LearnProductFile {
+  id: string;
+  title: string;
+  format: string | null;
+  size_bytes: number | null;
+  page_count: number | null;
+  is_preview: boolean;
+  url: string | null;
+}
+
+export interface LearnProductDetail {
+  product: LearnProductCard & {
+    description: string | null;
+    owner_count: number;
+    highlights: string[];
+    audience: string[];
+  };
+  files: LearnProductFile[];
+}
+
+export function learnProducts(
+  academy: string,
+): Promise<{ products: LearnProductCard[] }> {
+  return learnFetch(academy, "/products");
+}
+
+export function learnProduct(
+  academy: string,
+  slug: string,
+): Promise<LearnProductDetail> {
+  return learnFetch(academy, `/products/${slug}`);
+}
+
+/** A signed URL for one free sample. Public — no token required. */
+export function learnProductPreview(
+  academy: string,
+  slug: string,
+  fileId: string,
+): Promise<{ id: string; title: string; format: string | null; url: string | null }> {
+  return learnFetch(academy, `/products/${slug}/preview/${fileId}`);
+}
+
+/**
+ * The owner's download links. Answers `owned: false` rather than 403 for someone who has not bought
+ * it — the sales page calls this to choose between "Download" and "Buy", and an error there would
+ * make the normal case look broken.
+ */
+export function learnProductAccess(
+  academy: string,
+  slug: string,
+): Promise<{ owned: boolean; files: LearnProductFile[] }> {
+  return learnFetch(academy, `/products/${slug}/access`);
+}
+
+/** Everything this learner owns. */
+export function learnLibrary(academy: string): Promise<{
+  products: (LearnProductCard & {
+    granted_at: string | null;
+    download_count: number;
+  })[];
+}> {
+  return learnFetch(academy, "/library");
+}
+
+/** Take a FREE book: one click, no order, no code. Idempotent. */
+export function learnClaimProduct(
+  academy: string,
+  slug: string,
+): Promise<{ ok: boolean; slug: string }> {
+  return learnFetch(academy, `/products/${slug}/claim`, { method: "POST" });
+}
+
+export function learnBookCheckout(
+  academy: string,
+  slug: string,
+): Promise<Omit<LearnCheckout, "already_enrolled" | "course"> & {
+  already_owned: boolean;
+  product: LearnCheckout["course"] & {
+    item_type: "PRODUCT";
+    kind: LearnProductKind | null;
+    author: string | null;
+  };
+}> {
+  return learnFetch(academy, `/checkout/book/${slug}`);
+}
+
+export function learnPlaceBookOrder(
+  academy: string,
+  slug: string,
+  input: { payment_method_id?: string | null; accept_terms: true },
+): Promise<{ ok: boolean; order: LearnOrder }> {
+  return learnFetch(academy, `/products/${slug}/orders`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 // ── learner notifications (docs/lms/10 §5) ───────────────────────────────────

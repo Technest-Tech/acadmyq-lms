@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AuthShell } from "@/components/learn/auth-forms";
+import { BookGrid } from "@/components/learn/book-card";
 import { useLearn } from "@/components/learn/context";
 import {
   CourseThumb,
@@ -27,9 +28,11 @@ import {
 import { Container, CtaButton } from "@/components/learn/sections";
 import {
   learnCatalog,
+  learnLibrary,
   learnPlayer,
   type LearnCourseCard,
   type LearnLesson,
+  type LearnProductCard,
 } from "@/lib/learn-api";
 import { completedCount, lessonsOf, resumeLesson } from "@/lib/learn-format";
 import { formatNumber } from "@/lib/money";
@@ -54,7 +57,7 @@ interface Enrolled {
   next?: LearnLesson;
 }
 
-type Tab = "progress" | "completed" | "all" | "certificates";
+type Tab = "progress" | "completed" | "all" | "certificates" | "library";
 
 export default function MyLearningPage() {
   const t = useTranslations("learn");
@@ -70,6 +73,22 @@ export default function MyLearningPage() {
   } = useLearn();
   const [items, setItems] = useState<Enrolled[] | null>(null);
   const [tab, setTab] = useState<Tab>("progress");
+  // The bookshelf (docs/lms/11). Loaded independently of the courses: a learner who owns only books
+  // must still see something here, and a failing catalogue must not take the library down with it.
+  const [library, setLibrary] = useState<LearnProductCard[]>([]);
+
+  useEffect(() => {
+    if (!learner) return;
+    let cancelled = false;
+    void learnLibrary(academy)
+      .then((r) => {
+        if (!cancelled) setLibrary(r.products);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [academy, learner]);
 
   useEffect(() => {
     if (!learner) return;
@@ -181,6 +200,16 @@ export default function MyLearningPage() {
       count: groups.finished.length,
     },
     { value: "all", label: t("me.tabAll"), count: groups.all.length },
+    // Only offered once they own one — an empty tab is a question the page cannot answer.
+    ...(library.length > 0
+      ? [
+          {
+            value: "library" as Tab,
+            label: t("books.myLibrary"),
+            count: library.length,
+          },
+        ]
+      : []),
     {
       value: "certificates",
       label: t("me.certificates"),
@@ -376,6 +405,8 @@ export default function MyLearningPage() {
                     </CtaButton>
                   }
                 />
+              ) : tab === "library" ? (
+                <BookGrid books={library} />
               ) : tab === "certificates" ? (
                 groups.finished.length === 0 ? (
                   <EmptyState

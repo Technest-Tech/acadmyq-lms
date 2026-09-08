@@ -4811,6 +4811,12 @@ export interface LmsDashboard {
     active_codes: number;
     redeemed_codes: number;
     certificates: number;
+    /** The bookshop (docs/lms/11) — the catalogue's second shelf. */
+    products: number;
+    published_products: number;
+    draft_products: number;
+    /** Learners holding at least one ACTIVE download entitlement. */
+    product_owners: number;
   };
   storage: { used_bytes: number; limit_bytes: number | null };
   site: {
@@ -5000,7 +5006,7 @@ export function reorderLessons(
 // returned target (presigned S3, or a signed proxy route on a local disk), then confirm it READY.
 // The READY asset's id goes on a VIDEO_UPLOAD / AUDIO lesson.
 
-export type MediaKind = "VIDEO" | "AUDIO" | "IMAGE";
+export type MediaKind = "VIDEO" | "AUDIO" | "IMAGE" | "DOCUMENT";
 export type MediaStatus =
   | "PENDING"
   | "UPLOADING"
@@ -5263,6 +5269,8 @@ export interface CourseLearnerRow {
   phone: string | null;
   status: "ACTIVE" | "BLOCKED";
   enrollment_count: number;
+  /** Books this learner owns (docs/lms/11) — an entitlement, not an enrollment. */
+  product_count: number;
   last_login_at: string | null;
 }
 
@@ -5271,6 +5279,19 @@ export interface LearnerEnrollment {
   title: string;
   status: "ACTIVE" | "REVOKED";
   enrolled_at: string;
+}
+
+/**
+ * A book the learner owns. Kept apart from `LearnerEnrollment` rather than folded in: a book has no
+ * progress and no certificate, so pretending it is an enrollment would put empty columns on screen.
+ */
+export interface LearnerProduct {
+  product_id: string;
+  title: string;
+  kind: ProductKind;
+  status: "ACTIVE" | "REVOKED";
+  granted_at: string;
+  download_count: number;
 }
 
 export function listCodes(): Promise<{ codes: AccessCode[] }> {
@@ -5315,8 +5336,12 @@ export function listCourseLearners(): Promise<{
 }
 
 export function getCourseLearner(id: string): Promise<{
-  learner: Omit<CourseLearnerRow, "enrollment_count" | "last_login_at">;
+  learner: Omit<
+    CourseLearnerRow,
+    "enrollment_count" | "product_count" | "last_login_at"
+  >;
   enrollments: LearnerEnrollment[];
+  products: LearnerProduct[];
 }> {
   return apiFetch(`/api/courses/learners/${id}`);
 }
@@ -5339,6 +5364,214 @@ export function setEnrollmentStatus(
   return apiFetch(`/api/courses/learners/${learnerId}/enrollment`, {
     method: "POST",
     body: JSON.stringify({ course_id: courseId, status }),
+  });
+}
+
+// ── LMS / Digital products (books & PDFs, docs/lms/11) ───────────────────────
+// The second shelf of a course platform's catalogue: a downloadable book, PDF, workbook or
+// audiobook, sold through the SAME order queue as a course. Gated exactly like courses
+// (entitled:lms → 402, course.read / course.manage → 403). Transport only.
+
+export type ProductKind = "EBOOK" | "PDF" | "AUDIOBOOK" | "WORKBOOK" | "BUNDLE";
+
+export const PRODUCT_KINDS: readonly ProductKind[] = [
+  "EBOOK",
+  "PDF",
+  "AUDIOBOOK",
+  "WORKBOOK",
+  "BUNDLE",
+];
+
+export interface ProductRow {
+  id: string;
+  title: string;
+  slug: string;
+  subtitle: string | null;
+  status: CourseStatus;
+  kind: ProductKind;
+  author: string | null;
+  cover_image_path: string | null;
+  category: string | null;
+  price_minor: number;
+  currency: string;
+  is_free: boolean;
+  checkout_enabled: boolean;
+  /** Priced + checkout on + the client has a live receiving account. The honest Buy-button answer. */
+  sells_online: boolean;
+  file_count: number;
+  preview_count: number;
+  owner_count: number;
+  published_at: string | null;
+  created_at: string | null;
+}
+
+/** The editor payload: everything a row carries plus the long-form sales copy. */
+export interface ProductDetail extends ProductRow {
+  description: string | null;
+  language: string | null;
+  page_count: number | null;
+  highlights: string[];
+  audience: string[];
+}
+
+export interface ProductFile {
+  id: string;
+  title: string;
+  format: string | null;
+  size_bytes: number | null;
+  page_count: number | null;
+  /** The FREE sample: the one file an anonymous visitor may open. */
+  is_preview: boolean;
+  position: number;
+  media_asset_id: string | null;
+  external_url: string | null;
+  original_filename: string | null;
+  asset_status: MediaStatus | null;
+  /** Short-lived and minted per read, so staff can check they uploaded the right file. */
+  url: string | null;
+}
+
+export interface ProductSummary {
+  draft: number;
+  published: number;
+  archived: number;
+  total: number;
+  owners: number;
+  currency: string;
+  accepts_payments: boolean;
+}
+
+/** Everything the create/edit form may send. Every field is optional on a PATCH. */
+export interface ProductInput {
+  title?: string;
+  subtitle?: string | null;
+  description?: string | null;
+  slug?: string;
+  kind?: ProductKind;
+  author?: string | null;
+  language?: string | null;
+  category?: string | null;
+  page_count?: number | null;
+  /** Integer minor units in the academy's currency. 0 = free. */
+  price_minor?: number;
+  checkout_enabled?: boolean;
+  highlights?: string[];
+  audience?: string[];
+  /** An uploaded IMAGE asset wins over a pasted url; either key present (even null) is an edit. */
+  cover_media_asset_id?: string | null;
+  cover_image_path?: string | null;
+}
+
+export interface ProductFileInput {
+  title?: string;
+  /** The id of a READY DOCUMENT/AUDIO asset (see requestMediaUpload). */
+  media_asset_id?: string | null;
+  external_url?: string | null;
+  format?: string | null;
+  page_count?: number | null;
+  is_preview?: boolean;
+  position?: number;
+}
+
+export function listProducts(
+  q: DataTableQuery = {},
+): Promise<ListResult<ProductRow>> {
+  return apiFetch(`/api/courses/products${toQueryString(q)}`);
+}
+
+export function getProductSummary(): Promise<ProductSummary> {
+  return apiFetch("/api/courses/products/summary");
+}
+
+export function createProduct(
+  input: ProductInput,
+): Promise<{ productId: string }> {
+  return apiFetch("/api/courses/products", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getProduct(id: string): Promise<{
+  product: ProductDetail;
+  files: ProductFile[];
+}> {
+  return apiFetch(`/api/courses/products/${id}`);
+}
+
+export function updateProduct(
+  id: string,
+  input: ProductInput,
+): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/courses/products/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function setProductStatus(
+  id: string,
+  status: CourseStatus,
+): Promise<{ ok: boolean; status: CourseStatus }> {
+  return apiFetch(`/api/courses/products/${id}/publish`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function deleteProduct(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/products/${id}`, { method: "DELETE" });
+}
+
+export function addProductFile(
+  productId: string,
+  input: ProductFileInput,
+): Promise<{ fileId: string; files: ProductFile[] }> {
+  return apiFetch(`/api/courses/products/${productId}/files`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateProductFile(
+  productId: string,
+  fileId: string,
+  input: ProductFileInput,
+): Promise<{ ok: boolean; files: ProductFile[] }> {
+  return apiFetch(`/api/courses/products/${productId}/files/${fileId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteProductFile(
+  productId: string,
+  fileId: string,
+): Promise<{ ok: boolean; files: ProductFile[] }> {
+  return apiFetch(`/api/courses/products/${productId}/files/${fileId}`, {
+    method: "DELETE",
+  });
+}
+
+export function reorderProductFiles(
+  productId: string,
+  ids: string[],
+): Promise<{ ok: boolean; files: ProductFile[] }> {
+  return apiFetch(`/api/courses/products/${productId}/files/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
+/** Hand a book to a learner (or pull it back) without an order — the WhatsApp-sale door. */
+export function setProductAccess(
+  learnerId: string,
+  productId: string,
+  status: "ACTIVE" | "REVOKED",
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/learners/${learnerId}/product`, {
+    method: "POST",
+    body: JSON.stringify({ product_id: productId, status }),
   });
 }
 
@@ -6443,7 +6676,14 @@ export interface CourseOrderRow {
   submitted_at: string | null;
   confirmed_at: string | null;
   created_at: string | null;
+  /** What was bought (docs/lms/11): a course, or a digital product (a book / PDF). */
+  item_type: "COURSE" | "PRODUCT";
+  item_id: string;
+  item_title: string | null;
+  item_slug: string | null;
   course_id: string;
+  product_id: string | null;
+  /** Filled from whichever catalogue the order points at — kept so older screens still print. */
   course_title: string | null;
   course_slug: string | null;
   learner_id: string | null;
@@ -6464,7 +6704,10 @@ export interface CourseOrderDetail extends CourseOrderRow {
     status: string | null;
     since: string | null;
   };
-  /** Null until the order is approved — the enrollment IS the thing being sold. */
+  /**
+   * Null until the order is approved — access IS the thing being sold. For a PRODUCT order this is
+   * the download entitlement rather than an enrollment; the shape is deliberately the same.
+   */
   enrollment: {
     status: string;
     enrolled_at: string | null;
@@ -6506,8 +6749,15 @@ export interface CourseSalesSummary {
     refunded_minor: number;
     orders_this_month: number;
     revenue_this_month_minor: number;
+    /** The books half of the queue — "should I make more books?" is what this screen is asked. */
+    product_orders: number;
+    product_revenue_minor: number;
   };
+  /** What sold, across BOTH shelves — books and courses in one leaderboard. */
   by_course: {
+    item_type: "COURSE" | "PRODUCT";
+    item_id: string;
+    /** Same value as item_id; kept for a screen that has not been taught about books yet. */
     course_id: string;
     title: string;
     slug: string;
@@ -6696,4 +6946,347 @@ export function updateDemoRequest(
     method: "PATCH",
     body: JSON.stringify(patch),
   });
+}
+
+// ── Finance ledger (Super Admin, platform.manage) ────────────────────────────
+// The platform owner's OWN income book: the clients who pay the owner, their deals (a one-time
+// sale, optionally in installments, or a subscription) and the money actually received. An
+// island by design — nothing here references an academy or a module subscription, in either
+// direction. Money is integer minor units in the deal's currency; the ledger never converts.
+
+export const FINANCE_SERVICES = [
+  "COURSE_SITE",
+  "MANAGEMENT_SYSTEM",
+  "VIDEO_PLATFORM",
+  "WHATSAPP_SERVICE",
+  "CUSTOM_WORK",
+  "HOSTING",
+  "OTHER",
+] as const;
+export type FinanceService = (typeof FINANCE_SERVICES)[number];
+
+export const FINANCE_KINDS = ["ONE_TIME", "SUBSCRIPTION"] as const;
+export type FinanceKind = (typeof FINANCE_KINDS)[number];
+
+export const FINANCE_INTERVALS = ["MONTHLY", "QUARTERLY", "YEARLY"] as const;
+export type FinanceInterval = (typeof FINANCE_INTERVALS)[number];
+
+export const FINANCE_DEAL_STATUSES = ["ACTIVE", "COMPLETED", "CANCELLED"] as const;
+export type FinanceDealStatus = (typeof FINANCE_DEAL_STATUSES)[number];
+
+export const FINANCE_METHODS = [
+  "CASH",
+  "BANK_TRANSFER",
+  "INSTAPAY",
+  "VODAFONE_CASH",
+  "PAYPAL",
+  "CARD",
+  "OTHER",
+] as const;
+export type FinanceMethod = (typeof FINANCE_METHODS)[number];
+
+export const FINANCE_CURRENCIES = ["EGP", "USD", "SAR", "AED", "EUR", "GBP"] as const;
+
+/** Derived per installment by the waterfall: PAID, PARTIAL, OVERDUE (owed past its date), PENDING. */
+export type FinanceInstallmentStatus = "PAID" | "PARTIAL" | "OVERDUE" | "PENDING";
+
+export interface FinanceClientRow {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  deals_count: number;
+  active_deals: number;
+  /** currency → minor units received from this client, all time. */
+  received: Record<string, number>;
+  /** currency → minor units still owed on this client's ACTIVE deals. */
+  outstanding: Record<string, number>;
+  last_paid_on: string | null;
+}
+
+export interface FinanceClientOption {
+  id: string;
+  name: string;
+  phone: string | null;
+}
+
+export interface FinanceClientInput {
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  notes?: string | null;
+}
+
+export interface FinanceDealRow {
+  id: string;
+  client_id: string;
+  client_name: string;
+  title: string;
+  service: FinanceService;
+  kind: FinanceKind;
+  billing_interval: FinanceInterval | null;
+  /** ONE_TIME: the agreed total (= the schedule's sum). SUBSCRIPTION: the price of one cycle. */
+  amount_minor: number;
+  currency: string;
+  started_on: string;
+  status: FinanceDealStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Sum of the schedule as it stands (a subscription's rolled cycles included). */
+  scheduled_minor: number;
+  paid_minor: number;
+  outstanding_minor: number;
+  /** The part of `outstanding_minor` whose due date has passed. */
+  overdue_minor: number;
+  next_due_on: string | null;
+  /** What is still owed on the next open installment (0 when nothing is due). */
+  next_due_minor: number;
+  last_paid_on: string | null;
+}
+
+export interface FinanceInstallment {
+  id: string;
+  deal_id: string;
+  seq: number;
+  due_on: string;
+  amount_minor: number;
+  paid_minor: number;
+  remaining_minor: number;
+  note: string | null;
+  status: FinanceInstallmentStatus;
+}
+
+export interface FinancePayment {
+  id: string;
+  deal_id: string;
+  paid_on: string;
+  amount_minor: number;
+  method: FinanceMethod;
+  reference: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+/** A payment as the cross-deal ledger lists it — with its deal and client alongside. */
+export interface FinanceLedgerRow extends FinancePayment {
+  deal_title: string;
+  service: FinanceService;
+  kind: FinanceKind;
+  currency: string;
+  client_id: string;
+  client_name: string;
+  /** "YYYY-MM" of `paid_on`, for the month filter. */
+  month: string;
+}
+
+export interface FinanceDealPayload {
+  deal: FinanceDealRow;
+  client: FinanceClientRow | null;
+  schedule: FinanceInstallment[];
+  payments: FinancePayment[];
+}
+
+export type FinanceDealCounts = Record<FinanceDealStatus | "total" | "overdue", number>;
+
+export interface FinanceSum {
+  currency: string;
+  amount_minor: number;
+  payments: number;
+}
+
+export interface FinanceInstallmentInput {
+  due_on: string;
+  amount_minor: number;
+  note?: string | null;
+}
+
+export interface FinancePaymentInput {
+  paid_on: string;
+  amount_minor: number;
+  method: FinanceMethod;
+  reference?: string | null;
+  note?: string | null;
+}
+
+export interface FinanceDealInput {
+  client_id?: string | null;
+  /** Inline new client — an existing name lands on that client rather than a twin. */
+  client?: { name: string; phone?: string | null; email?: string | null } | null;
+  title: string;
+  service: FinanceService;
+  kind: FinanceKind;
+  billing_interval?: FinanceInterval | null;
+  /** ONE_TIME without a plan: the whole amount, due on the start date. SUBSCRIPTION: per cycle. */
+  amount_minor?: number | null;
+  currency: string;
+  started_on: string;
+  notes?: string | null;
+  /** ONE_TIME only; the deal total becomes their sum. */
+  installments?: FinanceInstallmentInput[];
+  /** Money that arrived with the deal (a sale paid on the spot). */
+  payment?: FinancePaymentInput | null;
+}
+
+export interface FinanceDealPatch {
+  client_id?: string;
+  title?: string;
+  service?: FinanceService;
+  /** SUBSCRIPTION only — applies to cycles rolled from now on. */
+  billing_interval?: FinanceInterval;
+  /** SUBSCRIPTION only — the price of the next cycles; the open one keeps its amount. */
+  amount_minor?: number;
+  /** Only while nothing has been received on the deal. */
+  currency?: string;
+  started_on?: string;
+  status?: FinanceDealStatus;
+  notes?: string | null;
+}
+
+export interface FinanceTotals {
+  currency: string;
+  month_minor: number;
+  year_minor: number;
+  total_minor: number;
+  outstanding_minor: number;
+  overdue_minor: number;
+  /** Owed on ACTIVE deals with a due date inside the next 30 days. */
+  upcoming_minor: number;
+  /** Active subscriptions normalised to a month. */
+  mrr_minor: number;
+  subscriptions: number;
+}
+
+export interface FinanceUpcomingDue {
+  id: string;
+  deal_id: string;
+  due_on: string;
+  amount_minor: number;
+  remaining_minor: number;
+  title: string;
+  service: FinanceService;
+  kind: FinanceKind;
+  currency: string;
+  client_name: string;
+  overdue: boolean;
+}
+
+export interface FinanceOverview {
+  /** The database's date — the one every "overdue" above was judged against. */
+  today: string;
+  totals: FinanceTotals[];
+  counts: {
+    clients: number;
+    active_deals: number;
+    active_subscriptions: number;
+    overdue_deals: number;
+  };
+  by_service: Array<{ service: FinanceService; currency: string; amount_minor: number }>;
+  monthly: Array<{ month: string; currency: string; amount_minor: number }>;
+  upcoming: FinanceUpcomingDue[];
+  recent_payments: FinanceLedgerRow[];
+}
+
+export function getFinanceOverview(): Promise<FinanceOverview> {
+  return apiFetch("/api/admin/finance/overview");
+}
+
+export function listFinanceClients(
+  q: DataTableQuery = {},
+): Promise<ListResult<FinanceClientRow>> {
+  return apiFetch(`/api/admin/finance/clients${toQueryString(q)}`);
+}
+
+export function listFinanceClientOptions(): Promise<{ clients: FinanceClientOption[] }> {
+  return apiFetch("/api/admin/finance/clients/all");
+}
+
+export function createFinanceClient(
+  input: FinanceClientInput,
+): Promise<{ client: FinanceClientRow }> {
+  return apiFetch("/api/admin/finance/clients", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateFinanceClient(
+  id: string,
+  patch: Partial<FinanceClientInput>,
+): Promise<{ client: FinanceClientRow }> {
+  return apiFetch(`/api/admin/finance/clients/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteFinanceClient(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/finance/clients/${id}`, { method: "DELETE" });
+}
+
+export function listFinanceDeals(
+  q: DataTableQuery = {},
+): Promise<ListResult<FinanceDealRow> & { counts: FinanceDealCounts }> {
+  return apiFetch(`/api/admin/finance/deals${toQueryString(q)}`);
+}
+
+export function getFinanceDeal(id: string): Promise<FinanceDealPayload> {
+  return apiFetch(`/api/admin/finance/deals/${id}`);
+}
+
+export function createFinanceDeal(input: FinanceDealInput): Promise<FinanceDealPayload> {
+  return apiFetch("/api/admin/finance/deals", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateFinanceDeal(
+  id: string,
+  patch: FinanceDealPatch,
+): Promise<FinanceDealPayload> {
+  return apiFetch(`/api/admin/finance/deals/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export function deleteFinanceDeal(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/finance/deals/${id}`, { method: "DELETE" });
+}
+
+/** Replace the installment plan wholesale; payments stay and re-flow over the new plan. */
+export function replaceFinanceSchedule(
+  id: string,
+  installments: FinanceInstallmentInput[],
+): Promise<FinanceDealPayload> {
+  return apiFetch(`/api/admin/finance/deals/${id}/schedule`, {
+    method: "PUT",
+    body: JSON.stringify({ installments }),
+  });
+}
+
+export function recordFinancePayment(
+  dealId: string,
+  input: FinancePaymentInput,
+): Promise<FinanceDealPayload> {
+  return apiFetch(`/api/admin/finance/deals/${dealId}/payments`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function listFinancePayments(
+  q: DataTableQuery = {},
+): Promise<ListResult<FinanceLedgerRow> & { sums: FinanceSum[] }> {
+  return apiFetch(`/api/admin/finance/payments${toQueryString(q)}`);
+}
+
+export function deleteFinancePayment(
+  id: string,
+): Promise<{ ok: boolean; deal_id: string | null }> {
+  return apiFetch(`/api/admin/finance/payments/${id}`, { method: "DELETE" });
 }

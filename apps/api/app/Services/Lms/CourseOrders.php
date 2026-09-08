@@ -14,8 +14,15 @@ use Illuminate\Support\Str;
  *
  * Two surfaces drive it: the learner site (place an order, attach a receipt, cancel) and the
  * client's sales dashboard (approve, reject, refund, cancel). Both go through here so the rules that
- * matter — an order enrolls in the same transaction it becomes PAID, a rejection always carries a
- * reason, a refund pulls access unless the client says otherwise — cannot drift between them.
+ * matter — an order grants access in the same transaction it becomes PAID, a rejection always
+ * carries a reason, a refund pulls access unless the client says otherwise — cannot drift between
+ * them.
+ *
+ * An order is over an ITEM, and there are two kinds (docs/lms/11): a COURSE, whose access is an
+ * `enrollments` row, and a digital PRODUCT — a book or PDF — whose access is a
+ * `product_entitlements` row. Everything between placing and deciding is identical, which is the
+ * whole reason products reuse this class instead of growing a second sales desk: one queue, one
+ * receipt inbox, one order-number sequence. Only {@see grantAccess} and {@see revokeAccess} branch.
  *
  * Everything runs under the caller's tenant context: RLS is the backstop on every write, and the
  * learner routes reach this class inside ResolveAcademyContext's transaction, so the row locks below
@@ -26,6 +33,9 @@ final class CourseOrders
     /** Open = the learner still has something to do, or we do. */
     public const OPEN_STATUSES = ['AWAITING_PAYMENT', 'UNDER_REVIEW'];
 
+    /** What an order can be over. The DB enforces the same set plus "exactly one id is set". */
+    public const ITEM_TYPES = ['COURSE', 'PRODUCT'];
+
     /** Staff-side notification types (the shared `notifications` table, category LMS_SALES). */
     private const STAFF_ORDER_PLACED = 'LMS_ORDER_PLACED';
 
@@ -34,28 +44,31 @@ final class CourseOrders
     // ── Placing an order ────────────────────────────────────────────────────────────────────────
 
     /**
-     * Create (or return) the learner's open order for a course.
+     * Create (or return) the learner's open order for a course or a digital product.
      *
      * Idempotent by design: a double-click, a back-button, or two tabs all land on the SAME order
-     * rather than minting duplicates — the partial unique index `course_orders_one_open_idx` is the
-     * database's half of that promise, this lookup is the friendly half.
+     * rather than minting duplicates — the partial unique indexes `course_orders_one_open_course_idx`
+     * / `…_product_idx` are the database's half of that promise, this lookup is the friendly half.
      *
-     * @param  object  $course  the courses row (id, title, slug, price_minor)
+     * @param  object  $item  the courses / digital_products row (id, title, slug, price_minor)
      * @param  object  $learner  the learners row / model (id, full_name, email, phone)
+     * @param  'COURSE'|'PRODUCT'  $itemType  which table $item came from
      * @return object the course_orders row
      */
     public function place(
         string $academyId,
-        object $course,
+        object $item,
         object $learner,
         string $currency,
         ?string $paymentMethodId = null,
+        string $itemType = 'COURSE',
     ): object {
         $learnerId = (string) ($learner->id ?? $learner->getKey());
+        $itemColumn = $this->itemColumn($itemType);
 
         $existing = DB::table('course_orders')
             ->where('learner_id', $learnerId)
-            ->where('course_id', $course->id)
+            ->where($itemColumn, $item->id)
             ->whereIn('status', self::OPEN_STATUSES)
             ->first();
 
@@ -86,8 +99,11 @@ final class CourseOrders
             'academy_id' => $academyId,
             'order_number' => $number,
             'learner_id' => $learnerId,
-            'course_id' => $course->id,
-            'price_minor' => (int) $course->price_minor,
+            'item_type' => $itemType,
+            // Exactly one of these is non-null; the DB's course_orders_item_chk says the same thing.
+            'course_id' => $itemType === 'COURSE' ? $item->id : null,
+            'product_id' => $itemType === 'PRODUCT' ? $item->id : null,
+            'price_minor' => (int) $item->price_minor,
             'currency' => $currency,
             'status' => 'AWAITING_PAYMENT',
             'channel' => 'MANUAL',
@@ -103,9 +119,15 @@ final class CourseOrders
 
         $order = $this->find($id);
 
-        $this->notifyStaff($academyId, self::STAFF_ORDER_PLACED, $order, $course);
+        $this->notifyStaff($academyId, self::STAFF_ORDER_PLACED, $order, $this->item($order));
 
         return $order;
+    }
+
+    /** Which `course_orders` column holds this item type's id. */
+    private function itemColumn(string $itemType): string
+    {
+        return $itemType === 'PRODUCT' ? 'product_id' : 'course_id';
     }
 
     /** The client's first live receiving account, or null when they have none. */
@@ -191,10 +213,10 @@ final class CourseOrders
         ]);
 
         $order = $this->find((string) $order->id);
-        $course = $this->course((string) $order->course_id);
+        $item = $this->item($order);
 
-        $this->notifyStaff($academyId, self::STAFF_RECEIPT_UPLOADED, $order, $course);
-        $this->notifyLearner($academyId, $order, $course, 'RECEIPT_RECEIVED');
+        $this->notifyStaff($academyId, self::STAFF_RECEIPT_UPLOADED, $order, $item);
+        $this->notifyLearner($academyId, $order, $item, 'RECEIPT_RECEIVED');
 
         return $receiptId;
     }
@@ -239,24 +261,19 @@ final class CourseOrders
                     'updated_at' => now(),
                 ]);
 
-            // The enrollment IS the product. updateOrInsert so re-approving a refunded order (or a
-            // learner who once had a revoked enrollment) restores access rather than colliding.
-            DB::table('enrollments')->updateOrInsert(
-                ['learner_id' => $order->learner_id, 'course_id' => $order->course_id],
-                [
-                    'academy_id' => $academyId,
-                    'source_order_id' => $orderId,
-                    'status' => 'ACTIVE',
-                    'enrolled_at' => now(),
-                ],
-            );
+            // Access IS the product being sold, so it lands inside the same transaction.
+            $this->grantAccess($academyId, $order, $orderId);
 
             $fresh = $this->find($orderId);
-            $course = $this->course((string) $order->course_id);
+            $item = $this->item($fresh);
 
-            $this->notifyLearner($academyId, $fresh, $course, 'ORDER_APPROVED');
+            $this->notifyLearner($academyId, $fresh, $item, 'ORDER_APPROVED');
             Audit::log('course_order.approve', 'course_order', $orderId, $academyId, $userId, $role,
-                after: ['status' => 'PAID', 'price_minor' => (int) $order->price_minor],
+                after: [
+                    'status' => 'PAID',
+                    'price_minor' => (int) $order->price_minor,
+                    'item_type' => $item['type'],
+                ],
                 before: ['status' => $order->status]);
 
             return $fresh;
@@ -292,9 +309,8 @@ final class CourseOrders
                 ]);
 
             $fresh = $this->find($orderId);
-            $course = $this->course((string) $order->course_id);
 
-            $this->notifyLearner($academyId, $fresh, $course, 'ORDER_REJECTED', $reason);
+            $this->notifyLearner($academyId, $fresh, $this->item($fresh), 'ORDER_REJECTED', $reason);
             Audit::log('course_order.reject', 'course_order', $orderId, $academyId, $userId, $role,
                 after: ['status' => 'REJECTED', 'reason' => $reason],
                 before: ['status' => $order->status]);
@@ -331,16 +347,12 @@ final class CourseOrders
             ]);
 
             if (! $keepAccess) {
-                DB::table('enrollments')
-                    ->where('learner_id', $order->learner_id)
-                    ->where('course_id', $order->course_id)
-                    ->update(['status' => 'REVOKED']);
+                $this->revokeAccess($order);
             }
 
             $fresh = $this->find($orderId);
-            $course = $this->course((string) $order->course_id);
 
-            $this->notifyLearner($academyId, $fresh, $course, 'ORDER_REFUNDED', $reason);
+            $this->notifyLearner($academyId, $fresh, $this->item($fresh), 'ORDER_REFUNDED', $reason);
             Audit::log('course_order.refund', 'course_order', $orderId, $academyId, $userId, $role,
                 after: ['status' => 'REFUNDED', 'kept_access' => $keepAccess, 'reason' => $reason],
                 before: ['status' => 'PAID']);
@@ -396,10 +408,81 @@ final class CourseOrders
         return $order;
     }
 
-    private function course(string $courseId): object
+    /**
+     * What this order is over, in the ONE shape every notification and audit line needs.
+     *
+     * Reading it back from the order (rather than being handed the row) is deliberate: the caller
+     * should never have to remember which of the two id columns is populated, and a deleted course
+     * or product still has to produce a printable order rather than a null-dereference.
+     *
+     * @return array{type: string, id: string, title: string, slug: string}
+     */
+    private function item(object $order): array
     {
-        return DB::table('courses')->where('id', $courseId)->first(['id', 'title', 'slug'])
-            ?? (object) ['id' => $courseId, 'title' => '', 'slug' => ''];
+        $type = (string) ($order->item_type ?? 'COURSE');
+        $id = (string) ($type === 'PRODUCT' ? ($order->product_id ?? '') : ($order->course_id ?? ''));
+        $table = $type === 'PRODUCT' ? 'digital_products' : 'courses';
+
+        $row = $id === '' ? null : DB::table($table)->where('id', $id)->first(['title', 'slug']);
+
+        return [
+            'type' => $type,
+            'id' => $id,
+            'title' => (string) ($row->title ?? ''),
+            'slug' => (string) ($row->slug ?? ''),
+        ];
+    }
+
+    // ── Access (docs/lms/11) ────────────────────────────────────────────────────────────────────
+
+    /**
+     * Give the buyer what they paid for. `updateOrInsert` on both sides so re-approving a refunded
+     * order — or a learner whose access was once revoked — RESTORES it rather than colliding on the
+     * unique (learner, item) index.
+     */
+    private function grantAccess(string $academyId, object $order, string $orderId): void
+    {
+        if ((string) ($order->item_type ?? 'COURSE') === 'PRODUCT') {
+            DB::table('product_entitlements')->updateOrInsert(
+                ['learner_id' => $order->learner_id, 'product_id' => $order->product_id],
+                [
+                    'academy_id' => $academyId,
+                    'source_order_id' => $orderId,
+                    'status' => 'ACTIVE',
+                    'granted_at' => now(),
+                ],
+            );
+
+            return;
+        }
+
+        DB::table('enrollments')->updateOrInsert(
+            ['learner_id' => $order->learner_id, 'course_id' => $order->course_id],
+            [
+                'academy_id' => $academyId,
+                'source_order_id' => $orderId,
+                'status' => 'ACTIVE',
+                'enrolled_at' => now(),
+            ],
+        );
+    }
+
+    /** Pull it back on a refund. REVOKED, not deleted — the history of who once owned what survives. */
+    private function revokeAccess(object $order): void
+    {
+        if ((string) ($order->item_type ?? 'COURSE') === 'PRODUCT') {
+            DB::table('product_entitlements')
+                ->where('learner_id', $order->learner_id)
+                ->where('product_id', $order->product_id)
+                ->update(['status' => 'REVOKED']);
+
+            return;
+        }
+
+        DB::table('enrollments')
+            ->where('learner_id', $order->learner_id)
+            ->where('course_id', $order->course_id)
+            ->update(['status' => 'REVOKED']);
     }
 
     // ── Notifications (docs/lms/10 §5) ──────────────────────────────────────────────────────────
@@ -409,7 +492,7 @@ final class CourseOrders
      * `notifications_subject_type_idx`, so a re-uploaded receipt UPDATES the existing row and clears
      * `read_at` — the alert resurfaces instead of being swallowed by the unique index.
      */
-    private function notifyStaff(string $academyId, string $type, object $order, object $course): void
+    private function notifyStaff(string $academyId, string $type, object $order, array $item): void
     {
         DB::table('notifications')->updateOrInsert(
             ['subject_id' => $order->id, 'type' => $type],
@@ -420,8 +503,13 @@ final class CourseOrders
                 'data' => json_encode([
                     'order_id' => (string) $order->id,
                     'order_number' => (string) $order->order_number,
-                    'course_id' => (string) $course->id,
-                    'course_title' => (string) $course->title,
+                    'item_type' => $item['type'],
+                    'item_title' => $item['title'],
+                    // Kept under the original keys as well: the Notifications page (and any stored
+                    // row written before books existed) reads `course_title`, and a book order that
+                    // rendered as a blank line would be a silent regression.
+                    'course_id' => $item['id'],
+                    'course_title' => $item['title'],
                     'buyer_name' => $order->buyer_name,
                     'buyer_email' => $order->buyer_email,
                     'buyer_phone' => $order->buyer_phone,
@@ -443,13 +531,18 @@ final class CourseOrders
     private function notifyLearner(
         string $academyId,
         object $order,
-        object $course,
+        array $item,
         string $type,
         ?string $reason = null,
     ): void {
+        $isProduct = $item['type'] === 'PRODUCT';
         $title = match ($type) {
             'RECEIPT_RECEIVED' => 'We received your transfer receipt',
-            'ORDER_APPROVED' => 'Your course is now unlocked',
+            // The one line where course and book genuinely differ: "unlocked" is what happens to a
+            // course, "ready to download" is what happens to a book.
+            'ORDER_APPROVED' => $isProduct
+                ? 'Your download is ready'
+                : 'Your course is now unlocked',
             'ORDER_REJECTED' => 'We could not confirm your payment',
             'ORDER_REFUNDED' => 'Your order was refunded',
             default => 'Order update',
@@ -465,8 +558,11 @@ final class CourseOrders
             'data' => json_encode([
                 'order_id' => (string) $order->id,
                 'order_number' => (string) $order->order_number,
-                'course_title' => (string) $course->title,
-                'course_slug' => (string) $course->slug,
+                'item_type' => $item['type'],
+                // Same keys either way, so the learner site's alert list needs no branch to print
+                // "what this was about" — only the deep link cares which surface it points at.
+                'course_title' => $item['title'],
+                'course_slug' => $item['slug'],
                 'reason' => $reason,
             ], JSON_UNESCAPED_UNICODE),
             'created_at' => now(),

@@ -17,8 +17,10 @@ import {
   GraduationCap,
   History,
   Inbox,
+  Coins,
   KeyRound,
   LayoutDashboard,
+  Library,
   LibraryBig,
   LifeBuoy,
   ListChecks,
@@ -88,6 +90,7 @@ type NavKey =
   | "adminVideo"
   | "adminLms"
   | "demoRequests"
+  | "adminFinance"
   | "guardians"
   | "students"
   | "teachers"
@@ -98,6 +101,7 @@ type NavKey =
   | "crm"
   | "lmsHome"
   | "courses"
+  | "lmsBooks"
   | "lmsQuizzes"
   | "lmsLearners"
   | "lmsCodes"
@@ -245,6 +249,15 @@ const NAV: ReadonlyArray<{
     icon: BookOpen,
     permission: "course.read",
     href: "/lms/courses",
+    group: "lms",
+  },
+  // Books & PDFs (docs/lms/11) — the catalogue's second shelf. Same capability as Courses: a client
+  // who lets someone publish courses is not meaningfully protected by withholding books from them.
+  {
+    key: "lmsBooks",
+    icon: Library,
+    permission: "course.read",
+    href: "/lms/books",
     group: "lms",
   },
   // Quizzes live inside a course (a QUIZ lesson points at one), so this is purely the cross-course
@@ -455,6 +468,13 @@ const NAV: ReadonlyArray<{
     href: "/admin/demo-requests",
     group: "platform",
   },
+  {
+    key: "adminFinance",
+    icon: Coins,
+    permission: "platform.manage",
+    href: "/admin/finance",
+    group: "platform",
+  },
 
   // ── System ──────────────────────────────────────────────────────────────
   {
@@ -512,6 +532,7 @@ const PLATFORM_NAV: readonly NavKey[] = [
   "adminHome", // Overview
   "clients", // THE hub — roster, client pages, wizard
   "billing", // money only: proof review, dues, MRR per module
+  "adminFinance", // the owner's OWN income book — deals, installments, payments (an island)
   "plans", // catalog, one tab per module + add-ons
   "adminVideo", // Video Ops (platform-wide health/usage)
   "adminLms", // Course Platform Ops (LMS clients, usage, per-client controls)
@@ -536,6 +557,7 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   trials: "trials",
   crm: "crm",
   courses: "lms",
+  lmsBooks: "lms",
   lmsSales: "lms",
   lmsPayments: "lms",
   certificates: "certificates",
@@ -563,6 +585,7 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
  */
 const LMS_EXTRA_KEYS = new Set<NavKey>([
   "lmsHome",
+  "lmsBooks",
   "lmsQuizzes",
   "lmsLearners",
   "lmsCodes",
@@ -573,6 +596,7 @@ const LMS_EXTRA_KEYS = new Set<NavKey>([
 const LMS_ONLY_KEYS = new Set<NavKey>([
   "lmsHome",
   "courses",
+  "lmsBooks",
   "lmsQuizzes",
   "lmsLearners",
   "lmsCodes",

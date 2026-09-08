@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -65,7 +65,12 @@ function renderScreen(permissions: string[] = ["course.read", "course.manage"]) 
   );
 }
 
-describe("LmsSiteScreen (public-site editor)", () => {
+/** The rail row for a section, addressed the way a client does: by the section's own name. */
+function railRow(title: string) {
+  return screen.getByRole("button", { name: title });
+}
+
+describe("LmsSiteScreen (public-site builder)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.getLmsSiteProfile).mockResolvedValue(profile());
@@ -76,23 +81,39 @@ describe("LmsSiteScreen (public-site editor)", () => {
     }));
   });
 
-  it("loads the profile and links to the live site", async () => {
+  it("lists every section and links to the live site", async () => {
     renderScreen();
     expect(await screen.findByText(L.title)).toBeInTheDocument();
+
+    // The rail is the index: the sections in the order they appear on the site.
+    expect(screen.getByText(L.blocks.brand.title)).toBeInTheDocument();
+    expect(screen.getByText(L.blocks.hero.title)).toBeInTheDocument();
+    expect(screen.getByText(L.blocks.legal.title)).toBeInTheDocument();
+
     const link = screen.getByRole("link", { name: L.openSite });
     expect(link).toHaveAttribute("href", "http://noor.localhost:3000");
   });
 
-  it("saves an edited field and shows a confirmation", async () => {
+  it("previews the client's own site, fed the draft rather than a mock of it", async () => {
+    renderScreen();
+    await screen.findByText(L.title);
+
+    const frame = await screen.findByTitle(L.builder.preview);
+    expect(frame).toHaveAttribute("src", "/learn/noor?preview=1");
+  });
+
+  it("opens a section and saves an edited field", async () => {
     const user = userEvent.setup();
     renderScreen();
     await screen.findByText(L.title);
 
-    // The Brand block is open by default; its name field starts from the loaded content.
-    const nameField = screen.getByDisplayValue("Noor");
+    // Nothing is open to start with — the client picks the strip they came to change.
+    expect(screen.queryByDisplayValue("Noor")).not.toBeInTheDocument();
+    await user.click(railRow(L.blocks.brand.title));
+
+    const nameField = await screen.findByDisplayValue("Noor");
     await user.type(nameField, " Courses");
 
-    // The save bar only appears once the draft diverges from what was loaded.
     const saveButton = await screen.findByRole("button", { name: L.save });
     await user.click(saveButton);
 
@@ -101,9 +122,30 @@ describe("LmsSiteScreen (public-site editor)", () => {
     expect(await screen.findByText(L.saved)).toBeInTheDocument();
   });
 
+  it("hides a section from the rail without opening it", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText(L.title);
+
+    // Every toggleable section carries the same switch label, so find the reviews row's own.
+    const row = screen.getByText(L.blocks.testimonials.title).closest("div.group");
+    expect(row).not.toBeNull();
+    const toggle = within(row as HTMLElement).getByRole("switch", { name: L.showOnSite });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    // Turning a strip off is a change like any other, and saves the same way.
+    await user.click(await screen.findByRole("button", { name: L.save }));
+    await waitFor(() => expect(api.saveLmsSiteProfile).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.saveLmsSiteProfile).mock.calls[0]?.[0]?.testimonials.show).toBe(false);
+  });
+
   it("is read-only without course.manage", async () => {
     renderScreen(["course.read"]);
     expect(await screen.findByText(L.readOnly)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: L.save })).not.toBeInTheDocument();
   });
 
   it("blocks a user without course.read and never fetches", () => {

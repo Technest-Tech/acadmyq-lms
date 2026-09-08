@@ -8,6 +8,17 @@ if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
 }
 
+// jsdom has no layout engine and so no ResizeObserver. Components that size themselves against
+// their box (the site builder's device preview) observe one; a no-op never fires, which is exactly
+// the "not measured yet" state they already have to render correctly.
+if (!("ResizeObserver" in globalThis)) {
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 // jsdom ships no matchMedia either. ThemeProvider asks it whether the OS prefers dark; without a
 // stub every render inside the app shell throws. Reports "light", which is the light-theme default
 // the assertions already expect — a test that cares about dark mode should stub this itself.

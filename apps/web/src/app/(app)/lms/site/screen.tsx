@@ -1,16 +1,24 @@
 "use client";
 
 import {
-  Award,
+  ArrowLeft,
+  ArrowRight,
+  BarChart3,
+  Check,
+  ChevronLeft,
+  Copy,
   ExternalLink,
   Globe,
   HelpCircle,
   Image as ImageIcon,
   Layers,
+  Link2,
   ListOrdered,
   Loader2,
+  Megaphone,
   MessageSquareQuote,
   Palette,
+  PanelsTopLeft,
   Phone,
   RotateCcw,
   Save,
@@ -19,7 +27,8 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import type { LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/auth-provider";
 import {
@@ -28,14 +37,24 @@ import {
   selectClass,
   textareaClass,
 } from "@/components/courses/form-bits";
-import { EmptyState, LmsHero } from "@/components/courses/lms-ui";
+import { EmptyState, lmsColor } from "@/components/courses/lms-ui";
 import {
   ColorField,
-  EditorBlock,
   ImageField,
   RepeatableList,
   StringList,
 } from "@/components/courses/site-editor-bits";
+import {
+  CompletionBar,
+  PreviewPane,
+  PreviewToolbar,
+  SectionRow,
+  Segmented,
+  Switch,
+  VisibilityBanner,
+  type PreviewDevice,
+  type PreviewFocus,
+} from "@/components/courses/site-builder";
 import { AlertBanner } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast";
 import { getLmsSiteProfile, saveLmsSiteProfile, type LmsSiteProfile } from "@/lib/api";
@@ -43,14 +62,20 @@ import type { LearnSiteContent } from "@/lib/learn-api";
 import { cn } from "@/lib/utils";
 
 /**
- * The client's editor for their public course site (docs/lms/09).
+ * The client's builder for their public course site (docs/lms/09).
  *
- * Every LMS client's site is the same template; this screen supplies the half that differs. It is
- * deliberately one long form over collapsible blocks in the order they appear on the page, so a
- * client editing "Why learn here" knows exactly which strip of their site they are changing.
+ * Two panes, the way every site builder worth using is laid out: what you are editing on the left,
+ * the actual site on the right. The preview is not a mock — it is the client's own site in an
+ * iframe, fed the unsaved draft over postMessage (components/learn/preview-bridge.tsx), so "what
+ * this looks like" is never a question they have to publish to answer.
  *
- * Empty is a valid answer everywhere: the site falls back to its own translated copy, so a client
- * can publish a complete site without filling in a single field, then improve it a block at a time.
+ * The left pane is a RAIL, not one long form. A dozen content blocks stacked as accordions meant
+ * that finding "the reviews strip" was a scroll and a guess; here the sections are listed in the
+ * order they appear on the page, each one switchable from the list itself, and opening one shows
+ * only its fields — and scrolls the preview to the strip it controls.
+ *
+ * Empty is still a valid answer everywhere: the site falls back to its own translated copy, so a
+ * client can publish a complete site without filling in a single field.
  */
 
 const BRAND_PRESETS = [
@@ -104,6 +129,189 @@ const CAPS = {
   links: 8,
 };
 
+// ── the section registry ──────────────────────────────────────────────────────
+
+type BlockKey =
+  | "brand"
+  | "hero"
+  | "stats"
+  | "features"
+  | "steps"
+  | "about"
+  | "instructors"
+  | "testimonials"
+  | "faq"
+  | "cta"
+  | "contact"
+  | "footer"
+  | "seo"
+  | "legal";
+
+type Group = "design" | "home" | "site" | "settings";
+
+interface SectionDef {
+  key: BlockKey;
+  group: Group;
+  Icon: LucideIcon;
+  color: string;
+  /** The element id this section renders as on the site, for the preview's scroll-and-flash. */
+  anchor: string | null;
+  /** Which page of the site to preview while editing it. */
+  page?: string;
+  /** Sections the client can switch off entirely. The rest are structural. */
+  toggle?: boolean;
+  count?: (c: LearnSiteContent) => number;
+  /** "The client put something of their own here" — drives the setup meter and the tick. */
+  done: (c: LearnSiteContent) => boolean;
+}
+
+const filled = (...values: (string | undefined)[]) =>
+  values.some((value) => (value ?? "").trim() !== "");
+
+/** Page order IS site order: the rail reads top-to-bottom the way the site does. */
+const SECTIONS: SectionDef[] = [
+  {
+    key: "brand",
+    group: "design",
+    Icon: Palette,
+    color: "violet",
+    anchor: "site-header",
+    done: (c) => filled(c.brand.name, c.brand.logo_url, c.brand.tagline),
+  },
+  {
+    key: "hero",
+    group: "home",
+    Icon: ImageIcon,
+    color: "indigo",
+    anchor: "site-hero",
+    done: (c) => filled(c.hero.title, c.hero.subtitle, c.hero.image_url),
+  },
+  {
+    key: "stats",
+    group: "home",
+    Icon: BarChart3,
+    color: "blue",
+    anchor: "site-stats",
+    toggle: true,
+    count: (c) => c.stats.items.length,
+    done: (c) => c.stats.items.length > 0,
+  },
+  {
+    key: "features",
+    group: "home",
+    Icon: Sparkles,
+    color: "violet",
+    anchor: "site-features",
+    toggle: true,
+    count: (c) => c.features.items.length,
+    done: (c) => c.features.items.length > 0,
+  },
+  {
+    key: "steps",
+    group: "home",
+    Icon: ListOrdered,
+    color: "blue",
+    anchor: "site-steps",
+    toggle: true,
+    count: (c) => c.steps.items.length,
+    done: (c) => c.steps.items.length > 0,
+  },
+  {
+    key: "about",
+    group: "home",
+    Icon: Layers,
+    color: "indigo",
+    anchor: "site-about",
+    page: "/about",
+    toggle: true,
+    done: (c) => filled(c.about.body, c.about.mission, c.about.approach),
+  },
+  {
+    key: "instructors",
+    group: "home",
+    Icon: Users,
+    color: "emerald",
+    anchor: "site-instructors",
+    toggle: true,
+    count: (c) => c.instructors.items.length,
+    done: (c) => c.instructors.items.length > 0,
+  },
+  {
+    key: "testimonials",
+    group: "home",
+    Icon: MessageSquareQuote,
+    color: "amber",
+    anchor: "site-testimonials",
+    toggle: true,
+    count: (c) => c.testimonials.items.length,
+    done: (c) => c.testimonials.items.length > 0,
+  },
+  {
+    key: "faq",
+    group: "home",
+    Icon: HelpCircle,
+    color: "blue",
+    anchor: "site-faq",
+    toggle: true,
+    count: (c) => c.faq.items.length,
+    done: (c) => c.faq.items.length > 0,
+  },
+  {
+    key: "cta",
+    group: "home",
+    Icon: Megaphone,
+    color: "rose",
+    anchor: "site-cta",
+    toggle: true,
+    done: (c) => filled(c.cta.title, c.cta.subtitle, c.cta.button_label),
+  },
+  {
+    key: "contact",
+    group: "site",
+    Icon: Phone,
+    color: "emerald",
+    anchor: "site-footer",
+    toggle: true,
+    done: (c) => filled(c.contact.whatsapp, c.contact.phone, c.contact.email),
+  },
+  {
+    key: "footer",
+    group: "site",
+    Icon: Link2,
+    color: "slate",
+    anchor: "site-footer",
+    count: (c) => c.footer.links.length,
+    done: (c) => filled(c.footer.note) || c.footer.links.length > 0,
+  },
+  {
+    key: "seo",
+    group: "settings",
+    Icon: Search,
+    color: "slate",
+    anchor: null,
+    done: (c) => filled(c.seo.title, c.seo.description, c.seo.og_image_url),
+  },
+  {
+    key: "legal",
+    group: "settings",
+    Icon: Scale,
+    color: "slate",
+    anchor: null,
+    page: "/legal/terms",
+    done: (c) => filled(c.legal.business_name, c.legal.terms, c.legal.refund, c.legal.privacy),
+  },
+];
+
+const GROUPS: Group[] = ["design", "home", "site", "settings"];
+
+/** The `show` flag of a toggleable section, read and written without a cast at every call site. */
+function visibility(content: LearnSiteContent, key: BlockKey): boolean {
+  const block = content[key] as { show?: boolean };
+  return block.show !== false;
+}
+
+// ── screen ────────────────────────────────────────────────────────────────────
+
 export function LmsSiteScreen() {
   const t = useTranslations("lms.site");
   const { can } = useAuth();
@@ -113,6 +321,14 @@ export function LmsSiteScreen() {
   const [draft, setDraft] = useState<LearnSiteContent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const [open, setOpen] = useState<BlockKey | null>(null);
+  const [device, setDevice] = useState<PreviewDevice>("desktop");
+  const [page, setPage] = useState("");
+  const [focus, setFocus] = useState<PreviewFocus | null>(null);
+  const [view, setView] = useState<"edit" | "preview">("edit");
+  const [copied, setCopied] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(
     () =>
@@ -133,17 +349,18 @@ export function LmsSiteScreen() {
   }, [canRead, load]);
 
   const editable = can("course.manage");
-  const dirty = draft !== null && data !== null && JSON.stringify(draft) !== JSON.stringify(data.content);
+  const dirty =
+    draft !== null && data !== null && JSON.stringify(draft) !== JSON.stringify(data.content);
 
   /** Patch one block; every field editor below goes through this so nothing mutates the draft. */
-  function set<K extends keyof LearnSiteContent>(
+  const set = useCallback(function set<K extends keyof LearnSiteContent>(
     block: K,
     patch: Partial<LearnSiteContent[K]>,
   ): void {
     setDraft((d) => (d === null ? d : { ...d, [block]: { ...d[block], ...patch } }));
-  }
+  }, []);
 
-  async function save() {
+  const save = useCallback(async () => {
     if (draft === null) return;
     setSaving(true);
     try {
@@ -156,7 +373,33 @@ export function LmsSiteScreen() {
     } finally {
       setSaving(false);
     }
-  }
+  }, [draft, t, toast]);
+
+  // ⌘S / Ctrl+S. The save button is always on screen, but nobody who has ever used a builder
+  // reaches for the mouse to save.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (editable && dirty && !saving) void save();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editable, dirty, saving, save]);
+
+  /** Open a section: show its fields, put the preview on its page and flash the strip it owns. */
+  const openSection = useCallback((section: SectionDef) => {
+    setOpen(section.key);
+    setView("edit");
+    if (section.page !== undefined) setPage(section.page);
+    if (section.anchor !== null) {
+      setFocus({ anchor: section.anchor, token: Date.now() });
+    }
+    // Jumping between sections from the "next section" link at the bottom of a long form would
+    // otherwise leave the client looking at the middle of the one they just opened.
+    panelRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, []);
 
   if (!can("course.read")) {
     return <EmptyState Icon={Globe} color="slate" title={t("noAccess")} />;
@@ -167,57 +410,364 @@ export function LmsSiteScreen() {
   if (draft === null || data === null) {
     return (
       <div className="space-y-4">
-        <div className="bg-muted h-32 animate-pulse rounded-2xl" />
-        {Array.from({ length: 5 }, (_, i) => (
-          <div key={i} className="bg-muted h-16 animate-pulse rounded-2xl" />
-        ))}
+        <div className="bg-muted h-16 animate-pulse rounded-2xl" />
+        <div className="grid gap-4 lg:grid-cols-[minmax(360px,26rem)_1fr]">
+          <div className="bg-muted h-[32rem] animate-pulse rounded-2xl" />
+          <div className="bg-muted hidden h-[32rem] animate-pulse rounded-2xl lg:block" />
+        </div>
       </div>
     );
   }
 
-  const fallbackHint = t("hint.fallback");
+  const handle = data.site.subdomain;
+  const previewSrc =
+    handle === null ? null : `/learn/${handle}${page}?preview=1`;
+  const liveUrl = data.site.url ?? (handle === null ? null : `/learn/${handle}`);
+  const section = SECTIONS.find((s) => s.key === open) ?? null;
+  const doneCount = SECTIONS.filter((s) => s.done(draft)).length;
+
+  const pageOptions = [
+    { value: "", label: t("builder.page.home") },
+    { value: "/courses", label: t("builder.page.courses") },
+    ...(draft.pages.about ? [{ value: "/about", label: t("builder.page.about") }] : []),
+    ...(draft.pages.faq ? [{ value: "/faq", label: t("builder.page.faq") }] : []),
+    ...(draft.pages.contact ? [{ value: "/contact", label: t("builder.page.contact") }] : []),
+    { value: "/legal/terms", label: t("builder.page.legal") },
+  ];
 
   return (
-    <div className="space-y-4 pb-28">
-      <LmsHero
-        Icon={Globe}
-        eyebrow={
-          <>
-            <Sparkles className="size-3.5" />
-            <span>{t("eyebrow")}</span>
-          </>
-        }
-        title={t("title")}
-        subtitle={t("subtitle")}
-      >
-        {data.site.url ? (
+    <div className="flex flex-col gap-4">
+      {/* ── the bar that never scrolls away: where the site is, and the one button that matters ── */}
+      <header className="bg-card sticky top-0 z-30 flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3 shadow-sm ring-1 ring-foreground/[0.06]">
+        <span className="from-primary flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br to-emerald-400 text-white shadow-sm">
+          <PanelsTopLeft className="size-5" aria-hidden />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <h1 className="flex items-center gap-2 text-base font-bold tracking-tight">
+            {t("title")}
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-[10px] font-bold",
+                data.site.configured
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {data.site.configured ? t("builder.published") : t("builder.notPublished")}
+            </span>
+          </h1>
+          {data.site.url !== null ? (
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard?.writeText(data.site.url ?? "");
+                setCopied(true);
+                window.setTimeout(() => setCopied(false), 1600);
+              }}
+              className="text-muted-foreground hover:text-foreground group mt-0.5 flex max-w-full items-center gap-1.5 text-xs transition-colors"
+            >
+              <span className="truncate font-mono">
+                {data.site.url.replace(/^https?:\/\//, "")}
+              </span>
+              {copied ? (
+                <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden />
+              ) : (
+                <Copy className="size-3.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />
+              )}
+              <span className="sr-only">{t("builder.copy")}</span>
+            </button>
+          ) : (
+            <p className="text-muted-foreground mt-0.5 text-xs">{t("notPublished")}</p>
+          )}
+        </div>
+
+        {/* On a narrow screen the two panes are tabs; from lg up they sit side by side. */}
+        <Segmented
+          className="lg:hidden"
+          items={[
+            { value: "edit", label: t("builder.edit") },
+            { value: "preview", label: t("builder.preview") },
+          ]}
+          value={view}
+          onChange={(v) => setView(v as "edit" | "preview")}
+        />
+
+        {liveUrl !== null && (
           <a
-            href={data.site.url}
+            href={liveUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white/15 px-3.5 text-sm font-semibold text-white ring-1 ring-white/25 transition-colors hover:bg-white/25"
+            className="border-input hover:bg-muted hidden h-9 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium transition-colors sm:inline-flex"
           >
             <ExternalLink className="size-4" aria-hidden />
             {t("openSite")}
           </a>
-        ) : (
-          <span className="rounded-xl bg-white/10 px-3.5 py-2 text-xs text-white/80">
-            {t("notPublished")}
-          </span>
         )}
-      </LmsHero>
+
+        {editable && (
+          <div className="flex items-center gap-2">
+            {dirty && (
+              <button
+                type="button"
+                onClick={() => setDraft(data.content)}
+                className="border-input hover:bg-muted inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium transition-colors"
+              >
+                <RotateCcw className="size-4" aria-hidden />
+                <span className="hidden sm:inline">{t("discard")}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saving || !dirty}
+              className="bg-primary text-primary-foreground inline-flex h-9 items-center gap-1.5 rounded-xl px-4 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-45"
+            >
+              {saving ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <Save className="size-4" aria-hidden />
+              )}
+              {saving ? t("saving") : dirty ? t("save") : t("builder.saved")}
+            </button>
+          </div>
+        )}
+      </header>
 
       {!editable && <AlertBanner variant="info" message={t("readOnly")} />}
 
-      <fieldset disabled={!editable} className="space-y-4">
-        {/* ── Brand ── */}
-        <EditorBlock
-          Icon={Palette}
-          color="violet"
-          title={t("blocks.brand.title")}
-          description={t("blocks.brand.desc")}
-          defaultOpen
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(360px,26rem)_1fr]">
+        {/* ── left: the rail, or the open section's fields ── */}
+        <div
+          ref={panelRef}
+          className={cn(
+            "bg-card scroll-mt-24 overflow-clip rounded-2xl shadow-sm ring-1 ring-foreground/[0.06]",
+            view === "preview" && "hidden lg:block",
+          )}
         >
+          {section === null ? (
+            <>
+              <CompletionBar
+                done={doneCount}
+                total={SECTIONS.length}
+                label={t("builder.progress", { done: doneCount, total: SECTIONS.length })}
+                hint={t("builder.progressHint")}
+              />
+              <div className="space-y-4 p-3">
+                {GROUPS.map((group) => (
+                  <div key={group}>
+                    <p className="text-muted-foreground/70 px-2.5 pb-1 text-[10px] font-bold tracking-[0.1em] uppercase">
+                      {t(`builder.group.${group}`)}
+                    </p>
+                    <div className="space-y-0.5">
+                      {SECTIONS.filter((s) => s.group === group).map((s) => (
+                        <SectionRow
+                          key={s.key}
+                          Icon={s.Icon}
+                          color={s.color}
+                          title={t(`blocks.${s.key}.title`)}
+                          description={t(`blocks.${s.key}.desc`)}
+                          count={s.count?.(draft)}
+                          done={s.done(draft)}
+                          show={s.toggle === true ? visibility(draft, s.key) : undefined}
+                          onShowChange={
+                            s.toggle === true
+                              ? (show) =>
+                                  set(s.key, { show } as Partial<LearnSiteContent[BlockKey]>)
+                              : undefined
+                          }
+                          showLabel={t("showOnSite")}
+                          onOpen={() => openSection(s)}
+                          disabled={!editable}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <SectionEditor
+              section={section}
+              draft={draft}
+              data={data}
+              set={set}
+              editable={editable}
+              onBack={() => setOpen(null)}
+              onOpen={openSection}
+            />
+          )}
+        </div>
+
+        {/* ── right: the site itself ── */}
+        <div
+          className={cn(
+            "bg-card sticky top-[5.5rem] flex h-[calc(100vh-9rem)] min-h-[30rem] flex-col overflow-hidden rounded-2xl shadow-sm ring-1 ring-foreground/[0.06]",
+            view === "edit" && "hidden lg:flex",
+          )}
+        >
+          <PreviewToolbar
+            pages={pageOptions}
+            page={page}
+            onPageChange={setPage}
+            device={device}
+            onDeviceChange={setDevice}
+            deviceLabels={{
+              desktop: t("builder.device.desktop"),
+              tablet: t("builder.device.tablet"),
+              mobile: t("builder.device.mobile"),
+            }}
+            url={liveUrl === null ? null : `${liveUrl}${page}`}
+            openLabel={t("builder.openPage")}
+            liveLabel={t("builder.live")}
+          />
+          {previewSrc === null ? (
+            <EmptyState
+              Icon={Globe}
+              color="slate"
+              title={t("notPublished")}
+              description={t("builder.noPreview")}
+              className="flex-1"
+            />
+          ) : (
+            <PreviewPane
+              src={previewSrc}
+              content={draft}
+              device={device}
+              focus={focus}
+              label={t("builder.preview")}
+              loadingLabel={t("builder.loadingPreview")}
+              reloadLabel={t("builder.reload")}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── the open section ──────────────────────────────────────────────────────────
+
+function SectionEditor({
+  section,
+  draft,
+  data,
+  set,
+  editable,
+  onBack,
+  onOpen,
+}: {
+  section: SectionDef;
+  draft: LearnSiteContent;
+  data: LmsSiteProfile;
+  set: <K extends keyof LearnSiteContent>(block: K, patch: Partial<LearnSiteContent[K]>) => void;
+  editable: boolean;
+  onBack: () => void;
+  onOpen: (section: SectionDef) => void;
+}) {
+  const t = useTranslations("lms.site");
+  const c = lmsColor(section.color);
+  const index = SECTIONS.findIndex((s) => s.key === section.key);
+  const next = SECTIONS[index + 1] ?? null;
+  const previous = SECTIONS[index - 1] ?? null;
+
+  return (
+    <div>
+      <div className="bg-card sticky top-[5.5rem] z-10 flex items-center gap-3 border-b px-3 py-3">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label={t("builder.back")}
+          title={t("builder.back")}
+          className="hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg p-1.5 transition-colors"
+        >
+          <ChevronLeft className="size-4 rtl:rotate-180" aria-hidden />
+        </button>
+        <span
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
+            c.chip,
+          )}
+        >
+          <section.Icon className="size-4" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-bold tracking-tight">
+            {t(`blocks.${section.key}.title`)}
+          </p>
+          <p className="text-muted-foreground truncate text-xs">
+            {t(`blocks.${section.key}.desc`)}
+          </p>
+        </div>
+      </div>
+
+      <fieldset disabled={!editable} className="space-y-4 p-4">
+        {section.toggle === true && (
+          <VisibilityBanner
+            show={visibility(draft, section.key)}
+            onChange={(show) => set(section.key, { show } as Partial<LearnSiteContent[BlockKey]>)}
+            shownLabel={t("builder.sectionShown")}
+            hiddenLabel={t("builder.sectionHidden")}
+            switchLabel={t("showOnSite")}
+          />
+        )}
+
+        <BlockFields block={section.key} draft={draft} data={data} set={set} />
+      </fieldset>
+
+      {/* Straight-through setup: a client who wants to fill the whole site never returns to the
+          index between two sections. */}
+      <div className="flex items-center gap-2 border-t px-4 py-3">
+        {previous !== null && (
+          <button
+            type="button"
+            onClick={() => onOpen(previous)}
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
+          >
+            <ArrowLeft className="size-3.5 rtl:rotate-180" aria-hidden />
+            {t(`blocks.${previous.key}.title`)}
+          </button>
+        )}
+        {next !== null && (
+          <button
+            type="button"
+            onClick={() => onOpen(next)}
+            className="text-primary ms-auto inline-flex items-center gap-1.5 text-xs font-semibold transition-opacity hover:opacity-80"
+          >
+            {t(`blocks.${next.key}.title`)}
+            <ArrowRight className="size-3.5 rtl:rotate-180" aria-hidden />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Every section's fields. One switch rather than a dozen components: these are flat forms over a
+ * flat document, and keeping them together is what makes the whole site's vocabulary — headings,
+ * body, items — visibly consistent.
+ */
+function BlockFields({
+  block,
+  draft,
+  data,
+  set,
+}: {
+  block: BlockKey;
+  draft: LearnSiteContent;
+  data: LmsSiteProfile;
+  set: <K extends keyof LearnSiteContent>(b: K, patch: Partial<LearnSiteContent[K]>) => void;
+}) {
+  const t = useTranslations("lms.site");
+  const fallbackHint = t("hint.fallback");
+  const imageLabels = { emptyLabel: t("builder.noImage"), clearLabel: t("builder.clearImage") };
+
+  switch (block) {
+    // ── Brand ──
+    case "brand":
+      return (
+        <>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label={t("f.name")} hint={fallbackHint}>
               <input
@@ -234,70 +784,78 @@ export function LmsSiteScreen() {
                 onChange={(e) => set("brand", { tagline: e.target.value })}
               />
             </Field>
+          </div>
+          <Field label={t("f.color")} hint={t("hint.color")}>
+            <ColorField
+              value={draft.brand.color}
+              presets={BRAND_PRESETS}
+              onChange={(color) => set("brand", { color })}
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label={t("f.logo")} hint={t("hint.url")} optional={t("optional")}>
               <ImageField
                 value={draft.brand.logo_url}
                 alt={t("f.logo")}
                 onChange={(logo_url) => set("brand", { logo_url })}
+                {...imageLabels}
               />
             </Field>
-            <Field label={t("f.color")} hint={t("hint.color")}>
-              <ColorField
-                value={draft.brand.color}
-                presets={BRAND_PRESETS}
-                onChange={(color) => set("brand", { color })}
-              />
-            </Field>
-            <Field
-              label={t("f.logoMark")}
-              hint={t("hint.logoMark")}
-              optional={t("optional")}
-            >
+            <Field label={t("f.logoMark")} hint={t("hint.logoMark")} optional={t("optional")}>
               <ImageField
                 value={draft.brand.logo_mark_url ?? ""}
                 shape="square"
                 alt={t("f.logoMark")}
                 onChange={(logo_mark_url) => set("brand", { logo_mark_url })}
-              />
-            </Field>
-            <Field
-              label={t("f.favicon")}
-              hint={t("hint.favicon")}
-              optional={t("optional")}
-            >
-              <ImageField
-                value={draft.brand.favicon_url ?? ""}
-                shape="square"
-                alt={t("f.favicon")}
-                onChange={(favicon_url) => set("brand", { favicon_url })}
+                {...imageLabels}
               />
             </Field>
           </div>
-        </EditorBlock>
+          <Field label={t("f.favicon")} hint={t("hint.favicon")} optional={t("optional")}>
+            <ImageField
+              value={draft.brand.favicon_url ?? ""}
+              shape="square"
+              alt={t("f.favicon")}
+              onChange={(favicon_url) => set("brand", { favicon_url })}
+              {...imageLabels}
+            />
+          </Field>
+        </>
+      );
 
-        {/* ── Hero ── */}
-        <EditorBlock
-          Icon={ImageIcon}
-          color="indigo"
-          title={t("blocks.hero.title")}
-          description={t("blocks.hero.desc")}
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={t("f.eyebrow")} hint={fallbackHint}>
-              <input
-                className={inputClass}
-                value={draft.hero.eyebrow}
-                onChange={(e) => set("hero", { eyebrow: e.target.value })}
-              />
-            </Field>
-            <Field label={t("f.headline")} hint={fallbackHint}>
-              <input
-                className={inputClass}
-                value={draft.hero.title}
-                onChange={(e) => set("hero", { title: e.target.value })}
-              />
-            </Field>
-          </div>
+    // ── Hero ──
+    case "hero":
+      return (
+        <>
+          <Field label={t("f.heroStyle")}>
+            <select
+              className={selectClass}
+              value={draft.brand.hero_style}
+              onChange={(e) =>
+                set("brand", {
+                  hero_style: e.target.value as LearnSiteContent["brand"]["hero_style"],
+                })
+              }
+            >
+              <option value="gradient">{t("f.heroStyleGradient")}</option>
+              <option value="image">{t("f.heroStyleImage")}</option>
+              <option value="plain">{t("f.heroStylePlain")}</option>
+            </select>
+          </Field>
+          <Field label={t("f.eyebrow")} hint={fallbackHint}>
+            <input
+              className={inputClass}
+              value={draft.hero.eyebrow}
+              onChange={(e) => set("hero", { eyebrow: e.target.value })}
+            />
+          </Field>
+          <Field label={t("f.headline")} hint={fallbackHint}>
+            <input
+              className={inputClass}
+              value={draft.hero.title}
+              onChange={(e) => set("hero", { title: e.target.value })}
+            />
+          </Field>
           <Field label={t("f.subtitle")} hint={fallbackHint}>
             <textarea
               className={textareaClass}
@@ -306,29 +864,15 @@ export function LmsSiteScreen() {
               onChange={(e) => set("hero", { subtitle: e.target.value })}
             />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Field label={t("f.heroStyle")}>
-              <select
-                className={selectClass}
-                value={draft.brand.hero_style}
-                onChange={(e) =>
-                  set("brand", {
-                    hero_style: e.target.value as LearnSiteContent["brand"]["hero_style"],
-                  })
-                }
-              >
-                <option value="gradient">{t("f.heroStyleGradient")}</option>
-                <option value="image">{t("f.heroStyleImage")}</option>
-                <option value="plain">{t("f.heroStylePlain")}</option>
-              </select>
-            </Field>
-            <Field label={t("f.image")} hint={t("hint.url")} optional={t("optional")}>
-              <ImageField
-                value={draft.hero.image_url}
-                alt={t("f.image")}
-                onChange={(image_url) => set("hero", { image_url })}
-              />
-            </Field>
+          <Field label={t("f.image")} hint={t("hint.url")} optional={t("optional")}>
+            <ImageField
+              value={draft.hero.image_url}
+              alt={t("f.image")}
+              onChange={(image_url) => set("hero", { image_url })}
+              {...imageLabels}
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label={t("f.primaryCta")}>
               <select
                 className={selectClass}
@@ -344,14 +888,14 @@ export function LmsSiteScreen() {
                 <option value="contact">{t("f.ctaContact")}</option>
               </select>
             </Field>
+            <Field label={t("f.ctaLabel")} hint={fallbackHint} optional={t("optional")}>
+              <input
+                className={inputClass}
+                value={draft.hero.cta_label ?? ""}
+                onChange={(e) => set("hero", { cta_label: e.target.value })}
+              />
+            </Field>
           </div>
-          <Field label={t("f.ctaLabel")} hint={fallbackHint} optional={t("optional")}>
-            <input
-              className={inputClass}
-              value={draft.hero.cta_label ?? ""}
-              onChange={(e) => set("hero", { cta_label: e.target.value })}
-            />
-          </Field>
           <Field label={t("f.badges")} hint={fallbackHint}>
             <StringList
               items={draft.hero.badges}
@@ -362,77 +906,61 @@ export function LmsSiteScreen() {
               maxLabel={t("max")}
             />
           </Field>
-        </EditorBlock>
+        </>
+      );
 
-        {/* ── Numbers ── */}
-        <EditorBlock
-          Icon={Award}
-          color="blue"
-          title={t("blocks.stats.title")}
-          description={t("blocks.stats.desc")}
-          show={draft.stats.show}
-          onShowChange={(show) => set("stats", { show })}
-          showLabel={t("showOnSite")}
-          count={draft.stats.items.length}
+    // ── Numbers ──
+    case "stats":
+      return (
+        <RepeatableList
+          items={draft.stats.items}
+          onChange={(items) => set("stats", { items })}
+          create={() => ({ value: "", label: "" })}
+          addLabel={t("add.stat")}
+          emptyLabel={t("empty.stats")}
+          max={CAPS.stats}
+          maxLabel={t("max")}
+          title={(item) => item.label}
         >
-          <RepeatableList
-            items={draft.stats.items}
-            onChange={(items) => set("stats", { items })}
-            create={() => ({ value: "", label: "" })}
-            addLabel={t("add.stat")}
-            emptyLabel={t("empty.stats")}
-            max={CAPS.stats}
-            maxLabel={t("max")}
-            title={(item) => item.label}
-          >
-            {(item, update) => (
-              <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
-                <Field label={t("f.value")}>
-                  <input
-                    className={inputClass}
-                    value={item.value}
-                    onChange={(e) => update({ value: e.target.value })}
-                  />
-                </Field>
-                <Field label={t("f.label")}>
-                  <input
-                    className={inputClass}
-                    value={item.label}
-                    onChange={(e) => update({ label: e.target.value })}
-                  />
-                </Field>
-              </div>
-            )}
-          </RepeatableList>
-        </EditorBlock>
+          {(item, update) => (
+            <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
+              <Field label={t("f.value")}>
+                <input
+                  className={inputClass}
+                  value={item.value}
+                  onChange={(e) => update({ value: e.target.value })}
+                />
+              </Field>
+              <Field label={t("f.label")}>
+                <input
+                  className={inputClass}
+                  value={item.label}
+                  onChange={(e) => update({ label: e.target.value })}
+                />
+              </Field>
+            </div>
+          )}
+        </RepeatableList>
+      );
 
-        {/* ── Why learn here ── */}
-        <EditorBlock
-          Icon={Sparkles}
-          color="violet"
-          title={t("blocks.features.title")}
-          description={t("blocks.features.desc")}
-          show={draft.features.show}
-          onShowChange={(show) => set("features", { show })}
-          showLabel={t("showOnSite")}
-          count={draft.features.items.length}
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={t("f.heading")} hint={fallbackHint}>
-              <input
-                className={inputClass}
-                value={draft.features.heading}
-                onChange={(e) => set("features", { heading: e.target.value })}
-              />
-            </Field>
-            <Field label={t("f.subheading")} hint={fallbackHint}>
-              <input
-                className={inputClass}
-                value={draft.features.subheading}
-                onChange={(e) => set("features", { subheading: e.target.value })}
-              />
-            </Field>
-          </div>
+    // ── Why learn here ──
+    case "features":
+      return (
+        <>
+          <Field label={t("f.heading")} hint={fallbackHint}>
+            <input
+              className={inputClass}
+              value={draft.features.heading}
+              onChange={(e) => set("features", { heading: e.target.value })}
+            />
+          </Field>
+          <Field label={t("f.subheading")} hint={fallbackHint}>
+            <input
+              className={inputClass}
+              value={draft.features.subheading}
+              onChange={(e) => set("features", { subheading: e.target.value })}
+            />
+          </Field>
           <RepeatableList
             items={draft.features.items}
             onChange={(items) => set("features", { items })}
@@ -445,7 +973,7 @@ export function LmsSiteScreen() {
           >
             {(item, update) => (
               <>
-                <div className="grid gap-3 sm:grid-cols-[160px_1fr]">
+                <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
                   <Field label={t("f.icon")}>
                     <select
                       className={selectClass}
@@ -478,19 +1006,13 @@ export function LmsSiteScreen() {
               </>
             )}
           </RepeatableList>
-        </EditorBlock>
+        </>
+      );
 
-        {/* ── How it works ── */}
-        <EditorBlock
-          Icon={ListOrdered}
-          color="blue"
-          title={t("blocks.steps.title")}
-          description={t("blocks.steps.desc")}
-          show={draft.steps.show}
-          onShowChange={(show) => set("steps", { show })}
-          showLabel={t("showOnSite")}
-          count={draft.steps.items.length}
-        >
+    // ── How it works ──
+    case "steps":
+      return (
+        <>
           <Field label={t("f.heading")} hint={fallbackHint}>
             <input
               className={inputClass}
@@ -528,34 +1050,20 @@ export function LmsSiteScreen() {
               </>
             )}
           </RepeatableList>
-        </EditorBlock>
+        </>
+      );
 
-        {/* ── About ── */}
-        <EditorBlock
-          Icon={Layers}
-          color="indigo"
-          title={t("blocks.about.title")}
-          description={t("blocks.about.desc")}
-          show={draft.about.show}
-          onShowChange={(show) => set("about", { show })}
-          showLabel={t("showOnSite")}
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={t("f.heading")} hint={fallbackHint}>
-              <input
-                className={inputClass}
-                value={draft.about.heading}
-                onChange={(e) => set("about", { heading: e.target.value })}
-              />
-            </Field>
-            <Field label={t("f.image")} hint={t("hint.url")} optional={t("optional")}>
-              <ImageField
-                value={draft.about.image_url}
-                alt={t("f.image")}
-                onChange={(image_url) => set("about", { image_url })}
-              />
-            </Field>
-          </div>
+    // ── About ──
+    case "about":
+      return (
+        <>
+          <Field label={t("f.heading")} hint={fallbackHint}>
+            <input
+              className={inputClass}
+              value={draft.about.heading}
+              onChange={(e) => set("about", { heading: e.target.value })}
+            />
+          </Field>
           <Field label={t("f.body")} hint={fallbackHint}>
             <textarea
               className={textareaClass}
@@ -564,26 +1072,32 @@ export function LmsSiteScreen() {
               onChange={(e) => set("about", { body: e.target.value })}
             />
           </Field>
+          <Field label={t("f.image")} hint={t("hint.url")} optional={t("optional")}>
+            <ImageField
+              value={draft.about.image_url}
+              alt={t("f.image")}
+              onChange={(image_url) => set("about", { image_url })}
+              {...imageLabels}
+            />
+          </Field>
           {/* These two appear ONLY on the About page, which is what stops it being a second copy
               of the home page (docs/lms/09 §6). Left blank, neither block is drawn at all. */}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={t("f.mission")} hint={t("hint.aboutOnly")} optional={t("optional")}>
-              <textarea
-                className={textareaClass}
-                rows={4}
-                value={draft.about.mission ?? ""}
-                onChange={(e) => set("about", { mission: e.target.value })}
-              />
-            </Field>
-            <Field label={t("f.approach")} hint={t("hint.aboutOnly")} optional={t("optional")}>
-              <textarea
-                className={textareaClass}
-                rows={4}
-                value={draft.about.approach ?? ""}
-                onChange={(e) => set("about", { approach: e.target.value })}
-              />
-            </Field>
-          </div>
+          <Field label={t("f.mission")} hint={t("hint.aboutOnly")} optional={t("optional")}>
+            <textarea
+              className={textareaClass}
+              rows={4}
+              value={draft.about.mission ?? ""}
+              onChange={(e) => set("about", { mission: e.target.value })}
+            />
+          </Field>
+          <Field label={t("f.approach")} hint={t("hint.aboutOnly")} optional={t("optional")}>
+            <textarea
+              className={textareaClass}
+              rows={4}
+              value={draft.about.approach ?? ""}
+              onChange={(e) => set("about", { approach: e.target.value })}
+            />
+          </Field>
           <Field label={t("f.points")} optional={t("optional")}>
             <StringList
               items={draft.about.points}
@@ -594,19 +1108,13 @@ export function LmsSiteScreen() {
               maxLabel={t("max")}
             />
           </Field>
-        </EditorBlock>
+        </>
+      );
 
-        {/* ── Teachers ── */}
-        <EditorBlock
-          Icon={Users}
-          color="emerald"
-          title={t("blocks.instructors.title")}
-          description={t("blocks.instructors.desc")}
-          show={draft.instructors.show}
-          onShowChange={(show) => set("instructors", { show })}
-          showLabel={t("showOnSite")}
-          count={draft.instructors.items.length}
-        >
+    // ── Teachers ──
+    case "instructors":
+      return (
+        <>
           <Field label={t("f.heading")} hint={fallbackHint}>
             <input
               className={inputClass}
@@ -655,6 +1163,7 @@ export function LmsSiteScreen() {
                     shape="square"
                     alt={item.name || t("f.photo")}
                     onChange={(photo_url) => update({ photo_url })}
+                    {...imageLabels}
                   />
                 </Field>
                 <Field label={t("f.bio")} optional={t("optional")}>
@@ -665,43 +1174,35 @@ export function LmsSiteScreen() {
                     onChange={(e) => update({ bio: e.target.value })}
                   />
                 </Field>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Field
-                    label={t("f.expertise")}
-                    hint={t("hint.expertise")}
-                    optional={t("optional")}
-                  >
-                    <input
-                      className={inputClass}
-                      value={item.expertise ?? ""}
-                      onChange={(e) => update({ expertise: e.target.value })}
-                    />
-                  </Field>
-                  <Field label={t("f.personLink")} hint={t("hint.url")} optional={t("optional")}>
-                    <input
-                      className={inputClass}
-                      value={item.link_url ?? ""}
-                      placeholder="https://…"
-                      onChange={(e) => update({ link_url: e.target.value })}
-                    />
-                  </Field>
-                </div>
+                <Field
+                  label={t("f.expertise")}
+                  hint={t("hint.expertise")}
+                  optional={t("optional")}
+                >
+                  <input
+                    className={inputClass}
+                    value={item.expertise ?? ""}
+                    onChange={(e) => update({ expertise: e.target.value })}
+                  />
+                </Field>
+                <Field label={t("f.personLink")} hint={t("hint.url")} optional={t("optional")}>
+                  <input
+                    className={inputClass}
+                    value={item.link_url ?? ""}
+                    placeholder="https://…"
+                    onChange={(e) => update({ link_url: e.target.value })}
+                  />
+                </Field>
               </>
             )}
           </RepeatableList>
-        </EditorBlock>
+        </>
+      );
 
-        {/* ── Reviews ── */}
-        <EditorBlock
-          Icon={MessageSquareQuote}
-          color="amber"
-          title={t("blocks.testimonials.title")}
-          description={t("blocks.testimonials.desc")}
-          show={draft.testimonials.show}
-          onShowChange={(show) => set("testimonials", { show })}
-          showLabel={t("showOnSite")}
-          count={draft.testimonials.items.length}
-        >
+    // ── Reviews ──
+    case "testimonials":
+      return (
+        <>
           <Field label={t("f.heading")} hint={fallbackHint}>
             <input
               className={inputClass}
@@ -729,7 +1230,7 @@ export function LmsSiteScreen() {
                     onChange={(e) => update({ quote: e.target.value })}
                   />
                 </Field>
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-[1fr_1fr_80px]">
                   <Field label={t("f.personName")}>
                     <input
                       className={inputClass}
@@ -759,29 +1260,24 @@ export function LmsSiteScreen() {
                   </Field>
                 </div>
                 <Field label={t("f.photo")} hint={t("hint.url")} optional={t("optional")}>
-                  <input
-                    className={inputClass}
+                  <ImageField
                     value={item.photo_url}
-                    placeholder="https://…"
-                    onChange={(e) => update({ photo_url: e.target.value })}
+                    shape="square"
+                    alt={item.name || t("f.photo")}
+                    onChange={(photo_url) => update({ photo_url })}
+                    {...imageLabels}
                   />
                 </Field>
               </>
             )}
           </RepeatableList>
-        </EditorBlock>
+        </>
+      );
 
-        {/* ── FAQ ── */}
-        <EditorBlock
-          Icon={HelpCircle}
-          color="blue"
-          title={t("blocks.faq.title")}
-          description={t("blocks.faq.desc")}
-          show={draft.faq.show}
-          onShowChange={(show) => set("faq", { show })}
-          showLabel={t("showOnSite")}
-          count={draft.faq.items.length}
-        >
+    // ── FAQ ──
+    case "faq":
+      return (
+        <>
           <Field label={t("f.heading")} hint={fallbackHint}>
             <input
               className={inputClass}
@@ -819,18 +1315,13 @@ export function LmsSiteScreen() {
               </>
             )}
           </RepeatableList>
-        </EditorBlock>
+        </>
+      );
 
-        {/* ── Closing CTA ── */}
-        <EditorBlock
-          Icon={Sparkles}
-          color="rose"
-          title={t("blocks.cta.title")}
-          description={t("blocks.cta.desc")}
-          show={draft.cta.show}
-          onShowChange={(show) => set("cta", { show })}
-          showLabel={t("showOnSite")}
-        >
+    // ── Closing CTA ──
+    case "cta":
+      return (
+        <>
           <Field label={t("f.headline")} hint={fallbackHint}>
             <input
               className={inputClass}
@@ -863,18 +1354,13 @@ export function LmsSiteScreen() {
               />
             </Field>
           </div>
-        </EditorBlock>
+        </>
+      );
 
-        {/* ── Contact ── */}
-        <EditorBlock
-          Icon={Phone}
-          color="emerald"
-          title={t("blocks.contact.title")}
-          description={t("blocks.contact.desc")}
-          show={draft.contact.show}
-          onShowChange={(show) => set("contact", { show })}
-          showLabel={t("showOnSite")}
-        >
+    // ── Contact ──
+    case "contact":
+      return (
+        <>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label={t("f.whatsapp")} hint={t("hint.whatsapp")} optional={t("optional")}>
               <input
@@ -906,18 +1392,14 @@ export function LmsSiteScreen() {
                 onChange={(e) => set("contact", { address: e.target.value })}
               />
             </Field>
-            <Field
-              label={t("f.hours")}
-              hint={t("hint.hours")}
-              optional={t("optional")}
-            >
-              <input
-                className={inputClass}
-                value={draft.contact.hours ?? ""}
-                onChange={(e) => set("contact", { hours: e.target.value })}
-              />
-            </Field>
           </div>
+          <Field label={t("f.hours")} hint={t("hint.hours")} optional={t("optional")}>
+            <input
+              className={inputClass}
+              value={draft.contact.hours ?? ""}
+              onChange={(e) => set("contact", { hours: e.target.value })}
+            />
+          </Field>
           <Field label={t("f.mapUrl")} hint={t("hint.map")} optional={t("optional")}>
             <input
               className={inputClass}
@@ -926,7 +1408,6 @@ export function LmsSiteScreen() {
               onChange={(e) => set("contact", { map_url: e.target.value })}
             />
           </Field>
-
           <div className="space-y-2">
             <span className="text-sm font-medium">{t("f.socials")}</span>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -947,16 +1428,13 @@ export function LmsSiteScreen() {
               ))}
             </div>
           </div>
-        </EditorBlock>
+        </>
+      );
 
-        {/* ── Footer ── */}
-        <EditorBlock
-          Icon={Layers}
-          color="slate"
-          title={t("blocks.footer.title")}
-          description={t("blocks.footer.desc")}
-          count={draft.footer.links.length}
-        >
+    // ── Footer ──
+    case "footer":
+      return (
+        <>
           <Field label={t("f.note")} optional={t("optional")}>
             <textarea
               className={textareaClass}
@@ -997,44 +1475,17 @@ export function LmsSiteScreen() {
               )}
             </RepeatableList>
           </Field>
-        </EditorBlock>
+        </>
+      );
 
-        {/* ── Pages & SEO ── */}
-        <EditorBlock
-          Icon={Search}
-          color="slate"
-          title={t("blocks.seo.title")}
-          description={t("blocks.seo.desc")}
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={t("f.seoTitle")} hint={fallbackHint}>
-              <input
-                className={inputClass}
-                value={draft.seo.title}
-                onChange={(e) => set("seo", { title: e.target.value })}
-              />
-            </Field>
-            <Field label={t("f.ogImage")} hint={t("hint.url")} optional={t("optional")}>
-              <ImageField
-                value={draft.seo.og_image_url}
-                alt={t("f.ogImage")}
-                onChange={(og_image_url) => set("seo", { og_image_url })}
-              />
-            </Field>
-          </div>
-          <Field label={t("f.seoDescription")} hint={fallbackHint}>
-            <textarea
-              className={textareaClass}
-              rows={2}
-              value={draft.seo.description}
-              onChange={(e) => set("seo", { description: e.target.value })}
-            />
-          </Field>
-
-          <div className="space-y-2 border-t pt-4">
+    // ── Pages & SEO ──
+    case "seo":
+      return (
+        <>
+          <div className="space-y-2">
             <span className="text-sm font-medium">{t("blocks.pages.title")}</span>
             <p className="text-muted-foreground text-xs">{t("blocks.pages.desc")}</p>
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="space-y-2">
               {(
                 [
                   ["about", t("f.pageAbout")],
@@ -1042,33 +1493,57 @@ export function LmsSiteScreen() {
                   ["contact", t("f.pageContact")],
                 ] as const
               ).map(([key, label]) => (
-                <label
+                <div
                   key={key}
                   className={cn(
-                    "flex cursor-pointer items-center gap-2.5 rounded-xl border p-3 text-sm transition-colors",
+                    "flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm transition-colors",
                     draft.pages[key] ? "border-primary/40 bg-primary/5" : "border-input",
                   )}
                 >
-                  <input
-                    type="checkbox"
-                    className="accent-primary size-4 cursor-pointer"
+                  <span className="flex-1 font-medium">{label}</span>
+                  <Switch
+                    size="sm"
                     checked={draft.pages[key]}
-                    onChange={(e) => set("pages", { [key]: e.target.checked })}
+                    onChange={(value) => set("pages", { [key]: value })}
+                    label={label}
                   />
-                  {label}
-                </label>
+                </div>
               ))}
             </div>
           </div>
-        </EditorBlock>
 
-        {/* ── Legal & trust (docs/lms/10 §6) ── */}
-        <EditorBlock
-          Icon={Scale}
-          color="slate"
-          title={t("blocks.legal.title")}
-          description={t("blocks.legal.desc")}
-        >
+          <div className="space-y-4 border-t pt-4">
+            <Field label={t("f.seoTitle")} hint={fallbackHint}>
+              <input
+                className={inputClass}
+                value={draft.seo.title}
+                onChange={(e) => set("seo", { title: e.target.value })}
+              />
+            </Field>
+            <Field label={t("f.seoDescription")} hint={fallbackHint}>
+              <textarea
+                className={textareaClass}
+                rows={2}
+                value={draft.seo.description}
+                onChange={(e) => set("seo", { description: e.target.value })}
+              />
+            </Field>
+            <Field label={t("f.ogImage")} hint={t("hint.url")} optional={t("optional")}>
+              <ImageField
+                value={draft.seo.og_image_url}
+                alt={t("f.ogImage")}
+                onChange={(og_image_url) => set("seo", { og_image_url })}
+                {...imageLabels}
+              />
+            </Field>
+          </div>
+        </>
+      );
+
+    // ── Legal & trust (docs/lms/10 §6) ──
+    case "legal":
+      return (
+        <>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label={t("f.businessName")} hint={t("hint.businessName")}>
               <input
@@ -1109,39 +1584,7 @@ export function LmsSiteScreen() {
           <p className="text-muted-foreground rounded-xl border border-dashed p-3 text-xs leading-relaxed">
             {t("hint.legalResponsibility")}
           </p>
-        </EditorBlock>
-      </fieldset>
-
-      {/* Save bar — fixed, because the form is far taller than a viewport and a save button at the
-          bottom would be a scroll away from wherever the client is actually editing. */}
-      {editable && dirty && (
-        <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 backdrop-blur-xl">
-          <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3">
-            <span className="text-muted-foreground flex-1 text-sm">{t("unsaved")}</span>
-            <button
-              type="button"
-              onClick={() => setDraft(data.content)}
-              className="border-input hover:bg-muted inline-flex h-9 items-center gap-1.5 rounded-xl border px-3.5 text-sm font-medium transition-colors"
-            >
-              <RotateCcw className="size-4" aria-hidden />
-              {t("discard")}
-            </button>
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={saving}
-              className="bg-primary text-primary-foreground inline-flex h-9 items-center gap-1.5 rounded-xl px-4 text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60"
-            >
-              {saving ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-              ) : (
-                <Save className="size-4" aria-hidden />
-              )}
-              {saving ? t("saving") : t("save")}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+        </>
+      );
+  }
 }

@@ -35,8 +35,25 @@ final class MediaController extends Controller
 {
     use InteractsWithLms;
 
-    /** kind → the leading MIME segment the browser must declare (loose; the cap + gate are the teeth). */
-    private const KIND_MIME = ['VIDEO' => 'video/', 'AUDIO' => 'audio/', 'IMAGE' => 'image/'];
+    /**
+     * kind → the MIME prefixes the browser must declare (loose; the cap + gate are the teeth).
+     *
+     * DOCUMENT is the digital-products kind (docs/lms/11) and is the one that needs a LIST: "a book"
+     * is a PDF, an EPUB, a Word file or a zip of all three, and those share no single prefix the way
+     * video/audio/image do.
+     *
+     * @var array<string, list<string>>
+     */
+    private const KIND_MIME = [
+        'VIDEO' => ['video/'],
+        'AUDIO' => ['audio/'],
+        'IMAGE' => ['image/'],
+        'DOCUMENT' => [
+            'application/pdf', 'application/epub', 'application/x-mobipocket',
+            'application/msword', 'application/vnd.', 'application/zip',
+            'application/x-zip', 'application/octet-stream', 'text/',
+        ],
+    ];
 
     /** POST /api/courses/media/upload-url — reserve an asset + return the upload target. */
     public function createUpload(Request $request): JsonResponse
@@ -51,10 +68,12 @@ final class MediaController extends Controller
             'size_bytes' => ['required', 'integer', 'min:1', 'max:'.(int) config('lms.media.max_upload_bytes')],
         ]);
 
-        $prefix = self::KIND_MIME[$data['kind']];
-        if (! str_starts_with(strtolower($data['content_type']), $prefix)) {
+        $accepted = self::KIND_MIME[$data['kind']];
+        $contentType = strtolower($data['content_type']);
+        $matches = array_filter($accepted, fn (string $p): bool => str_starts_with($contentType, $p));
+        if ($matches === []) {
             throw ValidationException::withMessages([
-                'content_type' => ["A {$data['kind']} upload needs a {$prefix}* file."],
+                'content_type' => ["A {$data['kind']} upload needs a ".implode(' / ', $accepted).' file.'],
             ]);
         }
 

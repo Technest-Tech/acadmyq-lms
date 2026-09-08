@@ -172,7 +172,11 @@ export function SalesManager() {
         columns: [
           { header: t("sales.col.number"), value: (r) => r.order_number, width: 16 },
           { header: t("sales.col.date"), value: (r) => fmtDate(r.created_at, locale) },
-          { header: t("sales.col.course"), value: (r) => r.course_title ?? "", width: 34 },
+          {
+            header: t("sales.col.course"),
+            value: (r) => r.item_title ?? r.course_title ?? "",
+            width: 34,
+          },
           { header: t("sales.col.buyer"), value: (r) => r.buyer_name ?? "", width: 26 },
           { header: t("sales.col.email"), value: (r) => r.buyer_email ?? "", width: 30 },
           { header: t("sales.col.phone"), value: (r) => r.buyer_phone ?? "" },
@@ -276,9 +280,19 @@ export function SalesManager() {
             {summary.by_course.slice(0, 6).map((c) => {
               const top = summary.by_course[0]?.revenue_minor || 1;
               return (
-                <div key={c.course_id} className="flex items-center gap-4 px-5 py-3">
+                <div
+                  key={`${c.item_type}:${c.item_id}`}
+                  className="flex items-center gap-4 px-5 py-3"
+                >
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{c.title}</p>
+                    <p className="truncate text-sm font-medium" dir="auto">
+                      {c.title}
+                      {c.item_type === "PRODUCT" && (
+                        <span className="text-muted-foreground ms-2 text-[11px] font-normal">
+                          {t("sales.itemBook")}
+                        </span>
+                      )}
+                    </p>
                     <div className="bg-muted mt-1.5 h-1.5 overflow-hidden rounded-full">
                       <div
                         className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500"
@@ -413,7 +427,16 @@ export function SalesManager() {
                         </div>
                       </div>
                     </td>
-                    <td className={cn(tdClass, "max-w-56 truncate")}>{r.course_title ?? "—"}</td>
+                    <td className={cn(tdClass, "max-w-56")}>
+                      <p className="truncate" dir="auto">
+                        {r.item_title ?? r.course_title ?? "—"}
+                      </p>
+                      {/* Only labelled when it ISN'T a course: a shop that sells one kind of thing
+                          does not need every row to say so (docs/lms/11). */}
+                      {r.item_type === "PRODUCT" && (
+                        <p className="text-muted-foreground text-[11px]">{t("sales.itemBook")}</p>
+                      )}
+                    </td>
                     <td className={cn(tdClass, "font-semibold tabular-nums whitespace-nowrap")}>
                       {formatMoney({ amount: r.price_minor, currency: r.currency }, locale)}
                     </td>
@@ -538,7 +561,7 @@ function OrderDrawer({
       onClose={onClose}
       size="xl"
       title={order ? `${t("sales.orderTitle")} ${order.order_number}` : t("sales.orderTitle")}
-      description={order?.course_title ?? undefined}
+      description={order?.item_title ?? order?.course_title ?? undefined}
       footer={
         order && canManage ? (
           <div className="flex flex-wrap justify-end gap-2">
@@ -683,7 +706,7 @@ function OrderDrawer({
             </div>
 
             <dl className="space-y-2 text-sm">
-              <Row label={t("sales.col.course")} value={order.course_title ?? "—"} />
+              <Row label={t("sales.col.course")} value={order.item_title ?? order.course_title ?? "—"} />
               <Row
                 label={t("sales.col.method")}
                 value={order.payment_method_type ? t(`sales.method.${order.payment_method_type}`) : "—"}

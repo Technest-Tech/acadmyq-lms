@@ -100,6 +100,55 @@ final class SiteController extends Controller
                 ->where('checkout_enabled', true)->exists(),
             'codes' => $published()->where('code_enabled', true)->exists(),
             'paid' => $published()->where('price_minor', '>', 0)->exists(),
+            'books' => $this->books($acceptsPayments),
+        ];
+    }
+
+    /**
+     * The bookshop half (docs/lms/11) — whether this client sells digital products at all, and on
+     * what terms.
+     *
+     * It travels with the site document for the same reason the course commerce block does: the
+     * HEADER decides whether to show a "Books" link, and the header renders before any catalogue
+     * fetch. A client who has never published a book must never see the link flicker into
+     * existence, and one who has must not have it appear a beat late.
+     *
+     * @return array<string,mixed>
+     */
+    private function books(bool $acceptsPayments): array
+    {
+        $published = fn () => DB::table('digital_products')
+            ->where('status', 'PUBLISHED')
+            ->whereNull('deleted_at');
+
+        // A book with no file is a dead Buy button, so "any" means "any we can actually deliver" —
+        // the same rule that stops a free course with no lessons being advertised above.
+        $deliverable = fn () => $published()
+            ->whereExists(fn ($q) => $q->select(DB::raw(1))->from('digital_product_files')
+                ->whereColumn('digital_product_files.product_id', 'digital_products.id'));
+
+        $free = $deliverable()
+            ->where('price_minor', 0)
+            ->orderByDesc('published_at')
+            ->first(['slug', 'title']);
+
+        return [
+            'any' => $deliverable()->exists(),
+            'count' => (int) $deliverable()->count(),
+            'free' => $free !== null,
+            'free_book' => $free === null ? null : [
+                'slug' => (string) $free->slug,
+                'title' => (string) $free->title,
+            ],
+            'paid' => $deliverable()->where('price_minor', '>', 0)->exists(),
+            'checkout' => $acceptsPayments && $deliverable()->where('price_minor', '>', 0)
+                ->where('checkout_enabled', true)->exists(),
+            // At least one free sample chapter anywhere in the shop — the hero's "read a sample"
+            // promise is only made when one exists.
+            'preview' => $published()->whereExists(fn ($q) => $q->select(DB::raw(1))
+                ->from('digital_product_files')
+                ->whereColumn('digital_product_files.product_id', 'digital_products.id')
+                ->where('digital_product_files.is_preview', true))->exists(),
         ];
     }
 
@@ -121,6 +170,8 @@ final class SiteController extends Controller
                 ->count(),
             'learners' => (int) DB::table('learners')->where('status', 'ACTIVE')->count(),
             'certificates' => (int) DB::table('course_certificates')->count(),
+            'books' => (int) DB::table('digital_products')
+                ->where('status', 'PUBLISHED')->whereNull('deleted_at')->count(),
         ];
     }
 }

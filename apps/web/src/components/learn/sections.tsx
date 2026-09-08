@@ -72,13 +72,15 @@ export function iconFor(name: string | undefined): LucideIcon {
 /** Page-width container — one place decides how wide the whole site reads. */
 export function Container({
   className,
+  id,
   children,
 }: {
   className?: string;
+  id?: string;
   children: ReactNode;
 }) {
   return (
-    <div className={cn("mx-auto w-full max-w-7xl px-4 sm:px-6", className)}>
+    <div id={id} className={cn("mx-auto w-full max-w-7xl px-4 sm:px-6", className)}>
       {children}
     </div>
   );
@@ -394,7 +396,7 @@ export function Hero({
       : (t.raw("defaults.badges") as string[]);
 
   return (
-    <section className="relative isolate overflow-hidden">
+    <section id="site-hero" className="relative isolate overflow-hidden">
       <style>{HERO_CSS}</style>
       <HeroBackdrop style={style} image={hero.image_url} />
 
@@ -740,7 +742,7 @@ export function StatsBand() {
   // `relative z-20` is load-bearing: -mt-12 pulls this card up into the hero, and the hero ends with
   // a full-width fade overlay that would otherwise paint over the card's top row.
   return (
-    <Container className="relative z-20 -mt-12 pb-4">
+    <Container id="site-stats" className="relative z-20 -mt-12 pb-4">
       <dl className="bg-card grid grid-cols-2 gap-px overflow-hidden rounded-2xl border shadow-xl lg:grid-cols-4">
         {items.map((item) => (
           <div key={item.label} className="bg-card px-6 py-7 text-center">
@@ -773,7 +775,7 @@ export function FeatureGrid({ tone, divider }: SectionChrome = {}) {
   if (items.length === 0) return null;
 
   return (
-    <Section tone={tone} divider={divider}>
+    <Section id="site-features" tone={tone} divider={divider}>
       <SectionHeading
         title={site.features.heading || t("defaults.features.heading")}
         subtitle={site.features.subheading || t("defaults.features.subheading")}
@@ -820,7 +822,7 @@ export function StepsRail({ tone = "muted", divider }: SectionChrome = {}) {
   if (items.length === 0) return null;
 
   return (
-    <Section tone={tone} divider={divider}>
+    <Section id="site-steps" tone={tone} divider={divider}>
       <SectionHeading
         title={site.steps.heading || t("defaults.steps.heading")}
       />
@@ -880,7 +882,7 @@ export function AboutSplit({
     : [];
 
   return (
-    <Section tone={tone} divider={divider}>
+    <Section id="site-about" tone={tone} divider={divider}>
       <div className="grid items-center gap-12 lg:grid-cols-2">
         <div className="space-y-5">
           <SectionHeading
@@ -963,7 +965,7 @@ export function InstructorGrid({ tone, divider }: SectionChrome = {}) {
     return null;
 
   return (
-    <Section tone={tone} divider={divider}>
+    <Section id="site-instructors" tone={tone} divider={divider}>
       <SectionHeading
         title={site.instructors.heading || t("defaults.instructors.heading")}
       />
@@ -1049,7 +1051,7 @@ export function TestimonialGrid({
     return null;
 
   return (
-    <Section tone={tone} divider={divider}>
+    <Section id="site-testimonials" tone={tone} divider={divider}>
       <SectionHeading
         title={site.testimonials.heading || t("defaults.testimonials.heading")}
       />
@@ -1135,7 +1137,7 @@ export function FaqAccordion({
   if (items.length === 0) return null;
 
   return (
-    <Section tone={tone} divider={divider}>
+    <Section id="site-faq" tone={tone} divider={divider}>
       {!hideHeading && (
         <SectionHeading title={site.faq.heading || t("defaults.faq.heading")} />
       )}
@@ -1205,7 +1207,7 @@ export function CtaBand({ onPrimary }: { onPrimary?: () => void }) {
   const label = site.cta.button_label || defaultLabel;
 
   return (
-    <section className="relative isolate mt-16 overflow-hidden py-14 sm:mt-20 sm:py-20">
+    <section id="site-cta" className="relative isolate mt-16 overflow-hidden py-14 sm:mt-20 sm:py-20">
       <div
         className="absolute inset-0 -z-20"
         style={{

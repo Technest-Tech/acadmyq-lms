@@ -11,6 +11,7 @@ import {
   GraduationCap,
   HardDrive,
   KeyRound,
+  Library,
   LayoutDashboard,
   PlayCircle,
   RefreshCw,
@@ -142,6 +143,27 @@ export function LmsDashboardScreen() {
             href="/lms/courses"
             locale={locale}
           />
+          {/* The bookshop (docs/lms/11) — hidden until the client publishes one, so a course-only
+              client never sees a permanent zero on their home screen. */}
+          {(stats === undefined || stats.products > 0) && (
+            <StatCard
+              Icon={Library}
+              color="amber"
+              label={t("books")}
+              value={stats?.products ?? null}
+              hint={
+                stats
+                  ? t("booksHint", {
+                      published: formatNumber(stats.published_products, locale),
+                      owners: formatNumber(stats.product_owners, locale),
+                    })
+                  : undefined
+              }
+              loading={loading}
+              href="/lms/books"
+              locale={locale}
+            />
+          )}
           <StatCard
             Icon={PlayCircle}
             color="indigo"

@@ -1,114 +1,25 @@
 "use client";
 
-import { ChevronDown, ChevronUp, GripVertical, Plus, Trash2 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  GripVertical,
+  Image as ImageIcon,
+  ImageOff,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { lmsColor, Panel } from "@/components/courses/lms-ui";
-import { checkClass, inputClass } from "@/components/courses/form-bits";
+import { inputClass } from "@/components/courses/form-bits";
 import { cn } from "@/lib/utils";
 
 /**
- * Controls the public-site editor is built from (docs/lms/09). The editor is one long form over a
- * dozen content blocks, so the repetitive parts — a collapsible block with a "show on site" switch,
- * and a reorderable list of items — live here rather than being spelled out a dozen times.
+ * The field-level controls the site builder is built from (docs/lms/09) — the repeating shapes a
+ * content document needs: an ordered list of items, a list of plain strings, an image slot and a
+ * colour picker. The builder's own chrome (the section rail, the live preview) is in
+ * components/courses/site-builder.tsx.
  */
-
-/** A collapsible content block with an optional visibility switch. */
-export function EditorBlock({
-  Icon,
-  color = "violet",
-  title,
-  description,
-  show,
-  onShowChange,
-  showLabel,
-  defaultOpen = false,
-  count,
-  children,
-}: {
-  Icon: LucideIcon;
-  color?: string;
-  title: string;
-  description?: string;
-  /** Omit to render a block that is always visible on the site (brand, SEO, pages). */
-  show?: boolean;
-  onShowChange?: (value: boolean) => void;
-  showLabel?: string;
-  defaultOpen?: boolean;
-  /** Item count for a repeatable block, shown as a chip when collapsed. */
-  count?: number;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const c = lmsColor(color);
-  const hidden = show === false;
-
-  return (
-    <Panel flush className={hidden ? "opacity-70" : undefined}>
-      <div className="flex items-center gap-3 px-5 py-4">
-        <span
-          className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm",
-            c.chip,
-          )}
-        >
-          <Icon className="size-4" aria-hidden />
-        </span>
-
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className="min-w-0 flex-1 text-start"
-        >
-          <span className="flex items-center gap-2">
-            <span className="truncate text-sm font-bold tracking-tight">{title}</span>
-            {typeof count === "number" && (
-              <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", c.soft)}>
-                {count}
-              </span>
-            )}
-          </span>
-          {description && (
-            <span className="text-muted-foreground mt-0.5 block truncate text-xs">
-              {description}
-            </span>
-          )}
-        </button>
-
-        {show !== undefined && onShowChange && (
-          <label className="text-muted-foreground flex shrink-0 cursor-pointer items-center gap-2 text-xs font-medium">
-            <input
-              type="checkbox"
-              checked={show}
-              onChange={(e) => onShowChange(e.target.checked)}
-              className={checkClass}
-            />
-            {showLabel}
-          </label>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          aria-label={title}
-          className="hover:bg-muted rounded-lg p-1.5 transition-colors"
-        >
-          <ChevronDown
-            className={cn(
-              "text-muted-foreground size-4 transition-transform",
-              open && "rotate-180",
-            )}
-            aria-hidden
-          />
-        </button>
-      </div>
-
-      {open && <div className="space-y-4 border-t px-5 py-5">{children}</div>}
-    </Panel>
-  );
-}
 
 /**
  * A reorderable list of content items. Order matters on the page (the first three features are the
@@ -136,8 +47,11 @@ export function RepeatableList<T>({
   title: (item: T, index: number) => string;
   children: (item: T, update: (patch: Partial<T>) => void, index: number) => ReactNode;
 }) {
+  const [dragging, setDragging] = useState<number | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+
   function move(from: number, to: number) {
-    if (to < 0 || to >= items.length) return;
+    if (to < 0 || to >= items.length || from === to) return;
     const next = [...items];
     const [moved] = next.splice(from, 1);
     if (moved !== undefined) next.splice(to, 0, moved);
@@ -153,8 +67,40 @@ export function RepeatableList<T>({
       )}
 
       {items.map((item, index) => (
-        <div key={index} className="border-input rounded-xl border">
-          <div className="bg-muted/40 flex items-center gap-2 rounded-t-xl border-b px-3 py-2">
+        <div
+          key={index}
+          onDragOver={(e) => {
+            if (dragging === null) return;
+            e.preventDefault();
+            setOver(index);
+          }}
+          onDrop={(e) => {
+            if (dragging === null) return;
+            e.preventDefault();
+            move(dragging, index);
+            setDragging(null);
+            setOver(null);
+          }}
+          className={cn(
+            "border-input rounded-xl border transition-shadow",
+            dragging === index && "opacity-40",
+            over === index && dragging !== null && dragging !== index && "ring-primary/60 ring-2",
+          )}
+        >
+          {/* The whole header is the drag handle — a 3.5px grip icon is a target nobody hits, and
+              the arrows stay for keyboards and touch, where dragging isn't available at all. */}
+          <div
+            draggable
+            onDragStart={(e) => {
+              setDragging(index);
+              e.dataTransfer.effectAllowed = "move";
+            }}
+            onDragEnd={() => {
+              setDragging(null);
+              setOver(null);
+            }}
+            className="bg-muted/40 flex cursor-grab items-center gap-2 rounded-t-xl border-b px-3 py-2 active:cursor-grabbing"
+          >
             <GripVertical className="text-muted-foreground/50 size-3.5 shrink-0" aria-hidden />
             <span className="min-w-0 flex-1 truncate text-xs font-semibold">
               {title(item, index) || `#${index + 1}`}
@@ -270,11 +216,12 @@ export function StringList({
 }
 
 /**
- * A URL field for an image, with a live preview of whatever the client pasted.
+ * An image slot: a thumbnail that IS the control, with the URL underneath.
  *
- * Images on the public site are URLs, not uploads (docs/lms/09), which means the client's only
- * feedback used to be publishing the site and looking. The thumbnail answers the two questions a
- * pasted link actually raises — does it load at all, and is it the right shape — before they save.
+ * Images on the public site are URLs, not uploads (docs/lms/09), which used to leave the client with
+ * a bare text box and no feedback until they published. The frame answers the three questions a
+ * pasted link actually raises — does it load, is it the right shape, and is this the one I meant —
+ * and gives them a one-click way to take it back off.
  */
 export function ImageField({
   value,
@@ -283,19 +230,64 @@ export function ImageField({
   shape = "wide",
   alt,
   placeholder = "https://…",
+  emptyLabel,
+  clearLabel,
 }: {
   value: string;
   onChange: (value: string) => void;
   shape?: "square" | "wide";
   alt: string;
   placeholder?: string;
+  emptyLabel?: string;
+  clearLabel?: string;
 }) {
   const [broken, setBroken] = useState(false);
   const url = value.trim();
   const usable = /^https?:\/\//i.test(url);
+  const showing = usable && !broken;
 
   return (
-    <div className="flex items-start gap-3">
+    <div className="space-y-2">
+      <div
+        className={cn(
+          "bg-muted/40 border-input relative overflow-hidden rounded-xl border border-dashed",
+          shape === "square" ? "size-24" : "aspect-[16/7] w-full max-w-[15rem]",
+        )}
+      >
+        {showing ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt={alt}
+              className="size-full object-cover"
+              onError={() => setBroken(true)}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setBroken(false);
+                onChange("");
+              }}
+              aria-label={clearLabel ?? "remove"}
+              title={clearLabel}
+              className="bg-background/90 text-muted-foreground hover:text-destructive absolute end-1.5 top-1.5 rounded-lg p-1 shadow-sm backdrop-blur transition-colors"
+            >
+              <X className="size-3.5" aria-hidden />
+            </button>
+          </>
+        ) : (
+          <span className="text-muted-foreground/70 absolute inset-0 flex flex-col items-center justify-center gap-1 px-2 text-center">
+            {broken ? (
+              <ImageOff className="size-5" aria-hidden />
+            ) : (
+              <ImageIcon className="size-5" aria-hidden />
+            )}
+            {emptyLabel && <span className="text-[10px] leading-tight">{emptyLabel}</span>}
+          </span>
+        )}
+      </div>
+
       <input
         className={inputClass}
         value={value}
@@ -305,22 +297,6 @@ export function ImageField({
           onChange(e.target.value);
         }}
       />
-      {usable && !broken && (
-        <span
-          className={cn(
-            "bg-muted shrink-0 overflow-hidden rounded-lg border",
-            shape === "square" ? "size-10" : "h-10 w-16",
-          )}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={url}
-            alt={alt}
-            className="size-full object-contain"
-            onError={() => setBroken(true)}
-          />
-        </span>
-      )}
     </div>
   );
 }

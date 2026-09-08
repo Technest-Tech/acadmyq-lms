@@ -32,6 +32,8 @@ identity + on-demand video delivery are the genuinely new pieces this module add
 | [07-ROADMAP.md](07-ROADMAP.md) | The four phases, each an independently shippable slice |
 | [08-SUPERADMIN-OVERSIGHT.md](08-SUPERADMIN-OVERSIGHT.md) | `/admin/lms` — the LMS client roster, per-client statistics, and the four platform controls |
 | [09-PUBLIC-SITE.md](09-PUBLIC-SITE.md) | The shared learner-site template + the per-client content profile the client edits at `/lms/site` |
+| [10-ORDERS-CHECKOUT-AND-PAYMENTS.md](10-ORDERS-CHECKOUT-AND-PAYMENTS.md) | The shop: orders, the InstaPay / wallet / bank checkout, transfer receipts, and the client's sales desk |
+| [11-DIGITAL-PRODUCTS.md](11-DIGITAL-PRODUCTS.md) | Selling books & PDFs alongside the courses — the file bundle, the free sample, and the shared order queue |
 
 ## Status
 

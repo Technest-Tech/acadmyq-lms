@@ -160,6 +160,7 @@
     "adminVideo": "Video Ops",
     "adminLms": "Course Platform",
     "demoRequests": "Demo requests",
+    "adminFinance": "Finance",
     "platformSettings": "Platform Settings",
     "roles": "Roles & Permissions",
     "academyRoles": "Roles & Permissions",
@@ -171,7 +172,8 @@
     "lmsCodes": "Access codes",
     "lmsSite": "My website",
     "lmsSales": "Sales",
-    "lmsPayments": "Payment methods"
+    "lmsPayments": "Payment methods",
+    "lmsBooks": "Books & PDFs"
   },
   "navGroup": {
     "general": "General",
@@ -799,7 +801,7 @@
       "payoutWallet": "Mobile wallet",
       "payoutHandleInstapay": "InstaPay address or link",
       "payoutHandleWallet": "Wallet number",
-      "payoutHandleInstapayPlaceholder": "name@instapay or ipn.eg/S/\u2026",
+      "payoutHandleInstapayPlaceholder": "name@instapay or ipn.eg/S/…",
       "payoutHandleWalletPlaceholder": "01001234567",
       "none": "None"
     },
@@ -3876,7 +3878,10 @@
       "replace": "Replace",
       "retry": "Try again",
       "failed": "Upload failed. Please try again.",
-      "processingFailed": "We couldn't process this file. Try a different one."
+      "processingFailed": "We couldn't process this file. Try a different one.",
+      "chooseDoc": "Choose a file to upload",
+      "hintDoc": "PDF, EPUB, DOCX or ZIP. Large files upload directly and may take a while.",
+      "processingDoc": "Finishing up…"
     },
     "quizzes": {
       "title": "Quizzes",
@@ -4206,7 +4211,8 @@
       "requirementsHint": "One per line. Prerequisites, tools, or nothing at all.",
       "requirementsPlaceholder": "e.g. A computer with a browser",
       "add": "Add a line",
-      "max": "That's the maximum for this list."
+      "max": "That's the maximum for this list.",
+      "itemBook": "Book"
     },
     "payments": {
       "title": "Payment methods",
@@ -4547,7 +4553,8 @@
       "contact": "Contact",
       "myLearning": "My learning",
       "menu": "Menu",
-      "myOrders": "My orders"
+      "myOrders": "My orders",
+      "books": "Books"
     },
     "hero": {
       "eyebrow": "Learn online",
@@ -4915,6 +4922,49 @@
         "x": "X",
         "linkedin": "LinkedIn",
         "website": "the web"
+      }
+    },
+    "books": {
+      "catalogTitle": "Books & PDFs",
+      "catalogSubtitle": "Downloadable books, PDFs and workbooks — read a free sample before you buy.",
+      "search": "Search books…",
+      "filterAll": "All",
+      "filterPaid": "Paid",
+      "free": "Free",
+      "empty": "No books yet",
+      "emptyHint": "Nothing has been published to the shop yet — check back soon.",
+      "noResults": "Nothing matches that",
+      "noResultsHint": "Try a different search or clear the filters.",
+      "notFound": "We couldn't find that item.",
+      "backToShop": "Back to books",
+      "sampleBadge": "Free sample",
+      "readSample": "Read a free sample",
+      "downloadFile": "Download",
+      "locked": "Included when you buy",
+      "pages": "{count, plural, one {1 page} other {# pages}}",
+      "files": "{count, plural, one {1 file} other {# files}}",
+      "owners": "{count, plural, one {1 reader} other {# readers}}",
+      "about": "About this book",
+      "highlights": "What's inside",
+      "audience": "Who it's for",
+      "contents": "What you get",
+      "contentsHint": "Everything below is included. The free sample is readable right now.",
+      "contentsOwned": "It's yours — download anything below.",
+      "buy": "Buy this book",
+      "getFree": "Get it free",
+      "signInToGet": "Sign in to download",
+      "download": "Download",
+      "youOwnIt": "You own this book",
+      "notSold": "This book isn't on sale online right now.",
+      "contactUs": "Contact us",
+      "claimFailed": "We couldn't add it to your library. Please try again.",
+      "myLibrary": "My library",
+      "kind": {
+        "EBOOK": "Ebook",
+        "PDF": "PDF",
+        "AUDIOBOOK": "Audiobook",
+        "WORKBOOK": "Workbook",
+        "BUNDLE": "Bundle"
       }
     }
   },
@@ -6176,8 +6226,49 @@
         "testimonials": "No reviews added, so this section is hidden on your site.",
         "faq": "Empty — your site shows four ready-made questions.",
         "links": "No extra links."
+      },
+      "builder": {
+        "published": "Live",
+        "notPublished": "Not live yet",
+        "copy": "Copy address",
+        "edit": "Edit",
+        "preview": "Preview",
+        "saved": "Saved",
+        "progress": "{done} of {total} sections set up",
+        "progressHint": "Every section already has ready-made text, so your site works from day one. Fill in what makes it yours.",
+        "group": {
+          "design": "Look & feel",
+          "home": "Home page",
+          "site": "Every page",
+          "settings": "Settings"
+        },
+        "back": "All sections",
+        "sectionShown": "This section is showing on your site.",
+        "sectionHidden": "This section is hidden from visitors.",
+        "device": {
+          "desktop": "Desktop",
+          "tablet": "Tablet",
+          "mobile": "Phone"
+        },
+        "page": {
+          "home": "Home",
+          "courses": "Courses",
+          "about": "About",
+          "faq": "Questions",
+          "contact": "Contact",
+          "legal": "Policies"
+        },
+        "live": "Live",
+        "reload": "Reload the preview",
+        "noPreview": "Once your address is set up, your real site appears here while you edit.",
+        "noImage": "No image yet",
+        "clearImage": "Remove this image",
+        "openPage": "Open this page in a new tab",
+        "loadingPreview": "Loading your site…"
       }
-    }
+    },
+    "books": "Books & PDFs",
+    "booksHint": "{published} published · {owners} readers"
   },
   "calendar": {
     "sessionsInView": "{count, plural, one {# lesson in view} other {# lessons in view}}"
@@ -6236,6 +6327,421 @@
     "export": {
       "fileName": "demo-requests",
       "sheet": "Demo requests"
+    }
+  },
+  "finance": {
+    "title": "Finance",
+    "subtitle": "Your own income book — what clients agreed to pay, and what actually came in.",
+    "tabs": {
+      "overview": "Overview",
+      "deals": "Deals",
+      "payments": "Payments",
+      "clients": "Clients"
+    },
+    "actions": {
+      "newDeal": "New deal",
+      "recordIncome": "Record income",
+      "recordPayment": "Record payment",
+      "newClient": "New client",
+      "edit": "Edit",
+      "editSchedule": "Edit schedule",
+      "delete": "Delete",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "close": "Close",
+      "create": "Create",
+      "confirm": "Confirm"
+    },
+    "service": {
+      "COURSE_SITE": "Course site",
+      "MANAGEMENT_SYSTEM": "Management system",
+      "VIDEO_PLATFORM": "Video platform",
+      "WHATSAPP_SERVICE": "WhatsApp service",
+      "CUSTOM_WORK": "Custom work",
+      "HOSTING": "Hosting & domains",
+      "OTHER": "Other"
+    },
+    "kind": {
+      "ONE_TIME": "One-time sale",
+      "SUBSCRIPTION": "Subscription"
+    },
+    "interval": {
+      "MONTHLY": "Monthly",
+      "QUARTERLY": "Quarterly",
+      "YEARLY": "Yearly"
+    },
+    "intervalShort": {
+      "MONTHLY": "month",
+      "QUARTERLY": "quarter",
+      "YEARLY": "year"
+    },
+    "dealStatus": {
+      "ACTIVE": "Active",
+      "COMPLETED": "Completed",
+      "CANCELLED": "Cancelled"
+    },
+    "installmentStatus": {
+      "PAID": "Paid",
+      "PARTIAL": "Partly paid",
+      "OVERDUE": "Overdue",
+      "PENDING": "Pending"
+    },
+    "method": {
+      "CASH": "Cash",
+      "BANK_TRANSFER": "Bank transfer",
+      "INSTAPAY": "InstaPay",
+      "VODAFONE_CASH": "Vodafone Cash",
+      "PAYPAL": "PayPal",
+      "CARD": "Card",
+      "OTHER": "Other"
+    },
+    "overview": {
+      "thisMonth": "Received this month",
+      "thisYear": "Received this year",
+      "allTime": "All time",
+      "outstanding": "Outstanding",
+      "overdue": "{amount} overdue",
+      "upcoming": "Due in 30 days",
+      "mrr": "Subscriptions / month",
+      "subscriptionsCount": "{count, plural, =0 {no active subscriptions} one {# active subscription} other {# active subscriptions}}",
+      "clients": "Clients",
+      "activeDeals": "Active deals",
+      "activeSubscriptions": "Active subscriptions",
+      "overdueDeals": "Deals overdue",
+      "upcomingTitle": "Upcoming dues",
+      "upcomingEmpty": "Nothing due.",
+      "recentTitle": "Recent payments",
+      "recentEmpty": "No payments recorded yet.",
+      "byServiceTitle": "This year by service",
+      "byServiceEmpty": "No income recorded this year.",
+      "monthlyTitle": "Last 12 months",
+      "monthlyEmpty": "No payments in the last 12 months.",
+      "viewAll": "View all",
+      "error": "Couldn't load the overview."
+    },
+    "deals": {
+      "subtitle": "Every sale and subscription, with what was paid and what is still owed.",
+      "searchPlaceholder": "Search title, client or notes…",
+      "empty": "No deals yet.",
+      "tiles": {
+        "total": "All deals",
+        "overdue": "Overdue"
+      },
+      "columns": {
+        "deal": "Deal",
+        "service": "Service",
+        "kind": "Type",
+        "amount": "Amount",
+        "paid": "Paid",
+        "outstanding": "Outstanding",
+        "nextDue": "Next due",
+        "status": "Status",
+        "client": "Client",
+        "started": "Started",
+        "currency": "Currency",
+        "interval": "Cycle"
+      },
+      "filters": {
+        "status": "Status",
+        "kind": "Type",
+        "service": "Service",
+        "currency": "Currency",
+        "overdue": "Overdue",
+        "overdueOnly": "Overdue only"
+      },
+      "perCycle": "{amount} / {interval}",
+      "export": {
+        "fileName": "finance-deals",
+        "sheet": "Deals"
+      }
+    },
+    "deal": {
+      "back": "All deals",
+      "notFound": "This deal no longer exists.",
+      "error": "Couldn't load the deal.",
+      "tiles": {
+        "total": "Deal total",
+        "cyclePrice": "Per cycle",
+        "paid": "Paid so far",
+        "outstanding": "Outstanding",
+        "nextDue": "Next due",
+        "nothingDue": "Nothing due"
+      },
+      "schedule": "Schedule",
+      "scheduleHint": "Money flows down the schedule oldest-first, so a partial payment always fills the earliest open installment.",
+      "scheduleEmpty": "No installments.",
+      "payments": "Payments",
+      "paymentsEmpty": "No payments recorded yet.",
+      "client": "Client",
+      "notes": "Notes",
+      "started": "Started",
+      "created": "Created",
+      "columns": {
+        "seq": "#",
+        "dueOn": "Due",
+        "amount": "Amount",
+        "paid": "Paid",
+        "remaining": "Remaining",
+        "status": "Status",
+        "note": "Note",
+        "paidOn": "Date",
+        "method": "Method",
+        "reference": "Reference"
+      },
+      "deleted": "Deal deleted.",
+      "paymentDeleted": "Payment removed.",
+      "deletePayment": "Remove",
+      "confirmTitle": "Confirm delete",
+      "confirmDeletePayment": "Remove this payment? The schedule re-flows without it.",
+      "confirmDelete": "Delete this deal with its schedule and payments? This cannot be undone."
+    },
+    "form": {
+      "newTitle": "New deal",
+      "editTitle": "Edit deal",
+      "incomeTitle": "Record income",
+      "incomeHint": "A sale that was paid on the spot: one deal, one payment, done.",
+      "client": "Client",
+      "pickClient": "Pick a client…",
+      "searchClient": "Search clients…",
+      "newClient": "New client",
+      "existingClient": "Existing client",
+      "clientName": "Client name",
+      "clientPhone": "Phone",
+      "clientEmail": "Email",
+      "title": "What was sold",
+      "titlePlaceholder": "e.g. Course site for Azhary",
+      "service": "Service",
+      "kind": "Type",
+      "currency": "Currency",
+      "startedOn": "Start date",
+      "notes": "Notes",
+      "status": "Status",
+      "amount": "Total amount",
+      "cyclePrice": "Price per cycle",
+      "interval": "Billing cycle",
+      "amountHint": "Leave the plan empty to bill the whole amount on the start date.",
+      "plan": "Installment plan",
+      "planHint": "Split the total into parts, each with its own due date.",
+      "addInstallment": "Add installment",
+      "splitEvenly": "Split evenly",
+      "parts": "parts",
+      "everyMonths": "every (months)",
+      "planTotal": "Plan total",
+      "removeInstallment": "Remove",
+      "paidNow": "Paid now",
+      "paidNowHint": "Record the money that already arrived with this deal.",
+      "paidOn": "Paid on",
+      "paidAmount": "Amount received",
+      "method": "Method",
+      "reference": "Reference",
+      "referencePlaceholder": "Transfer no., receipt…",
+      "paymentNote": "Note",
+      "currencyLocked": "Money was received on this deal, so its currency is fixed.",
+      "priceChangeHint": "Applies to the next cycles; the open one keeps its amount.",
+      "errors": {
+        "amount": "Enter an amount or an installment plan.",
+        "plan": "Every installment needs a date and an amount.",
+        "client": "Pick or create a client.",
+        "title": "Give the deal a name.",
+        "payment": "Enter the amount received.",
+        "generic": "Couldn't save. Check the fields and try again."
+      }
+    },
+    "payment": {
+      "title": "Record payment",
+      "hint": "Against: {deal}",
+      "suggested": "Next due: {amount}",
+      "recorded": "Payment recorded."
+    },
+    "schedule": {
+      "title": "Edit schedule",
+      "hint": "Replace the installment plan. Payments stay as they are and re-flow over the new plan."
+    },
+    "payments": {
+      "subtitle": "Every unit of money received, across all deals.",
+      "searchPlaceholder": "Search deal, client or reference…",
+      "empty": "No payments yet.",
+      "columns": {
+        "paidOn": "Date",
+        "client": "Client",
+        "deal": "Deal",
+        "service": "Service",
+        "amount": "Amount",
+        "method": "Method",
+        "reference": "Reference",
+        "note": "Note"
+      },
+      "filters": {
+        "method": "Method",
+        "service": "Service",
+        "currency": "Currency",
+        "month": "Month",
+        "kind": "Type"
+      },
+      "sums": "{count, plural, =0 {No payments} one {# payment} other {# payments}} in view",
+      "export": {
+        "fileName": "finance-payments",
+        "sheet": "Payments"
+      }
+    },
+    "clients": {
+      "subtitle": "The people and companies that pay you. Not linked to platform accounts.",
+      "searchPlaceholder": "Search name, phone or email…",
+      "empty": "No clients yet.",
+      "columns": {
+        "name": "Client",
+        "contact": "Contact",
+        "deals": "Deals",
+        "received": "Received",
+        "outstanding": "Outstanding",
+        "lastPaid": "Last payment"
+      },
+      "filters": {
+        "active": "Activity",
+        "withActive": "With active deals",
+        "noActive": "No active deals"
+      },
+      "dealsCount": "{count, plural, =0 {No deals} one {# deal} other {# deals}}",
+      "activeCount": "{count} active",
+      "form": {
+        "newTitle": "New client",
+        "editTitle": "Edit client",
+        "name": "Name",
+        "phone": "Phone",
+        "email": "Email",
+        "notes": "Notes",
+        "deleteHint": "A client with deals can't be deleted.",
+        "viewDeals": "View deals",
+        "created": "Client created.",
+        "saved": "Client saved.",
+        "deleted": "Client deleted.",
+        "nameRequired": "Enter a name."
+      },
+      "export": {
+        "fileName": "finance-clients",
+        "sheet": "Clients"
+      }
+    },
+    "common": {
+      "today": "Today",
+      "inDays": "{count, plural, =0 {today} one {in # day} other {in # days}}",
+      "daysAgo": "{count, plural, one {# day ago} other {# days ago}}",
+      "loadError": "Couldn't load. Try again.",
+      "retry": "Retry",
+      "saved": "Saved."
+    }
+  },
+  "books": {
+    "title": "Books & PDFs",
+    "subtitle": "Sell downloadable books, PDFs and workbooks alongside your courses.",
+    "noAccess": "You don't have access to the catalogue.",
+    "new": "New book",
+    "delete": "Delete",
+    "search": "Search books…",
+    "empty": "No books yet",
+    "emptyHint": "Publish a PDF, an ebook or a workbook — with a free sample chapter to win the sale.",
+    "noResults": "Nothing matches that",
+    "noResultsHint": "Try a different search, or clear the filters.",
+    "clearFilters": "Clear filters",
+    "noPaymentMethod": "You have published books but no active payment method, so the Buy button stays hidden. Add one under Payment methods.",
+    "filter": {
+      "all": "All",
+      "DRAFT": "Draft",
+      "PUBLISHED": "Published",
+      "ARCHIVED": "Archived"
+    },
+    "kind": {
+      "EBOOK": "Ebook",
+      "PDF": "PDF",
+      "AUDIOBOOK": "Audiobook",
+      "WORKBOOK": "Workbook",
+      "BUNDLE": "Bundle"
+    },
+    "price": {
+      "free": "Free",
+      "paid": "Paid",
+      "amount": "Price",
+      "placeholder": "0.00",
+      "freeHint": "Anyone signed in can download it with one click."
+    },
+    "card": {
+      "hasPreview": "Sample",
+      "files": "{count, plural, =0 {No files} one {1 file} other {# files}}",
+      "owners": "{count, plural, one {1 owner} other {# owners}}",
+      "edit": "Edit",
+      "more": "More actions",
+      "publish": "Publish",
+      "unpublish": "Move to draft",
+      "archive": "Archive",
+      "restore": "Restore"
+    },
+    "files": {
+      "title": "Files",
+      "hint": "Everything the buyer downloads. Tick “Free sample” on the one file anyone may read without paying.",
+      "empty": "No files yet — add one before publishing.",
+      "hasPreview": "Free sample offered",
+      "noPreview": "No free sample",
+      "previewBadge": "Free sample",
+      "previewToggle": "Sample",
+      "previewToggleHint": "Anyone can read this file without paying.",
+      "pages": "{count, plural, one {1 page} other {# pages}}",
+      "open": "Open the file",
+      "remove": "Remove",
+      "moveUp": "Move up",
+      "add": "Add file",
+      "newTitle": "What is this file?",
+      "newTitlePlaceholder": "e.g. Chapter 1 — sample",
+      "newFile": "The file",
+      "markPreview": "Free sample",
+      "markPreviewHint": "Anyone can download this one without buying — it is how the book sells itself."
+    },
+    "form": {
+      "newTitle": "New book",
+      "newHint": "Name it and price it; you'll add the files next.",
+      "editTitle": "Edit book",
+      "editHint": "Files save as you change them. Everything else saves when you press Save.",
+      "title": "Title",
+      "titlePlaceholder": "e.g. Arabic Grammar Made Simple",
+      "subtitle": "Subtitle",
+      "description": "Description",
+      "author": "Author",
+      "kind": "Type",
+      "category": "Category",
+      "language": "Language",
+      "pages": "Pages",
+      "cover": "Cover image",
+      "price": "Price",
+      "priceSection": "Price & selling",
+      "checkoutEnabled": "Sell it online",
+      "checkoutEnabledHint": "Show a Buy button on the public site. Turn it off to sell this book off-platform only.",
+      "notSellingHint": "This book won't show a Buy button until you add an active payment method.",
+      "highlights": "What's inside",
+      "highlightsHint": "A few bullets a buyer weighs before paying. Leave it empty to hide the block.",
+      "highlightsPlaceholder": "e.g. 200 practice exercises with answers",
+      "audience": "Who it's for",
+      "audienceHint": "Leave it empty to hide the block.",
+      "audiencePlaceholder": "e.g. Beginners with no prior Arabic",
+      "addBullet": "Add a line",
+      "removeBullet": "Remove this line",
+      "optional": "optional",
+      "create": "Create",
+      "save": "Save",
+      "cancel": "Cancel",
+      "close": "Close"
+    },
+    "confirm": {
+      "deleteTitle": "Delete this book?",
+      "deleteBody": "It disappears from the site. Existing buyers and orders are kept."
+    },
+    "alerts": {
+      "saved": "Saved",
+      "deleted": "Book deleted",
+      "published": "Book published",
+      "unpublished": "Moved to draft",
+      "archived": "Book archived",
+      "restored": "Book restored",
+      "failed": "Something went wrong. Please try again."
     }
   }
 }

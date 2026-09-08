@@ -13,6 +13,10 @@ use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientPaymentController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DemoRequestController as AdminDemoRequestController;
+use App\Http\Controllers\Admin\Finance\ClientController as FinanceClientController;
+use App\Http\Controllers\Admin\Finance\DealController as FinanceDealController;
+use App\Http\Controllers\Admin\Finance\OverviewController as FinanceOverviewController;
+use App\Http\Controllers\Admin\Finance\PaymentController as FinancePaymentController;
 use App\Http\Controllers\Admin\LmsOversightController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\RoleController;
@@ -33,6 +37,7 @@ use App\Http\Controllers\Learner\CheckoutController as LearnerCheckoutController
 use App\Http\Controllers\Learner\NotificationController as LearnerNotificationController;
 use App\Http\Controllers\Learner\PasswordResetController as LearnerPasswordResetController;
 use App\Http\Controllers\Learner\PlayerController as LearnerPlayerController;
+use App\Http\Controllers\Learner\ProductController as LearnerProductController;
 use App\Http\Controllers\Learner\QuizController as LearnerQuizController;
 use App\Http\Controllers\Learner\RedemptionController as LearnerRedemptionController;
 use App\Http\Controllers\Learner\SiteController as LearnerSiteController;
@@ -44,6 +49,7 @@ use App\Http\Controllers\Lms\LearnerAdminController;
 use App\Http\Controllers\Lms\LessonController;
 use App\Http\Controllers\Lms\MediaController;
 use App\Http\Controllers\Lms\MediaDeliveryController;
+use App\Http\Controllers\Lms\ProductController as LmsProductController;
 use App\Http\Controllers\Lms\OrderController as LmsOrderController;
 use App\Http\Controllers\Lms\PaymentMethodController as LmsPaymentMethodController;
 use App\Http\Controllers\Lms\QuizController;
@@ -311,6 +317,13 @@ Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group
     Route::get('/site', [LearnerSiteController::class, 'show']);
     Route::get('/courses', [LearnerCatalogController::class, 'index']);
     Route::get('/courses/{slug}', [LearnerCatalogController::class, 'show'])->where('slug', '[a-z0-9-]+');
+    // The bookshop (docs/lms/11). Public, like the course catalogue — and so is the free sample,
+    // deliberately: asking someone to register before they can read a sample chapter is exactly the
+    // friction that loses the sale. Paid files are never resolvable from here.
+    Route::get('/products', [LearnerProductController::class, 'index']);
+    Route::get('/products/{slug}', [LearnerProductController::class, 'show'])->where('slug', '[a-z0-9-]+');
+    Route::get('/products/{slug}/preview/{fileId}', [LearnerProductController::class, 'preview'])
+        ->where('slug', '[a-z0-9-]+')->whereUuid('fileId');
 
     Route::middleware('learner.auth')->group(function () {
         Route::get('/me', [LearnerAuthController::class, 'me']);
@@ -330,6 +343,16 @@ Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group
         // untouched above — a course can offer either door, or both.
         Route::get('/checkout/{slug}', [LearnerCheckoutController::class, 'show'])->where('slug', '[a-z0-9-]+');
         Route::post('/courses/{slug}/orders', [LearnerCheckoutController::class, 'store'])->where('slug', '[a-z0-9-]+');
+
+        // The buyer's bookshelf (docs/lms/11): what they own, the download links for it, the
+        // one-click claim on a free book, and the book twin of the course checkout. `/checkout/book`
+        // is a literal segment and precedes nothing — the course checkout's {slug} is constrained to
+        // lowercase-and-dashes, which 'book/xyz' cannot match anyway.
+        Route::get('/library', [LearnerProductController::class, 'library']);
+        Route::get('/products/{slug}/access', [LearnerProductController::class, 'access'])->where('slug', '[a-z0-9-]+');
+        Route::post('/products/{slug}/claim', [LearnerProductController::class, 'claim'])->where('slug', '[a-z0-9-]+');
+        Route::get('/checkout/book/{slug}', [LearnerCheckoutController::class, 'showProduct'])->where('slug', '[a-z0-9-]+');
+        Route::post('/products/{slug}/orders', [LearnerCheckoutController::class, 'storeProduct'])->where('slug', '[a-z0-9-]+');
         // Orders are addressed by their human-quotable number (ORD-000123), not their uuid: it is
         // what the learner sees, screenshots and reads out on the phone.
         Route::get('/orders', [LearnerCheckoutController::class, 'index']);
@@ -538,6 +561,26 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // cannot live in an academy's own `crm_leads` pipeline.
     Route::get('/admin/demo-requests', [AdminDemoRequestController::class, 'index']);
     Route::patch('/admin/demo-requests/{id}', [AdminDemoRequestController::class, 'update'])->whereUuid('id');
+
+    // Finance ledger (Super Admin, platform.manage) — the platform owner's OWN income book:
+    // the clients who pay the owner, their deals (a one-time sale in installments, or a
+    // subscription) and the money actually received. An island by design: no link to academies,
+    // module subscriptions or academy invoices in either direction (see FinanceLedger).
+    Route::get('/admin/finance/overview', FinanceOverviewController::class);
+    Route::get('/admin/finance/clients', [FinanceClientController::class, 'index']);
+    Route::get('/admin/finance/clients/all', [FinanceClientController::class, 'all']);
+    Route::post('/admin/finance/clients', [FinanceClientController::class, 'store']);
+    Route::patch('/admin/finance/clients/{id}', [FinanceClientController::class, 'update'])->whereUuid('id');
+    Route::delete('/admin/finance/clients/{id}', [FinanceClientController::class, 'destroy'])->whereUuid('id');
+    Route::get('/admin/finance/deals', [FinanceDealController::class, 'index']);
+    Route::post('/admin/finance/deals', [FinanceDealController::class, 'store']);
+    Route::get('/admin/finance/deals/{id}', [FinanceDealController::class, 'show'])->whereUuid('id');
+    Route::patch('/admin/finance/deals/{id}', [FinanceDealController::class, 'update'])->whereUuid('id');
+    Route::delete('/admin/finance/deals/{id}', [FinanceDealController::class, 'destroy'])->whereUuid('id');
+    Route::put('/admin/finance/deals/{id}/schedule', [FinanceDealController::class, 'replaceSchedule'])->whereUuid('id');
+    Route::post('/admin/finance/deals/{id}/payments', [FinanceDealController::class, 'storePayment'])->whereUuid('id');
+    Route::get('/admin/finance/payments', [FinancePaymentController::class, 'index']);
+    Route::delete('/admin/finance/payments/{id}', [FinancePaymentController::class, 'destroy'])->whereUuid('id');
 
     // Role ⇄ capability editor (Super Admin, platform.manage). Rewrites the role_permissions
     // catalog; a SUPER_ADMIN lockout guard + full before/after audit protect the blast radius.
@@ -759,6 +802,21 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/courses/payment-methods', [LmsPaymentMethodController::class, 'index']);
         Route::put('/courses/payment-methods', [LmsPaymentMethodController::class, 'update']);
         Route::put('/courses/payment-currency', [LmsPaymentMethodController::class, 'setCurrency']);
+        // Digital products (docs/lms/11) — the books/PDFs half of the catalogue. All literal
+        // `products` segments, so they precede the whereUuid'd `/courses/{id}` below. Gated by the
+        // course capabilities: this IS the client's catalogue, just a different shelf of it.
+        Route::get('/courses/products', [LmsProductController::class, 'index']);
+        Route::get('/courses/products/summary', [LmsProductController::class, 'summary']);
+        Route::post('/courses/products', [LmsProductController::class, 'store']);
+        Route::get('/courses/products/{id}', [LmsProductController::class, 'show'])->whereUuid('id');
+        Route::patch('/courses/products/{id}', [LmsProductController::class, 'update'])->whereUuid('id');
+        Route::post('/courses/products/{id}/publish', [LmsProductController::class, 'setStatus'])->whereUuid('id');
+        Route::delete('/courses/products/{id}', [LmsProductController::class, 'destroy'])->whereUuid('id');
+        Route::post('/courses/products/{product}/files', [LmsProductController::class, 'storeFile'])->whereUuid('product');
+        Route::post('/courses/products/{product}/files/reorder', [LmsProductController::class, 'reorderFiles'])->whereUuid('product');
+        Route::patch('/courses/products/{product}/files/{id}', [LmsProductController::class, 'updateFile'])->whereUuid(['product', 'id']);
+        Route::delete('/courses/products/{product}/files/{id}', [LmsProductController::class, 'destroyFile'])->whereUuid(['product', 'id']);
+
         Route::post('/courses', [CourseController::class, 'store']);
         Route::get('/courses/{id}', [CourseController::class, 'show'])->whereUuid('id');
         Route::patch('/courses/{id}', [CourseController::class, 'update'])->whereUuid('id');
@@ -804,6 +862,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/courses/learners/{id}', [LearnerAdminController::class, 'show']);
         Route::post('/courses/learners/{id}/status', [LearnerAdminController::class, 'setStatus']);
         Route::post('/courses/learners/{id}/enrollment', [LearnerAdminController::class, 'setEnrollment']);
+        Route::post('/courses/learners/{id}/product', [LearnerAdminController::class, 'setProductAccess']);
     });
 
     Route::post('/admin/generate-sessions', GenerateSessionsController::class);

@@ -66,14 +66,29 @@ trait InteractsWithLms
      */
     protected function uniqueCourseSlug(string $academyId, string $title, ?string $ignoreId = null): string
     {
+        return $this->uniqueSlugIn('courses', $academyId, $title, 'course', $ignoreId);
+    }
+
+    /**
+     * The same rule for any slugged, academy-unique catalogue table — courses and digital products
+     * both put their slug in the last path segment of a public URL, so they share one generator
+     * rather than two that can drift on the fallback shape.
+     */
+    protected function uniqueSlugIn(
+        string $table,
+        string $academyId,
+        string $title,
+        string $fallback,
+        ?string $ignoreId = null,
+    ): string {
         $base = Str::slug($title);
         if ($base === '') {
-            $base = 'course';
+            $base = $fallback;
         }
 
         $slug = $base;
         $suffix = 2;
-        while ($this->slugTaken($academyId, $slug, $ignoreId)) {
+        while ($this->slugTaken($table, $academyId, $slug, $ignoreId)) {
             $slug = $base.'-'.$suffix;
             $suffix++;
             if ($suffix > 50) {
@@ -85,9 +100,9 @@ trait InteractsWithLms
         return $slug;
     }
 
-    private function slugTaken(string $academyId, string $slug, ?string $ignoreId): bool
+    private function slugTaken(string $table, string $academyId, string $slug, ?string $ignoreId): bool
     {
-        return DB::table('courses')
+        return DB::table($table)
             ->where('academy_id', $academyId)
             ->where('slug', $slug)
             ->when($ignoreId !== null, fn ($q) => $q->where('id', '!=', $ignoreId))
