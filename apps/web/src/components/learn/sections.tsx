@@ -369,11 +369,14 @@ export function Hero({
   actions,
   /** A real course to put in the preview card — the newest one, once the catalogue has loaded. */
   course,
+  /** The catalogue is still in flight, so `course` is "not known yet" rather than "none". */
+  pending,
   /** Below the buttons: the quiet "have a code?" link on a site where codes are not the headline. */
   footnote,
 }: {
   actions?: ReactNode;
   course?: HeroCourse | null;
+  pending?: boolean;
   footnote?: ReactNode;
 }) {
   const t = useTranslations("learn");
@@ -510,7 +513,11 @@ export function Hero({
           </div>
 
           {withVisual && (
-            <HeroVisual image={visualImage} course={course ?? null} />
+            <HeroVisual
+              image={visualImage}
+              course={course ?? null}
+              pending={pending ?? false}
+            />
           )}
         </div>
       </Container>
@@ -613,17 +620,24 @@ export interface HeroCourse {
  * What it shows, in order of how true it is: the newest REAL course (cover, title, lesson count,
  * runtime), else the client's own hero image, else a designed mock. The mock never claims to be a
  * course — no invented title, rating or student count — it is visibly a placeholder shape.
+ *
+ * `pending` is the difference between "this catalogue has no course" and "we do not know yet", and
+ * it is load-bearing: paint the stand-in photo while the catalogue is still in flight and every
+ * refresh shows a stock student at a laptop for a beat before the real cover replaces it. Unknown
+ * shows the brand wash instead — a surface the cover can land on without contradicting it.
  */
 function HeroVisual({
   image,
   course,
+  pending,
 }: {
   image: string;
   course: HeroCourse | null;
+  pending: boolean;
 }) {
   const t = useTranslations("learn");
   const { academy, siteName } = useLearn();
-  const cover = course?.cover_image_path || image;
+  const cover = course?.cover_image_path || (pending ? "" : image);
 
   const card = (
     <div className="bg-card text-foreground overflow-hidden rounded-3xl border shadow-2xl ring-1 ring-black/5">

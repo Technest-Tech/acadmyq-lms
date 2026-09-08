@@ -1,5 +1,5 @@
 import { apiBase } from "@/lib/api-base";
-import type { LearnSite, LearnSiteContent } from "@/lib/learn-api";
+import type { LearnCourseCard, LearnSite, LearnSiteContent } from "@/lib/learn-api";
 
 /**
  * Server-side loader for an academy's public-site content (docs/lms/09). The learner-site layout
@@ -33,6 +33,37 @@ export async function fetchLearnSite(academy: string): Promise<LearnSite> {
   if (!res.ok) return fallbackSite(academy);
 
   return (await res.json()) as LearnSite;
+}
+
+/**
+ * The published catalogue, on the server, for the same reason the site document is fetched there.
+ *
+ * The home page's hero previews the newest REAL course, and resolving that in the browser meant the
+ * preview card painted a stand-in — the template's stock photo, or the client's own hero image —
+ * and swapped it for the cover a beat later, on every single refresh. Fetched here, the first frame
+ * already carries the right cover, title and lesson count.
+ *
+ * Cached for a minute per academy, like the site: a published catalogue is public and read-mostly.
+ *
+ * Returns null rather than throwing when the API is unreachable, because this is an ENHANCEMENT of
+ * a page that can still fetch for itself — a blip should cost a slower first frame, not the whole
+ * catalogue.
+ */
+export async function fetchLearnCatalog(
+  academy: string,
+): Promise<LearnCourseCard[] | null> {
+  try {
+    const res = await fetch(`${apiBase()}/api/learn/courses`, {
+      headers: { Accept: "application/json", "X-Academy": academy },
+      next: { revalidate: 60, tags: [`learn-catalog:${academy}`] },
+    });
+    if (!res.ok) return null;
+
+    const body = (await res.json()) as { courses?: LearnCourseCard[] };
+    return body.courses ?? [];
+  } catch {
+    return null;
+  }
 }
 
 /**
