@@ -54,6 +54,22 @@ final class RedemptionController extends Controller
             throw ValidationException::withMessages(['code' => ['That code has expired.']]);
         }
 
+        // A course whose owner switched codes OFF (docs/lms/10 §1) stops honouring them, even for a
+        // code that was minted while they were on — otherwise the switch would be decorative. The
+        // code's other courses still unlock, so a mixed batch degrades instead of failing whole.
+        $unlockable = DB::table('access_code_courses as acc')
+            ->join('courses as c', 'c.id', '=', 'acc.course_id')
+            ->where('acc.code_id', $code->id)
+            ->where('c.code_enabled', true)
+            ->whereNull('c.deleted_at')
+            ->pluck('acc.course_id');
+
+        if ($unlockable->isEmpty()) {
+            throw ValidationException::withMessages([
+                'code' => ['This code no longer unlocks any course. Please buy the course instead.'],
+            ]);
+        }
+
         $already = DB::table('code_redemptions')
             ->where('code_id', $code->id)
             ->where('learner_id', $learner->getKey())
@@ -76,8 +92,8 @@ final class RedemptionController extends Controller
             ]);
         }
 
-        // Enroll in every course the code unlocks (idempotent on learner+course).
-        $courseIds = DB::table('access_code_courses')->where('code_id', $code->id)->pluck('course_id');
+        // Enroll in every course the code still unlocks (idempotent on learner+course).
+        $courseIds = $unlockable;
         foreach ($courseIds as $courseId) {
             DB::table('enrollments')->updateOrInsert(
                 ['learner_id' => $learner->getKey(), 'course_id' => $courseId],
@@ -123,9 +139,9 @@ final class RedemptionController extends Controller
         if ($course === null) {
             abort(404, 'Course not found.');
         }
-        // The price is the authorisation: a paid course still has to go through a code.
+        // The price is the authorisation: a paid course goes through checkout or a code, never here.
         if ((int) $course->price_minor !== 0) {
-            abort(403, 'This course needs an access code.');
+            abort(403, 'This course must be purchased.');
         }
 
         $existing = DB::table('enrollments')

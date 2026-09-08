@@ -21,6 +21,13 @@ final class NotificationController extends Controller
     use InteractsWithScheduling;
 
     /**
+     * Categories written to `notifications` but rendered somewhere else entirely. The row is still
+     * worth writing — it is the durable record of "the client was told" — it just does not belong
+     * in this page's tabs.
+     */
+    private const HIDDEN_CATEGORIES = ['LMS_SALES'];
+
+    /**
      * GET /api/notifications — the report alerts visible to the caller, newest first.
      * notification.read.
      */
@@ -113,6 +120,11 @@ final class NotificationController extends Controller
      */
     private function visibleQuery()
     {
-        return DB::table('notifications as n')->where('n.audience_role', 'ACADEMY_OWNER');
+        return DB::table('notifications as n')
+            ->where('n.audience_role', 'ACADEMY_OWNER')
+            // Course-sale alerts (docs/lms/10 §5) share this table but not this page: they are
+            // worked from the sales desk, which shows the receipt itself and the approve button.
+            // Surfacing them here too would mean two inboxes for one decision.
+            ->whereNotIn('n.category', self::HIDDEN_CATEGORIES);
     }
 }

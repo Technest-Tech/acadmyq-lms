@@ -168,18 +168,25 @@ export function Meta({
 /**
  * A course's cover art, with the brand-tinted fallback for a course that has none — so a catalogue
  * of un-illustrated courses still looks deliberate rather than broken.
+ *
+ * The fallback is a designed placeholder, not an error state: the academy's own colour, a soft dot
+ * grid and one glyph. That is the difference between "this course has no picture yet" and "this
+ * image failed to load", and on a young catalogue most covers are the former.
  */
 export function CourseThumb({
   src,
   alt = "",
   className,
   iconClassName,
+  /** `eager` for the one cover above the fold; everything in a grid stays lazy. */
+  loading = "lazy",
   children,
 }: {
   src?: string | null;
   alt?: string;
   className?: string;
   iconClassName?: string;
+  loading?: "lazy" | "eager";
   children?: ReactNode;
 }) {
   return (
@@ -192,14 +199,27 @@ export function CourseThumb({
           src={src}
           alt={alt}
           className="absolute inset-0 size-full object-cover"
-          loading="lazy"
+          loading={loading}
+          decoding="async"
         />
       ) : (
         <div
-          className="flex size-full items-center justify-center"
+          className="relative flex size-full items-center justify-center"
           style={{ background: "linear-gradient(140deg, var(--brand-soft), transparent 72%)" }}
         >
-          <BookOpen className={cn("text-primary/40 size-8", iconClassName)} aria-hidden />
+          <span
+            className="absolute inset-0 opacity-60"
+            style={{
+              backgroundImage:
+                "radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0)",
+              backgroundSize: "18px 18px",
+            }}
+            aria-hidden
+          />
+          <BookOpen
+            className={cn("text-primary/40 relative size-8", iconClassName)}
+            aria-hidden
+          />
         </div>
       )}
       {children}

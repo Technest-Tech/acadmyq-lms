@@ -1,96 +1,25 @@
-import { render, screen } from "@testing-library/react";
-import { NextIntlClientProvider } from "next-intl";
+import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import {
-  LearnContext,
-  type LearnContextValue,
-} from "@/components/learn/context";
-import {
+  SiteFooter,
   SiteWhatsappButton,
   useRequestCodeHref,
   whatsappHref,
 } from "@/components/learn/site-chrome";
-import type { LearnSiteContent } from "@/lib/learn-api";
-import type { ReactNode } from "react";
+import { renderInSite } from "@/test/learn-site";
 import enMessages from "../../../messages/en.json";
 
 /**
- * The floating WhatsApp button (docs/lms/09). Its whole contract is "the client's number or
- * nothing", so that is what these cover: a blank number must not leave a dead link on the site.
+ * The chrome every LMS client shares (docs/lms/09). Two contracts are load-bearing here:
+ *
+ *  - the floating WhatsApp button is "the client's number or nothing" — a blank number must not
+ *    leave a dead link on a page students visit;
+ *  - the footer never advertises what the client HASN'T configured. A public page that says
+ *    "contact details haven't been added yet" tells every visitor the shop is unfinished.
  */
 
-function siteWith(whatsapp: string): LearnSiteContent {
-  return {
-    brand: {
-      name: "Noor",
-      tagline: "",
-      logo_url: "",
-      color: "#12836a",
-      hero_style: "gradient",
-    },
-    hero: {
-      eyebrow: "",
-      title: "",
-      subtitle: "",
-      image_url: "",
-      primary_cta: "browse",
-      badges: [],
-    },
-    stats: { show: true, items: [] },
-    about: { show: true, heading: "", body: "", image_url: "", points: [] },
-    features: { show: true, heading: "", subheading: "", items: [] },
-    steps: { show: true, heading: "", items: [] },
-    instructors: { show: true, heading: "", items: [] },
-    testimonials: { show: true, heading: "", items: [] },
-    faq: { show: true, heading: "", items: [] },
-    cta: {
-      show: true,
-      title: "",
-      subtitle: "",
-      button_label: "",
-      button_href: "",
-    },
-    contact: {
-      show: true,
-      email: "",
-      phone: "",
-      whatsapp,
-      address: "",
-      map_url: "",
-      socials: {},
-    },
-    footer: { note: "", links: [] },
-    seo: { title: "", description: "", og_image_url: "" },
-    pages: { about: true, faq: true, contact: true },
-  };
-}
-
-function renderInSite(whatsapp: string, children: ReactNode) {
-  const value = {
-    academy: "noor",
-    site: siteWith(whatsapp),
-    stats: { courses: 0, lessons: 0, learners: 0, certificates: 0 },
-    siteName: "Noor",
-    learner: null,
-    enrolled: new Set<string>(),
-    loading: false,
-    isEnrolled: () => false,
-    refresh: async () => {},
-    logout: async () => {},
-    requireAuth: () => {},
-    openAuth: () => {},
-    openRedeem: () => {},
-  } satisfies LearnContextValue;
-
-  render(
-    <NextIntlClientProvider locale="en" messages={enMessages}>
-      <LearnContext.Provider value={value}>{children}</LearnContext.Provider>
-    </NextIntlClientProvider>,
-  );
-}
-
 function renderButton(whatsapp: string) {
-  renderInSite(whatsapp, <SiteWhatsappButton />);
+  renderInSite(<SiteWhatsappButton />, { site: { contact: { whatsapp } } });
 }
 
 /** Surfaces the hook's result as text, so the assertions read as the href they produce. */
@@ -99,7 +28,9 @@ function RequestCodeProbe({ course }: { course?: string }) {
 }
 
 function requestCodeHref(whatsapp: string, course?: string): string {
-  renderInSite(whatsapp, <RequestCodeProbe course={course} />);
+  renderInSite(<RequestCodeProbe course={course} />, {
+    site: { contact: { whatsapp } },
+  });
   return screen.getByTestId("href").textContent ?? "";
 }
 
@@ -166,5 +97,45 @@ describe("useRequestCodeHref", () => {
 
     expect(href).toContain("https://wa.me/201001234567?text=");
     expect(href).toContain("I have a question about your courses");
+  });
+});
+
+describe("SiteFooter", () => {
+  it("lists only the contact channels the client filled in", () => {
+    renderInSite(<SiteFooter />, {
+      site: { contact: { email: "hello@noor.test", phone: "", whatsapp: "" } },
+    });
+
+    expect(screen.getByText("hello@noor.test")).toBeInTheDocument();
+    expect(screen.queryByText(/haven't been added/i)).toBeNull();
+  });
+
+  it("says nothing about missing contact details when none are configured", () => {
+    renderInSite(<SiteFooter />);
+
+    // The whole column disappears rather than announcing the gap to every visitor.
+    expect(screen.queryByText(/haven't been added/i)).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: enMessages.learn.footer.contact }),
+    ).toBeNull();
+  });
+
+  it("credits the platform with a real link", () => {
+    renderInSite(<SiteFooter />);
+
+    expect(screen.getByRole("link", { name: "Acadmyq" })).toHaveAttribute(
+      "href",
+      "https://acadmyq.com",
+    );
+  });
+
+  it("only promises payment confirmation when checkout is actually open", () => {
+    renderInSite(<SiteFooter />, { commerce: { checkout: true, paid: true } });
+    expect(screen.getByText(/Payments are confirmed by Noor/)).toBeInTheDocument();
+  });
+
+  it("omits the payment note on a site that sells nothing online", () => {
+    renderInSite(<SiteFooter />);
+    expect(screen.queryByText(/Payments are confirmed/)).toBeNull();
   });
 });

@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -30,6 +31,9 @@ final class TeacherController extends Controller
 {
     use InteractsWithPeople;
 
+    /** How a teacher is paid. Kept short on purpose — a bank transfer is not a thing anyone here does. */
+    private const PAYOUT_METHODS = ['INSTAPAY', 'WALLET'];
+
     /** GET /api/teachers — server-driven DataTable. */
     public function index(Request $request): JsonResponse
     {
@@ -38,6 +42,7 @@ final class TeacherController extends Controller
         $query = DB::table('teachers')->select([
             'id', 'user_id', 'full_name', 'phone', 'specialization',
             'session_rate_minor', 'currency', 'timezone', 'availability',
+            'payout_method', 'payout_handle',
             'is_active', 'deleted_at', 'created_at',
         ]);
         $this->applyActiveScope($query, $request);
@@ -83,6 +88,7 @@ final class TeacherController extends Controller
         $this->enforceLimit($academyId, 'teachers', 'maxTeachers', 'teachers');
 
         $data = $this->validatePayload($request, creating: true);
+        $payout = $this->resolvePayout($data, null) ?? ['payout_method' => null, 'payout_handle' => null];
 
         $teacherId = (string) Str::uuid();
         $userId = null;
@@ -106,6 +112,8 @@ final class TeacherController extends Controller
             'currency' => strtoupper($data['currency'] ?? $this->academyDefaultCurrency($academyId)),
             'timezone' => $data['timezone'] ?? null,
             'availability' => json_encode($data['availability'] ?? []),
+            'payout_method' => $payout['payout_method'],
+            'payout_handle' => $payout['payout_handle'],
             'is_active' => true,
         ]);
 
@@ -266,6 +274,17 @@ final class TeacherController extends Controller
             && json_encode($data['availability']) !== (string) $existing->availability) {
             $before['availability'] = json_decode((string) $existing->availability, true);
             $after['availability'] = json_encode($data['availability']);
+        }
+
+        // The destination and how to read it move together — see resolvePayout().
+        $payout = $this->resolvePayout($data, $existing);
+        if ($payout !== null) {
+            foreach ($payout as $col => $value) {
+                if ((string) $value !== (string) $existing->{$col}) {
+                    $before[$col] = $existing->{$col};
+                    $after[$col] = $value;
+                }
+            }
         }
 
         if ($after === []) {
@@ -434,6 +453,43 @@ final class TeacherController extends Controller
         return $userId;
     }
 
+    /**
+     * Force the payout pair into the both-or-neither state the DB CHECK requires, so a half-filled
+     * form comes back as a field error rather than a constraint violation.
+     *
+     * `$existing` is the current row on update (null when creating): a PATCH naming only one half
+     * of the pair is resolved against what the teacher already has, not against nothing.
+     *
+     * @param  array<string,mixed>  $data
+     * @return array{payout_method: string|null, payout_handle: string|null}|null null = untouched
+     */
+    private function resolvePayout(array $data, ?object $existing): ?array
+    {
+        if (! array_key_exists('payout_method', $data) && ! array_key_exists('payout_handle', $data)) {
+            return null;
+        }
+
+        $handle = array_key_exists('payout_handle', $data)
+            ? trim((string) ($data['payout_handle'] ?? ''))
+            : trim((string) ($existing->payout_handle ?? ''));
+        $method = array_key_exists('payout_method', $data)
+            ? $data['payout_method']
+            : ($existing->payout_method ?? null);
+
+        // Clearing the destination clears the method with it — "InstaPay, to nowhere" is not a state.
+        if ($handle === '') {
+            return ['payout_method' => null, 'payout_handle' => null];
+        }
+
+        if ($method === null || $method === '') {
+            throw ValidationException::withMessages([
+                'payout_method' => ['Choose InstaPay or a wallet for this payout destination. / اختر إنستاباي أو محفظة لوجهة التحويل.'],
+            ]);
+        }
+
+        return ['payout_method' => (string) $method, 'payout_handle' => $handle];
+    }
+
     /** @return array<string,mixed> */
     private function validatePayload(Request $request, bool $creating): array
     {
@@ -450,6 +506,10 @@ final class TeacherController extends Controller
             'availability.*.weekday' => ['required_with:availability', 'integer', 'between:0,6'],
             'availability.*.start_local' => ['required_with:availability', 'string', 'regex:/^\d{2}:\d{2}$/'],
             'availability.*.end_local' => ['required_with:availability', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            // Free text on purpose: a wallet is a mobile number, an InstaPay destination is an
+            // address or a share link. Normalising one shape would corrupt the other.
+            'payout_method' => ['sometimes', 'nullable', Rule::in(self::PAYOUT_METHODS)],
+            'payout_handle' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
 
         if ($creating) {

@@ -1,8 +1,9 @@
 "use client";
 
-import { User, UserCheck, Zap } from "lucide-react";
+import { Banknote, CalendarDays, Hash, User, UserCheck, Users, Zap } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox, DialCodePicker, type ComboboxOption } from "@/components/ui/combobox";
@@ -12,7 +13,7 @@ import {
   type GuardianRow,
   listGuardians,
 } from "@/lib/api";
-import { COUNTRIES } from "@/lib/countries";
+import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { cn } from "@/lib/utils";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -40,6 +41,51 @@ function Field({
       {children}
       {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
     </div>
+  );
+}
+
+/**
+ * One of a pair of mutually exclusive choices, as a card. Used for both switches on this form —
+ * the lifecycle the student starts in, and whether they sit under a guardian — so the two read
+ * as the same kind of decision rather than two unrelated widgets.
+ */
+function ChoiceCard({
+  icon: Icon,
+  title,
+  hint,
+  selected,
+  onSelect,
+  testId,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  hint: string;
+  selected: boolean;
+  onSelect: () => void;
+  testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      data-testid={testId}
+      className={cn(
+        "rounded-xl border px-3.5 py-3 text-start transition-colors",
+        selected
+          ? "border-primary/40 bg-primary/8 ring-primary/15 ring-2"
+          : "border-input bg-background hover:bg-muted/40",
+      )}
+    >
+      <span className="flex items-center gap-2">
+        <Icon
+          className={cn("size-4 shrink-0", selected ? "text-primary" : "text-muted-foreground")}
+          aria-hidden
+        />
+        <span className={cn("text-sm font-semibold", selected && "text-primary")}>{title}</span>
+      </span>
+      <span className="text-muted-foreground/80 mt-1 block text-[11px] leading-snug">{hint}</span>
+    </button>
   );
 }
 
@@ -74,12 +120,18 @@ function splitPhone(phone: string | null | undefined): {
     : { dialCountry: "SA", localNumber: phone.replace(/[^\d]/g, "") };
 }
 
+function toMinor(val: string): number {
+  return Math.round(parseFloat(val || "0") * 100);
+}
+
+type Intent = "trial" | "enrolled";
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 /**
- * A single, general "create student" form. It captures only the student's own details; assigning
- * a teacher and pricing are completed afterwards from the student's profile. This keeps intake
- * fast: get the person into the system, then act on them from the details page.
+ * A single, general "create student" form. Assigning a teacher and a timetable are still
+ * completed afterwards from the student's profile; the price is not, because it decides which
+ * lifecycle the student is even in.
  *
  * `intent` decides which lifecycle the new student starts in, because the two ways people arrive
  * are genuinely different:
@@ -88,12 +140,18 @@ function splitPhone(phone: string | null | undefined): {
  *   • "enrolled" — the CRM's SUBSCRIBED stage. They already had their trial in the pipeline and
  *     are subscribing now, so they are saved REGULAR and land on the Students page as a learner,
  *     not back in a trial queue.
+ *
+ * PASSING `intent` FIXES IT. Omit the prop and the choice becomes the form's first question — two
+ * cards, trial preselected — because a walk-in intake is not always a trial: some people arrive
+ * already sold, and making them a trial first only to activate them a minute later is a detour.
+ * The flows that convert an existing trial or CRM lead pass "enrolled" and so keep their single
+ * meaning; there, offering "save as trial" would contradict the flow the user is already in.
  */
 export function StudentForm({
   fixedGuardianId,
   initialFullName,
   initialPhone,
-  intent = "trial",
+  intent,
   onCreated,
   onCancel,
 }: {
@@ -102,23 +160,49 @@ export function StudentForm({
   initialFullName?: string;
   /** Prefill the phone from a stored E.164 number, split into dial-code + local. */
   initialPhone?: string | null;
-  /** Which lifecycle the student starts in — see the note above. */
-  intent?: "trial" | "enrolled";
+  /** Fix the lifecycle the student starts in; omit to let the user choose — see the note above. */
+  intent?: Intent;
   onCreated: (studentId: string) => void;
   onCancel: () => void;
 }) {
   const t = useTranslations("students");
+  const { can } = useAuth();
+  // Naming a price is a pricing act wherever it happens — the API enforces `student.set_price`
+  // on the inline subscription too, so a role without it is never shown the package fields.
+  const canPrice = can("student.set_price");
   const initialSplit = splitPhone(initialPhone);
   const [guardians, setGuardians] = useState<GuardianRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [mode, setMode] = useState<Intent>(intent ?? "trial");
   const [fullName, setFullName] = useState(initialFullName ?? "");
   const [dialCountry, setDialCountry] = useState(initialSplit.dialCountry);
   const [localNumber, setLocalNumber] = useState(initialSplit.localNumber);
   const [country, setCountry] = useState("");
   const [selfGuardian, setSelfGuardian] = useState(false);
   const [guardianId, setGuardianId] = useState(fixedGuardianId ?? "");
+
+  // Package — hourly, matching the enrolment wizard's pricing step and the student-detail form.
+  const [price, setPrice] = useState("");
+  const [hours, setHours] = useState("");
+  const [currency, setCurrency] = useState("");
+  const [startDate, setStartDate] = useState(
+    () => new Date().toISOString().split("T")[0] ?? "",
+  );
+
+  const currencyOptions = useMemo<ComboboxOption[]>(
+    () => [
+      { value: "", label: t("form.none"), sublabel: "—" },
+      ...CURRENCIES.map((c) => ({ value: c.code, label: c.code, sublabel: c.name })),
+    ],
+    [t],
+  );
+
+  // Only where the user actually gets to decide; a fixed intent has no cards.
+  const choosable = intent === undefined;
+  const enrolling = mode === "enrolled";
+  const showPackage = enrolling && canPrice;
 
   useEffect(() => {
     if (!fixedGuardianId) {
@@ -180,6 +264,12 @@ export function StudentForm({
       setError(t("form.guardianRequired"));
       return false;
     }
+    // A REGULAR student with no package is a learner nobody ever invoices, so when the user may
+    // price, the package is the price of choosing "active" — not an optional extra.
+    if (showPackage && (!price.trim() || !startDate)) {
+      setError(t("form.packageRequired"));
+      return false;
+    }
     setError(null);
     return true;
   }
@@ -195,7 +285,20 @@ export function StudentForm({
         country: country || null,
         is_self_guardian: selfGuardian,
         guardian_id: selfGuardian ? undefined : ((fixedGuardianId ?? guardianId) || undefined),
-        status: intent === "enrolled" ? "REGULAR" : "TRIAL",
+        status: enrolling ? "REGULAR" : "TRIAL",
+        ...(showPackage
+          ? {
+              subscription: {
+                // The package is always hourly here; derive a display label from the quota.
+                plan_label: hours ? `${hours} hrs/month` : "Hourly",
+                sessions_per_month: hours ? Number(hours) : null,
+                price_minor: toMinor(price),
+                currency: currency || undefined,
+                price_basis: "PER_HOUR" as const,
+                start_date: startDate,
+              },
+            }
+          : {}),
       });
       onCreated(res.studentId);
     } catch (err) {
@@ -211,8 +314,31 @@ export function StudentForm({
         <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
       )}
 
-      {/* What this save will produce — a trial intake, or an enrolled student. */}
-      {intent === "enrolled" ? (
+      {/* What this save will produce — a trial intake, or an enrolled student. Two cards where
+          the user decides; the flow's own banner where the caller has already decided. */}
+      {choosable ? (
+        <div className="space-y-1.5">
+          <span className="text-sm font-medium">{t("form.intentTitle")}</span>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <ChoiceCard
+              icon={Zap}
+              title={t("form.intentTrial")}
+              hint={t("form.intentTrialHint")}
+              selected={!enrolling}
+              onSelect={() => setMode("trial")}
+              testId="intent-trial"
+            />
+            <ChoiceCard
+              icon={UserCheck}
+              title={t("form.intentActive")}
+              hint={t("form.intentActiveHint")}
+              selected={enrolling}
+              onSelect={() => setMode("enrolled")}
+              testId="intent-enrolled"
+            />
+          </div>
+        </div>
+      ) : enrolling ? (
         <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800/40 dark:bg-emerald-950/20">
           <UserCheck className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
           <div>
@@ -252,19 +378,29 @@ export function StudentForm({
         </div>
       </Field>
 
-      <label className="flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-2.5 transition-colors hover:bg-muted/30">
-        <input
-          type="checkbox"
-          checked={selfGuardian}
-          onChange={(e) => setSelfGuardian(e.target.checked)}
-          data-testid="self-guardian"
-          className="size-4 rounded accent-primary"
-        />
-        <div className="flex items-center gap-2">
-          <UserCheck className="size-4 text-muted-foreground" aria-hidden />
-          <span className="text-sm font-medium">{t("form.selfGuardian")}</span>
+      {/* Who the student belongs to. Stated as a switch rather than a tick-box because the two
+          answers are equally ordinary — an adult booking for themselves is not "the exception". */}
+      <div className="space-y-1.5">
+        <span className="text-sm font-medium">{t("form.guardianMode")}</span>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <ChoiceCard
+            icon={Users}
+            title={t("form.guardianModeFamily")}
+            hint={t("form.guardianModeFamilyHint")}
+            selected={!selfGuardian}
+            onSelect={() => setSelfGuardian(false)}
+            testId="guardian-mode-family"
+          />
+          <ChoiceCard
+            icon={UserCheck}
+            title={t("form.guardianModeSingle")}
+            hint={t("form.guardianModeSingleHint")}
+            selected={selfGuardian}
+            onSelect={() => setSelfGuardian(true)}
+            testId="guardian-mode-single"
+          />
         </div>
-      </label>
+      </div>
 
       {selfGuardian ? (
         <p className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-xs text-muted-foreground">
@@ -322,6 +458,83 @@ export function StudentForm({
         />
       </Field>
 
+      {/* ── Package ─────────────────────────────────────────────────────────
+          Only for an active student, and only for whoever may name a price. A role without
+          `student.set_price` still gets to create the learner; the package is added later by
+          someone who may price, rather than the whole card being denied to them. */}
+      {enrolling &&
+        (canPrice ? (
+          <div
+            className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-3.5"
+            data-testid="package-details"
+          >
+            <div>
+              <p className="text-sm font-semibold">{t("form.packageTitle")}</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">{t("form.packageHint")}</p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label={t("subscription.priceHourly")} required>
+                <div className="relative">
+                  <Banknote className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    aria-label={t("subscription.priceHourly")}
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                    placeholder="0.00"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                  />
+                </div>
+              </Field>
+
+              <Field label={t("subscription.hoursPerMonth")}>
+                <div className="relative">
+                  <Hash className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    type="number"
+                    min={0}
+                    aria-label={t("subscription.hoursPerMonth")}
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                    placeholder="8"
+                    value={hours}
+                    onChange={(e) => setHours(e.target.value)}
+                  />
+                </div>
+              </Field>
+
+              <Field label={t("subscription.currency")}>
+                <Combobox
+                  options={currencyOptions}
+                  value={currency}
+                  onChange={setCurrency}
+                  placeholder={t("form.currencyPlaceholder")}
+                  searchPlaceholder={t("form.searchCurrency")}
+                />
+              </Field>
+
+              <Field label={t("subscription.startDate")} required>
+                <div className="relative">
+                  <CalendarDays className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    type="date"
+                    aria-label={t("subscription.startDate")}
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                  />
+                </div>
+              </Field>
+            </div>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed px-3.5 py-2.5 text-xs text-muted-foreground">
+            {t("form.packageNoRights")}
+          </p>
+        ))}
+
       {/* ── Footer ─────────────────────────────────────────────────────── */}
       <div className="mt-2 flex items-center justify-between gap-2 border-t pt-4">
         <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
@@ -336,12 +549,12 @@ export function StudentForm({
         >
           {busy ? (
             <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
-          ) : intent === "enrolled" ? (
+          ) : enrolling ? (
             <UserCheck className="size-3.5" />
           ) : (
             <Zap className="size-3.5" />
           )}
-          {intent === "enrolled" ? t("form.createEnrolled") : t("form.create")}
+          {enrolling ? t("form.createEnrolled") : t("form.create")}
         </Button>
       </div>
     </div>

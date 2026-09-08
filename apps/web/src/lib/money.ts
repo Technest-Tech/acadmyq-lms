@@ -1,5 +1,18 @@
 import type { Money } from "@academiq/contracts";
 
+export interface MoneyFormatOptions {
+  /**
+   * Drop `.00` on a whole amount — "400 ج.م", not "400.00 ج.م".
+   *
+   * OFF by default, and deliberately so: on a ledger (invoices, payouts, receipts) the aligned
+   * decimals are what make a column of figures readable, and a total that silently changes width
+   * looks like a different kind of number. A STOREFRONT price is the opposite case — it is a
+   * headline, and every shop in the world writes it without the zeros. So the storefront opts in
+   * and nothing else has to change.
+   */
+  trimZeroDecimals?: boolean;
+}
+
 /**
  * Display-only money formatting (Master Spec §6.3). The API sends integer minor
  * units; this is the single render boundary that scales to major units for the
@@ -8,7 +21,11 @@ import type { Money } from "@academiq/contracts";
  *
  * @param locale BCP-47 locale (e.g. "ar", "en"); drives digits + symbol placement.
  */
-export function formatMoney(money: Money, locale: string): string {
+export function formatMoney(
+  money: Money,
+  locale: string,
+  options: MoneyFormatOptions = {},
+): string {
   const { amount, currency } = money;
   // Display scaling only (assumes 2-decimal minor units for MVP currencies).
   const major = amount / 100;
@@ -20,9 +37,14 @@ export function formatMoney(money: Money, locale: string): string {
       ? `${locale}-u-nu-arab`
       : locale;
 
+  // Only a WHOLE amount loses its decimals: 400 → "400 ج.م", but 399.50 keeps them, because
+  // rounding a real price away would misstate it.
+  const whole = options.trimZeroDecimals === true && Number.isInteger(major);
+
   return new Intl.NumberFormat(bcp47, {
     style: "currency",
     currency,
+    ...(whole ? { minimumFractionDigits: 0, maximumFractionDigits: 0 } : {}),
   }).format(major);
 }
 

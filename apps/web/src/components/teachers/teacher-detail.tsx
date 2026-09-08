@@ -8,8 +8,10 @@ import {
   Clock,
   MessageCircle,
   ShieldAlert,
+  Smartphone,
   User,
   Users,
+  Wallet,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -31,6 +33,7 @@ import {
   deactivateTeacher,
   getTeacher,
   listSpecializations,
+  type PayoutMethod,
   type Specialization,
   type TeacherLogin,
   type TeacherRow,
@@ -154,6 +157,10 @@ export function TeacherDetail({
   const [dialCountry, setDialCountry] = useState("EG");
   const [localNumber, setLocalNumber] = useState("");
   const [specialization, setSpecialization] = useState("");
+  // The destination pay is sent to. The method is only ever saved alongside a handle — an
+  // "InstaPay" with nothing to send to is not a state the API (or the DB) accepts.
+  const [payoutMethod, setPayoutMethod] = useState<PayoutMethod>("INSTAPAY");
+  const [payoutHandle, setPayoutHandle] = useState("");
   const [availability, setAvailability] = useState<AvailabilityWindow[]>([]);
   const [specs, setSpecs] = useState<Specialization[]>([]);
 
@@ -194,6 +201,9 @@ export function TeacherDetail({
     setDialCountry(code);
     setLocalNumber(local);
     setSpecialization(res.teacher.specialization ?? "");
+    // No destination yet → the switch rests on InstaPay with an empty field, which saves nothing.
+    setPayoutMethod(res.teacher.payout_method ?? "INSTAPAY");
+    setPayoutHandle(res.teacher.payout_handle ?? "");
     setAvailability(res.teacher.availability ?? []);
   }, [teacherId]);
 
@@ -224,6 +234,10 @@ export function TeacherDetail({
         session_rate_minor: toMinor(rate),
         currency,
         specialization: specialization || null,
+        // The handle is the fact; the method only says how to read it. Emptying the field is
+        // therefore how you remove a destination, and it clears both halves.
+        payout_handle: payoutHandle.trim() || null,
+        payout_method: payoutHandle.trim() ? payoutMethod : null,
         availability,
       });
       setNotice(t("form.saved"));
@@ -395,6 +409,78 @@ export function TeacherDetail({
                   disabled={!canEdit}
                   data-testid="currency-select"
                 />
+              </Field>
+            </div>
+
+            {/* ── Payout destination ──────────────────────────────────────
+                Payroll works out WHAT to pay; this is the only place that says where it goes.
+                It sits on the pay card because the two are read in the same breath — whoever
+                makes the transfer is looking at the rate above it. */}
+            <div className="space-y-2 border-t pt-4">
+              <span className="text-sm font-medium">{t("form.payoutDestination")}</span>
+              <p className="text-muted-foreground text-xs">{t("form.payoutHint")}</p>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                {(["INSTAPAY", "WALLET"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setPayoutMethod(option)}
+                    aria-pressed={payoutMethod === option}
+                    disabled={!canEdit}
+                    data-testid={`payout-method-${option}`}
+                    className={cn(
+                      "flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors",
+                      "disabled:cursor-not-allowed disabled:opacity-50",
+                      payoutMethod === option
+                        ? "border-primary/40 bg-primary/8 text-primary"
+                        : "border-input bg-background text-muted-foreground hover:bg-muted/40",
+                    )}
+                  >
+                    {option === "INSTAPAY" ? (
+                      <Smartphone className="size-4 shrink-0" aria-hidden />
+                    ) : (
+                      <Wallet className="size-4 shrink-0" aria-hidden />
+                    )}
+                    {t(option === "INSTAPAY" ? "form.payoutInstapay" : "form.payoutWallet")}
+                  </button>
+                ))}
+              </div>
+
+              {/* One field, relabelled — the two methods want different strings, and a wallet
+                  number typed into a box asking for a link is the mistake worth designing out. */}
+              <Field
+                label={t(
+                  payoutMethod === "INSTAPAY"
+                    ? "form.payoutHandleInstapay"
+                    : "form.payoutHandleWallet",
+                )}
+              >
+                <div className="relative">
+                  {payoutMethod === "INSTAPAY" ? (
+                    <Smartphone className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  ) : (
+                    <Wallet className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  )}
+                  <input
+                    dir="ltr"
+                    aria-label={t(
+                      payoutMethod === "INSTAPAY"
+                        ? "form.payoutHandleInstapay"
+                        : "form.payoutHandleWallet",
+                    )}
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                    placeholder={t(
+                      payoutMethod === "INSTAPAY"
+                        ? "form.payoutHandleInstapayPlaceholder"
+                        : "form.payoutHandleWalletPlaceholder",
+                    )}
+                    value={payoutHandle}
+                    disabled={!canEdit}
+                    onChange={(e) => setPayoutHandle(e.target.value)}
+                    data-testid="payout-handle"
+                  />
+                </div>
               </Field>
             </div>
 

@@ -40,6 +40,8 @@ describe("TeacherDetail (Sprint 4 §7)", () => {
         session_rate_minor: 8000,
         currency: "EGP",
         timezone: null,
+        payout_method: null,
+        payout_handle: null,
         availability: [
           { weekday: 1, start_local: "17:00", end_local: "19:00" },
         ],
@@ -58,6 +60,72 @@ describe("TeacherDetail (Sprint 4 §7)", () => {
     expect(await screen.findByTestId("teacher-rate")).toHaveTextContent("80");
     expect(screen.getByTestId("teacher-students")).toHaveTextContent("Yusuf");
     expect(screen.getByTestId("availability-editor")).toBeInTheDocument();
+  });
+
+  // The pair moves together: picking a wallet and typing the number sends both halves, because
+  // a method with nowhere to send the money is a state the API (and the DB CHECK) rejects.
+  it("saves a wallet payout destination as a pair", async () => {
+    renderDetail();
+    await screen.findByTestId("teacher-rate");
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("payout-method-WALLET"));
+    await user.type(screen.getByTestId("payout-handle"), "01001234567");
+    await user.click(screen.getByTestId("save-teacher"));
+
+    await waitFor(() =>
+      expect(api.updateTeacher).toHaveBeenCalledWith(
+        "t1",
+        expect.objectContaining({
+          payout_method: "WALLET",
+          payout_handle: "01001234567",
+        }),
+      ),
+    );
+  });
+
+  // Emptying the field is how a destination is removed — the method goes with it rather than
+  // being left pointing at nothing.
+  it("clears both halves when the destination is emptied", async () => {
+    vi.mocked(api.getTeacher).mockResolvedValue({
+      teacher: {
+        id: "t1",
+        user_id: null,
+        full_name: "Ustadh Kareem",
+        phone: null,
+        specialization: "Tajweed",
+        session_rate_minor: 8000,
+        currency: "EGP",
+        timezone: null,
+        payout_method: "INSTAPAY",
+        payout_handle: "kareem@instapay",
+        availability: [],
+        is_active: true,
+        deleted_at: null,
+        created_at: "",
+      },
+      students: [],
+      login: { has_login: false, email: null, is_active: null },
+    });
+
+    renderDetail();
+    const handle = await screen.findByTestId("payout-handle");
+    expect(handle).toHaveValue("kareem@instapay");
+    expect(screen.getByTestId("payout-method-INSTAPAY")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    const user = userEvent.setup();
+    await user.clear(handle);
+    await user.click(screen.getByTestId("save-teacher"));
+
+    await waitFor(() =>
+      expect(api.updateTeacher).toHaveBeenCalledWith(
+        "t1",
+        expect.objectContaining({ payout_method: null, payout_handle: null }),
+      ),
+    );
   });
 
   // AC-4.5 (UI side): editing the rate sends the new minor-unit rate.

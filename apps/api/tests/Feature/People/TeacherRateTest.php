@@ -196,3 +196,68 @@ it('cascades schedule, sessions, reports and payroll on delete while keeping the
     expect($line)->not->toBeNull();
     expect($line->session_id)->toBeNull();
 });
+
+// ── Payout destination: the pair is stored, read back, and can never half-exist ──
+it('stores a teacher payout destination and reads it back', function () {
+    Sanctum::actingAs($this->owner);
+
+    $id = $this->postJson('/api/teachers', [
+        'full_name' => 'Ustadh Kareem',
+        'session_rate_minor' => 8000,
+        'currency' => 'EGP',
+        'payout_method' => 'INSTAPAY',
+        'payout_handle' => 'kareem@instapay',
+    ])->assertCreated()->json('teacherId');
+
+    $detail = $this->getJson("/api/teachers/{$id}")->assertOk();
+    expect($detail->json('teacher.payout_method'))->toBe('INSTAPAY');
+    expect($detail->json('teacher.payout_handle'))->toBe('kareem@instapay');
+
+    // Switching to a wallet moves both halves together.
+    $this->patchJson("/api/teachers/{$id}", [
+        'payout_method' => 'WALLET',
+        'payout_handle' => ' 01001234567 ',
+    ])->assertOk();
+
+    $detail = $this->getJson("/api/teachers/{$id}")->assertOk();
+    expect($detail->json('teacher.payout_method'))->toBe('WALLET');
+    expect($detail->json('teacher.payout_handle'))->toBe('01001234567');
+});
+
+it('clears the method when the payout destination is emptied', function () {
+    Sanctum::actingAs($this->owner);
+
+    $id = $this->postJson('/api/teachers', [
+        'full_name' => 'Ustadha Mariam',
+        'session_rate_minor' => 5000,
+        'currency' => 'EGP',
+        'payout_method' => 'INSTAPAY',
+        'payout_handle' => 'mariam@instapay',
+    ])->assertCreated()->json('teacherId');
+
+    // Emptying the handle is how a destination is removed — "InstaPay, to nowhere" is not a state.
+    $this->patchJson("/api/teachers/{$id}", ['payout_handle' => ''])->assertOk();
+
+    $detail = $this->getJson("/api/teachers/{$id}")->assertOk();
+    expect($detail->json('teacher.payout_method'))->toBeNull();
+    expect($detail->json('teacher.payout_handle'))->toBeNull();
+});
+
+it('rejects a payout destination that does not say how to pay it', function () {
+    Sanctum::actingAs($this->owner);
+
+    $this->postJson('/api/teachers', [
+        'full_name' => 'No Method',
+        'session_rate_minor' => 5000,
+        'currency' => 'EGP',
+        'payout_handle' => '01001234567',
+    ])->assertStatus(422)->assertJsonValidationErrors(['payout_method']);
+
+    $this->postJson('/api/teachers', [
+        'full_name' => 'Bad Method',
+        'session_rate_minor' => 5000,
+        'currency' => 'EGP',
+        'payout_method' => 'BANK_TRANSFER',
+        'payout_handle' => 'EG12345',
+    ])->assertStatus(422)->assertJsonValidationErrors(['payout_method']);
+});

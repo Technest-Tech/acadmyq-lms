@@ -161,6 +161,68 @@
   --ring: oklch(0.519 0.158 163.2);
 }
 
+/*
+ * The PUBLIC MARKETING SITE (`app/(marketing)`) — acadmyq.com and its product pages.
+ *
+ * A third light-only surface alongside `.learn-site` and `.client-door`, and for the same reason:
+ * a visitor who has never logged in must not inherit a staff member's OS dark preference. But it
+ * does NOT reuse their palette. The dashboard's emerald-and-gold is the working environment of
+ * someone already inside the product; the site that has to explain the product to a stranger reads
+ * calmer and warmer — an off-white paper ground, deep teal for the brand, one amber accent, and
+ * near-black ink instead of grey.
+ *
+ * `--accent` is DECORATION ONLY: at this lightness amber clears 3:1 against the page but not the
+ * 4.5:1 body-text bar, so it appears as rules, marks and small filled shapes with dark text on
+ * them — never as a text colour on the background. `--ink` is the one deep brand ground (footer,
+ * the pricing band); anything on it is `--ink-foreground`.
+ */
+.marketing {
+  color-scheme: light;
+  /* Every section is full-bleed; clipping here (not `hidden`) keeps `position: sticky` working. */
+  overflow-x: clip;
+  --background: oklch(0.985 0.006 92);
+  --foreground: oklch(0.205 0.021 235);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.205 0.021 235);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.205 0.021 235);
+  --primary: oklch(0.435 0.083 195);
+  --primary-foreground: oklch(0.99 0.004 190);
+  --secondary: oklch(0.955 0.009 92);
+  --secondary-foreground: oklch(0.26 0.024 235);
+  --muted: oklch(0.958 0.008 92);
+  --muted-foreground: oklch(0.44 0.018 235);
+  --accent: oklch(0.735 0.132 62);
+  --accent-foreground: oklch(0.26 0.05 60);
+  --destructive: oklch(0.52 0.19 27);
+  --border: oklch(0.9 0.01 92);
+  --input: oklch(0.885 0.011 92);
+  --ring: oklch(0.435 0.083 195);
+  --ink: oklch(0.215 0.028 215);
+  --ink-foreground: oklch(0.97 0.008 190);
+  --gold: oklch(0.735 0.132 62);
+  --gold-foreground: oklch(0.26 0.05 60);
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-ink-foreground: var(--ink-foreground);
+}
+
+/*
+ * The shared LocaleSwitcher, reused verbatim in the footer, reads `--background`/`--muted`/
+ * `--foreground` — which on the deep footer ground would paint it as a light chip dropped onto the
+ * band. Re-pointing those four tokens on the wrapper makes it part of the band instead, without
+ * forking the component for one placement.
+ */
+.marketing-footer-locale {
+  --background: color-mix(in oklab, var(--ink-foreground) 92%, var(--ink));
+  --foreground: var(--ink);
+  --muted: color-mix(in oklab, var(--ink-foreground) 12%, transparent);
+  --muted-foreground: color-mix(in oklab, var(--ink-foreground) 72%, transparent);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -209,6 +271,22 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+/*
+ * Motion is opt-in for anyone who has not asked for less of it. The marketing pages animate on
+ * scroll; this turns every one of those into an instant state change rather than trying to remember
+ * the guard at each call site.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .marketing *,
+  .marketing *::before,
+  .marketing *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

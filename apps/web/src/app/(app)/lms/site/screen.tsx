@@ -14,6 +14,7 @@ import {
   Phone,
   RotateCcw,
   Save,
+  Scale,
   Search,
   Sparkles,
   Users,
@@ -31,6 +32,7 @@ import { EmptyState, LmsHero } from "@/components/courses/lms-ui";
 import {
   ColorField,
   EditorBlock,
+  ImageField,
   RepeatableList,
   StringList,
 } from "@/components/courses/site-editor-bits";
@@ -233,11 +235,10 @@ export function LmsSiteScreen() {
               />
             </Field>
             <Field label={t("f.logo")} hint={t("hint.url")} optional={t("optional")}>
-              <input
-                className={inputClass}
+              <ImageField
                 value={draft.brand.logo_url}
-                placeholder="https://…"
-                onChange={(e) => set("brand", { logo_url: e.target.value })}
+                alt={t("f.logo")}
+                onChange={(logo_url) => set("brand", { logo_url })}
               />
             </Field>
             <Field label={t("f.color")} hint={t("hint.color")}>
@@ -245,6 +246,30 @@ export function LmsSiteScreen() {
                 value={draft.brand.color}
                 presets={BRAND_PRESETS}
                 onChange={(color) => set("brand", { color })}
+              />
+            </Field>
+            <Field
+              label={t("f.logoMark")}
+              hint={t("hint.logoMark")}
+              optional={t("optional")}
+            >
+              <ImageField
+                value={draft.brand.logo_mark_url ?? ""}
+                shape="square"
+                alt={t("f.logoMark")}
+                onChange={(logo_mark_url) => set("brand", { logo_mark_url })}
+              />
+            </Field>
+            <Field
+              label={t("f.favicon")}
+              hint={t("hint.favicon")}
+              optional={t("optional")}
+            >
+              <ImageField
+                value={draft.brand.favicon_url ?? ""}
+                shape="square"
+                alt={t("f.favicon")}
+                onChange={(favicon_url) => set("brand", { favicon_url })}
               />
             </Field>
           </div>
@@ -298,11 +323,10 @@ export function LmsSiteScreen() {
               </select>
             </Field>
             <Field label={t("f.image")} hint={t("hint.url")} optional={t("optional")}>
-              <input
-                className={inputClass}
+              <ImageField
                 value={draft.hero.image_url}
-                placeholder="https://…"
-                onChange={(e) => set("hero", { image_url: e.target.value })}
+                alt={t("f.image")}
+                onChange={(image_url) => set("hero", { image_url })}
               />
             </Field>
             <Field label={t("f.primaryCta")}>
@@ -321,6 +345,13 @@ export function LmsSiteScreen() {
               </select>
             </Field>
           </div>
+          <Field label={t("f.ctaLabel")} hint={fallbackHint} optional={t("optional")}>
+            <input
+              className={inputClass}
+              value={draft.hero.cta_label ?? ""}
+              onChange={(e) => set("hero", { cta_label: e.target.value })}
+            />
+          </Field>
           <Field label={t("f.badges")} hint={fallbackHint}>
             <StringList
               items={draft.hero.badges}
@@ -518,11 +549,10 @@ export function LmsSiteScreen() {
               />
             </Field>
             <Field label={t("f.image")} hint={t("hint.url")} optional={t("optional")}>
-              <input
-                className={inputClass}
+              <ImageField
                 value={draft.about.image_url}
-                placeholder="https://…"
-                onChange={(e) => set("about", { image_url: e.target.value })}
+                alt={t("f.image")}
+                onChange={(image_url) => set("about", { image_url })}
               />
             </Field>
           </div>
@@ -534,6 +564,26 @@ export function LmsSiteScreen() {
               onChange={(e) => set("about", { body: e.target.value })}
             />
           </Field>
+          {/* These two appear ONLY on the About page, which is what stops it being a second copy
+              of the home page (docs/lms/09 §6). Left blank, neither block is drawn at all. */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={t("f.mission")} hint={t("hint.aboutOnly")} optional={t("optional")}>
+              <textarea
+                className={textareaClass}
+                rows={4}
+                value={draft.about.mission ?? ""}
+                onChange={(e) => set("about", { mission: e.target.value })}
+              />
+            </Field>
+            <Field label={t("f.approach")} hint={t("hint.aboutOnly")} optional={t("optional")}>
+              <textarea
+                className={textareaClass}
+                rows={4}
+                value={draft.about.approach ?? ""}
+                onChange={(e) => set("about", { approach: e.target.value })}
+              />
+            </Field>
+          </div>
           <Field label={t("f.points")} optional={t("optional")}>
             <StringList
               items={draft.about.points}
@@ -567,7 +617,14 @@ export function LmsSiteScreen() {
           <RepeatableList
             items={draft.instructors.items}
             onChange={(items) => set("instructors", { items })}
-            create={() => ({ name: "", role: "", bio: "", photo_url: "" })}
+            create={() => ({
+              name: "",
+              role: "",
+              bio: "",
+              photo_url: "",
+              expertise: "",
+              link_url: "",
+            })}
             addLabel={t("add.instructor")}
             emptyLabel={t("empty.instructors")}
             max={CAPS.instructors}
@@ -593,11 +650,11 @@ export function LmsSiteScreen() {
                   </Field>
                 </div>
                 <Field label={t("f.photo")} hint={t("hint.url")} optional={t("optional")}>
-                  <input
-                    className={inputClass}
+                  <ImageField
                     value={item.photo_url}
-                    placeholder="https://…"
-                    onChange={(e) => update({ photo_url: e.target.value })}
+                    shape="square"
+                    alt={item.name || t("f.photo")}
+                    onChange={(photo_url) => update({ photo_url })}
                   />
                 </Field>
                 <Field label={t("f.bio")} optional={t("optional")}>
@@ -608,6 +665,27 @@ export function LmsSiteScreen() {
                     onChange={(e) => update({ bio: e.target.value })}
                   />
                 </Field>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field
+                    label={t("f.expertise")}
+                    hint={t("hint.expertise")}
+                    optional={t("optional")}
+                  >
+                    <input
+                      className={inputClass}
+                      value={item.expertise ?? ""}
+                      onChange={(e) => update({ expertise: e.target.value })}
+                    />
+                  </Field>
+                  <Field label={t("f.personLink")} hint={t("hint.url")} optional={t("optional")}>
+                    <input
+                      className={inputClass}
+                      value={item.link_url ?? ""}
+                      placeholder="https://…"
+                      onChange={(e) => update({ link_url: e.target.value })}
+                    />
+                  </Field>
+                </div>
               </>
             )}
           </RepeatableList>
@@ -828,6 +906,17 @@ export function LmsSiteScreen() {
                 onChange={(e) => set("contact", { address: e.target.value })}
               />
             </Field>
+            <Field
+              label={t("f.hours")}
+              hint={t("hint.hours")}
+              optional={t("optional")}
+            >
+              <input
+                className={inputClass}
+                value={draft.contact.hours ?? ""}
+                onChange={(e) => set("contact", { hours: e.target.value })}
+              />
+            </Field>
           </div>
           <Field label={t("f.mapUrl")} hint={t("hint.map")} optional={t("optional")}>
             <input
@@ -926,11 +1015,10 @@ export function LmsSiteScreen() {
               />
             </Field>
             <Field label={t("f.ogImage")} hint={t("hint.url")} optional={t("optional")}>
-              <input
-                className={inputClass}
+              <ImageField
                 value={draft.seo.og_image_url}
-                placeholder="https://…"
-                onChange={(e) => set("seo", { og_image_url: e.target.value })}
+                alt={t("f.ogImage")}
+                onChange={(og_image_url) => set("seo", { og_image_url })}
               />
             </Field>
           </div>
@@ -972,6 +1060,55 @@ export function LmsSiteScreen() {
               ))}
             </div>
           </div>
+        </EditorBlock>
+
+        {/* ── Legal & trust (docs/lms/10 §6) ── */}
+        <EditorBlock
+          Icon={Scale}
+          color="slate"
+          title={t("blocks.legal.title")}
+          description={t("blocks.legal.desc")}
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={t("f.businessName")} hint={t("hint.businessName")}>
+              <input
+                className={inputClass}
+                value={draft.legal.business_name}
+                onChange={(e) => set("legal", { business_name: e.target.value })}
+              />
+            </Field>
+            <Field label={t("f.legalUpdated")} optional={t("optional")}>
+              <input
+                className={inputClass}
+                value={draft.legal.updated_at}
+                placeholder={t("hint.legalUpdated")}
+                onChange={(e) => set("legal", { updated_at: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          {/* Blank is a legitimate answer: the site renders a complete default policy in the
+              visitor's language, so an empty box is "use the standard one", not "no policy". */}
+          {(
+            [
+              ["terms", t("f.legalTerms")],
+              ["refund", t("f.legalRefund")],
+              ["privacy", t("f.legalPrivacy")],
+            ] as const
+          ).map(([key, label]) => (
+            <Field key={key} label={label} hint={t("hint.legalFallback")}>
+              <textarea
+                className={textareaClass}
+                rows={8}
+                value={draft.legal[key]}
+                onChange={(e) => set("legal", { [key]: e.target.value })}
+              />
+            </Field>
+          ))}
+
+          <p className="text-muted-foreground rounded-xl border border-dashed p-3 text-xs leading-relaxed">
+            {t("hint.legalResponsibility")}
+          </p>
         </EditorBlock>
       </fieldset>
 

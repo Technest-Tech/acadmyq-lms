@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowUpRight,
   Award,
   BadgeCheck,
   Book,
@@ -12,6 +13,7 @@ import {
   GraduationCap,
   Headphones,
   Infinity as InfinityIcon,
+  Loader2,
   Play,
   Quote,
   Shield,
@@ -24,8 +26,13 @@ import {
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { useState, type ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 import { useLearn } from "@/components/learn/context";
+import {
+  splitExpertise,
+  useClosingCtaLabel,
+  useDefaultFaq,
+} from "@/components/learn/storefront";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_HERO_IMAGE = "/learn/hero-learning.webp";
@@ -118,7 +125,9 @@ export function Section({
     <section
       id={id}
       className={cn(
-        "relative isolate py-16 sm:py-20",
+        // One spacing scale for the whole site. The mobile step is deliberately much smaller than
+        // the desktop one: at 390px a 4rem gap between two sections is most of a screen of nothing.
+        "relative isolate py-12 sm:py-16 lg:py-20",
         resolved === "muted" && "bg-muted/40",
       )}
     >
@@ -212,7 +221,7 @@ export function SectionHeading({
   return (
     <div
       className={cn(
-        "mb-10 space-y-3",
+        "mb-8 space-y-3 sm:mb-10",
         align === "center" ? "mx-auto max-w-2xl text-center" : "max-w-2xl",
       )}
     >
@@ -222,11 +231,14 @@ export function SectionHeading({
           {eyebrow}
         </span>
       )}
-      <h2 className="text-2xl font-bold tracking-tight text-balance sm:text-3xl lg:text-4xl">
+      <h2
+        dir="auto"
+        className="text-2xl font-bold tracking-tight text-balance sm:text-3xl lg:text-4xl"
+      >
         {title}
       </h2>
       {subtitle && (
-        <p className="text-muted-foreground text-base leading-relaxed">
+        <p dir="auto" className="text-muted-foreground text-base leading-relaxed">
           {subtitle}
         </p>
       )}
@@ -234,33 +246,62 @@ export function SectionHeading({
   );
 }
 
-/** The site's primary button. An `href` renders a link, otherwise a button. */
+/**
+ * The site's primary button. An `href` renders a link, otherwise a button.
+ *
+ * Two sizes and four surfaces, and that is the whole button system — every call to action on the
+ * storefront comes through here so heights, radii, focus rings and disabled states cannot drift
+ * apart page by page. The hover is a 1px lift rather than a scale: scaling type resamples it, and
+ * on a card grid the wobble reads as jitter.
+ */
 export function CtaButton({
   href,
   onClick,
   variant = "solid",
+  size = "lg",
   className,
   disabled,
+  loading,
+  type = "button",
   children,
+  ...rest
 }: {
   href?: string;
   onClick?: () => void;
-  variant?: "solid" | "outline" | "onDark";
+  variant?: "solid" | "outline" | "onDark" | "ghost";
+  size?: "lg" | "md";
   className?: string;
   /** Button form only — an in-flight action (enrolling, submitting) that must not fire twice. */
   disabled?: boolean;
+  /** Same as disabled, plus a spinner: the action IS running, rather than being unavailable. */
+  loading?: boolean;
+  type?: "button" | "submit";
   children: ReactNode;
-}) {
+} & Pick<ComponentProps<"button">, "aria-label">) {
+  const inert = disabled === true || loading === true;
   const classes = cn(
-    "inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-sm font-semibold transition-all hover:scale-[1.02] active:scale-100",
+    "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition-[transform,background-color,border-color,color,box-shadow] duration-200",
+    "focus-visible:ring-ring/60 focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none",
+    "motion-safe:hover:-translate-y-px",
+    size === "lg" ? "h-12 px-6 text-sm" : "h-10 px-4 text-sm",
     variant === "solid" &&
-      "bg-primary text-primary-foreground shadow-lg shadow-[var(--brand-soft)]",
+      "bg-primary text-primary-foreground shadow-md shadow-[var(--brand-soft)] hover:brightness-[1.06]",
     variant === "outline" &&
-      "border-border hover:border-primary/60 hover:text-primary border",
+      "border-border hover:border-primary/60 hover:text-primary border bg-transparent",
     variant === "onDark" &&
-      "border border-white/20 text-white/85 hover:bg-white/10 hover:text-white",
-    disabled && "pointer-events-none opacity-60",
+      "border border-white/25 text-white hover:bg-white/12 focus-visible:ring-white/70 focus-visible:ring-offset-transparent",
+    variant === "ghost" && "text-primary hover:bg-[var(--brand-soft)]",
+    inert && "pointer-events-none opacity-60",
     className,
+  );
+
+  const body = (
+    <>
+      {loading === true && (
+        <Loader2 className="size-4 animate-spin" aria-hidden />
+      )}
+      {children}
+    </>
   );
 
   if (href) {
@@ -271,23 +312,25 @@ export function CtaButton({
         target="_blank"
         rel="noopener noreferrer"
         className={classes}
+        {...rest}
       >
-        {children}
+        {body}
       </a>
     ) : (
-      <Link href={href} className={classes}>
-        {children}
+      <Link href={href} className={classes} {...rest}>
+        {body}
       </Link>
     );
   }
   return (
     <button
-      type="button"
+      type={type}
       onClick={onClick}
-      disabled={disabled}
+      disabled={inert}
       className={classes}
+      {...rest}
     >
-      {children}
+      {body}
     </button>
   );
 }
@@ -301,11 +344,14 @@ const HERO_CSS = `
 @keyframes heroRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
 .hero-orb-1 { animation: heroOrb 15s ease-in-out infinite; }
 .hero-orb-2 { animation: heroOrb2 18s ease-in-out infinite; }
-.hero-float { animation: heroFloat 6s ease-in-out infinite; }
-.hero-float-slow { animation: heroFloat 8s ease-in-out infinite; }
 .hero-rise { opacity: 0; animation: heroRise 0.7s cubic-bezier(0.22,1,0.36,1) forwards; }
+/* The preview card only drifts where it sits BESIDE the copy. On a phone it is stacked in the
+   reading flow, and a card that bobs while you scroll past it is just noise. */
+@media (min-width: 1024px) {
+  .hero-float { animation: heroFloat 6s ease-in-out infinite; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .hero-orb-1, .hero-orb-2, .hero-float, .hero-float-slow { animation: none; }
+  .hero-orb-1, .hero-orb-2, .hero-float { animation: none; }
   .hero-rise { opacity: 1; animation: none; }
 }
 `;
@@ -317,7 +363,17 @@ const HERO_CSS = `
  * and the primary CTA still come from the client's profile; `hero_style` picks the backdrop (brand
  * gradient / full-bleed photo / plain light surface).
  */
-export function Hero({ actions }: { actions?: ReactNode }) {
+export function Hero({
+  actions,
+  /** A real course to put in the preview card — the newest one, once the catalogue has loaded. */
+  course,
+  /** Below the buttons: the quiet "have a code?" link on a site where codes are not the headline. */
+  footnote,
+}: {
+  actions?: ReactNode;
+  course?: HeroCourse | null;
+  footnote?: ReactNode;
+}) {
   const t = useTranslations("learn");
   const { site, siteName } = useLearn();
   const { hero, brand } = site;
@@ -342,10 +398,13 @@ export function Hero({ actions }: { actions?: ReactNode }) {
       <style>{HERO_CSS}</style>
       <HeroBackdrop style={style} image={hero.image_url} />
 
-      <Container className="relative py-20 sm:py-24 lg:py-28">
+      {/* The mobile step is a third of the desktop one on purpose. The old hero padded 5rem top AND
+          bottom on a 390px screen and hid its only visual, which left a screen-and-a-half of empty
+          brand colour between the buttons and the first course. */}
+      <Container className="relative py-10 sm:py-16 lg:py-24">
         <div
           className={cn(
-            "grid items-center gap-14",
+            "grid items-center gap-8 sm:gap-10",
             withVisual && "lg:grid-cols-[1.05fr_0.95fr] lg:gap-16",
           )}
         >
@@ -378,7 +437,8 @@ export function Hero({ actions }: { actions?: ReactNode }) {
             )}
 
             <h1
-              className="hero-rise mt-6 text-4xl font-bold tracking-tight text-balance sm:text-5xl lg:text-[3.5rem] lg:leading-[1.05]"
+              dir="auto"
+              className="hero-rise mt-5 text-[2rem] leading-[1.15] font-bold tracking-tight text-balance sm:mt-6 sm:text-5xl lg:text-[3.5rem] lg:leading-[1.05]"
               style={{ animationDelay: "0.05s" }}
             >
               {title}
@@ -386,7 +446,7 @@ export function Hero({ actions }: { actions?: ReactNode }) {
 
             <p
               className={cn(
-                "hero-rise mt-5 max-w-xl text-lg leading-relaxed text-pretty",
+                "hero-rise mt-4 max-w-xl leading-relaxed text-pretty sm:mt-5 sm:text-lg",
                 dark ? "text-white/75" : "text-muted-foreground",
               )}
               style={{ animationDelay: "0.12s" }}
@@ -395,15 +455,27 @@ export function Hero({ actions }: { actions?: ReactNode }) {
             </p>
 
             <div
-              className="hero-rise mt-8 flex flex-col gap-3 sm:flex-row"
+              className="hero-rise mt-6 flex flex-col gap-3 sm:mt-8 sm:flex-row"
               style={{ animationDelay: "0.19s" }}
             >
               {actions}
             </div>
 
+            {footnote && (
+              <div
+                className={cn(
+                  "hero-rise mt-4 text-sm",
+                  dark ? "text-white/70" : "text-muted-foreground",
+                )}
+                style={{ animationDelay: "0.26s" }}
+              >
+                {footnote}
+              </div>
+            )}
+
             {badges.length > 0 && (
               <div
-                className="hero-rise mt-7 flex flex-wrap gap-2 border-t pt-6"
+                className="hero-rise mt-6 flex flex-wrap gap-2 border-t pt-5 sm:mt-7 sm:pt-6"
                 style={{
                   animationDelay: "0.33s",
                   borderColor: dark
@@ -435,7 +507,9 @@ export function Hero({ actions }: { actions?: ReactNode }) {
             )}
           </div>
 
-          {withVisual && <HeroVisual image={visualImage} />}
+          {withVisual && (
+            <HeroVisual image={visualImage} course={course ?? null} />
+          )}
         </div>
       </Container>
 
@@ -516,84 +590,131 @@ function HeroBackdrop({ style, image }: { style: string; image: string }) {
 
 
 
+/** The one course the hero previews — whatever the catalogue's newest published course is. */
+export interface HeroCourse {
+  title: string;
+  slug: string;
+  cover_image_path: string | null;
+  lesson_count: number;
+  duration_seconds?: number;
+  preview_count?: number;
+}
+
 /**
- * The course-preview visual beside the copy. When the client supplied a hero image it is framed as a
- * playable course card with floating stat chips; otherwise a designed course-card mockup stands in,
- * so even a zero-configuration site looks like a real product rather than an empty column.
+ * The course-preview visual beside the copy — and, on a phone, UNDER it.
+ *
+ * It used to be `hidden lg:block`, which is where the storefront's worst mobile bug lived: the
+ * column vanished but the hero kept its desktop padding, so a phone got a screenful of empty brand
+ * colour between the buttons and the first course. It now renders at every width, compact on small
+ * screens, because the answer to "there is a hole here" is content, not more padding.
+ *
+ * What it shows, in order of how true it is: the newest REAL course (cover, title, lesson count,
+ * runtime), else the client's own hero image, else a designed mock. The mock never claims to be a
+ * course — no invented title, rating or student count — it is visibly a placeholder shape.
  */
-function HeroVisual({ image }: { image: string }) {
+function HeroVisual({
+  image,
+  course,
+}: {
+  image: string;
+  course: HeroCourse | null;
+}) {
   const t = useTranslations("learn");
-  const { siteName } = useLearn();
+  const { academy, siteName } = useLearn();
+  const cover = course?.cover_image_path || image;
 
-  return (
-    <div className="relative hidden lg:block">
-      {/* Depth: a brand glow behind the card. */}
-      <div className="pointer-events-none absolute -inset-6 -z-10 rounded-[2rem] bg-[var(--brand-soft)] blur-2xl" />
+  const card = (
+    <div className="bg-card text-foreground overflow-hidden rounded-3xl border shadow-2xl ring-1 ring-black/5">
+      {/* Media / play. The ratio is fixed, so swapping the mock for a real cover after the
+          catalogue loads cannot move the page. */}
+      <div className="relative aspect-video overflow-hidden">
+        {cover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={cover}
+            alt={course ? t("catalog.coverAlt", { title: course.title }) : ""}
+            className="absolute inset-0 size-full object-cover"
+            fetchPriority="high"
+          />
+        ) : (
+          <div
+            className="size-full"
+            style={{
+              background:
+                "linear-gradient(140deg, var(--brand) 0%, color-mix(in oklab, var(--brand) 55%, black) 100%)",
+            }}
+          />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="flex size-14 items-center justify-center rounded-full bg-white/95 shadow-xl sm:size-16">
+            <Play
+              className="text-primary ms-0.5 size-5 fill-current sm:size-6"
+              aria-hidden
+            />
+          </span>
+        </span>
+        <span className="text-primary absolute start-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 text-xs font-semibold shadow sm:start-4 sm:top-4">
+          <Sparkles className="size-3.5" aria-hidden />
+          {t("hero.card.badge")}
+        </span>
+      </div>
 
-      <div className="hero-float relative">
-        <div className="bg-card overflow-hidden rounded-[1.75rem] border shadow-2xl ring-1 ring-black/5">
-          {/* Media / play */}
-          <div className="relative aspect-video overflow-hidden">
-            {image ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={image} alt="" className="size-full object-cover" />
-            ) : (
-              <div
-                className="size-full"
-                style={{
-                  background:
-                    "linear-gradient(140deg, var(--brand) 0%, color-mix(in oklab, var(--brand) 55%, black) 100%)",
-                }}
-              />
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/45 to-transparent" />
-            <span className="absolute inset-0 flex items-center justify-center">
-              <span className="flex size-16 items-center justify-center rounded-full bg-white/95 shadow-xl">
-                <Play
-                  className="text-primary ms-0.5 size-6 fill-current"
-                  aria-hidden
-                />
-              </span>
-            </span>
-            <span className="text-primary absolute start-4 top-4 inline-flex items-center gap-1.5 rounded-full bg-white/95 px-2.5 py-1 text-xs font-semibold shadow">
-              <Sparkles className="size-3.5" aria-hidden />{" "}
-              {t("hero.card.badge")}
-            </span>
-          </div>
-
-          {/* Body: a course-outline mock. */}
-          <div className="space-y-4 p-5">
-            <div>
-              <p className="line-clamp-1 font-bold">{siteName}</p>
-              <p className="text-muted-foreground text-xs">
-                {t("hero.card.subtitle")}
-              </p>
-            </div>
-            <ul className="space-y-2.5">
-              {[0, 1, 2].map((i) => (
-                <li key={i} className="flex items-center gap-3">
-                  <span className="bg-[var(--brand-soft)] text-primary flex size-7 shrink-0 items-center justify-center rounded-lg">
-                    {i === 0 ? (
-                      <Play className="size-3 fill-current" aria-hidden />
-                    ) : (
-                      <BookOpen className="size-3.5" aria-hidden />
-                    )}
-                  </span>
-                  <span
-                    className="bg-muted h-2.5 rounded-full"
-                    style={{ width: `${78 - i * 16}%` }}
-                  />
-                  {i === 0 && (
-                    <span className="text-muted-foreground ms-auto text-[10px] font-medium">
-                      4:20
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
+      <div className="space-y-3.5 p-4 sm:space-y-4 sm:p-5">
+        <div className="min-w-0">
+          <p dir="auto" className="line-clamp-2 leading-snug font-bold break-words">
+            {course?.title ?? siteName}
+          </p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            {course
+              ? t("catalog.lessons", { count: course.lesson_count })
+              : t("hero.card.subtitle")}
+          </p>
         </div>
 
+        {/* A real course shows its own facts; with none loaded yet the rows are plainly a
+            placeholder shape rather than invented lesson titles. */}
+        <ul className="space-y-2.5">
+          {[0, 1, 2].map((i) => (
+            <li key={i} className="flex items-center gap-3">
+              <span className="bg-[var(--brand-soft)] text-primary flex size-7 shrink-0 items-center justify-center rounded-lg">
+                {i === 0 ? (
+                  <Play className="size-3 fill-current" aria-hidden />
+                ) : (
+                  <BookOpen className="size-3.5" aria-hidden />
+                )}
+              </span>
+              <span
+                className="bg-muted h-2.5 rounded-full"
+                style={{ width: `${78 - i * 16}%` }}
+              />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="relative">
+      {/* Depth: a brand glow behind the card. Desktop only — on a phone it just costs a repaint. */}
+      <div
+        className="pointer-events-none absolute -inset-6 -z-10 hidden rounded-[2rem] bg-[var(--brand-soft)] blur-2xl lg:block"
+        aria-hidden
+      />
+      <div className="mx-auto max-w-md lg:mx-0 lg:max-w-none">
+        <div className="hero-float">
+          {course ? (
+            <Link
+              href={`/learn/${academy}/c/${course.slug}`}
+              className="focus-visible:ring-ring focus-visible:ring-offset-background block rounded-3xl focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+            >
+              {card}
+            </Link>
+          ) : (
+            card
+          )}
+        </div>
       </div>
     </div>
   );
@@ -668,8 +789,13 @@ export function FeatureGrid({ tone, divider }: SectionChrome = {}) {
               <span className="text-primary mb-4 flex size-11 items-center justify-center rounded-xl bg-[var(--brand-soft)]">
                 <Icon className="size-5" aria-hidden />
               </span>
-              <h3 className="mb-1.5 font-semibold">{item.title}</h3>
-              <p className="text-muted-foreground text-sm leading-relaxed">
+              <h3 dir="auto" className="mb-1.5 font-semibold">
+                {item.title}
+              </h3>
+              <p
+                dir="auto"
+                className="text-muted-foreground text-sm leading-relaxed"
+              >
                 {item.body}
               </p>
             </div>
@@ -704,8 +830,10 @@ export function StepsRail({ tone = "muted", divider }: SectionChrome = {}) {
             <span className="text-primary mb-4 flex size-12 items-center justify-center rounded-2xl bg-[var(--brand-soft)] text-lg font-bold tabular-nums">
               {i + 1}
             </span>
-            <h3 className="mb-1.5 font-semibold">{item.title}</h3>
-            <p className="text-muted-foreground text-sm leading-relaxed">
+            <h3 dir="auto" className="mb-1.5 font-semibold">
+              {item.title}
+            </h3>
+            <p dir="auto" className="text-muted-foreground text-sm leading-relaxed">
               {item.body}
             </p>
             {i < items.length - 1 && (
@@ -724,13 +852,32 @@ export function StepsRail({ tone = "muted", divider }: SectionChrome = {}) {
 
 // ── about ─────────────────────────────────────────────────────────────────────
 
-export function AboutSplit({ tone, divider }: SectionChrome = {}) {
+export function AboutSplit({
+  tone,
+  divider,
+  /**
+   * The About PAGE's version: adds the client's mission and teaching approach under the story, so
+   * that page says something the home page does not. The home page passes nothing and keeps the
+   * short split — the two must not print the same words twice (docs/lms/09 §6).
+   */
+  full = false,
+}: SectionChrome & { full?: boolean } = {}) {
   const t = useTranslations("learn");
   const { site, siteName } = useLearn();
   if (!site.about.show) return null;
 
   const body = site.about.body || t("defaults.about.body", { name: siteName });
   const image = site.about.image_url || DEFAULT_ABOUT_IMAGE;
+  // Blank blocks are hidden rather than filled with generic filler — an About page padded out with
+  // copy nobody wrote is exactly the "generic LMS demo" smell this template exists to avoid.
+  const extra = full
+    ? (
+        [
+          ["missionHeading", site.about.mission],
+          ["approachHeading", site.about.approach],
+        ] as const
+      ).filter(([, value]) => (value ?? "").trim() !== "")
+    : [];
 
   return (
     <Section tone={tone} divider={divider}>
@@ -739,11 +886,18 @@ export function AboutSplit({ tone, divider }: SectionChrome = {}) {
           <SectionHeading
             align="start"
             title={
-              site.about.heading ||
-              t("defaults.about.heading", { name: siteName })
+              // On the About PAGE the client's heading is already the page title, so this block
+              // names what it actually is — the story — instead of printing the same words twice.
+              full
+                ? t("about.storyHeading")
+                : site.about.heading ||
+                  t("defaults.about.heading", { name: siteName })
             }
           />
-          <p className="text-muted-foreground -mt-6 leading-relaxed whitespace-pre-wrap">
+          <p
+            dir="auto"
+            className="text-muted-foreground -mt-6 leading-relaxed whitespace-pre-wrap"
+          >
             {body}
           </p>
           {site.about.points.length > 0 && (
@@ -759,6 +913,15 @@ export function AboutSplit({ tone, divider }: SectionChrome = {}) {
               ))}
             </ul>
           )}
+
+          {extra.map(([key, value]) => (
+            <div key={key} className="border-s-2 ps-4" style={{ borderColor: "var(--brand-line)" }}>
+              <h3 className="font-semibold">{t(`about.${key}`)}</h3>
+              <p className="text-muted-foreground mt-1.5 leading-relaxed whitespace-pre-wrap">
+                {value}
+              </p>
+            </div>
+          ))}
         </div>
 
         <div className="relative">
@@ -815,21 +978,56 @@ export function InstructorGrid({ tone, divider }: SectionChrome = {}) {
               <img
                 src={person.photo_url}
                 alt={person.name}
+                loading="lazy"
                 className="mx-auto mb-4 size-20 rounded-full object-cover"
               />
             ) : (
-              <span className="text-primary mx-auto mb-4 flex size-20 items-center justify-center rounded-full bg-[var(--brand-soft)] text-2xl font-bold">
+              <span
+                className="text-primary mx-auto mb-4 flex size-20 items-center justify-center rounded-full bg-[var(--brand-soft)] text-2xl font-bold"
+                aria-hidden
+              >
                 {person.name.trim().charAt(0).toUpperCase()}
               </span>
             )}
-            <h3 className="font-semibold">{person.name}</h3>
+            <h3 dir="auto" className="font-semibold break-words">
+              {person.name}
+            </h3>
             {person.role && (
-              <p className="text-primary text-sm font-medium">{person.role}</p>
+              <p className="text-primary text-sm font-medium break-words">
+                {person.role}
+              </p>
             )}
             {person.bio && (
               <p className="text-muted-foreground mt-2.5 text-sm leading-relaxed">
                 {person.bio}
               </p>
+            )}
+            {splitExpertise(person.expertise).length > 0 && (
+              <ul className="mt-3.5 flex flex-wrap justify-center gap-1.5">
+                {splitExpertise(person.expertise).map((topic) => (
+                  <li
+                    key={topic}
+                    className="bg-muted text-muted-foreground rounded-full px-2.5 py-1 text-xs font-medium"
+                  >
+                    {topic}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {person.link_url && (
+              <a
+                href={person.link_url}
+                target={person.link_url.startsWith("http") ? "_blank" : undefined}
+                rel={
+                  person.link_url.startsWith("http")
+                    ? "noopener noreferrer"
+                    : undefined
+                }
+                className="text-primary mt-3 inline-flex items-center gap-1 text-sm font-semibold hover:underline"
+              >
+                {t("course.instructorLink")}
+                <ArrowUpRight className="size-3.5" aria-hidden />
+              </a>
             )}
           </div>
         ))}
@@ -862,7 +1060,7 @@ export function TestimonialGrid({
             className="bg-card flex flex-col rounded-2xl border p-6"
           >
             <Quote className="text-primary/30 mb-3 size-7" aria-hidden />
-            <blockquote className="flex-1 text-sm leading-relaxed">
+            <blockquote dir="auto" className="flex-1 text-sm leading-relaxed">
               {item.quote}
             </blockquote>
             {item.rating > 0 && (
@@ -921,48 +1119,66 @@ export function FaqAccordion({
   limit,
   tone,
   divider,
-}: SectionChrome & { limit?: number } = {}) {
+  /** The dedicated /faq page already carries this heading as its page title. */
+  hideHeading = false,
+}: SectionChrome & { limit?: number; hideHeading?: boolean } = {}) {
   const t = useTranslations("learn");
   const { site } = useLearn();
+  // The starter set is assembled from what this site actually offers — it never explains a checkout
+  // that is switched off, or leads with access codes on a site that sells online (docs/lms/09 §8).
+  const fallback = useDefaultFaq();
   const [open, setOpen] = useState<number | null>(0);
   if (!site.faq.show) return null;
 
-  const all =
-    site.faq.items.length > 0
-      ? site.faq.items
-      : (t.raw("defaults.faq.items") as { q: string; a: string }[]);
+  const all = site.faq.items.length > 0 ? site.faq.items : fallback;
   const items = limit ? all.slice(0, limit) : all;
   if (items.length === 0) return null;
 
   return (
     <Section tone={tone} divider={divider}>
-      <SectionHeading title={site.faq.heading || t("defaults.faq.heading")} />
+      {!hideHeading && (
+        <SectionHeading title={site.faq.heading || t("defaults.faq.heading")} />
+      )}
       <div className="mx-auto max-w-3xl space-y-3">
         {items.map((item, i) => (
           <div
             key={item.q}
             className="bg-card overflow-hidden rounded-2xl border"
           >
-            <button
-              type="button"
-              aria-expanded={open === i}
-              onClick={() => setOpen((cur) => (cur === i ? null : i))}
-              className="hover:bg-muted/50 flex w-full items-center gap-3 px-5 py-4 text-start transition-colors"
+            <h3>
+              <button
+                type="button"
+                aria-expanded={open === i}
+                aria-controls={`faq-answer-${i}`}
+                id={`faq-question-${i}`}
+                onClick={() => setOpen((cur) => (cur === i ? null : i))}
+                className="hover:bg-muted/50 focus-visible:ring-ring/60 flex w-full items-center gap-3 px-5 py-4 text-start font-medium transition-colors focus-visible:-outline-offset-2 focus-visible:ring-2 focus-visible:outline-none"
+              >
+                <span dir="auto" className="flex-1">
+                  {item.q}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "text-muted-foreground size-4 shrink-0 transition-transform",
+                    open === i && "rotate-180",
+                  )}
+                  aria-hidden
+                />
+              </button>
+            </h3>
+            <div
+              id={`faq-answer-${i}`}
+              role="region"
+              aria-labelledby={`faq-question-${i}`}
+              hidden={open !== i}
             >
-              <span className="flex-1 font-medium">{item.q}</span>
-              <ChevronDown
-                className={cn(
-                  "text-muted-foreground size-4 shrink-0 transition-transform",
-                  open === i && "rotate-180",
-                )}
-                aria-hidden
-              />
-            </button>
-            {open === i && (
-              <p className="text-muted-foreground border-t px-5 py-4 text-sm leading-relaxed whitespace-pre-wrap">
+              <p
+                dir="auto"
+                className="text-muted-foreground border-t px-5 py-4 text-sm leading-relaxed whitespace-pre-wrap"
+              >
                 {item.a}
               </p>
-            )}
+            </div>
           </div>
         ))}
       </div>
@@ -972,13 +1188,24 @@ export function FaqAccordion({
 
 // ── closing CTA ───────────────────────────────────────────────────────────────
 
+/**
+ * The site's ONE closing ask. It used to be shadowed by a second, identical block at the top of the
+ * footer — the same heading and subtitle, twice, one under the other — which is why the footer no
+ * longer carries a CTA panel of its own (see site-chrome.tsx).
+ */
 export function CtaBand({ onPrimary }: { onPrimary?: () => void }) {
   const t = useTranslations("learn");
-  const { site, siteName } = useLearn();
+  const { academy, site, siteName, commerce } = useLearn();
+  const defaultLabel = useClosingCtaLabel();
   if (!site.cta.show) return null;
 
+  // Where the default button goes when the client wrote no link: the catalogue on a site that sells
+  // or gives something away, and the redeem dialog on a code-only site.
+  const codeOnly = commerce.codes && !commerce.checkout && !commerce.free;
+  const label = site.cta.button_label || defaultLabel;
+
   return (
-    <section className="relative isolate mt-20 overflow-hidden py-20">
+    <section className="relative isolate mt-16 overflow-hidden py-14 sm:mt-20 sm:py-20">
       <div
         className="absolute inset-0 -z-20"
         style={{
@@ -996,7 +1223,10 @@ export function CtaBand({ onPrimary }: { onPrimary?: () => void }) {
       />
       <Container className="relative text-center">
         <div className="mx-auto max-w-2xl space-y-6">
-          <h2 className="text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl">
+          <h2
+            dir="auto"
+            className="text-3xl font-bold tracking-tight text-balance text-white sm:text-4xl"
+          >
             {site.cta.title || t("defaults.cta.title", { name: siteName })}
           </h2>
           <p className="mx-auto max-w-lg text-white/65">
@@ -1004,13 +1234,11 @@ export function CtaBand({ onPrimary }: { onPrimary?: () => void }) {
           </p>
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
             {site.cta.button_href ? (
-              <CtaButton href={site.cta.button_href}>
-                {site.cta.button_label || t("defaults.cta.button")}
-              </CtaButton>
+              <CtaButton href={site.cta.button_href}>{label}</CtaButton>
+            ) : codeOnly ? (
+              <CtaButton onClick={onPrimary}>{label}</CtaButton>
             ) : (
-              <CtaButton onClick={onPrimary}>
-                {site.cta.button_label || t("defaults.cta.button")}
-              </CtaButton>
+              <CtaButton href={`/learn/${academy}/courses`}>{label}</CtaButton>
             )}
           </div>
         </div>
@@ -1040,9 +1268,12 @@ export function PageHero({
             "linear-gradient(160deg, var(--brand-soft), transparent 70%)",
         }}
       />
-      <Container className="py-12 sm:py-16">
+      <Container className="py-9 sm:py-14 lg:py-16">
         <div className="max-w-2xl space-y-3">
-          <h1 className="text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+          <h1
+            dir="auto"
+            className="text-3xl font-bold tracking-tight text-balance sm:text-4xl"
+          >
             {title}
           </h1>
           {subtitle && (

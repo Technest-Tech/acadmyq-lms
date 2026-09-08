@@ -12,6 +12,7 @@ import {
   Link2,
   Loader2,
   MessageCircle,
+  Pencil,
   Receipt,
   RefreshCw,
   WalletCards,
@@ -29,6 +30,7 @@ export function PackageCard({
   row,
   timezone,
   onOpenDetail,
+  onEdit,
   onClose,
   onBillOverdraft,
   onSyncLessons,
@@ -41,6 +43,7 @@ export function PackageCard({
   row: LessonPackageRow;
   timezone: string;
   onOpenDetail: () => void;
+  onEdit: () => void;
   onClose: () => void;
   onBillOverdraft: () => void;
   onSyncLessons: () => void;
@@ -167,7 +170,10 @@ export function PackageCard({
           </div>
         </div>
 
-        <dl className="mt-3.5 space-y-2 border-t pt-3 text-xs">
+        {/* The four facts someone rings up about. They sit on their own surface rather than as
+            loose lines under a rule — on a card this dense, plain text reads as filler and the
+            eye goes straight past the one number that matters. */}
+        <dl className="bg-muted/35 mt-3.5 space-y-2 rounded-xl p-3 text-xs">
           <InfoRow
             icon={CalendarDays}
             label={t("card.startDate")}
@@ -209,6 +215,7 @@ export function PackageCard({
           />
           <InfoRow
             icon={Receipt}
+            highlight={owes}
             label={t("card.payment")}
             value={
               row.invoice_id === null
@@ -247,7 +254,7 @@ export function PackageCard({
           {row.invoice_id !== null ? (
             <Link
               href={`/invoices?id=${row.invoice_id}`}
-              className="text-muted-foreground hover:bg-muted/60 inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2 text-[11px] font-semibold transition-colors"
+              className={actionClass()}
             >
               <Receipt className="size-3.5" aria-hidden />
               {t("actions.viewInvoice")}
@@ -262,7 +269,7 @@ export function PackageCard({
                 href={paymentUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-muted-foreground hover:bg-muted/60 inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2 text-[11px] font-semibold transition-colors"
+                className={actionClass()}
               >
                 <ExternalLink className="size-3.5" aria-hidden />
                 {t("actions.paymentLink")}
@@ -290,6 +297,11 @@ export function PackageCard({
 
           {canManage && isActive && (
             <>
+              {/* Correcting the terms sits with the other things you do TO a running package,
+                  not up in the header: it is a repair, not the card's main verb. */}
+              <ActionButton icon={Pencil} onClick={onEdit} testId="edit-package">
+                {t("actions.edit")}
+              </ActionButton>
               <ActionButton
                 icon={syncing ? Loader2 : RefreshCw}
                 onClick={onSyncLessons}
@@ -298,7 +310,7 @@ export function PackageCard({
               >
                 {t("actions.syncLessons")}
               </ActionButton>
-              <ActionButton icon={Link2} onClick={onClose}>
+              <ActionButton icon={Link2} onClick={onClose} full>
                 {t("actions.close")}
               </ActionButton>
             </>
@@ -369,20 +381,34 @@ function InfoRow({
   value,
   hint,
   danger,
+  highlight,
 }: {
   icon: typeof CalendarDays;
   label: string;
   value: string;
   hint?: string;
   danger?: boolean;
+  /** Lift this row out of the list — used for a debt, which is never "one of four facts". */
+  highlight?: boolean;
 }) {
   return (
-    <div className="flex min-w-0 items-start gap-2">
+    <div
+      className={cn(
+        "flex min-w-0 items-start gap-2",
+        highlight &&
+          "bg-destructive/10 ring-destructive/20 -mx-1.5 rounded-lg px-1.5 py-1 ring-1",
+      )}
+    >
       <Icon
-        className="text-muted-foreground mt-0.5 size-3.5 shrink-0"
+        className={cn(
+          "mt-0.5 size-3.5 shrink-0",
+          highlight ? "text-destructive" : "text-muted-foreground",
+        )}
         aria-hidden
       />
-      <dt className="text-muted-foreground shrink-0">{label}</dt>
+      <dt className={cn("shrink-0", highlight ? "text-destructive/80" : "text-muted-foreground")}>
+        {label}
+      </dt>
       <dd
         className={cn(
           "ms-auto min-w-0 truncate text-end font-semibold",
@@ -400,6 +426,32 @@ function InfoRow({
   );
 }
 
+/**
+ * Every action on this card wears the same filled chip, including the two that are links.
+ *
+ * They used to be bare text on the card's own background, which read as captions rather than
+ * as things you could press — and the ones that WERE filled (view, bill overdraft) then looked
+ * like the only real buttons. A surface each, and the hierarchy is carried by colour instead.
+ */
+function actionClass({
+  tone = "neutral",
+  full,
+}: {
+  tone?: "neutral" | "primary" | "danger";
+  full?: boolean;
+} = {}): string {
+  return cn(
+    "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition-colors disabled:opacity-50",
+    tone === "primary" &&
+      "border-primary/25 bg-primary/10 text-primary hover:bg-primary/18",
+    tone === "danger" &&
+      "border-destructive/25 bg-destructive/10 text-destructive hover:bg-destructive/18",
+    tone === "neutral" &&
+      "border-border/70 bg-muted/60 text-foreground/80 hover:bg-muted",
+    full && "col-span-2",
+  );
+}
+
 function ActionButton({
   icon: Icon,
   children,
@@ -409,6 +461,7 @@ function ActionButton({
   disabled,
   full,
   iconClassName,
+  testId,
 }: {
   icon: typeof Clock3;
   children: ReactNode;
@@ -418,18 +471,18 @@ function ActionButton({
   disabled?: boolean;
   full?: boolean;
   iconClassName?: string;
+  testId?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={cn(
-        "text-muted-foreground hover:bg-muted/60 inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-2 text-[11px] font-semibold transition-colors disabled:opacity-50",
-        primary && "bg-primary/8 text-primary hover:bg-primary/12",
-        danger && "bg-destructive/8 text-destructive hover:bg-destructive/12",
-        full && "col-span-2",
-      )}
+      data-testid={testId}
+      className={actionClass({
+        tone: primary ? "primary" : danger ? "danger" : "neutral",
+        full,
+      })}
     >
       <Icon className={cn("size-3.5", iconClassName)} aria-hidden />
       {children}

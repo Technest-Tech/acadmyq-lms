@@ -75,6 +75,26 @@ it('moves future untouched sessions to the new time and keeps past sessions', fu
     expect(Carbon::parse($past->scheduled_at_utc)->utc()->format('H:i'))->toBe('14:00');
 });
 
+it('applies a changed lesson duration to future sessions without rewriting attended history', function () {
+    $schedule = $this->createSchedule($this->academy, $this->student, $this->teacher);
+    $slot = $this->addSlot($this->academy, $schedule, 2, '17:00:00', 30);
+
+    $this->asAcademy($this->academy);
+    $pastId = seedPast($this->academy, $this->student, $this->teacher, $schedule, $slot, '2026-06-09', '2026-06-09 14:00:00+00');
+    $this->generator->generateForSchedule($schedule, ...$this->window);
+    $futureId = DB::table('sessions')
+        ->where('schedule_id', $schedule)
+        ->where('occurrence_local_date', '2026-06-23')
+        ->value('id');
+
+    DB::table('schedule_slots')->where('id', $slot)->update(['duration_minutes' => 60]);
+    $this->generator->generateForSchedule($schedule, ...$this->window);
+
+    $this->asAcademy($this->academy);
+    expect((int) DB::table('sessions')->where('id', $futureId)->value('duration_minutes'))->toBe(60)
+        ->and((int) DB::table('sessions')->where('id', $pastId)->value('duration_minutes'))->toBe(30);
+});
+
 // ── TC-5.18 / AC-5.5: add a slot (new weekday) → new future sessions appear ────
 it('creates future sessions for an added weekday without disturbing existing ones', function () {
     Sanctum::actingAs($this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-add@test.local']));

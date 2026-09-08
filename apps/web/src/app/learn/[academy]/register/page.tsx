@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { AuthForm, AuthShell, type AuthMode } from "@/components/learn/auth-forms";
@@ -11,6 +11,7 @@ export default function RegisterPage() {
   const t = useTranslations("learn");
   const router = useRouter();
   const { academy, siteName, refresh } = useLearn();
+  const params = useSearchParams();
   const [mode, setMode] = useState<AuthMode>("register");
 
   return (
@@ -24,9 +25,19 @@ export default function RegisterPage() {
         onModeChange={setMode}
         onDone={async () => {
           await refresh();
-          router.push(`/learn/${academy}/me`);
+          // `?next=` is how a course page hands the visitor over: they land back on the course
+          // they were buying, not on a library that is still empty. Same-site paths only — an
+          // open redirect on a sign-in page is how phishing links get built.
+          router.push(safeNext(params.get("next"), academy));
         }}
       />
     </AuthShell>
   );
+}
+
+/** A `next` the caller supplied, if it is a path on this site; otherwise "my learning". */
+function safeNext(next: string | null, academy: string): string {
+  const fallback = `/learn/${academy}/me`;
+  if (next === null || !next.startsWith("/") || next.startsWith("//")) return fallback;
+  return next;
 }

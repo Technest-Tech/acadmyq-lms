@@ -3,9 +3,11 @@
 import {
   Award,
   BadgeCheck,
+  BarChart3,
   Check,
   ChevronDown,
   ChevronLeft,
+  Dot,
   Download,
   FileText,
   HelpCircle,
@@ -15,13 +17,14 @@ import {
   PlayCircle,
   RefreshCw,
   Share2,
+  ShoppingBag,
   Smartphone,
   Sparkles,
   Ticket,
   Video,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLearn } from "@/components/learn/context";
@@ -40,15 +43,29 @@ import {
   FaqAccordion,
   Section,
 } from "@/components/learn/sections";
-import { useRequestCodeHref } from "@/components/learn/site-chrome";
+import {
+  useBottomBarInset,
+  useRequestCodeHref,
+} from "@/components/learn/site-chrome";
 import { Modal } from "@/components/ui/modal";
+import {
+  courseAction,
+  offersCode,
+  salesBlocks,
+  splitExpertise,
+  useCoursePrice,
+  useLevelLabel,
+  type CourseAction,
+} from "@/components/learn/storefront";
 import {
   learnCatalog,
   learnCourse,
   learnEnrollFree,
+  learnOrders,
   type LearnCourseCard,
   type LearnCourseDetail,
   type LearnLesson,
+  type LearnOrder,
   type LearnSection,
 } from "@/lib/learn-api";
 import {
@@ -57,7 +74,6 @@ import {
   lessonsOf,
   sumDuration,
 } from "@/lib/learn-format";
-import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { LessonContent } from "../../lesson-content";
 
@@ -73,10 +89,13 @@ import { LessonContent } from "../../lesson-content";
 export default function CourseDetailPage() {
   const t = useTranslations("learn");
   const locale = useLocale();
-  const { academy, site, isEnrolled, openRedeem, requireAuth, refresh } =
+  const { academy, site, learner, isEnrolled, openRedeem, requireAuth, refresh } =
     useLearn();
   const params = useParams<{ slug: string }>();
+  const router = useRouter();
   const slug = params.slug;
+  const price = useCoursePrice();
+  const levelLabel = useLevelLabel();
 
   const [data, setData] = useState<LearnCourseDetail | null>(null);
   const [missing, setMissing] = useState(false);
@@ -84,6 +103,8 @@ export default function CourseDetailPage() {
   const [preview, setPreview] = useState<LearnLesson | null>(null);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
+  /** This buyer's unfinished order for THIS course, if they have one (docs/lms/10 §3). */
+  const [order, setOrder] = useState<LearnOrder | null>(null);
   // The floating card is the primary CTA; once it scrolls away the mobile bar takes over.
   const cardRef = useRef<HTMLDivElement>(null);
   const [cardVisible, setCardVisible] = useState(true);
@@ -100,6 +121,32 @@ export default function CourseDetailPage() {
       )
       .catch(() => setOthers([]));
   }, [academy, slug]);
+
+  // A signed-in visitor may be part-way through buying this course already. Showing them "Buy this
+  // course" again would start a second order for something they have already transferred money for,
+  // so the card has to know. Anonymous visitors skip the request entirely.
+  useEffect(() => {
+    if (!learner) {
+      setOrder(null);
+      return;
+    }
+    let live = true;
+    learnOrders(academy)
+      .then((r) => {
+        if (!live) return;
+        setOrder(
+          r.orders.find(
+            (o) =>
+              o.course_slug === slug &&
+              (o.status === "AWAITING_PAYMENT" || o.status === "UNDER_REVIEW"),
+          ) ?? null,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [academy, slug, learner]);
 
   useEffect(() => {
     const node = cardRef.current;
@@ -128,9 +175,27 @@ export default function CourseDetailPage() {
       } finally {
         setJoining(false);
       }
-    });
+    }, intent);
+
+  /**
+   * Buy (docs/lms/10 §3). Sign-in comes FIRST — you buy as somebody, and an anonymous visitor
+   * landing on a checkout only to be bounced to a login is the worst version of this flow.
+   */
+  const buy = () =>
+    requireAuth(
+      () => router.push(`/learn/${academy}/checkout/${slug}`),
+      intent,
+    );
+
+  // Named in the sign-in dialog, so the detour explains itself and the visitor knows they will end
+  // up back on this course rather than on a generic library page.
+  const intent = data
+    ? t("auth.continueTo", { course: data.course.title })
+    : undefined;
 
   const stats = useMemo(() => courseStats(data?.sections ?? []), [data]);
+  // While the sticky purchase bar is up, the floating WhatsApp button lifts clear of it.
+  useBottomBarInset(!cardVisible && data !== null);
   const previews = useMemo(
     () => lessonsOf(data?.sections ?? []).filter((l) => l.is_preview),
     [data],
@@ -163,15 +228,21 @@ export default function CourseDetailPage() {
   const instructors = site.instructors.show
     ? site.instructors.items.slice(0, 3)
     : [];
+  // ONE decision, read by both the enrol card and the sticky mobile bar, so the page can never
+  // offer "Buy" in one place and "Redeem a code" in the other.
+  const action = courseAction(course, enrolled, order);
+  const blocks = salesBlocks(course);
 
   const enrolCard = (
     <EnrolCard
       course={course}
       sections={data.sections}
-      enrolled={enrolled}
+      action={action}
+      order={order}
       joining={joining}
       joinError={joinError}
       onJoinFree={joinFree}
+      onBuy={buy}
       onRedeem={openRedeem}
       onPreview={() => setPreview(previews[0] ?? null)}
       previewCount={previews.length}
@@ -219,7 +290,7 @@ export default function CourseDetailPage() {
               {t("catalog.title")}
             </Link>
             <span aria-hidden>/</span>
-            <span className="max-w-[45vw] truncate text-white/90">
+            <span dir="auto" className="max-w-[45vw] truncate text-white/90">
               {course.title}
             </span>
           </nav>
@@ -227,12 +298,15 @@ export default function CourseDetailPage() {
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-12">
             <div className="max-w-2xl space-y-5">
               <div className="flex flex-wrap items-center gap-2">
-                {course.is_free ? (
+                {course.is_free && (
                   <Pill className="bg-emerald-500 text-white">
                     <Sparkles className="size-3.5" aria-hidden />
                     {t("catalog.free")}
                   </Pill>
-                ) : (
+                )}
+                {/* "Unlocked with an access code" is only true when the code IS the way in. It used
+                    to sit on every priced course, contradicting the Buy button under it. */}
+                {action === "redeem" && (
                   <Pill className="bg-white/15 text-white backdrop-blur">
                     <Ticket className="size-3.5" aria-hidden />
                     {t("course.codeAccess")}
@@ -244,14 +318,31 @@ export default function CourseDetailPage() {
                     {t("catalog.enrolled")}
                   </Pill>
                 )}
+                {/* Only what the client actually set — an unset level is absent, never guessed. */}
+                {course.category && (
+                  <Pill className="bg-white/10 text-white/85 backdrop-blur">
+                    {course.category}
+                  </Pill>
+                )}
+                {levelLabel(course.level) && (
+                  <Pill className="bg-white/10 text-white/85 backdrop-blur">
+                    <BarChart3 className="size-3.5" aria-hidden />
+                    {levelLabel(course.level)}
+                  </Pill>
+                )}
               </div>
 
-              <h1 className="text-3xl font-bold tracking-tight text-balance sm:text-4xl lg:text-[2.75rem] lg:leading-[1.1]">
+              {/* `dir="auto"` throughout: the course's words belong to the academy, not to the
+                  language the visitor happens to be browsing in. */}
+              <h1
+                dir="auto"
+                className="text-3xl font-bold tracking-tight text-balance sm:text-4xl lg:text-[2.75rem] lg:leading-[1.1]"
+              >
                 {course.title}
               </h1>
 
               {course.subtitle && (
-                <p className="text-lg leading-relaxed text-white/75">
+                <p dir="auto" className="text-lg leading-relaxed text-white/75">
                   {course.subtitle}
                 </p>
               )}
@@ -303,12 +394,12 @@ export default function CourseDetailPage() {
             aria-label={t("course.about")}
             className="flex h-13 items-center gap-7 overflow-x-auto text-sm font-semibold"
           >
-            {stats.sections > 0 && (
+            {(blocks.length > 0 || stats.sections > 0) && (
               <a
                 href="#course-overview"
                 className="text-muted-foreground hover:text-primary inline-flex h-full items-center border-b-2 border-transparent transition-colors hover:border-[var(--brand-line)]"
               >
-                {t("course.covers")}
+                {blocks.length > 0 ? t("course.outcomes") : t("course.covers")}
               </a>
             )}
             <a
@@ -340,11 +431,27 @@ export default function CourseDetailPage() {
       {/* ── body ───────────────────────────────────────────────────────────── */}
       <Container className="py-10 sm:py-14">
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_360px] lg:gap-12">
-          <div className="min-w-0 space-y-12">
-            {stats.sections > 0 && (
-              <div id="course-overview" className="scroll-mt-36">
-                <SyllabusGlance sections={data.sections} />
+          <div className="min-w-0 space-y-10 sm:space-y-12">
+            {/* "What you'll learn" is the promise the buyer is paying for, so when the client wrote
+                one it opens the page. The section-title glance is the fallback for a course whose
+                owner hasn't filled it in — real content either way, never invented bullets. */}
+            {blocks.length > 0 ? (
+              <div id="course-overview" className="scroll-mt-36 space-y-6">
+                {blocks.map(({ key, items }) => (
+                  <SalesList
+                    key={key}
+                    heading={t(`course.${key}`)}
+                    items={items}
+                    icon={key === "requirements" ? Dot : Check}
+                  />
+                ))}
               </div>
+            ) : (
+              stats.sections > 0 && (
+                <div id="course-overview" className="scroll-mt-36">
+                  <SyllabusGlance sections={data.sections} />
+                </div>
+              )
             )}
 
             <section id="course-curriculum" className="scroll-mt-36 space-y-4">
@@ -401,13 +508,16 @@ export default function CourseDetailPage() {
                     >
                       <CourseThumb
                         src={person.photo_url}
+                        alt={person.photo_url ? person.name : ""}
                         className="size-16 shrink-0 rounded-full"
                         iconClassName="size-6"
                       />
                       <div className="min-w-0 space-y-1">
-                        <p className="font-semibold">{person.name}</p>
+                        <p dir="auto" className="font-semibold break-words">
+                          {person.name}
+                        </p>
                         {person.role && (
-                          <p className="text-primary text-sm font-medium">
+                          <p className="text-primary text-sm font-medium break-words">
                             {person.role}
                           </p>
                         )}
@@ -415,6 +525,18 @@ export default function CourseDetailPage() {
                           <p className="text-muted-foreground text-sm leading-relaxed">
                             {person.bio}
                           </p>
+                        )}
+                        {splitExpertise(person.expertise).length > 0 && (
+                          <ul className="flex flex-wrap gap-1.5 pt-1.5">
+                            {splitExpertise(person.expertise).map((topic) => (
+                              <li
+                                key={topic}
+                                className="bg-muted text-muted-foreground rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+                              >
+                                {topic}
+                              </li>
+                            ))}
+                          </ul>
                         )}
                       </div>
                     </div>
@@ -447,45 +569,38 @@ export default function CourseDetailPage() {
 
       <FaqAccordion limit={4} tone="tint" divider />
 
-      {/* Mobile action bar — appears only once the enrol card has scrolled past. */}
-      {!cardVisible && (
-        <div className="bg-background/95 fixed inset-x-0 bottom-0 z-40 border-t p-3 backdrop-blur-xl lg:hidden">
-          <div className="mx-auto flex max-w-6xl items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium">{course.title}</p>
-              <p className="text-base font-bold tabular-nums">
-                {course.is_free
-                  ? t("catalog.free")
-                  : formatMoney(
-                      { amount: course.price_minor, currency: course.currency },
-                      locale,
-                    )}
-              </p>
+      {/* The sticky purchase bar. It appears once the enrol card has scrolled past, so the price
+          and the action follow the visitor down a long sales page instead of being stranded at the
+          top. `pb-[env(safe-area-inset-bottom)]` keeps it clear of the iOS home indicator, and the
+          spacer below reserves its height so the bar can never cover the last of the page. */}
+      {!cardVisible && action !== "unavailable" && (
+        <>
+          <div aria-hidden className="h-24 lg:hidden" />
+          <div className="bg-background/95 fixed inset-x-0 bottom-0 z-40 border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
+            <div className="mx-auto flex max-w-6xl items-center gap-3 p-3">
+              <div className="min-w-0 flex-1">
+                <p dir="auto" className="truncate text-xs font-medium">
+                  {course.title}
+                </p>
+                <p className="text-base font-bold tabular-nums">
+                  {course.is_free ? t("catalog.free") : price(course)}
+                </p>
+              </div>
+              <PrimaryAction
+                action={action}
+                order={order}
+                course={course}
+                academy={academy}
+                joining={joining}
+                onJoinFree={joinFree}
+                onBuy={buy}
+                onRedeem={openRedeem}
+                size="md"
+                className="shrink-0"
+              />
             </div>
-            {enrolled ? (
-              <CtaButton
-                href={`/learn/${academy}/watch/${slug}`}
-                className="h-11 shrink-0 px-5"
-              >
-                <PlayCircle className="size-4" aria-hidden />
-                {t("course.continue")}
-              </CtaButton>
-            ) : course.is_free ? (
-              <CtaButton
-                onClick={joinFree}
-                disabled={joining}
-                className="h-11 shrink-0 px-5"
-              >
-                {joining ? t("course.enrolling") : t("course.enrollFree")}
-              </CtaButton>
-            ) : (
-              <CtaButton onClick={openRedeem} className="h-11 shrink-0 px-5">
-                <Ticket className="size-4" aria-hidden />
-                {t("course.enroll")}
-              </CtaButton>
-            )}
           </div>
-        </div>
+        </>
       )}
 
       {preview && (
@@ -495,6 +610,7 @@ export default function CourseDetailPage() {
           onClose={() => setPreview(null)}
           title={preview.title}
           description={t("course.previewNote")}
+          closeLabel={t("player.close")}
         >
           <LessonContent lesson={preview} academy={academy} />
           {previews.length > 1 && (
@@ -532,10 +648,12 @@ export default function CourseDetailPage() {
 function EnrolCard({
   course,
   sections,
-  enrolled,
+  action,
+  order,
   joining,
   joinError,
   onJoinFree,
+  onBuy,
   onRedeem,
   onPreview,
   previewCount,
@@ -543,19 +661,23 @@ function EnrolCard({
 }: {
   course: LearnCourseDetail["course"];
   sections: LearnSection[];
-  enrolled: boolean;
+  action: CourseAction;
+  order: LearnOrder | null;
   joining: boolean;
   joinError: string | null;
   onJoinFree: () => void;
+  onBuy: () => void;
   onRedeem: () => void;
   onPreview: () => void;
   previewCount: number;
   academy: string;
 }) {
   const t = useTranslations("learn");
-  const locale = useLocale();
+  const price = useCoursePrice();
   const requestCodeHref = useRequestCodeHref(course.title);
   const [copied, setCopied] = useState(false);
+
+  const codeEnabled = course.code_enabled !== false;
 
   const share = async () => {
     try {
@@ -603,10 +725,7 @@ function EnrolCard({
             </span>
           ) : (
             <span className="text-3xl font-bold tracking-tight tabular-nums">
-              {formatMoney(
-                { amount: course.price_minor, currency: course.currency },
-                locale,
-              )}
+              {price(course)}
             </span>
           )}
           {!course.is_free && (
@@ -616,42 +735,82 @@ function EnrolCard({
           )}
         </div>
 
-        {enrolled ? (
-          <CtaButton
-            href={`/learn/${academy}/watch/${course.slug}`}
-            className="w-full"
-          >
-            <PlayCircle className="size-4" aria-hidden />
-            {t("course.continue")}
+        {/* One primary action, decided by the course's real state (storefront.tsx). An order the
+            buyer has already opened outranks a fresh Buy button — otherwise a visitor who paid an
+            hour ago is invited to pay again. */}
+        <PrimaryAction
+          action={action}
+          order={order}
+          course={course}
+          academy={academy}
+          joining={joining}
+          onJoinFree={onJoinFree}
+          onBuy={onBuy}
+          onRedeem={onRedeem}
+          className="w-full"
+        />
+
+        {/* Secondary doors, only where they are real. */}
+        {offersCode(course, action) && (
+          <CtaButton variant="outline" onClick={onRedeem} className="w-full">
+            <Ticket className="size-4" aria-hidden />
+            {t("course.haveCode")}
           </CtaButton>
-        ) : course.is_free ? (
-          <CtaButton onClick={onJoinFree} disabled={joining} className="w-full">
-            <Sparkles className="size-4" aria-hidden />
-            {joining ? t("course.enrolling") : t("course.enrollFree")}
+        )}
+        {action === "redeem" && (
+          // With no checkout, a visitor holding no code needs a way to ask for one, and the answer
+          // is a person — WhatsApp, else the contact page.
+          <CtaButton variant="outline" href={requestCodeHref} className="w-full">
+            <MessageCircle className="size-4" aria-hidden />
+            {t("course.requestCode")}
           </CtaButton>
-        ) : (
-          <>
-            <CtaButton onClick={onRedeem} className="w-full">
-              <Ticket className="size-4" aria-hidden />
-              {t("course.enroll")}
-            </CtaButton>
-            {/* The other half of the code model: a visitor with no code needs a way to ask for one,
-                and the answer is a person — WhatsApp, or the contact page as the fallback. */}
-            <CtaButton
-              variant="outline"
-              href={requestCodeHref}
-              className="w-full"
-            >
-              <MessageCircle className="size-4" aria-hidden />
-              {t("course.requestCode")}
-            </CtaButton>
-            <p className="text-muted-foreground text-center text-xs leading-relaxed">
-              {t("redeem.hint")}
-            </p>
-          </>
+        )}
+        {action === "unavailable" && (
+          <p className="text-muted-foreground rounded-xl border border-dashed p-4 text-center text-sm">
+            {t("course.notForSale")}
+          </p>
         )}
 
-        {joinError && <p className="text-destructive text-sm">{joinError}</p>}
+        {(action === "buy" || action === "redeem") && codeEnabled && (
+          <p className="text-muted-foreground text-center text-xs leading-relaxed">
+            {action === "buy" ? t("course.buyHint") : t("redeem.hint")}
+          </p>
+        )}
+        {action === "pay" && (
+          <p className="text-muted-foreground text-center text-xs leading-relaxed">
+            {t("course.orderAwaitingHint")}
+          </p>
+        )}
+        {action === "review" && (
+          <p className="text-muted-foreground text-center text-xs leading-relaxed">
+            {t("course.orderReviewHint")}
+          </p>
+        )}
+
+        {joinError && (
+          <p className="text-destructive text-sm" role="alert">
+            {joinError}
+          </p>
+        )}
+
+        {/* What a buyer wants next to a price: what happens if this isn't for them. Shown only on a
+            site that actually takes money, where a refund is a thing that can happen. */}
+        {(action === "buy" || action === "pay" || action === "review") && (
+          <p className="text-muted-foreground flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs">
+            <Link
+              href={`/learn/${academy}/legal/refund`}
+              className="hover:text-primary underline underline-offset-4"
+            >
+              {t("course.refundLink")}
+            </Link>
+            <Link
+              href={`/learn/${academy}/legal/terms`}
+              className="hover:text-primary underline underline-offset-4"
+            >
+              {t("course.termsLink")}
+            </Link>
+          </p>
+        )}
 
         <div className="border-t pt-4">
           <p className="mb-3 text-sm font-bold">{t("course.includes")}</p>
@@ -673,6 +832,104 @@ function EnrolCard({
       </div>
     </div>
   );
+}
+
+/**
+ * The single button that says what this visitor can do with this course right now.
+ *
+ * It exists once and is rendered twice — in the enrol card and in the sticky mobile bar — because
+ * the two used to carry independent copies of the same branching, and a page that offers "Buy" at
+ * the top and "Redeem a code" at the bottom has already lost the sale.
+ */
+function PrimaryAction({
+  action,
+  order,
+  course,
+  academy,
+  joining,
+  onJoinFree,
+  onBuy,
+  onRedeem,
+  className,
+  size,
+}: {
+  action: CourseAction;
+  order: LearnOrder | null;
+  course: LearnCourseDetail["course"];
+  academy: string;
+  joining: boolean;
+  onJoinFree: () => void;
+  onBuy: () => void;
+  onRedeem: () => void;
+  className?: string;
+  size?: "lg" | "md";
+}) {
+  const t = useTranslations("learn");
+
+  switch (action) {
+    case "continue":
+      return (
+        <CtaButton
+          href={`/learn/${academy}/watch/${course.slug}`}
+          className={className}
+          size={size}
+        >
+          <PlayCircle className="size-4" aria-hidden />
+          {t("course.continue")}
+        </CtaButton>
+      );
+    case "free":
+      return (
+        <CtaButton
+          onClick={onJoinFree}
+          loading={joining}
+          className={className}
+          size={size}
+        >
+          {!joining && <Sparkles className="size-4" aria-hidden />}
+          {joining ? t("course.enrolling") : t("course.enrollFree")}
+        </CtaButton>
+      );
+    case "buy":
+      return (
+        <CtaButton onClick={onBuy} className={className} size={size}>
+          <ShoppingBag className="size-4" aria-hidden />
+          {t("course.buy")}
+        </CtaButton>
+      );
+    case "pay":
+      return (
+        <CtaButton
+          href={`/learn/${academy}/orders/${order?.order_number ?? ""}`}
+          className={className}
+          size={size}
+        >
+          <ShoppingBag className="size-4" aria-hidden />
+          {t("course.payNow")}
+        </CtaButton>
+      );
+    case "review":
+      return (
+        <CtaButton
+          variant="outline"
+          href={`/learn/${academy}/orders/${order?.order_number ?? ""}`}
+          className={className}
+          size={size}
+        >
+          <RefreshCw className="size-4" aria-hidden />
+          {t("course.orderReview")}
+        </CtaButton>
+      );
+    case "redeem":
+      return (
+        <CtaButton onClick={onRedeem} className={className} size={size}>
+          <Ticket className="size-4" aria-hidden />
+          {t("course.enroll")}
+        </CtaButton>
+      );
+    case "unavailable":
+      return null;
+  }
 }
 
 /** "This course includes" — every line derived from what the course actually contains. */
@@ -728,6 +985,36 @@ function IncludesList({ sections }: { sections: LearnSection[] }) {
   );
 }
 
+/**
+ * One of the course's sales lists — outcomes, who it's for, what you need first. Two columns on a
+ * wide screen because these read as a scannable checklist, not prose.
+ */
+function SalesList({
+  heading,
+  items,
+  icon: Icon,
+}: {
+  heading: string;
+  items: string[];
+  icon: typeof Check;
+}) {
+  return (
+    <section className="bg-card rounded-2xl border p-6 sm:p-7">
+      <h2 className="mb-5 text-xl font-bold sm:text-2xl">{heading}</h2>
+      <ul className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+        {items.map((item) => (
+          <li key={item} className="flex gap-2.5 text-sm leading-relaxed">
+            <Icon className="text-primary mt-0.5 size-4 shrink-0" aria-hidden />
+            <span dir="auto" className="min-w-0 break-words">
+              {item}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 // ── syllabus ──────────────────────────────────────────────────────────────────
 
 /** "What this course covers" — the section titles, which ARE the promise, in a scannable grid. */
@@ -748,7 +1035,7 @@ function SyllabusGlance({ sections }: { sections: LearnSection[] }) {
               className="text-primary mt-0.5 size-4 shrink-0"
               aria-hidden
             />
-            <span>{section.title}</span>
+            <span dir="auto">{section.title}</span>
           </li>
         ))}
       </ul>
@@ -830,7 +1117,9 @@ function Curriculum({
                 <span className="text-primary flex size-7 shrink-0 items-center justify-center rounded-lg bg-[var(--brand-soft)] text-xs font-bold tabular-nums">
                   {index + 1}
                 </span>
-                <span className="flex-1 font-semibold">{section.title}</span>
+                <span dir="auto" className="min-w-0 flex-1 font-semibold break-words">
+                  {section.title}
+                </span>
                 <span className="text-muted-foreground hidden shrink-0 text-xs sm:block">
                   {t("catalog.lessons", { count: section.lessons.length })}
                   {duration > 0 && (
@@ -891,9 +1180,13 @@ function LessonRow({
       ) : (
         <Lock className="size-4 shrink-0 opacity-35" aria-hidden />
       )}
+      {/* Two lines and then an ellipsis, rather than one truncated line: a lesson title is the
+          only description many lessons have, and `break-words` keeps a long Latin term inside an
+          Arabic title from pushing the duration off the row. */}
       <span
+        dir="auto"
         className={cn(
-          "min-w-0 flex-1 truncate",
+          "line-clamp-2 min-w-0 flex-1 leading-snug break-words",
           !unlocked && "text-muted-foreground",
         )}
       >
@@ -912,7 +1205,7 @@ function LessonRow({
   );
 
   const className =
-    "hover:bg-muted/40 flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition-colors sm:px-5";
+    "hover:bg-muted/40 focus-visible:ring-ring/60 flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition-colors focus-visible:-outline-offset-2 focus-visible:ring-2 focus-visible:outline-none sm:px-5";
 
   // Enrolled → the lesson opens in the player. Not enrolled → a free preview opens in the modal,
   // and everything else is a title you can read but not click, which is the point of showing it.
@@ -965,6 +1258,7 @@ function ExpandableText({ text }: { text: string }) {
     <div className="space-y-2">
       <div className="relative">
         <p
+          dir="auto"
           className={cn(
             "text-muted-foreground leading-relaxed whitespace-pre-wrap",
             long && !expanded && "line-clamp-6",

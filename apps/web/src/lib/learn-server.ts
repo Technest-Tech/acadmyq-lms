@@ -38,13 +38,41 @@ export async function fetchLearnSite(academy: string): Promise<LearnSite> {
 /**
  * A structurally complete, empty document. Every field the template reads exists; because blank
  * means "use the translated fallback", this still renders a coherent site — just an unbranded one.
+ *
+ * Note what `fallbackSite` does NOT do with it: it never fills the name with the subdomain handle.
+ * An outage should degrade to neutral, translated copy, not publish an internal slug as the
+ * academy's brand (see lib/learn-brand.ts).
  */
 export function emptySiteContent(name = ""): LearnSiteContent {
   return {
-    brand: { name, tagline: "", logo_url: "", color: "#12836a", hero_style: "gradient" },
-    hero: { eyebrow: "", title: "", subtitle: "", image_url: "", primary_cta: "browse", badges: [] },
+    brand: {
+      name,
+      tagline: "",
+      logo_url: "",
+      logo_mark_url: "",
+      favicon_url: "",
+      color: "#12836a",
+      hero_style: "gradient",
+    },
+    hero: {
+      eyebrow: "",
+      title: "",
+      subtitle: "",
+      image_url: "",
+      primary_cta: "browse",
+      cta_label: "",
+      badges: [],
+    },
     stats: { show: true, items: [] },
-    about: { show: true, heading: "", body: "", image_url: "", points: [] },
+    about: {
+      show: true,
+      heading: "",
+      body: "",
+      image_url: "",
+      points: [],
+      mission: "",
+      approach: "",
+    },
     features: { show: true, heading: "", subheading: "", items: [] },
     steps: { show: true, heading: "", items: [] },
     instructors: { show: true, heading: "", items: [] },
@@ -57,19 +85,31 @@ export function emptySiteContent(name = ""): LearnSiteContent {
       phone: "",
       whatsapp: "",
       address: "",
+      hours: "",
       map_url: "",
       socials: {},
     },
     footer: { note: "", links: [] },
     seo: { title: "", description: "", og_image_url: "" },
     pages: { about: true, faq: true, contact: true },
+    legal: {
+      show: true,
+      terms: "",
+      refund: "",
+      privacy: "",
+      business_name: "",
+      updated_at: "",
+    },
   };
 }
 
 function fallbackSite(academy: string): LearnSite {
   return {
-    site: emptySiteContent(academy),
+    site: emptySiteContent(""),
     stats: { courses: 0, lessons: 0, learners: 0, certificates: 0 },
-    academy: { name: academy, subdomain: academy },
+    // Nothing is switched on: with the API unreachable we cannot know which doors are open, and a
+    // Buy button offered on a guess strands the buyer. The template falls back to browsing.
+    commerce: { free: false, free_course: null, checkout: false, codes: false, paid: false },
+    academy: { name: "", subdomain: academy, url: null },
   };
 }

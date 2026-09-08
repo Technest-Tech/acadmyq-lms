@@ -18,6 +18,9 @@
         </include>
     </source>
     <php>
+        <!-- The complete feature suite exercises several uploaded-image/video MIME checks in one
+             process. PHP's 128 MB CLI default is too small for the accumulated fixtures. -->
+        <ini name="memory_limit" value="512M"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

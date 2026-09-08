@@ -159,6 +159,7 @@
     "adminAutomation": "WhatsApp Ops",
     "adminVideo": "Video Ops",
     "adminLms": "Course Platform",
+    "demoRequests": "Demo requests",
     "platformSettings": "Platform Settings",
     "roles": "Roles & Permissions",
     "academyRoles": "Roles & Permissions",
@@ -168,7 +169,9 @@
     "lmsQuizzes": "Quizzes",
     "lmsLearners": "Learners",
     "lmsCodes": "Access codes",
-    "lmsSite": "My website"
+    "lmsSite": "My website",
+    "lmsSales": "Sales",
+    "lmsPayments": "Payment methods"
   },
   "navGroup": {
     "general": "General",
@@ -790,6 +793,14 @@
       "save": "Save changes",
       "saving": "Saving…",
       "saved": "Saved.",
+      "payoutDestination": "Payout destination",
+      "payoutHint": "Where this teacher's pay is sent. Leave the field empty for none.",
+      "payoutInstapay": "InstaPay",
+      "payoutWallet": "Mobile wallet",
+      "payoutHandleInstapay": "InstaPay address or link",
+      "payoutHandleWallet": "Wallet number",
+      "payoutHandleInstapayPlaceholder": "name@instapay or ipn.eg/S/\u2026",
+      "payoutHandleWalletPlaceholder": "01001234567",
       "none": "None"
     },
     "detail": {
@@ -822,7 +833,7 @@
       "nextDay": "Next day (+1)",
       "loading": "Loading profile…",
       "profileTitle": "Identity & pay",
-      "profileDesc": "Name, contact, specialization and the hourly rate payroll uses",
+      "profileDesc": "Name, contact, specialization, the hourly rate payroll uses and where pay is sent",
       "availabilityDesc": "The weekly windows this teacher can be scheduled in",
       "availabilitySaveHint": "Availability is saved with the profile — use Save changes above.",
       "studentsDesc": "Students currently assigned to this teacher",
@@ -1064,7 +1075,7 @@
       "PER_PACKAGE": "Lesson package"
     },
     "newModal": {
-      "description": "Save as a trial, or set up timetable and pricing right away"
+      "description": "Save as a trial, or create them active with their package right away"
     },
     "enroll": {
       "title": "Complete Enrollment",
@@ -1139,6 +1150,20 @@
       "searchCurrency": "Search currency…",
       "enrolledBannerTitle": "Enrolling a student",
       "enrolledBannerBody": "Saved as a regular student and listed on the Students page; subscription and teacher are set from their profile.",
+      "intentTitle": "How does this student start?",
+      "intentTrial": "Trial student",
+      "intentTrialHint": "Saved as a trial. Schedule the trial session from their profile afterwards.",
+      "intentActive": "Active student",
+      "intentActiveHint": "Saved as a regular learner, with their package set right here.",
+      "packageTitle": "Package details",
+      "packageHint": "The rate this student is billed at, and the monthly hours their package covers.",
+      "packageRequired": "Enter an hourly price and a start date for an active student.",
+      "packageNoRights": "You may not set prices, so this student is created without a package — add one from their profile later.",
+      "guardianMode": "Student type",
+      "guardianModeFamily": "Family",
+      "guardianModeFamilyHint": "Linked to a guardian, who is billed.",
+      "guardianModeSingle": "Single",
+      "guardianModeSingleHint": "An adult learner, their own guardian.",
       "createEnrolled": "Add student"
     },
     "subscription": {
@@ -1299,6 +1324,20 @@
     "delete": "Delete schedule",
     "saved": "Saved · {created} created, {removed} removed.",
     "deleted": "Schedule deleted · {removed} future sessions removed.",
+    "impact": {
+      "title": "Confirm timetable pricing impact",
+      "subtitle": "Review how this weekly timetable change flows through future lessons and pricing.",
+      "before": "Current timetable",
+      "after": "New timetable",
+      "weekly": "{lessons} lessons · {minutes} min/week",
+      "future": "Future generated lessons will be updated to this new pattern and duration.",
+      "monthly": "Monthly/hourly billing will use each future lesson's new duration when attendance is recorded.",
+      "package": "Package students will consume the new number of minutes from their active package for each future lesson.",
+      "history": "Past or attended lessons will not be changed automatically. Correct them individually from Attendance.",
+      "backfill": "{count} past lessons will be created as unmarked because the start date was moved backward.",
+      "confirm": "Confirm and save",
+      "cancel": "Keep editing"
+    },
     "timetable": {
       "recurringTitle": "Weekly timetable",
       "recurringSubtitle": "Recurring weekly slots — sessions are generated automatically",
@@ -2163,6 +2202,34 @@
     "reportPlaceholder": "Write session notes, observations, or homework assigned…",
     "viewReport": "View",
     "edit": "Edit",
+    "durationEdit": {
+      "action": "Edit duration",
+      "title": "Correct lesson duration",
+      "subtitle": "Review the financial impact before changing this attended lesson.",
+      "newDuration": "Correct duration",
+      "minutes": "min",
+      "invalid": "Enter a whole number between 1 and 600 minutes.",
+      "warning": "This correction can change the student's invoice or package balance and the teacher's salary. Nothing changes until you review and confirm.",
+      "review": "Review impact",
+      "confirm": "Confirm and update",
+      "cancel": "Cancel",
+      "impactTitle": "This is what will change",
+      "invoice": "Student invoice",
+      "package": "Package · {label}",
+      "payout": "Teacher salary",
+      "moneyChange": "{before} → {after}",
+      "packageChange": "Consumed {consumedBefore} → {consumedAfter} min · Remaining {remainingBefore} → {remainingAfter} min",
+      "packageCompletes": "This correction will complete the package.",
+      "durationOnly": "Lesson record only",
+      "durationOnlyHint": "No invoice, package credit, or salary line is attached to this lesson.",
+      "saved": "Lesson duration, billing, package balance, and teacher salary were updated.",
+      "blockers": {
+        "NOT_ATTENDED": "Only attended lessons can be corrected here.",
+        "INVOICE_LOCKED": "The student's invoice is closed or paid.",
+        "PACKAGE_CLOSED": "The lesson's package is already completed.",
+        "PAYOUT_FINALIZED": "The teacher's salary statement is finalized."
+      }
+    },
     "confirmSaveTitle": "No outcome selected",
     "confirmSaveHint": "The session outcome hasn't been chosen yet. Select an outcome card first, or save the report without recording attendance.",
     "markFirstAction": "Select outcome first",
@@ -3979,6 +4046,185 @@
       "amount": "Amount ({currency})",
       "placeholder": "0.00",
       "freeHint": "Anyone with a code unlocks this course at no charge."
+    },
+    "sales": {
+      "title": "Course sales",
+      "subtitle": "Every order, the receipts waiting on you, and what your catalogue has made.",
+      "export": "Export",
+      "exporting": "Exporting…",
+      "exportTruncated": "Only the first 10,000 orders were exported.",
+      "byCourse": "Sales by course",
+      "soldCount": "{count} sold",
+      "searchPlaceholder": "Order number, buyer, email, phone or course",
+      "filters": "Filters",
+      "allCourses": "All courses",
+      "from": "From",
+      "to": "To",
+      "clearFilters": "Clear",
+      "empty": "No orders yet",
+      "emptyHint": "Orders appear here the moment a learner presses Buy on your site.",
+      "emptySearch": "No order matches that search",
+      "review": "Review",
+      "open": "Open",
+      "prev": "Previous",
+      "next": "Next",
+      "pageOf": "Page {page} of {pages} · {total} orders",
+      "orderTitle": "Order",
+      "placedAt": "Placed",
+      "submittedAt": "Receipt uploaded",
+      "confirmedAt": "Confirmed",
+      "termsAccepted": "Terms accepted",
+      "learnerSince": "Learner since {date}",
+      "access": "Course access",
+      "accessActive": "Active",
+      "accessRevoked": "Revoked",
+      "accessNone": "Not granted yet",
+      "receipts": "Transfer receipts",
+      "noReceipt": "The buyer has not uploaded a receipt yet.",
+      "receiptUnavailable": "This receipt could not be loaded.",
+      "receiptAlt": "Transfer receipt",
+      "openPdf": "Open the PDF receipt",
+      "senderName": "Sender",
+      "senderReference": "Reference",
+      "statedAmount": "Stated amount",
+      "paidAt": "Transferred on",
+      "note": "Note",
+      "approve": "Approve & unlock",
+      "reject": "Reject",
+      "refund": "Refund",
+      "cancel": "Cancel order",
+      "back": "Back",
+      "confirmReject": "Reject the payment",
+      "confirmRefund": "Refund the order",
+      "rejectWarning": "The buyer sees this reason word for word, and can upload a corrected receipt.",
+      "refundWarning": "The course is locked again unless you keep their access.",
+      "rejectReason": "Why is the payment being rejected?",
+      "rejectReasonHint": "Be specific — this is the only thing the buyer is told.",
+      "rejectReasonPlaceholder": "The receipt shows a different amount…",
+      "refundReason": "Refund note",
+      "keepAccess": "Keep their access to the course",
+      "keepAccessHint": "For a goodwill refund. Off by default — a refund normally takes the course back.",
+      "rejectedFor": "Rejected",
+      "refundedFor": "Refunded",
+      "stat": {
+        "pendingReceipts": "Receipts to review",
+        "pendingHint": "Waiting on your decision",
+        "revenue": "Collected",
+        "thisMonth": "{amount} this month",
+        "orders": "Orders",
+        "ordersThisMonth": "{count} this month",
+        "paid": "Paid orders",
+        "rejectedCount": "{count} rejected"
+      },
+      "tab": {
+        "needsAction": "Needs action",
+        "all": "All"
+      },
+      "col": {
+        "number": "Order",
+        "date": "Date",
+        "course": "Course",
+        "buyer": "Buyer",
+        "email": "Email",
+        "phone": "Phone",
+        "amount": "Amount",
+        "method": "Method",
+        "status": "Status",
+        "confirmedAt": "Confirmed",
+        "actions": "Actions"
+      },
+      "status": {
+        "AWAITING_PAYMENT": "Awaiting payment",
+        "UNDER_REVIEW": "Under review",
+        "PAID": "Paid",
+        "REJECTED": "Rejected",
+        "CANCELLED": "Cancelled",
+        "REFUNDED": "Refunded"
+      },
+      "receiptStatus": {
+        "PENDING": "Pending",
+        "APPROVED": "Approved",
+        "REJECTED": "Rejected"
+      },
+      "method": {
+        "INSTAPAY": "InstaPay",
+        "VODAFONE_CASH": "Vodafone Cash",
+        "BANK_TRANSFER": "Bank transfer",
+        "OTHER": "Other"
+      },
+      "label": "Sales page",
+      "hint": "What a buyer weighs before paying. Anything you leave empty is simply not shown.",
+      "level": "Level",
+      "levelNone": "Not set",
+      "levels": {
+        "BEGINNER": "Beginner",
+        "INTERMEDIATE": "Intermediate",
+        "ADVANCED": "Advanced",
+        "ALL_LEVELS": "All levels"
+      },
+      "category": "Topic",
+      "categoryHint": "Your own wording, e.g. “Tajweed” or “Front-end”. Becomes a filter once two courses use different ones.",
+      "outcomes": "What they'll learn",
+      "outcomesHint": "One outcome per line — the promise the price is attached to.",
+      "outcomesPlaceholder": "e.g. Build a complete dashboard from scratch",
+      "audience": "Who it's for",
+      "audienceHint": "One per line. Shown as “This course is for you if…”.",
+      "audiencePlaceholder": "e.g. You know basic HTML and want to go further",
+      "requirements": "What they need first",
+      "requirementsHint": "One per line. Prerequisites, tools, or nothing at all.",
+      "requirementsPlaceholder": "e.g. A computer with a browser",
+      "add": "Add a line",
+      "max": "That's the maximum for this list."
+    },
+    "payments": {
+      "title": "Payment methods",
+      "subtitle": "Where your students' money lands, and what they are told to do to send it.",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Payment methods saved.",
+      "optional": "optional",
+      "active": "Active",
+      "accounts": "Receiving accounts",
+      "accountsHint": "Only active methods appear at checkout. A method needs an account number before it can go live.",
+      "noneActiveWarning": "No payment method is active, so the Buy button is hidden on your site. Switch one on to start selling.",
+      "currency": "Currency",
+      "currencyLabel": "Sell in",
+      "currencyHint": "Every course price is in this currency. It cannot be changed once you have sold a course.",
+      "currencySaved": "Currency updated.",
+      "accountName": "Account holder name",
+      "accountNameHint": "The name the student will see on their transfer screen — it must match.",
+      "bankName": "Bank",
+      "label": "Display name",
+      "instructions": "Payment instructions",
+      "instructionsHint": "Shown above the upload box. Keep it to the steps: send, screenshot, upload.",
+      "gatewayLater": "Card payments through a gateway are coming; manual transfers are live today.",
+      "hint": {
+        "INSTAPAY": "Your InstaPay address or mobile number",
+        "VODAFONE_CASH": "Your wallet number",
+        "BANK_TRANSFER": "Your bank account or IBAN",
+        "OTHER": "Anything else — cash at the office, a payment link"
+      },
+      "number": {
+        "INSTAPAY": "InstaPay address",
+        "VODAFONE_CASH": "Wallet number",
+        "BANK_TRANSFER": "Account number / IBAN",
+        "OTHER": "Reference"
+      },
+      "numberPlaceholder": {
+        "INSTAPAY": "name@instapay",
+        "VODAFONE_CASH": "01xxxxxxxxx",
+        "BANK_TRANSFER": "EG00 0000 0000 0000",
+        "OTHER": ""
+      }
+    },
+    "channels": {
+      "label": "How students unlock it",
+      "checkout": "Sell it online",
+      "checkoutHint": "Shows a Buy button — students pay you and upload the transfer receipt.",
+      "noMethods": "Switch on a payment method first, or the Buy button stays hidden.",
+      "code": "Accept access codes",
+      "codeHint": "Keep the code path for offline and cash sales.",
+      "noneWarning": "With both off, nobody can get into this course."
     }
   },
   "learn": {
@@ -3995,7 +4241,20 @@
       "needAccount": "New here? Create an account",
       "haveAccount": "Already have an account? Sign in",
       "phone": "Phone (optional)",
-      "subtitle": "Your account at {name}"
+      "subtitle": "Your account at {name}",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "passwordHint": "At least 8 characters.",
+      "nameRequired": "Please enter your name.",
+      "emailRequired": "Please enter a valid email address.",
+      "passwordShort": "Your password must be at least 8 characters.",
+      "loginFailed": "We couldn't sign you in. Check your email and password and try again.",
+      "registerFailed": "We couldn't create your account. Please check your details and try again.",
+      "continueTo": "Sign in to continue to “{course}”.",
+      "newHere": "New here?",
+      "already": "Already have an account?",
+      "createOne": "Create an account",
+      "signInInstead": "Sign in"
     },
     "redeem": {
       "cta": "Redeem code",
@@ -4008,7 +4267,7 @@
     },
     "catalog": {
       "title": "Courses",
-      "subtitle": "Browse the courses and unlock them with a code.",
+      "subtitle": "Browse the catalogue and pick where to start.",
       "empty": "No courses published yet.",
       "lessons": "{count, plural, =0 {No lessons} one {# lesson} other {# lessons}}",
       "eyebrow": "Catalogue",
@@ -4056,7 +4315,22 @@
       "gridView": "Grid view",
       "listView": "List view",
       "continueLearning": "Continue learning",
-      "totalLine": "{courses} courses · {lessons} lessons in this catalogue"
+      "totalLine": "{courses} courses · {lessons} lessons in this catalogue",
+      "coverAlt": "{title} — course cover",
+      "levelLabel": "Level",
+      "levelAny": "Any level",
+      "level": {
+        "BEGINNER": "Beginner",
+        "INTERMEDIATE": "Intermediate",
+        "ADVANCED": "Advanced",
+        "ALL_LEVELS": "All levels"
+      },
+      "categoryLabel": "Topic",
+      "categoryAny": "All topics",
+      "emptyTitle": "No courses published yet",
+      "emptyHint": "New courses appear here the moment they are published.",
+      "noMatchesTitle": "Nothing matches that",
+      "browse": "Browse all courses"
     },
     "course": {
       "notFound": "Course not found.",
@@ -4103,7 +4377,26 @@
       "otherPreviews": "More free previews",
       "share": "Share this course",
       "linkCopied": "Link copied",
-      "instructors": "Your teachers"
+      "instructors": "Your teachers",
+      "buy": "Buy this course",
+      "haveCode": "I have an access code",
+      "buyHint": "Pay by InstaPay, Vodafone Cash or bank transfer, upload the receipt, and we unlock it.",
+      "notForSale": "This course is not on sale right now. Get in touch and we'll help.",
+      "outcomes": "What you'll learn",
+      "requirements": "Before you start",
+      "audience": "This course is for you if",
+      "payNow": "Finish your payment",
+      "orderReview": "Payment under review",
+      "orderReviewHint": "We're checking your transfer — access opens as soon as it's confirmed.",
+      "orderAwaitingHint": "Your order is waiting for the transfer and the receipt.",
+      "viewOrder": "Open the order",
+      "refundLink": "Refund policy",
+      "termsLink": "Terms",
+      "paymentNote": "Payment options are shown at checkout.",
+      "levelLabel": "Level",
+      "categoryLabel": "Topic",
+      "instructorCourses": "{count, plural, one {# course} other {# courses}} on this site",
+      "instructorLink": "Profile"
     },
     "player": {
       "locked": "This lesson is locked. Redeem a code to unlock the course.",
@@ -4221,20 +4514,24 @@
       "faq": "FAQ",
       "contact": "Contact",
       "myLearning": "My learning",
-      "menu": "Menu"
+      "menu": "Menu",
+      "myOrders": "My orders"
     },
     "hero": {
       "eyebrow": "Learn online",
       "title": "Learn with {name}",
-      "subtitle": "Structured video courses you take at your own pace. Unlock a course with the access code from your teacher and start today.",
+      "subtitle": "Structured video courses you take at your own pace, with your progress saved as you go.",
       "browse": "Browse courses",
       "social": {
         "learners": "students learning with us"
       },
       "card": {
-        "badge": "Featured",
+        "badge": "Course preview",
         "subtitle": "Start your first lesson today"
-      }
+      },
+      "startFree": "Start with a free course",
+      "haveCode": "Have an access code?",
+      "visualAlt": "Course preview"
     },
     "stats": {
       "courses": "Courses",
@@ -4255,13 +4552,23 @@
       "address": "Address",
       "follow": "Follow us",
       "map": "Location map",
-      "empty": "Contact details haven't been added yet.",
-      "haveCode": "Already have an access code?"
+      "haveCode": "Already have an access code?",
+      "hours": "When we reply",
+      "fallbackTitle": "Everything starts with a course",
+      "fallbackBody": "Open any course to see its lessons, free previews and price — then enrol in a couple of taps.",
+      "askTitle": "Ask about a course",
+      "askHint": "Pick what you're asking about and we'll open the message with it already filled in.",
+      "courseLabel": "Course",
+      "courseAny": "A general question",
+      "askOnWhatsapp": "Ask on WhatsApp",
+      "askByEmail": "Send an email",
+      "loadingCourses": "Loading courses…"
     },
     "whatsapp": {
       "float": "Chat on WhatsApp",
       "prefill": "Hello {name}, I have a question about your courses.",
-      "requestCode": "Hello {name}, I'd like an access code for the course “{course}”."
+      "requestCode": "Hello {name}, I'd like an access code for the course “{course}”.",
+      "aboutCourse": "Hello {name}, I have a question about the course “{course}”."
     },
     "footer": {
       "ctaEyebrow": "Your next chapter",
@@ -4270,7 +4577,10 @@
       "contact": "Contact",
       "description": "A focused place to build practical skills, track your progress, and earn certificates with {name}.",
       "rights": "© {name}. All rights reserved.",
-      "poweredBy": "Powered by Acadmyq"
+      "poweredBy": "Powered by Acadmyq",
+      "legalHeading": "Legal",
+      "paymentsNote": "Payments are confirmed by {name} before a course opens.",
+      "poweredByRich": "Powered by <a>Acadmyq</a>"
     },
     "defaults": {
       "badges": [
@@ -4319,11 +4629,11 @@
         "items": [
           {
             "title": "Pick your course",
-            "body": "Browse the catalogue and open the course you want. Free preview lessons show you what to expect."
+            "body": "Browse the catalogue and open the course you want. Free preview lessons show you exactly what to expect."
           },
           {
-            "title": "Enter your access code",
-            "body": "Create an account and redeem the code you received. The course unlocks instantly."
+            "title": "Get access",
+            "body": "Enrol in the way this site offers — buy it, start a free course, or redeem the code you were given."
           },
           {
             "title": "Learn and get certified",
@@ -4333,24 +4643,60 @@
       },
       "faq": {
         "heading": "Frequently asked questions",
-        "items": [
-          {
+        "pool": {
+          "buy": {
+            "q": "How do I buy a course?",
+            "a": "Open the course, press Buy, and follow the steps on the checkout page. Your access opens as soon as the payment is confirmed."
+          },
+          "payment": {
+            "q": "Which payment methods can I use?",
+            "a": "The ways you can pay are listed on the checkout page for each course. Pick the one that suits you and follow the instructions shown there."
+          },
+          "free": {
+            "q": "Are any of the courses free?",
+            "a": "Yes. A course marked Free opens the moment you create an account — no payment and no code."
+          },
+          "code": {
+            "q": "How do I use an access code?",
+            "a": "Create an account, open “Redeem code”, and type the code exactly as you received it. The course unlocks straight away."
+          },
+          "codeGet": {
             "q": "How do I get an access code?",
-            "a": "Access codes are handed out by the academy. Contact us through any of the channels on this site and we'll tell you how to get one."
+            "a": "Access codes are handed out by {name}. Get in touch through any of the channels on this site and we'll tell you how."
           },
-          {
+          "start": {
+            "q": "When does my access start?",
+            "a": "Right after your enrolment is confirmed. The course appears in “My learning” and you can open the first lesson immediately."
+          },
+          "duration": {
             "q": "How long do I keep access to a course?",
-            "a": "Once a code is redeemed the course stays in your account, so you can go back to any lesson whenever you need it."
+            "a": "Your courses stay in your account, so you can go back to any lesson whenever you need it."
           },
-          {
+          "devices": {
             "q": "Can I watch on my phone?",
-            "a": "Yes. The site works in any modern browser on phone, tablet and computer, and your progress follows you between them."
+            "a": "Yes. Everything works in any modern browser on phone, tablet and computer, and your progress follows you between them."
           },
-          {
+          "certificate": {
             "q": "Do I get a certificate?",
-            "a": "Yes. Complete every lesson in a course — and pass its quizzes, where there are any — and your certificate becomes available to view and print."
+            "a": "Yes. Finish every lesson — and pass the quizzes, where a course has any — and your certificate becomes available to view and print."
+          },
+          "preview": {
+            "q": "Can I see a course before I enrol?",
+            "a": "Courses that offer free preview lessons are marked in the catalogue. Open one and watch the preview before you decide."
+          },
+          "refund": {
+            "q": "What if I change my mind?",
+            "a": "The refund policy explains when a refund is possible and how to ask for one. It's linked at the bottom of every page."
+          },
+          "account": {
+            "q": "I forgot my password.",
+            "a": "Use “Forgot your password?” on the sign-in form and we'll send you a link to choose a new one."
+          },
+          "support": {
+            "q": "How do I get help?",
+            "a": "Reach {name} through any of the contact details on this site and someone will answer you."
           }
-        ]
+        }
       },
       "about": {
         "heading": "About {name}",
@@ -4364,8 +4710,9 @@
       },
       "cta": {
         "title": "Ready to start learning with {name}?",
-        "subtitle": "Redeem your access code and open your first lesson in under a minute.",
-        "button": "Redeem your code"
+        "subtitle": "Open the catalogue and start your first lesson today.",
+        "button": "Browse courses",
+        "buttonRedeem": "Redeem your code"
       }
     },
     "units": {
@@ -4381,6 +4728,162 @@
       "PDF": "PDF",
       "TEXT": "Reading",
       "QUIZ": "Quiz"
+    },
+    "checkout": {
+      "title": "Complete your purchase",
+      "subtitle": "Pick where to send the money, agree to the terms, and we'll take it from there.",
+      "signInFirst": "Sign in to continue to checkout…",
+      "failed": "We couldn't open checkout. Please try again.",
+      "alreadyOwned": "You already own this course",
+      "resume": "You already started order {number}.",
+      "resumeCta": "Continue that order",
+      "chooseMethod": "Where to send the money",
+      "noMethods": "This site isn't accepting online payments yet. Please contact us to buy this course.",
+      "confirm": "Confirm your order",
+      "step1": "Place the order — you'll get an order number.",
+      "step2": "Transfer the amount to the account above.",
+      "step3": "Upload the transfer receipt; we unlock the course once it's confirmed.",
+      "terms": "I agree to the <terms>terms and conditions</terms> and the <refund>refund policy</refund>.",
+      "placeOrder": "Place the order",
+      "placeHint": "No money is taken now — you transfer it yourself and upload the receipt.",
+      "total": "Total",
+      "accountName": "Account holder",
+      "copy": "Copy",
+      "copied": "Copied",
+      "method": {
+        "INSTAPAY": "InstaPay",
+        "VODAFONE_CASH": "Vodafone Cash",
+        "BANK_TRANSFER": "Bank transfer",
+        "OTHER": "Another way to pay"
+      }
+    },
+    "orders": {
+      "title": "My orders",
+      "subtitle": "Every course you've bought, and where each order stands.",
+      "empty": "No orders yet",
+      "emptyHint": "When you buy a course it shows up here, with its receipt and status.",
+      "browse": "Browse the courses",
+      "notFound": "We couldn't find that order.",
+      "allOrders": "All my orders",
+      "number": "Order number",
+      "course": "Course",
+      "amount": "Amount",
+      "placed": "Placed",
+      "confirmed": "Confirmed",
+      "cancel": "Cancel this order",
+      "failed": "Something went wrong. Please try again.",
+      "yourReceipts": "What you've sent us",
+      "uploadTitle": "Upload your transfer receipt",
+      "payTo": "Send the money to",
+      "chooseFile": "Choose a screenshot or PDF",
+      "fileHint": "A photo of the transfer confirmation is fine — up to 8 MB.",
+      "senderName": "Sender's name",
+      "reference": "Transaction reference",
+      "submitReceipt": "Send the receipt",
+      "uploadFailed": "We couldn't upload that file. Please try again.",
+      "status": {
+        "AWAITING_PAYMENT": "Awaiting payment",
+        "UNDER_REVIEW": "Under review",
+        "PAID": "Active",
+        "REJECTED": "Needs attention",
+        "CANCELLED": "Cancelled",
+        "REFUNDED": "Refunded"
+      },
+      "receiptStatus": {
+        "PENDING": "Being reviewed",
+        "APPROVED": "Accepted",
+        "REJECTED": "Not accepted"
+      },
+      "headline": {
+        "AWAITING_PAYMENT": "Send the payment to finish",
+        "UNDER_REVIEW": "Your order is under review",
+        "PAID": "You're in — the course is unlocked",
+        "REJECTED": "We couldn't confirm your payment",
+        "CANCELLED": "This order was cancelled",
+        "REFUNDED": "This order was refunded"
+      },
+      "explain": {
+        "AWAITING_PAYMENT": "Transfer the amount to the account below, then upload the receipt. Nothing is charged automatically.",
+        "UNDER_REVIEW": "We received your receipt and are checking it. You'll be told as soon as it's confirmed — usually within a few hours.",
+        "PAID": "Your payment was confirmed and the course is now in your library.",
+        "REJECTED": "Here's why. Upload a corrected receipt below and we'll look again.",
+        "CANCELLED": "Nothing was charged. You can order the course again any time.",
+        "REFUNDED": "The amount was returned. Access to the course has been closed unless we told you otherwise."
+      }
+    },
+    "forgot": {
+      "link": "Forgot your password?",
+      "title": "Reset your password",
+      "subtitle": "Enter the email you use at {name} and we'll send you a reset link.",
+      "send": "Send the reset link",
+      "backToSignIn": "Back to sign in",
+      "sentTitle": "Check your messages",
+      "sentSubtitle": "If that email belongs to an account, a link is on its way.",
+      "sentBody": "We send the link to WhatsApp when we have your number, and by email otherwise. It works for one hour."
+    },
+    "reset": {
+      "title": "Choose a new password",
+      "subtitle": "Pick something you haven't used elsewhere.",
+      "newPassword": "New password",
+      "confirmPassword": "Repeat the new password",
+      "mismatch": "The two passwords don't match.",
+      "submit": "Save the new password",
+      "missingToken": "This link is incomplete. Please request a new reset link.",
+      "doneTitle": "Your password is changed",
+      "doneBody": "You've been signed out everywhere else. Sign in with your new password."
+    },
+    "legal": {
+      "updated": "Last updated {date}",
+      "responsibility": "{name} is the seller of the courses on this site and is responsible for their content and for handling refunds. The platform that hosts this site processes no payments on their behalf.",
+      "terms": {
+        "title": "Terms and conditions",
+        "subtitle": "What you agree to when you buy and watch a course here."
+      },
+      "refund": {
+        "title": "Refund policy",
+        "subtitle": "When a refund is possible, and how to ask for one."
+      },
+      "privacy": {
+        "title": "Privacy policy",
+        "subtitle": "What we collect, why, and what we never do with it."
+      },
+      "default": {
+        "terms": "By buying a course from {name} you get personal, non-transferable access to it for as long as it is published on this site.\n\n• Your account is yours alone. Sharing your sign-in details, recording lessons, or redistributing course material may end your access without a refund.\n• Payment is confirmed manually. Your access opens once {name} has checked the transfer receipt you upload, normally within one working day.\n• Course content may be updated, reordered or improved over time.\n• {name} is responsible for the content of the courses and for answering questions about them.\n\nIf anything here is unclear, contact {name} before you buy.",
+        "refund": "{name} wants you to be happy with what you bought.\n\n• Ask for a refund within 14 days of your purchase, provided you have watched no more than a small part of the course.\n• A course that has been substantially watched or downloaded is not refundable, because the material has already been delivered.\n• If a payment was taken twice, or a course you paid for was never opened for you, you get a full refund whenever you report it.\n• Refunds go back to the account the payment came from, usually within 14 days of being approved.\n\nTo ask for a refund, contact {name} with your order number.",
+        "privacy": "{name} collects only what running the courses requires: your name, email, phone number, the courses you enrol in, your progress, and the payment receipts you upload.\n\n• Your receipt is stored privately and is seen only by {name} while your order is being checked.\n• Your details are never sold, rented, or handed to advertisers.\n• Data is kept for as long as your account exists, plus whatever the law requires for financial records.\n• You can ask {name} to correct your details, or to delete your account and its data.\n\nFor any question about your data, contact {name}."
+      }
+    },
+    "brand": {
+      "fallbackName": "The learning platform"
+    },
+    "home": {
+      "free": {
+        "title": "Free to start",
+        "subtitle": "Full courses you can open without paying anything."
+      },
+      "popular": {
+        "title": "Most popular",
+        "subtitle": "The courses most students here are taking."
+      }
+    },
+    "about": {
+      "subtitle": "Who is behind the courses, and how we teach.",
+      "storyHeading": "Our story",
+      "missionHeading": "Our mission",
+      "approachHeading": "How we teach"
+    },
+    "social": {
+      "link": "{name} on {network}",
+      "network": {
+        "facebook": "Facebook",
+        "instagram": "Instagram",
+        "youtube": "YouTube",
+        "tiktok": "TikTok",
+        "telegram": "Telegram",
+        "x": "X",
+        "linkedin": "LinkedIn",
+        "website": "the web"
+      }
     }
   },
   "crm": {
@@ -5481,7 +5984,16 @@
         "color": "Used for buttons, links and highlights across your site.",
         "whatsapp": "Country code and number, digits only. Also powers the floating WhatsApp button on every page of your site.",
         "map": "The embed link from Google Maps → Share → Embed a map.",
-        "ctaHref": "Leave empty to open the code box instead."
+        "ctaHref": "Leave empty to open the code box instead.",
+        "businessName": "The legal or trading name your students are buying from. Defaults to your site name.",
+        "legalUpdated": "e.g. January 2026",
+        "legalFallback": "Empty = the standard policy, translated for each visitor.",
+        "legalResponsibility": "Every legal page also carries a fixed line stating that you — not the platform — are responsible for the course content and for honouring refunds. That line is not editable.",
+        "logoMark": "A square version, for the header and small spaces. Falls back to your main logo.",
+        "favicon": "The small icon in the browser tab. A square PNG works best.",
+        "aboutOnly": "Shown only on your About page, so it doesn't repeat your home page.",
+        "expertise": "Separate topics with commas — they appear as small tags.",
+        "hours": "e.g. Saturday to Thursday, 10:00–18:00. Shown on your contact page and footer."
       },
       "blocks": {
         "brand": {
@@ -5539,6 +6051,10 @@
         "pages": {
           "title": "Pages",
           "desc": "Which pages appear in the site menu"
+        },
+        "legal": {
+          "title": "Legal & trust",
+          "desc": "Terms, refunds and privacy. Leave a box empty and your site shows a sensible standard policy in the visitor's language."
         }
       },
       "f": {
@@ -5594,7 +6110,20 @@
         "ogImage": "Sharing image",
         "pageAbout": "About page",
         "pageFaq": "Questions page",
-        "pageContact": "Contact page"
+        "pageContact": "Contact page",
+        "businessName": "Who is selling",
+        "legalUpdated": "Last updated",
+        "legalTerms": "Terms and conditions",
+        "legalRefund": "Refund policy",
+        "legalPrivacy": "Privacy policy",
+        "logoMark": "Compact logo",
+        "favicon": "Browser icon",
+        "ctaLabel": "Main button text",
+        "mission": "Our mission",
+        "approach": "How we teach",
+        "expertise": "Areas of expertise",
+        "personLink": "Profile link",
+        "hours": "When you reply"
       },
       "add": {
         "badge": "Add a badge",
@@ -5620,5 +6149,61 @@
   },
   "calendar": {
     "sessionsInView": "{count, plural, one {# lesson in view} other {# lessons in view}}"
+  },
+  "demoRequests": {
+    "title": "Demo requests",
+    "subtitle": "Submissions from the public form on acadmyq.com.",
+    "empty": "No requests yet.",
+    "searchPlaceholder": "Search name, phone or email…",
+    "columns": {
+      "name": "Name",
+      "contact": "Contact",
+      "product": "Product",
+      "country": "Country",
+      "source": "Page",
+      "created": "Received",
+      "status": "Status"
+    },
+    "status": {
+      "NEW": "New",
+      "CONTACTED": "Contacted",
+      "QUALIFIED": "Qualified",
+      "WON": "Won",
+      "LOST": "Lost"
+    },
+    "product": {
+      "COURSE_PLATFORM": "Course Platform",
+      "ACADEMY_MANAGEMENT": "Academy Management",
+      "UNDECIDED": "Not sure"
+    },
+    "filters": {
+      "status": "Status",
+      "product": "Product",
+      "all": "All"
+    },
+    "tiles": {
+      "total": "Total"
+    },
+    "detail": {
+      "title": "Demo request",
+      "role": "What they do",
+      "message": "Message",
+      "locale": "Submitted in",
+      "source": "Sent from",
+      "received": "Received",
+      "note": "Internal note",
+      "notePlaceholder": "What happened on the follow-up?",
+      "statusLabel": "Status",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "close": "Close",
+      "noMessage": "No message.",
+      "error": "Couldn't save. Try again."
+    },
+    "export": {
+      "fileName": "demo-requests",
+      "sheet": "Demo requests"
+    }
   }
 }

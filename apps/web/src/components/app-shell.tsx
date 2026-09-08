@@ -16,6 +16,7 @@ import {
   Globe,
   GraduationCap,
   History,
+  Inbox,
   KeyRound,
   LayoutDashboard,
   LibraryBig,
@@ -40,6 +41,7 @@ import {
   UserCog,
   UserPlus,
   Video,
+  ShoppingBag,
   Wallet,
   X,
 } from "lucide-react";
@@ -61,6 +63,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import {
+  getCourseSalesSummary,
   getDaySessionCount,
   getLessonPackageSummary,
   getNotificationsSummary,
@@ -84,6 +87,7 @@ type NavKey =
   | "adminAutomation"
   | "adminVideo"
   | "adminLms"
+  | "demoRequests"
   | "guardians"
   | "students"
   | "teachers"
@@ -97,6 +101,8 @@ type NavKey =
   | "lmsQuizzes"
   | "lmsLearners"
   | "lmsCodes"
+  | "lmsSales"
+  | "lmsPayments"
   | "lmsSite"
   | "attendance"
   | "studentReports"
@@ -264,6 +270,23 @@ const NAV: ReadonlyArray<{
     href: "/lms/codes",
     group: "lms",
   },
+  // The sales desk (docs/lms/10): the order queue, the transfer receipts awaiting a decision, and
+  // what the catalogue has actually made. Read-gated; the decisions need `course_order.manage`.
+  {
+    key: "lmsSales",
+    icon: ShoppingBag,
+    permission: "course_order.read",
+    href: "/lms/sales",
+    group: "lms",
+  },
+  // Where that money lands — the client's InstaPay handle, wallet number and bank account.
+  {
+    key: "lmsPayments",
+    icon: Wallet,
+    permission: "course_order.read",
+    href: "/lms/payments",
+    group: "lms",
+  },
   // The public site's content (docs/lms/09) — the client's own half of the shared learner-site
   // template. Read-gated like the rest of the workspace; the editor itself needs `course.manage`.
   {
@@ -425,6 +448,13 @@ const NAV: ReadonlyArray<{
     href: "/admin/lms",
     group: "platform",
   },
+  {
+    key: "demoRequests",
+    icon: Inbox,
+    permission: "platform.manage",
+    href: "/admin/demo-requests",
+    group: "platform",
+  },
 
   // ── System ──────────────────────────────────────────────────────────────
   {
@@ -486,6 +516,7 @@ const PLATFORM_NAV: readonly NavKey[] = [
   "adminVideo", // Video Ops (platform-wide health/usage)
   "adminLms", // Course Platform Ops (LMS clients, usage, per-client controls)
   "adminAutomation", // WhatsApp Ops (gateway health/activity)
+  "demoRequests", // the marketing site's form — prospects, before they are clients
   "users",
   "platformSettings", // + tabs: roles matrix, staff departments (R3)
   "audit",
@@ -505,6 +536,8 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   trials: "trials",
   crm: "crm",
   courses: "lms",
+  lmsSales: "lms",
+  lmsPayments: "lms",
   certificates: "certificates",
   studentReports: "student_reports",
   studentReportReviews: "student_reports",
@@ -533,6 +566,8 @@ const LMS_EXTRA_KEYS = new Set<NavKey>([
   "lmsQuizzes",
   "lmsLearners",
   "lmsCodes",
+  "lmsSales",
+  "lmsPayments",
   "lmsSite",
 ]);
 const LMS_ONLY_KEYS = new Set<NavKey>([
@@ -541,6 +576,8 @@ const LMS_ONLY_KEYS = new Set<NavKey>([
   "lmsQuizzes",
   "lmsLearners",
   "lmsCodes",
+  "lmsSales",
+  "lmsPayments",
   "lmsSite",
   "plan",
 ]);
@@ -571,6 +608,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [srCount, setSrCount] = useState(0);
   const [attnCount, setAttnCount] = useState(0);
   const [pkgCount, setPkgCount] = useState(0);
+  const [salesCount, setSalesCount] = useState(0);
   // The academy's resolved plan capabilities, used to lock nav items the plan doesn't include.
   // They arrive with the session itself, so by the time we have a session we have these too — there
   // is no separate loading state to guard, and no window in which a video-only ("Meet Plan") academy
@@ -668,6 +706,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const refresh = () =>
       getLessonPackageSummary()
         .then((s) => alive && setPkgCount(s.total))
+        .catch(() => {});
+    void refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [session, can, pathname]);
+
+  // Sales badge (docs/lms/10 §4): transfer receipts waiting on a human. Like the packages badge it
+  // is DERIVED state, not "unread" — it clears when the client actually decides, not when they look.
+  useEffect(() => {
+    if (session === null || !can("course_order.read")) {
+      setSalesCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () =>
+      getCourseSalesSummary()
+        .then((s) => alive && setSalesCount(s.stats.pending_receipts))
         .catch(() => {});
     void refresh();
     const id = setInterval(refresh, 60_000);
@@ -809,6 +867,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return {
         count: pkgCount,
         label: `${pkgCount} lesson packages need attention`,
+      };
+    }
+    if (key === "lmsSales" && salesCount > 0) {
+      return {
+        count: salesCount,
+        label: `${salesCount} payment receipts awaiting review`,
       };
     }
     if (key === "studentReportReviews" && srCount > 0) {

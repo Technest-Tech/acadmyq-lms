@@ -11,9 +11,10 @@ import {
   ProgressBar,
   useFormatDuration,
 } from "@/components/learn/course-bits";
+import { useCoursePrice, useLevelLabel } from "@/components/learn/storefront";
 import type { LearnCourseCard } from "@/lib/learn-api";
 import { isRecent } from "@/lib/learn-format";
-import { formatMoney, formatNumber } from "@/lib/money";
+import { formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /**
@@ -49,7 +50,7 @@ function CourseMeta({ course, className }: { course: LearnCourseCard; className?
 /** The price headline, or the free badge. Shared so the two card shapes never drift apart. */
 function CoursePrice({ course, className }: { course: LearnCourseCard; className?: string }) {
   const t = useTranslations("learn");
-  const locale = useLocale();
+  const price = useCoursePrice();
 
   if (course.is_free) {
     return (
@@ -66,8 +67,38 @@ function CoursePrice({ course, className }: { course: LearnCourseCard; className
   }
   return (
     <span className={cn("font-bold tracking-tight tabular-nums", className ?? "text-base")}>
-      {formatMoney({ amount: course.price_minor, currency: course.currency }, locale)}
+      {price(course)}
     </span>
+  );
+}
+
+/**
+ * Level and topic, when the client has set them. Two facts, no more: a card carrying six chips
+ * stops being scannable, and everything here is real or absent — the catalogue never labels a
+ * course "Beginner" because nobody said otherwise.
+ */
+function CourseTags({ course }: { course: LearnCourseCard }) {
+  const levelLabel = useLevelLabel();
+  const level = levelLabel(course.level);
+  const category = course.category?.trim();
+  if (!level && !category) return null;
+
+  return (
+    <ul className="flex flex-wrap items-center gap-1.5">
+      {category && (
+        <li
+          dir="auto"
+          className="text-primary rounded-full bg-[var(--brand-soft)] px-2.5 py-0.5 text-[11px] font-semibold"
+        >
+          {category}
+        </li>
+      )}
+      {level && (
+        <li className="bg-muted text-muted-foreground rounded-full px-2.5 py-0.5 text-[11px] font-semibold">
+          {level}
+        </li>
+      )}
+    </ul>
   );
 }
 
@@ -121,22 +152,38 @@ export function CourseCard({
   return (
     <Link
       href={href}
-      className="group bg-card hover:border-primary/40 flex flex-col overflow-hidden rounded-2xl border transition-all duration-200 hover:-translate-y-1 hover:shadow-xl"
+      className="group bg-card hover:border-primary/40 focus-visible:ring-ring/60 focus-visible:ring-offset-background flex flex-col overflow-hidden rounded-2xl border transition-[transform,border-color,box-shadow] duration-200 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none motion-safe:hover:-translate-y-1 hover:shadow-lg"
     >
+      {/* 16:9, cropped to fill, for every course. One ratio is what makes a row of cards line up
+          whatever shape the client uploaded, and `object-cover` beats letterboxing here because a
+          course cover is artwork, not a diagram. */}
       <CourseThumb
         src={course.cover_image_path}
-        className="aspect-video shrink-0 [&>img]:transition-transform [&>img]:duration-500 group-hover:[&>img]:scale-[1.06]"
+        alt={t("catalog.coverAlt", { title: course.title })}
+        className="aspect-video shrink-0 [&>img]:transition-transform [&>img]:duration-500 motion-safe:group-hover:[&>img]:scale-[1.06]"
         iconClassName="size-10"
       >
         <CourseRibbons course={course} enrolled={enrolled} />
       </CourseThumb>
 
       <div className="flex flex-1 flex-col gap-2.5 p-5">
-        <h3 className="group-hover:text-primary line-clamp-2 leading-snug font-semibold transition-colors">
+        <CourseTags course={course} />
+        {/* `break-words` is load-bearing: an Arabic title with an unbroken Latin product name in it
+            ("مشروع Template Four — Sidebar") overflows the card without it. */}
+        {/* `dir="auto"` on every piece of the client's own text. The paragraph direction here
+            is the VISITOR's language, but a course title is the academy's — an Arabic title on a
+            page a visitor is reading in English otherwise reorders its Latin words. */}
+        <h3
+          dir="auto"
+          className="group-hover:text-primary line-clamp-2 leading-snug font-semibold break-words transition-colors"
+        >
           {course.title}
         </h3>
         {course.subtitle && (
-          <p className="text-muted-foreground line-clamp-2 text-sm leading-relaxed">
+          <p
+            dir="auto"
+            className="text-muted-foreground line-clamp-2 text-sm leading-relaxed break-words"
+          >
             {course.subtitle}
           </p>
         )}
@@ -199,17 +246,22 @@ export function CourseRow({ course }: { course: LearnCourseCard }) {
   return (
     <Link
       href={href}
-      className="group bg-card hover:border-primary/40 flex gap-4 rounded-2xl border p-4 transition-all hover:shadow-lg sm:gap-5 sm:p-5"
+      className="group bg-card hover:border-primary/40 focus-visible:ring-ring/60 focus-visible:ring-offset-background flex gap-4 rounded-2xl border p-4 transition-[border-color,box-shadow] hover:shadow-md focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none sm:gap-5 sm:p-5"
     >
       <CourseThumb
         src={course.cover_image_path}
+        alt={t("catalog.coverAlt", { title: course.title })}
         className="aspect-video w-28 shrink-0 rounded-xl sm:w-44"
         iconClassName="size-7"
       />
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <CourseTags course={course} />
         <div className="flex items-start gap-2">
-          <h3 className="group-hover:text-primary line-clamp-2 flex-1 leading-snug font-semibold transition-colors">
+          <h3
+            dir="auto"
+            className="group-hover:text-primary line-clamp-2 min-w-0 flex-1 leading-snug font-semibold break-words transition-colors"
+          >
             {course.title}
           </h3>
           {enrolled && (
@@ -221,7 +273,10 @@ export function CourseRow({ course }: { course: LearnCourseCard }) {
         </div>
 
         {course.subtitle && (
-          <p className="text-muted-foreground line-clamp-2 text-sm leading-relaxed">
+          <p
+            dir="auto"
+            className="text-muted-foreground line-clamp-2 text-sm leading-relaxed break-words"
+          >
             {course.subtitle}
           </p>
         )}
@@ -282,18 +337,29 @@ export function CourseList({
   );
 }
 
-/** The card skeleton, so a slow catalogue fetch keeps the page's shape instead of collapsing it. */
+/**
+ * The card skeleton. Its box matches the real card's — same ratio, same padding, same row heights —
+ * so when the catalogue lands the content appears INSIDE the shape rather than resizing it. The
+ * shimmer is brand-tinted rather than grey, and holds still for anyone who asked for less motion.
+ */
 export function CourseGridSkeleton({ count = 6 }: { count?: number }) {
   return (
-    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+    <div
+      className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
+      aria-hidden
+    >
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="bg-card overflow-hidden rounded-2xl border">
-          <div className="bg-muted aspect-video animate-pulse" />
+          <div className="aspect-video bg-[var(--brand-soft)] motion-safe:animate-pulse" />
           <div className="space-y-2.5 p-5">
-            <div className="bg-muted h-4 w-3/4 animate-pulse rounded" />
-            <div className="bg-muted h-3 w-full animate-pulse rounded" />
-            <div className="bg-muted h-3 w-1/3 animate-pulse rounded" />
-            <div className="bg-muted mt-4 h-5 w-1/4 animate-pulse rounded" />
+            <SkeletonBar className="h-4 w-3/4" />
+            <SkeletonBar className="h-4 w-1/2" />
+            <SkeletonBar className="h-3 w-full" />
+            <SkeletonBar className="h-3 w-1/3" />
+            <div className="flex items-center justify-between pt-6">
+              <SkeletonBar className="h-5 w-20" />
+              <SkeletonBar className="h-3 w-16" />
+            </div>
           </div>
         </div>
       ))}
@@ -301,16 +367,25 @@ export function CourseGridSkeleton({ count = 6 }: { count?: number }) {
   );
 }
 
+function SkeletonBar({ className }: { className?: string }) {
+  return (
+    <div className={cn("bg-muted rounded motion-safe:animate-pulse", className)} />
+  );
+}
+
 export function CourseListSkeleton({ count = 4 }: { count?: number }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" aria-hidden>
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="bg-card flex gap-5 rounded-2xl border p-5">
-          <div className="bg-muted aspect-video w-44 shrink-0 animate-pulse rounded-xl" />
+        <div
+          key={i}
+          className="bg-card flex gap-4 rounded-2xl border p-4 sm:gap-5 sm:p-5"
+        >
+          <div className="aspect-video w-28 shrink-0 rounded-xl bg-[var(--brand-soft)] motion-safe:animate-pulse sm:w-44" />
           <div className="flex-1 space-y-2.5 py-1">
-            <div className="bg-muted h-4 w-2/3 animate-pulse rounded" />
-            <div className="bg-muted h-3 w-full animate-pulse rounded" />
-            <div className="bg-muted h-3 w-1/4 animate-pulse rounded" />
+            <SkeletonBar className="h-4 w-2/3" />
+            <SkeletonBar className="h-3 w-full" />
+            <SkeletonBar className="h-3 w-1/4" />
           </div>
         </div>
       ))}

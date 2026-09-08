@@ -11,6 +11,7 @@ use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
 use App\Services\Invoicing;
 use App\Services\LessonPackages;
+use App\Services\SessionDurationCorrection;
 use App\Support\Audit;
 use App\Support\ReportFields;
 use Illuminate\Http\JsonResponse;
@@ -330,6 +331,40 @@ final class SessionController extends Controller
             'reportFields' => ReportFields::active((string) $session->academy_id),
             'inactiveReportFields' => ReportFields::inactiveWithValues((string) $session->academy_id, $values),
         ]);
+    }
+
+    /** GET /api/sessions/{id}/duration-preview — exact financial effect, without writing. */
+    public function durationPreview(Request $request, SessionDurationCorrection $correction, string $sessionId): JsonResponse
+    {
+        Gate::authorize('student.set_price');
+
+        $session = $this->findOwnedSession($sessionId);
+        $data = $request->validate([
+            'duration_minutes' => ['required', 'integer', 'min:1', 'max:600'],
+        ]);
+
+        return response()->json($correction->preview($session, (int) $data['duration_minutes']));
+    }
+
+    /** PATCH /api/sessions/{id}/duration — apply the already-previewed correction atomically. */
+    public function updateDuration(Request $request, SessionDurationCorrection $correction, string $sessionId): JsonResponse
+    {
+        Gate::authorize('student.set_price');
+
+        // Resolve through the normal tenant/row guard before the service locks the row again.
+        $this->findOwnedSession($sessionId);
+        $data = $request->validate([
+            'duration_minutes' => ['required', 'integer', 'min:1', 'max:600'],
+        ]);
+
+        $result = $correction->update(
+            $sessionId,
+            (int) $data['duration_minutes'],
+            $this->ctx()->userId,
+            $this->ctx()->role,
+        );
+
+        return response()->json(['ok' => true, 'impact' => $result]);
     }
 
     /**

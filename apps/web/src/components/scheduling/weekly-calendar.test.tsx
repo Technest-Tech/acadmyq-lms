@@ -89,6 +89,8 @@ describe("WeeklyCalendar (Sprint 5 §5.5)", () => {
           session_rate_minor: 5000,
           currency: "EGP",
           timezone: null,
+          payout_method: null,
+          payout_handle: null,
           availability: [],
           is_active: true,
           deleted_at: null,

@@ -25,8 +25,10 @@ it('seeds the demo Qur\'an academy with the expected counts', function () {
     enterDemoAcademy();
 
     expect(DB::table('academies')->where('subdomain', 'noor')->count())->toBe(1);
-    expect(DB::table('guardians')->count())->toBe(1);
-    expect(DB::table('students')->count())->toBe(2);
+    // The demo includes the original family plus five multi-currency finance
+    // examples used by the dashboard and billing previews.
+    expect(DB::table('guardians')->count())->toBe(6);
+    expect(DB::table('students')->count())->toBe(14);
     expect(DB::table('teachers')->count())->toBe(2);
     expect(DB::table('report_field_definitions')->count())->toBe(5);
 });
@@ -37,10 +39,10 @@ it('produces identical counts when run twice', function () {
     $this->seed(DemoAcademySeeder::class);
     enterDemoAcademy();
 
-    expect(DB::table('students')->count())->toBe(2);
+    expect(DB::table('students')->count())->toBe(14);
     expect(DB::table('teachers')->count())->toBe(2);
     expect(DB::table('report_field_definitions')->count())->toBe(5);
-    expect(DB::table('subscriptions')->count())->toBe(2);
+    expect(DB::table('subscriptions')->count())->toBe(14);
     expect(DB::table('sessions')->count())->toBe(4);
 });
 

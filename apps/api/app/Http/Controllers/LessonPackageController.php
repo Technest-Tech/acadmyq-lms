@@ -242,6 +242,47 @@ final class LessonPackageController extends Controller
         ], 201);
     }
 
+    /**
+     * PATCH /api/packages/{id} — correct a package that was entered wrong.
+     *
+     * Deliberately narrow: the label, the hours, the price and the expiry, and only while the
+     * package is open. It is a correction, not a second way to close or re-price history — see
+     * {@see LessonPackages::edit()} for what that costs and why the bill is the hard edge.
+     *
+     * `hours` is sent for the same reason it is on store(): the academy sells hours, the server
+     * keeps minutes, and nothing downstream ever sees a fraction.
+     */
+    public function update(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('package.manage');
+
+        $validated = $request->validate([
+            'label' => ['sometimes', 'string', 'max:255'],
+            'hours' => ['sometimes', 'numeric', 'min:0.5', 'max:1000'],
+            'price_minor' => ['sometimes', 'integer', 'min:0'],
+            'expires_on' => ['sometimes', 'nullable', 'date'],
+        ]);
+
+        $changes = [];
+        if (array_key_exists('label', $validated)) {
+            $changes['label'] = (string) $validated['label'];
+        }
+        if (array_key_exists('hours', $validated)) {
+            $changes['minutes_total'] = (int) round(((float) $validated['hours']) * 60);
+        }
+        if (array_key_exists('price_minor', $validated)) {
+            $changes['price_minor'] = (int) $validated['price_minor'];
+        }
+        if (array_key_exists('expires_on', $validated)) {
+            $changes['expires_on'] = $validated['expires_on'];
+        }
+
+        $ctx = app(AuthContext::class);
+        $result = app(LessonPackages::class)->edit($id, $changes, $ctx->userId, $ctx->role);
+
+        return response()->json(['ok' => true] + $result);
+    }
+
     /** POST /api/packages/{id}/sync-lessons — repair/import lessons since the package start. */
     public function syncLessons(string $id): JsonResponse
     {

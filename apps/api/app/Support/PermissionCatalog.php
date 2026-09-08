@@ -52,6 +52,9 @@ final class PermissionCatalog
         // codes learners redeem, and see learners + enrollments. Owner-only by default; delegated to
         // a course-team employee through a custom role (same pattern as CRM).
         'course.read', 'course.manage', 'access_code.manage', 'learner.read',
+        // The sales half of the LMS (docs/lms/10): the order queue and the buyers, then the money
+        // decisions (approve a transfer receipt, refund, pull access) and the receiving accounts.
+        'course_order.read', 'course_order.manage', 'payment_method.manage',
         'notification.read',
         'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
         'payout.read', 'payout.read_own', 'payout.finalize', 'payout.adjust',
@@ -96,6 +99,8 @@ final class PermissionCatalog
         'payment_settings.manage',
         'package.read', 'package.manage',
         'student.set_price',
+        // Course sales: the queue prints what every buyer paid, and deciding an order moves money.
+        'course_order.read', 'course_order.manage', 'payment_method.manage',
     ];
 
     /**
@@ -138,6 +143,7 @@ final class PermissionCatalog
             'trial.read', 'trial.manage',
             'crm.read', 'crm.manage',
             'course.read', 'course.manage', 'access_code.manage', 'learner.read',
+            'course_order.read', 'course_order.manage', 'payment_method.manage',
             'notification.read',
             'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
             'payout.read', 'payout.finalize', 'payout.adjust',

@@ -53,13 +53,15 @@ type Sort =
   | "az";
 type Price = "all" | "free" | "paid";
 type Length = "any" | "short" | "medium" | "long";
+/** "" = every level / every topic. Both facets only exist when the catalogue actually varies. */
+type Level = "" | NonNullable<LearnCourseCard["level"]>;
 
 const HOUR = 3600;
 
 export default function CatalogPage() {
   const t = useTranslations("learn");
   const locale = useLocale();
-  const { academy, openRedeem, isEnrolled, learner } = useLearn();
+  const { academy, commerce, openRedeem, isEnrolled, learner } = useLearn();
 
   const [courses, setCourses] = useState<LearnCourseCard[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -67,6 +69,8 @@ export default function CatalogPage() {
   const [query, setQuery] = useState("");
   const [price, setPrice] = useState<Price>("all");
   const [length, setLength] = useState<Length>("any");
+  const [level, setLevel] = useState<Level>("");
+  const [category, setCategory] = useState("");
   const [mineOnly, setMineOnly] = useState(false);
   const [previewOnly, setPreviewOnly] = useState(false);
   const [sort, setSort] = useState<Sort>("newest");
@@ -89,6 +93,24 @@ export default function CatalogPage() {
   const hasFree = all.some((c) => c.is_free);
   const hasDurations = all.some((c) => (c.duration_seconds ?? 0) > 0);
   const hasPreviews = all.some((c) => (c.preview_count ?? 0) > 0);
+  // Derived from the rows themselves: a client who never set a level gets no level facet, and the
+  // topic list is their own vocabulary rather than a taxonomy the platform imposed.
+  const levels = useMemo(
+    () =>
+      (["BEGINNER", "INTERMEDIATE", "ADVANCED", "ALL_LEVELS"] as const).filter(
+        (value) => all.some((c) => c.level === value),
+      ),
+    [all],
+  );
+  const categories = useMemo(
+    () =>
+      [
+        ...new Set(
+          all.map((c) => c.category?.trim()).filter((v): v is string => !!v),
+        ),
+      ].sort((a, b) => a.localeCompare(b, locale)),
+    [all, locale],
+  );
   const totalLessons = all.reduce(
     (sum, course) => sum + course.lesson_count,
     0,
@@ -102,6 +124,8 @@ export default function CatalogPage() {
       if (price === "free" && !c.is_free) return false;
       if (price === "paid" && c.is_free) return false;
       if (previewOnly && (c.preview_count ?? 0) === 0) return false;
+      if (level !== "" && c.level !== level) return false;
+      if (category !== "" && (c.category ?? "").trim() !== category) return false;
 
       const seconds = c.duration_seconds ?? 0;
       if (length === "short" && !(seconds > 0 && seconds < HOUR)) return false;
@@ -112,7 +136,8 @@ export default function CatalogPage() {
       if (needle === "") return true;
       return (
         c.title.toLowerCase().includes(needle) ||
-        (c.subtitle ?? "").toLowerCase().includes(needle)
+        (c.subtitle ?? "").toLowerCase().includes(needle) ||
+        (c.category ?? "").toLowerCase().includes(needle)
       );
     });
 
@@ -144,6 +169,8 @@ export default function CatalogPage() {
     query,
     price,
     length,
+    level,
+    category,
     mineOnly,
     previewOnly,
     sort,
@@ -154,12 +181,18 @@ export default function CatalogPage() {
   const activeFilters =
     (price !== "all" ? 1 : 0) +
     (length !== "any" ? 1 : 0) +
+    (level !== "" ? 1 : 0) +
+    (category !== "" ? 1 : 0) +
     (mineOnly ? 1 : 0) +
     (previewOnly ? 1 : 0);
+
+  const filtering = query.trim() !== "" || activeFilters > 0;
 
   const clearAll = () => {
     setPrice("all");
     setLength("any");
+    setLevel("");
+    setCategory("");
     setMineOnly(false);
     setPreviewOnly(false);
     setQuery("");
@@ -180,6 +213,12 @@ export default function CatalogPage() {
       showPreview={hasPreviews}
       showMine={mine.length > 0}
       counts={{ mine: mine.length }}
+      level={level}
+      setLevel={setLevel}
+      levels={levels}
+      category={category}
+      setCategory={setCategory}
+      categories={categories}
     />
   );
 
@@ -194,7 +233,7 @@ export default function CatalogPage() {
               "linear-gradient(160deg, var(--brand-soft), transparent 68%)",
           }}
         />
-        <Container className="py-14 sm:py-18">
+        <Container className="py-9 sm:py-14 lg:py-16">
           <div className="grid items-end gap-10 lg:grid-cols-[minmax(0,1fr)_360px]">
             <div className="max-w-2xl space-y-4">
               <span className="text-primary inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-soft)] px-3 py-1 text-xs font-semibold tracking-wide uppercase">
@@ -278,7 +317,7 @@ export default function CatalogPage() {
         </div>
       )}
 
-      <Container className="py-8 sm:py-10">
+      <Container className="py-6 sm:py-10">
         <div className="grid gap-7 lg:grid-cols-[260px_1fr]">
           <aside className="hidden lg:block">
             <div className="bg-card sticky top-24 space-y-6 rounded-2xl border p-5 shadow-sm">
@@ -425,6 +464,15 @@ export default function CatalogPage() {
                     onClear={() => setMineOnly(false)}
                   />
                 )}
+                {level !== "" && (
+                  <FilterChip
+                    label={t(`catalog.level.${level}`)}
+                    onClear={() => setLevel("")}
+                  />
+                )}
+                {category !== "" && (
+                  <FilterChip label={category} onClear={() => setCategory("")} />
+                )}
                 {previewOnly && (
                   <FilterChip
                     label={t("catalog.hasPreview")}
@@ -445,33 +493,44 @@ export default function CatalogPage() {
                 <CourseGridSkeleton />
               )
             ) : visible.length === 0 ? (
-              <div className="rounded-2xl border border-dashed py-20 text-center">
+              // Two different nothings: "your filters exclude everything" is a mistake to undo,
+              // "this shop has published nothing yet" is a fact to state calmly.
+              <div className="rounded-2xl border border-dashed px-6 py-20 text-center">
                 <BookOpen
                   className="text-muted-foreground/40 mx-auto mb-4 size-10"
                   aria-hidden
                 />
-                <p className="text-muted-foreground mx-auto max-w-sm text-sm">
-                  {query.trim() || activeFilters > 0
-                    ? t("catalog.noMatches")
-                    : t("catalog.empty")}
-                </p>
-                {query.trim() || activeFilters > 0 ? (
-                  <CtaButton
-                    variant="outline"
-                    className="mt-6"
-                    onClick={clearAll}
-                  >
-                    {t("catalog.clearAll")}
-                  </CtaButton>
+                {filtering ? (
+                  <>
+                    <p className="font-semibold">{t("catalog.noMatchesTitle")}</p>
+                    <p className="text-muted-foreground mx-auto mt-1.5 max-w-sm text-sm">
+                      {t("catalog.noMatches")}
+                    </p>
+                    <CtaButton
+                      variant="outline"
+                      className="mt-6"
+                      onClick={clearAll}
+                    >
+                      {t("catalog.clearAll")}
+                    </CtaButton>
+                  </>
                 ) : (
-                  <CtaButton
-                    variant="outline"
-                    className="mt-6"
-                    onClick={openRedeem}
-                  >
-                    <Ticket className="size-4" aria-hidden />
-                    {t("redeem.cta")}
-                  </CtaButton>
+                  <>
+                    <p className="font-semibold">{t("catalog.emptyTitle")}</p>
+                    <p className="text-muted-foreground mx-auto mt-1.5 max-w-sm text-sm">
+                      {t("catalog.emptyHint")}
+                    </p>
+                    {commerce.codes && (
+                      <CtaButton
+                        variant="outline"
+                        className="mt-6"
+                        onClick={openRedeem}
+                      >
+                        <Ticket className="size-4" aria-hidden />
+                        {t("redeem.cta")}
+                      </CtaButton>
+                    )}
+                  </>
                 )}
               </div>
             ) : view === "list" ? (
@@ -498,7 +557,7 @@ export default function CatalogPage() {
         </div>
       </Container>
 
-      <CtaBand onPrimary={openRedeem} />
+      <CtaBand onPrimary={commerce.codes ? openRedeem : undefined} />
     </>
   );
 }
@@ -596,6 +655,12 @@ function FacetPanel({
   showPreview,
   showMine,
   counts,
+  level,
+  setLevel,
+  levels,
+  category,
+  setCategory,
+  categories,
 }: {
   price: Price;
   setPrice: (v: Price) => void;
@@ -610,6 +675,12 @@ function FacetPanel({
   showPreview: boolean;
   showMine: boolean;
   counts: { mine: number };
+  level: Level;
+  setLevel: (v: Level) => void;
+  levels: readonly NonNullable<LearnCourseCard["level"]>[];
+  category: string;
+  setCategory: (v: string) => void;
+  categories: string[];
 }) {
   const t = useTranslations("learn");
 
@@ -653,6 +724,44 @@ function FacetPanel({
               checked={length === value}
               onChange={() => setLength(value)}
               label={t(`catalog.length.${value}`)}
+            />
+          ))}
+        </FacetGroup>
+      )}
+
+      {/* Both derived from the rows: a catalogue where every course is "Beginner" gets no level
+          facet, because a filter with one option filters nothing. */}
+      {levels.length > 1 && (
+        <FacetGroup title={t("catalog.levelLabel")}>
+          <FacetRadio
+            checked={level === ""}
+            onChange={() => setLevel("")}
+            label={t("catalog.levelAny")}
+          />
+          {levels.map((value) => (
+            <FacetRadio
+              key={value}
+              checked={level === value}
+              onChange={() => setLevel(value)}
+              label={t(`catalog.level.${value}`)}
+            />
+          ))}
+        </FacetGroup>
+      )}
+
+      {categories.length > 1 && (
+        <FacetGroup title={t("catalog.categoryLabel")}>
+          <FacetRadio
+            checked={category === ""}
+            onChange={() => setCategory("")}
+            label={t("catalog.categoryAny")}
+          />
+          {categories.map((value) => (
+            <FacetRadio
+              key={value}
+              checked={category === value}
+              onChange={() => setCategory(value)}
+              label={value}
             />
           ))}
         </FacetGroup>

@@ -25,12 +25,14 @@ import {
 } from "@/components/learn/site-chrome";
 import { SiteTheme } from "@/components/learn/theme";
 import { Modal } from "@/components/ui/modal";
+import { resolveSiteName } from "@/lib/learn-brand";
 import {
   clearLearnToken,
   getLearnToken,
   learnLogout,
   learnMe,
   type LearnProfile,
+  type LearnSiteCommerce,
   type LearnSiteContent,
   type LearnSiteStats,
 } from "@/lib/learn-api";
@@ -46,17 +48,30 @@ import {
  * visitor's place) and as real pages; both render the same forms from components/learn/auth-forms.
  */
 
+/** Nothing switched on — what an older API build (no `commerce` block) degrades to. */
+const NO_COMMERCE: LearnSiteCommerce = {
+  free: false,
+  free_course: null,
+  checkout: false,
+  codes: false,
+  paid: false,
+};
+
 export function LearnProvider({
   academy,
   site,
   stats,
+  commerce,
   academyName,
+  siteUrl,
   children,
 }: {
   academy: string;
   site: LearnSiteContent;
   stats: LearnSiteStats;
+  commerce?: LearnSiteCommerce;
   academyName: string;
+  siteUrl?: string | null;
   children: ReactNode;
 }) {
   const t = useTranslations("learn");
@@ -68,6 +83,7 @@ export function LearnProvider({
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [redeemOpen, setRedeemOpen] = useState(false);
   const [afterAuth, setAfterAuth] = useState<(() => void) | null>(null);
+  const [authIntent, setAuthIntent] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!getLearnToken(academy)) {
@@ -105,25 +121,32 @@ export function LearnProvider({
   }, [academy]);
 
   const requireAuth = useCallback(
-    (then?: () => void) => {
+    (then?: () => void, intent?: string) => {
       if (learner) {
         then?.();
         return;
       }
       setAfterAuth(() => then ?? null);
+      setAuthIntent(intent ?? null);
       setAuthMode("login");
     },
     [learner],
   );
 
-  const siteName = site.brand.name || academyName || academy;
+  // The handle is an address, not a brand: a site that has neither a brand name nor a real academy
+  // name says "the learning platform" in the visitor's language rather than publishing its slug.
+  const siteName =
+    resolveSiteName(site.brand.name, academyName, academy) ?? t("brand.fallbackName");
+  const resolvedCommerce = commerce ?? NO_COMMERCE;
 
   const value = useMemo<LearnContextValue>(
     () => ({
       academy,
       site,
       stats,
+      commerce: resolvedCommerce,
       siteName,
+      siteUrl: siteUrl ?? null,
       learner,
       enrolled,
       loading,
@@ -138,7 +161,9 @@ export function LearnProvider({
       academy,
       site,
       stats,
+      resolvedCommerce,
       siteName,
+      siteUrl,
       learner,
       enrolled,
       loading,
@@ -172,18 +197,26 @@ export function LearnProvider({
       {authMode !== null && (
         <Modal
           open
-          onClose={() => setAuthMode(null)}
+          onClose={() => {
+            setAuthMode(null);
+            setAuthIntent(null);
+          }}
           title={authMode === "login" ? t("auth.signIn") : t("auth.register")}
+          closeLabel={t("player.close")}
         >
           <AuthForm
             academy={academy}
             mode={authMode}
+            intent={authIntent ?? undefined}
             onModeChange={setAuthMode}
             onDone={async () => {
               setAuthMode(null);
+              setAuthIntent(null);
               await refresh();
               const cb = afterAuth;
               setAfterAuth(null);
+              // The visitor came here to do something. Signing in finishes that, rather than
+              // dropping them on whatever page happened to be behind the dialog.
               cb?.();
             }}
           />
@@ -195,6 +228,7 @@ export function LearnProvider({
           open
           onClose={() => setRedeemOpen(false)}
           title={t("redeem.title")}
+          closeLabel={t("player.close")}
         >
           <RedeemForm
             academy={academy}

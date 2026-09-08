@@ -70,6 +70,12 @@ describe("ScheduleSection (Sprint 5 §5.1)", () => {
     await user.click(screen.getByTestId("add-slot"));
     await user.click(screen.getByTestId("save-schedule"));
 
+    expect(await screen.findByTestId("schedule-impact")).toHaveTextContent(
+      "Future generated lessons",
+    );
+    expect(api.putStudentSchedule).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId("confirm-schedule-impact"));
+
     await waitFor(() =>
       expect(api.putStudentSchedule).toHaveBeenCalledWith(
         "s1",

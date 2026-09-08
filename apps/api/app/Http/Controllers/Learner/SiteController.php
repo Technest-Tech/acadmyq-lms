@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Learner;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Learner\Concerns\InteractsWithLearner;
+use App\Support\LmsSite;
 use App\Support\LmsSiteProfile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -42,11 +43,64 @@ final class SiteController extends Controller
                 $academy === null ? [] : (array) $academy,
             ),
             'stats' => $this->stats(),
+            'commerce' => $this->commerce(),
             'academy' => [
                 'name' => (string) ($academy->name ?? ''),
                 'subdomain' => $academy->subdomain ?? null,
+                // The site's own canonical origin, so the template can emit a canonical link and
+                // absolute OG urls per tenant instead of guessing from the request host.
+                'url' => LmsSite::url(
+                    isset($academy->subdomain) ? (string) $academy->subdomain : null,
+                    LmsSite::ownsRoot((string) $academyId),
+                ),
             ],
         ]);
+    }
+
+    /**
+     * Which doors into a course this client actually has open, across the published catalogue.
+     *
+     * The storefront has to adapt to it in three places — the hero's CTAs, the FAQ's answers and
+     * the footer's payment line — and all three render ABOVE the catalogue fetch, so the facts
+     * travel with the site document rather than being inferred later from a list of cards (which
+     * would mean a layout shift, and a wrong answer on every page that never loads the catalogue).
+     *
+     * Every value is derived from real rows: a client with no free course never advertises one.
+     *
+     * @return array<string,mixed>
+     */
+    private function commerce(): array
+    {
+        $published = fn () => DB::table('courses')
+            ->where('status', 'PUBLISHED')
+            ->whereNull('deleted_at');
+
+        // The newest free course is the one the hero offers as a taster; naming it lets the button
+        // go straight to the course instead of dumping the visitor in an unfiltered catalogue.
+        $free = $published()
+            ->where('price_minor', 0)
+            // With lessons, always: offering "start with a free course" and landing the visitor on
+            // an empty one is worse than not offering it.
+            ->whereExists(fn ($q) => $q->select(DB::raw(1))->from('lessons')
+                ->whereColumn('lessons.course_id', 'courses.id'))
+            ->orderByDesc('published_at')
+            ->first(['slug', 'title']);
+
+        $acceptsPayments = DB::table('lms_payment_methods')->where('is_active', true)->exists();
+
+        return [
+            'free' => $free !== null,
+            'free_course' => $free === null ? null : [
+                'slug' => (string) $free->slug,
+                'title' => (string) $free->title,
+            ],
+            // A Buy button is only honest when the course allows checkout AND somewhere exists to
+            // send the money (docs/lms/10 §1) — the same predicate the catalogue applies per card.
+            'checkout' => $acceptsPayments && $published()->where('price_minor', '>', 0)
+                ->where('checkout_enabled', true)->exists(),
+            'codes' => $published()->where('code_enabled', true)->exists(),
+            'paid' => $published()->where('price_minor', '>', 0)->exists(),
+        ];
     }
 
     /**

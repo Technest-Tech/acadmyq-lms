@@ -37,6 +37,13 @@ final class LmsSiteProfile
     /** Any URL field. */
     private const MAX_URL = 600;
 
+    /**
+     * A legal document (terms / refund / privacy). Far longer than MAX_BODY on purpose: these are
+     * real policies, not marketing copy, and a client pasting a lawyer's text must not have it
+     * silently truncated at a paragraph.
+     */
+    private const MAX_LEGAL = 20000;
+
     /** How many items each repeatable list may hold — the layouts stop reading well past these. */
     private const CAPS = [
         'hero.badges' => 6,
@@ -90,6 +97,11 @@ final class LmsSiteProfile
                 'name' => $name,
                 'tagline' => '',
                 'logo_url' => self::firstFilled([$academy['brand_logo_url'] ?? null]),
+                // The square/compact mark, for the header on a narrow screen and the browser tab.
+                // Blank falls back to the full logo, then to a monogram — a client never has to
+                // supply three files to get a finished site.
+                'logo_mark_url' => '',
+                'favicon_url' => '',
                 'color' => self::DEFAULT_COLOR,
                 'hero_style' => 'gradient',
             ],
@@ -99,10 +111,23 @@ final class LmsSiteProfile
                 'subtitle' => '',
                 'image_url' => '',
                 'primary_cta' => 'browse',
+                // Overrides the label of whichever primary button `primary_cta` selected. Blank ⇒
+                // the template's translated label for that action, which is the usual case.
+                'cta_label' => '',
                 'badges' => [],
             ],
             'stats' => ['show' => true, 'items' => []],
-            'about' => ['show' => true, 'heading' => '', 'body' => '', 'image_url' => '', 'points' => []],
+            // `body` is the story; `mission` and `approach` are the two blocks the About page adds
+            // on top of it, so that page says something the home page does not (docs/lms/09).
+            'about' => [
+                'show' => true,
+                'heading' => '',
+                'body' => '',
+                'image_url' => '',
+                'points' => [],
+                'mission' => '',
+                'approach' => '',
+            ],
             'features' => ['show' => true, 'heading' => '', 'subheading' => '', 'items' => []],
             'steps' => ['show' => true, 'heading' => '', 'items' => []],
             'instructors' => ['show' => true, 'heading' => '', 'items' => []],
@@ -115,12 +140,26 @@ final class LmsSiteProfile
                 'phone' => '',
                 'whatsapp' => '',
                 'address' => '',
+                // When a person is actually there to answer — the one contact detail that sets a
+                // visitor's expectation of a reply, and the cheapest trust signal on the page.
+                'hours' => '',
                 'map_url' => '',
                 'socials' => array_fill_keys(self::SOCIALS, ''),
             ],
             'footer' => ['note' => '', 'links' => []],
             'seo' => ['title' => '', 'description' => '', 'og_image_url' => ''],
             'pages' => ['about' => true, 'faq' => true, 'contact' => true],
+            // The trust pages (docs/lms/10 §6). Empty is the normal state: the template renders its
+            // own translated default policy, which is why they are shown by default rather than
+            // hidden until written — a shop with no refund policy at all is the worse outcome.
+            'legal' => [
+                'show' => true,
+                'terms' => '',
+                'refund' => '',
+                'privacy' => '',
+                'business_name' => '',
+                'updated_at' => '',
+            ],
         ];
     }
 
@@ -167,12 +206,15 @@ final class LmsSiteProfile
         $footer = self::block($input, 'footer');
         $seo = self::block($input, 'seo');
         $pages = self::block($input, 'pages');
+        $legal = self::block($input, 'legal');
 
         return [
             'brand' => [
                 'name' => self::text($brand['name'] ?? null),
                 'tagline' => self::text($brand['tagline'] ?? null),
                 'logo_url' => self::imageUrl($brand['logo_url'] ?? null),
+                'logo_mark_url' => self::imageUrl($brand['logo_mark_url'] ?? null),
+                'favicon_url' => self::imageUrl($brand['favicon_url'] ?? null),
                 'color' => self::color($brand['color'] ?? null),
                 'hero_style' => self::enum($brand['hero_style'] ?? null, self::HERO_STYLES, 'gradient'),
             ],
@@ -182,6 +224,7 @@ final class LmsSiteProfile
                 'subtitle' => self::text($hero['subtitle'] ?? null, self::MAX_BODY),
                 'image_url' => self::imageUrl($hero['image_url'] ?? null),
                 'primary_cta' => self::enum($hero['primary_cta'] ?? null, self::CTAS, 'browse'),
+                'cta_label' => self::text($hero['cta_label'] ?? null, 60),
                 'badges' => self::list($hero['badges'] ?? null, 'hero.badges', fn ($v): ?string => self::text($v) ?: null),
             ],
             'stats' => [
@@ -197,6 +240,8 @@ final class LmsSiteProfile
                 'body' => self::text($about['body'] ?? null, self::MAX_BODY),
                 'image_url' => self::imageUrl($about['image_url'] ?? null),
                 'points' => self::list($about['points'] ?? null, 'about.points', fn ($v): ?string => self::text($v) ?: null),
+                'mission' => self::text($about['mission'] ?? null, self::MAX_BODY),
+                'approach' => self::text($about['approach'] ?? null, self::MAX_BODY),
             ],
             'features' => [
                 'show' => self::bool($features['show'] ?? null),
@@ -224,6 +269,10 @@ final class LmsSiteProfile
                     'role' => fn ($x): string => self::text($x),
                     'bio' => fn ($x): string => self::text($x, self::MAX_BODY),
                     'photo_url' => fn ($x): string => self::imageUrl($x),
+                    // Comma-separated in the editor, chips on the site — one field, because a
+                    // repeatable list per teacher is more form than the fact deserves.
+                    'expertise' => fn ($x): string => self::text($x, 300),
+                    'link_url' => fn ($x): string => self::linkUrl($x),
                 ], 'name')),
             ],
             'testimonials' => [
@@ -258,6 +307,7 @@ final class LmsSiteProfile
                 'phone' => self::text($contact['phone'] ?? null, 40),
                 'whatsapp' => self::text($contact['whatsapp'] ?? null, 40),
                 'address' => self::text($contact['address'] ?? null, 300),
+                'hours' => self::text($contact['hours'] ?? null, 300),
                 'map_url' => self::imageUrl($contact['map_url'] ?? null),
                 'socials' => self::socials($contact['socials'] ?? null),
             ],
@@ -277,6 +327,16 @@ final class LmsSiteProfile
                 'about' => self::bool($pages['about'] ?? null),
                 'faq' => self::bool($pages['faq'] ?? null),
                 'contact' => self::bool($pages['contact'] ?? null),
+            ],
+            'legal' => [
+                'show' => self::bool($legal['show'] ?? null),
+                'terms' => self::text($legal['terms'] ?? null, self::MAX_LEGAL),
+                'refund' => self::text($legal['refund'] ?? null, self::MAX_LEGAL),
+                'privacy' => self::text($legal['privacy'] ?? null, self::MAX_LEGAL),
+                // Who the buyer is contracting with. The platform is never the seller of a course
+                // (docs/lms/10 §6), so the pages have to be able to name the real one.
+                'business_name' => self::text($legal['business_name'] ?? null),
+                'updated_at' => self::text($legal['updated_at'] ?? null, 40),
             ],
         ];
     }

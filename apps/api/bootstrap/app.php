@@ -50,6 +50,12 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/i/*/xpay/session',   // start XPay hosted checkout
             'api/i/*/paypal/*',       // create + capture a PayPal order
             'api/a/*/submit',         // academy uploads its transfer screenshot
+            // The marketing site's demo form. A stronger case than any of the above: the sender is
+            // a stranger with NO credential of any kind — no session, no token — so there is nothing
+            // for a third-party page to forge on their behalf. Requiring CSRF here would only mean
+            // priming a session cookie on every anonymous visitor of acadmyq.com to protect a write
+            // that carries no authority. Volume is bounded by throttle:demo-requests instead.
+            'api/public/demo-requests',
         ]);
 
         // All /api/* responses (and errors) negotiate to JSON.

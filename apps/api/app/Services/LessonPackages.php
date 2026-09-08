@@ -507,6 +507,216 @@ final class LessonPackages
     }
 
     /**
+     * Correct a package that was entered wrong.
+     *
+     * Four facts only — the label, the hours sold, the price and the expiry — and only while the
+     * package is still ACTIVE. Everything else about a package is a record of things that already
+     * happened (which lessons burnt it, what was paid), and an edit form is the wrong instrument
+     * for history: a package that should end is CLOSED, one that should never have existed is
+     * CANCELLED. An ACTIVE package also always has `minutes_overdrawn = 0` — the engine completes
+     * a package the moment it overdraws — so an edit can never have to unpick an overdraft.
+     *
+     * The hourly rate stays DERIVED, never typed, recomputed from whichever of price/hours moved.
+     * An edited package and a freshly opened one with the same terms are then indistinguishable.
+     *
+     * The bill is the hard edge. An ON_START package raised its invoice the moment it opened; if
+     * money has moved against that invoice, or it has left OPEN, the price is settled and this
+     * refuses rather than let the package and the bill quietly disagree. While the invoice is
+     * still OPEN and untouched, its package line moves with the package.
+     *
+     * @param  array{label?:string, minutes_total?:int, price_minor?:int, expires_on?:?string}  $changes
+     * @return array{changed: list<string>, invoice_id: ?string}
+     */
+    public function edit(string $packageId, array $changes, ?string $actorUserId, ?string $actorRole): array
+    {
+        $package = DB::table('lesson_packages')->where('id', $packageId)->first();
+
+        if ($package === null) {
+            throw ValidationException::withMessages([
+                'package_id' => ['Package not found. / الباقة غير موجودة.'],
+            ]);
+        }
+
+        if ((string) $package->status !== 'ACTIVE') {
+            throw ValidationException::withMessages([
+                'package_id' => ['Only an open package can be edited. / لا يمكن تعديل سوى باقة مفتوحة.'],
+            ]);
+        }
+
+        $label = array_key_exists('label', $changes)
+            ? (string) $changes['label']
+            : (string) $package->label;
+        $minutes = array_key_exists('minutes_total', $changes)
+            ? (int) $changes['minutes_total']
+            : (int) $package->minutes_total;
+        $price = array_key_exists('price_minor', $changes)
+            ? (int) $changes['price_minor']
+            : (int) $package->price_minor;
+        $expires = array_key_exists('expires_on', $changes)
+            ? $changes['expires_on']
+            : $package->expires_on;
+
+        $carried = (int) $package->carried_over_minutes;
+        $consumed = (int) $package->minutes_consumed;
+
+        // Shrinking a package to exactly (or below) what has been taught leaves it ACTIVE with no
+        // balance — a state the engine itself never produces, since a lesson that empties a
+        // package closes it. Closing bills the used hours pro-rata, which is what is actually
+        // wanted here, so point at that rather than manufacturing the dead state.
+        if ($minutes + $carried <= $consumed) {
+            throw ValidationException::withMessages([
+                'hours' => [
+                    'This package has already used '.$this->humanHours($consumed).'. Close it instead of shrinking it to what was taught.'
+                    .' / استُهلك من هذه الباقة '.$this->humanHours($consumed).' بالفعل. أغلقها بدلاً من تقليصها إلى ما تم تدريسه.',
+                ],
+            ]);
+        }
+
+        $before = [];
+        $after = [];
+        foreach ([
+            'label' => $label,
+            'minutes_total' => $minutes,
+            'price_minor' => $price,
+            'expires_on' => $expires,
+        ] as $col => $value) {
+            if ((string) $value !== (string) $package->{$col}) {
+                $before[$col] = $package->{$col};
+                $after[$col] = $value;
+            }
+        }
+
+        if ($after === []) {
+            return ['changed' => [], 'invoice_id' => $package->invoice_id !== null ? (string) $package->invoice_id : null];
+        }
+
+        // The rate is a function of the other two, so it follows them rather than being asked for.
+        if (array_key_exists('minutes_total', $after) || array_key_exists('price_minor', $after)) {
+            $after['hourly_rate_minor'] = $this->deriveHourlyRate($price, $minutes);
+            $before['hourly_rate_minor'] = (int) $package->hourly_rate_minor;
+        }
+
+        $invoiceId = $package->invoice_id !== null ? (string) $package->invoice_id : null;
+        // The invoice line spells out the label, the hours AND the price, so any of the three
+        // moving makes the bill stale.
+        $billStale = $invoiceId !== null && (
+            array_key_exists('label', $after)
+            || array_key_exists('minutes_total', $after)
+            || array_key_exists('price_minor', $after)
+        );
+
+        DB::transaction(function () use ($packageId, $package, $after, $before, $invoiceId, $billStale, $label, $minutes, $carried, $price, $actorUserId, $actorRole): void {
+            if ($billStale) {
+                $this->rewritePackageInvoiceLine(
+                    (string) $invoiceId,
+                    $package,
+                    $label,
+                    $minutes,
+                    $carried,
+                    $price,
+                    $actorUserId,
+                    $actorRole,
+                );
+            }
+
+            DB::table('lesson_packages')->where('id', $packageId)->update($after + ['updated_at' => now()]);
+
+            Audit::log(
+                'lesson_package.edited',
+                'lesson_package',
+                $packageId,
+                (string) $package->academy_id,
+                $actorUserId,
+                $actorRole,
+                after: $after,
+                before: $before,
+            );
+        });
+
+        return ['changed' => array_keys($after), 'invoice_id' => $invoiceId];
+    }
+
+    /**
+     * Move a package's own invoice line to match the edited package, and recompute the invoice
+     * total from its lines.
+     *
+     * The line is found by the exact description open() wrote for it, which is the only handle
+     * that exists — `invoice_line_items` carries no package id. That is a feature here: if the
+     * invoice has been reworked by hand the match fails and this refuses, rather than guessing at
+     * which line is the package's and silently rewriting the wrong one.
+     */
+    private function rewritePackageInvoiceLine(
+        string $invoiceId,
+        object $package,
+        string $label,
+        int $minutes,
+        int $carried,
+        int $price,
+        ?string $actorUserId,
+        ?string $actorRole,
+    ): void {
+        $invoice = DB::table('invoices')->where('id', $invoiceId)->first();
+
+        if ($invoice === null) {
+            return;
+        }
+
+        if ((string) $invoice->status !== 'OPEN' || (int) $invoice->amount_paid_minor > 0) {
+            throw ValidationException::withMessages([
+                'price_minor' => [
+                    'This package has already been billed and settled. Correct the invoice itself.'
+                    .' / تم إصدار فاتورة هذه الباقة وتسويتها. عدّل الفاتورة نفسها.',
+                ],
+            ]);
+        }
+
+        $line = DB::table('invoice_line_items')
+            ->where('invoice_id', $invoiceId)
+            ->whereNull('session_id')
+            ->where('description', $this->packageLineDescription(
+                (string) $package->label,
+                (int) $package->minutes_total,
+                $carried,
+            ))
+            ->first();
+
+        if ($line === null) {
+            throw ValidationException::withMessages([
+                'price_minor' => [
+                    "This package's invoice line has been changed by hand. Edit the invoice directly."
+                    .' / تم تعديل بند هذه الباقة في الفاتورة يدويًا. عدّل الفاتورة مباشرة.',
+                ],
+            ]);
+        }
+
+        DB::table('invoice_line_items')->where('id', $line->id)->update([
+            'description' => $this->packageLineDescription($label, $minutes, $carried),
+            'amount_minor' => $price,
+        ]);
+
+        // Recomputed from the lines, never adjusted by a delta — a total that is derived cannot
+        // drift away from what the invoice actually says.
+        $total = (int) DB::table('invoice_line_items')->where('invoice_id', $invoiceId)->sum('amount_minor');
+
+        DB::table('invoices')->where('id', $invoiceId)->update([
+            'subtotal_minor' => $total,
+            'total_minor' => $total,
+            'updated_at' => now(),
+        ]);
+
+        Audit::log(
+            'invoice.updated',
+            'invoice',
+            $invoiceId,
+            (string) $package->academy_id,
+            $actorUserId,
+            $actorRole,
+            after: ['total_minor' => $total, 'mode' => 'PACKAGE_EDITED'],
+            before: ['total_minor' => (int) $invoice->total_minor],
+        );
+    }
+
+    /**
      * Close a package: exhausted by its last lesson, or closed early by the owner.
      *
      * ON_COMPLETION packages are billed HERE, from what was actually consumed — a package closed

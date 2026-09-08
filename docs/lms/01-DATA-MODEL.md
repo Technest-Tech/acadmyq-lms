@@ -265,6 +265,16 @@ unique (learner_id, course_id)
 
 ---
 
+## Phase 5 — orders, checkout & manual payments
+
+`lms_payment_methods`, `course_orders`, `course_order_receipts`, `course_order_counters`,
+`learner_notifications` and `learner_password_resets`, plus `courses.checkout_enabled /
+code_enabled` and `enrollments.source_order_id`. Specified in full in
+[10-ORDERS-CHECKOUT-AND-PAYMENTS.md](10-ORDERS-CHECKOUT-AND-PAYMENTS.md) §2 rather than duplicated
+here, because the shapes only make sense next to the state machine that writes them.
+
+---
+
 ## RLS note on the learner path
 
 Learner-facing reads run under the **learner's academy context** (`app.current_academy_id()` set from

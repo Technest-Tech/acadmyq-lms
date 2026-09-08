@@ -61,6 +61,37 @@ async function learnFetch<T>(academy: string, path: string, opts: RequestInit = 
   return body as T;
 }
 
+/**
+ * Same request, but for a `FormData` body (the transfer-receipt upload). The Content-Type header is
+ * deliberately NOT set: the browser has to write it itself so the multipart boundary is correct.
+ */
+async function learnUpload<T>(academy: string, path: string, form: FormData): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json", "X-Academy": academy };
+  const token = getLearnToken(academy);
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${apiBase()}/api/learn${path}`, {
+    method: "POST",
+    headers,
+    body: form,
+    credentials: "same-origin",
+  });
+
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : null;
+
+  if (!res.ok) {
+    const message =
+      (body &&
+        typeof body === "object" &&
+        "message" in body &&
+        (body as { message?: string }).message) ||
+      `Upload failed (${res.status})`;
+    throw new LearnApiError(res.status, message, body);
+  }
+  return body as T;
+}
+
 // ── site profile (docs/lms/09) ───────────────────────────────────────────────
 
 /**
@@ -74,6 +105,13 @@ export interface LearnSiteContent {
     name: string;
     tagline: string;
     logo_url: string;
+    /**
+     * The compact/square mark and the browser-tab icon. Optional in the TYPE (not in the document)
+     * because during a rolling deploy the web can be a version ahead of the API: a missing key must
+     * degrade to the full logo, never throw on a page every visitor sees.
+     */
+    logo_mark_url?: string;
+    favicon_url?: string;
     /** `#rrggbb`; drives the whole palette through CSS variables. */
     color: string;
     hero_style: "gradient" | "image" | "plain";
@@ -84,15 +122,20 @@ export interface LearnSiteContent {
     subtitle: string;
     image_url: string;
     primary_cta: "browse" | "redeem" | "contact";
+    /** Overrides the primary button's label; blank ⇒ the template's translated one. */
+    cta_label?: string;
     badges: string[];
   };
   stats: { show: boolean; items: { value: string; label: string }[] };
   about: {
     show: boolean;
     heading: string;
+    /** The story. `mission` and `approach` are the two blocks only the About page adds on top. */
     body: string;
     image_url: string;
     points: string[];
+    mission?: string;
+    approach?: string;
   };
   features: {
     show: boolean;
@@ -108,7 +151,15 @@ export interface LearnSiteContent {
   instructors: {
     show: boolean;
     heading: string;
-    items: { name: string; role: string; bio: string; photo_url: string }[];
+    items: {
+      name: string;
+      role: string;
+      bio: string;
+      photo_url: string;
+      /** Comma-separated areas of expertise, rendered as chips. */
+      expertise?: string;
+      link_url?: string;
+    }[];
   };
   testimonials: {
     show: boolean;
@@ -135,12 +186,28 @@ export interface LearnSiteContent {
     phone: string;
     whatsapp: string;
     address: string;
+    /** When someone is there to answer — free text, e.g. "Sat–Thu, 10:00–18:00". */
+    hours?: string;
     map_url: string;
     socials: Record<string, string>;
   };
   footer: { note: string; links: { label: string; href: string }[] };
   seo: { title: string; description: string; og_image_url: string };
   pages: { about: boolean; faq: boolean; contact: boolean };
+  /**
+   * The trust pages (docs/lms/10 §6). Empty strings are the normal state — the template renders its
+   * own translated default policy, so a client who never opened the editor still has a refund
+   * policy, terms and a privacy page. `business_name` names who the buyer is actually contracting
+   * with, because the platform is never the seller of a course.
+   */
+  legal: {
+    show: boolean;
+    terms: string;
+    refund: string;
+    privacy: string;
+    business_name: string;
+    updated_at: string;
+  };
 }
 
 /** Live catalogue counters — what the stats band shows when the client wrote no numbers of its own. */
@@ -151,10 +218,31 @@ export interface LearnSiteStats {
   certificates: number;
 }
 
+/**
+ * Which doors into a course this client actually has open, across their published catalogue
+ * (docs/lms/09 §2). Real rows, computed server-side and delivered with the site document, so the
+ * hero's CTAs, the FAQ's answers and the footer render the truth on the FIRST frame — inferring it
+ * later from the catalogue fetch would mean a visible CTA swap on every page load.
+ */
+export interface LearnSiteCommerce {
+  /** At least one published free course with lessons in it. */
+  free: boolean;
+  /** The newest such course — where "start with a free course" goes. */
+  free_course: { slug: string; title: string } | null;
+  /** A priced course can actually be bought here: checkout on AND a live receiving account. */
+  checkout: boolean;
+  /** Access codes unlock at least one published course. */
+  codes: boolean;
+  /** The catalogue contains something that costs money. */
+  paid: boolean;
+}
+
 export interface LearnSite {
   site: LearnSiteContent;
   stats: LearnSiteStats;
-  academy: { name: string; subdomain: string | null };
+  /** Absent from an older API build — treat a missing block as "nothing is switched on". */
+  commerce?: LearnSiteCommerce;
+  academy: { name: string; subdomain: string | null; url?: string | null };
 }
 
 export function learnSite(academy: string): Promise<LearnSite> {
@@ -183,7 +271,21 @@ export interface LearnCourseCard {
   price_minor: number;
   currency: string;
   is_free: boolean;
+  /** How this course may be unlocked (docs/lms/10 §1). Optional: an older API build omits them. */
+  checkout_enabled?: boolean;
+  code_enabled?: boolean;
+  /** The honest Buy-button predicate: priced + checkout on + the client has a live payment method. */
+  sells_online?: boolean;
+  /** Sales metadata (docs/lms/09 §4) — null until the client fills it in; never invented. */
+  level?: LearnCourseLevel | null;
+  category?: string | null;
 }
+
+export type LearnCourseLevel =
+  | "BEGINNER"
+  | "INTERMEDIATE"
+  | "ADVANCED"
+  | "ALL_LEVELS";
 
 export type LearnLessonType = "YOUTUBE" | "TEXT" | "PDF" | "AUDIO" | "VIDEO_UPLOAD" | "QUIZ";
 
@@ -226,6 +328,18 @@ export interface LearnCourseDetail {
     price_minor: number;
     currency: string;
     is_free: boolean;
+    checkout_enabled?: boolean;
+    code_enabled?: boolean;
+    sells_online?: boolean;
+    level?: LearnCourseLevel | null;
+    category?: string | null;
+    /**
+     * The sales blocks (docs/lms/09 §4): what you'll be able to do, what you need first, who it is
+     * for. Empty lists are the normal state and the page hides those sections entirely.
+     */
+    outcomes?: string[];
+    requirements?: string[];
+    audience?: string[];
   };
   sections: LearnSection[];
 }
@@ -405,4 +519,211 @@ export function learnSubmitQuiz(
 
 export function learnCertificate(academy: string, slug: string): Promise<LearnCertificate> {
   return learnFetch(academy, `/courses/${slug}/certificate`);
+}
+
+// ── checkout & orders (docs/lms/10) ──────────────────────────────────────────
+
+export type LearnPaymentMethodType = "INSTAPAY" | "VODAFONE_CASH" | "BANK_TRANSFER" | "OTHER";
+
+/**
+ * One of the client's receiving accounts, as the checkout screen renders it. Account numbers only
+ * ever travel on signed-in requests — the public catalogue never carries them.
+ */
+export interface LearnPaymentMethod {
+  id: string;
+  type: LearnPaymentMethodType;
+  label: string | null;
+  account_name: string | null;
+  account_number: string | null;
+  bank_name: string | null;
+  instructions: string | null;
+}
+
+export type LearnOrderStatus =
+  | "AWAITING_PAYMENT"
+  | "UNDER_REVIEW"
+  | "PAID"
+  | "REJECTED"
+  | "CANCELLED"
+  | "REFUNDED";
+
+export interface LearnOrder {
+  id: string;
+  order_number: string;
+  status: LearnOrderStatus;
+  price_minor: number;
+  currency: string;
+  channel: "MANUAL" | "GATEWAY";
+  payment_method_id: string | null;
+  payment_method_type: LearnPaymentMethodType | null;
+  /** Shown to the learner verbatim when the client refuses a receipt — never paraphrased. */
+  rejection_reason: string | null;
+  refund_reason?: string | null;
+  submitted_at: string | null;
+  confirmed_at: string | null;
+  created_at: string | null;
+  course_title?: string | null;
+  course_slug?: string | null;
+  course_cover?: string | null;
+}
+
+export interface LearnOrderReceipt {
+  id: string;
+  method_type: LearnPaymentMethodType;
+  sender_name: string | null;
+  sender_reference: string | null;
+  amount_minor: number | null;
+  paid_at: string | null;
+  note: string | null;
+  review_status: "PENDING" | "APPROVED" | "REJECTED";
+  rejection_reason: string | null;
+  created_at: string | null;
+}
+
+export interface LearnCheckout {
+  /** True when the learner already owns the course — the screen sends them to the player instead. */
+  already_enrolled: boolean;
+  course: {
+    id: string;
+    title: string;
+    slug: string;
+    subtitle: string | null;
+    cover_image_path: string | null;
+    price_minor: number;
+  };
+  currency?: string;
+  payment_methods?: LearnPaymentMethod[];
+  /** The order they already started, if any — checkout is resumable, never duplicated. */
+  open_order?: LearnOrder | null;
+  buyer?: { full_name: string; email: string; phone: string | null };
+}
+
+export function learnCheckout(academy: string, slug: string): Promise<LearnCheckout> {
+  return learnFetch(academy, `/checkout/${slug}`);
+}
+
+export function learnPlaceOrder(
+  academy: string,
+  slug: string,
+  input: { payment_method_id?: string | null; accept_terms: true },
+): Promise<{ ok: boolean; order: LearnOrder }> {
+  return learnFetch(academy, `/courses/${slug}/orders`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function learnOrders(academy: string): Promise<{ orders: LearnOrder[] }> {
+  return learnFetch(academy, "/orders");
+}
+
+export function learnOrder(
+  academy: string,
+  number: string,
+): Promise<{
+  order: LearnOrder;
+  course: LearnCheckout["course"] | null;
+  receipts: LearnOrderReceipt[];
+  payment_methods: LearnPaymentMethod[];
+}> {
+  return learnFetch(academy, `/orders/${number}`);
+}
+
+export function learnChooseMethod(
+  academy: string,
+  number: string,
+  paymentMethodId: string,
+): Promise<{ ok: boolean; order: LearnOrder }> {
+  return learnFetch(academy, `/orders/${number}/method`, {
+    method: "POST",
+    body: JSON.stringify({ payment_method_id: paymentMethodId }),
+  });
+}
+
+/** Upload the transfer proof. Multipart, so it goes through `learnUpload`, not `learnFetch`. */
+export function learnUploadReceipt(
+  academy: string,
+  number: string,
+  input: {
+    receipt: File;
+    payment_method_id?: string | null;
+    sender_name?: string;
+    sender_reference?: string;
+    amount_minor?: number | null;
+    paid_at?: string;
+    note?: string;
+  },
+): Promise<{ ok: boolean; order: LearnOrder }> {
+  const form = new FormData();
+  form.append("receipt", input.receipt);
+  if (input.payment_method_id) form.append("payment_method_id", input.payment_method_id);
+  if (input.sender_name) form.append("sender_name", input.sender_name);
+  if (input.sender_reference) form.append("sender_reference", input.sender_reference);
+  if (input.amount_minor != null) form.append("amount_minor", String(input.amount_minor));
+  if (input.paid_at) form.append("paid_at", input.paid_at);
+  if (input.note) form.append("note", input.note);
+
+  return learnUpload(academy, `/orders/${number}/receipt`, form);
+}
+
+export function learnCancelOrder(academy: string, number: string): Promise<{ ok: boolean }> {
+  return learnFetch(academy, `/orders/${number}/cancel`, { method: "POST" });
+}
+
+// ── learner notifications (docs/lms/10 §5) ───────────────────────────────────
+
+export interface LearnNotification {
+  id: string;
+  type:
+    | "RECEIPT_RECEIVED"
+    | "ORDER_APPROVED"
+    | "ORDER_REJECTED"
+    | "ORDER_REFUNDED"
+    | (string & {});
+  title: string;
+  body: string | null;
+  data: {
+    order_number?: string;
+    course_title?: string;
+    course_slug?: string;
+    reason?: string | null;
+  };
+  read_at: string | null;
+  created_at: string | null;
+}
+
+export function learnNotifications(
+  academy: string,
+): Promise<{ notifications: LearnNotification[]; unread: number }> {
+  return learnFetch(academy, "/notifications");
+}
+
+export function learnMarkNotificationsRead(academy: string): Promise<{ ok: boolean }> {
+  return learnFetch(academy, "/notifications/read", { method: "POST" });
+}
+
+// ── password reset (docs/lms/10 §2) ──────────────────────────────────────────
+
+/**
+ * Always resolves for a well-formed address, whether or not it belongs to a learner: the API answers
+ * 202 either way so a public course site cannot be used to test who its customers are.
+ */
+export function learnForgotPassword(
+  academy: string,
+  email: string,
+): Promise<{ ok: boolean; channel?: "EMAIL" | "WHATSAPP" }> {
+  return learnFetch(academy, "/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function learnResetPassword(
+  academy: string,
+  input: { token: string; password: string; password_confirmation: string },
+): Promise<{ ok: boolean }> {
+  return learnFetch(academy, "/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }

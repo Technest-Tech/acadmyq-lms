@@ -451,3 +451,81 @@ it('bills a package in the currency it was sold in, not the student\'s default',
     expect(DB::table('lesson_package_credits')->where('session_id', $session)->value('currency'))
         ->toBe('USD');
 });
+
+// ─── Editing a package (a correction, never a re-write of history) ────────────
+
+it('corrects an open package and moves its still-open bill with it', function () {
+    $package = ($this->openPackage)(10, 200000);
+    Sanctum::actingAs($this->owner);
+
+    $this->patchJson("/api/packages/{$package['package_id']}", [
+        'label' => '8 hours (corrected)',
+        'hours' => 8,
+        'price_minor' => 160000,
+    ])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $row = ($this->packageRow)($package['package_id']);
+
+    expect($row->label)->toBe('8 hours (corrected)')
+        ->and((int) $row->minutes_total)->toBe(480)
+        ->and((int) $row->price_minor)->toBe(160000)
+        // The rate is derived, never typed: 160000 / 8h.
+        ->and((int) $row->hourly_rate_minor)->toBe(20000);
+
+    // The bill it already raised follows, line and total together.
+    $invoice = DB::table('invoices')->where('id', $package['invoice_id'])->first();
+    expect((int) $invoice->total_minor)->toBe(160000)
+        ->and((int) $invoice->subtotal_minor)->toBe(160000);
+
+    $line = DB::table('invoice_line_items')->where('invoice_id', $package['invoice_id'])->first();
+    expect((int) $line->amount_minor)->toBe(160000)
+        ->and($line->description)->toContain('8 hours (corrected)');
+});
+
+it('refuses to shrink a package below the hours already taught', function () {
+    $package = ($this->openPackage)(4, 80000);
+    $session = ($this->lesson)(120);
+    Sanctum::actingAs($this->owner);
+
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    // 2h are gone; asking for a 2h package would leave it ACTIVE with no balance — a state the
+    // engine itself never produces. Closing is the operation that fits.
+    $this->patchJson("/api/packages/{$package['package_id']}", ['hours' => 2])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['hours']);
+
+    $this->asAcademy($this->academy);
+    expect((int) ($this->packageRow)($package['package_id'])->minutes_total)->toBe(240);
+});
+
+it('refuses to re-price a package whose bill has been paid', function () {
+    $package = ($this->openPackage)(10, 200000);
+
+    $this->asAcademy($this->academy);
+    DB::table('invoices')->where('id', $package['invoice_id'])->update([
+        'status' => 'PAID',
+        'amount_paid_minor' => 200000,
+    ]);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/packages/{$package['package_id']}", ['price_minor' => 100000])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['price_minor']);
+
+    $this->asAcademy($this->academy);
+    expect((int) ($this->packageRow)($package['package_id'])->price_minor)->toBe(200000);
+});
+
+it('refuses to edit a package that is no longer open', function () {
+    $package = ($this->openPackage)(4, 80000);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/{$package['package_id']}/close")->assertOk();
+
+    $this->patchJson("/api/packages/{$package['package_id']}", ['label' => 'too late'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors(['package_id']);
+});

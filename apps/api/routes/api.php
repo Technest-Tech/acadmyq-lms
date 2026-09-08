@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\BillingController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientPaymentController;
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\DemoRequestController as AdminDemoRequestController;
 use App\Http\Controllers\Admin\LmsOversightController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\RoleController;
@@ -28,6 +29,9 @@ use App\Http\Controllers\ExchangeRateController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
 use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
+use App\Http\Controllers\Learner\CheckoutController as LearnerCheckoutController;
+use App\Http\Controllers\Learner\NotificationController as LearnerNotificationController;
+use App\Http\Controllers\Learner\PasswordResetController as LearnerPasswordResetController;
 use App\Http\Controllers\Learner\PlayerController as LearnerPlayerController;
 use App\Http\Controllers\Learner\QuizController as LearnerQuizController;
 use App\Http\Controllers\Learner\RedemptionController as LearnerRedemptionController;
@@ -40,6 +44,8 @@ use App\Http\Controllers\Lms\LearnerAdminController;
 use App\Http\Controllers\Lms\LessonController;
 use App\Http\Controllers\Lms\MediaController;
 use App\Http\Controllers\Lms\MediaDeliveryController;
+use App\Http\Controllers\Lms\OrderController as LmsOrderController;
+use App\Http\Controllers\Lms\PaymentMethodController as LmsPaymentMethodController;
 use App\Http\Controllers\Lms\QuizController;
 use App\Http\Controllers\Lms\SectionController;
 use App\Http\Controllers\Lms\SiteProfileController as LmsSiteProfileController;
@@ -53,6 +59,7 @@ use App\Http\Controllers\People\StudentController;
 use App\Http\Controllers\People\TeacherController;
 use App\Http\Controllers\Public\AcademyPaymentController;
 use App\Http\Controllers\Public\BrandAssetController;
+use App\Http\Controllers\Public\DemoRequestController as PublicDemoRequestController;
 use App\Http\Controllers\Public\TenantSiteController;
 use App\Http\Controllers\Public\WhatsAppConnectController;
 use App\Http\Controllers\Quality\QualityReportController;
@@ -209,6 +216,18 @@ Route::middleware(['throttle:60,1'])->group(function () {
 });
 
 /*
+| Marketing-site demo requests (the public site's one conversion action). Anonymous by definition —
+| the person filling the form has no account — so it sits outside Sanctum with the other token-less
+| public endpoints, and writes through the one `demo_requests` RLS policy that is not super-admin.
+|
+| Its own tight named limiter ON TOP of the 60/min group: 6 an hour per IP. A prospect fills this in
+| once, so a ceiling that low costs a real visitor nothing and makes the endpoint useless as a spam
+| target. The controller adds a honeypot; between them there is no captcha to fail on a slow phone.
+*/
+Route::middleware(['throttle:60,1', 'throttle:demo-requests'])
+    ->post('/public/demo-requests', [PublicDemoRequestController::class, 'store']);
+
+/*
 | A client's uploaded logo (Super Admin → client page). PUBLIC because every surface that paints it —
 | the branded sign-in, the subdomain front door, the learner site — is seen before anyone logs in.
 | Its own, looser throttle rather than the 60/min public group: this is an <img> on pages a whole
@@ -281,6 +300,12 @@ Route::middleware(['throttle:120,1', 'resolve.academy'])->get('/site', [TenantSi
 Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group(function () {
     Route::post('/auth/register', [LearnerAuthController::class, 'register']);
     Route::post('/auth/login', [LearnerAuthController::class, 'login']);
+    // Password reset (docs/lms/10 §2). Deliberately NOT learner.auth — someone who cannot sign in is
+    // exactly who needs it. `forgot-password` always answers 202, so the site cannot be used to test
+    // whether an address is a customer; the token is delivered over the academy's own WhatsApp
+    // session (mail is the fallback), and only its sha256 is ever stored.
+    Route::post('/auth/forgot-password', [LearnerPasswordResetController::class, 'request']);
+    Route::post('/auth/reset-password', [LearnerPasswordResetController::class, 'reset']);
     // The site's own content (docs/lms/09) — brand + section copy the shared template renders. The
     // layout fetches it server-side on every page, so it precedes everything learner-specific.
     Route::get('/site', [LearnerSiteController::class, 'show']);
@@ -299,6 +324,23 @@ Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group
         Route::get('/lessons/{id}/quiz', [LearnerQuizController::class, 'show']);
         Route::post('/lessons/{id}/quiz/submit', [LearnerQuizController::class, 'submit']);
         Route::post('/lessons/{id}/progress', [LearnerPlayerController::class, 'progress']);
+
+        // Checkout & orders (docs/lms/10). The main way a paid course is bought: place an order,
+        // transfer the money outside the app, upload the receipt, watch the status page. Codes are
+        // untouched above — a course can offer either door, or both.
+        Route::get('/checkout/{slug}', [LearnerCheckoutController::class, 'show'])->where('slug', '[a-z0-9-]+');
+        Route::post('/courses/{slug}/orders', [LearnerCheckoutController::class, 'store'])->where('slug', '[a-z0-9-]+');
+        // Orders are addressed by their human-quotable number (ORD-000123), not their uuid: it is
+        // what the learner sees, screenshots and reads out on the phone.
+        Route::get('/orders', [LearnerCheckoutController::class, 'index']);
+        Route::get('/orders/{number}', [LearnerCheckoutController::class, 'showOrder'])->where('number', '[A-Za-z0-9-]+');
+        Route::post('/orders/{number}/method', [LearnerCheckoutController::class, 'chooseMethod'])->where('number', '[A-Za-z0-9-]+');
+        Route::post('/orders/{number}/receipt', [LearnerCheckoutController::class, 'uploadReceipt'])->where('number', '[A-Za-z0-9-]+');
+        Route::post('/orders/{number}/cancel', [LearnerCheckoutController::class, 'cancel'])->where('number', '[A-Za-z0-9-]+');
+
+        // The learner's own alert feed — receipt received / approved / rejected with the reason.
+        Route::get('/notifications', [LearnerNotificationController::class, 'index']);
+        Route::post('/notifications/read', [LearnerNotificationController::class, 'markAllRead']);
     });
 });
 
@@ -490,6 +532,12 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::patch('/admin/feature-flags/{key}', [SettingsController::class, 'updateFlag']);
     Route::get('/admin/settings', [SettingsController::class, 'settings']);
     Route::patch('/admin/settings', [SettingsController::class, 'updateSettings']);
+
+    // Marketing demo requests (Super Admin, platform.manage) — the inbox behind the public form on
+    // acadmyq.com. Platform-scoped: these prospects belong to no academy, which is exactly why they
+    // cannot live in an academy's own `crm_leads` pipeline.
+    Route::get('/admin/demo-requests', [AdminDemoRequestController::class, 'index']);
+    Route::patch('/admin/demo-requests/{id}', [AdminDemoRequestController::class, 'update'])->whereUuid('id');
 
     // Role ⇄ capability editor (Super Admin, platform.manage). Rewrites the role_permissions
     // catalog; a SUPER_ADMIN lockout guard + full before/after audit protect the blast radius.
@@ -690,6 +738,27 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         // learner-site template. Literal, so it must precede the whereUuid'd `/courses/{id}`.
         Route::get('/courses/site', [LmsSiteProfileController::class, 'show']);
         Route::put('/courses/site', [LmsSiteProfileController::class, 'update']);
+
+        // The sales desk (docs/lms/10 §4) — the order queue, the receipts awaiting a decision and
+        // the money the catalogue made. `course_order.read` opens it; every decision that moves
+        // money or access additionally needs `course_order.manage`. All literal `orders` /
+        // `payment-*` segments, so they precede the whereUuid'd `/courses/{id}` below.
+        Route::get('/courses/orders', [LmsOrderController::class, 'index']);
+        Route::get('/courses/orders/summary', [LmsOrderController::class, 'summary']);
+        Route::get('/courses/orders/{id}', [LmsOrderController::class, 'show'])->whereUuid('id');
+        Route::get('/courses/orders/{id}/receipts/{receiptId}/file', [LmsOrderController::class, 'receiptFile'])
+            ->whereUuid(['id', 'receiptId']);
+        Route::post('/courses/orders/{id}/approve', [LmsOrderController::class, 'approve'])->whereUuid('id');
+        Route::post('/courses/orders/{id}/reject', [LmsOrderController::class, 'reject'])->whereUuid('id');
+        Route::post('/courses/orders/{id}/refund', [LmsOrderController::class, 'refund'])->whereUuid('id');
+        Route::post('/courses/orders/{id}/cancel', [LmsOrderController::class, 'cancel'])->whereUuid('id');
+        Route::post('/courses/orders/{id}/status', [LmsOrderController::class, 'setStatus'])->whereUuid('id');
+
+        // Where the client's money lands. Changing an account number is its own capability
+        // (`payment_method.manage`); the currency is the academy's, guarded by payment_settings.manage.
+        Route::get('/courses/payment-methods', [LmsPaymentMethodController::class, 'index']);
+        Route::put('/courses/payment-methods', [LmsPaymentMethodController::class, 'update']);
+        Route::put('/courses/payment-currency', [LmsPaymentMethodController::class, 'setCurrency']);
         Route::post('/courses', [CourseController::class, 'store']);
         Route::get('/courses/{id}', [CourseController::class, 'show'])->whereUuid('id');
         Route::patch('/courses/{id}', [CourseController::class, 'update'])->whereUuid('id');
@@ -752,6 +821,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // Count of today's SCHEDULED sessions for the sidebar Attendance badge; before /{id}.
     Route::get('/sessions/day/count', [SessionController::class, 'dayCount']);
     Route::get('/sessions/{id}', [SessionController::class, 'show']);
+    Route::get('/sessions/{id}/duration-preview', [SessionController::class, 'durationPreview']);
+    Route::patch('/sessions/{id}/duration', [SessionController::class, 'updateDuration']);
     Route::post('/sessions/{id}/attendance', [AttendanceController::class, 'store']);
     Route::put('/sessions/{id}/report', [SessionReportController::class, 'put']);
     Route::post('/sessions/{id}/report/whatsapp-sent', [SessionReportController::class, 'whatsappSent']);
@@ -810,6 +881,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/packages/students', [LessonPackageController::class, 'students']);
         Route::post('/packages', [LessonPackageController::class, 'store']);
         Route::get('/packages/{id}', [LessonPackageController::class, 'show']);
+        Route::patch('/packages/{id}', [LessonPackageController::class, 'update']);
         Route::post('/packages/{id}/sync-lessons', [LessonPackageController::class, 'syncLessons']);
         Route::post('/packages/{id}/close', [LessonPackageController::class, 'close']);
         Route::post('/packages/{id}/cancel', [LessonPackageController::class, 'cancel']);

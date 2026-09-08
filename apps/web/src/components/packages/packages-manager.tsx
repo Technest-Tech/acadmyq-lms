@@ -11,6 +11,7 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { EditPackageForm } from "@/components/packages/edit-package-form";
 import { OpenPackageForm } from "@/components/packages/open-package-form";
 import { PackageCard } from "@/components/packages/package-card";
 import { PackageDetail } from "@/components/packages/package-detail";
@@ -70,6 +71,7 @@ export function PackagesManager() {
     | { kind: "closed" }
     | { kind: "open" }
     | { kind: "detail"; row: LessonPackageRow }
+    | { kind: "edit"; row: LessonPackageRow }
     | { kind: "close"; row: LessonPackageRow }
   >({ kind: "closed" });
   const [busy, setBusy] = useState(false);
@@ -352,6 +354,7 @@ export function PackagesManager() {
               syncing={syncingId === row.id}
               sendingPayment={sendingId === row.id}
               onOpenDetail={() => setModal({ kind: "detail", row })}
+              onEdit={() => setModal({ kind: "edit", row })}
               onClose={() => {
                 setCloseReason("");
                 setModal({ kind: "close", row });
@@ -374,6 +377,27 @@ export function PackagesManager() {
       >
         {modal.kind === "open" && (
           <OpenPackageForm
+            onCancel={() => setModal({ kind: "closed" })}
+            onSaved={(message) => {
+              setModal({ kind: "closed" });
+              refresh();
+              showAlert("success", message);
+            }}
+          />
+        )}
+      </Modal>
+
+      {/* ── Correct the terms ────────────────────────────────────────── */}
+      <Modal
+        open={modal.kind === "edit"}
+        onClose={() => setModal({ kind: "closed" })}
+        title={t("edit.title")}
+        description={t("edit.description")}
+        size="md"
+      >
+        {modal.kind === "edit" && (
+          <EditPackageForm
+            row={modal.row}
             onCancel={() => setModal({ kind: "closed" })}
             onSaved={(message) => {
               setModal({ kind: "closed" });

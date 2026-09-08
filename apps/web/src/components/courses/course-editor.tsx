@@ -23,7 +23,15 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { CourseStatusBadge } from "@/components/courses/course-status-badge";
-import { Field, inputClass, PriceField, textareaClass } from "@/components/courses/form-bits";
+import {
+  CheckOption,
+  Field,
+  inputClass,
+  PriceField,
+  selectClass,
+  textareaClass,
+} from "@/components/courses/form-bits";
+import { StringList } from "@/components/courses/site-editor-bits";
 import { MediaUpload } from "@/components/courses/media-upload";
 import { LessonModal } from "@/components/courses/lesson-modal";
 import {
@@ -49,7 +57,9 @@ import {
   setCourseStatus,
   updateCourse,
   updateSection,
+  COURSE_LEVELS,
   type CourseDetail,
+  type CourseLevel,
   type CourseStatus,
   type Lesson,
 } from "@/lib/api";
@@ -82,6 +92,16 @@ export function CourseEditor({ courseId }: { courseId: string }) {
     subtitle: "",
     description: "",
     price_minor: 0,
+    // How this course may be unlocked (docs/lms/10 §1) — checkout, access codes, or both.
+    checkout_enabled: true,
+    code_enabled: true,
+    // The sales half of the course (docs/lms/09 §4). All optional: a course with none of it set
+    // renders exactly as it does today, minus the blocks nobody wrote.
+    level: "" as "" | CourseLevel,
+    category: "",
+    outcomes: [] as string[],
+    requirements: [] as string[],
+    audience: [] as string[],
   });
   const [detailsDirty, setDetailsDirty] = useState(false);
   const [newSection, setNewSection] = useState("");
@@ -114,6 +134,13 @@ export function CourseEditor({ courseId }: { courseId: string }) {
           subtitle: d.course.subtitle ?? "",
           description: d.course.description ?? "",
           price_minor: d.course.price_minor,
+          checkout_enabled: d.course.checkout_enabled ?? true,
+          code_enabled: d.course.code_enabled ?? true,
+          level: d.course.level ?? "",
+          category: d.course.category ?? "",
+          outcomes: d.course.outcomes ?? [],
+          requirements: d.course.requirements ?? [],
+          audience: d.course.audience ?? [],
         });
         setDetailsDirty(false);
         setCoverAssetId(null);
@@ -129,6 +156,15 @@ export function CourseEditor({ courseId }: { courseId: string }) {
         subtitle: details.subtitle.trim() || null,
         description: details.description.trim() || null,
         price_minor: details.price_minor,
+        checkout_enabled: details.checkout_enabled,
+        code_enabled: details.code_enabled,
+        level: details.level === "" ? null : details.level,
+        category: details.category.trim() || null,
+        // Blank rows are dropped server-side too; trimming here keeps the form honest about what
+        // it is about to save.
+        outcomes: details.outcomes.map((v) => v.trim()).filter(Boolean),
+        requirements: details.requirements.map((v) => v.trim()).filter(Boolean),
+        audience: details.audience.map((v) => v.trim()).filter(Boolean),
         // Only sent when a new image was uploaded — omitting it leaves the existing cover alone.
         ...(coverAssetId !== null ? { cover_media_asset_id: coverAssetId } : {}),
       });
@@ -542,6 +578,121 @@ export function CourseEditor({ courseId }: { courseId: string }) {
                   }}
                 />
               </Field>
+              {/* How this course is unlocked (docs/lms/10 §1). Only meaningful once it has a
+                  price — a free course is one click for anyone, with no channel to choose. */}
+              {details.price_minor > 0 && (
+                <div className="space-y-2">
+                  <span className="text-sm font-medium">{t("channels.label")}</span>
+                  <CheckOption
+                    checked={details.checkout_enabled}
+                    disabled={!canManage}
+                    onChange={(v) => {
+                      setDetails((d) => ({ ...d, checkout_enabled: v }));
+                      setDetailsDirty(true);
+                    }}
+                    label={t("channels.checkout")}
+                    hint={
+                      course.sells_online === false && details.checkout_enabled
+                        ? t("channels.noMethods")
+                        : t("channels.checkoutHint")
+                    }
+                  />
+                  <CheckOption
+                    checked={details.code_enabled}
+                    disabled={!canManage}
+                    onChange={(v) => {
+                      setDetails((d) => ({ ...d, code_enabled: v }));
+                      setDetailsDirty(true);
+                    }}
+                    label={t("channels.code")}
+                    hint={t("channels.codeHint")}
+                  />
+                  {!details.checkout_enabled && !details.code_enabled && (
+                    <p className="text-destructive text-xs">{t("channels.noneWarning")}</p>
+                  )}
+                </div>
+              )}
+
+              {/* ── The sales half (docs/lms/09 §4) ────────────────────────────────
+                  Everything here is optional and everything here is REAL: a block the owner
+                  leaves empty simply does not appear on the public course page, because the
+                  alternative — filler outcomes nobody wrote — is what makes a storefront look
+                  like a demo. */}
+              <div className="space-y-4 border-t pt-4">
+                <div>
+                  <p className="text-sm font-semibold">{t("sales.label")}</p>
+                  <p className="text-muted-foreground mt-0.5 text-xs">
+                    {t("sales.hint")}
+                  </p>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label={t("sales.level")} optional={t("form.optional")}>
+                    <select
+                      value={details.level}
+                      disabled={!canManage}
+                      onChange={(e) => {
+                        setDetails((d) => ({
+                          ...d,
+                          level: e.target.value as "" | CourseLevel,
+                        }));
+                        setDetailsDirty(true);
+                      }}
+                      className={selectClass}
+                    >
+                      <option value="">{t("sales.levelNone")}</option>
+                      {COURSE_LEVELS.map((value) => (
+                        <option key={value} value={value}>
+                          {t(`sales.levels.${value}`)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field
+                    label={t("sales.category")}
+                    optional={t("form.optional")}
+                    hint={t("sales.categoryHint")}
+                  >
+                    <input
+                      value={details.category}
+                      disabled={!canManage}
+                      onChange={(e) => {
+                        setDetails((d) => ({ ...d, category: e.target.value }));
+                        setDetailsDirty(true);
+                      }}
+                      className={inputClass}
+                    />
+                  </Field>
+                </div>
+
+                {(
+                  [
+                    ["outcomes", 12],
+                    ["audience", 8],
+                    ["requirements", 8],
+                  ] as const
+                ).map(([key, max]) => (
+                  <Field
+                    key={key}
+                    label={t(`sales.${key}`)}
+                    optional={t("form.optional")}
+                    hint={t(`sales.${key}Hint`)}
+                  >
+                    <StringList
+                      items={details[key]}
+                      onChange={(items) => {
+                        setDetails((d) => ({ ...d, [key]: items }));
+                        setDetailsDirty(true);
+                      }}
+                      addLabel={t("sales.add")}
+                      placeholder={t(`sales.${key}Placeholder`)}
+                      max={max}
+                      maxLabel={t("sales.max")}
+                    />
+                  </Field>
+                ))}
+              </div>
+
               {canManage && (
                 <Button
                   className="w-full"

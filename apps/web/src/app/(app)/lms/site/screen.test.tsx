@@ -36,6 +36,14 @@ function profile(): LmsSiteProfile {
     footer: { note: "", links: [] },
     seo: { title: "", description: "", og_image_url: "" },
     pages: { about: true, faq: true, contact: true },
+    legal: {
+      show: true,
+      terms: "",
+      refund: "",
+      privacy: "",
+      business_name: "",
+      updated_at: "",
+    },
   };
   return {
     content,

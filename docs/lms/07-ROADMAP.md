@@ -92,6 +92,43 @@ Add `VIDEO_UPLOAD` lessons: direct-to-storage upload → transcode → HLS playb
 
 ---
 
+## Phase 5 — Orders, checkout & manual payments  *(done)*
+
+Turn the site from "ask us for a code" into a shop. Full spec:
+[10-ORDERS-CHECKOUT-AND-PAYMENTS.md](10-ORDERS-CHECKOUT-AND-PAYMENTS.md).
+
+**Backend**
+- `2026_09_08_000001_lms_orders_and_payments.php` — `lms_payment_methods, course_orders,
+  course_order_receipts, course_order_counters, learner_notifications, learner_password_resets` +
+  RLS, `courses.checkout_enabled / code_enabled`, `enrollments.source_order_id`, and
+  `app.next_course_order_number()`.
+- `2026_09_08_000002_seed_lms_sales_permissions.php` — `course_order.read/manage,
+  payment_method.manage` (owner-only; also added to `PermissionCatalog::FINANCIAL`, so a SUPERVISOR
+  never sees the money).
+- `2026_09_08_000003_automation_send_log_learner.php` — the send log learns `LEARNER` / `LMS`.
+- `App\Services\Lms\CourseOrders` — the state machine, and the ONE writer of `course_orders.status`.
+- Learner: `CheckoutController`, `NotificationController`, `PasswordResetController`.
+- Staff: `Lms\OrderController` (queue, summary, decisions, private receipt stream),
+  `Lms\PaymentMethodController` (receiving accounts + currency).
+
+**Frontend**
+- Dashboard: `/lms/sales` (queue + review drawer + Excel export), `/lms/payments` (receiving
+  accounts), per-course channel toggles in the course editor, a pending-receipts sidebar badge.
+- Learner site: Buy CTA, `/checkout/<slug>`, `/orders`, `/orders/<number>`, `/legal/{terms,refund,
+  privacy}`, `/forgot-password`, `/reset-password`, an orders entry in the account menu.
+- Marketing: `/course-platform`, the sales page for the module itself.
+
+**Acceptance**
+- A learner buys a course, uploads an InstaPay receipt, and the client's approval enrolls them in the
+  same transaction — no codes anywhere in the flow.
+- A rejected receipt shows the client's reason verbatim and accepts a corrected upload.
+- A course with `checkout_enabled` off shows no Buy button; with `code_enabled` off, a code minted
+  earlier stops working.
+- The Buy button never appears while the client has no active payment method.
+- `course_orders_one_open_idx` makes a duplicate pending order impossible, not merely unlikely.
+
+---
+
 ## Cross-cutting
 
 - **Tests**, per phase, mirroring the API test suite (mind the `plan_id ⇒ PRO` gotcha:

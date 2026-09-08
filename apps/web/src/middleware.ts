@@ -60,6 +60,18 @@ export async function middleware(req: NextRequest) {
   if (ROOTS.length === 0) return NextResponse.next();
 
   const host = ((req.headers.get("host") ?? "").split(":")[0] ?? "").toLowerCase();
+
+  // `www` is the platform's own marketing site under a second name. Both names serving the same
+  // pages splits their search ranking and gives the demo form a second origin the API's CORS list
+  // does not know about — so one canonical host, and a permanent redirect from the other.
+  const apex = ROOTS.find((root) => host === `www.${root}`);
+  if (apex !== undefined) {
+    const url = req.nextUrl.clone();
+    url.hostname = apex;
+
+    return NextResponse.redirect(url, 308);
+  }
+
   const sub = handleFor(host);
   if (sub === null) return NextResponse.next();
 

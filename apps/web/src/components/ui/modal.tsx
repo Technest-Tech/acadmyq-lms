@@ -1,9 +1,13 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+
+/** Everything a keyboard can land on inside the dialog, in document order. */
+const FOCUSABLE =
+  'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
 const SIZE_CLASSES = {
   sm: "max-w-sm",
@@ -20,6 +24,8 @@ export interface ModalProps {
   size?: keyof typeof SIZE_CLASSES;
   children: ReactNode;
   footer?: ReactNode;
+  /** Accessible name for the close button. Defaults to "Close"; pass a translated one. */
+  closeLabel?: string;
 }
 
 export function Modal({
@@ -30,14 +36,59 @@ export function Modal({
   size = "md",
   children,
   footer,
+  closeLabel = "Close",
 }: ModalProps) {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Escape closes, and Tab stays inside.
+   *
+   * Without the trap, tabbing out of a sign-in dialog lands on the page behind it — which on a
+   * phone means the on-screen keyboard is now editing a form the visitor cannot see. The dialog
+   * also takes focus when it opens and hands it back to whatever opened it on close, so a keyboard
+   * user is never dropped at the top of the document.
+   */
   useEffect(() => {
     if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const node = dialogRef.current;
+    const focusables = () =>
+      Array.from(node?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(
+        (el) => el.offsetParent !== null || el === document.activeElement,
+      );
+
+    (focusables()[0] ?? node)?.focus();
+
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab" || node === null) return;
+      const items = focusables();
+      if (items.length === 0) {
+        e.preventDefault();
+        node.focus();
+        return;
+      }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || active === node)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
+
     document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      previous?.focus?.();
+    };
   }, [open, onClose]);
 
   useEffect(() => {
@@ -61,11 +112,15 @@ export function Modal({
       <div className="fixed inset-0 z-50 overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
           <div
+            ref={dialogRef}
             role="dialog"
             aria-modal
-            aria-labelledby="modal-title"
+            aria-labelledby={titleId}
+            tabIndex={-1}
             className={cn(
-              "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-4",
+              "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-4 outline-none",
+              // dvh, not vh: with the mobile keyboard open the visual viewport shrinks, and a
+              // dialog sized to the layout viewport puts its submit button under the keyboard.
               "relative flex w-full flex-col max-h-[90dvh]",
               "rounded-2xl bg-card shadow-2xl ring-1 ring-foreground/[0.08] duration-200",
               SIZE_CLASSES[size],
@@ -75,7 +130,7 @@ export function Modal({
             <div className="flex shrink-0 items-start justify-between gap-4 border-b px-6 py-4">
               <div>
                 <h2
-                  id="modal-title"
+                  id={titleId}
                   className="text-base font-semibold leading-snug"
                 >
                   {title}
@@ -89,8 +144,8 @@ export function Modal({
               <button
                 type="button"
                 onClick={onClose}
-                className="text-muted-foreground hover:bg-muted hover:text-foreground mt-0.5 shrink-0 rounded-lg p-1.5 transition-colors"
-                aria-label="Close"
+                className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/60 mt-0.5 shrink-0 rounded-lg p-1.5 transition-colors focus-visible:ring-2 focus-visible:outline-none"
+                aria-label={closeLabel}
               >
                 <X className="size-4" aria-hidden />
               </button>

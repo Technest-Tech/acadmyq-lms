@@ -269,6 +269,62 @@ export function StringList({
   );
 }
 
+/**
+ * A URL field for an image, with a live preview of whatever the client pasted.
+ *
+ * Images on the public site are URLs, not uploads (docs/lms/09), which means the client's only
+ * feedback used to be publishing the site and looking. The thumbnail answers the two questions a
+ * pasted link actually raises — does it load at all, and is it the right shape — before they save.
+ */
+export function ImageField({
+  value,
+  onChange,
+  /** `square` for a logo or avatar, `wide` for a hero or cover. Matches how the site crops it. */
+  shape = "wide",
+  alt,
+  placeholder = "https://…",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  shape?: "square" | "wide";
+  alt: string;
+  placeholder?: string;
+}) {
+  const [broken, setBroken] = useState(false);
+  const url = value.trim();
+  const usable = /^https?:\/\//i.test(url);
+
+  return (
+    <div className="flex items-start gap-3">
+      <input
+        className={inputClass}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => {
+          setBroken(false);
+          onChange(e.target.value);
+        }}
+      />
+      {usable && !broken && (
+        <span
+          className={cn(
+            "bg-muted shrink-0 overflow-hidden rounded-lg border",
+            shape === "square" ? "size-10" : "h-10 w-16",
+          )}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={url}
+            alt={alt}
+            className="size-full object-contain"
+            onError={() => setBroken(true)}
+          />
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** Brand-colour picker: a swatch, a native colour input and the hex, kept in sync. */
 export function ColorField({
   value,

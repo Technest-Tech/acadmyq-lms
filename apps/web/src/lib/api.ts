@@ -1818,6 +1818,13 @@ export interface AvailabilityWindow {
   end_local: string;
 }
 
+/**
+ * Where a teacher's pay is sent. INSTAPAY carries an address (`name@instapay`) or a share link;
+ * WALLET carries a mobile-wallet number. The handle is free text because the two shapes are not
+ * interchangeable — see the 2026_09_09 teacher_payout_destination migration.
+ */
+export type PayoutMethod = "INSTAPAY" | "WALLET";
+
 export interface TeacherRow {
   id: string;
   user_id: string | null;
@@ -1828,6 +1835,9 @@ export interface TeacherRow {
   currency: string;
   timezone: string | null;
   availability: AvailabilityWindow[];
+  /** Always both set or both null — the API refuses a half-filled pair. */
+  payout_method: PayoutMethod | null;
+  payout_handle: string | null;
   is_active: boolean;
   deleted_at: string | null;
   created_at: string;
@@ -1854,6 +1864,8 @@ export interface TeacherInput {
   currency?: string | null;
   timezone?: string | null;
   availability?: AvailabilityWindow[];
+  payout_method?: PayoutMethod | null;
+  payout_handle?: string | null;
   create_login?: boolean;
   email?: string | null;
   password?: string | null;
@@ -2929,6 +2941,69 @@ export interface SessionDetailResponse {
 
 export function getSession(sessionId: string): Promise<SessionDetailResponse> {
   return apiFetch(`/api/sessions/${sessionId}`);
+}
+
+export interface SessionDurationImpact {
+  session_id: string;
+  duration_before: number;
+  duration_after: number;
+  can_change: boolean;
+  blockers: Array<
+    | "NOT_ATTENDED"
+    | "INVOICE_LOCKED"
+    | "PACKAGE_CLOSED"
+    | "PAYOUT_FINALIZED"
+  >;
+  invoice: {
+    invoice_id: string;
+    status: string;
+    currency: string;
+    pricing_basis: string;
+    amount_before: number;
+    amount_after: number;
+  } | null;
+  package: {
+    package_id: string;
+    label: string;
+    status: string;
+    currency: string;
+    consumed_before: number;
+    consumed_after: number;
+    remaining_before: number;
+    remaining_after: number;
+    overdrawn_after: number;
+    credit_overdrawn_after: number;
+    will_complete: boolean;
+  } | null;
+  payout: {
+    payout_id: string;
+    currency: string;
+    finalized: boolean;
+    amount_before: number;
+    amount_after: number;
+  } | null;
+}
+
+/** Preview the exact invoice/package/payroll effect before correcting an attended lesson. */
+export function previewSessionDuration(
+  sessionId: string,
+  durationMinutes: number,
+): Promise<SessionDurationImpact> {
+  const qs = new URLSearchParams({
+    duration_minutes: String(durationMinutes),
+  });
+  return apiFetch(`/api/sessions/${sessionId}/duration-preview?${qs}`);
+}
+
+/** Apply a confirmed duration correction as one financial transaction. */
+export function updateSessionDuration(
+  sessionId: string,
+  durationMinutes: number,
+): Promise<{ ok: boolean; impact: SessionDurationImpact }> {
+  return apiFetch(`/api/sessions/${sessionId}/duration`, {
+    method: "PATCH",
+    body: JSON.stringify({ duration_minutes: durationMinutes }),
+  });
 }
 
 /**
@@ -4587,6 +4662,20 @@ export const AUTHORABLE_LESSON_TYPES: readonly LessonType[] = [
   "QUIZ",
 ];
 
+/** How hard a course is. Drives a catalogue facet on the public site, hence a closed set. */
+export type CourseLevel =
+  | "BEGINNER"
+  | "INTERMEDIATE"
+  | "ADVANCED"
+  | "ALL_LEVELS";
+
+export const COURSE_LEVELS: readonly CourseLevel[] = [
+  "BEGINNER",
+  "INTERMEDIATE",
+  "ADVANCED",
+  "ALL_LEVELS",
+];
+
 export interface CourseRow {
   id: string;
   title: string;
@@ -4603,6 +4692,11 @@ export interface CourseRow {
   currency: string;
   /** Derived: true when `price_minor` is 0. */
   is_free: boolean;
+  /** How this course may be unlocked (docs/lms/10 §1) — checkout, access codes, or both. */
+  checkout_enabled: boolean;
+  code_enabled: boolean;
+  /** Derived: priced + checkout on + the client has a live receiving account. */
+  sells_online: boolean;
 }
 
 export interface CourseSummary {
@@ -4635,9 +4729,25 @@ export interface CourseSection {
   lessons: Lesson[];
 }
 
+/**
+ * The sales half of a course (docs/lms/09 §4) — what the buyer weighs that the curriculum cannot
+ * say. Every field is optional and empty is the normal state; the public page hides what is unset
+ * rather than inventing it.
+ */
+export interface CourseSalesFields {
+  level: CourseLevel | null;
+  category: string | null;
+  /** "What you'll learn" — the promise the price is attached to. */
+  outcomes: string[];
+  /** "Before you start" — prerequisites. */
+  requirements: string[];
+  /** "This course is for you if…" */
+  audience: string[];
+}
+
 /** The full editor payload: the course row (with description) + its section→lesson outline. */
 export interface CourseDetail {
-  course: CourseRow & { description: string | null };
+  course: CourseRow & { description: string | null } & Partial<CourseSalesFields>;
   sections: CourseSection[];
 }
 
@@ -4649,6 +4759,16 @@ export interface CourseInput {
   price_minor?: number;
   /** A READY IMAGE upload to use as the cover; the API stores its key and serves a loadable url. */
   cover_media_asset_id?: string | null;
+  /** Sell this course through checkout (docs/lms/10 §1). Default true. */
+  checkout_enabled?: boolean;
+  /** Accept access codes for this course — the offline channel. Default true. */
+  code_enabled?: boolean;
+  /** Sales metadata (docs/lms/09 §4). Send `[]` to clear a list; omit to leave it untouched. */
+  level?: CourseLevel | null;
+  category?: string | null;
+  outcomes?: string[];
+  requirements?: string[];
+  audience?: string[];
 }
 
 export interface LessonInput {
@@ -6200,6 +6320,28 @@ export function openLessonPackage(input: {
   });
 }
 
+/**
+ * PATCH /api/packages/{id} — correct a package that was entered wrong.
+ *
+ * Open packages only, and only these four facts: everything else about a package is a record of
+ * what happened. The hourly rate is re-derived server-side, and a still-OPEN bill moves with the
+ * package — one that has been paid makes the API refuse rather than let the two disagree.
+ */
+export function updateLessonPackage(
+  id: string,
+  input: {
+    label?: string;
+    hours?: number;
+    price_minor?: number;
+    expires_on?: string | null;
+  },
+): Promise<{ ok: boolean; changed: string[]; invoice_id: string | null }> {
+  return apiFetch(`/api/packages/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
 /** Import already-billed lessons between a package's start date and now. */
 export function syncLessonPackage(id: string): Promise<{
   imported: number;
@@ -6250,4 +6392,278 @@ export function billPackageOverdraft(
   id: string,
 ): Promise<{ ok: boolean; invoice_id: string }> {
   return apiFetch(`/api/packages/${id}/bill-overdraft`, { method: "POST" });
+}
+
+/* ─── Course sales: orders, receipts & receiving accounts (docs/lms/10) ─────── */
+
+export type CourseOrderStatus =
+  | "AWAITING_PAYMENT"
+  | "UNDER_REVIEW"
+  | "PAID"
+  | "REJECTED"
+  | "CANCELLED"
+  | "REFUNDED";
+
+export type PaymentMethodType = "INSTAPAY" | "VODAFONE_CASH" | "BANK_TRANSFER" | "OTHER";
+
+/** One row of the sales queue. Money is integer minor units + a currency, never a float. */
+export interface CourseOrderRow {
+  id: string;
+  order_number: string;
+  status: CourseOrderStatus;
+  channel: "MANUAL" | "GATEWAY";
+  price_minor: number;
+  currency: string;
+  payment_method_type: PaymentMethodType | null;
+  buyer_name: string | null;
+  buyer_email: string | null;
+  buyer_phone: string | null;
+  rejection_reason: string | null;
+  submitted_at: string | null;
+  confirmed_at: string | null;
+  created_at: string | null;
+  course_id: string;
+  course_title: string | null;
+  course_slug: string | null;
+  learner_id: string | null;
+  learner_status: string | null;
+  receipt_count: number | null;
+}
+
+export interface CourseOrderDetail extends CourseOrderRow {
+  terms_accepted_at: string | null;
+  refunded_at: string | null;
+  refund_reason: string | null;
+  staff_note: string | null;
+  learner: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    phone: string | null;
+    status: string | null;
+    since: string | null;
+  };
+  /** Null until the order is approved — the enrollment IS the thing being sold. */
+  enrollment: {
+    status: string;
+    enrolled_at: string | null;
+    from_order: boolean;
+    from_code: boolean;
+  } | null;
+}
+
+export interface CourseOrderReceipt {
+  id: string;
+  method_type: PaymentMethodType;
+  sender_name: string | null;
+  sender_reference: string | null;
+  amount_minor: number | null;
+  paid_at: string | null;
+  note: string | null;
+  review_status: "PENDING" | "APPROVED" | "REJECTED";
+  rejection_reason: string | null;
+  reviewed_at: string | null;
+  created_at: string | null;
+  /** The file is a PDF rather than an image — render a link, not an <img>. */
+  is_pdf: boolean;
+}
+
+export interface CourseSalesSummary {
+  currency: string;
+  stats: {
+    orders: number;
+    paid: number;
+    under_review: number;
+    awaiting_payment: number;
+    rejected: number;
+    cancelled: number;
+    refunded: number;
+    /** Receipts, not orders — the number that actually demands a human. */
+    pending_receipts: number;
+    /** PAID only. A refund is reported on its own line, never netted out of this. */
+    revenue_minor: number;
+    refunded_minor: number;
+    orders_this_month: number;
+    revenue_this_month_minor: number;
+  };
+  by_course: {
+    course_id: string;
+    title: string;
+    slug: string;
+    orders: number;
+    paid: number;
+    revenue_minor: number;
+  }[];
+}
+
+export function listCourseOrders(
+  q: DataTableQuery = {},
+): Promise<ListResult<CourseOrderRow>> {
+  return apiFetch(`/api/courses/orders${toQueryString(q)}`);
+}
+
+export function getCourseSalesSummary(): Promise<CourseSalesSummary> {
+  return apiFetch("/api/courses/orders/summary");
+}
+
+export function getCourseOrder(
+  id: string,
+): Promise<{ order: CourseOrderDetail; receipts: CourseOrderReceipt[] }> {
+  return apiFetch(`/api/courses/orders/${id}`);
+}
+
+/**
+ * The receipt image lives on the private disk, so it is streamed through a capability-gated
+ * endpoint rather than linked. Returns an object URL the caller must revoke when done.
+ */
+export async function fetchCourseOrderReceipt(
+  orderId: string,
+  receiptId: string,
+): Promise<string> {
+  const headers = new Headers({ Accept: "image/*,application/pdf" });
+  if (AUTH_MODE === "token") {
+    const token = getAuthToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
+  const res = await fetch(
+    `${apiBase()}/api/courses/orders/${orderId}/receipts/${receiptId}/file`,
+    { headers, credentials: AUTH_MODE === "cookie" ? "include" : "same-origin" },
+  );
+  if (!res.ok) throw new ApiError(res.status, "Receipt fetch failed");
+  return URL.createObjectURL(await res.blob());
+}
+
+export function approveCourseOrder(
+  id: string,
+  note?: string,
+): Promise<{ ok: boolean; order: CourseOrderRow }> {
+  return apiFetch(`/api/courses/orders/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ note: note ?? null }),
+  });
+}
+
+/** The reason is required and is shown to the learner verbatim (docs/lms/10 §5). */
+export function rejectCourseOrder(
+  id: string,
+  reason: string,
+): Promise<{ ok: boolean; order: CourseOrderRow }> {
+  return apiFetch(`/api/courses/orders/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function refundCourseOrder(
+  id: string,
+  input: { reason?: string | null; keep_access?: boolean } = {},
+): Promise<{ ok: boolean; order: CourseOrderRow }> {
+  return apiFetch(`/api/courses/orders/${id}/refund`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function cancelCourseOrder(
+  id: string,
+): Promise<{ ok: boolean; order: CourseOrderRow }> {
+  return apiFetch(`/api/courses/orders/${id}/cancel`, { method: "POST" });
+}
+
+export interface LmsPaymentMethod {
+  /** Null until the slot has been saved once — the editor always shows all four. */
+  id: string | null;
+  type: PaymentMethodType;
+  label: string | null;
+  account_name: string | null;
+  account_number: string | null;
+  bank_name: string | null;
+  instructions: string | null;
+  is_active: boolean;
+  position: number;
+}
+
+export function getLmsPaymentMethods(): Promise<{
+  methods: LmsPaymentMethod[];
+  currency: string;
+  active_count: number;
+}> {
+  return apiFetch("/api/courses/payment-methods");
+}
+
+/** Saves all four slots in one write — no half-configured method can exist. */
+export function saveLmsPaymentMethods(
+  methods: LmsPaymentMethod[],
+): Promise<{ methods: LmsPaymentMethod[]; currency: string; active_count: number }> {
+  return apiFetch("/api/courses/payment-methods", {
+    method: "PUT",
+    body: JSON.stringify({ methods }),
+  });
+}
+
+/** Refused once a sale exists: prices are stored bare, so this re-denominates rather than converts. */
+export function setLmsCurrency(currency: string): Promise<{ ok: boolean; currency: string }> {
+  return apiFetch("/api/courses/payment-currency", {
+    method: "PUT",
+    body: JSON.stringify({ currency }),
+  });
+}
+
+// ── Marketing demo requests (Super Admin, platform.manage) ───────────────────
+
+/** The status a lead is worked through, in the order the Super Admin screen shows them. */
+export const DEMO_REQUEST_STATUSES = [
+  "NEW",
+  "CONTACTED",
+  "QUALIFIED",
+  "WON",
+  "LOST",
+] as const;
+
+export type DemoRequestStatus = (typeof DEMO_REQUEST_STATUSES)[number];
+
+export type DemoRequestProduct =
+  | "COURSE_PLATFORM"
+  | "ACADEMY_MANAGEMENT"
+  | "UNDECIDED";
+
+/** One submission of the public form on acadmyq.com. */
+export interface DemoRequestRow {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string;
+  country: string | null;
+  product: DemoRequestProduct;
+  role: string | null;
+  message: string | null;
+  consent: boolean;
+  locale: string | null;
+  /** The page the form was submitted from — which campaign the lead came in on. */
+  source: string | null;
+  status: DemoRequestStatus;
+  note: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Counts over the WHOLE queue (not the visible page), plus `total`. */
+export type DemoRequestCounts = Record<DemoRequestStatus | "total", number>;
+
+export function listDemoRequests(
+  q: DataTableQuery = {},
+): Promise<ListResult<DemoRequestRow> & { counts: DemoRequestCounts }> {
+  return apiFetch(`/api/admin/demo-requests${toQueryString(q)}`);
+}
+
+export function updateDemoRequest(
+  id: string,
+  patch: { status?: DemoRequestStatus; note?: string | null },
+): Promise<{ request: DemoRequestRow; counts: DemoRequestCounts }> {
+  return apiFetch(`/api/admin/demo-requests/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
 }

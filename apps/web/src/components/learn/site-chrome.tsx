@@ -2,14 +2,15 @@
 
 import {
   ArrowUpRight,
-  BookOpen,
   ChevronDown,
+  Clock,
   GraduationCap,
   LogOut,
   Mail,
   MapPin,
   Menu,
   Phone,
+  Receipt,
   Search,
   Sparkles,
   Ticket,
@@ -18,7 +19,7 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useLearn } from "@/components/learn/context";
 import {
@@ -27,6 +28,7 @@ import {
   WhatsappIcon,
 } from "@/components/learn/social-icons";
 import { LocaleSwitcher } from "@/components/locale-switcher";
+import { learnNotifications } from "@/lib/learn-api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -40,7 +42,14 @@ import { cn } from "@/lib/utils";
 
 // ── shared bits ───────────────────────────────────────────────────────────────
 
-/** The academy's logo, or a monogram on the brand colour when they haven't uploaded one. */
+/**
+ * The academy's logo, or a monogram on the brand colour when they haven't uploaded one.
+ *
+ * The box is always square and the image always `object-contain`, which is what keeps the header
+ * the same height for a wordmark, a circular badge and a tall crest alike — the three shapes a
+ * white-label template actually receives. A client who uploaded a compact mark gets it here; one
+ * who uploaded only a wide logo gets that, letterboxed rather than cropped.
+ */
 export function SiteLogo({
   className,
   size = 36,
@@ -49,13 +58,14 @@ export function SiteLogo({
   size?: number;
 }) {
   const { site, siteName } = useLearn();
+  const src = site.brand.logo_mark_url || site.brand.logo_url;
 
-  if (site.brand.logo_url) {
+  if (src) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={site.brand.logo_url}
-        alt={siteName}
+        src={src}
+        alt=""
         width={size}
         height={size}
         className={cn("shrink-0 rounded-xl object-contain", className)}
@@ -105,8 +115,16 @@ function useNavItems(): NavItem[] {
 
 export function SiteHeader() {
   const t = useTranslations("learn");
-  const { academy, site, siteName, learner, logout, openAuth, openRedeem } =
-    useLearn();
+  const {
+    academy,
+    site,
+    siteName,
+    commerce,
+    learner,
+    logout,
+    openAuth,
+    openRedeem,
+  } = useLearn();
   const pathname = usePathname();
   const items = useNavItems();
   const [open, setOpen] = useState(false);
@@ -135,17 +153,25 @@ export function SiteHeader() {
       )}
     >
       <div className="mx-auto flex h-[4.5rem] max-w-7xl items-center gap-3 px-4 sm:px-6 lg:gap-5">
-        <Link href={base} className="group flex min-w-0 items-center gap-3">
+        {/* max-w keeps a 60-character academy name from eating the nav; the tagline is the first
+            thing to go, because the name is the part that has to survive. */}
+        <Link
+          href={base}
+          className="group focus-visible:ring-ring/60 flex min-w-0 max-w-[55%] items-center gap-2.5 rounded-xl focus-visible:ring-2 focus-visible:outline-none sm:max-w-xs sm:gap-3"
+        >
           <SiteLogo
             size={40}
             className="shadow-sm transition-transform group-hover:scale-[1.03]"
           />
           <span className="min-w-0">
-            <span className="block truncate text-[15px] leading-tight font-extrabold tracking-tight">
+            <span
+              dir="auto"
+              className="block truncate text-[15px] leading-tight font-extrabold tracking-tight"
+            >
               {siteName}
             </span>
             {site.brand.tagline && (
-              <span className="text-muted-foreground block truncate text-[11px] leading-tight">
+              <span className="text-muted-foreground hidden truncate text-[11px] leading-tight sm:block">
                 {site.brand.tagline}
               </span>
             )}
@@ -192,13 +218,17 @@ export function SiteHeader() {
             <LocaleSwitcher />
           </span>
 
-          <button
-            type="button"
-            onClick={openRedeem}
-            className="border-border bg-card hover:border-primary/50 hover:text-primary hidden h-10 items-center gap-1.5 rounded-xl border px-3.5 text-sm font-semibold shadow-sm transition-all hover:-translate-y-px md:inline-flex"
-          >
-            <Ticket className="size-4" aria-hidden /> {t("redeem.cta")}
-          </button>
+          {/* Only where a code actually unlocks something. On a site that sells online, the code is
+              a side door and putting it in the header next to "Sign in" oversells it. */}
+          {commerce.codes && (
+            <button
+              type="button"
+              onClick={openRedeem}
+              className="border-border bg-card hover:border-primary/50 hover:text-primary focus-visible:ring-ring/60 hidden h-10 items-center gap-1.5 rounded-xl border px-3.5 text-sm font-semibold shadow-sm transition-all hover:-translate-y-px focus-visible:ring-2 focus-visible:outline-none md:inline-flex"
+            >
+              <Ticket className="size-4" aria-hidden /> {t("redeem.cta")}
+            </button>
+          )}
 
           {learner ? (
             <>
@@ -214,7 +244,7 @@ export function SiteHeader() {
             <button
               type="button"
               onClick={() => openAuth("login")}
-              className="bg-primary text-primary-foreground inline-flex h-10 items-center rounded-xl px-4 text-sm font-bold shadow-md shadow-[var(--brand-soft)] transition-all hover:-translate-y-px hover:opacity-95"
+              className="bg-primary text-primary-foreground focus-visible:ring-ring/60 focus-visible:ring-offset-background inline-flex h-10 items-center rounded-xl px-4 text-sm font-bold shadow-md shadow-[var(--brand-soft)] transition-all hover:-translate-y-px hover:brightness-[1.06] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               {t("auth.signIn")}
             </button>
@@ -237,7 +267,9 @@ export function SiteHeader() {
       </div>
 
       {open && (
-        <div className="bg-background/96 border-t px-4 py-3 shadow-xl backdrop-blur-xl lg:hidden">
+        // Capped and scrollable: a client with five pages plus the redeem row must not push its own
+        // last item under the fold on a short phone in landscape.
+        <div className="bg-background/96 max-h-[calc(100dvh-4.5rem)] overflow-y-auto border-t px-4 py-3 shadow-xl backdrop-blur-xl lg:hidden">
           <nav className="bg-card flex flex-col rounded-2xl border p-1.5 shadow-sm">
             {items.map((item) => (
               <Link
@@ -257,16 +289,27 @@ export function SiteHeader() {
                 {item.label}
               </Link>
             ))}
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                openRedeem();
-              }}
-              className="hover:bg-muted flex items-center gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition-colors"
-            >
-              <Ticket className="size-4" aria-hidden /> {t("redeem.cta")}
-            </button>
+            {learner && (
+              <Link
+                href={`${base}/me`}
+                className="hover:bg-muted flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors"
+              >
+                <GraduationCap className="size-4" aria-hidden />
+                {t("nav.myLearning")}
+              </Link>
+            )}
+            {commerce.codes && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  openRedeem();
+                }}
+                className="hover:bg-muted flex items-center gap-2 rounded-xl px-3 py-2.5 text-start text-sm font-semibold transition-colors"
+              >
+                <Ticket className="size-4" aria-hidden /> {t("redeem.cta")}
+              </button>
+            )}
           </nav>
           <div className="flex items-center gap-2 pt-3 md:hidden">
             <LocaleSwitcher />
@@ -281,9 +324,19 @@ function AccountMenu({ onLogout }: { onLogout: () => void }) {
   const t = useTranslations("learn");
   const { academy, learner } = useLearn();
   const [open, setOpen] = useState(false);
+  const [unread, setUnread] = useState(0);
   const pathname = usePathname();
 
   useEffect(() => setOpen(false), [pathname]);
+
+  // The one place the learner is told an order moved without opening it. Fetched once per mount
+  // rather than polled: an order decision is minutes-to-hours work, not a live feed.
+  useEffect(() => {
+    if (!learner) return;
+    learnNotifications(academy)
+      .then((r) => setUnread(r.unread))
+      .catch(() => undefined);
+  }, [academy, learner]);
 
   if (!learner) return null;
   const first = learner.full_name.trim().split(/\s+/)[0] ?? "";
@@ -331,6 +384,19 @@ function AccountMenu({ onLogout }: { onLogout: () => void }) {
               <GraduationCap className="size-4" aria-hidden />{" "}
               {t("nav.myLearning")}
             </Link>
+            {/* Purchases (docs/lms/10 §3). This is where a buyer comes back to finish an order or
+                read why a receipt was refused, so it sits next to their learning, not buried. */}
+            <Link
+              href={`/learn/${academy}/orders`}
+              className="hover:bg-muted flex items-center gap-2 px-3 py-2.5 text-sm transition-colors"
+            >
+              <Receipt className="size-4" aria-hidden /> {t("nav.myOrders")}
+              {unread > 0 && (
+                <span className="bg-primary text-primary-foreground ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold">
+                  {unread > 9 ? "9+" : unread}
+                </span>
+              )}
+            </Link>
             <button
               type="button"
               onClick={() => {
@@ -349,6 +415,28 @@ function AccountMenu({ onLogout }: { onLogout: () => void }) {
 }
 
 // ── floating WhatsApp button ──────────────────────────────────────────────────
+
+/**
+ * Tells the rest of the site's fixed furniture how tall the bottom bar currently is.
+ *
+ * The sales page's sticky purchase bar and the floating WhatsApp button are both `position: fixed`
+ * in the same corner, and neither can see the other. One CSS variable on the document element is
+ * the cheapest honest channel between them: the bar publishes its height while it is on screen,
+ * the button adds it to its own offset, and nothing ends up covering the price.
+ */
+export function useBottomBarInset(active: boolean, height = "4.75rem"): void {
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!active) {
+      root.style.removeProperty("--learn-bottom-bar");
+      return;
+    }
+    root.style.setProperty("--learn-bottom-bar", height);
+    return () => {
+      root.style.removeProperty("--learn-bottom-bar");
+    };
+  }, [active, height]);
+}
 
 /** `wa.me` only accepts digits — a client may type "+20 100 123 4567" in the editor. */
 export function whatsappHref(number: string, text?: string): string {
@@ -399,7 +487,13 @@ export function SiteWhatsappButton() {
       target="_blank"
       rel="noopener noreferrer"
       aria-label={label}
-      className="group fixed bottom-5 end-5 z-50 flex h-14 items-center rounded-full bg-[#25D366] px-4 text-white shadow-[0_12px_30px_-8px_rgba(37,211,102,0.75)] transition-all hover:-translate-y-0.5 hover:bg-[#1ebe5b] focus-visible:ring-2 focus-visible:ring-[#25D366] focus-visible:ring-offset-2 focus-visible:outline-none sm:bottom-6 sm:end-6"
+      // `--learn-bottom-bar` is published by the sales page's sticky purchase bar (see
+      // useBottomBarInset). Without it the two fixed elements share the same corner and the
+      // button sits on top of the price the visitor is trying to read.
+      style={{
+        bottom: "calc(1.25rem + var(--learn-bottom-bar, 0px) + env(safe-area-inset-bottom))",
+      }}
+      className="group fixed end-5 z-50 flex h-14 items-center rounded-full bg-[#25D366] px-4 text-white shadow-[0_12px_30px_-8px_rgba(37,211,102,0.75)] transition-all hover:-translate-y-0.5 hover:bg-[#1ebe5b] focus-visible:ring-2 focus-visible:ring-[#25D366] focus-visible:ring-offset-2 focus-visible:outline-none sm:end-6"
     >
       <span className="relative flex size-6 shrink-0 items-center justify-center">
         <span
@@ -417,35 +511,53 @@ export function SiteWhatsappButton() {
 
 // ── footer ────────────────────────────────────────────────────────────────────
 
-/** Social links the client actually filled in, ready to render. */
+/**
+ * Social links the client actually filled in, ready to render.
+ *
+ * Each carries a localized `label`: these render as icon-only buttons, and "facebook" as the
+ * accessible name of a link is the network's id, not a sentence a screen reader should read out.
+ */
 export function useSocialLinks(): {
   key: string;
   href: string;
+  label: string;
   Icon: ComponentType<{ className?: string }>;
 }[] {
-  const { site } = useLearn();
+  const t = useTranslations("learn.social");
+  const { site, siteName } = useLearn();
+
   return Object.entries(site.contact.socials ?? {})
     .filter(([, href]) => typeof href === "string" && href.trim() !== "")
     .map(([key, href]) => ({
       key,
       href,
+      label: t("link", { network: t(`network.${key}`), name: siteName }),
       Icon: SOCIAL_GLYPHS[key] ?? GlobeIcon,
     }));
 }
 
+/**
+ * The site's closing frame (docs/lms/09 §10).
+ *
+ * Two things it deliberately does NOT do any more:
+ *
+ *  - it no longer opens with a big call-to-action panel. That panel rendered `site.cta.title` and
+ *    `site.cta.subtitle` — the very same words the CtaBand above it had just printed — so every
+ *    page ended by asking the identical question twice, one block under the other.
+ *  - it no longer says "contact details haven't been added yet". A public page must never report
+ *    the shop's own configuration gaps to its customers; a column with nothing in it is removed.
+ */
 export function SiteFooter() {
   const t = useTranslations("learn");
-  const { site, siteName, academy, learner, openRedeem } = useLearn();
+  const { site, siteName, academy, commerce, learner, openRedeem } = useLearn();
   const items = useNavItems();
   const socials = useSocialLinks();
   const { contact } = site;
-  const footerTitle =
-    site.cta.title || t("defaults.cta.title", { name: siteName });
-  const footerSubtitle = site.cta.subtitle || t("defaults.cta.subtitle");
   const footerNote =
     site.footer.note ||
     site.brand.tagline ||
     t("footer.description", { name: siteName });
+  const legalName = site.legal?.business_name?.trim() || siteName;
 
   const contactRows = [
     contact.email && {
@@ -456,7 +568,7 @@ export function SiteFooter() {
     contact.phone && {
       Icon: Phone,
       text: contact.phone,
-      href: `tel:${contact.phone}`,
+      href: `tel:${contact.phone.replace(/[^\d+]/g, "")}`,
     },
     contact.whatsapp && {
       Icon: WhatsappIcon,
@@ -464,17 +576,26 @@ export function SiteFooter() {
       href: whatsappHref(contact.whatsapp),
     },
     contact.address && { Icon: MapPin, text: contact.address, href: null },
+    contact.hours && { Icon: Clock, text: contact.hours, href: null },
   ].filter(Boolean) as {
     Icon: ComponentType<{ className?: string }>;
     text: string;
     href: string | null;
   }[];
 
+  const legalLinks =
+    site.legal?.show === false
+      ? []
+      : ([
+          ["terms", t("legal.terms.title")],
+          ["refund", t("legal.refund.title")],
+          ["privacy", t("legal.privacy.title")],
+        ] as const);
+
   return (
-    <footer className="relative isolate mt-24 overflow-hidden rounded-t-[2.75rem] bg-[oklch(0.15_0.025_245)] text-white">
+    <footer className="relative isolate mt-16 overflow-hidden rounded-t-[2rem] bg-[oklch(0.15_0.025_245)] text-white sm:mt-20 sm:rounded-t-[2.75rem]">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--brand)] to-transparent" />
       <div className="pointer-events-none absolute -top-48 -end-36 -z-10 size-[620px] rounded-full bg-[var(--brand)] opacity-15 blur-[150px]" />
-      <div className="pointer-events-none absolute -bottom-56 -start-36 -z-10 size-[520px] rounded-full bg-indigo-500/10 blur-[140px]" />
       <span
         className="pointer-events-none absolute inset-x-0 -bottom-4 -z-10 truncate px-4 text-center text-[15vw] leading-none font-black text-white/[0.025] select-none"
         aria-hidden
@@ -483,51 +604,12 @@ export function SiteFooter() {
       </span>
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
-        <div
-          className="relative -mt-px overflow-hidden rounded-b-[2rem] border border-t-0 border-white/10 px-6 py-8 sm:px-9 lg:flex lg:items-center lg:justify-between lg:gap-10"
-          style={{
-            background:
-              "linear-gradient(125deg, color-mix(in oklab, var(--brand) 58%, black), oklch(0.2 0.035 245) 68%)",
-          }}
-        >
-          <div className="relative max-w-2xl">
-            <span className="mb-3 inline-flex items-center gap-2 text-xs font-bold tracking-[0.18em] text-white/65 uppercase">
-              <Sparkles className="size-3.5 text-amber-300" aria-hidden />
-              {t("footer.ctaEyebrow")}
-            </span>
-            <h2 className="text-2xl font-bold tracking-tight text-balance sm:text-3xl">
-              {footerTitle}
-            </h2>
-            <p className="mt-2 max-w-xl text-sm leading-relaxed text-white/65 sm:text-base">
-              {footerSubtitle}
-            </p>
-          </div>
-
-          <div className="relative mt-6 flex flex-col gap-3 sm:flex-row lg:mt-0 lg:shrink-0">
-            <Link
-              href={`/learn/${academy}/courses`}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-5 text-sm font-bold text-[oklch(0.18_0.025_245)] shadow-xl shadow-black/15 transition-all hover:-translate-y-0.5 hover:bg-white/90"
-            >
-              <BookOpen className="size-4" aria-hidden />
-              {t("nav.courses")}
-            </Link>
-            <button
-              type="button"
-              onClick={openRedeem}
-              className="inline-flex h-12 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/[0.07] px-5 text-sm font-bold text-white transition-all hover:-translate-y-0.5 hover:bg-white/15"
-            >
-              <Ticket className="size-4" aria-hidden />
-              {t("redeem.cta")}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid gap-10 py-14 sm:grid-cols-2 lg:grid-cols-[1.35fr_0.8fr_0.8fr_1.15fr] lg:gap-12">
+        <div className="grid gap-10 py-12 sm:grid-cols-2 lg:grid-cols-[1.35fr_0.8fr_0.8fr_1.15fr] lg:gap-12 lg:py-14">
           <div className="space-y-6">
             <div className="flex items-center gap-3">
               <SiteLogo className="ring-1 ring-white/15" size={48} />
               <span className="min-w-0">
-                <span className="block truncate text-lg font-bold">
+                <span dir="auto" className="block truncate text-lg font-bold">
                   {siteName}
                 </span>
                 {site.brand.tagline && (
@@ -543,117 +625,98 @@ export function SiteFooter() {
             </p>
 
             {socials.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {socials.map(({ key, href, Icon }) => (
-                  <a
-                    key={key}
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={key}
-                    className="flex size-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition-all hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/10 hover:text-white"
-                  >
-                    <Icon className="size-4" />
-                  </a>
+              <ul className="flex flex-wrap gap-2">
+                {socials.map(({ key, href, Icon, label }) => (
+                  <li key={key}>
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={label}
+                      className="flex size-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-white/60 transition-all hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none"
+                    >
+                      <Icon className="size-4" />
+                    </a>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
           </div>
 
           <div className="space-y-4">
-            <h3 className="text-xs font-bold tracking-[0.16em] text-white/40 uppercase">
+            <h2 className="text-xs font-bold tracking-[0.16em] text-white/40 uppercase">
               {t("footer.explore")}
-            </h3>
+            </h2>
             <ul className="space-y-3">
               {items.map((item) => (
                 <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className="group inline-flex items-center gap-2 text-sm text-white/65 transition-colors hover:text-white"
-                  >
-                    {item.label}
-                    <ArrowUpRight
-                      className="size-3.5 opacity-0 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:opacity-100 rtl:group-hover:-translate-x-0.5"
-                      aria-hidden
-                    />
-                  </Link>
+                  <FooterLink href={item.href}>{item.label}</FooterLink>
                 </li>
               ))}
               {site.footer.links.map((link) => (
                 <li key={`${link.label}-${link.href}`}>
-                  <a
-                    href={link.href}
-                    className="group inline-flex items-center gap-2 text-sm text-white/65 transition-colors hover:text-white"
-                    {...(link.href.startsWith("http")
-                      ? { target: "_blank", rel: "noopener noreferrer" }
-                      : {})}
-                  >
+                  <FooterLink href={link.href} external>
                     {link.label}
-                    <ArrowUpRight
-                      className="size-3.5 opacity-0 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:opacity-100 rtl:group-hover:-translate-x-0.5"
-                      aria-hidden
-                    />
-                  </a>
+                  </FooterLink>
                 </li>
               ))}
             </ul>
           </div>
 
           <div className="space-y-4">
-            <h3 className="text-xs font-bold tracking-[0.16em] text-white/40 uppercase">
+            <h2 className="text-xs font-bold tracking-[0.16em] text-white/40 uppercase">
               {t("footer.learning")}
-            </h3>
+            </h2>
             <ul className="space-y-3">
               <li>
-                <Link
-                  href={`/learn/${academy}/courses`}
-                  className="group inline-flex items-center gap-2 text-sm text-white/65 transition-colors hover:text-white"
-                >
+                <FooterLink href={`/learn/${academy}/courses`}>
                   {t("nav.courses")}
-                  <ArrowUpRight
-                    className="size-3.5 opacity-0 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:opacity-100 rtl:group-hover:-translate-x-0.5"
-                    aria-hidden
-                  />
-                </Link>
+                </FooterLink>
               </li>
               {learner && (
+                <>
+                  <li>
+                    <FooterLink href={`/learn/${academy}/me`}>
+                      {t("nav.myLearning")}
+                    </FooterLink>
+                  </li>
+                  {commerce.checkout && (
+                    <li>
+                      <FooterLink href={`/learn/${academy}/orders`}>
+                        {t("nav.myOrders")}
+                      </FooterLink>
+                    </li>
+                  )}
+                </>
+              )}
+              {/* The code lives here rather than in a headline button on a site that also sells. */}
+              {commerce.codes && (
                 <li>
-                  <Link
-                    href={`/learn/${academy}/me`}
-                    className="group inline-flex items-center gap-2 text-sm text-white/65 transition-colors hover:text-white"
+                  <button
+                    type="button"
+                    onClick={openRedeem}
+                    className="text-sm text-white/65 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none"
                   >
-                    {t("nav.myLearning")}
-                    <ArrowUpRight
-                      className="size-3.5 opacity-0 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:opacity-100 rtl:group-hover:-translate-x-0.5"
-                      aria-hidden
-                    />
-                  </Link>
+                    {t("redeem.cta")}
+                  </button>
                 </li>
               )}
-              <li>
-                <button
-                  type="button"
-                  onClick={openRedeem}
-                  className="text-sm text-white/65 transition-colors hover:text-white"
-                >
-                  {t("redeem.cta")}
-                </button>
-              </li>
             </ul>
           </div>
 
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold tracking-[0.16em] text-white/40 uppercase">
-              {t("footer.contact")}
-            </h3>
-            {contactRows.length > 0 ? (
+          {/* Contact, only when there is something to say. */}
+          {contactRows.length > 0 && (
+            <div className="space-y-4">
+              <h2 className="text-xs font-bold tracking-[0.16em] text-white/40 uppercase">
+                {t("footer.contact")}
+              </h2>
               <ul className="space-y-3">
                 {contactRows.map(({ Icon, text, href }) => (
                   <li key={text}>
                     {href ? (
                       <a
                         href={href}
-                        className="group flex items-start gap-3 text-sm text-white/60 transition-colors hover:text-white"
+                        className="group flex items-start gap-3 text-sm text-white/60 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none"
                       >
                         <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-white/80 transition-transform group-hover:scale-105">
                           <Icon className="size-4" />
@@ -671,22 +734,88 @@ export function SiteFooter() {
                   </li>
                 ))}
               </ul>
-            ) : (
-              <p className="max-w-xs text-sm leading-relaxed text-white/50">
-                {t("contact.empty")}
-              </p>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
+        {/* The trust row (docs/lms/10 §6). Always rendered — the template carries a default policy
+            for a client who wrote none, so these links are never dead. */}
+        {legalLinks.length > 0 && (
+          <nav
+            aria-label={t("footer.legalHeading")}
+            className="flex flex-wrap justify-center gap-x-5 gap-y-2 border-t border-white/10 pt-6 text-xs text-white/45 sm:justify-start"
+          >
+            {legalLinks.map(([doc, label]) => (
+              <Link
+                key={doc}
+                href={`/learn/${academy}/legal/${doc}`}
+                className="rounded transition-colors hover:text-white/80 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none"
+              >
+                {label}
+              </Link>
+            ))}
+            {/* Only where money actually changes hands here — an idle promise about payments on a
+                site that takes none is noise. */}
+            {commerce.checkout && (
+              <span className="text-white/35">
+                {t("footer.paymentsNote", { name: legalName })}
+              </span>
+            )}
+          </nav>
+        )}
+
         <div className="flex flex-col items-center justify-between gap-3 border-t border-white/10 py-6 text-xs text-white/40 sm:flex-row">
-          <p>{t("footer.rights", { name: siteName })}</p>
+          <p>{t("footer.rights", { name: legalName })}</p>
           <p className="inline-flex items-center gap-1.5">
             <Sparkles className="size-3.5 text-amber-300/70" aria-hidden />
-            {t("footer.poweredBy")}
+            {t.rich("footer.poweredByRich", {
+              a: (chunks) => (
+                <a
+                  href="https://acadmyq.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-white/60 underline decoration-white/20 underline-offset-4 transition-colors hover:text-white"
+                >
+                  {chunks}
+                </a>
+              ),
+            })}
           </p>
         </div>
       </div>
     </footer>
+  );
+}
+
+/** One footer link, with the shared hover arrow. `external` opens a client-supplied URL safely. */
+function FooterLink({
+  href,
+  external = false,
+  children,
+}: {
+  href: string;
+  external?: boolean;
+  children: ReactNode;
+}) {
+  const className =
+    "group inline-flex items-center gap-2 rounded text-sm text-white/65 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none";
+  const body = (
+    <>
+      {children}
+      <ArrowUpRight
+        className="size-3.5 opacity-0 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:opacity-100 rtl:group-hover:-translate-x-0.5"
+        aria-hidden
+      />
+    </>
+  );
+
+  return external && href.startsWith("http") ? (
+    <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
+      {body}
+    </a>
+  ) : (
+    <Link href={href} className={className}>
+      {body}
+    </Link>
   );
 }

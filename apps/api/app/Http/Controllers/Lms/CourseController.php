@@ -35,6 +35,12 @@ final class CourseController extends Controller
     /** A sanity ceiling on a course price: 10,000,000 major units in minor (e.g. 10M EGP). */
     private const MAX_PRICE_MINOR = 1_000_000_000;
 
+    /** How hard the course is — a closed set, because the catalogue filters on it. */
+    private const LEVELS = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'ALL_LEVELS'];
+
+    /** The three sales lists (docs/lms/09 §4) and how many bullets each may hold. */
+    private const SALES_LISTS = ['outcomes' => 12, 'requirements' => 8, 'audience' => 8];
+
     /** GET /api/courses — the server-driven list view. */
     public function index(Request $request): JsonResponse
     {
@@ -44,7 +50,8 @@ final class CourseController extends Controller
             ->whereNull('c.deleted_at')
             ->select([
                 'c.id', 'c.title', 'c.slug', 'c.subtitle', 'c.status',
-                'c.cover_image_path', 'c.price_minor', 'c.published_at', 'c.created_at',
+                'c.cover_image_path', 'c.price_minor', 'c.checkout_enabled', 'c.code_enabled',
+                'c.published_at', 'c.created_at',
                 DB::raw('(select count(*) from lessons l where l.course_id = c.id) as lesson_count'),
             ]);
 
@@ -62,7 +69,10 @@ final class CourseController extends Controller
             'defaultSort' => '-created_at',
         ]);
 
-        $result['rows'] = $result['rows']->map(fn (object $r): object => $this->presentCourse($r));
+        // One query for the whole page, not one per row.
+        $acceptsPayments = $this->hasActivePaymentMethod();
+        $result['rows'] = $result['rows']
+            ->map(fn (object $r): object => $this->presentCourse($r, $acceptsPayments));
 
         return response()->json($result);
     }
@@ -103,7 +113,11 @@ final class CourseController extends Controller
             'description' => ['sometimes', 'nullable', 'string', 'max:10000'],
             // Integer minor units, in the academy's currency. 0 (or omitted) = free.
             'price_minor' => ['sometimes', 'integer', 'min:0', 'max:'.self::MAX_PRICE_MINOR],
-        ] + $this->coverRules());
+            // How this course may be unlocked (docs/lms/10 §1). Both default on: checkout is the
+            // main door, codes stay for offline sales, and a course can offer either or both.
+            'checkout_enabled' => ['sometimes', 'boolean'],
+            'code_enabled' => ['sometimes', 'boolean'],
+        ] + $this->coverRules() + $this->salesRules());
 
         $courseId = (string) Str::uuid();
         DB::table('courses')->insert([
@@ -114,10 +128,12 @@ final class CourseController extends Controller
             'subtitle' => $data['subtitle'] ?? null,
             'description' => $data['description'] ?? null,
             'price_minor' => $data['price_minor'] ?? 0,
+            'checkout_enabled' => $data['checkout_enabled'] ?? true,
+            'code_enabled' => $data['code_enabled'] ?? true,
             'cover_image_path' => $this->resolveCover($data),
             'status' => 'DRAFT',
             'created_by' => $this->ctx()->userId,
-        ]);
+        ] + $this->salesColumns($data));
 
         Audit::log('course.create', 'course', $courseId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
             'title' => $data['title'],
@@ -192,14 +208,17 @@ final class CourseController extends Controller
             'slug' => ['sometimes', 'string', 'max:255', 'regex:/^[a-z0-9-]+$/'],
             // Integer minor units, in the academy's currency. 0 = free.
             'price_minor' => ['sometimes', 'integer', 'min:0', 'max:'.self::MAX_PRICE_MINOR],
-        ] + $this->coverRules());
+            'checkout_enabled' => ['sometimes', 'boolean'],
+            'code_enabled' => ['sometimes', 'boolean'],
+        ] + $this->coverRules() + $this->salesRules());
 
         $update = [];
-        foreach (['title', 'subtitle', 'description', 'price_minor'] as $field) {
+        foreach (['title', 'subtitle', 'description', 'price_minor', 'checkout_enabled', 'code_enabled'] as $field) {
             if (array_key_exists($field, $data)) {
                 $update[$field] = is_string($data[$field]) ? trim($data[$field]) : $data[$field];
             }
         }
+        $update += $this->salesColumns($data, partial: true);
         // An uploaded cover wins over a pasted url; either being present (even as null) is an edit.
         if (array_key_exists('cover_media_asset_id', $data) || array_key_exists('cover_image_path', $data)) {
             $update['cover_image_path'] = $this->resolveCover($data);
@@ -314,7 +333,109 @@ final class CourseController extends Controller
         return is_string($url) && trim($url) !== '' ? trim($url) : null;
     }
 
-    private function presentCourse(object $c): object
+    /**
+     * Does the client have any live receiving account?
+     *
+     * Deliberately NOT memoised on the instance: Laravel caches the controller object on the Route,
+     * so an instance property outlives the request and would serve a stale answer after the client
+     * switched their last method off. A list calls this once and reuses the boolean per row.
+     */
+    private function hasActivePaymentMethod(): bool
+    {
+        return DB::table('lms_payment_methods')->where('is_active', true)->exists();
+    }
+
+    /**
+     * Validation for the sales half of a course (docs/lms/09 §4). Every field is optional and every
+     * list may be emptied — a client removing their "what you'll learn" bullets is a real edit, not
+     * a mistake, so `[]` has to be accepted as a value rather than treated as "unchanged".
+     *
+     * @return array<string, list<string>>
+     */
+    private function salesRules(): array
+    {
+        $rules = [
+            'level' => ['sometimes', 'nullable', Rule::in(self::LEVELS)],
+            'category' => ['sometimes', 'nullable', 'string', 'max:80'],
+        ];
+        foreach (self::SALES_LISTS as $field => $max) {
+            $rules[$field] = ['sometimes', 'array', 'max:'.$max];
+            // `nullable`, because a repeatable form submits the blank row the user left behind and
+            // Laravel's ConvertEmptyStringsToNull turns it into null on the way in. That is an
+            // ordinary edit, not a validation failure — `cleanList` drops it.
+            $rules[$field.'.*'] = ['nullable', 'string', 'max:300'];
+        }
+
+        return $rules;
+    }
+
+    /**
+     * The validated sales fields as database columns. `$partial` is the PATCH case: only the keys
+     * the request actually sent are written, so a form that edits the price alone cannot blank out
+     * the outcomes it never showed.
+     *
+     * @param  array<string,mixed>  $data
+     * @return array<string,mixed>
+     */
+    private function salesColumns(array $data, bool $partial = false): array
+    {
+        $out = [];
+
+        foreach (['level', 'category'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $value = is_string($data[$field]) ? trim($data[$field]) : $data[$field];
+                $out[$field] = ($value === '' || $value === null) ? null : $value;
+            } elseif (! $partial) {
+                $out[$field] = null;
+            }
+        }
+
+        foreach (array_keys(self::SALES_LISTS) as $field) {
+            if (array_key_exists($field, $data)) {
+                $out[$field] = json_encode($this->cleanList($data[$field]));
+            } elseif (! $partial) {
+                $out[$field] = '[]';
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Trim, drop the blanks a repeatable form leaves behind, and re-index — a stored `[""]` would
+     * render as an empty bullet on the sales page.
+     *
+     * @return list<string>
+     */
+    private function cleanList(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            array_map(fn ($v): string => is_string($v) ? trim($v) : '', $value),
+            fn (string $v): bool => $v !== '',
+        ));
+    }
+
+    /**
+     * jsonb comes back as a string; the client wants an array. Applied on read so every surface —
+     * the editor, the catalogue and the sales page — sees the same shape.
+     *
+     * @return list<string>
+     */
+    private function decodeList(mixed $value): array
+    {
+        if (is_array($value)) {
+            return array_values(array_filter($value, 'is_string'));
+        }
+        $decoded = is_string($value) ? json_decode($value, true) : null;
+
+        return is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : [];
+    }
+
+    private function presentCourse(object $c, ?bool $acceptsPayments = null): object
     {
         $c->created_at = $this->iso($c->created_at ?? null);
         // The column holds a storage key or a url; the client only ever sees a loadable url.
@@ -332,6 +453,20 @@ final class CourseController extends Controller
         $c->price_minor = (int) ($c->price_minor ?? 0);
         $c->currency = $this->academyCurrency();
         $c->is_free = $c->price_minor === 0;
+        // The unlock channels (docs/lms/10 §1). `sells_online` is the honest answer the editor needs:
+        // the Buy button also depends on the client having a live receiving account, which is a
+        // site-wide fact the course editor cannot see from the row alone.
+        if (property_exists($c, 'checkout_enabled')) {
+            $c->checkout_enabled = (bool) $c->checkout_enabled;
+            $c->code_enabled = (bool) $c->code_enabled;
+            $acceptsPayments ??= $this->hasActivePaymentMethod();
+            $c->sells_online = $c->checkout_enabled && ! $c->is_free && $acceptsPayments;
+        }
+        foreach (array_keys(self::SALES_LISTS) as $field) {
+            if (property_exists($c, $field)) {
+                $c->{$field} = $this->decodeList($c->{$field});
+            }
+        }
 
         return $c;
     }

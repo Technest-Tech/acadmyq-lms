@@ -7,6 +7,7 @@ use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesReportFields;
@@ -317,6 +318,18 @@ it('numbers a package student\'s lesson within the package, not the calendar mon
     // A block of hours opened mid-month. ON_COMPLETION so opening it raises no invoice — this
     // test is about the numbering, not the billing.
     $this->asAcademy($this->academy);
+    DB::table('subscriptions')->insert([
+        'id' => (string) Str::uuid(),
+        'academy_id' => $this->academy,
+        'student_id' => $this->student,
+        'plan_label' => 'Hours package',
+        'price_minor' => 20000,
+        'currency' => 'EGP',
+        'price_basis' => 'PER_PACKAGE',
+        'sessions_per_month' => null,
+        'status' => 'ACTIVE',
+        'start_date' => '2026-06-03',
+    ]);
     app(LessonPackages::class)->open([
         'student_id' => $this->student,
         'label' => '10 hours',

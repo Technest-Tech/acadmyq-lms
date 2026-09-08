@@ -41,6 +41,7 @@ import {
 import { ReportArchive } from "./report-archive";
 import { ReportEditor } from "./report-editor";
 import { StatusBadge } from "./status-badge";
+import { DurationCorrectionModal } from "./duration-correction-modal";
 
 // FREE is a real backend outcome (non-billable, non-paying) — see SessionClassifier.
 type LocalOutcome = AttendanceOutcome;
@@ -133,9 +134,13 @@ export function AttendanceReport({
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [busy, setBusy] = useState(false);
   // What the user has selected (not yet saved). null = no change from server.
-  const [selectedStatus, setSelectedStatus] = useState<LocalOutcome | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<LocalOutcome | null>(
+    null,
+  );
   // null = hidden, "ar" | "en" = picker open
-  const [formatLangPicker, setFormatLangPicker] = useState<"ar" | "en" | null>(null);
+  const [formatLangPicker, setFormatLangPicker] = useState<"ar" | "en" | null>(
+    null,
+  );
   const [historyOpen, setHistoryOpen] = useState(false);
   // The guardian-facing report card (the branded, downloadable image).
   const [cardOpen, setCardOpen] = useState(false);
@@ -152,6 +157,7 @@ export function AttendanceReport({
   const [waResult, setWaResult] = useState<WhatsAppMessage | null>(null);
   const [waBusy, setWaBusy] = useState(false);
   const [waCopied, setWaCopied] = useState(false);
+  const [durationOpen, setDurationOpen] = useState(false);
 
   function flash(variant: "success" | "error", message: string) {
     setFeedback({ variant, message });
@@ -181,7 +187,11 @@ export function AttendanceReport({
         <div className="bg-muted h-[72px] animate-pulse rounded-2xl" />
         <div className={outcomeGridClass}>
           {Array.from({ length: visibleOutcomes.length }).map((_, i) => (
-            <div key={i} className="bg-muted h-16 animate-pulse rounded-xl" aria-hidden />
+            <div
+              key={i}
+              className="bg-muted h-16 animate-pulse rounded-xl"
+              aria-hidden
+            />
           ))}
         </div>
       </div>
@@ -213,7 +223,8 @@ export function AttendanceReport({
   // Effective status: what the user has selected, falling back to server status
   const effectiveStatus: LocalOutcome = selectedStatus ?? serverStatus;
   // ATTENDED and FREE are both "attended" outcomes
-  const isAttended = effectiveStatus === "ATTENDED" || effectiveStatus === "FREE";
+  const isAttended =
+    effectiveStatus === "ATTENDED" || effectiveStatus === "FREE";
 
   /** Select a status card. Owner-cancels open the billing popup; everything else is local state. */
   function selectOutcome(status: LocalOutcome) {
@@ -303,7 +314,8 @@ export function AttendanceReport({
         (target === "CANCELLED_BY_TEACHER" || target === "CANCELLED_BY_STUDENT")
       ) {
         await requestCancellation(sessionId, {
-          cancelled_by: target === "CANCELLED_BY_TEACHER" ? "teacher" : "student",
+          cancelled_by:
+            target === "CANCELLED_BY_TEACHER" ? "teacher" : "student",
         });
         await load();
         flash("success", t("cancelRequestSent"));
@@ -336,7 +348,8 @@ export function AttendanceReport({
       // The FREE status now owns "this lesson is free" — the legacy is_free_trial report flag
       // no longer does. Clear that flag when a billable outcome is chosen so a legacy trial
       // (stored as ATTENDED + is_free_trial=true) re-prices correctly when switched to ATTENDED.
-      if (target !== null && target !== "FREE") reportValues.is_free_trial = false;
+      if (target !== null && target !== "FREE")
+        reportValues.is_free_trial = false;
       await putSessionReport(sessionId, reportValues);
 
       // Saved with no outcome chosen on a still-scheduled session: persist the report
@@ -348,7 +361,10 @@ export function AttendanceReport({
       // moment is the only one where they have the lesson in mind, and chasing a button after
       // the save is how the card went unsent. Admins keep their own pacing: they usually mark a
       // batch of lessons and dispatch the cards afterwards, so a modal per save would fight them.
-      if (isTeacher && (backendStatus === "ATTENDED" || backendStatus === "FREE")) {
+      if (
+        isTeacher &&
+        (backendStatus === "ATTENDED" || backendStatus === "FREE")
+      ) {
         setCardOpen(true);
       }
       // Tell parent the effective backend status
@@ -459,7 +475,9 @@ export function AttendanceReport({
       {/* ── Session info header ───────────────────────────────────────── */}
       <div className="bg-muted/30 flex flex-wrap items-start justify-between gap-3 rounded-2xl border p-4">
         <div className="min-w-0">
-          <h2 className="truncate text-base font-bold">{session.student_name}</h2>
+          <h2 className="truncate text-base font-bold">
+            {session.student_name}
+          </h2>
           <p className="text-muted-foreground text-sm">
             {session.teacher_name} · {dateText} · {session.duration_minutes}{" "}
             {t("min")}
@@ -492,6 +510,20 @@ export function AttendanceReport({
           <span data-testid="current-status">
             <StatusBadge status={serverStatus} />
           </span>
+          {!readOnly &&
+            session.status === "ATTENDED" &&
+            can("student.set_price") && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDurationOpen(true)}
+                data-testid="edit-session-duration"
+              >
+                <Clock className="size-3.5" />
+                {t("durationEdit.action")}
+              </Button>
+            )}
           <Button
             type="button"
             variant="ghost"
@@ -513,6 +545,20 @@ export function AttendanceReport({
         />
       )}
 
+      {durationOpen && (
+        <DurationCorrectionModal
+          sessionId={sessionId}
+          currentDuration={session.duration_minutes}
+          onClose={() => setDurationOpen(false)}
+          onSaved={() => {
+            setDurationOpen(false);
+            void load();
+            flash("success", t("durationEdit.saved"));
+            onChange?.(session.status);
+          }}
+        />
+      )}
+
       {/* A teacher's cancel is a request, not an action — surface the PENDING state persistently
           (survives reload, unlike the transient toast) so it's clear the owner must still approve. */}
       {session.pending_cancellation && (
@@ -521,7 +567,10 @@ export function AttendanceReport({
           data-testid="pending-cancellation"
           className="flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-200"
         >
-          <Clock className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+          <Clock
+            className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden
+          />
           <div className="space-y-0.5">
             <p className="font-medium">{t("pendingCancellationTitle")}</p>
             <p className="text-xs text-amber-800 dark:text-amber-300">
@@ -544,7 +593,10 @@ export function AttendanceReport({
           data-testid="pending-free"
           className="flex items-start gap-2.5 rounded-xl border border-teal-300 bg-teal-50 px-3.5 py-2.5 text-sm text-teal-900 dark:border-teal-800/50 dark:bg-teal-950/20 dark:text-teal-200"
         >
-          <Clock className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-400" aria-hidden />
+          <Clock
+            className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-400"
+            aria-hidden
+          />
           <div className="space-y-0.5">
             <p className="font-medium">{t("pendingFreeTitle")}</p>
             <p className="text-xs text-teal-800 dark:text-teal-300">
@@ -565,7 +617,8 @@ export function AttendanceReport({
             // Block re-raising a cancel while one is already awaiting approval (the server rejects
             // a duplicate PENDING request anyway).
             const isCancelOutcome =
-              status === "CANCELLED_BY_TEACHER" || status === "CANCELLED_BY_STUDENT";
+              status === "CANCELLED_BY_TEACHER" ||
+              status === "CANCELLED_BY_STUDENT";
             const blockedByPending =
               (requestMode &&
                 isCancelOutcome &&
@@ -608,7 +661,9 @@ export function AttendanceReport({
         </div>
 
         {!canMark && !readOnly && (
-          <p className="text-muted-foreground mt-2 text-xs">{t("noPermission")}</p>
+          <p className="text-muted-foreground mt-2 text-xs">
+            {t("noPermission")}
+          </p>
         )}
       </section>
 
@@ -792,7 +847,10 @@ export function AttendanceReport({
                     onClick={() => void copyWaMessage()}
                   >
                     {waCopied ? (
-                      <Check className="size-3.5 text-emerald-600" aria-hidden />
+                      <Check
+                        className="size-3.5 text-emerald-600"
+                        aria-hidden
+                      />
                     ) : (
                       <Copy className="size-3.5" aria-hidden />
                     )}

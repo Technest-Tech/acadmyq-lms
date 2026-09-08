@@ -120,8 +120,8 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
     renderManager();
 
-    expect(await screen.findByTestId("day-list")).toBeInTheDocument();
-    expect(screen.getByText("Abdullah")).toBeInTheDocument();
+    const list = await screen.findByTestId("day-list");
+    expect(within(list).getAllByText("Abdullah").length).toBeGreaterThan(0);
   });
 
   it("shows the empty state when nothing matches the day's filters", async () => {
@@ -136,7 +136,8 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
     renderManager();
 
-    await user.click(await screen.findByText("Abdullah"));
+    const [studentLink] = await screen.findAllByText("Abdullah");
+    await user.click(studentLink!);
 
     // The popup mounts the attendance/report surface and loads the session.
     expect(await screen.findByTestId("attendance-report")).toBeInTheDocument();

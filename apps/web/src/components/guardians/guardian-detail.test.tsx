@@ -79,16 +79,15 @@ describe("GuardianDetail (Sprint 4 §5.1)", () => {
     expect(children).toHaveTextContent("Maryam");
   });
 
-  // §5.1: add a child inline, with the guardian fixed (no separate guardian picker).
-  it("opens an inline student form with the guardian fixed", async () => {
+  // §5.1: link an existing student inline, with this guardian fixed.
+  it("opens the inline student linker", async () => {
     renderDetail();
     await screen.findByTestId("guardian-children");
     const user = userEvent.setup();
 
     await user.click(screen.getByTestId("add-child"));
-    expect(await screen.findByTestId("student-form")).toBeInTheDocument();
-    // The guardian is fixed → no guardian picker is shown.
-    expect(screen.queryByLabelText("Guardian")).not.toBeInTheDocument();
+    expect(await screen.findByText("Link an existing student")).toBeInTheDocument();
+    expect(screen.getByText("Search students…")).toBeInTheDocument();
   });
 
   it("saves guardian edits", async () => {

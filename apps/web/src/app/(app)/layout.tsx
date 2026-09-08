@@ -1,5 +1,16 @@
+import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
 import { AuthProvider } from "@/components/auth-provider";
+
+/**
+ * Nothing behind the login belongs in a search index. A crawler that follows a stray link in here
+ * gets a sign-in screen, which is a poor result for whoever clicked it and a duplicate of the real
+ * `/login` page for the index. `/robots.txt` says the same thing by path; this says it on the page
+ * itself, which is what actually removes an already-indexed url.
+ */
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 /**
  * The authenticated area. Everything under `(app)` — a route group, so it adds nothing to the

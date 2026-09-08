@@ -118,6 +118,8 @@ describe("calendar views", () => {
           session_rate_minor: 5000,
           currency: "EGP",
           timezone: null,
+          payout_method: null,
+          payout_handle: null,
           availability: [{ weekday: 0, start_local: "09:00", end_local: "17:00" }],
           is_active: true,
           deleted_at: null,

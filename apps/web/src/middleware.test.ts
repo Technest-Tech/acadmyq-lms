@@ -44,6 +44,9 @@ async function run(host: string, path: string, root: string | null = "acadmyq.co
     rewrite: res.headers.get("x-middleware-rewrite"),
     /** The handle handed to the render, if any. */
     academy: res.headers.get("x-middleware-request-x-academy"),
+    status: res.status,
+    /** Where the visitor is sent, for a real (non-rewrite) redirect. */
+    location: res.headers.get("location"),
   };
 }
 
@@ -69,6 +72,21 @@ describe("subdomain routing", () => {
 
     expect(rewrite).toBe("https://noor.localhost/login");
     expect(academy).toBe("noor");
+  });
+
+  it("redirects www to the canonical apex, keeping the path and the port", async () => {
+    const { status, location } = await run("www.acadmyq.com", "/course-platform");
+
+    expect(status).toBe(308);
+    expect(location).toBe("https://acadmyq.com/course-platform");
+    // `www` is the platform, never a client handle — nothing is resolved for it.
+    expect(resolveTenantSite).not.toHaveBeenCalled();
+  });
+
+  it("keeps the dev port when redirecting www locally", async () => {
+    const { location } = await run("www.lvh.me", "/contact", "lvh.me:3000");
+
+    expect(location).toBe("https://lvh.me/contact");
   });
 
   it("leaves the platform's own hosts alone", async () => {

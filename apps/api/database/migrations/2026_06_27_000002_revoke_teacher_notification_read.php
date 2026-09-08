@@ -31,6 +31,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        // This migration rolls back while the platform-catalog RLS policies are still
+        // active. Re-enter the privileged catalog context before restoring the grant.
+        DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+
         $permId = DB::table('permissions')->where('code', 'notification.read')->value('id');
         if ($permId !== null) {
             DB::table('role_permissions')->updateOrInsert(

@@ -46,6 +46,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // The marketing site's demo form. Six an hour per IP: a prospect fills this in ONCE, so the
+        // ceiling is invisible to a real visitor and makes an open, unauthenticated POST endpoint
+        // worthless to a spammer. Deliberately per-IP and not per-email — an email address is
+        // whatever the sender types, so keying on it would rate-limit nobody.
+        RateLimiter::for('demo-requests', fn (Request $request) => Limit::perHour(6)->by((string) $request->ip()));
+
         // Per-key throttle for the external WhatsApp API (docs/whatsapp-api). Keyed by the resolved
         // API-key id (set on the request by AuthenticateWhatsAppApiKey) so one client's volume can't
         // starve another's; falls back to the client IP before the key is resolved.
