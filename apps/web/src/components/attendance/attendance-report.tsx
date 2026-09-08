@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Pencil,
   Sparkles,
+  Undo2,
   UserX,
   XCircle,
 } from "lucide-react";
@@ -42,6 +43,7 @@ import { ReportArchive } from "./report-archive";
 import { ReportEditor } from "./report-editor";
 import { StatusBadge } from "./status-badge";
 import { DurationCorrectionModal } from "./duration-correction-modal";
+import { RevertOutcomeDialog } from "./revert-outcome-dialog";
 
 // FREE is a real backend outcome (non-billable, non-paying) — see SessionClassifier.
 type LocalOutcome = AttendanceOutcome;
@@ -158,6 +160,8 @@ export function AttendanceReport({
   const [waBusy, setWaBusy] = useState(false);
   const [waCopied, setWaCopied] = useState(false);
   const [durationOpen, setDurationOpen] = useState(false);
+  // Taking the recorded outcome back — confirmed in its own dialog, because it moves money.
+  const [revertOpen, setRevertOpen] = useState(false);
 
   function flash(variant: "success" | "error", message: string) {
     setFeedback({ variant, message });
@@ -200,6 +204,9 @@ export function AttendanceReport({
 
   const canMark = can("session.mark_attendance");
   const canWrite = can("session.write_report");
+  // Undoing an outcome is its own capability (owners/supervisors, never a teacher): it reverses
+  // the invoice line and the payout, and would otherwise walk back an owner-approved cancellation.
+  const canRevert = can("session.revert_attendance");
   // A teacher can't cancel a class directly — picking a "cancelled" outcome here raises a
   // cancellation request for the owner to approve instead of applying the cancel. Owners
   // (session.cancel) still cancel immediately. Mirrors session-actions.tsx.
@@ -545,6 +552,23 @@ export function AttendanceReport({
         />
       )}
 
+      {revertOpen && (
+        <RevertOutcomeDialog
+          sessionId={sessionId}
+          studentName={session.student_name}
+          currentStatus={session.status}
+          billed={session.billed}
+          open
+          onClose={() => setRevertOpen(false)}
+          onReverted={() => {
+            setRevertOpen(false);
+            void load();
+            flash("success", t("revert.done"));
+            onChange?.("SCHEDULED");
+          }}
+        />
+      )}
+
       {durationOpen && (
         <DurationCorrectionModal
           sessionId={sessionId}
@@ -665,6 +689,32 @@ export function AttendanceReport({
             {t("noPermission")}
           </p>
         )}
+
+        {/* The way OUT of a recorded outcome. Picking a different card corrects a mis-marked
+            lesson; this is for the other case — the lesson did not happen at all and has to go
+            back to pending, which is also the only state a reschedule accepts. RESCHEDULED is
+            excluded: that row was replaced by a successor, not marked. */}
+        {canRevert &&
+          !readOnly &&
+          session.status !== "SCHEDULED" &&
+          session.status !== "RESCHEDULED" && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed px-3.5 py-3">
+              <p className="text-muted-foreground min-w-0 text-xs leading-relaxed">
+                {t("revert.inlineHint")}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                disabled={busy}
+                onClick={() => setRevertOpen(true)}
+                data-testid="revert-outcome"
+              >
+                <Undo2 className="size-3.5" />
+                {t("revert.action")}
+              </Button>
+            </div>
+          )}
       </section>
 
       {/* ── Report text editor ────────────────────────────────────────── */}

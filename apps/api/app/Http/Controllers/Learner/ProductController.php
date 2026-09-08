@@ -38,8 +38,7 @@ final class ProductController extends Controller
             ->whereNull('p.deleted_at')
             ->orderByDesc('p.published_at')
             ->get([
-                'p.id', 'p.title', 'p.slug', 'p.subtitle', 'p.cover_image_path', 'p.kind',
-                'p.author', 'p.language', 'p.category', 'p.page_count', 'p.price_minor',
+                'p.id', 'p.title', 'p.slug', 'p.cover_image_path', 'p.price_minor',
                 'p.checkout_enabled', 'p.published_at', 'p.updated_at',
                 DB::raw('(select count(*) from digital_product_files f where f.product_id = p.id) as file_count'),
                 DB::raw('(select count(*) from digital_product_files f where f.product_id = p.id and f.is_preview) as preview_count'),
@@ -64,7 +63,7 @@ final class ProductController extends Controller
             ->where('f.product_id', $product->id)
             ->orderBy('f.position')
             ->orderBy('f.created_at')
-            ->get(['f.id', 'f.title', 'f.format', 'f.size_bytes', 'f.page_count', 'f.is_preview',
+            ->get(['f.id', 'f.title', 'f.format', 'f.size_bytes', 'f.is_preview',
                 'f.external_url', 'm.storage_key'])
             // The table of contents a visitor may read: every file's NAME (so they know what they
             // are buying) but a URL only for the sample.
@@ -73,7 +72,6 @@ final class ProductController extends Controller
                 'title' => (string) $f->title,
                 'format' => $f->format,
                 'size_bytes' => $f->size_bytes === null ? null : (int) $f->size_bytes,
-                'page_count' => $f->page_count === null ? null : (int) $f->page_count,
                 'is_preview' => (bool) $f->is_preview,
                 'url' => $f->is_preview ? $this->fileUrl($f) : null,
             ]);
@@ -82,8 +80,6 @@ final class ProductController extends Controller
             'product' => $this->card($product, $this->academyCurrency($academyId), $this->siteAcceptsPayments()) + [
                 'description' => $product->description,
                 'owner_count' => $owners,
-                'highlights' => $this->jsonList($product->highlights),
-                'audience' => $this->jsonList($product->audience),
             ],
             'files' => $files,
         ]);
@@ -133,8 +129,7 @@ final class ProductController extends Controller
             ->whereNull('p.deleted_at')
             ->orderByDesc('e.granted_at')
             ->get([
-                'p.id', 'p.title', 'p.slug', 'p.subtitle', 'p.cover_image_path', 'p.kind',
-                'p.author', 'p.language', 'p.category', 'p.page_count', 'p.price_minor',
+                'p.id', 'p.title', 'p.slug', 'p.cover_image_path', 'p.price_minor',
                 'p.checkout_enabled', 'p.published_at', 'p.updated_at',
                 'e.granted_at', 'e.download_count',
                 DB::raw('(select count(*) from digital_product_files f where f.product_id = p.id) as file_count'),
@@ -175,14 +170,13 @@ final class ProductController extends Controller
             ->where('f.product_id', $product->id)
             ->orderBy('f.position')
             ->orderBy('f.created_at')
-            ->get(['f.id', 'f.title', 'f.format', 'f.size_bytes', 'f.page_count', 'f.is_preview',
+            ->get(['f.id', 'f.title', 'f.format', 'f.size_bytes', 'f.is_preview',
                 'f.external_url', 'm.storage_key'])
             ->map(fn (object $f): array => [
                 'id' => (string) $f->id,
                 'title' => (string) $f->title,
                 'format' => $f->format,
                 'size_bytes' => $f->size_bytes === null ? null : (int) $f->size_bytes,
-                'page_count' => $f->page_count === null ? null : (int) $f->page_count,
                 'is_preview' => (bool) $f->is_preview,
                 'url' => $this->fileUrl($f),
             ]);
@@ -263,13 +257,7 @@ final class ProductController extends Controller
             'id' => (string) $p->id,
             'title' => (string) $p->title,
             'slug' => (string) $p->slug,
-            'subtitle' => $p->subtitle,
             'cover_image_path' => LmsMedia::coverUrl($p->cover_image_path),
-            'kind' => (string) $p->kind,
-            'author' => $p->author,
-            'language' => $p->language,
-            'category' => $p->category,
-            'page_count' => $p->page_count === null ? null : (int) $p->page_count,
             'file_count' => isset($p->file_count) ? (int) $p->file_count : null,
             'preview_count' => isset($p->preview_count) ? (int) $p->preview_count : null,
             'owner_count' => isset($p->owner_count) ? (int) $p->owner_count : null,
@@ -305,24 +293,5 @@ final class ProductController extends Controller
     private function siteAcceptsPayments(): bool
     {
         return DB::table('lms_payment_methods')->where('is_active', true)->exists();
-    }
-
-    /**
-     * A jsonb list column as a clean list of strings — a malformed or absent value degrades to `[]`
-     * so a sales block is hidden rather than half-drawn.
-     *
-     * @return list<string>
-     */
-    private function jsonList(mixed $value): array
-    {
-        $decoded = is_array($value) ? $value : (is_string($value) ? json_decode($value, true) : null);
-        if (! is_array($decoded)) {
-            return [];
-        }
-
-        return array_values(array_filter(
-            array_map(fn ($v): string => is_string($v) ? trim($v) : '', $decoded),
-            fn (string $v): bool => $v !== '',
-        ));
     }
 }

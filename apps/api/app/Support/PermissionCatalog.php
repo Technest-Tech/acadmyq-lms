@@ -40,6 +40,11 @@ final class PermissionCatalog
         'session.create',
         'session.reschedule', 'session.cancel',
         'session.cancel_request', 'session.cancel_approve',
+        // Undo a recorded outcome and put the lesson back to SCHEDULED — the only way to fix a
+        // lesson marked wrongly, and the precondition for rescheduling it (a reschedule requires
+        // SCHEDULED). Deliberately NOT held by a TEACHER: reverting reverses the invoice line and
+        // the payout accrual, and would let them undo a cancellation the owner had just approved.
+        'session.revert_attendance',
         // Mark a lesson FREE. Like a cancellation, the per-academy billing decision (charge the
         // student? pay the teacher?) is made in a popup, and a TEACHER cannot apply it directly —
         // they raise a request (session.free_request) the OWNER approves (session.free_approve).
@@ -138,6 +143,10 @@ final class PermissionCatalog
             'session.read', 'session.mark_attendance', 'session.write_report',
             'session.create',
             'session.reschedule', 'session.cancel', 'session.cancel_approve',
+            // Undo a recorded outcome, putting the lesson back to SCHEDULED. Operational, not
+            // financial: recording the outcome is what MOVES the money and it is already
+            // supervisor-held, so undoing a mis-marked lesson stays with the same people.
+            'session.revert_attendance',
             // Mark free directly (with the billing popup) + approve teachers' free requests.
             'session.free', 'session.free_approve',
             'trial.read', 'trial.manage',

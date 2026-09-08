@@ -2,8 +2,6 @@
 
 import {
   ArrowRight,
-  BadgeCheck,
-  BookOpen,
   Check,
   Download,
   Eye,
@@ -144,22 +142,12 @@ export default function BookPage() {
 
           <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-12">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Pill className="bg-background/80 text-foreground border">
-                  {t(`books.kind.${book.kind}`)}
+              {samples.length > 0 && (
+                <Pill className="bg-emerald-600 text-white">
+                  <Eye className="size-3" aria-hidden />
+                  {t("books.sampleBadge")}
                 </Pill>
-                {book.category !== null && book.category !== "" && (
-                  <Pill className="bg-background/80 text-muted-foreground border" dir="auto">
-                    {book.category}
-                  </Pill>
-                )}
-                {samples.length > 0 && (
-                  <Pill className="bg-emerald-600 text-white">
-                    <Eye className="size-3" aria-hidden />
-                    {t("books.sampleBadge")}
-                  </Pill>
-                )}
-              </div>
+              )}
 
               <h1
                 dir="auto"
@@ -167,39 +155,13 @@ export default function BookPage() {
               >
                 {book.title}
               </h1>
-              {book.subtitle !== null && book.subtitle !== "" && (
-                <p dir="auto" className="text-muted-foreground mt-3 text-lg leading-relaxed">
-                  {book.subtitle}
+              {/* Real social proof only — a brand-new book reads as new rather than as unwanted. */}
+              {book.owner_count > 0 && (
+                <p className="text-muted-foreground mt-5 inline-flex items-center gap-1.5 text-sm">
+                  <Users className="size-4" aria-hidden />
+                  {t("books.owners", { count: book.owner_count })}
                 </p>
               )}
-
-              <div className="text-muted-foreground mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-                {book.author !== null && book.author !== "" && (
-                  <span dir="auto" className="inline-flex items-center gap-1.5">
-                    <BadgeCheck className="size-4" aria-hidden />
-                    {book.author}
-                  </span>
-                )}
-                {book.page_count !== null && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <FileText className="size-4" aria-hidden />
-                    {t("books.pages", { count: book.page_count })}
-                  </span>
-                )}
-                {book.language !== null && book.language !== "" && (
-                  <span dir="auto" className="inline-flex items-center gap-1.5">
-                    <BookOpen className="size-4" aria-hidden />
-                    {book.language}
-                  </span>
-                )}
-                {/* Real social proof only — a brand-new book reads as new rather than as unwanted. */}
-                {book.owner_count > 0 && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Users className="size-4" aria-hidden />
-                    {t("books.owners", { count: book.owner_count })}
-                  </span>
-                )}
-              </div>
             </div>
 
             {/* ── the buy card ──────────────────────────────────────────── */}
@@ -317,34 +279,6 @@ export default function BookPage() {
               </section>
             )}
 
-            {book.highlights.length > 0 && (
-              <section>
-                <h2 className="text-xl font-bold">{t("books.highlights")}</h2>
-                <ul className="mt-4 grid gap-3 sm:grid-cols-2">
-                  {book.highlights.map((line, i) => (
-                    <li key={i} className="flex gap-2.5 text-sm leading-relaxed">
-                      <Check className="text-primary mt-0.5 size-4 shrink-0" aria-hidden />
-                      <span dir="auto">{line}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
-            {book.audience.length > 0 && (
-              <section>
-                <h2 className="text-xl font-bold">{t("books.audience")}</h2>
-                <ul className="mt-4 space-y-2.5">
-                  {book.audience.map((line, i) => (
-                    <li key={i} className="flex gap-2.5 text-sm leading-relaxed">
-                      <Users className="text-primary mt-0.5 size-4 shrink-0" aria-hidden />
-                      <span dir="auto">{line}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-
             <section id="book-files" className="scroll-mt-24">
               <h2 className="text-xl font-bold">{t("books.contents")}</h2>
               <p className="text-muted-foreground mt-1 text-sm">
@@ -374,9 +308,9 @@ function FileRow({ file, owned }: { file: LearnProductFile; owned: boolean }) {
   const t = useTranslations("learn.books");
   const openable = file.url !== null && (owned || file.is_preview);
 
+  // Both read off the upload itself — nobody typed them, so nobody can get them wrong.
   const meta = [
     file.format,
-    file.page_count !== null ? t("pages", { count: file.page_count }) : null,
     file.size_bytes !== null && file.size_bytes > 0
       ? `${Math.max(1, Math.round(file.size_bytes / 1048576))} MB`
       : null,

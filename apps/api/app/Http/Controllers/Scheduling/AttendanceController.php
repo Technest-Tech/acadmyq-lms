@@ -113,6 +113,49 @@ final class AttendanceController extends Controller
     }
 
     /**
+     * POST /api/sessions/{id}/attendance/revert — take back a recorded outcome and put the lesson
+     * back to SCHEDULED. Gated by `session.revert_attendance`, which a TEACHER does not hold:
+     * reverting reverses money (the invoice line, the payout accrual) and would otherwise be a way
+     * to undo a cancellation the owner had just approved.
+     *
+     * This is the ONLY way out of a wrongly-marked lesson, and the precondition for moving it:
+     * {@see SessionController::reschedule} refuses anything that is not SCHEDULED.
+     *
+     * The reconciliation and its guards live in {@see AttendanceService::revert} — a closed invoice
+     * or a finalized payout refuses the revert rather than silently leaving the money behind.
+     */
+    public function revert(AttendanceService $service, string $sessionId): JsonResponse
+    {
+        Gate::authorize('session.revert_attendance');
+
+        $session = $this->findOwnedSession($sessionId);
+        $current = SessionStatus::from((string) $session->status);
+
+        if ($current === SessionStatus::Scheduled) {
+            throw ValidationException::withMessages([
+                'status' => ['This lesson is already pending — there is nothing to undo. / هذه الحصة معلّقة بالفعل، لا يوجد ما يمكن التراجع عنه.'],
+            ]);
+        }
+
+        // A RESCHEDULED row is not an outcome, it is a MOVED lesson: its replacement already exists
+        // as a separate SCHEDULED occurrence. Putting this one back would leave the student with
+        // two live lessons and let it be rescheduled a second time, minting a third.
+        if ($current === SessionStatus::Rescheduled) {
+            throw ValidationException::withMessages([
+                'status' => ['This lesson was moved to a new time; undo it from the lesson that replaced it. / تم نقل هذه الحصة إلى موعد جديد؛ تراجع عنها من الحصة التي حلّت محلها.'],
+            ]);
+        }
+
+        $result = $service->revert($session, $this->ctx()->userId, $this->ctx()->role);
+
+        return response()->json([
+            'status' => $result['status'],
+            'billed' => $result['billed'],
+            'classification' => SessionClassifier::classify(SessionStatus::Scheduled),
+        ]);
+    }
+
+    /**
      * Block recording an outcome on a session still in the future beyond the configured grace
      * (§3.7). An Owner/Super Admin may override (`override_timing`), which is audited; a Teacher
      * cannot. The grace lets "now-ish" sessions be marked while keeping clearly-future ones safe.

@@ -17,6 +17,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   putSessionReport: vi.fn(),
   markWhatsappSent: vi.fn(),
   rescheduleSession: vi.fn(),
+  revertAttendance: vi.fn(),
   createSession: vi.fn(),
   listStudents: vi.fn(),
 }));
@@ -50,6 +51,19 @@ function reschedulerSession(): Session {
       "session.mark_attendance",
       "session.write_report",
       "session.reschedule",
+    ],
+  });
+}
+
+/** An owner who may take a recorded outcome back (and move the lesson afterwards). */
+function reverterSession(): Session {
+  return makeSession("ACADEMY_OWNER", {
+    permissions: [
+      "session.read",
+      "session.mark_attendance",
+      "session.write_report",
+      "session.reschedule",
+      "session.revert_attendance",
     ],
   });
 }
@@ -223,6 +237,86 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
 
     await screen.findByTestId("day-list");
     expect(screen.queryByTestId("row-reschedule")).not.toBeInTheDocument();
+  });
+
+  // ── Undo a recorded outcome ──────────────────────────────────────────────
+  // The action exists so a lesson marked by mistake is not a dead end: it goes back to pending,
+  // which is the only state a reschedule accepts. It is offered exactly where the server would
+  // accept it — the viewer holds `session.revert_attendance` and the row carries an outcome.
+
+  it("undoes a recorded outcome and puts the row back to pending", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getSessionsByDay)
+      .mockResolvedValueOnce({ sessions: [{ ...daySession, status: "ATTENDED" as const }] })
+      .mockResolvedValue({ sessions: [daySession] });
+    vi.mocked(api.revertAttendance).mockResolvedValue({
+      status: "SCHEDULED",
+      billed: false,
+      classification: { billableToStudent: false, countsForTeacher: false },
+    });
+    renderManager(reverterSession());
+
+    const [revertBtn] = await screen.findAllByTestId("row-revert");
+    await user.click(revertBtn!);
+    await user.click(await screen.findByTestId("revert-confirm"));
+
+    await waitFor(() => expect(api.revertAttendance).toHaveBeenCalledWith("se1"));
+    await waitFor(() => expect(api.getSessionsByDay).toHaveBeenCalledTimes(2));
+
+    // The whole point of the round trip: the lesson is pending again, so Reschedule — which only
+    // exists on a pending lesson — is now on the row, and Undo is gone.
+    // Both layouts render (desktop table + mobile cards), hence the All queries.
+    expect((await screen.findAllByTestId("row-reschedule")).length).toBeGreaterThan(0);
+    expect(screen.queryAllByTestId("row-revert")).toHaveLength(0);
+  });
+
+  it("keeps the dialog open and shows why when the server refuses", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({
+      sessions: [{ ...daySession, status: "ATTENDED" as const }],
+    });
+    vi.mocked(api.revertAttendance).mockRejectedValue(
+      new Error("This session's invoice is already closed and can no longer be changed."),
+    );
+    renderManager(reverterSession());
+
+    await user.click((await screen.findAllByTestId("row-revert"))[0]!);
+    await user.click(await screen.findByTestId("revert-confirm"));
+
+    // A closed invoice is a real answer, not a transient failure: it stays on screen next to the
+    // button that produced it rather than flashing past as a toast.
+    expect(await screen.findByTestId("revert-error")).toHaveTextContent(
+      "invoice is already closed",
+    );
+    expect(screen.queryByTestId("row-reschedule")).not.toBeInTheDocument();
+  });
+
+  it("does not offer undo without the session.revert_attendance capability", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({
+      sessions: [{ ...daySession, status: "ATTENDED" as const }],
+    });
+    renderManager(reschedulerSession());
+
+    await screen.findByTestId("day-list");
+    expect(screen.queryAllByTestId("row-revert")).toHaveLength(0);
+  });
+
+  it("does not offer undo on a lesson nobody has marked yet", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
+    renderManager(reverterSession());
+
+    await screen.findByTestId("day-list");
+    expect(screen.queryByTestId("row-revert")).not.toBeInTheDocument();
+  });
+
+  it("does not offer undo on a lesson that was moved — its replacement already exists", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({
+      sessions: [{ ...daySession, status: "RESCHEDULED" as const }],
+    });
+    renderManager(reverterSession());
+
+    await screen.findByTestId("day-list");
+    expect(screen.queryByTestId("row-revert")).not.toBeInTheDocument();
   });
 
   // ── Deep link from the calendar ──────────────────────────────────────────

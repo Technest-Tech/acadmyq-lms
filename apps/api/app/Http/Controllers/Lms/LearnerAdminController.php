@@ -78,11 +78,10 @@ final class LearnerAdminController extends Controller
             ->join('digital_products as p', 'p.id', '=', 'e.product_id')
             ->where('e.learner_id', $id)
             ->orderByDesc('e.granted_at')
-            ->get(['e.product_id', 'p.title', 'p.kind', 'e.status', 'e.granted_at', 'e.download_count'])
+            ->get(['e.product_id', 'p.title', 'e.status', 'e.granted_at', 'e.download_count'])
             ->map(fn (object $e): array => [
                 'product_id' => (string) $e->product_id,
                 'title' => (string) $e->title,
-                'kind' => (string) $e->kind,
                 'status' => (string) $e->status,
                 'granted_at' => Carbon::parse($e->granted_at)->utc()->toIso8601String(),
                 'download_count' => (int) $e->download_count,

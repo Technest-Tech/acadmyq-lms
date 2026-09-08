@@ -22,7 +22,6 @@ export default function BooksPage() {
 
   const [books, setBooks] = useState<LearnProductCard[] | null>(null);
   const [search, setSearch] = useState("");
-  const [kind, setKind] = useState<string>("all");
   const [price, setPrice] = useState<"all" | "free" | "paid">("all");
 
   useEffect(() => {
@@ -31,25 +30,17 @@ export default function BooksPage() {
       .catch(() => setBooks([]));
   }, [academy]);
 
-  const kinds = useMemo(() => {
-    const seen = new Set((books ?? []).map((b) => b.kind));
-    return [...seen];
-  }, [books]);
-
   const shown = useMemo(() => {
     const term = search.trim().toLowerCase();
     return (books ?? []).filter((b) => {
-      if (kind !== "all" && b.kind !== kind) return false;
       if (price === "free" && !b.is_free) return false;
       if (price === "paid" && b.is_free) return false;
       if (term === "") return true;
-      return [b.title, b.subtitle, b.author, b.category]
-        .filter((v): v is string => typeof v === "string")
-        .some((v) => v.toLowerCase().includes(term));
+      return b.title.toLowerCase().includes(term);
     });
-  }, [books, kind, price, search]);
+  }, [books, price, search]);
 
-  const filtering = search.trim() !== "" || kind !== "all" || price !== "all";
+  const filtering = search.trim() !== "" || price !== "all";
 
   return (
     <>
@@ -82,13 +73,6 @@ export default function BooksPage() {
               <Chip active={price === "paid"} onClick={() => setPrice("paid")}>
                 {t("filterPaid")}
               </Chip>
-              {/* Only worth a row of chips when the shelf actually holds more than one kind. */}
-              {kinds.length > 1 &&
-                kinds.map((k) => (
-                  <Chip key={k} active={kind === k} onClick={() => setKind(kind === k ? "all" : k)}>
-                    {t(`kind.${k}`)}
-                  </Chip>
-                ))}
             </div>
           </div>
         )}

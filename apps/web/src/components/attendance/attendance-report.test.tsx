@@ -24,6 +24,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   requestFree: vi.fn(),
   previewSessionDuration: vi.fn(),
   updateSessionDuration: vi.fn(),
+  revertAttendance: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -102,6 +103,18 @@ function ownerSession(): Session {
       "session.read",
       "session.mark_attendance",
       "session.write_report",
+    ],
+  });
+}
+
+/** An owner who may also take a recorded outcome back. */
+function reverterSession(): Session {
+  return makeSession("ACADEMY_OWNER", {
+    permissions: [
+      "session.read",
+      "session.mark_attendance",
+      "session.write_report",
+      "session.revert_attendance",
     ],
   });
 }
@@ -397,5 +410,78 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
     await user.click(await screen.findByTestId("save-report"));
     expect(api.requestFree).toHaveBeenCalledWith("se1", {});
     expect(api.markAttendance).not.toHaveBeenCalled();
+  });
+  // ── Undoing a recorded outcome ───────────────────────────────────────────
+  // Picking a different card CORRECTS a mis-marked lesson; this is the other case — the lesson
+  // did not happen at all, and has to go back to pending (the only state a reschedule accepts).
+
+  it("offers undo on a recorded lesson and reloads it once taken back", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getSession).mockResolvedValue(
+      detail({
+        session: { ...detail().session, status: "ATTENDED", billed: true },
+      }),
+    );
+    vi.mocked(api.revertAttendance).mockResolvedValue({
+      status: "SCHEDULED",
+      billed: false,
+      classification: { billableToStudent: false, countsForTeacher: false },
+    });
+    renderPanel(reverterSession());
+
+    await user.click(await screen.findByTestId("revert-outcome"));
+    // A charged lesson says so before it is undone — the money moving back is the part a status
+    // word like "undo" hides.
+    expect(
+      screen.getByText(/removes it from the student's invoice/i),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("revert-confirm"));
+
+    await waitFor(() => expect(api.revertAttendance).toHaveBeenCalledWith("se1"));
+    // Reloaded, so the outcome cards, the billing tags and the badge all come from the server.
+    await waitFor(() => expect(api.getSession).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps the dialog open and shows the server's reason when the money is settled", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getSession).mockResolvedValue(
+      detail({ session: { ...detail().session, status: "ATTENDED", billed: true } }),
+    );
+    vi.mocked(api.revertAttendance).mockRejectedValue(
+      new Error("This session's invoice is already closed and can no longer be changed."),
+    );
+    renderPanel(reverterSession());
+
+    await user.click(await screen.findByTestId("revert-outcome"));
+    await user.click(screen.getByTestId("revert-confirm"));
+
+    expect(await screen.findByTestId("revert-error")).toHaveTextContent(
+      "invoice is already closed",
+    );
+    expect(api.getSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides undo without the capability, and on a lesson nobody has marked", async () => {
+    // Same recorded lesson, but the viewer only holds the marking capability.
+    vi.mocked(api.getSession).mockResolvedValue(
+      detail({ session: { ...detail().session, status: "ATTENDED" } }),
+    );
+    const { unmount } = render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <AuthContext.Provider value={authValue(ownerSession())}>
+          <AttendanceReport sessionId="se1" onError={vi.fn()} />
+        </AuthContext.Provider>
+      </NextIntlClientProvider>,
+    );
+    expect(await screen.findByTestId("attendance-report")).toBeInTheDocument();
+    expect(screen.queryByTestId("revert-outcome")).not.toBeInTheDocument();
+    unmount();
+
+    // And with the capability, but nothing recorded yet — there is nothing to take back.
+    vi.mocked(api.getSession).mockResolvedValue(detail());
+    renderPanel(reverterSession());
+    expect(await screen.findByTestId("attendance-report")).toBeInTheDocument();
+    expect(screen.queryByTestId("revert-outcome")).not.toBeInTheDocument();
   });
 });

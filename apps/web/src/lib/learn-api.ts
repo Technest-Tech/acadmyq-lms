@@ -709,24 +709,11 @@ export function learnCancelOrder(academy: string, number: string): Promise<{ ok:
 // chapter is the friction that loses the sale. Paid files are only ever reachable through
 // `learnProductAccess`, which needs a signed-in learner holding an ACTIVE entitlement.
 
-export type LearnProductKind =
-  | "EBOOK"
-  | "PDF"
-  | "AUDIOBOOK"
-  | "WORKBOOK"
-  | "BUNDLE";
-
 export interface LearnProductCard {
   id: string;
   title: string;
   slug: string;
-  subtitle: string | null;
   cover_image_path: string | null;
-  kind: LearnProductKind;
-  author: string | null;
-  language: string | null;
-  category: string | null;
-  page_count: number | null;
   file_count: number | null;
   /** How many free samples this book offers — 0 hides the "read a sample" affordance. */
   preview_count: number | null;
@@ -750,7 +737,6 @@ export interface LearnProductFile {
   title: string;
   format: string | null;
   size_bytes: number | null;
-  page_count: number | null;
   is_preview: boolean;
   url: string | null;
 }
@@ -759,8 +745,6 @@ export interface LearnProductDetail {
   product: LearnProductCard & {
     description: string | null;
     owner_count: number;
-    highlights: string[];
-    audience: string[];
   };
   files: LearnProductFile[];
 }
@@ -822,11 +806,7 @@ export function learnBookCheckout(
   slug: string,
 ): Promise<Omit<LearnCheckout, "already_enrolled" | "course"> & {
   already_owned: boolean;
-  product: LearnCheckout["course"] & {
-    item_type: "PRODUCT";
-    kind: LearnProductKind | null;
-    author: string | null;
-  };
+  product: LearnCheckout["course"] & { item_type: "PRODUCT" };
 }> {
   return learnFetch(academy, `/checkout/book/${slug}`);
 }

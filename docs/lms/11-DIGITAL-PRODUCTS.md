@@ -12,13 +12,19 @@ everything about *consuming* it is not, and the schema says so.
 
 ## 1. What a client can do
 
-- Publish a **book** — title, cover, author, category, language, page count, the pitch (description
-  + "what's inside" + "who it's for"), and a price.
+- Publish a **book** — a **title, a description, a cover and a price**. That is the whole form.
 - Attach **files**: the book itself, plus worksheets, plus an audio reading. A bundle, not a blob.
 - Mark one (or more) of those files as the **free sample**. It is public: readable by anyone, signed
   in or not.
 - Sell it through checkout (the existing InstaPay / wallet / bank flow) or give it away free.
 - Hand a copy to a learner by hand — the WhatsApp-sale door — or pull it back.
+
+**Four inputs, deliberately.** The first cut of this shipped a book with a course's whole sales
+apparatus — subtitle, kind, author, language, page count, "what's inside", "who it's for". Migration
+`..._000002` dropped every one of them. A client listing a PDF wants to name it, describe it, price
+it and attach the file; each extra field was a blank input standing between them and a published
+book, and a blank field publishes nothing — the storefront hid all of them anyway. Anything a file
+can tell us about itself (**format**, **size**) is read off the upload instead of typed.
 
 ## 2. The three tables
 
@@ -32,18 +38,14 @@ slug-unique-per-academy, the same `price_minor` + `checkout_enabled`, the same s
 rule staff already learned on the course side transfers unchanged.
 
 ```
-id, academy_id, title, slug (unique per academy), subtitle, description, cover_image_path,
-kind         EBOOK | PDF | AUDIOBOOK | WORKBOOK | BUNDLE
-author, language, category, page_count
-highlights   jsonb []   -- "what's inside" bullets
-audience     jsonb []   -- "who it's for" bullets
+id, academy_id, title, slug (unique per academy), description, cover_image_path
 price_minor  bigint     -- integer minor units, academy currency. 0 = free
 checkout_enabled boolean
 status, created_by, published_at, created_at, updated_at, deleted_at
 ```
 
-`kind` is a closed set because the storefront prints it as a chip and filters on it. It is
-presentational: the **files** decide what actually arrives.
+`checkout_enabled` is the one non-form column: it is not something a client types, it is half of the
+"a Buy button needs somewhere to send the money" predicate the catalogue and the sales page read.
 
 ### `digital_product_files` — the bundle
 
@@ -51,7 +53,8 @@ presentational: the **files** decide what actually arrives.
 id, academy_id, product_id
 media_asset_id  -- an uploaded file (the normal path)
 external_url    -- or a link the client hosts themselves
-title, format, size_bytes, page_count, position
+title, position
+format, size_bytes        -- derived from the upload, never typed
 is_preview      boolean   -- THE FREE SAMPLE
 ```
 
@@ -141,7 +144,8 @@ and Quizzes and is part of `LMS_ONLY_KEYS`, so a book-selling client keeps it.
 `commerce.books.any` is true, and that block travels with `GET /api/learn/site` so the header is
 right on the first frame instead of the link flickering in after a catalogue fetch. Card covers are
 3:4 — a book is a portrait object — and the free-sample badge is pinned to the cover, because "read
-a bit before paying" is the strongest reason a stranger clicks through.
+a bit before paying" is the strongest reason a stranger clicks through. The card carries a cover, a
+title, a price and that badge; there is nothing else, because there is nothing else to carry.
 
 The sales page's CTA is computed from real facts, in order, so it is never a button that cannot
 work: **owned → Download**, **free → Get it free**, **`sells_online` → Buy**, otherwise say it is not
@@ -162,3 +166,5 @@ something — an empty tab is a question the page cannot answer.
 - **In-browser reading / DRM.** Files download. A watermarked reader is a different product.
 - **Per-page previews.** See §2 — the sample is a file the client chose, not a slice of one.
 - **Bundling a book with a course** as a single purchase.
+- **Richer listing metadata** (author, category, "what's inside"). Removed on purpose, see §1. If it
+  comes back it comes back as a column *and* an input, never as one without the other.

@@ -1,6 +1,6 @@
 "use client";
 
-import { BookMarked, Download, Eye, FileText } from "lucide-react";
+import { BookMarked, Download, Eye } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useLearnHref } from "@/components/learn/context";
@@ -29,19 +29,14 @@ export function BookCard({ book }: { book: LearnProductCard }) {
       className="group bg-card focus-visible:ring-ring/60 flex flex-col overflow-hidden rounded-2xl border shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus-visible:ring-2 focus-visible:outline-none"
     >
       <CourseThumb src={book.cover_image_path} className="aspect-[3/4]" iconClassName="size-10">
-        <div className="pointer-events-none absolute inset-x-2.5 top-2.5 flex items-start justify-between gap-2">
-          {hasPreview ? (
+        {hasPreview && (
+          <div className="pointer-events-none absolute inset-x-2.5 top-2.5">
             <Pill className="bg-emerald-600/95 text-white shadow-sm">
               <Eye className="size-3" aria-hidden />
               {t("sampleBadge")}
             </Pill>
-          ) : (
-            <span />
-          )}
-          <Pill className="bg-background/90 text-foreground shadow-sm backdrop-blur-sm">
-            {t(`kind.${book.kind}`)}
-          </Pill>
-        </div>
+          </div>
+        )}
       </CourseThumb>
 
       <div className="flex min-w-0 flex-1 flex-col gap-2 p-4">
@@ -51,26 +46,14 @@ export function BookCard({ book }: { book: LearnProductCard }) {
         >
           {book.title}
         </h3>
-        {book.author !== null && book.author !== "" && (
-          <p dir="auto" className="text-muted-foreground -mt-1 truncate text-xs">
-            {book.author}
+        {/* One derived fact, and only when it means something: a multi-file bundle is worth saying
+            out loud, a single PDF is not. Everything else the client never typed. */}
+        {book.file_count !== null && book.file_count > 1 && (
+          <p className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+            <Download className="size-3.5" aria-hidden />
+            {t("files", { count: book.file_count })}
           </p>
         )}
-
-        <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-          {book.page_count !== null && (
-            <span className="inline-flex items-center gap-1">
-              <FileText className="size-3.5" aria-hidden />
-              {t("pages", { count: book.page_count })}
-            </span>
-          )}
-          {book.file_count !== null && book.file_count > 1 && (
-            <span className="inline-flex items-center gap-1">
-              <Download className="size-3.5" aria-hidden />
-              {t("files", { count: book.file_count })}
-            </span>
-          )}
-        </div>
 
         <div className="mt-auto pt-2">
           {book.is_free ? (

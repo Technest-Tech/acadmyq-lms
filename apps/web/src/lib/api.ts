@@ -3035,6 +3035,26 @@ export function markAttendance(
   });
 }
 
+/**
+ * Take a recorded outcome back: the lesson returns to SCHEDULED as if nobody had marked it.
+ *
+ * The server reverses whatever the marking moved — the invoice line (or the package minutes) and
+ * the teacher's payout accrual — and refuses (422) when that money can no longer be moved: a
+ * closed invoice or a finalized payout. It also refuses a lesson that was RESCHEDULED, because its
+ * replacement already exists as a separate occurrence.
+ *
+ * Gated by `session.revert_attendance`, which a teacher does not hold.
+ */
+export function revertAttendance(sessionId: string): Promise<{
+  status: string;
+  billed: boolean;
+  classification: SessionClassification;
+}> {
+  return apiFetch(`/api/sessions/${sessionId}/attendance/revert`, {
+    method: "POST",
+  });
+}
+
 export function putSessionReport(
   sessionId: string,
   values: Record<string, unknown>,
@@ -5288,7 +5308,6 @@ export interface LearnerEnrollment {
 export interface LearnerProduct {
   product_id: string;
   title: string;
-  kind: ProductKind;
   status: "ACTIVE" | "REVOKED";
   granted_at: string;
   download_count: number;
@@ -5372,26 +5391,12 @@ export function setEnrollmentStatus(
 // audiobook, sold through the SAME order queue as a course. Gated exactly like courses
 // (entitled:lms → 402, course.read / course.manage → 403). Transport only.
 
-export type ProductKind = "EBOOK" | "PDF" | "AUDIOBOOK" | "WORKBOOK" | "BUNDLE";
-
-export const PRODUCT_KINDS: readonly ProductKind[] = [
-  "EBOOK",
-  "PDF",
-  "AUDIOBOOK",
-  "WORKBOOK",
-  "BUNDLE",
-];
-
 export interface ProductRow {
   id: string;
   title: string;
   slug: string;
-  subtitle: string | null;
   status: CourseStatus;
-  kind: ProductKind;
-  author: string | null;
   cover_image_path: string | null;
-  category: string | null;
   price_minor: number;
   currency: string;
   is_free: boolean;
@@ -5405,13 +5410,9 @@ export interface ProductRow {
   created_at: string | null;
 }
 
-/** The editor payload: everything a row carries plus the long-form sales copy. */
+/** The editor payload: everything a row carries plus the long-form pitch. */
 export interface ProductDetail extends ProductRow {
   description: string | null;
-  language: string | null;
-  page_count: number | null;
-  highlights: string[];
-  audience: string[];
 }
 
 export interface ProductFile {
@@ -5419,7 +5420,6 @@ export interface ProductFile {
   title: string;
   format: string | null;
   size_bytes: number | null;
-  page_count: number | null;
   /** The FREE sample: the one file an anonymous visitor may open. */
   is_preview: boolean;
   position: number;
@@ -5441,22 +5441,17 @@ export interface ProductSummary {
   accepts_payments: boolean;
 }
 
-/** Everything the create/edit form may send. Every field is optional on a PATCH. */
+/**
+ * Everything the create/edit form may send — a title, the pitch, a cover and a price. Every field is
+ * optional on a PATCH.
+ */
 export interface ProductInput {
   title?: string;
-  subtitle?: string | null;
   description?: string | null;
   slug?: string;
-  kind?: ProductKind;
-  author?: string | null;
-  language?: string | null;
-  category?: string | null;
-  page_count?: number | null;
   /** Integer minor units in the academy's currency. 0 = free. */
   price_minor?: number;
   checkout_enabled?: boolean;
-  highlights?: string[];
-  audience?: string[];
   /** An uploaded IMAGE asset wins over a pasted url; either key present (even null) is an edit. */
   cover_media_asset_id?: string | null;
   cover_image_path?: string | null;
@@ -5468,7 +5463,6 @@ export interface ProductFileInput {
   media_asset_id?: string | null;
   external_url?: string | null;
   format?: string | null;
-  page_count?: number | null;
   is_preview?: boolean;
   position?: number;
 }
@@ -6503,6 +6497,9 @@ export interface PackageStudent {
   active_package_label: string | null;
 }
 
+/** Why a lesson can no longer be moved: its bill went out, or its payroll was finalized. */
+export type PackageLessonLock = "INVOICE_ISSUED" | "PAYOUT_FINALIZED";
+
 /** One lesson that consumed minutes from a package. */
 export interface LessonPackageCredit {
   id: string;
@@ -6515,7 +6512,25 @@ export interface LessonPackageCredit {
   consumed_at: string;
   scheduled_at_utc: string | null;
   session_status: string | null;
+  /** The session's own recorded length. Equals `minutes` unless the row predates a correction. */
+  duration_minutes: number | null;
   teacher_name: string | null;
+  /** True when the invoice or payout behind this lesson has been settled and can no longer move. */
+  locked: boolean;
+  lock_reason: PackageLessonLock | null;
+}
+
+/** An attended lesson that is not on any package yet — a candidate to attach to this one. */
+export interface PackageAttachableLesson {
+  id: string;
+  scheduled_at_utc: string;
+  duration_minutes: number;
+  teacher_name: string | null;
+  invoice_status: string | null;
+  amount_minor: number | null;
+  currency: string | null;
+  /** Its invoice has already been issued, so it cannot move onto a package as things stand. */
+  locked: boolean;
 }
 
 export function listLessonPackages(
@@ -6642,6 +6657,83 @@ export function billPackageOverdraft(
   id: string,
 ): Promise<{ ok: boolean; invoice_id: string }> {
   return apiFetch(`/api/packages/${id}/bill-overdraft`, { method: "POST" });
+}
+
+/**
+ * Attended lessons that are not on any package yet.
+ *
+ * Not filtered to the package's own dates on purpose: the usual reason to open this list is that
+ * the dates were wrong to begin with, so the owner is shown everything and left to judge.
+ */
+export function listAttachablePackageLessons(
+  id: string,
+): Promise<{ lessons: PackageAttachableLesson[] }> {
+  return apiFetch(`/api/packages/${id}/available-lessons`);
+}
+
+/**
+ * Put a lesson on this package.
+ *
+ * Pass `session_id` to move a lesson that already exists. Pass a date and a length instead to
+ * record one that was taught but never entered — it becomes a real attended lesson (teacher
+ * payout included), then lands on the package.
+ */
+export function addPackageLesson(
+  id: string,
+  input:
+    | { session_id: string }
+    | {
+        local_datetime: string;
+        duration_minutes: number;
+        teacher_id?: string;
+        timezone?: string;
+      },
+): Promise<{
+  ok: boolean;
+  session_id: string;
+  created: boolean;
+  minutes: number;
+  minutes_overdrawn: number;
+  invoice_id: string | null;
+}> {
+  return apiFetch(`/api/packages/${id}/lessons`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Correct how long a lesson actually ran.
+ *
+ * The same minutes sit on the parent's invoice and in the teacher's payout, so the server moves
+ * all three together or refuses — it never edits the package in isolation.
+ */
+export function updatePackageLesson(
+  id: string,
+  creditId: string,
+  durationMinutes: number,
+): Promise<{ ok: boolean; impact: unknown }> {
+  return apiFetch(`/api/packages/${id}/lessons/${creditId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ duration_minutes: durationMinutes }),
+  });
+}
+
+/**
+ * Take a lesson back off this package.
+ *
+ * `rebill` is the whole decision: true puts the lesson back on the parent's open invoice (it
+ * happened, someone pays), false drops it entirely (it was never this student's lesson).
+ */
+export function removePackageLesson(
+  id: string,
+  creditId: string,
+  rebill: boolean,
+): Promise<{ ok: boolean; minutes_returned: number; rebilled: boolean }> {
+  return apiFetch(`/api/packages/${id}/lessons/${creditId}`, {
+    method: "DELETE",
+    body: JSON.stringify({ rebill }),
+  });
 }
 
 /* ─── Course sales: orders, receipts & receiving accounts (docs/lms/10) ─────── */

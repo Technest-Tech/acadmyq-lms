@@ -17,7 +17,6 @@ import {
   Trash2,
   Undo2,
   Users,
-  X,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -28,7 +27,6 @@ import {
   Field,
   inputClass,
   PriceField,
-  selectClass,
   textareaClass,
 } from "@/components/courses/form-bits";
 import {
@@ -62,7 +60,6 @@ import {
   getProduct,
   getProductSummary,
   listProducts,
-  PRODUCT_KINDS,
   reorderProductFiles,
   setProductStatus,
   updateProduct,
@@ -71,7 +68,6 @@ import {
   type ProductDetail,
   type ProductFile,
   type ProductInput,
-  type ProductKind,
   type ProductRow,
   type ProductSummary,
 } from "@/lib/api";
@@ -155,7 +151,6 @@ export function BooksManager() {
 
   async function submitCreate(input: {
     title: string;
-    kind: ProductKind;
     price_minor: number;
     cover_media_asset_id: string | null;
   }) {
@@ -163,7 +158,6 @@ export function BooksManager() {
     try {
       const { productId } = await createProduct({
         title: input.title.trim(),
-        kind: input.kind,
         price_minor: input.price_minor,
         cover_media_asset_id: input.cover_media_asset_id,
       });
@@ -432,11 +426,6 @@ function BookCard({
           <h3 className="line-clamp-2 text-sm font-semibold" dir="auto">
             {book.title}
           </h3>
-          {book.author !== null && book.author !== "" && (
-            <p className="text-muted-foreground mt-0.5 truncate text-xs" dir="auto">
-              {book.author}
-            </p>
-          )}
         </div>
 
         <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
@@ -527,14 +516,12 @@ function CreateBookModal({
   onCancel: () => void;
   onSubmit: (input: {
     title: string;
-    kind: ProductKind;
     price_minor: number;
     cover_media_asset_id: string | null;
   }) => void;
 }) {
   const t = useTranslations("books");
   const [title, setTitle] = useState("");
-  const [kind, setKind] = useState<ProductKind>("EBOOK");
   const [price, setPrice] = useState(0);
   const [cover, setCover] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -551,7 +538,7 @@ function CreateBookModal({
             {t("form.cancel")}
           </Button>
           <Button
-            onClick={() => onSubmit({ title, kind, price_minor: price, cover_media_asset_id: cover })}
+            onClick={() => onSubmit({ title, price_minor: price, cover_media_asset_id: cover })}
             disabled={busy || uploading || title.trim() === ""}
           >
             {t("form.create")}
@@ -569,20 +556,6 @@ function CreateBookModal({
             onChange={(e) => setTitle(e.target.value)}
             placeholder={t("form.titlePlaceholder")}
           />
-        </Field>
-
-        <Field label={t("form.kind")}>
-          <select
-            className={selectClass}
-            value={kind}
-            onChange={(e) => setKind(e.target.value as ProductKind)}
-          >
-            {PRODUCT_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {t(`kind.${k}`)}
-              </option>
-            ))}
-          </select>
         </Field>
 
         <Field label={t("form.price")}>
@@ -614,75 +587,6 @@ function CreateBookModal({
 }
 
 // ── edit ─────────────────────────────────────────────────────────────────────
-
-/** A repeatable list of short bullets (what's inside / who it's for). Blank rows are dropped on save. */
-function BulletList({
-  label,
-  hint,
-  values,
-  onChange,
-  max,
-  disabled,
-  addLabel,
-  removeLabel,
-  placeholder,
-}: {
-  label: string;
-  hint?: string;
-  values: string[];
-  onChange: (next: string[]) => void;
-  max: number;
-  disabled: boolean;
-  addLabel: string;
-  removeLabel: string;
-  placeholder: string;
-}) {
-  const rows = values.length === 0 ? [""] : values;
-
-  return (
-    <Field label={label} hint={hint}>
-      <div className="space-y-2">
-        {rows.map((value, index) => (
-          <div key={index} className="flex items-center gap-2">
-            <input
-              className={inputClass}
-              value={value}
-              dir="auto"
-              disabled={disabled}
-              placeholder={placeholder}
-              onChange={(e) => {
-                const next = [...rows];
-                next[index] = e.target.value;
-                onChange(next);
-              }}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={removeLabel}
-              disabled={disabled || rows.length === 1}
-              onClick={() => onChange(rows.filter((_, i) => i !== index))}
-            >
-              <X />
-            </Button>
-          </div>
-        ))}
-        {rows.length < max && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            onClick={() => onChange([...rows, ""])}
-          >
-            <Plus /> {addLabel}
-          </Button>
-        )}
-      </div>
-    </Field>
-  );
-}
 
 /**
  * The book editor: everything a digital product owns, in one dialog.
@@ -720,17 +624,8 @@ function BookEditor({
         setFiles(res.files);
         setForm({
           title: res.product.title,
-          subtitle: res.product.subtitle ?? "",
           description: res.product.description ?? "",
-          kind: res.product.kind,
-          author: res.product.author ?? "",
-          language: res.product.language ?? "",
-          category: res.product.category ?? "",
-          page_count: res.product.page_count,
           price_minor: res.product.price_minor,
-          checkout_enabled: res.product.checkout_enabled,
-          highlights: res.product.highlights,
-          audience: res.product.audience,
         });
       })
       .catch(() => onAlert("error", t("alerts.failed")));
@@ -751,11 +646,7 @@ function BookEditor({
       const { cover_media_asset_id: cover, ...rest } = form;
       await updateProduct(productId, {
         ...rest,
-        subtitle: form.subtitle?.trim() || null,
         description: form.description?.trim() || null,
-        author: form.author?.trim() || null,
-        language: form.language?.trim() || null,
-        category: form.category?.trim() || null,
         // Send the cover key ONLY when a new image actually landed. The uploader reports `null`
         // while a pick is in flight and again if it fails, and the API reads a present-but-null key
         // as "clear the cover" — so passing it through would delete the existing cover on a failed
@@ -851,9 +742,6 @@ function BookEditor({
                       <p className="text-muted-foreground truncate text-xs">
                         {[
                           fileSize(file.size_bytes),
-                          file.page_count !== null
-                            ? t("files.pages", { count: file.page_count })
-                            : null,
                           file.is_preview ? t("files.previewBadge") : null,
                         ]
                           .filter(Boolean)
@@ -940,8 +828,8 @@ function BookEditor({
             )}
           </section>
 
-          {/* ── the pitch ─────────────────────────────────────────────────────── */}
-          <section className="grid gap-4 sm:grid-cols-2">
+          {/* ── the pitch: what a shop actually needs to list a book ─────────── */}
+          <section className="space-y-4">
             <Field label={t("form.title")}>
               <input
                 className={inputClass}
@@ -949,68 +837,6 @@ function BookEditor({
                 dir="auto"
                 disabled={disabled}
                 onChange={(e) => patch({ title: e.target.value })}
-              />
-            </Field>
-            <Field label={t("form.author")} optional={t("form.optional")}>
-              <input
-                className={inputClass}
-                value={form.author ?? ""}
-                dir="auto"
-                disabled={disabled}
-                onChange={(e) => patch({ author: e.target.value })}
-              />
-            </Field>
-            <Field label={t("form.subtitle")} optional={t("form.optional")}>
-              <input
-                className={inputClass}
-                value={form.subtitle ?? ""}
-                dir="auto"
-                disabled={disabled}
-                onChange={(e) => patch({ subtitle: e.target.value })}
-              />
-            </Field>
-            <Field label={t("form.kind")}>
-              <select
-                className={selectClass}
-                value={form.kind}
-                disabled={disabled}
-                onChange={(e) => patch({ kind: e.target.value as ProductKind })}
-              >
-                {PRODUCT_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {t(`kind.${k}`)}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label={t("form.category")} optional={t("form.optional")}>
-              <input
-                className={inputClass}
-                value={form.category ?? ""}
-                dir="auto"
-                disabled={disabled}
-                onChange={(e) => patch({ category: e.target.value })}
-              />
-            </Field>
-            <Field label={t("form.language")} optional={t("form.optional")}>
-              <input
-                className={inputClass}
-                value={form.language ?? ""}
-                dir="auto"
-                disabled={disabled}
-                onChange={(e) => patch({ language: e.target.value })}
-              />
-            </Field>
-            <Field label={t("form.pages")} optional={t("form.optional")}>
-              <input
-                className={cn(inputClass, "tabular-nums")}
-                type="number"
-                min={1}
-                value={form.page_count ?? ""}
-                disabled={disabled}
-                onChange={(e) =>
-                  patch({ page_count: e.target.value === "" ? null : Number(e.target.value) })
-                }
               />
             </Field>
             <Field label={t("form.cover")} optional={t("form.optional")}>
@@ -1027,7 +853,7 @@ function BookEditor({
           <Field label={t("form.description")} optional={t("form.optional")}>
             <textarea
               className={textareaClass}
-              rows={4}
+              rows={5}
               value={form.description ?? ""}
               dir="auto"
               disabled={disabled}
@@ -1035,7 +861,6 @@ function BookEditor({
             />
           </Field>
 
-          {/* ── money ─────────────────────────────────────────────────────────── */}
           <section className="space-y-3">
             <h3 className="text-sm font-semibold">{t("form.priceSection")}</h3>
             <PriceField
@@ -1052,42 +877,11 @@ function BookEditor({
                 freeHint: t("price.freeHint"),
               }}
             />
-            <CheckOption
-              checked={form.checkout_enabled ?? true}
-              disabled={disabled}
-              onChange={(checked) => patch({ checkout_enabled: checked })}
-              label={t("form.checkoutEnabled")}
-              hint={t("form.checkoutEnabledHint")}
-            />
             {/* The honest answer, not the flag: a Buy button with nowhere to pay strands the buyer. */}
             {!product.sells_online && !product.is_free && (
               <p className="text-muted-foreground text-xs">{t("form.notSellingHint")}</p>
             )}
           </section>
-
-          <BulletList
-            label={t("form.highlights")}
-            hint={t("form.highlightsHint")}
-            values={form.highlights ?? []}
-            onChange={(next) => patch({ highlights: next })}
-            max={12}
-            disabled={disabled}
-            addLabel={t("form.addBullet")}
-            removeLabel={t("form.removeBullet")}
-            placeholder={t("form.highlightsPlaceholder")}
-          />
-
-          <BulletList
-            label={t("form.audience")}
-            hint={t("form.audienceHint")}
-            values={form.audience ?? []}
-            onChange={(next) => patch({ audience: next })}
-            max={8}
-            disabled={disabled}
-            addLabel={t("form.addBullet")}
-            removeLabel={t("form.removeBullet")}
-            placeholder={t("form.audiencePlaceholder")}
-          />
         </div>
       )}
     </Modal>

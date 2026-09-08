@@ -35,14 +35,8 @@ final class ProductController extends Controller
 
     private const STATUSES = ['DRAFT', 'PUBLISHED', 'ARCHIVED'];
 
-    /** What the buyer downloads. Presentational + a catalogue facet, so it is a closed set. */
-    private const KINDS = ['EBOOK', 'PDF', 'AUDIOBOOK', 'WORKBOOK', 'BUNDLE'];
-
     /** Same ceiling as a course price: 10,000,000 major units in minor. */
     private const MAX_PRICE_MINOR = 1_000_000_000;
-
-    /** The two sales lists on a product's page, and how many bullets each may hold. */
-    private const SALES_LISTS = ['highlights' => 12, 'audience' => 8];
 
     /** GET /api/courses/products — the server-driven list view. */
     public function index(Request $request): JsonResponse
@@ -52,8 +46,8 @@ final class ProductController extends Controller
         $query = DB::table('digital_products as p')
             ->whereNull('p.deleted_at')
             ->select([
-                'p.id', 'p.title', 'p.slug', 'p.subtitle', 'p.status', 'p.kind', 'p.author',
-                'p.cover_image_path', 'p.price_minor', 'p.checkout_enabled', 'p.category',
+                'p.id', 'p.title', 'p.slug', 'p.status',
+                'p.cover_image_path', 'p.price_minor', 'p.checkout_enabled',
                 'p.published_at', 'p.created_at',
                 DB::raw('(select count(*) from digital_product_files f where f.product_id = p.id) as file_count'),
                 DB::raw('(select count(*) from digital_product_files f where f.product_id = p.id and f.is_preview) as preview_count'),
@@ -62,7 +56,7 @@ final class ProductController extends Controller
 
         $result = DataTable::paginate($query, $request, [
             'idColumn' => 'p.id',
-            'searchable' => ['p.title', 'p.subtitle', 'p.author'],
+            'searchable' => ['p.title', 'p.description'],
             'sortable' => [
                 'created_at' => 'p.created_at',
                 'title' => 'p.title',
@@ -71,7 +65,6 @@ final class ProductController extends Controller
             ],
             'filters' => [
                 'status' => fn ($q, $value) => $q->where('p.status', strtoupper((string) $value)),
-                'kind' => fn ($q, $value) => $q->where('p.kind', strtoupper((string) $value)),
             ],
             'defaultSort' => '-created_at',
         ]);
@@ -123,15 +116,13 @@ final class ProductController extends Controller
             'academy_id' => $academyId,
             'title' => trim($data['title']),
             'slug' => $this->uniqueSlugIn('digital_products', $academyId, $data['title'], 'book'),
-            'subtitle' => $data['subtitle'] ?? null,
             'description' => $data['description'] ?? null,
-            'kind' => $data['kind'] ?? 'EBOOK',
             'price_minor' => $data['price_minor'] ?? 0,
             'checkout_enabled' => $data['checkout_enabled'] ?? true,
             'cover_image_path' => $this->resolveCover($data),
             'status' => 'DRAFT',
             'created_by' => $this->ctx()->userId,
-        ] + $this->detailColumns($data));
+        ]);
 
         Audit::log('lms_product.create', 'digital_product', $productId, $academyId,
             $this->ctx()->userId, $this->ctx()->role, after: ['title' => $data['title']]);
@@ -162,12 +153,11 @@ final class ProductController extends Controller
         $data = $request->validate($this->rules(creating: false));
 
         $update = [];
-        foreach (['title', 'subtitle', 'description', 'kind', 'price_minor', 'checkout_enabled'] as $field) {
+        foreach (['title', 'description', 'price_minor', 'checkout_enabled'] as $field) {
             if (array_key_exists($field, $data)) {
                 $update[$field] = is_string($data[$field]) ? trim($data[$field]) : $data[$field];
             }
         }
-        $update += $this->detailColumns($data, partial: true);
         // An uploaded cover wins over a pasted url; either key being present (even as null) is an edit.
         if (array_key_exists('cover_media_asset_id', $data) || array_key_exists('cover_image_path', $data)) {
             $update['cover_image_path'] = $this->resolveCover($data);
@@ -265,7 +255,6 @@ final class ProductController extends Controller
             'title' => trim($data['title']),
             'format' => $this->formatOf($data, $asset),
             'size_bytes' => $asset?->size_bytes,
-            'page_count' => $data['page_count'] ?? null,
             'is_preview' => $data['is_preview'] ?? false,
             'position' => $data['position'] ?? $this->nextFilePosition($productId),
             'created_at' => now(),
@@ -290,7 +279,7 @@ final class ProductController extends Controller
         $data = $request->validate($this->fileRules(creating: false));
 
         $update = [];
-        foreach (['title', 'is_preview', 'position', 'page_count'] as $field) {
+        foreach (['title', 'is_preview', 'position'] as $field) {
             if (array_key_exists($field, $data)) {
                 $update[$field] = is_string($data[$field]) ? trim($data[$field]) : $data[$field];
             }
@@ -394,7 +383,7 @@ final class ProductController extends Controller
             ->orderBy('f.position')
             ->orderBy('f.created_at')
             ->get([
-                'f.id', 'f.title', 'f.format', 'f.size_bytes', 'f.page_count', 'f.is_preview',
+                'f.id', 'f.title', 'f.format', 'f.size_bytes', 'f.is_preview',
                 'f.position', 'f.media_asset_id', 'f.external_url',
                 'm.storage_key', 'm.status as asset_status', 'm.original_filename',
             ])
@@ -403,7 +392,6 @@ final class ProductController extends Controller
                 'title' => (string) $f->title,
                 'format' => $f->format,
                 'size_bytes' => $f->size_bytes === null ? null : (int) $f->size_bytes,
-                'page_count' => $f->page_count === null ? null : (int) $f->page_count,
                 'is_preview' => (bool) $f->is_preview,
                 'position' => (int) $f->position,
                 'media_asset_id' => $f->media_asset_id === null ? null : (string) $f->media_asset_id,
@@ -482,30 +470,23 @@ final class ProductController extends Controller
         return DB::table('lms_payment_methods')->where('is_active', true)->exists();
     }
 
-    /** @return array<string, list<mixed>> */
+    /**
+     * What a client actually fills in for a book: a name, the pitch, a cover and a price. Nothing
+     * else — see the `..._000002` migration for why the rest went away.
+     *
+     * @return array<string, list<mixed>>
+     */
     private function rules(bool $creating): array
     {
         $required = $creating ? 'required' : 'sometimes';
 
         return [
             'title' => [$required, 'string', 'max:255'],
-            'subtitle' => ['sometimes', 'nullable', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string', 'max:10000'],
             'slug' => $creating ? ['prohibited'] : ['sometimes', 'string', 'max:255', 'regex:/^[a-z0-9-]+$/'],
-            'kind' => ['sometimes', Rule::in(self::KINDS)],
-            'author' => ['sometimes', 'nullable', 'string', 'max:160'],
-            'language' => ['sometimes', 'nullable', 'string', 'max:40'],
-            'category' => ['sometimes', 'nullable', 'string', 'max:80'],
-            'page_count' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:100000'],
             // Integer minor units in the academy's currency. 0 (or omitted) = free.
             'price_minor' => ['sometimes', 'integer', 'min:0', 'max:'.self::MAX_PRICE_MINOR],
             'checkout_enabled' => ['sometimes', 'boolean'],
-            'highlights' => ['sometimes', 'array', 'max:'.self::SALES_LISTS['highlights']],
-            // `nullable` because a repeatable form submits the blank row the user left behind and
-            // ConvertEmptyStringsToNull turns it into null on the way in — an ordinary edit.
-            'highlights.*' => ['nullable', 'string', 'max:300'],
-            'audience' => ['sometimes', 'array', 'max:'.self::SALES_LISTS['audience']],
-            'audience.*' => ['nullable', 'string', 'max:300'],
             'cover_media_asset_id' => ['sometimes', 'nullable', 'uuid'],
             'cover_image_path' => ['sometimes', 'nullable', 'string', 'max:1024'],
         ];
@@ -521,71 +502,9 @@ final class ProductController extends Controller
             'media_asset_id' => ['sometimes', 'nullable', 'uuid'],
             'external_url' => ['sometimes', 'nullable', 'url', 'max:2048'],
             'format' => ['sometimes', 'nullable', 'string', 'max:12'],
-            'page_count' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:100000'],
             'is_preview' => ['sometimes', 'boolean'],
             'position' => ['sometimes', 'integer', 'min:0', 'max:1000'],
         ];
-    }
-
-    /**
-     * The validated detail/sales fields as database columns. `$partial` is the PATCH case: only the
-     * keys the request actually sent are written, so a form that edits the price alone cannot blank
-     * out the highlights it never showed.
-     *
-     * @param  array<string,mixed>  $data
-     * @return array<string,mixed>
-     */
-    private function detailColumns(array $data, bool $partial = false): array
-    {
-        $out = [];
-
-        foreach (['author', 'language', 'category', 'page_count'] as $field) {
-            if (array_key_exists($field, $data)) {
-                $value = is_string($data[$field]) ? trim($data[$field]) : $data[$field];
-                $out[$field] = ($value === '' || $value === null) ? null : $value;
-            } elseif (! $partial) {
-                $out[$field] = null;
-            }
-        }
-
-        foreach (array_keys(self::SALES_LISTS) as $field) {
-            if (array_key_exists($field, $data)) {
-                $out[$field] = json_encode($this->cleanList($data[$field]), JSON_UNESCAPED_UNICODE);
-            } elseif (! $partial) {
-                $out[$field] = '[]';
-            }
-        }
-
-        return $out;
-    }
-
-    /**
-     * Trim, drop the blanks a repeatable form leaves behind, and re-index — a stored `[""]` would
-     * render as an empty bullet on the sales page.
-     *
-     * @return list<string>
-     */
-    private function cleanList(mixed $value): array
-    {
-        if (! is_array($value)) {
-            return [];
-        }
-
-        return array_values(array_filter(
-            array_map(fn ($v): string => is_string($v) ? trim($v) : '', $value),
-            fn (string $v): bool => $v !== '',
-        ));
-    }
-
-    /** @return list<string> */
-    private function decodeList(mixed $value): array
-    {
-        if (is_array($value)) {
-            return array_values(array_filter($value, 'is_string'));
-        }
-        $decoded = is_string($value) ? json_decode($value, true) : null;
-
-        return is_array($decoded) ? array_values(array_filter($decoded, 'is_string')) : [];
     }
 
     /**
@@ -624,7 +543,7 @@ final class ProductController extends Controller
         if (property_exists($p, 'cover_image_path')) {
             $p->cover_image_path = LmsMedia::coverUrl($p->cover_image_path);
         }
-        foreach (['file_count', 'preview_count', 'owner_count', 'page_count'] as $count) {
+        foreach (['file_count', 'preview_count', 'owner_count'] as $count) {
             if (property_exists($p, $count) && $p->{$count} !== null) {
                 $p->{$count} = (int) $p->{$count};
             }
@@ -639,11 +558,6 @@ final class ProductController extends Controller
             $p->checkout_enabled = (bool) $p->checkout_enabled;
             $acceptsPayments ??= $this->hasActivePaymentMethod();
             $p->sells_online = $p->checkout_enabled && ! $p->is_free && $acceptsPayments;
-        }
-        foreach (array_keys(self::SALES_LISTS) as $field) {
-            if (property_exists($p, $field)) {
-                $p->{$field} = $this->decodeList($p->{$field});
-            }
         }
 
         return $p;

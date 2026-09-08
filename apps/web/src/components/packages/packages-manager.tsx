@@ -476,7 +476,12 @@ export function PackagesManager() {
         size="lg"
       >
         {modal.kind === "detail" && (
-          <PackageDetail row={modal.row} timezone={timezone} />
+          <PackageDetail
+            row={modal.row}
+            timezone={timezone}
+            canManage={canManage}
+            onChanged={refresh}
+          />
         )}
       </Modal>
 

@@ -49,9 +49,9 @@ use App\Http\Controllers\Lms\LearnerAdminController;
 use App\Http\Controllers\Lms\LessonController;
 use App\Http\Controllers\Lms\MediaController;
 use App\Http\Controllers\Lms\MediaDeliveryController;
-use App\Http\Controllers\Lms\ProductController as LmsProductController;
 use App\Http\Controllers\Lms\OrderController as LmsOrderController;
 use App\Http\Controllers\Lms\PaymentMethodController as LmsPaymentMethodController;
+use App\Http\Controllers\Lms\ProductController as LmsProductController;
 use App\Http\Controllers\Lms\QuizController;
 use App\Http\Controllers\Lms\SectionController;
 use App\Http\Controllers\Lms\SiteProfileController as LmsSiteProfileController;
@@ -883,6 +883,10 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/sessions/{id}/duration-preview', [SessionController::class, 'durationPreview']);
     Route::patch('/sessions/{id}/duration', [SessionController::class, 'updateDuration']);
     Route::post('/sessions/{id}/attendance', [AttendanceController::class, 'store']);
+    // Take back a recorded outcome (session.revert_attendance — owners/supervisors, never a
+    // teacher). Puts the lesson back to SCHEDULED, reversing the invoice line and the payout with
+    // it, which is what makes a mis-marked lesson reschedulable again.
+    Route::post('/sessions/{id}/attendance/revert', [AttendanceController::class, 'revert']);
     Route::put('/sessions/{id}/report', [SessionReportController::class, 'put']);
     Route::post('/sessions/{id}/report/whatsapp-sent', [SessionReportController::class, 'whatsappSent']);
     Route::get('/students/{id}/reports', [SessionReportController::class, 'archive']);
@@ -946,6 +950,14 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/packages/{id}/close', [LessonPackageController::class, 'close']);
         Route::post('/packages/{id}/cancel', [LessonPackageController::class, 'cancel']);
         Route::post('/packages/{id}/bill-overdraft', [LessonPackageController::class, 'billOverdraft']);
+
+        // The ledger by hand: the owner adding, correcting and removing individual lessons on a
+        // package. `lessons` here means the credit rows — the lessons that ate this block — and
+        // adding one can CREATE the underlying attended session, so these are package.manage.
+        Route::get('/packages/{id}/available-lessons', [LessonPackageController::class, 'availableLessons']);
+        Route::post('/packages/{id}/lessons', [LessonPackageController::class, 'addLesson']);
+        Route::patch('/packages/{id}/lessons/{creditId}', [LessonPackageController::class, 'updateLesson']);
+        Route::delete('/packages/{id}/lessons/{creditId}', [LessonPackageController::class, 'removeLesson']);
     });
 
     // Live FX rates (owner) — converts every academy currency into the home currency (EGP) so the

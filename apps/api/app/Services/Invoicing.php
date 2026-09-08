@@ -38,8 +38,13 @@ final class Invoicing implements BillingHook
 
     /**
      * A session became billable → snapshot the price and ensure exactly one line item exists.
+     *
+     * `$allowPackage` is FALSE only when the caller has just deliberately taken this lesson OFF a
+     * package ({@see LessonPackages::detachCredit()}) and wants it billed the ordinary way. Left
+     * TRUE — every automatic caller — the package clock still gets first refusal, which is what
+     * keeps the two billing modes mutually exclusive.
      */
-    public function onSessionBillable(object $session): void
+    public function onSessionBillable(object $session, bool $allowPackage = true): void
     {
         $academy = DB::table('academies')->where('id', $session->academy_id)->first();
         if ($academy === null) {
@@ -64,7 +69,7 @@ final class Invoicing implements BillingHook
         // eat paid-for minutes either. consume() returns false when it declines the lesson (the
         // student is on package billing but has no open package) and the monthly path below takes
         // over, because a delivered lesson still has to be billed to somebody.
-        if (! $this->isFreeTrial((string) $session->id) && $this->packages->consume($session)) {
+        if ($allowPackage && ! $this->isFreeTrial((string) $session->id) && $this->packages->consume($session)) {
             return;
         }
 

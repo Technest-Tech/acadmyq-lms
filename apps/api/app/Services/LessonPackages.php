@@ -117,6 +117,23 @@ final class LessonPackages
             return false;
         }
 
+        return $this->creditSession($package, $session);
+    }
+
+    /**
+     * Burn one lesson out of ONE NAMED package — the single consumption rule set.
+     *
+     * Split out of {@see consume()} so a hand-made attachment ({@see attachSession()}) and the
+     * automatic path can never drift apart: the overdraft arithmetic, the exhaustion close and
+     * the low-balance warning live here and nowhere else. Only the GATES differ — automatic
+     * consumption first asks whether the student is on package billing at all, while a manual
+     * attach is the owner deliberately overriding exactly that question — and what happens to
+     * the minutes afterwards is identical either way.
+     */
+    private function creditSession(object $package, object $session): bool
+    {
+        $studentId = (string) $session->student_id;
+
         $minutes = max(1, (int) $session->duration_minutes);
         $available = $this->remainingMinutes($package);
 
@@ -246,6 +263,203 @@ final class LessonPackages
         }
 
         return true;
+    }
+
+    // =========================================================================
+    // Manual control — the owner moving lessons on and off a package by hand
+    // =========================================================================
+
+    /**
+     * Put an already-taught lesson onto THIS package by hand.
+     *
+     * The automatic path only ever credits the student's *active* package, and only while their
+     * subscription says PER_PACKAGE. Both of those are the right default and both are wrong at
+     * least once per academy: a lesson taught before the block was sold, a lesson that landed on
+     * the wrong sibling, a student moved onto package billing halfway through a month. This is
+     * that correction, and it is deliberately an explicit act rather than a rule — the owner is
+     * naming the package, so no gate about billing mode applies.
+     *
+     * The lesson must still be one that HAPPENED (a scheduled lesson has no minutes to give) and
+     * must not already be on a package — {@see lesson_package_credits.session_id} is unique, and
+     * this refuses loudly rather than letting insertOrIgnore swallow a double-attach. Any invoice
+     * line the lesson was carrying is removed first: a lesson is billed by the package or by the
+     * invoice, never by both, which is the whole reason the two modes are exclusive.
+     *
+     * @return array{minutes:int, minutes_overdrawn:int, invoice_id:?string}
+     */
+    public function attachSession(string $packageId, string $sessionId, ?string $actorUserId, ?string $actorRole): array
+    {
+        return DB::transaction(function () use ($packageId, $sessionId, $actorUserId, $actorRole): array {
+            $package = DB::table('lesson_packages')->where('id', $packageId)->lockForUpdate()->first();
+
+            if ($package === null) {
+                throw ValidationException::withMessages([
+                    'package_id' => ['Package not found. / الباقة غير موجودة.'],
+                ]);
+            }
+
+            if ($package->status !== 'ACTIVE') {
+                throw ValidationException::withMessages([
+                    'package_id' => ['Only an open package can take another lesson. / لا يمكن إضافة حصة إلا إلى باقة مفتوحة.'],
+                ]);
+            }
+
+            $session = DB::table('sessions')->where('id', $sessionId)->first();
+
+            if ($session === null || (string) $session->academy_id !== (string) $package->academy_id) {
+                throw ValidationException::withMessages([
+                    'session_id' => ['Lesson not found. / الحصة غير موجودة.'],
+                ]);
+            }
+
+            if ((string) $session->student_id !== (string) $package->student_id) {
+                throw ValidationException::withMessages([
+                    'session_id' => ['That lesson belongs to a different student. / هذه الحصة تخص طالبًا آخر.'],
+                ]);
+            }
+
+            if ((string) $session->status !== 'ATTENDED') {
+                throw ValidationException::withMessages([
+                    'session_id' => ['Only an attended lesson consumes hours. / لا تُحتسب الساعات إلا لحصة تم حضورها.'],
+                ]);
+            }
+
+            $existing = DB::table('lesson_package_credits')->where('session_id', $sessionId)->first();
+
+            if ($existing !== null) {
+                throw ValidationException::withMessages([
+                    'session_id' => ['That lesson is already on a package. / هذه الحصة مُضافة إلى باقة بالفعل.'],
+                ]);
+            }
+
+            // A lesson is billed by the package OR by the invoice, never by both. Drop the line
+            // and recompute the invoice from what is left, rather than subtracting blindly —
+            // safe under retries and it preserves a sibling's lines on a shared invoice.
+            $line = DB::table('invoice_line_items as li')
+                ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+                ->where('li.session_id', $sessionId)
+                ->first(['li.id', 'li.invoice_id', 'i.status as invoice_status']);
+
+            $invoiceId = null;
+
+            if ($line !== null) {
+                if ((string) $line->invoice_status !== 'OPEN') {
+                    throw ValidationException::withMessages([
+                        'session_id' => ['That lesson is on an invoice which is no longer open, so it cannot move onto a package. / هذه الحصة على فاتورة لم تعد مفتوحة، لذا لا يمكن نقلها إلى باقة.'],
+                    ]);
+                }
+
+                $invoiceId = (string) $line->invoice_id;
+                DB::table('invoice_line_items')->where('id', $line->id)->delete();
+                $this->resettleInvoice($invoiceId);
+            }
+
+            $before = (int) $package->minutes_consumed;
+            $this->creditSession($package, $session);
+            $after = (int) DB::table('lesson_packages')->where('id', $packageId)->value('minutes_consumed');
+
+            Audit::log(
+                'lesson_package.lesson_attached',
+                'lesson_package',
+                $packageId,
+                (string) $package->academy_id,
+                $actorUserId,
+                $actorRole,
+                before: ['minutes_consumed' => $before],
+                after: [
+                    'session_id' => $sessionId,
+                    'minutes_consumed' => $after,
+                    'invoice_id' => $invoiceId,
+                ],
+            );
+
+            $credit = DB::table('lesson_package_credits')->where('session_id', $sessionId)->first();
+
+            return [
+                'minutes' => (int) ($credit->minutes ?? 0),
+                'minutes_overdrawn' => (int) ($credit->minutes_overdrawn ?? 0),
+                'invoice_id' => $invoiceId,
+            ];
+        });
+    }
+
+    /**
+     * Take a lesson back off this package.
+     *
+     * Two honest outcomes, and the caller must choose — silently picking either one would be a
+     * money decision made behind the owner's back:
+     *   - $rebill TRUE  → the lesson still happened, so it goes back onto the student's open
+     *     invoice priced the ordinary way. This is the reversible one: {@see syncBackdatedLessons()}
+     *     can pull it back in later, because that sweep looks for billed lessons with no credit.
+     *   - $rebill FALSE → the lesson leaves the ledger entirely and nobody is charged for it.
+     *     This is the "it was never this student's lesson" case (a shared record split between
+     *     siblings, a mis-clicked attendance) and it stays out of the sync sweep precisely
+     *     because it has no invoice line to be found by.
+     *
+     * The minutes come back through {@see release()}, which is also what an attendance reversal
+     * uses — so a package re-opens if it had closed only because it ran out, and refuses if its
+     * bill has already been settled.
+     *
+     * @return array{minutes_returned:int, rebilled:bool}
+     */
+    public function detachCredit(string $packageId, string $creditId, bool $rebill, ?string $actorUserId, ?string $actorRole): array
+    {
+        return DB::transaction(function () use ($packageId, $creditId, $rebill, $actorUserId, $actorRole): array {
+            $credit = DB::table('lesson_package_credits')
+                ->where('id', $creditId)
+                ->where('package_id', $packageId)
+                ->first();
+
+            if ($credit === null) {
+                throw ValidationException::withMessages([
+                    'credit_id' => ['That lesson is not on this package. / هذه الحصة ليست ضمن هذه الباقة.'],
+                ]);
+            }
+
+            $session = DB::table('sessions')->where('id', $credit->session_id)->first();
+
+            if ($session === null) {
+                throw ValidationException::withMessages([
+                    'credit_id' => ['Lesson not found. / الحصة غير موجودة.'],
+                ]);
+            }
+
+            $minutes = (int) $credit->minutes;
+
+            // release() owns the give-back arithmetic and the closed-and-billed guard.
+            $this->release($session);
+
+            if ($rebill) {
+                // Bill it the ordinary way. The package path is switched OFF for this call or
+                // consume() would simply put the lesson straight back where it came from.
+                app(Invoicing::class)->onSessionBillable($session, allowPackage: false);
+            }
+
+            Audit::log(
+                'lesson_package.lesson_detached',
+                'lesson_package',
+                $packageId,
+                (string) $session->academy_id,
+                $actorUserId,
+                $actorRole,
+                before: ['session_id' => (string) $session->id, 'minutes' => $minutes],
+                after: ['rebilled' => $rebill],
+            );
+
+            return ['minutes_returned' => $minutes, 'rebilled' => $rebill];
+        });
+    }
+
+    /** Recompute an invoice from the lines it still has. Never subtract a delta blindly. */
+    private function resettleInvoice(string $invoiceId): void
+    {
+        $total = (int) DB::table('invoice_line_items')->where('invoice_id', $invoiceId)->sum('amount_minor');
+
+        DB::table('invoices')->where('id', $invoiceId)->update([
+            'subtotal_minor' => $total,
+            'total_minor' => $total,
+            'updated_at' => now(),
+        ]);
     }
 
     // =========================================================================

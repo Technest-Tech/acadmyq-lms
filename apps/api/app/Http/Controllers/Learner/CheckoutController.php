@@ -233,7 +233,11 @@ final class CheckoutController extends Controller
         $isProduct = (string) ($order->item_type ?? 'COURSE') === 'PRODUCT';
         $item = DB::table($isProduct ? 'digital_products' : 'courses')
             ->where('id', $isProduct ? $order->product_id : $order->course_id)
-            ->first(['id', 'title', 'slug', 'subtitle', 'cover_image_path', 'price_minor']);
+            // A book has no subtitle column; `courseDto` reads it with `?? null`, so one select
+            // cannot serve both — pick the columns the table actually has.
+            ->first($isProduct
+                ? ['id', 'title', 'slug', 'cover_image_path', 'price_minor']
+                : ['id', 'title', 'slug', 'subtitle', 'cover_image_path', 'price_minor']);
 
         $receipts = DB::table('course_order_receipts')
             ->where('order_id', $order->id)
@@ -378,8 +382,7 @@ final class CheckoutController extends Controller
             ->where('slug', $slug)
             ->where('status', 'PUBLISHED')
             ->whereNull('deleted_at')
-            ->first(['id', 'title', 'slug', 'subtitle', 'cover_image_path', 'price_minor',
-                'checkout_enabled', 'kind', 'author']);
+            ->first(['id', 'title', 'slug', 'cover_image_path', 'price_minor', 'checkout_enabled']);
 
         if ($product === null) {
             abort(404, 'Item not found.');
@@ -407,11 +410,7 @@ final class CheckoutController extends Controller
     /** @return array<string,mixed> */
     private function productDto(object $p): array
     {
-        return $this->courseDto($p) + [
-            'item_type' => 'PRODUCT',
-            'kind' => $p->kind ?? null,
-            'author' => $p->author ?? null,
-        ];
+        return $this->courseDto($p) + ['item_type' => 'PRODUCT'];
     }
 
     /** The learner's OWN order, addressed by its human-quotable number. */

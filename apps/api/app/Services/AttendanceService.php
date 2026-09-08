@@ -49,6 +49,38 @@ final class AttendanceService
      */
     public function record(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride = null, ?bool $teacherOverride = null): array
     {
+        return $this->apply($session, $next, $reason, $actorUserId, $actorRole, $billOverride, $teacherOverride, recorded: true);
+    }
+
+    /**
+     * Undo a recorded outcome: put the lesson back to SCHEDULED as if nobody had marked it.
+     *
+     * This is deliberately the SAME code path as {@see record}, because "undo" here means exactly
+     * what the classifier already says about SCHEDULED — not billable, doesn't count for the
+     * teacher — so the reconciliation below removes the invoice line (or releases the package
+     * minutes) and reverses the payout accrual on its own, under the same guards. A closed invoice
+     * or a finalized payout therefore refuses the revert with the same message it refuses any
+     * other un-billing: the money has left the building and the lesson can no longer be un-marked.
+     *
+     * What a revert additionally clears is the record of the marking itself — the reason, the
+     * per-occurrence billing overrides, and who marked it when — so the lesson re-enters the
+     * pending/overdue worklists as untouched work rather than as a marked lesson wearing a
+     * SCHEDULED badge. The lesson can then be rescheduled, which requires SCHEDULED.
+     *
+     * @return array{status: string, billed: bool, billingAction: ?string}
+     */
+    public function revert(object $session, string $actorUserId, string $actorRole): array
+    {
+        return $this->apply($session, SessionStatus::Scheduled, null, $actorUserId, $actorRole, null, null, recorded: false);
+    }
+
+    /**
+     * @param  bool  $recorded  True when a human is RECORDING an outcome (stamp who/when), false
+     *                          when they are taking one back (clear the stamp).
+     * @return array{status: string, billed: bool, billingAction: ?string}
+     */
+    private function apply(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride, ?bool $teacherOverride, bool $recorded): array
+    {
         $prev = (string) $session->status;
         $wasBilled = (bool) $session->billed;
         $wasPaidToTeacher = (bool) $session->paid_to_teacher;
@@ -108,13 +140,15 @@ final class AttendanceService
             'teacher_override' => $teacherOverride,
             'billed' => $billed,
             'paid_to_teacher' => $paidToTeacher,
-            'outcome_set_at' => now(),
-            'outcome_set_by' => $actorUserId,
+            // A revert leaves no outcome behind: the lesson has to look untouched to the pending
+            // and overdue worklists, which read these two columns as "somebody dealt with this".
+            'outcome_set_at' => $recorded ? now() : null,
+            'outcome_set_by' => $recorded ? $actorUserId : null,
             'updated_at' => now(),
         ]);
 
         Audit::log(
-            'session.status_changed',
+            $recorded ? 'session.status_changed' : 'session.outcome_reverted',
             'session',
             (string) $session->id,
             (string) $session->academy_id,

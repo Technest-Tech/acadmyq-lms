@@ -107,11 +107,8 @@ function publishBook(mixed $test, int $priceMinor = 25000, string $title = 'Arab
 {
     $productId = $test->postJson('/api/courses/products', [
         'title' => $title,
-        'subtitle' => 'From the alphabet up',
+        'description' => 'Everything from the alphabet up.',
         'price_minor' => $priceMinor,
-        'kind' => 'EBOOK',
-        'author' => 'Dr. Hana',
-        'highlights' => ['200 exercises', 'Answer key included'],
     ])->assertCreated()->json('productId');
 
     $sample = readyDocument($test->academy, 'sample.pdf', 256);

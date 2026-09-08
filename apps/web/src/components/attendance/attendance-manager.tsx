@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Search,
   Sparkles,
+  Undo2,
   UserX,
   X,
 } from "lucide-react";
@@ -35,6 +36,7 @@ import {
   useOverdueLessons,
 } from "@/components/attendance/overdue-lessons";
 import { RescheduleModal } from "@/components/attendance/reschedule-modal";
+import { RevertOutcomeDialog } from "@/components/attendance/revert-outcome-dialog";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
 import {
@@ -153,6 +155,9 @@ export function AttendanceManager() {
   // A session can only be moved while it is still SCHEDULED (the server marks the origin
   // RESCHEDULED and mints the successor), so the action only appears on those rows.
   const canReschedule = can("session.reschedule");
+  // Undo a recorded outcome, putting the lesson back to pending — which is also what makes it
+  // reschedulable again, so the two actions sit side by side on the row.
+  const canRevert = can("session.revert_attendance");
   // Owners and teachers alike may log a one-off class the timetable never produced; the API
   // confines a teacher to their own roster.
   const canCreateClass = can("session.create");
@@ -170,6 +175,7 @@ export function AttendanceManager() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selected>(null);
   const [rescheduling, setRescheduling] = useState<DaySession | null>(null);
+  const [reverting, setReverting] = useState<DaySession | null>(null);
   const [creating, setCreating] = useState(false);
   // Optimistic status overrides: updated immediately when attendance is recorded so
   // the row reflects the new status before the next full reload.
@@ -1010,6 +1016,27 @@ export function AttendanceManager() {
                                     {tSched("actions.reschedule")}
                                   </Button>
                                 )}
+                                {/* The lesson didn't happen after all: put it back to pending,
+                                    which is where the Reschedule action above becomes available.
+                                    A RESCHEDULED row is excluded — it was replaced, not marked. */}
+                                {canRevert &&
+                                  isRecorded &&
+                                  displayStatus !== "RESCHEDULED" && (
+                                    <Button
+                                      type="button"
+                                      size="xs"
+                                      variant="outline"
+                                      data-testid="row-revert"
+                                      className="gap-1.5"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setReverting(s);
+                                      }}
+                                    >
+                                      <Undo2 className="size-3.5" />
+                                      {t("revert.action")}
+                                    </Button>
+                                  )}
                                 <Button
                                   type="button"
                                   size="xs"
@@ -1132,6 +1159,24 @@ export function AttendanceManager() {
                               {tSched("actions.reschedule")}
                             </Button>
                           )}
+                          {canRevert &&
+                            displayStatus !== "SCHEDULED" &&
+                            displayStatus !== "RESCHEDULED" && (
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="outline"
+                                data-testid="row-revert"
+                                className="gap-1.5"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setReverting(s);
+                                }}
+                              >
+                                <Undo2 className="size-3.5" />
+                                {t("revert.action")}
+                              </Button>
+                            )}
                           <Button
                             type="button"
                             size="xs"
@@ -1198,6 +1243,26 @@ export function AttendanceManager() {
           overdue.reload();
         }}
       />
+
+      {/* Take back a recorded outcome: the lesson returns to pending and can be moved again. */}
+      {reverting !== null && (
+        <RevertOutcomeDialog
+          sessionId={reverting.id}
+          studentName={reverting.student_name}
+          currentStatus={statusOverrides[reverting.id] ?? reverting.status}
+          open
+          onClose={() => setReverting(null)}
+          onReverted={() => {
+            setReverting(null);
+            // A plain refetch, not an optimistic flip: the reverted row is only half the change.
+            // The lesson also leaves the "attended" tally, and its Reschedule action appears —
+            // both of which read from the reloaded rows.
+            void load();
+            // A lesson back on the pending pile may well be an overdue one again.
+            overdue.reload();
+          }}
+        />
+      )}
 
       {/* Log a one-off class the timetable never produced — on ANY date, not just today. It
           opens on the day in view (today whenever the window contains it), and its date/time
