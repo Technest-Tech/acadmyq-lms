@@ -10,6 +10,7 @@ use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\FeatureCatalog;
 use App\Support\LmsSite;
+use App\Support\Subdomain;
 use App\Support\Tenancy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -153,11 +154,7 @@ final class LmsOversightController extends Controller
         $this->assertAcademyExists($id);
 
         $data = $request->validate([
-            'subdomain' => [
-                'present', 'nullable', 'string', 'max:63',
-                'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/',
-                Rule::unique('academies', 'subdomain')->ignore($id),
-            ],
+            'subdomain' => array_merge(['present'], Subdomain::rules($id)),
         ]);
 
         $before = DB::table('academies')->where('id', $id)->value('subdomain');

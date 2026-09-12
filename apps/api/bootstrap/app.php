@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Middleware\AuthenticateWhatsAppApiKey;
 use App\Http\Middleware\EnsureEntitled;
+use App\Http\Middleware\EnsureCourseSiteOpen;
 use App\Http\Middleware\EnsureLearner;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\ResolveAcademyContext;
@@ -56,6 +57,22 @@ return Application::configure(basePath: dirname(__DIR__))
             // priming a session cookie on every anonymous visitor of acadmyq.com to protect a write
             // that carries no authority. Volume is bounded by throttle:demo-requests instead.
             'api/public/demo-requests',
+            // The LMS public course site (docs/lms). The same shape again, and the one that bites
+            // hardest: a client's site is served from `<handle>.acadmyq.com`, which MATCHES the
+            // `*.acadmyq.com` wildcard in SANCTUM_STATEFUL_DOMAINS, so statefulApi() puts session
+            // CSRF in front of every learner POST. But a learner has no session to protect — they
+            // authenticate with a Sanctum BEARER token kept in localStorage and sent in the
+            // Authorization header (lib/learn-api.ts), with no XSRF header and no cookie. The check
+            // could therefore only ever fail, and it did: every register/login on every course site
+            // died on a 419 "CSRF token mismatch" before reaching the controller.
+            //
+            // Safe for the same reason as the payer pages: CSRF defends AMBIENT cookie credentials,
+            // and this surface has none. The bearer token is the credential, a third-party page
+            // cannot read it out of localStorage, and `learner.auth` re-checks on every protected
+            // route that the token belongs to an ACTIVE learner OF THIS SUBDOMAIN'S academy. The
+            // whole prefix is exempted rather than just the two auth routes because redeem,
+            // progress, quiz submit, orders and the receipt upload are all that same bearer shape.
+            'api/learn/*',
         ]);
 
         // All /api/* responses (and errors) negotiate to JSON.
@@ -82,6 +99,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // LMS public course site (docs/lms): resolve the academy from the subdomain (X-Academy)
             // into tenant context, then (for protected routes) require an authenticated learner.
             'resolve.academy' => ResolveAcademyContext::class,
+            // The public site is only open while the academy is neither SUSPENDED nor without a
+            // live LMS module — see the middleware for why both answer 404.
+            'site.open' => EnsureCourseSiteOpen::class,
             'learner.auth' => EnsureLearner::class,
         ]);
     })

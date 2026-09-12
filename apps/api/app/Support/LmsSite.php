@@ -40,6 +40,62 @@ final class LmsSite
         return (string) (reset($roots) ?: '');
     }
 
+    /**
+     * Every configured root, hostname only and lowercased — the set the web middleware MATCHES
+     * against (`apps/web/src/middleware.ts`), as opposed to `rootDomain()`, which is the single
+     * canonical root links are built from. Ports are stripped: a dev root may carry one
+     * (`lvh.me:3000`) and host matching never involves the port.
+     *
+     * @return list<string>
+     */
+    public static function roots(): array
+    {
+        $roots = [];
+
+        foreach (explode(',', (string) config('lms.site.root_domain', '')) as $entry) {
+            $host = strtolower(trim((string) (explode(':', trim($entry))[0] ?? '')));
+            if ($host !== '') {
+                $roots[] = $host;
+            }
+        }
+
+        return array_values(array_unique($roots));
+    }
+
+    /**
+     * The client handle a HOST carries, or null when that host is not a client address.
+     *
+     * The API's own copy of the web middleware's `handleFor` — deliberately the same rules,
+     * including the reserved-name set, because it is used to decide which client's door a sign-in
+     * came through. Reading that from the host rather than from the request body is the point: a
+     * value the browser sets cannot be dropped by whoever is filling in the form.
+     */
+    public static function handleFromHost(?string $host): ?string
+    {
+        $host = strtolower(trim((string) $host));
+        $host = (string) (explode(':', $host)[0] ?? '');
+
+        if ($host === '') {
+            return null;
+        }
+
+        foreach (self::roots() as $root) {
+            if ($host === $root || ! str_ends_with($host, '.'.$root)) {
+                continue;
+            }
+
+            $sub = substr($host, 0, strlen($host) - strlen($root) - 1);
+
+            if ($sub === '' || str_contains($sub, '.') || Subdomain::isReserved($sub)) {
+                return null;
+            }
+
+            return $sub;
+        }
+
+        return null;
+    }
+
     /** Is subdomain routing configured? False ⇒ URLs are in-app paths, not real origins. */
     public static function configured(): bool
     {

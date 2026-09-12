@@ -293,7 +293,7 @@ Route::post('/webhooks/xpay/{academy}', [XpayWebhookController::class, 'handle']
 | page asks it again for the client's name + logo. Same `resolve.academy` bridge as the learner site
 | below — the handle IS the tenant, and an unknown handle 404s.
 */
-Route::middleware(['throttle:120,1', 'resolve.academy'])->get('/site', [TenantSiteController::class, 'show']);
+Route::middleware(['throttle:tenant-site', 'resolve.academy'])->get('/site', [TenantSiteController::class, 'show']);
 
 /*
 | LMS public course site (docs/lms). NOT Sanctum-gated: the tenant is resolved from the SUBDOMAIN
@@ -303,15 +303,19 @@ Route::middleware(['throttle:120,1', 'resolve.academy'])->get('/site', [TenantSi
 | leg (register/login/catalog) needs only the academy; the protected leg (me/redeem/player/progress)
 | additionally needs the learner. `{slug}` is constrained so it never captures a literal path segment.
 */
-Route::middleware(['throttle:120,1', 'resolve.academy'])->prefix('learn')->group(function () {
-    Route::post('/auth/register', [LearnerAuthController::class, 'register']);
-    Route::post('/auth/login', [LearnerAuthController::class, 'login']);
-    // Password reset (docs/lms/10 §2). Deliberately NOT learner.auth — someone who cannot sign in is
-    // exactly who needs it. `forgot-password` always answers 202, so the site cannot be used to test
-    // whether an address is a customer; the token is delivered over the academy's own WhatsApp
-    // session (mail is the fallback), and only its sha256 is ever stored.
-    Route::post('/auth/forgot-password', [LearnerPasswordResetController::class, 'request']);
-    Route::post('/auth/reset-password', [LearnerPasswordResetController::class, 'reset']);
+Route::middleware(['throttle:learn-read', 'resolve.academy', 'site.open'])->prefix('learn')->group(function () {
+    // The one anonymous surface where a caller can guess a password or mint accounts: a much
+    // tighter, per-IP-per-academy ceiling on top of the group's read limit (docs/lms/02).
+    Route::middleware('throttle:learn-auth')->group(function () {
+        Route::post('/auth/register', [LearnerAuthController::class, 'register']);
+        Route::post('/auth/login', [LearnerAuthController::class, 'login']);
+        // Password reset (docs/lms/10 §2). Deliberately NOT learner.auth — someone who cannot sign
+        // in is exactly who needs it. `forgot-password` always answers 202, so the site cannot be
+        // used to test whether an address is a customer; the token is delivered over the academy's
+        // own WhatsApp session (mail is the fallback), and only its sha256 is ever stored.
+        Route::post('/auth/forgot-password', [LearnerPasswordResetController::class, 'request']);
+        Route::post('/auth/reset-password', [LearnerPasswordResetController::class, 'reset']);
+    });
     // The site's own content (docs/lms/09) — brand + section copy the shared template renders. The
     // layout fetches it server-side on every page, so it precedes everything learner-specific.
     Route::get('/site', [LearnerSiteController::class, 'show']);

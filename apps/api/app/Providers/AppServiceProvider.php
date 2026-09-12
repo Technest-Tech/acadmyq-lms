@@ -60,5 +60,45 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute(120)->by(is_string($keyId) ? $keyId : (string) $request->ip());
         });
+
+        /*
+        | The per-client subdomain surfaces (docs/lms/02). Every one of these is keyed by
+        | HANDLE + IP rather than by IP alone, which fixes two opposite failures of a bare
+        | `throttle:N,1`:
+        |
+        |  - one caller, many tenants. The Next.js server resolves `GET /api/site` and the
+        |    storefront documents for EVERY client from one address, so a plain per-IP bucket is
+        |    shared by the whole platform: past a few dozen tenants the web app throttles itself,
+        |    and the fallbacks are silent and wrong (an unresolved LMS client renders as
+        |    MANAGEMENT, i.e. a staff login page where their course site should be). Adding the
+        |    handle gives the renderer one budget per tenant.
+        |  - one tenant, many callers. Keying on the handle ALONE would let a single visitor spend
+        |    a whole client's budget; the IP keeps each visitor in their own bucket.
+        |
+        | The handle is read straight from the `X-Academy` header because these limiters run
+        | before `resolve.academy`. An absent or unknown handle collapses to one bucket per IP,
+        | which is the right shape for the 404 it is about to receive.
+        */
+        $perTenant = static function (Request $request): string {
+            $handle = strtolower(trim((string) $request->header('X-Academy', '')));
+
+            return ($handle !== '' ? $handle : '-').'|'.$request->ip();
+        };
+
+        // Which product answers on a handle: one cheap read, fetched by the renderer on every
+        // uncached page of every tenant host, so the ceiling is generous.
+        RateLimiter::for('tenant-site', fn (Request $request) => Limit::perMinute(300)->by($perTenant($request)));
+
+        // The public course site's reads — site document, catalogue, a course, the bookshop. Public
+        // and cacheable; a real visitor browsing hard stays far below this.
+        RateLimiter::for('learn-read', fn (Request $request) => Limit::perMinute(300)->by($perTenant($request)));
+
+        // Learner credential endpoints (register / login / forgot / reset). docs/lms/02 asks for
+        // "per IP + per academy", and this is the limit that actually has to bite: it is the only
+        // place on the platform where an anonymous caller can guess a password or mint an account.
+        RateLimiter::for('learn-auth', fn (Request $request) => [
+            Limit::perMinute(10)->by($perTenant($request)),
+            Limit::perHour(60)->by($perTenant($request)),
+        ]);
     }
 }

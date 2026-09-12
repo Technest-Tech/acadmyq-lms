@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Entitlement;
+use App\Support\LmsSite;
+use App\Support\Subdomain;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -26,8 +28,9 @@ final class AuthController extends Controller
     /**
      * POST /api/auth/login (public) — Auth::attempt, regenerate session, audit auth.login.
      *
-     * An optional `subdomain` names the client door the attempt came through (`<handle>.<root>`);
-     * it binds the session to that client's own people. Absent ⇒ the platform login, unchanged.
+     * The client door the attempt came through (`<handle>.<root>`) binds the session to that
+     * client's own people. It is read from the request's own Origin/Referer host, falling back to
+     * an optional posted `subdomain` — see `door()`. Neither ⇒ the platform login, unchanged.
      */
     public function login(Request $request): JsonResponse
     {
@@ -77,7 +80,7 @@ final class AuthController extends Controller
         // the door never becomes an oracle for "does this person work at that academy?".
         // A SUPER_ADMIN belongs to no academy and is deliberately exempt — the platform admin can
         // sign in anywhere. An unknown handle matches nobody and therefore rejects everybody.
-        if ($role !== 'SUPER_ADMIN' && ! $this->belongsTo($academyId, $data['subdomain'] ?? null)) {
+        if ($role !== 'SUPER_ADMIN' && ! $this->belongsTo($academyId, $this->door($request, $data))) {
             Auth::guard('web')->logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
@@ -158,7 +161,7 @@ final class AuthController extends Controller
      * own identity. Readable under the caller's own context (academies_select is
      * `id = app.current_academy_id()`), so this can only ever describe the caller's academy.
      *
-     * @return array{name: string, displayName: string, logoUrl: ?string}|null
+     * @return array{name: string, displayName: string, logoUrl: ?string, subdomain: ?string}|null
      */
     private function academyIdentity(?string $academyId): ?array
     {
@@ -168,7 +171,7 @@ final class AuthController extends Controller
 
         $academy = DB::table('academies')
             ->where('id', $academyId)
-            ->first(['name', 'brand_display_name', 'brand_logo_url']);
+            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain']);
 
         if ($academy === null) {
             return null;
@@ -182,6 +185,11 @@ final class AuthController extends Controller
             'name' => $name,
             'displayName' => $display !== '' ? $display : $name,
             'logoUrl' => $logo !== '' ? $logo : null,
+            // The academy's own handle, so the shell can tell whether the host the browser is on is
+            // this academy's address. One session covers every `*.<root>` host, so without it a
+            // signed-in user can sit on another client's subdomain looking at their OWN data under
+            // someone else's name and logo, with nothing anywhere saying so.
+            'subdomain' => ($academy->subdomain ?? null) ?: null,
         ];
     }
 
@@ -222,6 +230,41 @@ final class AuthController extends Controller
             $first->role ?? 'TEACHER',
             isset($first->academy_id) && $first->academy_id !== null ? (string) $first->academy_id : null,
         ];
+    }
+
+    /**
+     * Which client's door this attempt came through.
+     *
+     * The HOST is the authority, not the request body. The branded page posts its own handle, but a
+     * posted field is only ever as binding as the caller chooses to make it: omitting `subdomain`
+     * used to skip the tenant check entirely, so the door's one rule could be waived by the very
+     * request it was meant to constrain. The browser sets Origin (and Referer) on this POST and a
+     * page cannot forge either, so a sign-in made ON a client host is bound to that client whatever
+     * the body says.
+     *
+     * The body remains the fallback for a caller with no origin header at all, which keeps the
+     * platform door (`app.<root>`, no handle anywhere) working exactly as before. Note that this
+     * binding is a door policy, not a security boundary: one session cookie covers every host under
+     * the root, so what it buys is that a client's address only ever admits that client's people —
+     * not that a host is an isolation boundary.
+     *
+     * @param  array<string,mixed>  $data  the validated request body
+     */
+    private function door(Request $request, array $data): ?string
+    {
+        foreach (['Origin', 'Referer'] as $header) {
+            $value = (string) $request->headers->get($header, '');
+            if ($value === '') {
+                continue;
+            }
+
+            $handle = LmsSite::handleFromHost((string) (parse_url($value, PHP_URL_HOST) ?: ''));
+            if ($handle !== null) {
+                return $handle;
+            }
+        }
+
+        return Subdomain::normalize($data['subdomain'] ?? null);
     }
 
     /**

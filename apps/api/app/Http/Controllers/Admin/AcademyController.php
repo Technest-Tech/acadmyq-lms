@@ -10,6 +10,7 @@ use App\Services\ModuleBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\FeatureCatalog;
+use App\Support\Subdomain;
 use App\Support\Tenancy;
 use DateTimeZone;
 use Illuminate\Http\JsonResponse;
@@ -715,11 +716,9 @@ final class AcademyController extends Controller
             'status' => ['sometimes', Rule::in(['ACTIVE', 'TRIAL'])],
             'brand_display_name' => ['nullable', 'string', 'max:255'],
             'brand_logo_url' => ['nullable', 'url', 'max:2048'],
-            'subdomain' => [
-                'nullable', 'string', 'max:63',
-                'regex:/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/',
-                Rule::unique('academies', 'subdomain')->ignore($ignoreId),
-            ],
+            // Wildcard DNS turns an accepted handle into a live hostname on our own domain, so the
+            // format, the reserved-name and the uniqueness rules all live in one place (Support\Subdomain).
+            'subdomain' => Subdomain::rules($ignoreId),
         ];
 
         if ($creating) {

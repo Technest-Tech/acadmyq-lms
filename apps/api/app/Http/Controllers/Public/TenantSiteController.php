@@ -26,6 +26,9 @@ use Illuminate\Support\Facades\DB;
  *
  * PUBLIC by design (it is the front door of a public address) and it says nothing a visitor of the
  * site could not already see: the academy's name, its logo and which product answers on that host.
+ * Note what it deliberately does NOT say — the academy's `status`. It used to, and nothing consumed
+ * it; publishing it let any passer-by enumerate which of the platform's clients were on TRIAL or
+ * SUSPENDED, which is the client's business and not a visitor's.
  * `resolve.academy` resolves the handle → academy and sets the RLS context, so an unknown handle is
  * a 404 and every read below is scoped to that one academy.
  */
@@ -39,7 +42,7 @@ final class TenantSiteController extends Controller
         // Readable under the resolved context: academies_select is `id = app.current_academy_id()`.
         $academy = DB::table('academies')
             ->where('id', $academyId)
-            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain', 'status']);
+            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain']);
 
         $name = (string) ($academy->name ?? '');
         $display = trim((string) ($academy->brand_display_name ?? ''));
@@ -52,7 +55,6 @@ final class TenantSiteController extends Controller
                 'display_name' => $display !== '' ? $display : $name,
                 'logo_url' => $logo !== '' ? $logo : null,
                 'subdomain' => $academy->subdomain ?? null,
-                'status' => (string) ($academy->status ?? ''),
             ],
         ]);
     }
