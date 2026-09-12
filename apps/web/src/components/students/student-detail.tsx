@@ -9,6 +9,7 @@ import {
   GraduationCap,
   Hash,
   History,
+  Layers,
   MapPin,
   Phone,
   ShieldAlert,
@@ -595,9 +596,12 @@ export function SubscriptionSection({
   const [showSet, setShowSet] = useState(false);
   const [saving, setSaving] = useState(false);
   /**
-   * WHICH billing clock this student is on. The two are mutually exclusive by design: a package
-   * student never also collects a monthly invoice line, because two clocks on one student is a
-   * double bill (docs/lesson-packages).
+   * WHICH billing clock this student is on — carried through this form, never changed by it.
+   * The mode now follows from the packages themselves: opening one on /packages puts the student
+   * on the hour clock and closing the last one takes them off it, so there is a single place the
+   * switch can happen and no toggle here that could disagree with a live balance. Editing the
+   * rate of a package student must not knock them back onto the monthly clock, which is exactly
+   * what this value being preserved prevents.
    */
   const [basis, setBasis] = useState<"PER_HOUR" | "PER_PACKAGE">("PER_HOUR");
 
@@ -843,39 +847,26 @@ export function SubscriptionSection({
         }
       >
         <div className="space-y-4">
-          {/* Which clock. Stated first because it changes what every field below MEANS: in package
-              mode the price is a default rate for the next block rather than a monthly figure, and
-              the monthly quota stops existing. */}
-          <div className="space-y-1.5">
-            <span className="text-sm font-medium">{t("subscription.mode")}</span>
-            <div className="grid grid-cols-2 gap-2">
-              {(["PER_HOUR", "PER_PACKAGE"] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  data-testid={`billing-mode-${option}`}
-                  onClick={() => setBasis(option)}
-                  className={cn(
-                    "rounded-xl border px-3 py-2.5 text-start text-sm font-medium transition-colors",
-                    basis === option
-                      ? "border-primary/40 bg-primary/8 text-primary"
-                      : "border-input bg-background text-muted-foreground hover:bg-muted/40",
-                  )}
-                >
-                  <span className="block">
-                    {t(option === "PER_HOUR" ? "subscription.modeMonthly" : "subscription.modePackage")}
-                  </span>
-                  <span className="text-muted-foreground/80 mt-0.5 block text-[11px] font-normal">
-                    {t(
-                      option === "PER_HOUR"
-                        ? "subscription.modeMonthlyHint"
-                        : "subscription.modePackageHint",
-                    )}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Which clock this student is on is NOT edited here any more. Opening a package on the
+              packages screen puts them on the hour clock and closing the last one takes them off
+              it, so the mode follows from the packages themselves rather than from a toggle that
+              could disagree with them. This is the read-out, and the link to where it changes. */}
+          {isPackaged && (
+            <p
+              className="flex items-start gap-2 rounded-xl border border-sky-300/60 bg-sky-500/[0.07] px-3 py-2.5 text-xs text-sky-800 dark:border-sky-800/50 dark:text-sky-300"
+              data-testid="package-billing-note"
+            >
+              <Layers className="mt-px size-3.5 shrink-0" aria-hidden />
+              <span>
+                <span className="block font-semibold">
+                  {t("subscription.onPackages")}
+                </span>
+                <span className="block opacity-90">
+                  {t("subscription.onPackagesHint")}
+                </span>
+              </span>
+            </p>
+          )}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label={t("subscription.priceHourly")}>

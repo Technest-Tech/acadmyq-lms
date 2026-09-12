@@ -18,6 +18,7 @@ const getLessonPackageSummary = vi.fn();
 const syncLessonPackage = vi.fn();
 const updateLessonPackage = vi.fn();
 const sendInvoicePaymentLink = vi.fn();
+const closeLessonPackage = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
@@ -27,6 +28,11 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   updateLessonPackage: (id: string, input: unknown) =>
     updateLessonPackage(id, input),
   sendInvoicePaymentLink: (id: string) => sendInvoicePaymentLink(id),
+  closeLessonPackage: (
+    id: string,
+    reason?: string,
+    returnToMonthly?: boolean,
+  ) => closeLessonPackage(id, reason, returnToMonthly),
   listPackageStudents: () => Promise.resolve({ students: [] }),
 }));
 
@@ -113,6 +119,11 @@ beforeEach(() => {
     invoice_id: "i1",
   });
   syncLessonPackage.mockResolvedValue({ imported: 2, skipped_locked: 0 });
+  closeLessonPackage.mockResolvedValue({
+    ok: true,
+    invoice_id: "i1",
+    returned_to_monthly: true,
+  });
   sendInvoicePaymentLink.mockResolvedValue({
     phone: "+201001112222",
     message: "Pay here",
@@ -345,5 +356,43 @@ describe("PackagesManager", () => {
     expect(await screen.findByTestId("package-too-small")).toBeInTheDocument();
     expect(screen.getByTestId("save-package-edit")).toBeDisabled();
     expect(updateLessonPackage).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Closing is the one way back to the monthly clock — the exit that pairs with opening a package
+   * putting a student on the hour clock. Both directions of the switch live on this screen, which
+   * is the point: a billing mode that could be changed from two places is a billing mode that can
+   * disagree with the packages themselves.
+   */
+  it("offers the way back to monthly billing when a package is closed, and leaves it off by default", async () => {
+    listLessonPackages.mockResolvedValue({ packages: [pkg()] });
+
+    renderManager();
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: arMessages.packages.segments.all,
+      }),
+    );
+    await userEvent.click(
+      within(await screen.findByTestId("package-card")).getByTestId(
+        "close-package",
+      ),
+    );
+
+    const toggle = within(
+      await screen.findByTestId("return-to-monthly"),
+    ).getByRole("checkbox");
+    expect(toggle).not.toBeChecked();
+
+    await userEvent.click(toggle);
+    await userEvent.click(
+      screen.getByRole("button", { name: arMessages.packages.close.confirm }),
+    );
+
+    expect(closeLessonPackage).toHaveBeenCalledWith("p1", undefined, true);
+    expect(
+      await screen.findByText(arMessages.packages.alerts.closedAndReturned),
+    ).toBeInTheDocument();
   });
 });

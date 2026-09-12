@@ -154,15 +154,25 @@ final class LessonPackageController extends Controller
     }
 
     /**
-     * GET /api/packages/students — students on package billing, each with their open package (if
-     * any) and the default hourly rate to pre-fill the next one. Drives the "open a package" form.
+     * GET /api/packages/students — every active student, with their current billing mode, their
+     * open package (if any) and the rate to pre-fill the next one. Drives the "open a package"
+     * form's picker.
+     *
+     * It lists EVERYONE on purpose. It used to return only students already flipped to
+     * PER_PACKAGE, which made the picker a list of people someone had already prepared somewhere
+     * else — the prerequisite step was invisible from the one screen that needed it. Opening a
+     * package now performs that switch ({@see LessonPackages::ensurePackageBilling}), so the
+     * picker's job is to show the consequence rather than to hide the student.
+     *
+     * The subscription is LEFT-joined: a student with none at all is a legitimate pick, and the
+     * package creates one for them.
      */
     public function students(): JsonResponse
     {
         Gate::authorize('package.read');
 
         $rows = DB::table('students as s')
-            ->join('subscriptions as sub', function ($join): void {
+            ->leftJoin('subscriptions as sub', function ($join): void {
                 $join->on('sub.student_id', '=', 's.id')
                     ->where('sub.status', '=', 'ACTIVE')
                     ->whereNull('sub.deleted_at');
@@ -170,24 +180,40 @@ final class LessonPackageController extends Controller
             ->leftJoin('lesson_packages as p', function ($join): void {
                 $join->on('p.student_id', '=', 's.id')->where('p.status', '=', 'ACTIVE');
             })
-            ->where('sub.price_basis', LessonPackages::BASIS)
             ->whereNull('s.deleted_at')
             ->orderBy('s.full_name')
             ->get([
                 's.id', 's.full_name',
                 'sub.currency', 'sub.price_minor as default_hourly_rate_minor',
+                'sub.price_basis', 'sub.plan_label',
                 'p.id as active_package_id', 'p.label as active_package_label',
             ])
             ->map(fn ($row) => [
                 'id' => (string) $row->id,
                 'full_name' => (string) $row->full_name,
-                'currency' => (string) $row->currency,
-                'default_hourly_rate_minor' => (int) $row->default_hourly_rate_minor,
+                'currency' => (string) ($row->currency ?? $this->academyCurrency()),
+                // Only an hourly figure pre-fills a package sensibly. A PER_MONTH or PER_SESSION
+                // price is a different unit, so it is reported as zero rather than multiplied by
+                // the hours and presented as a quote nobody agreed to.
+                'default_hourly_rate_minor' => in_array($row->price_basis, ['PER_HOUR', LessonPackages::BASIS], true)
+                    ? (int) $row->default_hourly_rate_minor
+                    : 0,
+                'price_basis' => $row->price_basis !== null ? (string) $row->price_basis : null,
+                'plan_label' => $row->plan_label !== null ? (string) $row->plan_label : null,
+                'on_package_billing' => $row->price_basis === LessonPackages::BASIS,
                 'active_package_id' => $row->active_package_id !== null ? (string) $row->active_package_id : null,
                 'active_package_label' => $row->active_package_label !== null ? (string) $row->active_package_label : null,
             ]);
 
         return response()->json(['students' => $rows]);
+    }
+
+    /** The academy's default currency — the fallback for a student who has no subscription yet. */
+    private function academyCurrency(): string
+    {
+        $academyId = app(AuthContext::class)->academyId;
+
+        return (string) (DB::table('academies')->where('id', $academyId)->value('default_currency') ?? 'EGP');
     }
 
     /** GET /api/packages/{id} — one package plus the lessons that consumed it. */
@@ -250,6 +276,7 @@ final class LessonPackageController extends Controller
             'carried_over_minutes' => $result['carried_over_minutes'],
             'imported_lessons' => $result['imported_lessons'],
             'skipped_locked_lessons' => $result['skipped_locked_lessons'],
+            'switched_to_package_billing' => $result['switched_to_package_billing'],
         ], 201);
     }
 
@@ -311,6 +338,9 @@ final class LessonPackageController extends Controller
      * A package that runs out closes itself; this is the owner ending one with hours still on it
      * (the student left, switched plan, or the terms changed). ON_COMPLETION packages bill
      * pro-rata for what was actually used, which is why this is a manage action and not a delete.
+     *
+     * `return_to_monthly` also puts the student back on the monthly clock — the exit that pairs
+     * with {@see store()} putting them on the hour clock.
      */
     public function close(Request $request, string $id): JsonResponse
     {
@@ -318,18 +348,35 @@ final class LessonPackageController extends Controller
 
         $validated = $request->validate([
             'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'return_to_monthly' => ['sometimes', 'boolean'],
         ]);
 
         $ctx = app(AuthContext::class);
+        $packages = app(LessonPackages::class);
+        $studentId = (string) DB::table('lesson_packages')->where('id', $id)->value('student_id');
 
-        $result = app(LessonPackages::class)->complete(
+        $result = $packages->complete(
             $id,
             (string) ($validated['reason'] ?? 'CLOSED_EARLY'),
             $ctx->userId,
             $ctx->role,
         );
 
-        return response()->json(['ok' => true, 'invoice_id' => $result['invoice_id']]);
+        // The one way back to the monthly clock, offered at the moment an owner actually decides
+        // a student is done buying blocks. Keeping it here rather than on the student's profile
+        // is what makes the packages screen the whole story: every billing-mode decision, both
+        // directions, happens where the packages are. It runs AFTER complete() on purpose —
+        // returnToMonthly() refuses while a package is still open.
+        $returned = false;
+        if ($request->boolean('return_to_monthly') && $studentId !== '') {
+            $returned = $packages->returnToMonthly($studentId, (string) $ctx->academyId, $ctx->userId, $ctx->role);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'invoice_id' => $result['invoice_id'],
+            'returned_to_monthly' => $returned,
+        ]);
     }
 
     /** POST /api/packages/{id}/cancel — void a package opened by mistake (unused ones only). */

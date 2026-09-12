@@ -346,7 +346,12 @@ export function PackageCard({
               >
                 {t("actions.syncLessons")}
               </ActionButton>
-              <ActionButton icon={Link2} onClick={onClose} full>
+              <ActionButton
+                icon={Link2}
+                onClick={onClose}
+                testId="close-package"
+                full
+              >
                 {t("actions.close")}
               </ActionButton>
             </>

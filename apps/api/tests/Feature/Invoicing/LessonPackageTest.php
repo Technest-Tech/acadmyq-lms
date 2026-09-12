@@ -589,3 +589,163 @@ it('refuses to edit a package that is no longer open', function () {
         ->assertStatus(422)
         ->assertJsonValidationErrors(['package_id']);
 });
+
+/*
+|--------------------------------------------------------------------------
+| One place — selling a block IS the billing-mode switch
+|--------------------------------------------------------------------------
+|
+| Package billing used to need two screens: flip the student's subscription basis on their
+| profile, THEN open a package on /packages, because the picker there listed nobody who had not
+| already been flipped. The prerequisite step was invisible from the screen that needed it, so
+| these tests pin the correction — opening a package performs the switch, closing one is the way
+| back, and a package can never sit on a student whom Invoicing still bills monthly.
+*/
+
+it('moves a monthly student onto package billing when their first package is opened', function () {
+    $monthly = $this->createStudent($this->academy, $this->guardian, ['full_name' => 'Monthly Maya']);
+
+    $this->asAcademy($this->academy);
+    DB::table('subscriptions')->insert([
+        'id' => (string) Str::uuid(),
+        'academy_id' => $this->academy,
+        'student_id' => $monthly,
+        'plan_label' => '8 hrs/month',
+        'price_minor' => 15000,
+        'currency' => 'EGP',
+        'price_basis' => 'PER_HOUR',
+        'sessions_per_month' => 8,
+        'status' => 'ACTIVE',
+        'start_date' => '2026-01-01',
+    ]);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/packages', [
+        'student_id' => $monthly,
+        'label' => '20 hours',
+        'hours' => 20,
+        'price_minor' => 400000,
+        'currency' => 'EGP',
+    ])->assertCreated()->assertJson(['switched_to_package_billing' => true]);
+
+    $this->asAcademy($this->academy);
+    $sub = DB::table('subscriptions')->where('student_id', $monthly)->where('status', 'ACTIVE')->first();
+
+    expect($sub->price_basis)->toBe('PER_PACKAGE')
+        // The default rate follows the deal just agreed: 400 000 / 20h = 200 EGP an hour.
+        ->and((int) $sub->price_minor)->toBe(20000)
+        // A monthly quota means nothing once the boundary is "N hours bought".
+        ->and($sub->sessions_per_month)->toBeNull();
+});
+
+it('creates a subscription for a student who has none when a package is opened', function () {
+    $fresh = $this->createStudent($this->academy, $this->guardian, ['full_name' => 'Brand New Basma']);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/packages', [
+        'student_id' => $fresh,
+        'label' => '10 hours',
+        'hours' => 10,
+        'price_minor' => 250000,
+        'currency' => 'USD',
+        'starts_on' => '2026-06-05',
+    ])->assertCreated()->assertJson(['switched_to_package_billing' => true]);
+
+    $this->asAcademy($this->academy);
+    $sub = DB::table('subscriptions')->where('student_id', $fresh)->where('status', 'ACTIVE')->first();
+
+    expect($sub)->not->toBeNull()
+        ->and($sub->price_basis)->toBe('PER_PACKAGE')
+        ->and((int) $sub->price_minor)->toBe(25000)
+        // Sold in USD, so the subscription it creates is agreed in USD too — nothing converts.
+        ->and($sub->currency)->toBe('USD')
+        ->and($sub->start_date)->toContain('2026-06-05');
+});
+
+it('leaves an existing package student alone rather than re-pricing them from a new block', function () {
+    // Their subscription already reads PER_PACKAGE at 200 EGP/hour. This block is discounted to
+    // 150; the running package snapshots its own rate, so quietly rewriting the agreed default
+    // from a one-off discount would be a silent re-price nobody asked for.
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/packages', [
+        'student_id' => $this->student,
+        'label' => '10 discounted hours',
+        'hours' => 10,
+        'price_minor' => 150000,
+        'currency' => 'EGP',
+    ])->assertCreated()->assertJson(['switched_to_package_billing' => false]);
+
+    $this->asAcademy($this->academy);
+    $sub = DB::table('subscriptions')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+
+    expect((int) $sub->price_minor)->toBe(20000);
+});
+
+it('returns the student to monthly billing when the package is closed with that asked for', function () {
+    $package = ($this->openPackage)(10, 200000);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/{$package['package_id']}/close", [
+        'reason' => 'finished the term',
+        'return_to_monthly' => true,
+    ])->assertOk()->assertJson(['returned_to_monthly' => true]);
+
+    $this->asAcademy($this->academy);
+    $sub = DB::table('subscriptions')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+
+    expect($sub->price_basis)->toBe('PER_HOUR')
+        // The last rate anyone agreed with this family stays their rate — closing a block is not
+        // an occasion to invent a new price.
+        ->and((int) $sub->price_minor)->toBe(20000);
+});
+
+it('keeps a student on package billing when the close does not ask for the way back', function () {
+    $package = ($this->openPackage)(10, 200000);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/{$package['package_id']}/close")
+        ->assertOk()
+        ->assertJson(['returned_to_monthly' => false]);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('subscriptions')->where('student_id', $this->student)->where('status', 'ACTIVE')->value('price_basis'))
+        ->toBe('PER_PACKAGE');
+});
+
+it('refuses to return a student to monthly billing while a package is still open', function () {
+    ($this->openPackage)(10, 200000);
+
+    $this->asAcademy($this->academy);
+    expect(fn () => app(LessonPackages::class)->returnToMonthly($this->student, $this->academy, null, 'ACADEMY_OWNER'))
+        ->toThrow(ValidationException::class);
+});
+
+it('lists every active student for the picker, with the mode each one is on today', function () {
+    $monthly = $this->createStudent($this->academy, $this->guardian, ['full_name' => 'Monthly Maya']);
+
+    $this->asAcademy($this->academy);
+    DB::table('subscriptions')->insert([
+        'id' => (string) Str::uuid(),
+        'academy_id' => $this->academy,
+        'student_id' => $monthly,
+        'plan_label' => '8 hrs/month',
+        'price_minor' => 15000,
+        'currency' => 'EGP',
+        'price_basis' => 'PER_HOUR',
+        'sessions_per_month' => 8,
+        'status' => 'ACTIVE',
+        'start_date' => '2026-01-01',
+    ]);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    $students = collect($this->getJson('/api/packages/students')->assertOk()->json('students'))
+        ->keyBy('id');
+
+    // The monthly student is LISTED, not filtered out: opening a package is what moves them.
+    expect($students)->toHaveKey($monthly)
+        ->and($students[$monthly]['on_package_billing'])->toBeFalse()
+        ->and($students[$monthly]['price_basis'])->toBe('PER_HOUR')
+        ->and($students[$this->student]['on_package_billing'])->toBeTrue();
+});

@@ -80,6 +80,142 @@ final class LessonPackages
     }
 
     // =========================================================================
+    // Billing mode — the switch that used to live on the student's profile
+    // =========================================================================
+
+    /**
+     * Put this student on package billing, creating a subscription if they have none.
+     *
+     * Selling someone a block of hours IS putting them on the hour clock, so {@see open()} calls
+     * this rather than making the owner set it on the student's profile first. That two-step was
+     * the single most confusing thing about the feature: the packages screen's student picker
+     * only listed students who had already been flipped, so the step you had to do first was the
+     * one you could not see from here.
+     *
+     * What it writes, and what it deliberately does not:
+     *   - NO subscription → create one on PER_PACKAGE, priced at this package's derived hourly
+     *     rate, in this package's currency, starting the day the package starts.
+     *   - Subscription on another basis → flip `price_basis` IN PLACE (no new row: nothing keys
+     *     off the subscription id, and churning it loses the student's start date for nothing),
+     *     and adopt the derived hourly rate as their default. `sessions_per_month` is cleared —
+     *     a monthly quota means nothing once the boundary is "N hours bought".
+     *   - ALREADY on PER_PACKAGE → touch nothing. The running package carries its own snapshotted
+     *     rate, so the subscription figure only prices the no-open-package fallback, and silently
+     *     rewriting an agreed rate because one block was sold at a discount is worse than leaving
+     *     it. The currency is never overwritten either: a package may be sold in another currency
+     *     (§3.6) without that becoming the student's agreed one.
+     *
+     * @return array{switched:bool, created:bool, previous_basis:?string}
+     */
+    public function ensurePackageBilling(
+        string $studentId,
+        string $academyId,
+        int $hourlyRateMinor,
+        string $currency,
+        string $startsOn,
+        ?string $actorUserId,
+        ?string $actorRole,
+    ): array {
+        $sub = DB::table('subscriptions')
+            ->where('student_id', $studentId)
+            ->where('status', 'ACTIVE')
+            ->whereNull('deleted_at')
+            ->orderByDesc('start_date')
+            ->first();
+
+        if ($sub !== null && (string) $sub->price_basis === self::BASIS) {
+            return ['switched' => false, 'created' => false, 'previous_basis' => self::BASIS];
+        }
+
+        if ($sub === null) {
+            $subId = (string) Str::uuid();
+            DB::table('subscriptions')->insert([
+                'id' => $subId,
+                'academy_id' => $academyId,
+                'student_id' => $studentId,
+                'plan_label' => 'Package billing',
+                'sessions_per_month' => null,
+                'price_minor' => $hourlyRateMinor,
+                'currency' => strtoupper($currency),
+                'price_basis' => self::BASIS,
+                'status' => 'ACTIVE',
+                'start_date' => $startsOn,
+            ]);
+
+            Audit::log('subscription.set', 'subscription', $subId, $academyId, $actorUserId, $actorRole, after: [
+                'price_basis' => self::BASIS,
+                'price_minor' => $hourlyRateMinor,
+                'currency' => strtoupper($currency),
+                'reason' => 'package_opened',
+            ]);
+
+            return ['switched' => true, 'created' => true, 'previous_basis' => null];
+        }
+
+        $previous = (string) $sub->price_basis;
+
+        DB::table('subscriptions')->where('id', $sub->id)->update([
+            'price_basis' => self::BASIS,
+            'price_minor' => $hourlyRateMinor,
+            'sessions_per_month' => null,
+            'updated_at' => now(),
+        ]);
+
+        Audit::log('subscription.moved_to_packages', 'subscription', (string) $sub->id, $academyId, $actorUserId, $actorRole,
+            before: ['price_basis' => $previous, 'price_minor' => (int) $sub->price_minor, 'sessions_per_month' => $sub->sessions_per_month],
+            after: ['price_basis' => self::BASIS, 'price_minor' => $hourlyRateMinor, 'sessions_per_month' => null],
+        );
+
+        return ['switched' => true, 'created' => false, 'previous_basis' => $previous];
+    }
+
+    /**
+     * Put this student back on the monthly clock.
+     *
+     * Offered when a package is closed, because that is the moment an owner actually decides the
+     * student is done buying blocks — and it is the one way back, so that every billing-mode
+     * decision stays on the packages screen. Refuses while a package is still open: a PER_HOUR
+     * student with a live balance would bill monthly AND hold hours, which is the double-bill the
+     * two modes exist to prevent.
+     *
+     * The package's own derived rate stays as their hourly price — it is the last rate anyone
+     * agreed with this family, and inventing a different one here would be a silent re-price.
+     *
+     * @return bool True when the student moved, false when they were not on package billing.
+     */
+    public function returnToMonthly(string $studentId, string $academyId, ?string $actorUserId, ?string $actorRole): bool
+    {
+        if ($this->activeFor($studentId) !== null) {
+            throw ValidationException::withMessages([
+                'student_id' => ['Close the open package before returning this student to monthly billing. / أغلق الباقة المفتوحة قبل إعادة الطالب إلى الفوترة الشهرية.'],
+            ]);
+        }
+
+        $sub = DB::table('subscriptions')
+            ->where('student_id', $studentId)
+            ->where('status', 'ACTIVE')
+            ->whereNull('deleted_at')
+            ->orderByDesc('start_date')
+            ->first();
+
+        if ($sub === null || (string) $sub->price_basis !== self::BASIS) {
+            return false;
+        }
+
+        DB::table('subscriptions')->where('id', $sub->id)->update([
+            'price_basis' => 'PER_HOUR',
+            'updated_at' => now(),
+        ]);
+
+        Audit::log('subscription.left_packages', 'subscription', (string) $sub->id, $academyId, $actorUserId, $actorRole,
+            before: ['price_basis' => self::BASIS],
+            after: ['price_basis' => 'PER_HOUR'],
+        );
+
+        return true;
+    }
+
+    // =========================================================================
     // Consumption — driven by the attendance outcome, via Invoicing
     // =========================================================================
 
@@ -473,6 +609,11 @@ final class LessonPackages
      * row — the same discipline as invoice_line_items.amount_minor. Changing the student's
      * default rate later never re-prices a package that is already running.
      *
+     * Opening a package also PUTS the student on package billing ({@see ensurePackageBilling}),
+     * creating their subscription if they have none. That is what lets the packages screen be the
+     * only place a package is set up — and it means a package can never sit on a student whom
+     * Invoicing still bills monthly.
+     *
      * Two things happen here that answer the "he started a new package without paying the old
      * one" case, and neither of them blocks anything:
      *   - an unpaid previous package raises a PACKAGE_UNPAID alert;
@@ -480,7 +621,7 @@ final class LessonPackages
      *     (the ON_START case, where the previous invoice was already issued and is immutable).
      *
      * @param  array{student_id:string,label:string,minutes_total:int,price_minor:int,currency?:?string,bill_timing?:?string,starts_on?:?string,expires_on?:?string,carry_over?:bool}  $data
-     * @return array{package_id:string, invoice_id:?string, carried_over_minutes:int, imported_lessons:int, skipped_locked_lessons:int}
+     * @return array{package_id:string, invoice_id:?string, carried_over_minutes:int, imported_lessons:int, skipped_locked_lessons:int, switched_to_package_billing:bool}
      */
     public function open(array $data, ?string $actorUserId, ?string $actorRole): array
     {
@@ -515,6 +656,21 @@ final class LessonPackages
         if (($data['carry_over'] ?? false) === true && $previous !== null) {
             $carried = $this->remainingMinutes($previous);
         }
+
+        // Selling a block IS putting this student on the hour clock. Doing it here, before the
+        // row is written, is what makes the packages screen the single place a package is set
+        // up: the owner never has to go and flip a basis on the student's profile first, and a
+        // package can therefore never exist on a student the invoicing engine still bills
+        // monthly — which would be the double-bill the two modes exist to prevent.
+        $billing = $this->ensurePackageBilling(
+            $studentId,
+            $academyId,
+            $this->deriveHourlyRate($priceMinor, $minutesTotal),
+            $currency,
+            $startsOn,
+            $actorUserId,
+            $actorRole,
+        );
 
         $packageId = (string) Str::uuid();
         $sequenceNo = ((int) DB::table('lesson_packages')->where('student_id', $studentId)->max('sequence_no')) + 1;
@@ -613,6 +769,9 @@ final class LessonPackages
             'carried_over_minutes' => $carried,
             'imported_lessons' => $sync['imported'],
             'skipped_locked_lessons' => $sync['skipped_locked'],
+            // Reported back so the form can say what else it just did. A billing mode changing
+            // underneath someone is only acceptable when they are told it changed.
+            'switched_to_package_billing' => $billing['switched'],
         ];
     }
 

@@ -50,6 +50,25 @@ Their subscription's `price_basis` is `PER_PACKAGE`. That single fact switches t
 `Invoicing::onSessionBillable()` delegates to `LessonPackages::consume()` **before any invoice is
 opened**, so a package student never also collects a monthly AUTO invoice line.
 
+**Selling them a block is what sets it.** `LessonPackages::open()` calls `ensurePackageBilling()`
+before writing the row: a student on another basis is flipped in place (their monthly quota
+cleared, the package's derived hourly rate adopted as their default), and a student with no
+subscription at all gets one created in the package's own currency. A student already on
+`PER_PACKAGE` is left untouched — the running package snapshots its own rate, so rewriting their
+agreed default because one block was discounted would be a silent re-price.
+
+This is why there is exactly **one place** a package is set up. The mode used to be a toggle on the
+student's profile and the packages screen's picker listed only students who had already been
+flipped, so the mandatory first step was invisible from the screen that needed it, and half the
+terms of a deal were entered somewhere else. The picker now lists every active student and says
+which clock each one is on; the form states the consequence before the owner commits.
+
+**The way back** is `POST /packages/{id}/close` with `return_to_monthly` — offered as a checkbox on
+the close dialog, because closing is when an owner actually decides a student is done buying
+blocks. It refuses while a package is still open: a `PER_HOUR` student holding a live balance is
+the double-bill the two modes exist to prevent. Both directions of the switch therefore live on the
+packages screen, and no toggle elsewhere can disagree with the packages themselves.
+
 For a package student, `subscriptions.price_minor` is read as the **default hourly rate** — it
 pre-fills the next package and prices the fallback (below). It is never the authoritative rate for
 a running package; that is snapshotted on the package row.
@@ -150,10 +169,15 @@ change back, so the ledger and the invoice can never disagree.
 
 ## Surfaces
 
-- **`/packages`** — the record and the work queue. Live balance per student with a progress bar,
-  overdraw drawn as its own red segment (the block finished *and* we went past it are two facts).
-  Opening, closing early, and billing a stranded overdraft live here; the per-lesson ledger is one
-  click in.
+- **`/packages`** — the record, the work queue, and the *only* form. Live balance per student with
+  a progress bar, overdraw drawn as its own red segment (the block finished *and* we went past it
+  are two facts). Opening (including the billing-mode switch), closing early, returning a student
+  to monthly, and billing a stranded overdraft all live here; the per-lesson ledger is one click
+  in. `?open=<studentId>` opens the form with that student already chosen — the deep link the
+  student's profile uses.
+- **Student profile → Billing** — a READ. The hour balance and the history, a link to `/packages`,
+  and an "open a package" button that is a link to the form above, never a second copy of it. The
+  subscription modal edits the *rate*; it cannot change which clock the student is on.
 - **Sidebar badge** — counts packages that need an action (running low, finished and unpaid,
   unbilled overdraft), *not* unread rows. It clears when the work is done, not when it is seen.
 - **Notifications → Packages tab** — `PACKAGE_LOW`, `PACKAGE_COMPLETED`, `PACKAGE_UNPAID`,

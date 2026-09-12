@@ -6487,12 +6487,22 @@ export interface PackageFinancialSummary {
   completed_outstanding_minor: number;
 }
 
-/** A student on package billing, with their open package (if any) and default hourly rate. */
+/**
+ * A student the packages screen can sell a block to — which is every active student, not only
+ * those already on package billing. Opening a package performs that switch, so the picker's job
+ * is to show which mode they are on today rather than to filter them out for being on the
+ * wrong one.
+ */
 export interface PackageStudent {
   id: string;
   full_name: string;
   currency: string;
+  /** Their agreed hourly rate, to pre-fill the total. Zero when no hourly rate is on file. */
   default_hourly_rate_minor: number;
+  /** Their current subscription basis, or null when they have no subscription at all. */
+  price_basis: string | null;
+  plan_label: string | null;
+  on_package_billing: boolean;
   active_package_id: string | null;
   active_package_label: string | null;
 }
@@ -6578,6 +6588,12 @@ export function openLessonPackage(input: {
   carried_over_minutes: number;
   imported_lessons: number;
   skipped_locked_lessons: number;
+  /**
+   * True when this call also moved the student onto package billing (creating their subscription
+   * if they had none). The form says so out loud — a billing mode changing underneath someone is
+   * only acceptable when they are told it changed.
+   */
+  switched_to_package_billing: boolean;
 }> {
   return apiFetch("/api/packages", {
     method: "POST",
@@ -6634,10 +6650,20 @@ export function sendInvoicePaymentLink(
 export function closeLessonPackage(
   id: string,
   reason?: string,
-): Promise<{ ok: boolean; invoice_id: string | null }> {
+  /**
+   * Also put the student back on the monthly clock. This is the exit that pairs with opening a
+   * package putting them on the hour clock, and closing is the moment an owner actually decides
+   * someone is done buying blocks — so both directions of the switch live on this screen.
+   */
+  returnToMonthly = false,
+): Promise<{
+  ok: boolean;
+  invoice_id: string | null;
+  returned_to_monthly: boolean;
+}> {
   return apiFetch(`/api/packages/${id}/close`, {
     method: "POST",
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ reason, return_to_monthly: returnToMonthly }),
   });
 }
 

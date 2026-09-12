@@ -12,6 +12,7 @@ import {
   ReceiptText,
   Timer,
 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -77,7 +78,7 @@ export function PackagesManager() {
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState<
     | { kind: "closed" }
-    | { kind: "open" }
+    | { kind: "open"; studentId?: string }
     | { kind: "detail"; row: LessonPackageRow }
     | { kind: "edit"; row: LessonPackageRow }
     | { kind: "close"; row: LessonPackageRow }
@@ -87,6 +88,13 @@ export function PackagesManager() {
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [closeReason, setCloseReason] = useState("");
+  /**
+   * Also put this student back on the monthly clock as the package closes. The only way out of
+   * package billing, deliberately sited here: closing is when an owner actually decides someone
+   * is done buying blocks, and keeping it on this screen is what makes /packages the whole story
+   * for both directions of the switch.
+   */
+  const [returnToMonthly, setReturnToMonthly] = useState(false);
   const [alert, setAlert] = useState<{
     variant: "success" | "error";
     message: string;
@@ -102,6 +110,37 @@ export function PackagesManager() {
   }, []);
 
   useEffect(refresh, [refresh]);
+
+  /**
+   * `/packages?open=<studentId>` opens the form with that student already chosen.
+   *
+   * It is how the student's profile links here. The profile shows the balance and links to the
+   * action; the action itself only ever exists on this screen, so there is still exactly one form
+   * and one place a package is entered — the link just saves the owner from finding the student
+   * again in a picker they arrived from.
+   */
+  // Optional-chained because useSearchParams() genuinely returns null when the component renders
+  // outside a Next router — which is every unit test of this screen. No link, no deep link.
+  const params = useSearchParams();
+  const deepLinkStudent = params?.get("open") ?? null;
+  useEffect(() => {
+    if (deepLinkStudent) setModal({ kind: "open", studentId: deepLinkStudent });
+  }, [deepLinkStudent]);
+
+  /**
+   * Students with a closed package behind them — the only ones for whom "carry over unused hours"
+   * can do anything. The form hides the option for everyone else rather than offering a checkbox
+   * with nothing to move.
+   */
+  const studentsWithHistory = useMemo(
+    () =>
+      new Set(
+        (rows ?? [])
+          .filter((r) => r.status !== "ACTIVE")
+          .map((r) => r.student_id),
+      ),
+    [rows],
+  );
 
   function showAlert(variant: "success" | "error", message: string) {
     setAlert({ variant, message });
@@ -147,11 +186,21 @@ export function PackagesManager() {
   async function confirmClose(row: LessonPackageRow) {
     setBusy(true);
     try {
-      await closeLessonPackage(row.id, closeReason.trim() || undefined);
+      const result = await closeLessonPackage(
+        row.id,
+        closeReason.trim() || undefined,
+        returnToMonthly,
+      );
       setModal({ kind: "closed" });
       setCloseReason("");
+      setReturnToMonthly(false);
       refresh();
-      showAlert("success", t("alerts.closed"));
+      showAlert(
+        "success",
+        result.returned_to_monthly
+          ? t("alerts.closedAndReturned")
+          : t("alerts.closed"),
+      );
     } catch {
       showAlert("error", t("alerts.closeFailed"));
     } finally {
@@ -415,6 +464,7 @@ export function PackagesManager() {
               onEdit={() => setModal({ kind: "edit", row })}
               onClose={() => {
                 setCloseReason("");
+                setReturnToMonthly(false);
                 setModal({ kind: "close", row });
               }}
               onBillOverdraft={() => void billOverdraft(row)}
@@ -436,6 +486,8 @@ export function PackagesManager() {
       >
         {modal.kind === "open" && (
           <OpenPackageForm
+            initialStudentId={modal.studentId}
+            studentsWithHistory={studentsWithHistory}
             onCancel={() => setModal({ kind: "closed" })}
             onSaved={(message) => {
               setModal({ kind: "closed" });
@@ -517,6 +569,29 @@ export function PackagesManager() {
                 className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
               />
             </div>
+
+            {/* The way back to the monthly clock. Off by default: most closes are followed by the
+                next block, and silently moving someone between billing modes is the behaviour this
+                screen exists to stop. */}
+            <label
+              className="border-input hover:bg-muted/30 flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-sm transition-colors"
+              data-testid="return-to-monthly"
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 shrink-0"
+                checked={returnToMonthly}
+                onChange={(e) => setReturnToMonthly(e.target.checked)}
+              />
+              <span>
+                <span className="block font-medium">
+                  {t("close.returnToMonthly", { name: modal.row.student_name })}
+                </span>
+                <span className="text-muted-foreground/80 block text-[11px]">
+                  {t("close.returnToMonthlyHint")}
+                </span>
+              </span>
+            </label>
             <div className="flex items-center justify-end gap-2 border-t pt-4">
               <Button
                 variant="ghost"

@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers } from "lucide-react";
+import { Layers, Plus } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
@@ -15,7 +15,12 @@ import { cn } from "@/lib/utils";
  * "Live track for each student's package as lessons are added" is the whole point of the feature,
  * and the profile is where an owner actually looks when a parent rings up — so the balance has to
  * be here and not only on the packages screen. This is a READ: opening, closing and billing all
- * live on /packages, one link away, so there is exactly one place those actions can be taken.
+ * live on /packages, so there is exactly one place those actions can be taken.
+ *
+ * The buttons here are therefore links, not forms. `?open=<studentId>` lands on the packages
+ * screen with the "open a package" form already showing this student — the shortcut an owner
+ * wants when a parent has just asked for another block, without a second form existing to
+ * maintain or to disagree with the first.
  */
 export function StudentPackagePanel({ studentId }: { studentId: string }) {
   const t = useTranslations("packages");
@@ -57,9 +62,17 @@ export function StudentPackagePanel({ studentId }: { studentId: string }) {
       </div>
 
       {active === null ? (
-        <p className="text-muted-foreground mt-3.5 rounded-xl border border-dashed p-4 text-center text-xs">
-          {t("panel.noActive")}
-        </p>
+        <div className="mt-3.5 rounded-xl border border-dashed p-4 text-center">
+          <p className="text-muted-foreground text-xs">{t("panel.noActive")}</p>
+          <Link
+            href={`/packages?open=${studentId}`}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 mt-3 inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors"
+            data-testid="open-package-for-student"
+          >
+            <Plus className="size-3.5" aria-hidden />
+            {t("panel.openOne")}
+          </Link>
+        </div>
       ) : (
         <div className="mt-3.5">
           <div className="flex items-baseline justify-between gap-2">

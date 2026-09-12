@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown, Info, Repeat, TriangleAlert } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { AlertBanner } from "@/components/ui/alert";
@@ -24,30 +25,46 @@ const CURRENCY_OPTIONS = CURRENCIES.map((c) => ({
   sublabel: c.name,
 }));
 
+const inputClass =
+  "border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3";
+
 /**
- * Open a block of hours for a student.
+ * Sell a student a block of hours — the whole setup, on one form.
  *
- * The form asks for HOURS because that is the unit an academy sells in; the server turns them
- * into minutes on arrival and nothing downstream sees a fraction again. It also shows the
- * derived hourly rate live, because "20 hours for 4000" and "200 an hour" are the same deal and
- * the owner will be quoting whichever one the parent asked about.
+ * This form is the ONLY place a package is created, and that is a deliberate correction. It used
+ * to be two screens: an owner first had to open the student's profile and flip their subscription
+ * to package billing, because the picker here listed nobody else — so the mandatory first step
+ * was invisible from the screen that needed it, and half the terms of a deal were entered in one
+ * place and half in another. Now the picker lists every student, saving performs the switch
+ * ({@see LessonPackages::ensurePackageBilling} on the server), and the note under the picker says
+ * so before the owner commits rather than after.
  *
- * Only students whose subscription is on package billing appear here — a student cannot be on
- * the monthly clock and this one at the same time, and the picker is where that is made obvious
- * rather than discovered through a double bill.
+ * The shape follows the deal, not the schema: WHO, then WHAT THEY BOUGHT, then — folded away —
+ * the billing details that have a right answer nine times out of ten. The form asks for HOURS
+ * because that is the unit an academy sells in; the server turns them into minutes on arrival and
+ * nothing downstream sees a fraction again. It shows the derived hourly rate live, because
+ * "20 hours for 4000" and "200 an hour" are the same deal and the owner will be quoting whichever
+ * one the parent asked about.
  */
 export function OpenPackageForm({
+  initialStudentId,
+  studentsWithHistory,
   onSaved,
   onCancel,
 }: {
+  /** Pre-selects a student — set when the form is opened from that student's profile. */
+  initialStudentId?: string;
+  /** Students who have a closed package to carry hours over FROM. Others never see the option. */
+  studentsWithHistory?: ReadonlySet<string>;
   onSaved: (message: string) => void;
   onCancel: () => void;
 }) {
   const t = useTranslations("packages");
   const locale = useLocale();
   const [students, setStudents] = useState<PackageStudent[] | null>(null);
-  const [studentId, setStudentId] = useState("");
+  const [studentId, setStudentId] = useState(initialStudentId ?? "");
   const [label, setLabel] = useState("");
+  const [labelWasEdited, setLabelWasEdited] = useState(false);
   const [hours, setHours] = useState("");
   const [price, setPrice] = useState("");
   const [priceWasEdited, setPriceWasEdited] = useState(false);
@@ -58,6 +75,7 @@ export function OpenPackageForm({
   );
   const [expiresOn, setExpiresOn] = useState("");
   const [carryOver, setCarryOver] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,15 +96,61 @@ export function OpenPackageForm({
     return Math.round((priceMinor * 60) / Math.round(hoursNum * 60));
   }, [hoursNum, priceMinor]);
 
+  /** One line per student: which clock they are on today, and what it costs. */
+  const studentOptions = useMemo(
+    () =>
+      (students ?? []).map((s) => ({
+        value: s.id,
+        label: s.full_name,
+        sublabel:
+          s.active_package_id !== null
+            ? t("form.hasOpenPackage")
+            : s.price_basis === null
+              ? t("form.modeNone")
+              : s.on_package_billing
+                ? t("form.modePackage")
+                : s.default_hourly_rate_minor > 0
+                  ? t("form.modeMonthlyWithRate", {
+                      rate: formatMoney(
+                        {
+                          amount: s.default_hourly_rate_minor,
+                          currency: s.currency,
+                        },
+                        locale,
+                      ),
+                    })
+                  : t("form.modeMonthly"),
+      })),
+    [students, t, locale],
+  );
+
   // Keep the suggested total in step with the package size until the owner deliberately edits
   // it. Checking `price !== ""` is not enough here: typing "16" fires this effect after the first
   // keystroke, so it used to lock in the price for ONE hour (12.50) before the second digit arrived,
   // then display 0.78/hour for a 16-hour package. A manual total still wins from that point on.
+  //
+  // A student with no hourly rate on file (no subscription, or a monthly/per-session one, which is
+  // a different unit) gets no suggestion at all — a total of 0.00 reads as a real quote.
   useEffect(() => {
     if (student === null || !Number.isFinite(hoursNum) || hoursNum <= 0) return;
-    if (priceWasEdited) return;
+    if (priceWasEdited || student.default_hourly_rate_minor <= 0) return;
     setPrice(((student.default_hourly_rate_minor * hoursNum) / 100).toFixed(2));
   }, [student, hoursNum, priceWasEdited]);
+
+  // The name writes itself from the size and the month it starts, which is what an owner types
+  // anyway. It stays a real field: the first keystroke in it ends the suggestion for good.
+  useEffect(() => {
+    if (labelWasEdited || !Number.isFinite(hoursNum) || hoursNum <= 0) return;
+    setLabel(
+      t("form.labelAuto", {
+        hours: hoursNum,
+        month: new Date(`${startsOn}T00:00:00`).toLocaleDateString(locale, {
+          month: "long",
+          year: "numeric",
+        }),
+      }),
+    );
+  }, [hoursNum, startsOn, labelWasEdited, locale, t]);
 
   // The student's agreed currency is the default, not the ceiling: a package can be sold in
   // another one (a family paying in USD for a term abroad), so the field is a real choice rather
@@ -96,6 +160,11 @@ export function OpenPackageForm({
   }, [student]);
 
   const alreadyOpen = student?.active_package_id != null;
+  /** Saving will also move this student onto package billing. Said out loud, before they commit. */
+  const willSwitch = student !== null && !student.on_package_billing;
+  const canCarryOver =
+    student !== null && (studentsWithHistory?.has(student.id) ?? false);
+
   const valid =
     studentId !== "" &&
     currency !== "" &&
@@ -118,9 +187,10 @@ export function OpenPackageForm({
         bill_timing: timing,
         starts_on: startsOn,
         expires_on: expiresOn === "" ? null : expiresOn,
-        carry_over: carryOver,
+        carry_over: canCarryOver && carryOver,
       });
-      onSaved(
+
+      const opened =
         result.skipped_locked_lessons > 0
           ? t("alerts.openedWithLocked", {
               imported: result.imported_lessons,
@@ -130,7 +200,15 @@ export function OpenPackageForm({
             ? t("alerts.openedWithLessons", { count: result.imported_lessons })
             : result.invoice_id !== null
               ? t("alerts.openedAndBilled")
-              : t("alerts.opened"),
+              : t("alerts.opened");
+
+      // The mode change is reported by the server, not assumed from the form: a second tab could
+      // have moved this student already, and claiming a switch that did not happen is worse than
+      // staying quiet about one that did.
+      onSaved(
+        result.switched_to_package_billing
+          ? `${opened} ${t("alerts.switchedToPackages", { name: student?.full_name ?? "" })}`
+          : opened,
       );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -149,53 +227,57 @@ export function OpenPackageForm({
         />
       )}
 
+      {/* ── 1. Who ──────────────────────────────────────────────────────
+          Every active student, not only those already on package billing: the switch happens on
+          save, so there is nothing to prepare elsewhere first. */}
       <div className="space-y-1.5">
-        <label htmlFor="pkg-student" className="text-sm font-medium">
-          {t("form.student")}
-        </label>
-        <select
-          id="pkg-student"
+        <span className="text-sm font-medium">{t("form.student")}</span>
+        <Combobox
+          options={studentOptions}
           value={studentId}
-          onChange={(e) => {
-            setStudentId(e.target.value);
+          onChange={(id) => {
+            setStudentId(id);
             setPrice("");
             setPriceWasEdited(false);
+            setCarryOver(false);
           }}
-          className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
-        >
-          <option value="">{t("form.studentPlaceholder")}</option>
-          {(students ?? []).map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.full_name}
-              {s.active_package_id !== null
-                ? ` — ${t("form.hasOpenPackage")}`
-                : ""}
-            </option>
-          ))}
-        </select>
+          placeholder={t("form.studentPlaceholder")}
+          searchPlaceholder={t("form.searchStudent")}
+          data-testid="package-student"
+        />
         {students !== null && students.length === 0 && (
           <p className="text-muted-foreground text-xs">
-            {t("form.noEligibleStudents")}
+            {t("form.noStudents")}
           </p>
         )}
-        {alreadyOpen && (
-          <p className="text-destructive text-xs">{t("form.alreadyOpen")}</p>
-        )}
       </div>
 
-      <div className="space-y-1.5">
-        <label htmlFor="pkg-label" className="text-sm font-medium">
-          {t("form.label")}
-        </label>
-        <input
-          id="pkg-label"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder={t("form.labelPlaceholder")}
-          className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
-        />
-      </div>
+      {alreadyOpen && (
+        <p
+          className="bg-destructive/8 text-destructive flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs font-medium"
+          data-testid="package-already-open"
+        >
+          <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
+          {t("form.alreadyOpen")}
+        </p>
+      )}
 
+      {willSwitch && !alreadyOpen && (
+        <p
+          className="flex items-start gap-2 rounded-xl border border-sky-300/60 bg-sky-500/[0.07] px-3 py-2.5 text-xs text-sky-800 dark:border-sky-800/50 dark:text-sky-300"
+          data-testid="package-switch-note"
+        >
+          <Info className="mt-px size-3.5 shrink-0" aria-hidden />
+          <span>
+            <span className="block font-semibold">
+              {t("form.switchTitle", { name: student.full_name })}
+            </span>
+            <span className="block opacity-90">{t("form.switchHint")}</span>
+          </span>
+        </p>
+      )}
+
+      {/* ── 2. What they bought ─────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <label htmlFor="pkg-hours" className="text-sm font-medium">
@@ -209,7 +291,7 @@ export function OpenPackageForm({
             value={hours}
             onChange={(e) => setHours(e.target.value)}
             placeholder="20"
-            className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
+            className={inputClass}
           />
         </div>
         <div className="space-y-1.5">
@@ -227,7 +309,7 @@ export function OpenPackageForm({
               setPriceWasEdited(true);
             }}
             placeholder="4000"
-            className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
+            className={inputClass}
           />
         </div>
       </div>
@@ -254,8 +336,12 @@ export function OpenPackageForm({
           )}
       </div>
 
+      {/* The deal read back, in the unit the parent will quote at you. */}
       {hourlyRate !== null && currency !== "" && (
-        <p className="text-muted-foreground text-xs">
+        <p
+          className="bg-primary/[0.07] text-primary rounded-xl px-3 py-2.5 text-center text-sm font-semibold"
+          data-testid="package-rate-readout"
+        >
           {t("form.derivedRate", {
             rate: formatMoney({ amount: hourlyRate, currency }, locale),
           })}
@@ -263,76 +349,139 @@ export function OpenPackageForm({
       )}
 
       <div className="space-y-1.5">
-        <span className="text-sm font-medium">{t("form.timing")}</span>
-        <div className="grid grid-cols-2 gap-2">
-          {TIMINGS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setTiming(option)}
-              className={cn(
-                "rounded-xl border px-3 py-2.5 text-start text-sm font-medium transition-colors",
-                timing === option
-                  ? "border-primary/40 bg-primary/8 text-primary"
-                  : "border-input bg-background text-muted-foreground hover:bg-muted/40",
-              )}
-            >
-              <span className="block">{t(`timing.${option}`)}</span>
-              <span className="text-muted-foreground/80 mt-0.5 block text-[11px] font-normal">
-                {t(`timingHint.${option}`)}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <label htmlFor="pkg-starts" className="text-sm font-medium">
-            {t("form.startsOn")}
-          </label>
-          <input
-            id="pkg-starts"
-            type="date"
-            value={startsOn}
-            onChange={(e) => setStartsOn(e.target.value)}
-            className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label htmlFor="pkg-expires" className="text-sm font-medium">
-            {t("form.expiresOn")}
-          </label>
-          <input
-            id="pkg-expires"
-            type="date"
-            value={expiresOn}
-            min={startsOn}
-            onChange={(e) => setExpiresOn(e.target.value)}
-            className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
-          />
-          <p className="text-muted-foreground/80 text-[11px]">
-            {t("form.expiresHint")}
-          </p>
-        </div>
-      </div>
-
-      {/* Carry-over is opt-in on purpose: unused hours are the academy's to forgive or keep,
-          and moving them silently is how disputes start. */}
-      <label className="border-input hover:bg-muted/30 flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-sm transition-colors">
+        <label htmlFor="pkg-label" className="text-sm font-medium">
+          {t("form.label")}
+        </label>
         <input
-          type="checkbox"
-          checked={carryOver}
-          onChange={(e) => setCarryOver(e.target.checked)}
-          className="mt-0.5"
+          id="pkg-label"
+          value={label}
+          onChange={(e) => {
+            setLabel(e.target.value);
+            setLabelWasEdited(true);
+          }}
+          placeholder={t("form.labelPlaceholder")}
+          className={inputClass}
         />
-        <span>
-          <span className="block font-medium">{t("form.carryOver")}</span>
-          <span className="text-muted-foreground/80 block text-[11px]">
-            {t("form.carryOverHint")}
+      </div>
+
+      {/* ── 3. The details with a right answer ──────────────────────────
+          Folded away rather than dropped: bill on start, from today, no expiry is the deal nine
+          times out of ten, and a form that asks four questions nobody has an opinion about is
+          how this ended up feeling complicated. */}
+      <div className="rounded-xl border">
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
+          data-testid="package-advanced-toggle"
+          className="hover:bg-muted/30 flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-start transition-colors"
+        >
+          <span>
+            <span className="block text-sm font-medium">
+              {t("form.advanced")}
+            </span>
+            <span className="text-muted-foreground/80 block text-[11px]">
+              {t("form.advancedHint", {
+                timing: t(`timing.${timing}`),
+                starts: startsOn,
+              })}
+            </span>
           </span>
-        </span>
-      </label>
+          <ChevronDown
+            className={cn(
+              "text-muted-foreground size-4 shrink-0 transition-transform",
+              showAdvanced && "rotate-180",
+            )}
+            aria-hidden
+          />
+        </button>
+
+        {showAdvanced && (
+          <div className="space-y-4 border-t p-3">
+            <div className="space-y-1.5">
+              <span className="text-sm font-medium">{t("form.timing")}</span>
+              <div className="grid grid-cols-2 gap-2">
+                {TIMINGS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setTiming(option)}
+                    className={cn(
+                      "rounded-xl border px-3 py-2.5 text-start text-sm font-medium transition-colors",
+                      timing === option
+                        ? "border-primary/40 bg-primary/8 text-primary"
+                        : "border-input bg-background text-muted-foreground hover:bg-muted/40",
+                    )}
+                  >
+                    <span className="block">{t(`timing.${option}`)}</span>
+                    <span className="text-muted-foreground/80 mt-0.5 block text-[11px] font-normal">
+                      {t(`timingHint.${option}`)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="pkg-starts" className="text-sm font-medium">
+                  {t("form.startsOn")}
+                </label>
+                <input
+                  id="pkg-starts"
+                  type="date"
+                  value={startsOn}
+                  onChange={(e) => setStartsOn(e.target.value)}
+                  className={inputClass}
+                />
+                <p className="text-muted-foreground/80 text-[11px]">
+                  {t("form.startsHint")}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="pkg-expires" className="text-sm font-medium">
+                  {t("form.expiresOn")}
+                </label>
+                <input
+                  id="pkg-expires"
+                  type="date"
+                  value={expiresOn}
+                  min={startsOn}
+                  onChange={(e) => setExpiresOn(e.target.value)}
+                  className={inputClass}
+                />
+                <p className="text-muted-foreground/80 text-[11px]">
+                  {t("form.expiresHint")}
+                </p>
+              </div>
+            </div>
+
+            {/* Carry-over is opt-in on purpose: unused minutes are the academy's to forgive or
+                keep, and moving them silently is how disputes start. It only appears for a
+                student who HAS a closed package to move hours from — an option that cannot do
+                anything is one more thing to wonder about. */}
+            {canCarryOver && (
+              <label className="border-input hover:bg-muted/30 flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-sm transition-colors">
+                <input
+                  type="checkbox"
+                  checked={carryOver}
+                  onChange={(e) => setCarryOver(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Repeat className="size-3.5" aria-hidden />
+                    {t("form.carryOver")}
+                  </span>
+                  <span className="text-muted-foreground/80 block text-[11px]">
+                    {t("form.carryOverHint")}
+                  </span>
+                </span>
+              </label>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="flex items-center justify-end gap-2 border-t pt-4">
         <Button

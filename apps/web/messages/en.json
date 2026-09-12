@@ -1206,11 +1206,9 @@
       "savedRepriced": "Subscription saved. Recalculated {sessions, plural, one {# session} other {# sessions}} on {invoices, plural, one {# open invoice} other {# open invoices}}.",
       "perMonthShort": "/mo",
       "perSessionShort": "/session",
-      "mode": "Billing mode",
-      "modeMonthly": "Monthly invoice",
-      "modeMonthlyHint": "Lessons collect on one bill per month.",
       "modePackage": "Lesson package",
-      "modePackageHint": "Sell blocks of hours; lessons burn the balance."
+      "onPackages": "On package billing",
+      "onPackagesHint": "The hours are the clock. Open, close and bill blocks on the packages page — the rate here is the default for the next one."
     },
     "teacher": {
       "title": "Teacher",
@@ -2023,11 +2021,10 @@
     },
     "form": {
       "title": "Open a package",
-      "description": "Sell a block of hours. Only students set to package billing appear here — a student is on the monthly clock or on this one, never both.",
+      "description": "Sell a block of hours. This is the whole setup — picking a student who is on monthly billing moves them onto package billing when you save.",
       "student": "Student",
       "studentPlaceholder": "Choose a student",
       "hasOpenPackage": "already has an open package",
-      "noEligibleStudents": "No students are on package billing yet. Set a student's subscription basis to package on their profile first.",
       "alreadyOpen": "This student already has an open package. Close it before opening another.",
       "label": "Name",
       "labelPlaceholder": "e.g. 20 hours — autumn term",
@@ -2043,7 +2040,19 @@
       "currency": "Currency",
       "currencyPlaceholder": "Choose a currency",
       "searchCurrency": "Search currency…",
-      "currencyDiffers": "The student's agreed currency is {currency}. This package will be billed — and any extra hours charged — in the currency chosen here."
+      "currencyDiffers": "The student's agreed currency is {currency}. This package will be billed — and any extra hours charged — in the currency chosen here.",
+      "searchStudent": "Search students…",
+      "noStudents": "No active students yet. Add a student first.",
+      "modeNone": "No subscription yet",
+      "modeMonthly": "On monthly billing",
+      "modeMonthlyWithRate": "On monthly billing · {rate}/hr",
+      "modePackage": "On package billing",
+      "switchTitle": "{name} is on monthly billing.",
+      "switchHint": "Opening this package moves them onto package billing — their monthly invoice stops and these hours become the clock.",
+      "labelAuto": "{hours} hours — {month}",
+      "advanced": "Billing & dates",
+      "advancedHint": "{timing} · starts {starts}",
+      "startsHint": "Lessons already taught since this date are pulled onto the package."
     },
     "detail": {
       "sold": "Bought",
@@ -2100,7 +2109,9 @@
       "proRataNote": "This package is paid at the end, so closing it now bills only the hours actually used — not the full block.",
       "reason": "Reason",
       "reasonPlaceholder": "e.g. Student switched to monthly",
-      "confirm": "Close package"
+      "confirm": "Close package",
+      "returnToMonthly": "Return {name} to monthly billing",
+      "returnToMonthlyHint": "Their next lessons bill on the monthly clock instead. Leave off if they are buying another block."
     },
     "alerts": {
       "opened": "Package opened.",
@@ -2118,7 +2129,9 @@
       "markedPaid": "Payment recorded and the package invoice was updated.",
       "overdraftBilled": "The extra hours were billed.",
       "overdraftFailed": "Could not bill the extra hours.",
-      "edited": "Package updated."
+      "edited": "Package updated.",
+      "switchedToPackages": "{name} is now on package billing.",
+      "closedAndReturned": "Package closed, and the student is back on monthly billing."
     },
     "panel": {
       "title": "Lesson package",
@@ -2126,7 +2139,8 @@
       "manage": "Manage packages",
       "noActive": "No open package. Open one on the packages page so the next lesson has hours to take.",
       "owed": "{amount} still outstanding on finished packages.",
-      "settled": "Settled"
+      "settled": "Settled",
+      "openOne": "Open a package"
     }
   },
   "attendance": {
