@@ -2489,6 +2489,21 @@ export interface StudentInput {
   currency?: string | null;
   teacher_id?: string | null;
   subscription?: SubscriptionInput;
+  /**
+   * Put the new student straight onto a lesson package instead of monthly billing — the other
+   * clock, chosen at creation. The server opens the package in the same request (which also
+   * creates their PER_PACKAGE subscription), so they are on /packages the moment they exist.
+   * Mutually exclusive with `subscription`; needs `package.manage` and the invoicing entitlement.
+   */
+  package?: {
+    label: string;
+    hours: number;
+    price_minor: number;
+    currency?: string;
+    bill_timing?: PackageBillTiming;
+    starts_on?: string;
+    expires_on?: string | null;
+  };
 }
 
 export interface StudentDetail {
@@ -2539,9 +2554,13 @@ export function getStudent(id: string): Promise<StudentDetail> {
   return apiFetch(`/api/students/${id}`);
 }
 
-export function createStudent(
-  input: StudentInput,
-): Promise<{ studentId: string; guardianId: string }> {
+export function createStudent(input: StudentInput): Promise<{
+  studentId: string;
+  guardianId: string;
+  /** Set when `package` was sent: the package the save opened. */
+  packageId?: string | null;
+  packageInvoiceId?: string | null;
+}> {
   return apiFetch("/api/students", {
     method: "POST",
     body: JSON.stringify(input),

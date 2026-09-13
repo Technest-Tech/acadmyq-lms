@@ -292,10 +292,16 @@ export function StudentManager() {
       >
         <StudentForm
           onCancel={() => setModal({ kind: "closed" })}
-          onCreated={() => {
+          onCreated={(_id, result) => {
             setModal({ kind: "closed" });
             refresh();
-            showAlert("success", t("form.saved"));
+            // Say where the package went, so nobody goes looking for a step that already happened.
+            showAlert(
+              "success",
+              result?.packageOpened
+                ? t("form.savedWithPackage")
+                : t("form.saved"),
+            );
           }}
         />
       </Modal>
@@ -317,10 +323,15 @@ export function StudentManager() {
             studentId={modal.id}
             currentTeacherId={modal.teacherId}
             onCancel={() => setModal({ kind: "closed" })}
-            onCompleted={() => {
+            onCompleted={(result) => {
               setModal({ kind: "closed" });
               refresh();
-              showAlert("success", t("enroll.confirmed"));
+              showAlert(
+                "success",
+                result?.packageOpened
+                  ? t("enroll.confirmedWithPackage")
+                  : t("enroll.confirmed"),
+              );
             }}
           />
         )}

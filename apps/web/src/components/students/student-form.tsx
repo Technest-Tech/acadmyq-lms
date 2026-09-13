@@ -1,9 +1,23 @@
 "use client";
 
-import { Banknote, CalendarDays, Hash, User, UserCheck, Users, Zap } from "lucide-react";
+import {
+  Banknote,
+  CalendarDays,
+  CalendarRange,
+  Hash,
+  Layers,
+  User,
+  UserCheck,
+  Users,
+  Zap,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import {
+  PackageTermsFields,
+  usePackageTerms,
+} from "@/components/packages/package-terms";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox, DialCodePicker, type ComboboxOption } from "@/components/ui/combobox";
@@ -45,11 +59,11 @@ function Field({
 }
 
 /**
- * One of a pair of mutually exclusive choices, as a card. Used for both switches on this form —
- * the lifecycle the student starts in, and whether they sit under a guardian — so the two read
- * as the same kind of decision rather than two unrelated widgets.
+ * One of a pair of mutually exclusive choices, as a card. Used for every switch on this form —
+ * the lifecycle the student starts in, whether they sit under a guardian, monthly or package —
+ * and by the enrolment wizard's billing step, so they all read as the same kind of decision.
  */
-function ChoiceCard({
+export function ChoiceCard({
   icon: Icon,
   title,
   hint,
@@ -126,6 +140,9 @@ function toMinor(val: string): number {
 
 type Intent = "trial" | "enrolled";
 
+/** Which clock an active student starts on. Mutually exclusive — two clocks is a double bill. */
+type Billing = "monthly" | "package";
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 /**
@@ -162,11 +179,12 @@ export function StudentForm({
   initialPhone?: string | null;
   /** Fix the lifecycle the student starts in; omit to let the user choose — see the note above. */
   intent?: Intent;
-  onCreated: (studentId: string) => void;
+  /** `packageOpened` is true when the save also opened a lesson package for them. */
+  onCreated: (studentId: string, result?: { packageOpened: boolean }) => void;
   onCancel: () => void;
 }) {
   const t = useTranslations("students");
-  const { can } = useAuth();
+  const { can, session } = useAuth();
   // Naming a price is a pricing act wherever it happens — the API enforces `student.set_price`
   // on the inline subscription too, so a role without it is never shown the package fields.
   const canPrice = can("student.set_price");
@@ -183,13 +201,35 @@ export function StudentForm({
   const [selfGuardian, setSelfGuardian] = useState(false);
   const [guardianId, setGuardianId] = useState(fixedGuardianId ?? "");
 
-  // Package — hourly, matching the enrolment wizard's pricing step and the student-detail form.
+  /**
+   * Monthly or package — asked right here, so an active student's whole billing setup happens in
+   * the save that creates them. Offered only where a package can actually be opened: the role may
+   * price AND manage packages, and the client's modules include invoicing (the entitlement that
+   * gates /api/packages). Anyone else gets the monthly fields exactly as before.
+   */
+  const packagesAvailable =
+    canPrice &&
+    can("package.manage") &&
+    (session?.capabilities == null ||
+      session.capabilities.includes("invoicing"));
+  const [billing, setBilling] = useState<Billing>("monthly");
+  const onPackage = packagesAvailable && billing === "package";
+
+  // Monthly — hourly, matching the enrolment wizard's pricing step and the student-detail form.
   const [price, setPrice] = useState("");
   const [hours, setHours] = useState("");
   const [currency, setCurrency] = useState("");
   const [startDate, setStartDate] = useState(
     () => new Date().toISOString().split("T")[0] ?? "",
   );
+
+  // Package — the same fields, defaults and suggestions as the packages screen, because they are
+  // literally the same component. A new student has no agreed rate yet, so no total is suggested;
+  // the guardian's currency seeds the field since that is who pays.
+  const guardianCurrency =
+    guardians.find((g) => g.id === (fixedGuardianId ?? guardianId))?.currency ??
+    "";
+  const terms = usePackageTerms({ defaultCurrency: guardianCurrency });
 
   const currencyOptions = useMemo<ComboboxOption[]>(
     () => [
@@ -264,9 +304,13 @@ export function StudentForm({
       setError(t("form.guardianRequired"));
       return false;
     }
-    // A REGULAR student with no package is a learner nobody ever invoices, so when the user may
-    // price, the package is the price of choosing "active" — not an optional extra.
-    if (showPackage && (!price.trim() || !startDate)) {
+    // A REGULAR student with no billing terms is a learner nobody ever invoices, so when the user
+    // may price, the terms are the price of choosing "active" — not an optional extra.
+    if (showPackage && onPackage && !terms.valid) {
+      setError(t("form.packageTermsRequired"));
+      return false;
+    }
+    if (showPackage && !onPackage && (!price.trim() || !startDate)) {
       setError(t("form.packageRequired"));
       return false;
     }
@@ -286,7 +330,10 @@ export function StudentForm({
         is_self_guardian: selfGuardian,
         guardian_id: selfGuardian ? undefined : ((fixedGuardianId ?? guardianId) || undefined),
         status: enrolling ? "REGULAR" : "TRIAL",
-        ...(showPackage
+        // The package path opens the package in the same request, which also creates the
+        // student's package-billing subscription — so it sends no `subscription` of its own.
+        ...(showPackage && onPackage ? { package: terms.toPayload() } : {}),
+        ...(showPackage && !onPackage
           ? {
               subscription: {
                 // The package is always hourly here; derive a display label from the quota.
@@ -300,7 +347,7 @@ export function StudentForm({
             }
           : {}),
       });
-      onCreated(res.studentId);
+      onCreated(res.studentId, { packageOpened: Boolean(res.packageId) });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -458,21 +505,51 @@ export function StudentForm({
         />
       </Field>
 
-      {/* ── Package ─────────────────────────────────────────────────────────
+      {/* ── Billing ─────────────────────────────────────────────────────────
           Only for an active student, and only for whoever may name a price. A role without
-          `student.set_price` still gets to create the learner; the package is added later by
-          someone who may price, rather than the whole card being denied to them. */}
+          `student.set_price` still gets to create the learner; billing is added later by
+          someone who may price, rather than the whole card being denied to them.
+
+          Monthly or package is the first question inside it, because it changes what every field
+          below means. Picking package shows the very same fields as the packages screen and opens
+          the package in this save — there is no second step on another page. */}
       {enrolling &&
         (canPrice ? (
           <div
             className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-3.5"
-            data-testid="package-details"
+            data-testid="billing-details"
           >
             <div>
-              <p className="text-sm font-semibold">{t("form.packageTitle")}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">{t("form.packageHint")}</p>
+              <p className="text-sm font-semibold">{t("form.billingTitle")}</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                {onPackage ? t("form.billingPackageIntro") : t("form.packageHint")}
+              </p>
             </div>
 
+            {packagesAvailable && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <ChoiceCard
+                  icon={CalendarRange}
+                  title={t("form.billingMonthly")}
+                  hint={t("form.billingMonthlyHint")}
+                  selected={billing === "monthly"}
+                  onSelect={() => setBilling("monthly")}
+                  testId="billing-monthly"
+                />
+                <ChoiceCard
+                  icon={Layers}
+                  title={t("form.billingPackage")}
+                  hint={t("form.billingPackageHint")}
+                  selected={billing === "package"}
+                  onSelect={() => setBilling("package")}
+                  testId="billing-package"
+                />
+              </div>
+            )}
+
+            {onPackage ? (
+              <PackageTermsFields terms={terms} idPrefix="new-student-pkg" />
+            ) : (
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label={t("subscription.priceHourly")} required>
                 <div className="relative">
@@ -528,6 +605,7 @@ export function StudentForm({
                 </div>
               </Field>
             </div>
+            )}
           </div>
         ) : (
           <p className="rounded-xl border border-dashed px-3.5 py-2.5 text-xs text-muted-foreground">

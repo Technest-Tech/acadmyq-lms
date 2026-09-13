@@ -63,6 +63,18 @@ flipped, so the mandatory first step was invisible from the screen that needed i
 terms of a deal were entered somewhere else. The picker now lists every active student and says
 which clock each one is on; the form states the consequence before the owner commits.
 
+**Or from the very first save.** A student created active is asked *monthly or package?* inside
+the new-student form, and a trial converting through the enrolment wizard is asked the same on its
+pricing step. Both show the same `PackageTermsFields` the packages screen uses (one definition of
+what a package needs, in `components/packages/package-terms.tsx`). `POST /students` accepts a
+`package` block and opens it in the same request — so a refused package rolls the student back
+with it, and a new package student is on `/packages` the moment they exist. It is mutually
+exclusive with `subscription`, needs `student.set_price` + `package.manage`, and checks the
+`invoicing` entitlement itself, since `/students` is not behind `entitled:invoicing` and must not
+become a way around it. The wizard calls `POST /packages` *then* sets `REGULAR`, in that order:
+REGULAR is refused until an active subscription exists, and opening the package is what creates
+one.
+
 **The way back** is `POST /packages/{id}/close` with `return_to_monthly` — offered as a checkbox on
 the close dialog, because closing is when an owner actually decides a student is done buying
 blocks. It refuses while a package is still open: a `PER_HOUR` student holding a live balance is

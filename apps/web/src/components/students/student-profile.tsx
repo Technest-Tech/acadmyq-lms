@@ -431,9 +431,13 @@ export function StudentProfile({ studentId }: { studentId: string }) {
             studentId={studentId}
             currentTeacherId={data.currentTeacher?.teacher_id}
             onCancel={() => setAction("none")}
-            onCompleted={() => {
+            onCompleted={(result) => {
               setAction("none");
-              setNotice(t("enroll.confirmed"));
+              setNotice(
+                result?.packageOpened
+                  ? t("enroll.confirmedWithPackage")
+                  : t("enroll.confirmed"),
+              );
               void refresh();
             }}
           />

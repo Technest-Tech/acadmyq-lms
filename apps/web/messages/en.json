@@ -1088,10 +1088,11 @@
       "stepPricing": "Pricing",
       "assignTeacher": "Assign teacher",
       "selectTeacher": "Select teacher…",
-      "pricingHint": "Almost there! Set up the pricing plan, or skip and confirm the enrollment without a subscription.",
+      "pricingHint": "Almost there! Choose monthly billing or a lesson package, or skip and confirm the enrollment without billing.",
       "skipSchedule": "Skip schedule",
       "saveContinue": "Save & continue",
-      "skipConfirm": "Skip & confirm"
+      "skipConfirm": "Skip & confirm",
+      "confirmedWithPackage": "Enrollment confirmed — the student is active and their package is open on the Packages page."
     },
     "trialFlow": {
       "scheduled": "Trial session scheduled! Actions updated.",
@@ -1156,17 +1157,24 @@
       "intentTrial": "Trial student",
       "intentTrialHint": "Saved as a trial. Schedule the trial session from their profile afterwards.",
       "intentActive": "Active student",
-      "intentActiveHint": "Saved as a regular learner, with their package set right here.",
-      "packageTitle": "Package details",
-      "packageHint": "The rate this student is billed at, and the monthly hours their package covers.",
+      "intentActiveHint": "Saved as a regular learner, with their billing — monthly or a package — set right here.",
+      "packageHint": "The rate this student is billed at, and the monthly hours it covers.",
       "packageRequired": "Enter an hourly price and a start date for an active student.",
-      "packageNoRights": "You may not set prices, so this student is created without a package — add one from their profile later.",
+      "packageNoRights": "You may not set prices, so this student is created without billing — someone who can price adds it from their profile.",
       "guardianMode": "Student type",
       "guardianModeFamily": "Family",
       "guardianModeFamilyHint": "Linked to a guardian, who is billed.",
       "guardianModeSingle": "Single",
       "guardianModeSingleHint": "An adult learner, their own guardian.",
-      "createEnrolled": "Add student"
+      "createEnrolled": "Add student",
+      "billingTitle": "How is this student billed?",
+      "billingMonthly": "Monthly billing",
+      "billingMonthlyHint": "An hourly rate; lessons collect on one invoice a month.",
+      "billingPackage": "Lesson package",
+      "billingPackageHint": "Sell a block of hours up front; lessons burn the balance.",
+      "billingPackageIntro": "The package opens as you save — it's on the Packages page straight away, billed and ready for the first lesson.",
+      "packageTermsRequired": "Enter the package hours, a total price, a currency and a name.",
+      "savedWithPackage": "Student added, and their package is open on the Packages page."
     },
     "subscription": {
       "title": "Subscription",

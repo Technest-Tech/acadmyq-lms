@@ -3,9 +3,11 @@
 import {
   Banknote,
   CalendarDays,
+  CalendarRange,
   Check,
   Clock,
   Hash,
+  Layers,
   Plus,
   Sparkles,
   Trash2,
@@ -18,12 +20,19 @@ import {
   StartDateField,
   todayLocal,
 } from "@/components/scheduling/start-date-field";
+import {
+  PackageTermsFields,
+  usePackageTerms,
+} from "@/components/packages/package-terms";
+import { ChoiceCard } from "@/components/students/student-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import {
   ApiError,
+  getStudent,
   listTeachers,
+  openLessonPackage,
   putStudentSchedule,
   reassignTeacher,
   setSubscription,
@@ -116,14 +125,37 @@ export function EnrollmentWizard({
 }: {
   studentId: string;
   currentTeacherId?: string;
-  onCompleted: () => void;
+  /** `packageOpened` is true when enrolment also opened a lesson package. */
+  onCompleted: (result?: { packageOpened: boolean }) => void;
   onCancel: () => void;
 }) {
   const t = useTranslations("students");
   const tSched = useTranslations("scheduling");
-  const { can } = useAuth();
+  const { can, session } = useAuth();
   // Whether this user may name a price at all. Drives the whole shape of the wizard below.
   const canPrice = can("student.set_price");
+  /**
+   * Monthly or package, on the pricing step — the same question the new-student form asks, so a
+   * trial who converts is set up in the same one place as a student created active. Offered only
+   * where a package can actually be opened (both rights, and invoicing in the client's modules).
+   */
+  const packagesAvailable =
+    canPrice &&
+    can("package.manage") &&
+    (session?.capabilities == null ||
+      session.capabilities.includes("invoicing"));
+  const [billing, setBilling] = useState<"monthly" | "package">("monthly");
+  const onPackage = packagesAvailable && billing === "package";
+  // The guardian pays, so their currency seeds the package's. Fetched only when it can matter.
+  const [guardianCurrency, setGuardianCurrency] = useState("");
+  const terms = usePackageTerms({ defaultCurrency: guardianCurrency });
+
+  useEffect(() => {
+    if (!packagesAvailable) return;
+    void getStudent(studentId)
+      .then((d) => setGuardianCurrency(d.guardian?.currency ?? ""))
+      .catch(() => {});
+  }, [packagesAvailable, studentId]);
   const [step, setStep] = useState(0);
   // The timetable's own start date. It lives on THIS step because the schedule is saved before
   // the pricing step below — by the time the enrolment start date is typed there, the lessons
@@ -205,6 +237,19 @@ export function EnrollmentWizard({
     setBusy(true);
     setError(null);
     try {
+      if (withPricing && onPackage) {
+        // Opening the package creates the student's package-billing subscription in the same
+        // request, which is exactly what makes REGULAR reachable on the next line — the API only
+        // allows REGULAR once an active subscription exists.
+        await openLessonPackage({
+          student_id: studentId,
+          ...terms.toPayload(),
+          carry_over: false,
+        });
+        await updateStudent(studentId, { status: "REGULAR" });
+        onCompleted({ packageOpened: true });
+        return;
+      }
       if (withPricing && price && startDate) {
         await setSubscription(studentId, {
           // The package is always hourly now; derive a display label from the quota.
@@ -228,7 +273,7 @@ export function EnrollmentWizard({
     }
   }
 
-  const hasPricing = Boolean(price && startDate);
+  const hasPricing = onPackage ? terms.valid : Boolean(price && startDate);
 
   // ── Step 1: Schedule & Teacher ─────────────────────────────────────────────
   const scheduleStep = (
@@ -354,6 +399,33 @@ export function EnrollmentWizard({
         </p>
       </div>
 
+      {packagesAvailable && (
+        <div className="space-y-1.5">
+          <span className="text-sm font-medium">{t("form.billingTitle")}</span>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <ChoiceCard
+              icon={CalendarRange}
+              title={t("form.billingMonthly")}
+              hint={t("form.billingMonthlyHint")}
+              selected={billing === "monthly"}
+              onSelect={() => setBilling("monthly")}
+              testId="enroll-billing-monthly"
+            />
+            <ChoiceCard
+              icon={Layers}
+              title={t("form.billingPackage")}
+              hint={t("form.billingPackageHint")}
+              selected={billing === "package"}
+              onSelect={() => setBilling("package")}
+              testId="enroll-billing-package"
+            />
+          </div>
+        </div>
+      )}
+
+      {onPackage ? (
+        <PackageTermsFields terms={terms} idPrefix="enroll-pkg" />
+      ) : (
       <div className="grid grid-cols-2 gap-3">
         <Field label={t("subscription.priceHourly")}>
           <div className="relative">
@@ -404,6 +476,7 @@ export function EnrollmentWizard({
           </div>
         </Field>
       </div>
+      )}
     </div>
   );
 

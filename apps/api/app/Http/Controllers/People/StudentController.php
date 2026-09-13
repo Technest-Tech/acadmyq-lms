@@ -7,9 +7,11 @@ namespace App\Http\Controllers\People;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Services\Invoicing;
+use App\Services\LessonPackages;
 use App\Services\SessionGenerator;
 use App\Support\Audit;
 use App\Support\DataTable;
+use App\Support\Entitlement;
 use App\Support\Phone;
 use App\Support\StudentStatus;
 use Illuminate\Database\Query\Builder;
@@ -92,6 +94,32 @@ final class StudentController extends Controller
 
         $data = $this->validateStudent($request, creating: true);
 
+        // An inline package is the other billing clock, chosen at the moment the student is
+        // created — so the owner never has to create them, then go to /packages, then find them
+        // again. Every check happens BEFORE the first write: a refused package must not leave a
+        // half-created student behind.
+        $package = $data['package'] ?? null;
+        if ($package !== null) {
+            if (isset($data['subscription'])) {
+                // The two clocks are mutually exclusive; accepting both would be a double bill.
+                throw ValidationException::withMessages([
+                    'package' => ['Choose monthly billing or a lesson package, not both. / اختر الفوترة الشهرية أو باقة الحصص، وليس الاثنين معًا.'],
+                ]);
+            }
+            // Selling a block names a price AND opens a package, so it needs both rights — and the
+            // plan must include invoicing, the same entitlement that gates /api/packages. Without
+            // this the create form would be a way around the 402.
+            Gate::authorize('student.set_price');
+            Gate::authorize('package.manage');
+            if (! Entitlement::check($this->ctx(), 'invoicing')) {
+                return response()->json([
+                    'error' => 'upgrade_required',
+                    'message' => 'Lesson packages are not included in your current plan.',
+                    'feature' => 'invoicing',
+                ], 402);
+            }
+        }
+
         $selfGuardian = (bool) ($data['is_self_guardian'] ?? false);
 
         // R-STU-2: an adult-solo student still gets a real guardian row, mirrored from their
@@ -132,6 +160,27 @@ final class StudentController extends Controller
             $this->writeSubscription($academyId, $studentId, $data['subscription'], replace: false);
         }
 
+        // The package path. LessonPackages::open() creates the PER_PACKAGE subscription itself
+        // (ensurePackageBilling), so a package student is REGULAR from the first second with a
+        // billing anchor, and the package is on /packages the moment this returns. The request
+        // runs in one tenant transaction, so a package that fails to open rolls the student back
+        // with it rather than leaving a learner nobody bills.
+        $packageResult = null;
+        if ($package !== null) {
+            $packageResult = app(LessonPackages::class)->open([
+                'student_id' => $studentId,
+                'label' => (string) $package['label'],
+                'minutes_total' => (int) round(((float) $package['hours']) * 60),
+                'price_minor' => (int) $package['price_minor'],
+                'currency' => $package['currency'] ?? null,
+                'bill_timing' => $package['bill_timing'] ?? null,
+                'starts_on' => $package['starts_on'] ?? null,
+                'expires_on' => $package['expires_on'] ?? null,
+                // A brand-new student has no earlier package to carry hours from.
+                'carry_over' => false,
+            ], $this->ctx()->userId, $this->ctx()->role);
+        }
+
         // Optional inline first teacher assignment (R-STU-3).
         if (! empty($data['teacher_id'])) {
             $this->openAssignment($academyId, $studentId, $data['teacher_id'], now());
@@ -141,7 +190,12 @@ final class StudentController extends Controller
             $this->regenerateStudentSessions($studentId);
         }
 
-        return response()->json(['studentId' => $studentId, 'guardianId' => $guardianId], 201);
+        return response()->json([
+            'studentId' => $studentId,
+            'guardianId' => $guardianId,
+            'packageId' => $packageResult['package_id'] ?? null,
+            'packageInvoiceId' => $packageResult['invoice_id'] ?? null,
+        ], 201);
     }
 
     /** GET /api/students/{id} — detail: subscription, current teacher, guardian. */
@@ -762,6 +816,15 @@ final class StudentController extends Controller
             $rules['teacher_id'] = ['sometimes', 'nullable', 'uuid'];
             $rules['subscription'] = ['sometimes', 'array'];
             $rules += $this->subscriptionRules('subscription.');
+            // Inline lesson package — the same fields and limits as POST /api/packages.
+            $rules['package'] = ['sometimes', 'nullable', 'array'];
+            $rules['package.label'] = ['required_with:package', 'string', 'max:255'];
+            $rules['package.hours'] = ['required_with:package', 'numeric', 'min:0.5', 'max:1000'];
+            $rules['package.price_minor'] = ['required_with:package', 'integer', 'min:0'];
+            $rules['package.currency'] = ['sometimes', 'nullable', 'string', 'size:3'];
+            $rules['package.bill_timing'] = ['sometimes', 'nullable', Rule::in(['ON_START', 'ON_COMPLETION'])];
+            $rules['package.starts_on'] = ['sometimes', 'nullable', 'date'];
+            $rules['package.expires_on'] = ['sometimes', 'nullable', 'date', 'after_or_equal:package.starts_on'];
         }
 
         return $request->validate($rules);

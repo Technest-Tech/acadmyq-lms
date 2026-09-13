@@ -23,13 +23,26 @@ import * as api from "@/lib/api";
  */
 function renderForm({
   canPrice = true,
+  canManagePackages = false,
+  capabilities,
   onCreated = vi.fn(),
   onCancel = vi.fn(),
-}: { canPrice?: boolean; onCreated?: () => void; onCancel?: () => void } = {}) {
-  const session = makeSession("ACADEMY_OWNER");
-  const permissions = canPrice
-    ? [...session.permissions, "student.set_price"]
-    : session.permissions;
+}: {
+  canPrice?: boolean;
+  canManagePackages?: boolean;
+  capabilities?: string[];
+  onCreated?: () => void;
+  onCancel?: () => void;
+} = {}) {
+  const session = makeSession(
+    "ACADEMY_OWNER",
+    capabilities !== undefined ? { capabilities } : {},
+  );
+  const permissions = [
+    ...session.permissions,
+    ...(canPrice ? ["student.set_price"] : []),
+    ...(canManagePackages ? ["package.manage"] : []),
+  ];
 
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
@@ -130,7 +143,9 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await user.click(await screen.findByRole("option", { name: "Guardian One" }));
     await user.click(screen.getByRole("button", { name: "Create student" }));
 
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("s1"));
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith("s1", { packageOpened: false }),
+    );
     expect(api.createStudent).toHaveBeenCalledWith(
       expect.objectContaining({
         guardian_id: "g1",
@@ -147,11 +162,11 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
 
     expect(screen.getByTestId("intent-trial")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByTestId("package-details")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("billing-details")).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId("intent-enrolled"));
     expect(screen.getByTestId("intent-trial")).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByTestId("package-details")).toBeInTheDocument();
+    expect(screen.getByTestId("billing-details")).toBeInTheDocument();
   });
 
   it("creates an active student with their package in one save", async () => {
@@ -167,7 +182,9 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await user.type(screen.getByLabelText("Hours / month"), "8");
     await user.click(screen.getByRole("button", { name: "Add student" }));
 
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("s1"));
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith("s1", { packageOpened: false }),
+    );
     expect(api.createStudent).toHaveBeenCalledWith(
       expect.objectContaining({
         guardian_id: "g1",
@@ -211,7 +228,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await user.click(screen.getByTestId("guardian-select"));
     await user.click(await screen.findByRole("option", { name: "Guardian One" }));
     await user.click(screen.getByTestId("intent-enrolled"));
-    expect(screen.queryByTestId("package-details")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("billing-details")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add student" }));
 
@@ -222,5 +239,87 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     expect(api.createStudent).toHaveBeenCalledWith(
       expect.objectContaining({ status: "REGULAR" }),
     );
+  });
+
+  /*
+   * Monthly or package is asked inside the active student's billing card, and the package path
+   * does the whole setup in the one save — the package is opened by the same request that creates
+   * the student, so they are on /packages the moment they exist.
+   */
+
+  async function fillActiveStudent(user: ReturnType<typeof userEvent.setup>) {
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+    await user.type(screen.getByLabelText("Full name"), "Yusuf");
+    await user.click(screen.getByTestId("guardian-select"));
+    await user.click(await screen.findByRole("option", { name: "Guardian One" }));
+    await user.click(screen.getByTestId("intent-enrolled"));
+  }
+
+  it("creates an active student straight onto a lesson package in one save", async () => {
+    vi.mocked(api.createStudent).mockResolvedValue({
+      studentId: "s1",
+      guardianId: "g1",
+      packageId: "p1",
+      packageInvoiceId: "i1",
+    });
+    const user = userEvent.setup();
+    const { onCreated } = renderForm({ canManagePackages: true });
+    await fillActiveStudent(user);
+
+    await user.click(screen.getByTestId("billing-package"));
+    // The monthly quota is not a package field; the package's own fields replace it.
+    expect(screen.queryByLabelText("Hours / month")).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(enMessages.packages.form.hours), "20");
+    await user.type(screen.getByLabelText(enMessages.packages.form.price), "4000");
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith("s1", { packageOpened: true }),
+    );
+    const sent = vi.mocked(api.createStudent).mock.calls[0]?.[0];
+    expect(sent).toMatchObject({
+      status: "REGULAR",
+      package: {
+        hours: 20,
+        price_minor: 400000,
+        // The guardian pays, so their currency seeds the package's.
+        currency: "EGP",
+        bill_timing: "ON_START",
+      },
+    });
+    // One clock only: the package path never also sends a monthly subscription.
+    expect(sent).not.toHaveProperty("subscription");
+  });
+
+  it("refuses a package student with no package terms", async () => {
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true });
+    await fillActiveStudent(user);
+
+    await user.click(screen.getByTestId("billing-package"));
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+
+    expect(
+      await screen.findByText(enMessages.students.form.packageTermsRequired),
+    ).toBeInTheDocument();
+    expect(api.createStudent).not.toHaveBeenCalled();
+  });
+
+  it("offers no package option to a role that cannot manage packages", async () => {
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: false });
+    await fillActiveStudent(user);
+
+    expect(screen.getByTestId("billing-details")).toBeInTheDocument();
+    expect(screen.queryByTestId("billing-package")).not.toBeInTheDocument();
+  });
+
+  it("offers no package option when invoicing is switched off for this client", async () => {
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["payroll", "trials"] });
+    await fillActiveStudent(user);
+
+    expect(screen.queryByTestId("billing-package")).not.toBeInTheDocument();
   });
 });

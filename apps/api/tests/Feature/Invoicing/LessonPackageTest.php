@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Services\Invoicing;
 use App\Services\LessonPackages;
+use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -748,4 +749,106 @@ it('lists every active student for the picker, with the mode each one is on toda
         ->and($students[$monthly]['on_package_billing'])->toBeFalse()
         ->and($students[$monthly]['price_basis'])->toBe('PER_HOUR')
         ->and($students[$this->student]['on_package_billing'])->toBeTrue();
+});
+
+/*
+|--------------------------------------------------------------------------
+| Creating a student straight onto a package
+|--------------------------------------------------------------------------
+|
+| The create form asks "monthly or package?" and does the whole setup in the one save, so a new
+| package student is on /packages the moment they exist — no create, then /packages, then find
+| them again.
+*/
+
+it('creates a student with their first package in one save', function () {
+    Sanctum::actingAs($this->owner);
+
+    $res = $this->postJson('/api/students', [
+        'full_name' => 'Package Pia',
+        'guardian_id' => $this->guardian,
+        'status' => 'REGULAR',
+        'package' => [
+            'label' => '20 hours — June 2026',
+            'hours' => 20,
+            'price_minor' => 400000,
+            'currency' => 'EGP',
+            'bill_timing' => 'ON_START',
+            'starts_on' => '2026-06-11',
+        ],
+    ])->assertCreated();
+
+    $studentId = $res->json('studentId');
+    expect($res->json('packageId'))->not->toBeNull()
+        // ON_START: the bill goes out the moment the package opens, same as from /packages.
+        ->and($res->json('packageInvoiceId'))->not->toBeNull();
+
+    $this->asAcademy($this->academy);
+    $sub = DB::table('subscriptions')->where('student_id', $studentId)->where('status', 'ACTIVE')->first();
+    $package = DB::table('lesson_packages')->where('student_id', $studentId)->first();
+
+    expect($sub->price_basis)->toBe('PER_PACKAGE')
+        ->and((int) $sub->price_minor)->toBe(20000)
+        ->and($package->status)->toBe('ACTIVE')
+        ->and((int) $package->minutes_total)->toBe(1200)
+        ->and(DB::table('students')->where('id', $studentId)->value('status'))->toBe('REGULAR');
+
+    // And it is on the packages screen without anyone going there to open it.
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    $listed = collect($this->getJson('/api/packages')->assertOk()->json('packages'))->pluck('student_id');
+    expect($listed)->toContain($studentId);
+});
+
+it('refuses monthly and package terms together, and creates nobody', function () {
+    Sanctum::actingAs($this->owner);
+
+    $this->postJson('/api/students', [
+        'full_name' => 'Double Dana',
+        'guardian_id' => $this->guardian,
+        'status' => 'REGULAR',
+        'subscription' => [
+            'plan_label' => 'Hourly',
+            'price_minor' => 15000,
+            'price_basis' => 'PER_HOUR',
+            'start_date' => '2026-06-11',
+        ],
+        'package' => ['label' => '10 hours', 'hours' => 10, 'price_minor' => 200000],
+    ])->assertStatus(422)->assertJsonValidationErrors(['package']);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('students')->where('full_name', 'Double Dana')->exists())->toBeFalse();
+});
+
+it('keeps a role that may not manage packages from opening one at creation', function () {
+    // A teacher can hold neither right, which is the plainest case of the gate: the inline package
+    // is not a side door past package.manage.
+    Sanctum::actingAs($this->teacherUser);
+
+    $this->postJson('/api/students', [
+        'full_name' => 'Sneaky Sam',
+        'guardian_id' => $this->guardian,
+        'package' => ['label' => '10 hours', 'hours' => 10, 'price_minor' => 200000],
+    ])->assertForbidden();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('students')->where('full_name', 'Sneaky Sam')->exists())->toBeFalse();
+});
+
+it('refuses an inline package when invoicing is switched off for this client', function () {
+    // Entitlements are module-driven: a client gets everything its modules own, and the per-client
+    // switch on the client profile is the only way one goes missing. Switch it off that way.
+    $this->asAcademy($this->academy, 'SUPER_ADMIN');
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', ['invoicing']);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/students', [
+        'full_name' => 'Free Plan Fady',
+        'guardian_id' => $this->guardian,
+        'package' => ['label' => '10 hours', 'hours' => 10, 'price_minor' => 200000],
+    ])->assertStatus(402);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('students')->where('full_name', 'Free Plan Fady')->exists())->toBeFalse();
 });
