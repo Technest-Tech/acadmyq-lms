@@ -1,9 +1,9 @@
 import type { Pool } from 'pg'
-import { proto, type BaileysEventMap, type WASocket } from 'baileys'
+import { areJidsSameUser, isJidGroup, proto, type BaileysEventMap, type WASocket } from 'baileys'
 import { usePostgresAuthState, clearAuthState } from '../auth-store/postgres-auth-state.js'
 import { createSocket } from './socket-factory.js'
 import { decideReconnect, backoffDelay } from './reconnect.js'
-import { SendQueue, type SendPayload } from '../queue/send-queue.js'
+import { SendQueue, type MessageState, type SendPayload } from '../queue/send-queue.js'
 import type { SettingsStore } from '../settings.js'
 import type { WebhookClient } from '../webhook/webhook-client.js'
 import { qrToDataUrl } from '../qr/qr.js'
@@ -18,6 +18,21 @@ export interface ManagedSessionInit {
   tokenHash: string
   createdAt: number
 }
+
+/** A WhatsApp group the linked number belongs to, as the panel needs it to pick a destination. */
+export interface GroupView {
+  id: string
+  subject: string
+  size: number
+  /** Only admins may post (WhatsApp's "announcement" setting). */
+  announce: boolean
+  isAdmin: boolean
+  /** False when an announcement group would silently reject our messages. */
+  canSend: boolean
+}
+
+/** How many message ids we remember having reported a group receipt for (one webhook each). */
+const RECEIPTS_REMEMBERED = 2_000
 
 /** Map Baileys' numeric message status to a stable string for the webhook. */
 function mapMessageStatus(status: number | null | undefined): string {
@@ -64,6 +79,8 @@ export class ManagedSession {
   private reconnectTimer: NodeJS.Timeout | null = null
   private starting = false
   private stopped = false
+  // Group receipts arrive once PER MEMBER; the app only needs the first of each kind per message.
+  private readonly receiptsReported = new Map<string, 'delivered' | 'read'>()
 
   constructor(
     init: ManagedSessionInit,
@@ -85,6 +102,16 @@ export class ManagedSession {
       // Read live pacing each send so admin rate-limit changes apply immediately.
       getPacing: () => this.settings.get(),
       logger: this.logger,
+      // The send route answers on ENQUEUE, so without this the app could never tell a message that
+      // actually left from one still waiting (or lost to a restart).
+      onSent: (messageId, jid) => {
+        void this.webhook.send({
+          event: 'message.status',
+          sessionId: this.sessionId,
+          academyId: this.academyId,
+          data: { msgId: messageId, status: 'sent', to: jidDigits(jid) },
+        })
+      },
       onFailure: (messageId, jid, error) => {
         void this.webhook.send({
           event: 'message.status',
@@ -184,6 +211,40 @@ export class ManagedSession {
     }
   }
 
+  messageState(messageId: string): { state: MessageState; error?: string } {
+    return this.queue.stateOf(messageId)
+  }
+
+  /**
+   * Every group the linked number is a member of. Community parents are left out — they cannot hold
+   * messages — and announcement groups report whether we are an admin, because WhatsApp drops a
+   * non-admin's post there without an error anyone would see.
+   */
+  async listGroups(): Promise<GroupView[]> {
+    const sock = this.sock
+    if (!sock || this.state !== 'connected') return []
+    const all = await sock.groupFetchAllParticipating()
+    const me = [sock.user?.id, sock.user?.lid].filter((j): j is string => Boolean(j))
+    const isMe = (jid: string | undefined): boolean => Boolean(jid) && me.some((m) => areJidsSameUser(m, jid))
+
+    return Object.values(all)
+      .filter((g) => !g.isCommunity)
+      .map((g) => {
+        const self = g.participants.find((p) => isMe(p.id) || isMe(p.jid) || isMe(p.lid))
+        const isAdmin = Boolean(self?.admin)
+        const announce = Boolean(g.announce)
+        return {
+          id: g.id,
+          subject: g.subject ?? '',
+          size: g.size ?? g.participants.length,
+          announce,
+          isAdmin,
+          canSend: !announce || isAdmin,
+        }
+      })
+      .sort((a, b) => a.subject.localeCompare(b.subject))
+  }
+
   statusUpper(): string {
     return this.state.toUpperCase()
   }
@@ -219,6 +280,12 @@ export class ManagedSession {
   // ── internals ──────────────────────────────────────────────────────────────
 
   private bindEvents(sock: WASocket): void {
+    // Liveness is ANY frame from WhatsApp — Baileys' own keep-alive pongs included. The watchdog used
+    // to count only app-level events, which an idle session (markOnlineOnConnect:false) never emits,
+    // so every quiet socket looked dead after WATCHDOG_STALE_MS and was torn down on a loop.
+    sock.ws.on('frame', () => {
+      this.lastSeenAt = Date.now()
+    })
     sock.ev.on('creds.update', () => {
       void this.saveCreds?.().catch((e: unknown) =>
         this.logger.error({ sessionId: this.sessionId, err: String(e) }, 'saveCreds failed'),
@@ -241,6 +308,13 @@ export class ManagedSession {
         this.onMessagesUpdate(updates)
       } catch (e) {
         this.logger.error({ sessionId: this.sessionId, err: String(e) }, 'messages.update handler threw')
+      }
+    })
+    sock.ev.on('message-receipt.update', (receipts) => {
+      try {
+        this.onGroupReceipts(receipts)
+      } catch (e) {
+        this.logger.error({ sessionId: this.sessionId, err: String(e) }, 'message-receipt.update handler threw')
       }
     })
   }
@@ -354,6 +428,40 @@ export class ManagedSession {
         sessionId: this.sessionId,
         academyId: this.academyId,
         data: { msgId: u.key.id, status: mapMessageStatus(status), to: jidDigits(u.key.remoteJid ?? '') },
+      })
+    }
+  }
+
+  /**
+   * Group messages never get a `messages.update` delivery status — WhatsApp reports them member by
+   * member through `message-receipt.update`. The first member's phone receiving it is the proof that
+   * the message reached the group, so that (and the first read) is forwarded once per message.
+   */
+  private onGroupReceipts(receipts: BaileysEventMap['message-receipt.update']): void {
+    for (const { key, receipt } of receipts) {
+      if (!key.fromMe || !key.id || !isJidGroup(key.remoteJid ?? undefined)) continue
+      const status: 'delivered' | 'read' | null = receipt.readTimestamp
+        ? 'read'
+        : receipt.receiptTimestamp
+          ? 'delivered'
+          : null
+      if (!status) continue
+      const already = this.receiptsReported.get(key.id)
+      if (already === 'read' || already === status) continue
+
+      this.receiptsReported.set(key.id, status)
+      while (this.receiptsReported.size > RECEIPTS_REMEMBERED) {
+        const oldest = this.receiptsReported.keys().next().value
+        if (oldest === undefined) break
+        this.receiptsReported.delete(oldest)
+      }
+
+      this.lastSeenAt = Date.now()
+      void this.webhook.send({
+        event: 'message.status',
+        sessionId: this.sessionId,
+        academyId: this.academyId,
+        data: { msgId: key.id, status, to: jidDigits(key.remoteJid ?? '') },
       })
     }
   }

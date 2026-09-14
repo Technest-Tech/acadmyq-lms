@@ -1517,7 +1517,9 @@ final class LessonPackages
             'session_id' => null,
             'subject_id' => $subjectId,
             'data' => json_encode($data),
-            'created_at' => now(),
+            // An explicit offset: a naive bind is read in the Postgres session's zone, which put these
+            // rows hours in the past — and WhatsApp group alerts select them by this instant.
+            'created_at' => now()->toIso8601String(),
         ]);
     }
 

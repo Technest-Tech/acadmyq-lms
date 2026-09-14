@@ -1017,6 +1017,151 @@ export function createConnectLink(
   });
 }
 
+// ── WhatsApp group alerts (Super Admin) ─────────────────────────────────────────────────────────
+// A client's staff groups ("Supervision", "Accounting") and the alerts each receives. Delivery is
+// tracked per alert: PENDING → QUEUED (gateway took it) → SENT (WhatsApp took it) → DELIVERED.
+
+export type WhatsAppGroupEvent =
+  | "SESSION_STARTED"
+  | "SESSION_NOT_MARKED"
+  | "REPORT_OVERDUE"
+  | "PACKAGE_LOW"
+  | "PACKAGE_ENDED"
+  | "PAYMENT_RECEIVED";
+
+export type WhatsAppGroupAlertStatus =
+  | "PENDING"
+  | "SENDING"
+  | "QUEUED"
+  | "SENT"
+  | "DELIVERED"
+  | "FAILED"
+  | "SKIPPED"
+  | "EXPIRED";
+
+export interface WhatsAppGroupSettings {
+  not_marked_after_minutes: number;
+  report_overdue_hours: number;
+}
+
+export interface WhatsAppGroupAlert {
+  id: string;
+  group_id: string;
+  event_type: WhatsAppGroupEvent | "TEST";
+  status: WhatsAppGroupAlertStatus;
+  attempts: number;
+  error: string | null;
+  payload: Record<string, unknown>;
+  due_at: string | null;
+  queued_at: string | null;
+  sent_at: string | null;
+  delivered_at: string | null;
+  read_at: string | null;
+  created_at: string | null;
+}
+
+export interface WhatsAppGroup {
+  id: string;
+  jid: string;
+  name: string;
+  label: string | null;
+  language: "ar" | "en";
+  events: WhatsAppGroupEvent[];
+  settings: WhatsAppGroupSettings;
+  is_active: boolean;
+  created_at: string | null;
+  /** Alert counts by status over the last 24 hours. */
+  last_24h: Partial<Record<WhatsAppGroupAlertStatus, number>>;
+  recent: WhatsAppGroupAlert[];
+}
+
+export interface WhatsAppGroupCatalog {
+  categories: Record<"SUPERVISION" | "ACCOUNTING", WhatsAppGroupEvent[]>;
+  default_settings: WhatsAppGroupSettings;
+  setting_bounds: Record<keyof WhatsAppGroupSettings, [number, number]>;
+  max_attempts: number;
+}
+
+export interface AvailableWhatsAppGroup {
+  id: string;
+  subject: string;
+  size: number;
+  announce: boolean;
+  is_admin: boolean;
+  /** False for an admins-only group the number is not an admin of — it would swallow our posts. */
+  can_send: boolean;
+  linked: boolean;
+}
+
+export interface WhatsAppGroupInput {
+  label?: string | null;
+  language?: "ar" | "en";
+  events?: WhatsAppGroupEvent[];
+  settings?: Partial<WhatsAppGroupSettings>;
+  is_active?: boolean;
+}
+
+export function getWhatsAppGroups(
+  academyId: string,
+): Promise<{ groups: WhatsAppGroup[]; catalog: WhatsAppGroupCatalog }> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/groups`);
+}
+
+export function getAvailableWhatsAppGroups(
+  academyId: string,
+): Promise<{ groups: AvailableWhatsAppGroup[] }> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/groups/available`);
+}
+
+export function linkWhatsAppGroup(
+  academyId: string,
+  body: WhatsAppGroupInput & { jid: string },
+): Promise<{ group: WhatsAppGroup }> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/groups`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateWhatsAppGroup(
+  academyId: string,
+  groupId: string,
+  body: WhatsAppGroupInput,
+): Promise<{ group: WhatsAppGroup }> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/groups/${groupId}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export function unlinkWhatsAppGroup(
+  academyId: string,
+  groupId: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/groups/${groupId}`, {
+    method: "DELETE",
+  });
+}
+
+export function testWhatsAppGroup(
+  academyId: string,
+  groupId: string,
+): Promise<{ ok: boolean; error: string | null; alert: WhatsAppGroupAlert | null }> {
+  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/groups/${groupId}/test`, {
+    method: "POST",
+  });
+}
+
+export function getWhatsAppGroupAlerts(
+  academyId: string,
+  groupId: string,
+  limit = 30,
+): Promise<{ alerts: WhatsAppGroupAlert[] }> {
+  return apiFetch(
+    `/api/admin/academies/${academyId}/whatsapp/groups/${groupId}/alerts?limit=${limit}`,
+  );
+}
+
 // ── Public QR-connect flow (no login; token-in-path). Uses apiFetch so the XSRF token is primed
 // like every other public POST in the app (a raw fetch 419s under Sanctum's stateful CSRF guard).
 
@@ -2163,11 +2308,24 @@ export interface CertificateContent {
   signatoryTitleEn: string;
   signatoryTitleAr: string;
   accentColor: string;
+  /** An optional second signature (e.g. the class teacher beside the director). */
+  signatory2NameEn?: string;
+  signatory2NameAr?: string;
+  signatory2TitleEn?: string;
+  signatory2TitleAr?: string;
+  /** Print the academy logo on the certificate. Absent = on. */
+  showLogo?: boolean;
 }
 
 export interface CertificateTemplate {
-  templateNumber: 1 | 2;
+  /** A design number from the client's catalogue (`certificate-designs.tsx`). */
+  templateNumber: number;
   content: CertificateContent;
+  /** The design's own starting wording — what "restore default wording" puts back. */
+  defaults: CertificateContent;
+  /** The academy has saved this design at least once. */
+  customized: boolean;
+  updatedAt: string | null;
 }
 
 export function listCertificateTemplates(): Promise<{
@@ -2177,7 +2335,7 @@ export function listCertificateTemplates(): Promise<{
 }
 
 export function saveCertificateTemplate(
-  templateNumber: 1 | 2,
+  templateNumber: number,
   content: Partial<CertificateContent>,
 ): Promise<{ ok: boolean; content: CertificateContent }> {
   return apiFetch(`/api/certificate-templates/${templateNumber}`, {
@@ -2924,6 +3082,10 @@ export interface SessionDetail {
   status_reason: string | null;
   billed: boolean;
   outcome_set_at: string | null;
+  /** First "Following" click on this lesson (see PendingSession). */
+  followed_at?: string | null;
+  followed_by_user_id?: string | null;
+  followed_by_name?: string | null;
   classification: SessionClassification;
   /** A teacher-raised cancellation awaiting owner approval. The session stays SCHEDULED while
    *  this is present; null once there is no PENDING request (approved, rejected, or never raised). */
@@ -3111,6 +3273,27 @@ export interface PendingSession {
   status: SessionStatus;
   student_name: string | null;
   teacher_name: string | null;
+  /** The first supervisor who pressed "Following" on this lesson, and when. Absent = nobody yet. */
+  followed_at?: string | null;
+  followed_by_user_id?: string | null;
+  followed_by_name?: string | null;
+}
+
+/** The lesson's follow state as the follow endpoint returns it. */
+export interface SessionFollowState {
+  followed_at: string | null;
+  followed_by_user_id: string | null;
+  followed_by_name: string | null;
+  follow_ups: { user_id: string; name: string | null; followed_at: string }[];
+}
+
+/**
+ * POST /api/sessions/{id}/follow — "I am on this lesson". Recorded once per supervisor with its
+ * instant; silences the WhatsApp not-marked reminder and feeds the Supervision page. Pressing
+ * again is harmless (200 with the same state).
+ */
+export function followSession(sessionId: string): Promise<{ follow: SessionFollowState }> {
+  return apiFetch(`/api/sessions/${sessionId}/follow`, { method: "POST" });
 }
 
 export function getPendingAttendance(): Promise<{
@@ -3167,6 +3350,87 @@ export function getOverdueSessions(): Promise<{
   grace_hours: number;
 }> {
   return apiFetch("/api/sessions/overdue");
+}
+
+// ── Supervision statistics (GET /api/supervision/stats) ─────────────────────────────────────
+// Two clocks per lesson: the first "Following" click measured from the START, and the recorded
+// outcome measured from the END. "pending" = the deadline has not passed yet, so not late.
+
+export type FollowBucket = "on_time" | "late" | "pending" | "none" | "not_needed";
+export type MarkBucket = "on_time" | "late" | "pending" | "none";
+
+export interface SupervisionPerson {
+  id: string;
+  name: string | null;
+  role: string | null;
+  followed: number;
+  follow_on_time: number;
+  follow_late: number;
+  follow_on_time_rate: number | null;
+  avg_follow_delay_minutes: number | null;
+  marked: number;
+  mark_on_time: number;
+  mark_late: number;
+  mark_on_time_rate: number | null;
+  avg_mark_delay_minutes: number | null;
+}
+
+export interface SupervisionSessionRow {
+  id: string;
+  scheduled_at_utc: string;
+  local_date: string;
+  duration_minutes: number;
+  status: SessionStatus;
+  student_name: string | null;
+  teacher_name: string | null;
+  needs_follow: boolean;
+  follow_bucket: FollowBucket;
+  followed_at: string | null;
+  /** Minutes from the start to the first click — negative when it came before the start. */
+  follow_delay_minutes: number | null;
+  followed_by: { id: string; name: string | null } | null;
+  follow_ups: { user_id: string; name: string | null; followed_at: string; delay_minutes: number }[];
+  mark_bucket: MarkBucket;
+  outcome_set_at: string | null;
+  /** Minutes from the end to the recorded outcome — negative when marked before the end. */
+  mark_delay_minutes: number | null;
+  marked_by: { id: string; name: string | null } | null;
+}
+
+export interface SupervisionStats {
+  window: { from: string; to: string; timezone: string };
+  thresholds: { follow_minutes: number; mark_minutes: number };
+  totals: {
+    sessions: number;
+    needing_follow: number;
+    followed: number;
+    follow_on_time: number;
+    follow_late: number;
+    follow_pending: number;
+    unfollowed: number;
+    marked: number;
+    mark_on_time: number;
+    mark_late: number;
+    mark_pending: number;
+    unmarked: number;
+    avg_follow_delay_minutes: number | null;
+    avg_mark_delay_minutes: number | null;
+  };
+  supervisors: SupervisionPerson[];
+  sessions: SupervisionSessionRow[];
+  truncated: boolean;
+}
+
+export function getSupervisionStats(params: {
+  from: string;
+  to: string;
+  follow_minutes?: number;
+  mark_minutes?: number;
+}): Promise<SupervisionStats> {
+  const qs = new URLSearchParams({ from: params.from, to: params.to });
+  if (params.follow_minutes !== undefined) qs.set("follow_minutes", String(params.follow_minutes));
+  if (params.mark_minutes !== undefined) qs.set("mark_minutes", String(params.mark_minutes));
+  return apiFetch(`/api/supervision/stats?${qs.toString()}`);
 }
 
 /**

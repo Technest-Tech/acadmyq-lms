@@ -118,6 +118,15 @@ Schedule::job(new MonthlyStudentBillingJob)->monthlyOn(3, '08:00')->name('type1-
 Schedule::job(new LessonReminderJob)->hourly()->name('type2-lesson-reminders')->withoutOverlapping();
 
 /*
+| WhatsApp group alerts — every minute, tell each client's linked staff groups what just became true:
+| a lesson started, a lesson still unmarked N minutes in, a report still missing N hours after the
+| lesson, a package running low or ended, a payment recorded. A command run in the background rather
+| than a queued job, so a "starting now" is never stuck behind a long transcode on the queue worker.
+| Idempotent per (group, alert, subject); overlapping runs cannot double-send (atomic claims).
+*/
+Schedule::command('whatsapp:group-alerts')->everyMinute()->name('whatsapp-group-alerts')->withoutOverlapping(10)->runInBackground();
+
+/*
 | Daily recording-retention purge (docs/video-platform, V-REC-2). Each morning, for every active
 | academy, delete COMPLETED room recordings whose retention window has lapsed so stored video does
 | not grow unbounded. Idempotent and per-academy tenant-isolated, so missed/duplicated runs are safe.

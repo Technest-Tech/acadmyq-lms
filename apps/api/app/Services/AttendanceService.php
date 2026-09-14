@@ -9,7 +9,6 @@ use App\Domain\SessionClassifier;
 use App\Enums\SessionStatus;
 use App\Payroll\PayoutHook;
 use App\Support\Audit;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -142,7 +141,9 @@ final class AttendanceService
             'paid_to_teacher' => $paidToTeacher,
             // A revert leaves no outcome behind: the lesson has to look untouched to the pending
             // and overdue worklists, which read these two columns as "somebody dealt with this".
-            'outcome_set_at' => $recorded ? now() : null,
+            // An explicit offset: bound naked, this instant is read in the Postgres session's zone
+            // and lands hours off — and the Supervision page measures marking delay from it.
+            'outcome_set_at' => $recorded ? now()->toIso8601String() : null,
             'outcome_set_by' => $recorded ? $actorUserId : null,
             'updated_at' => now(),
         ]);

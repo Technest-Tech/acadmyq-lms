@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   CreditCard,
+  Eye,
   FileCheck2,
   Globe,
   GraduationCap,
@@ -109,6 +110,7 @@ type NavKey =
   | "lmsPayments"
   | "lmsSite"
   | "attendance"
+  | "supervision"
   | "studentReports"
   | "studentReportReviews"
   | "certificates"
@@ -196,6 +198,15 @@ const NAV: ReadonlyArray<{
     icon: ClipboardCheck,
     permission: "session.read",
     href: "/attendance",
+    group: "people",
+  },
+  // How promptly each supervisor followed the day's lessons and how promptly outcomes were
+  // recorded — the measurement behind the "Following" button on the attendance rows above.
+  {
+    key: "supervision",
+    icon: Eye,
+    permission: "supervision.stats",
+    href: "/supervision",
     group: "people",
   },
   {
@@ -1243,7 +1254,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* ── Main area ───────────────────────────────────────────────── */}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* ── Header ───────────────────────────────────────────────── */}
-          <header className="bg-background border-border relative flex h-14 shrink-0 items-center gap-3 border-b px-4 md:px-5">
+          <header className="bg-background border-border relative flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4 md:px-5">
             <span
               aria-hidden
               className="via-gold/35 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
@@ -1296,7 +1307,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
 
             {/* Right-side actions */}
-            <div className="ms-auto flex items-center gap-1.5">
+            <div className="ms-auto flex items-center gap-0.5 sm:gap-1.5">
               <CommandPalette items={commandItems} />
 
               {can("notification.read") && (
@@ -1319,9 +1330,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
               <ThemeToggle />
 
-              <LocaleSwitcher onSwitch={changeLocale} />
+              {/* The two-segment pill is a third of a phone's header on its own — which pushed the
+                  user menu off the edge at 320px — so a phone gets the one-button form. */}
+              <div className="hidden sm:block">
+                <LocaleSwitcher onSwitch={changeLocale} />
+              </div>
+              <div className="sm:hidden">
+                <LocaleSwitcher onSwitch={changeLocale} compact />
+              </div>
 
-              <div className="bg-border mx-1 h-5 w-px" aria-hidden />
+              <div className="bg-border mx-1 hidden h-5 w-px sm:block" aria-hidden />
 
               {/* The user chip is a real menu now. It used to be `cursor-default` — an avatar and a
                   name that looked clickable, did nothing, and duplicated the sidebar footer. */}

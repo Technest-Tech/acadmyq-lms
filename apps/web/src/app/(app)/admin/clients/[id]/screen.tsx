@@ -27,6 +27,7 @@ import { FeaturesCard } from "@/components/clients/features-card";
 import { ClientVideoCard, ClientWhatsappCard } from "@/components/clients/module-tabs";
 import { ModulesCard } from "@/components/clients/modules-card";
 import { ClientXpayCard } from "@/components/clients/client-xpay-card";
+import { ClientWhatsappGroupsCard } from "@/components/clients/whatsapp-groups-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -308,13 +309,16 @@ export function ClientScreen({ clientId }: { clientId: string }) {
           )}
           {tab === "payments" && <ClientXpayCard clientId={clientId} />}
           {tab === "whatsapp" && activeModules.has("WHATSAPP") && (
-            <ClientWhatsappCard clientId={clientId} />
+            <div className="space-y-4">
+              <ClientWhatsappCard clientId={clientId} />
+              <ClientWhatsappGroupsCard clientId={clientId} />
+            </div>
           )}
           {tab === "video" && activeModules.has("VIDEO") && (
             <ClientVideoCard clientId={clientId} />
           )}
           {tab === "settings" && (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <ClientSettingsForm client={client} onSaved={() => void load()} />
               <AcademyOwnerSection academyId={clientId} />
             </div>

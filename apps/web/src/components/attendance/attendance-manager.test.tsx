@@ -20,6 +20,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   revertAttendance: vi.fn(),
   createSession: vi.fn(),
   listStudents: vi.fn(),
+  followSession: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -219,6 +220,50 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     // Dismissing after the move still has to refetch — the row on screen is stale either way.
     await user.click(screen.getByLabelText("Close"));
     await waitFor(() => expect(api.getSessionsByDay).toHaveBeenCalledTimes(2));
+  });
+
+  // ── "Following" — a supervisor saying they are on this lesson ────────────
+  // Offered on a still-SCHEDULED row to a holder of `session.follow`; one press records the
+  // click and the row turns into a chip naming who is following and since when.
+
+  it("records a Following click and shows who is on the lesson", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
+    vi.mocked(api.followSession).mockResolvedValue({
+      follow: {
+        followed_at: "2026-06-01T15:04:00Z",
+        followed_by_user_id: "u1",
+        followed_by_name: "Sara Supervisor",
+        follow_ups: [],
+      },
+    });
+    renderManager(
+      makeSession("ACADEMY_OWNER", {
+        permissions: ["session.read", "session.mark_attendance", "session.follow"],
+      }),
+    );
+
+    const [followBtn] = await screen.findAllByTestId("row-follow");
+    await user.click(followBtn!);
+
+    await waitFor(() => expect(api.followSession).toHaveBeenCalledWith("se1"));
+    const [chip] = await screen.findAllByTestId("row-following");
+    expect(chip).toHaveTextContent("Following");
+    expect(chip).toHaveTextContent("Sara Supervisor");
+    expect(screen.queryByTestId("row-follow")).not.toBeInTheDocument();
+  });
+
+  it("shows the Following chip for a lesson somebody already follows, and no button without the capability", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({
+      sessions: [
+        { ...daySession, followed_at: "2026-06-01T15:02:00Z", followed_by_name: "Omar Owner", followed_by_user_id: "u9" },
+      ],
+    });
+    renderManager(ownerSession());
+
+    const [chip] = await screen.findAllByTestId("row-following");
+    expect(chip).toHaveTextContent("Omar Owner");
+    expect(screen.queryByTestId("row-follow")).not.toBeInTheDocument();
   });
 
   it("does not offer reschedule without the session.reschedule capability", async () => {

@@ -30,6 +30,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FollowControl, type FollowInfo } from "@/components/attendance/follow-control";
 import { useAuth } from "@/components/auth-provider";
 import { SubscriptionBanner } from "@/components/dashboard/subscription-banner";
 import { MyQualityPanel } from "@/components/quality/my-quality-panel";
@@ -603,7 +604,21 @@ function StatCard({
 
 // ── Pending session row ────────────────────────────────────────────────────────
 
-function PendingRow({ session, locale }: { session: PendingSession; locale: string }) {
+function PendingRow({
+  session,
+  locale,
+  canFollow,
+  followed,
+  onFollowed,
+  onFollowError,
+}: {
+  session: PendingSession;
+  locale: string;
+  canFollow: boolean;
+  followed: FollowInfo | null;
+  onFollowed: (info: FollowInfo) => void;
+  onFollowError: (message: string) => void;
+}) {
   const at = new Date(session.scheduled_at_utc);
   const diffMs = Date.now() - at.getTime();
   const diffH = Math.floor(diffMs / 3_600_000);
@@ -611,25 +626,35 @@ function PendingRow({ session, locale }: { session: PendingSession; locale: stri
   const ago = diffH >= 24 ? `${Math.floor(diffH / 24)}d ago` : diffH > 0 ? `${diffH}h ${diffM}m ago` : `${diffM}m ago`;
 
   return (
-    <Link
-      href="/attendance"
-      className="group flex items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-all hover:border-amber-300 hover:bg-amber-50/50 dark:hover:bg-amber-950/20"
-    >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
-        <Clock className="h-4 w-4" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold">{session.student_name ?? "—"}</p>
-        <p className="truncate text-xs text-muted-foreground">{session.teacher_name ?? "—"}</p>
-      </div>
-      <div className="shrink-0 text-right">
-        <span className="block rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
-          {new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(at)}
+    <div className="group flex items-center gap-3 rounded-xl border bg-card px-4 py-3 transition-all hover:border-amber-300 hover:bg-amber-50/50 dark:hover:bg-amber-950/20">
+      <Link href="/attendance" className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
+          <Clock className="h-4 w-4" />
         </span>
-        <p className="mt-0.5 text-[10px] text-muted-foreground">{ago}</p>
-      </div>
-      <ArrowRight className="h-4 w-4 shrink-0 text-amber-400 opacity-0 transition-opacity group-hover:opacity-100" />
-    </Link>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{session.student_name ?? "—"}</p>
+          <p className="truncate text-xs text-muted-foreground">{session.teacher_name ?? "—"}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <span className="block rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+            {new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(at)}
+          </span>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">{ago}</p>
+        </div>
+      </Link>
+      {/* "Following" lives here too: the dashboard is where a supervisor lands from the
+          "lesson starting now" WhatsApp alert, so the click must not need another page. */}
+      <FollowControl
+        sessionId={session.id}
+        followed={followed}
+        canFollow={canFollow}
+        onFollowed={onFollowed}
+        onError={onFollowError}
+      />
+      <Link href="/attendance" aria-hidden tabIndex={-1}>
+        <ArrowRight className="h-4 w-4 shrink-0 text-amber-400 opacity-0 transition-opacity group-hover:opacity-100" />
+      </Link>
+    </div>
   );
 }
 
@@ -787,6 +812,9 @@ export function AcademyDashboard() {
   const [studentsTotal, setStudentsTotal] = useState<number | null>(null);
   const [teachersTotal, setTeachersTotal] = useState<number | null>(null);
   const [pending, setPending] = useState<PendingSession[] | null>(null);
+  // A fresh "Following" click shows on its row at once; the API row catches up on the next load.
+  const [followed, setFollowed] = useState<Record<string, FollowInfo>>({});
+  const [followError, setFollowError] = useState<string | null>(null);
   // الحصص المعلقة — lessons that ended hours ago and STILL have no outcome. `pending` above is
   // "past its start time"; this is the sharper, already-late cut that earns the urgent slot.
   const [overdue, setOverdue] = useState<{
@@ -1379,7 +1407,7 @@ export function AcademyDashboard() {
           </div>
 
           {/* Analytics: revenue chart + invoice mix */}
-          <div className="grid gap-4 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
             <div className="rounded-xl border bg-card p-5 lg:col-span-3">
               <SectionHeader
                 icon={<BarChart3 className="h-4 w-4" />}
@@ -1463,7 +1491,7 @@ export function AcademyDashboard() {
             title={t("sections.operations")}
             desc={t("sections.operationsDesc")}
           />
-          <div className="grid gap-4 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
             {(can("schedule.read") || can("attendance.read")) && (
               <div className="rounded-xl border bg-card p-5 lg:col-span-2">
                 <SectionHeader
@@ -1514,6 +1542,9 @@ export function AcademyDashboard() {
                   }
                 />
                 <div className="mt-4 space-y-2">
+                  {followError && (
+                    <p className="text-destructive text-xs" role="alert">{followError}</p>
+                  )}
                   {ldAttend ? (
                     [1, 2, 3].map((k) => (
                       <div key={k} className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3">
@@ -1526,7 +1557,22 @@ export function AcademyDashboard() {
                       </div>
                     ))
                   ) : pending && pending.length > 0 ? (
-                    pending.slice(0, 5).map((s) => <PendingRow key={s.id} session={s} locale={locale} />)
+                    pending.slice(0, 5).map((s) => (
+                      <PendingRow
+                        key={s.id}
+                        session={s}
+                        locale={locale}
+                        canFollow={can("session.follow")}
+                        followed={
+                          followed[s.id] ??
+                          (s.followed_at
+                            ? { followed_at: s.followed_at, followed_by_name: s.followed_by_name ?? null }
+                            : null)
+                        }
+                        onFollowed={(info) => setFollowed((m) => ({ ...m, [s.id]: info }))}
+                        onFollowError={setFollowError}
+                      />
+                    ))
                   ) : (
                     <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed bg-muted/20 py-12 text-center">
                       <CheckCircle2 className="h-10 w-10 text-emerald-400" />
@@ -1560,7 +1606,7 @@ export function AcademyDashboard() {
                 <p className="text-sm text-muted-foreground">{t("trials.noTrials")}</p>
               </div>
             ) : (
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {trialLessonsThisWeek.map((s) => {
                   const dt = new Date(s.scheduled_at_utc);
                   const dayLabel = dt.toLocaleDateString(locale.startsWith("ar") ? "ar-u-nu-arab" : locale, { weekday: "short" });

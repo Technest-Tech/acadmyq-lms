@@ -14,6 +14,7 @@ use App\Services\LessonPackages;
 use App\Services\SessionDurationCorrection;
 use App\Support\Audit;
 use App\Support\ReportFields;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -54,6 +55,34 @@ final class SessionController extends Controller
 
     /** Row cap for {@see overdue()}. The exact count is returned separately, so a cap never lies. */
     private const OVERDUE_LIMIT = 500;
+
+    /**
+     * Join each lesson's FIRST "Following" click (who, when) so a row can show that a supervisor
+     * is already on it. `distinct on` keeps it to one row per lesson, so the join never fans out.
+     */
+    private function joinFirstFollowUp(Builder $query): Builder
+    {
+        $first = DB::table('session_follow_ups')
+            ->select(['session_id', 'user_id', 'followed_at'])
+            ->distinct('session_id')
+            ->orderBy('session_id')
+            ->orderBy('followed_at');
+
+        return $query
+            ->leftJoinSub($first, 'fu', 'fu.session_id', '=', 'se.id')
+            ->leftJoin('users as fuu', 'fuu.id', '=', 'fu.user_id')
+            ->addSelect(['fu.followed_at', 'fu.user_id as followed_by_user_id', 'fuu.full_name as followed_by_name']);
+    }
+
+    /** Present a row's timestamps as UTC ISO strings (the join above adds `followed_at`). */
+    private function presentRowTimes(object $r): object
+    {
+        $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
+        $r->followed_at = isset($r->followed_at) ? Carbon::parse($r->followed_at)->utc()->toIso8601String() : null;
+        $r->followed_by_user_id = isset($r->followed_by_user_id) ? (string) $r->followed_by_user_id : null;
+
+        return $r;
+    }
 
     /**
      * POST /api/sessions — a one-off session not tied to any schedule (AC-5.10).
@@ -281,6 +310,13 @@ final class SessionController extends Controller
         $pendingCancellation = ($pending !== null && ! $pendingIsFree) ? $pending : null;
         $pendingFree = $pendingIsFree ? $pending : null;
 
+        // The first supervisor who pressed "Following" on this lesson, if any.
+        $firstFollow = DB::table('session_follow_ups as f')
+            ->leftJoin('users as u', 'u.id', '=', 'f.user_id')
+            ->where('f.session_id', $sessionId)
+            ->orderBy('f.followed_at')
+            ->first(['f.user_id', 'f.followed_at', 'u.full_name']);
+
         // "Lesson #N" for the guardian-facing report card, counted WITHIN THE BLOCK THE FAMILY
         // PAID FOR rather than across the student's whole history — a parent reads "lesson 3"
         // against the package or the month they are being billed for, and a lifetime "lesson 47"
@@ -304,6 +340,9 @@ final class SessionController extends Controller
                 'status_reason' => $session->status_reason,
                 'billed' => (bool) $session->billed,
                 'outcome_set_at' => $session->outcome_set_at !== null ? Carbon::parse($session->outcome_set_at)->utc()->toIso8601String() : null,
+                'followed_at' => $firstFollow !== null ? Carbon::parse($firstFollow->followed_at)->utc()->toIso8601String() : null,
+                'followed_by_user_id' => $firstFollow !== null ? (string) $firstFollow->user_id : null,
+                'followed_by_name' => $firstFollow?->full_name,
                 'classification' => SessionClassifier::classifyValue(
                     (string) $session->status,
                     $session->bill_override !== null ? (bool) $session->bill_override : null,
@@ -464,6 +503,7 @@ final class SessionController extends Controller
                 'st.full_name as student_name', 'te.full_name as teacher_name',
             ])
             ->orderBy('se.scheduled_at_utc')->orderBy('se.id');
+        $this->joinFirstFollowUp($query);
 
         if ($this->ctx()->role === 'TEACHER') {
             $ownTeacherId = $this->callerTeacherId();
@@ -473,11 +513,7 @@ final class SessionController extends Controller
             $query->where('se.teacher_id', $ownTeacherId);
         }
 
-        $rows = $query->limit(200)->get()->map(function ($r) {
-            $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
-
-            return $r;
-        });
+        $rows = $query->limit(200)->get()->map(fn ($r) => $this->presentRowTimes($r));
 
         return response()->json(['sessions' => $rows]);
     }
@@ -522,7 +558,7 @@ final class SessionController extends Controller
         // Count before the cap so a truncated list still reports the true size of the backlog.
         $count = (int) (clone $base)->count();
 
-        $rows = (clone $base)
+        $listing = (clone $base)
             ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
             ->leftJoin('teachers as te', 'te.id', '=', 'se.teacher_id')
             // At most one PENDING request can exist per session (unique index), so this never fans
@@ -539,10 +575,13 @@ final class SessionController extends Controller
                 'cr.id as pending_request_id',
             ])
             ->orderBy('se.scheduled_at_utc')->orderBy('se.id')
-            ->limit(self::OVERDUE_LIMIT)
+            ->limit(self::OVERDUE_LIMIT);
+        $this->joinFirstFollowUp($listing);
+
+        $rows = $listing
             ->get()
             ->map(function ($r) {
-                $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
+                $this->presentRowTimes($r);
                 // A pending request with no cancel_type is a "mark this FREE" request; the page
                 // shows both as "waiting on the owner", but they read differently.
                 $r->pending_approval = $r->pending_request_id !== null;
@@ -605,6 +644,7 @@ final class SessionController extends Controller
                 'cr.cancel_type as pending_cancel_type',
             ])
             ->orderBy('se.scheduled_at_utc')->orderBy('se.id');
+        $this->joinFirstFollowUp($query);
 
         if (! empty($data['teacher_id'])) {
             $query->where('se.teacher_id', $data['teacher_id']);
@@ -636,11 +676,7 @@ final class SessionController extends Controller
         // list it would read as "these are all the lessons".
         $rows = $query->limit(self::DAY_WINDOW_LIMIT + 1)->get();
         $truncated = $rows->count() > self::DAY_WINDOW_LIMIT;
-        $rows = $rows->take(self::DAY_WINDOW_LIMIT)->values()->map(function ($r) {
-            $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
-
-            return $r;
-        });
+        $rows = $rows->take(self::DAY_WINDOW_LIMIT)->values()->map(fn ($r) => $this->presentRowTimes($r));
 
         return response()->json(['sessions' => $rows, 'truncated' => $truncated]);
     }

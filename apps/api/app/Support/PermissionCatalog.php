@@ -49,6 +49,12 @@ final class PermissionCatalog
         // student? pay the teacher?) is made in a popup, and a TEACHER cannot apply it directly —
         // they raise a request (session.free_request) the OWNER approves (session.free_approve).
         'session.free', 'session.free_request', 'session.free_approve',
+        // Supervision. `session.follow` is the "Following" button on a lesson — a supervisor saying
+        // "I am on this one", which also silences the WhatsApp not-marked reminder for it.
+        // `supervision.stats` reads the page that measures how promptly each supervisor followed
+        // and how promptly outcomes were recorded. Neither goes to a TEACHER: they are the person
+        // being waited on, not the one doing the waiting.
+        'session.follow', 'supervision.stats',
         'trial.read', 'trial.manage',
         // CRM / Leads (CRM module): see the pipeline vs. add/move/note/convert/delete leads.
         // Owner-only by default; delegated to sales/support staff through a custom role.
@@ -149,6 +155,7 @@ final class PermissionCatalog
             'session.revert_attendance',
             // Mark free directly (with the billing popup) + approve teachers' free requests.
             'session.free', 'session.free_approve',
+            'session.follow', 'supervision.stats',
             'trial.read', 'trial.manage',
             'crm.read', 'crm.manage',
             'course.read', 'course.manage', 'access_code.manage', 'learner.read',

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Services\Whatsapp\GroupAlerts;
 use App\Support\AuthContext;
 use App\Support\Tenancy;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -22,8 +24,9 @@ use Throwable;
  * Events handled:
  *   • connection.update — mirror the session state onto academy_automation_settings; a LOGGED_OUT
  *     (device unlinked or banned) raises an operator alert (the human-re-scan signal).
- *   • message.status    — flip an automation_send_log row to FAILED when the gateway reports a send
- *     failure (the synchronous send already recorded SENT/optimistic).
+ *   • message.status    — move WhatsApp group alerts along sent → delivered → read (or back to
+ *     FAILED for a retry), and flip an automation_send_log row to FAILED on a send failure (the
+ *     synchronous send already recorded SENT/optimistic).
  */
 final class WhatsAppWebhookController extends Controller
 {
@@ -73,21 +76,28 @@ final class WhatsAppWebhookController extends Controller
     {
         $msgId = isset($data['msgId']) ? (string) $data['msgId'] : '';
         $status = strtoupper((string) ($data['status'] ?? ''));
-        // Only failures are actionable: the optimistic SENT was already logged at send time, and the
-        // send-log status enum has no DELIVERED/READ states.
-        if ($msgId === '' || $status !== 'FAILED') {
+        if ($msgId === '' || $status === '') {
             return;
         }
+        $error = isset($data['error']) ? (string) $data['error'] : null;
 
-        $this->inAcademyContext($academyId, function () use ($academyId, $msgId, $data) {
-            DB::table('automation_send_log')
-                ->where('academy_id', $academyId)
-                ->where('provider_message_id', $msgId)
-                ->update([
-                    'status' => 'FAILED',
-                    'error' => isset($data['error']) ? (string) $data['error'] : 'send_failed',
-                    'updated_at' => now(),
-                ]);
+        $this->inAcademyContext($academyId, function () use ($academyId, $msgId, $status, $error) {
+            // Group alerts track the whole walk — sent, delivered, read, failed — because "it reached
+            // the group" is the promise that feature makes.
+            app(GroupAlerts::class)->applyStatus($msgId, $status, $error, CarbonImmutable::now());
+
+            // The send log only learns about failures: its optimistic SENT was written at send time,
+            // and its status enum has no DELIVERED/READ states.
+            if ($status === 'FAILED') {
+                DB::table('automation_send_log')
+                    ->where('academy_id', $academyId)
+                    ->where('provider_message_id', $msgId)
+                    ->update([
+                        'status' => 'FAILED',
+                        'error' => $error ?? 'send_failed',
+                        'updated_at' => now(),
+                    ]);
+            }
         });
     }
 

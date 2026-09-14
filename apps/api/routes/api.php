@@ -23,6 +23,7 @@ use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VideoOversightController;
+use App\Http\Controllers\Admin\WhatsAppGroupController;
 use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\AuthController;
@@ -79,6 +80,8 @@ use App\Http\Controllers\Scheduling\CancellationRequestController;
 use App\Http\Controllers\Scheduling\GenerateSessionsController;
 use App\Http\Controllers\Scheduling\ScheduleController;
 use App\Http\Controllers\Scheduling\SessionController;
+use App\Http\Controllers\Scheduling\SessionFollowUpController;
+use App\Http\Controllers\Scheduling\SupervisionStatsController;
 use App\Http\Controllers\SessionReportController;
 use App\Http\Controllers\SpecializationController;
 use App\Http\Controllers\StaffDepartmentController;
@@ -495,6 +498,17 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::delete('/admin/academies/{id}/api-keys/{keyId}', [AcademyAutomationController::class, 'revokeApiKey']);
     Route::post('/admin/academies/{id}/connect-link', [AcademyAutomationController::class, 'createConnectLink']);
 
+    // WhatsApp group alerts (automation.manage — Super Admin): link the client's staff groups
+    // ("Supervision", "Accounting") to the alerts each should receive, test delivery into a group,
+    // and read what was sent and whether it arrived. Delivery itself is `whatsapp:group-alerts`.
+    Route::get('/admin/academies/{id}/whatsapp/groups', [WhatsAppGroupController::class, 'index']);
+    Route::get('/admin/academies/{id}/whatsapp/groups/available', [WhatsAppGroupController::class, 'available']);
+    Route::post('/admin/academies/{id}/whatsapp/groups', [WhatsAppGroupController::class, 'store']);
+    Route::put('/admin/academies/{id}/whatsapp/groups/{groupId}', [WhatsAppGroupController::class, 'update'])->whereUuid('groupId');
+    Route::delete('/admin/academies/{id}/whatsapp/groups/{groupId}', [WhatsAppGroupController::class, 'destroy'])->whereUuid('groupId');
+    Route::post('/admin/academies/{id}/whatsapp/groups/{groupId}/test', [WhatsAppGroupController::class, 'test'])->whereUuid('groupId');
+    Route::get('/admin/academies/{id}/whatsapp/groups/{groupId}/alerts', [WhatsAppGroupController::class, 'alerts'])->whereUuid('groupId');
+
     // Plan gating surface for the UI (Sprint 9 §8). Resolved capabilities + limits for the
     // current academy; authenticated, no special capability.
     Route::get('/entitlements', [EntitlementController::class, 'index']);
@@ -891,6 +905,11 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // teacher). Puts the lesson back to SCHEDULED, reversing the invoice line and the payout with
     // it, which is what makes a mis-marked lesson reschedulable again.
     Route::post('/sessions/{id}/attendance/revert', [AttendanceController::class, 'revert']);
+    // "Following": a supervisor records that they are on this lesson (session.follow). Silences the
+    // WhatsApp not-marked reminder for it and feeds the Supervision statistics page.
+    Route::post('/sessions/{id}/follow', [SessionFollowUpController::class, 'store']);
+    // Supervision statistics (supervision.stats): follow promptness + marking promptness per person.
+    Route::get('/supervision/stats', [SupervisionStatsController::class, 'index']);
     Route::put('/sessions/{id}/report', [SessionReportController::class, 'put']);
     Route::post('/sessions/{id}/report/whatsapp-sent', [SessionReportController::class, 'whatsappSent']);
     Route::get('/students/{id}/reports', [SessionReportController::class, 'archive']);

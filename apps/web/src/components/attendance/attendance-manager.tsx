@@ -31,6 +31,7 @@ import {
 } from "react";
 import { AttendanceReportModal } from "@/components/attendance/attendance-report-modal";
 import { CreateClassModal } from "@/components/attendance/create-class-modal";
+import { FollowControl, type FollowInfo } from "@/components/attendance/follow-control";
 import {
   OverdueLessonsPanel,
   useOverdueLessons,
@@ -161,6 +162,9 @@ export function AttendanceManager() {
   // Owners and teachers alike may log a one-off class the timetable never produced; the API
   // confines a teacher to their own roster.
   const canCreateClass = can("session.create");
+  // "Following": a supervisor saying they are on this lesson. The click is measured on the
+  // Supervision page and silences the WhatsApp not-marked reminder for the lesson.
+  const canFollow = can("session.follow");
 
   // `date` is the ANCHOR day; `range` says how much of the calendar around it the list covers.
   const [date, setDate] = useState<string>(() => todayStr());
@@ -180,6 +184,11 @@ export function AttendanceManager() {
   // Optimistic status overrides: updated immediately when attendance is recorded so
   // the row reflects the new status before the next full reload.
   const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
+  // Same idea for a fresh "Following" click: the row shows who is on it before the next reload.
+  const [followOverrides, setFollowOverrides] = useState<Record<string, FollowInfo>>({});
+  const followInfo = (s: DaySession): FollowInfo | null =>
+    followOverrides[s.id] ??
+    (s.followed_at ? { followed_at: s.followed_at, followed_by_name: s.followed_by_name ?? null } : null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   // The server returns at most one capped page per window; a busy month can reach it.
@@ -236,6 +245,7 @@ export function AttendanceManager() {
     const seq = ++reqSeq.current;
     setSessions(null);
     setStatusOverrides({});
+    setFollowOverrides({});
     setError(null);
     setTruncated(false);
     try {
@@ -679,9 +689,10 @@ export function AttendanceManager() {
       )}
 
       {/* ── Filter toolbar ────────────────────────────────────────────────── */}
-      <div className="bg-card flex flex-wrap items-end gap-3 rounded-2xl border p-4 shadow-sm">
-        {/* Search */}
-        <div className="relative min-w-0 flex-1">
+      <div className="bg-card flex flex-wrap items-end gap-3 rounded-2xl border p-3 shadow-sm sm:p-4">
+        {/* Search — its own row on a phone; with a zero flex basis it would otherwise stay beside
+            the selects and be squeezed to nothing. */}
+        <div className="relative min-w-full flex-1 sm:min-w-0">
           <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" />
           <input
             type="search"
@@ -695,13 +706,13 @@ export function AttendanceManager() {
 
         {/* Teacher filter (Owner only) */}
         {!isTeacher && (
-          <div className="flex flex-col gap-1">
+          <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
             <label className="text-muted-foreground text-xs font-medium">{t("teacher")}</label>
             <select
               aria-label={t("teacher")}
               value={teacherId}
               onChange={(e) => setTeacherId(e.target.value)}
-              className="border-input bg-background h-9 rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15"
+              className="border-input bg-background h-9 w-full rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15 sm:w-auto"
             >
               <option value="">{t("allTeachers")}</option>
               {teachers.map((tch) => (
@@ -714,13 +725,13 @@ export function AttendanceManager() {
         )}
 
         {/* Status filter */}
-        <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
           <label className="text-muted-foreground text-xs font-medium">{t("status")}</label>
           <select
             aria-label={t("status")}
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="border-input bg-background h-9 rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15"
+            className="border-input bg-background h-9 w-full rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15 sm:w-auto"
           >
             <option value="">{t("allStatuses")}</option>
             {SESSION_STATUS.filter(
@@ -769,8 +780,8 @@ export function AttendanceManager() {
 
       {/* ── Sessions table ────────────────────────────────────────────────── */}
       <div className="bg-card overflow-hidden rounded-2xl border shadow-sm" data-testid="day-sessions">
-        <div className="flex items-center justify-between border-b px-5 py-3.5">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3.5 sm:px-5">
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold">{periodLabel}</h2>
             <p className="text-muted-foreground text-xs">
               {multiDay ? t("periodSubtitle") : t("daySubtitle")}
@@ -1000,6 +1011,15 @@ export function AttendanceManager() {
                                     {t("sendWhatsapp")}
                                   </Button>
                                 )}
+                                {displayStatus === "SCHEDULED" && (
+                                  <FollowControl
+                                    sessionId={s.id}
+                                    followed={followInfo(s)}
+                                    canFollow={canFollow}
+                                    onFollowed={(info) => setFollowOverrides((m) => ({ ...m, [s.id]: info }))}
+                                    onError={setError}
+                                  />
+                                )}
                                 {canReschedule && displayStatus === "SCHEDULED" && (
                                   <Button
                                     type="button"
@@ -1083,7 +1103,7 @@ export function AttendanceManager() {
                       <li
                         key={s.id}
                         className={cn(
-                          "cursor-pointer px-5 py-4 transition-colors hover:bg-muted/30",
+                          "cursor-pointer px-4 py-4 transition-colors hover:bg-muted/30",
                           STATUS_ROW[displayStatus] ?? "",
                         )}
                         onClick={() => openSession(s)}
@@ -1126,7 +1146,7 @@ export function AttendanceManager() {
                             )}
                           </div>
                         </div>
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                           {/* WhatsApp send — placeholder, disabled until the feature ships. */}
                           {displayStatus !== "SCHEDULED" && (
                             <Button
@@ -1142,6 +1162,15 @@ export function AttendanceManager() {
                               <MessageCircle className="size-3.5" />
                               {t("sendWhatsapp")}
                             </Button>
+                          )}
+                          {displayStatus === "SCHEDULED" && (
+                            <FollowControl
+                              sessionId={s.id}
+                              followed={followInfo(s)}
+                              canFollow={canFollow}
+                              onFollowed={(info) => setFollowOverrides((m) => ({ ...m, [s.id]: info }))}
+                              onError={setError}
+                            />
                           )}
                           {canReschedule && displayStatus === "SCHEDULED" && (
                             <Button

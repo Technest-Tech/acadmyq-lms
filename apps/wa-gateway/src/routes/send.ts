@@ -59,4 +59,29 @@ export function registerSendRoutes(app: FastifyInstance, manager: SessionManager
     if (!session) return reply.code(401).send({ error: 'invalid_token' })
     return reply.send({ status: session.statusUpper() })
   })
+
+  // GET /api/groups -> { groups: GroupView[] }  — the groups this number can be told to post into.
+  app.get('/api/groups', { preHandler: guard }, async (req, reply) => {
+    const session = req.waSession
+    if (!session) return reply.code(401).send({ error: 'invalid_token' })
+    if (session.state !== 'connected') {
+      return reply.code(409).send({ error: 'not_connected', status: session.statusUpper() })
+    }
+    try {
+      return reply.send({ groups: await session.listGroups() })
+    } catch (e) {
+      req.log.warn({ err: e instanceof Error ? e.message : String(e) }, 'group listing failed')
+      return reply.code(502).send({ error: 'groups_unavailable' })
+    }
+  })
+
+  // GET /api/messages/:id -> { state: queued|sent|failed|unknown, error? }
+  // Always 200 for a well-formed request, so a 404 unambiguously means "this gateway predates the
+  // route" rather than "no such message" — the app must never resend on the former.
+  app.get('/api/messages/:id', { preHandler: guard }, async (req, reply) => {
+    const session = req.waSession
+    if (!session) return reply.code(401).send({ error: 'invalid_token' })
+    const { id } = req.params as { id: string }
+    return reply.send(session.messageState(id))
+  })
 }

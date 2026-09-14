@@ -19,11 +19,26 @@ export interface SendQueueDeps {
   /** Read the CURRENT pacing each time — lets admin rate-limit changes apply live. */
   getPacing: () => SendPacingConfig
   logger: Logger
+  /** Called once an item has been handed to WhatsApp (sock.sendMessage resolved). */
+  onSent: (messageId: string, jid: string) => void
   /** Called when an item permanently fails to send (after it left the queue). */
   onFailure: (messageId: string, jid: string, error: string) => void
   /** Mark the session as alive (resets the stale-connection watchdog). */
   touch: () => void
 }
+
+/** What the queue knows about a message it accepted. `unknown` = never seen, or long forgotten. */
+export type MessageState = 'queued' | 'sent' | 'failed' | 'unknown'
+
+interface TrackedMessage {
+  state: Exclude<MessageState, 'unknown'>
+  at: number
+  error?: string
+}
+
+/** How long, and how many, accepted message ids are remembered for the state lookup. */
+const TRACK_TTL_MS = 24 * 3_600_000
+const TRACK_MAX = 5_000
 
 export interface SendPayload {
   text?: string
@@ -52,6 +67,8 @@ export class SendQueue {
   private sentToday = 0
   private dayKey = ''
   private lastSentAt = 0
+  // Insertion-ordered, so the oldest entry is always first when pruning.
+  private readonly tracked = new Map<string, TrackedMessage>()
 
   constructor(private readonly deps: SendQueueDeps) {}
 
@@ -65,7 +82,29 @@ export class SendQueue {
 
   enqueue(jid: string, messageId: string, payload: SendPayload): void {
     this.items.push({ jid, messageId, payload })
+    this.track(messageId, 'queued')
     void this.drain()
+  }
+
+  /**
+   * The state of a message this queue accepted. The send route answers 200 the moment a message is
+   * queued, so this is how the app tells "still waiting its turn" from "lost" — the queue is in
+   * memory, and a restart forgets everything that had not gone out yet, which reads as `unknown`.
+   */
+  stateOf(messageId: string): { state: MessageState; error?: string } {
+    const entry = this.tracked.get(messageId)
+    if (!entry || Date.now() - entry.at > TRACK_TTL_MS) return { state: 'unknown' }
+    return entry.error ? { state: entry.state, error: entry.error } : { state: entry.state }
+  }
+
+  private track(messageId: string, state: TrackedMessage['state'], error?: string): void {
+    this.tracked.delete(messageId)
+    this.tracked.set(messageId, error ? { state, at: Date.now(), error } : { state, at: Date.now() })
+    while (this.tracked.size > TRACK_MAX) {
+      const oldest = this.tracked.keys().next().value
+      if (oldest === undefined) break
+      this.tracked.delete(oldest)
+    }
   }
 
   /** Resume draining (e.g. after a reconnect re-establishes the socket). */
@@ -76,6 +115,7 @@ export class SendQueue {
   /** Drop all queued items (e.g. on logout); returns how many were discarded. */
   clear(): number {
     const n = this.items.length
+    for (const item of this.items) this.track(item.messageId, 'failed', 'queue_cleared')
     this.items = []
     return n
   }
@@ -143,11 +183,14 @@ export class SendQueue {
           this.items.shift()
           this.sentToday += 1
           this.lastSentAt = Date.now()
+          this.track(item.messageId, 'sent')
           this.deps.touch()
           this.deps.logger.info({ sessionId: this.deps.sessionId, messageId: item.messageId }, 'message sent')
+          this.deps.onSent(item.messageId, item.jid)
         } catch (e) {
           this.items.shift()
           const msg = e instanceof Error ? e.message : 'send_failed'
+          this.track(item.messageId, 'failed', msg)
           this.deps.logger.error(
             { sessionId: this.deps.sessionId, messageId: item.messageId, err: msg },
             'message send failed',

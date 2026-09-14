@@ -121,6 +121,64 @@ final class WasenderClient
     }
 
     /**
+     * The WhatsApp groups the academy's linked number belongs to.
+     *
+     * @return array{ok: bool, groups: list<array{id: string, subject: string, size: int, announce: bool, is_admin: bool, can_send: bool}>, error: ?string}
+     */
+    public function listGroups(string $token): array
+    {
+        try {
+            $res = $this->http($token)->timeout(max(30, (int) config('services.wasender.timeout', 15)))->get('/api/groups');
+            if (! $res->successful()) {
+                return ['ok' => false, 'groups' => [], 'error' => $this->errorFrom($res->status(), $res->json())];
+            }
+
+            $groups = [];
+            foreach ((array) ($res->json('groups') ?? []) as $g) {
+                if (! is_array($g) || ! isset($g['id'])) {
+                    continue;
+                }
+                $groups[] = [
+                    'id' => (string) $g['id'],
+                    'subject' => (string) ($g['subject'] ?? ''),
+                    'size' => (int) ($g['size'] ?? 0),
+                    'announce' => (bool) ($g['announce'] ?? false),
+                    'is_admin' => (bool) ($g['isAdmin'] ?? false),
+                    'can_send' => (bool) ($g['canSend'] ?? true),
+                ];
+            }
+
+            return ['ok' => true, 'groups' => $groups, 'error' => null];
+        } catch (Throwable) {
+            return ['ok' => false, 'groups' => [], 'error' => 'transport_error'];
+        }
+    }
+
+    /**
+     * What the gateway knows about a message it accepted: queued | sent | failed | unknown. Null when
+     * the gateway cannot be asked — unreachable, or too old to have the route (a 404) — which callers
+     * must treat as "no information", never as "lost".
+     *
+     * @return array{state: string, error: ?string}|null
+     */
+    public function messageState(string $token, string $messageId): ?array
+    {
+        try {
+            $res = $this->http($token)->get('/api/messages/'.rawurlencode($messageId));
+            if (! $res->successful()) {
+                return null;
+            }
+            $state = $res->json('state');
+
+            return is_string($state)
+                ? ['state' => $state, 'error' => is_string($res->json('error')) ? $res->json('error') : null]
+                : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * A pre-configured PendingRequest: bearer auth, JSON, the configured base URL + timeout.
      */
     private function http(string $token): PendingRequest
