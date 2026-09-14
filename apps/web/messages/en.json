@@ -327,7 +327,7 @@
         "pickGroup": "Group",
         "pickGroupHint": "Missing a group? Add the connected number to it on the phone, then refresh. Admins-only groups need the number to be an admin.",
         "refreshGroups": "Refresh list",
-        "noGroupsOnNumber": "The connected number is not in any group yet.",
+        "noGroupsOnNumber": "WhatsApp reports the connected number is not in any group yet. If you just added it, check the phone: a number whose privacy setting is “My contacts” receives an invite instead — tap Join, or set Settings → Privacy → Groups → Everyone and add it again.",
         "alreadyLinked": "Already linked",
         "adminsOnly": "Admins only — can't post",
         "members": "{n} members",
