@@ -39,9 +39,10 @@ export async function createSocket(
   state: AuthenticationState,
   logger: Logger,
   keepAliveIntervalMs: number,
+  baileysLogLevel: string = 'warn',
 ): Promise<WASocket> {
   const version = await getVersion(logger)
-  const baileysLogger = logger.child({ module: 'baileys' }, { level: 'warn' })
+  const baileysLogger = logger.child({ module: 'baileys' }, { level: baileysLogLevel })
   return makeWASocket({
     version,
     auth: {

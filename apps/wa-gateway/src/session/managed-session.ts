@@ -137,7 +137,7 @@ export class ManagedSession {
     try {
       const { state, saveCreds } = await usePostgresAuthState(this.pool, this.sessionId)
       this.saveCreds = saveCreds
-      const sock = await createSocket(state, this.logger, this.config.KEEPALIVE_MS)
+      const sock = await createSocket(state, this.logger, this.config.KEEPALIVE_MS, this.config.BAILEYS_LOG_LEVEL)
       this.sock = sock
       this.bindEvents(sock)
       if (this.state !== 'connected') this.setState('connecting')

@@ -20,6 +20,10 @@ const EnvSchema = z.object({
   LARAVEL_WEBHOOK_URL: z.string().min(1).optional(),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  // Baileys' own logger, kept at warn so the log stays readable. `trace` prints every frame to and
+  // from WhatsApp (XML) — the only way to see what the servers actually answered when a query
+  // "succeeds" with nothing in it. Turn it on for a diagnosis, never leave it on.
+  BAILEYS_LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('warn'),
 
   // Baileys keep-alive ping interval.
   KEEPALIVE_MS: z.coerce.number().int().positive().default(10_000),
