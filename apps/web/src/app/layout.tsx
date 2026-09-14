@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
-import { Amiri, Tajawal } from "next/font/google";
+import { Amiri, Great_Vibes, Playfair_Display, Tajawal } from "next/font/google";
 import { headers } from "next/headers";
 import { THEME_INIT_SCRIPT, ThemeProvider } from "@/components/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
@@ -27,6 +27,32 @@ const amiri = Amiri({
   weight: ["400", "700"],
   variable: "--font-display",
   display: "swap",
+});
+
+/**
+ * The two CERTIFICATE faces: a high-contrast serif for Latin titles and a formal script for an
+ * English recipient's name — the two lines a printed certificate is judged by. Arabic keeps Amiri.
+ *
+ * `preload: false` because only the certificate designs use them: the browser fetches the files the
+ * first time a certificate paints, instead of every page in the app paying for two faces it never
+ * shows. The designs await `document.fonts.ready` before capturing, so a download never catches the
+ * fallback mid-swap.
+ */
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  style: ["normal", "italic"],
+  variable: "--font-cert-serif",
+  display: "swap",
+  preload: false,
+});
+
+const greatVibes = Great_Vibes({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-cert-script",
+  display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -76,7 +102,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       dir={dir}
-      className={`${tajawal.variable} ${amiri.variable}`}
+      className={`${tajawal.variable} ${amiri.variable} ${playfair.variable} ${greatVibes.variable}`}
       suppressHydrationWarning
     >
       <head>

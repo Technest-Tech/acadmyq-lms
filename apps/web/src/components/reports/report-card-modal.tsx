@@ -25,6 +25,7 @@ import {
   type ReportField,
   type SessionDetailResponse,
 } from "@/lib/api";
+import { inlineImage } from "@/lib/inline-image";
 import { cn } from "@/lib/utils";
 
 /**
@@ -139,29 +140,6 @@ function isBlank(html: string): boolean {
   return html.replace(/<[^>]+>/g, "").trim() === "";
 }
 
-/**
- * Fetch the academy's logo and inline it as a data URI. `html2canvas` taints the canvas on any
- * cross-origin image, and the logo is served from the API host — so a remote `<img src>` would
- * produce a blank download rather than a visible error. A failure here is not an error state: the
- * card falls back to its woven monogram, which is never uglier than a broken image.
- */
-async function inlineLogo(url: string | null): Promise<string | null> {
-  if (!url) return null;
-  try {
-    const res = await fetch(url, { mode: "cors" });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    return await new Promise<string | null>((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : null);
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
-  }
-}
-
 export function ReportCardModal({
   open,
   onClose,
@@ -197,7 +175,7 @@ export function ReportCardModal({
     getReportCardTemplate()
       .then(({ content: c }) => alive && setContent(c))
       .catch(() => alive && setLoadError(true));
-    void inlineLogo(logoUrl).then((d) => alive && setLogoDataUrl(d));
+    void inlineImage(logoUrl).then((d) => alive && setLogoDataUrl(d));
     return () => {
       alive = false;
     };

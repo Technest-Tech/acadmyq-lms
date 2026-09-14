@@ -223,7 +223,7 @@ export function FinanceOverviewScreen() {
       </div>
 
       {/* ── Upcoming dues + recent payments ─────────────────────────────── */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm">
@@ -346,7 +346,7 @@ export function FinanceOverviewScreen() {
       </div>
 
       {/* ── Statistics: by service, by month ─────────────────────────────── */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">

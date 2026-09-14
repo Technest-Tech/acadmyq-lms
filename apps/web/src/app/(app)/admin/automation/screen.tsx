@@ -37,7 +37,7 @@ export function AutomationOverviewScreen() {
 
       {/* Tabs */}
       <div className="border-b">
-        <nav className="flex gap-1" role="tablist">
+        <nav className="no-scrollbar flex gap-1 overflow-x-auto" role="tablist">
           {TABS.map(({ key, icon: Icon }) => (
             <button
               key={key}

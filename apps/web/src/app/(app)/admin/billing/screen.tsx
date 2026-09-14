@@ -242,7 +242,7 @@ export function BillingScreen() {
             <ReceiptText className="text-muted-foreground size-4" aria-hidden />
             {ts("proofs.title")}
           </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {proofs.map((p) => (
               <div
                 key={p.submission_id}
@@ -263,7 +263,7 @@ export function BillingScreen() {
                 <p className="text-muted-foreground text-xs">
                   {p.method} · {p.period_start} → {p.period_end}
                 </p>
-                <div className="mt-1 flex items-center gap-1.5">
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
                   <Button type="button" size="xs" variant="outline" onClick={() => void viewShot(p)}>
                     <ImageIcon className="size-3" aria-hidden />
                     {ts("proofs.view")}

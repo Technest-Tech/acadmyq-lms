@@ -141,27 +141,29 @@ function StatCard({
   return (
     <div
       className={cn(
-        "group bg-card relative overflow-hidden rounded-2xl border p-5 shadow-sm transition-shadow hover:shadow-md",
+        "group bg-card relative overflow-hidden rounded-2xl border p-4 shadow-sm transition-shadow hover:shadow-md sm:p-5",
         "bg-gradient-to-br to-transparent",
         TONE_WASH[tone],
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      {/* On a phone the icon sits above the label so the amount gets the card's full width — two
+          tiles abreast left it about 70px, and a truncated amount is a wrong amount. */}
+      <div className="flex flex-col-reverse items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
+        <div className="min-w-0 max-w-full">
           <p className="text-muted-foreground text-[0.7rem] font-semibold uppercase tracking-wider">
             {label}
           </p>
-          <p className="mt-2 truncate text-2xl font-bold tracking-tight tabular-nums">
+          <p className="mt-1.5 text-xl font-bold tracking-tight break-words tabular-nums sm:mt-2 sm:truncate sm:text-2xl">
             {value}
           </p>
         </div>
         <div
           className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-current/15",
+            "flex size-8 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-current/15 sm:size-10",
             TONE_ICON[tone],
           )}
         >
-          <Icon className="size-5" aria-hidden />
+          <Icon className="size-4 sm:size-5" aria-hidden />
         </div>
       </div>
       {progress !== undefined ? (
@@ -243,7 +245,7 @@ function CurrencyCard({
 
   return (
     <div
-      className="bg-card relative overflow-hidden rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.03] transition-shadow hover:shadow-md"
+      className="bg-card relative overflow-hidden rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.03] transition-shadow hover:shadow-md sm:p-5"
       data-testid={`currency-total-${bucket.currency}`}
     >
       <div className="flex items-center gap-2.5">
@@ -260,7 +262,7 @@ function CurrencyCard({
         </p>
       </div>
 
-      <p className="mt-2 truncate text-2xl font-bold tracking-tight tabular-nums">
+      <p className="mt-2 text-2xl font-bold tracking-tight break-words tabular-nums sm:truncate">
         {fmt(bucket.billed_minor)}
       </p>
 
@@ -278,7 +280,7 @@ function CurrencyCard({
           <p className="text-muted-foreground text-[0.65rem] font-medium uppercase tracking-wider">
             {t("summaryCollected")}
           </p>
-          <p className="mt-0.5 truncate text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+          <p className="mt-0.5 text-sm font-semibold break-words tabular-nums text-emerald-600 sm:truncate dark:text-emerald-400">
             {fmt(bucket.collected_minor)}
           </p>
         </div>
@@ -286,7 +288,7 @@ function CurrencyCard({
           <p className="text-muted-foreground text-[0.65rem] font-medium uppercase tracking-wider">
             {t("balanceDue")}
           </p>
-          <p className="mt-0.5 truncate text-sm font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+          <p className="mt-0.5 text-sm font-semibold break-words tabular-nums text-amber-600 sm:truncate dark:text-amber-400">
             {fmt(bucket.due_minor)}
           </p>
         </div>

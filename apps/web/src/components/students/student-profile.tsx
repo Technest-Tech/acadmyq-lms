@@ -190,7 +190,7 @@ export function StudentProfile({ studentId }: { studentId: string }) {
       />
 
       {/* ── Fact strip ───────────────────────────────────────────────── */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <FactCard
           icon={GraduationCap}
           label={t("teacher.current")}
@@ -470,15 +470,15 @@ export function StudentProfileSkeleton() {
           size={64}
           className="pointer-events-none absolute inset-0 h-full w-full text-white opacity-[0.16]"
         />
-        <div className="relative flex items-center gap-4 p-6">
+        <div className="relative flex items-center gap-4 p-4 sm:p-6">
           <div className="size-16 shrink-0 animate-pulse rounded-2xl bg-white/20" />
-          <div className="space-y-2">
-            <div className="h-6 w-52 animate-pulse rounded bg-white/25" />
+          <div className="min-w-0 space-y-2">
+            <div className="h-6 w-40 animate-pulse rounded bg-white/25 sm:w-52" />
             <div className="h-4 w-36 animate-pulse rounded bg-white/15" />
           </div>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
@@ -493,7 +493,7 @@ export function StudentProfileSkeleton() {
         ))}
       </div>
       <div className="bg-card h-13 animate-pulse rounded-2xl border shadow-sm" />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {Array.from({ length: 2 }).map((_, i) => (
           <div key={i} className="bg-card rounded-2xl border shadow-sm">
             <div className="bg-muted/40 h-16 rounded-t-2xl border-b" />

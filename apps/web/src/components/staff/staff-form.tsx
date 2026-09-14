@@ -247,7 +247,7 @@ export function StaffForm({
 
       {/* ── Profile ───────────────────────────────────────────────────────── */}
       <Section icon={User} title={t("form.sectionProfile")} description={t("form.sectionProfileDesc")}>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {/* Full name */}
           <Field label={t("form.fullName")} required>
             <div className="relative">
@@ -324,7 +324,7 @@ export function StaffForm({
 
       {/* ── Compensation ──────────────────────────────────────────────────── */}
       <Section icon={Wallet} title={t("form.sectionPay")} description={t("form.sectionPayDesc")}>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {/* Monthly salary */}
           <Field label={t("form.salary")}>
             <div className="relative">
@@ -384,7 +384,7 @@ export function StaffForm({
 
           {createLogin && (
             <>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label={t("form.email")} required>
                   <div className="relative">
                     <AtSign className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />

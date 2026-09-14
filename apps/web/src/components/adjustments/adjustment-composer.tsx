@@ -185,7 +185,7 @@ export function AdjustmentComposer({
           </select>
         </Field>
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t("composer.amount")}>
             <div className="relative">
               <input

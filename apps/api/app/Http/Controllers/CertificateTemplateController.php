@@ -13,17 +13,32 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 /**
- * Per-academy certificate templates. An academy owns exactly two templates — number 1
- * ("Royal Gold") and number 2 ("Geometric Mosaic") — whose editable wording/branding lives
- * in a single `content` JSONB blob; the visual design itself is rendered by the web client.
+ * Per-academy certificate templates. The web client owns a catalogue of certificate DESIGNS
+ * (`certificate-designs.tsx`); an academy owns one row per design it has edited, holding that
+ * design's wording/branding in a single `content` JSONB blob.
  *
  * RLS scopes every row to the caller's academy (the standard tenant_isolation policy), and the
  * read is gated on `certificate.read`, edits on `certificate.manage`. A template row is created
- * lazily on first save: a GET for an academy that has never edited a template returns sensible
+ * lazily on first save: a GET for an academy that has never edited a design returns that design's
  * defaults (with the academy's real name pre-filled) without persisting anything.
+ *
+ * BRAND CARRIES OVER. Who signs, and in whose name, does not change with the paper it is printed
+ * on — so a design the academy has never opened inherits the brand fields of the template it saved
+ * most recently. Wording (title, body…) stays per design: it is written to suit the artwork.
  */
 final class CertificateTemplateController extends Controller
 {
+    /**
+     * The design catalogue, by number. Numbers are permanent — a saved row points at one — so a
+     * retired design keeps its number and a new design takes the next one.
+     *
+     *  1 Al-Noor · 2 Al-Andalus · 3 Mihrab   (heritage)
+     *  4 Diwan   · 5 Layl                    (classic)
+     *  6 Safa    · 7 Manara                  (modern)
+     *  8 Bustan  · 9 Nujoom                  (children)
+     */
+    public const DESIGNS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+
     /** The editable text fields the client may set, each a free-text string (bilingual pairs). */
     private const TEXT_FIELDS = [
         'academyNameEn', 'academyNameAr',
@@ -32,9 +47,21 @@ final class CertificateTemplateController extends Controller
         'bodyEn', 'bodyAr',
         'signatoryNameEn', 'signatoryNameAr',
         'signatoryTitleEn', 'signatoryTitleAr',
+        'signatory2NameEn', 'signatory2NameAr',
+        'signatory2TitleEn', 'signatory2TitleAr',
     ];
 
-    /** GET /api/certificate-templates — both templates (defaults filled where unsaved). */
+    /** The fields that describe the ACADEMY rather than the design — inherited across designs. */
+    private const BRAND_FIELDS = [
+        'academyNameEn', 'academyNameAr',
+        'signatoryNameEn', 'signatoryNameAr',
+        'signatoryTitleEn', 'signatoryTitleAr',
+        'signatory2NameEn', 'signatory2NameAr',
+        'signatory2TitleEn', 'signatory2TitleAr',
+        'showLogo',
+    ];
+
+    /** GET /api/certificate-templates — every design (defaults filled where unsaved). */
     public function index(): JsonResponse
     {
         Gate::authorize('certificate.read');
@@ -44,22 +71,38 @@ final class CertificateTemplateController extends Controller
 
         $rows = DB::table('certificate_templates')
             ->where('academy_id', $academyId)
-            ->get()
-            ->keyBy('template_number');
+            ->orderByDesc('updated_at')
+            ->get();
+
+        // The most recently saved template speaks for the academy's brand.
+        $latest = $rows->first();
+        $brand = [];
+        if ($latest !== null) {
+            $saved = json_decode((string) $latest->content, true);
+            if (is_array($saved)) {
+                $brand = array_intersect_key($saved, array_flip(self::BRAND_FIELDS));
+            }
+        }
+
+        $byNumber = $rows->keyBy('template_number');
 
         $templates = [];
-        foreach ([1, 2] as $number) {
-            $row = $rows->get($number);
-            $content = self::defaults($number, $academyName);
+        foreach (self::DESIGNS as $number) {
+            $row = $byNumber->get($number);
+            $defaults = self::defaults($number, $academyName);
+            $content = array_merge($defaults, $brand);
             if ($row !== null) {
                 $saved = json_decode((string) $row->content, true);
                 if (is_array($saved)) {
-                    $content = array_merge($content, $saved);
+                    $content = array_merge($defaults, $saved);
                 }
             }
             $templates[] = [
                 'templateNumber' => $number,
                 'content' => $content,
+                'defaults' => $defaults,
+                'customized' => $row !== null,
+                'updatedAt' => $row?->updated_at,
             ];
         }
 
@@ -72,11 +115,14 @@ final class CertificateTemplateController extends Controller
         Gate::authorize('certificate.manage');
 
         $n = (int) $number;
-        if (! in_array($n, [1, 2], true)) {
+        if (! in_array($n, self::DESIGNS, true)) {
             abort(404, 'Unknown certificate template.');
         }
 
-        $rules = ['accentColor' => ['sometimes', 'nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/']];
+        $rules = [
+            'accentColor' => ['sometimes', 'nullable', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'showLogo' => ['sometimes', 'boolean'],
+        ];
         foreach (self::TEXT_FIELDS as $field) {
             $rules[$field] = ['sometimes', 'nullable', 'string', 'max:1000'];
         }
@@ -123,10 +169,11 @@ final class CertificateTemplateController extends Controller
     }
 
     /**
-     * Default wording for a template, with the academy's real name pre-filled. Kept here (not in
-     * the DB) so a fresh academy gets a polished starting point with zero rows written.
+     * Default wording for a design, with the academy's real name pre-filled. Kept here (not in the
+     * DB) so a fresh academy gets a polished starting point with zero rows written — and so the
+     * editor's "restore the design's wording" has something to restore.
      *
-     * @return array<string,string>
+     * @return array<string,string|bool>
      */
     private static function defaults(int $number, string $academyName): array
     {
@@ -135,10 +182,15 @@ final class CertificateTemplateController extends Controller
             'academyNameAr' => $academyName,
             'signatoryNameEn' => '',
             'signatoryNameAr' => '',
+            'signatory2NameEn' => '',
+            'signatory2NameAr' => '',
+            'signatory2TitleEn' => '',
+            'signatory2TitleAr' => '',
+            'showLogo' => true,
         ];
 
-        if ($number === 1) {
-            return $common + [
+        return match ($number) {
+            1 => $common + [
                 'titleEn' => 'Certificate of Achievement',
                 'titleAr' => 'شهادة تقدير',
                 'presentationEn' => 'This certificate is proudly presented to',
@@ -148,19 +200,95 @@ final class CertificateTemplateController extends Controller
                 'signatoryTitleEn' => 'Academy Director',
                 'signatoryTitleAr' => 'مدير الأكاديمية',
                 'accentColor' => '#C9A227',
-            ];
-        }
-
-        return $common + [
-            'titleEn' => 'Certificate of Excellence',
-            'titleAr' => 'شهادة امتياز',
-            'presentationEn' => 'Awarded with honour to',
-            'presentationAr' => 'مُنحت بكل تقدير إلى',
-            'bodyEn' => 'For successfully completing the memorization program with distinction and exemplary commitment.',
-            'bodyAr' => 'لإتمام برنامج التحفيظ بتفوّق والتزام مثالي يُحتذى به.',
-            'signatoryTitleEn' => 'Head of Studies',
-            'signatoryTitleAr' => 'المشرف التعليمي',
-            'accentColor' => '#0E7C5A',
-        ];
+            ],
+            2 => $common + [
+                'titleEn' => 'Certificate of Excellence',
+                'titleAr' => 'شهادة امتياز',
+                'presentationEn' => 'Awarded with honour to',
+                'presentationAr' => 'مُنحت بكل تقدير إلى',
+                'bodyEn' => 'For successfully completing the memorization program with distinction and exemplary commitment.',
+                'bodyAr' => 'لإتمام برنامج التحفيظ بتفوّق والتزام مثالي يُحتذى به.',
+                'signatoryTitleEn' => 'Head of Studies',
+                'signatoryTitleAr' => 'المشرف التعليمي',
+                'accentColor' => '#0E7C5A',
+            ],
+            3 => $common + [
+                'titleEn' => 'Certificate of Qur’an Memorisation',
+                'titleAr' => 'شهادة حفظ القرآن الكريم',
+                'presentationEn' => 'This is to certify that',
+                'presentationAr' => 'نشهد بأنّ',
+                'bodyEn' => 'has memorised the portion stated herein under the supervision of our teachers, reciting it with sound tajweed and steadfast devotion.',
+                'bodyAr' => 'قد أتمّ حفظ المقدار المذكور تحت إشراف معلمي الأكاديمية، وتلاه بتجويدٍ متقن وهمّةٍ عالية، نسأل الله له القبول والثبات.',
+                'signatoryTitleEn' => 'Supervising Teacher',
+                'signatoryTitleAr' => 'المعلم المشرف',
+                'accentColor' => '#8C2F39',
+            ],
+            4 => $common + [
+                'titleEn' => 'Certificate of Completion',
+                'titleAr' => 'شهادة إتمام',
+                'presentationEn' => 'This certificate is awarded to',
+                'presentationAr' => 'تُمنح هذه الشهادة إلى',
+                'bodyEn' => 'For successfully completing the programme of study with diligence, discipline and distinction.',
+                'bodyAr' => 'لإتمامه البرنامج الدراسي بنجاح، بجدٍّ وانضباطٍ وتميّز.',
+                'signatoryTitleEn' => 'Academic Director',
+                'signatoryTitleAr' => 'المدير الأكاديمي',
+                'accentColor' => '#1E3A5F',
+            ],
+            5 => $common + [
+                'titleEn' => 'Certificate of Honour',
+                'titleAr' => 'شهادة شرف',
+                'presentationEn' => 'Proudly presented to',
+                'presentationAr' => 'تُقدَّم بكل فخر إلى',
+                'bodyEn' => 'In honour of exceptional achievement and an unwavering commitment to excellence.',
+                'bodyAr' => 'تكريمًا لإنجازٍ استثنائي والتزامٍ راسخٍ بالتميّز.',
+                'signatoryTitleEn' => 'Founder & Director',
+                'signatoryTitleAr' => 'المؤسس والمدير',
+                'accentColor' => '#D4AF37',
+            ],
+            6 => $common + [
+                'titleEn' => 'Certificate of Participation',
+                'titleAr' => 'شهادة مشاركة',
+                'presentationEn' => 'This certifies that',
+                'presentationAr' => 'تشهد الأكاديمية بأنّ',
+                'bodyEn' => 'has actively participated in and completed the course, meeting all of its requirements.',
+                'bodyAr' => 'قد شارك بفاعلية وأتمّ الدورة مستوفيًا جميع متطلباتها.',
+                'signatoryTitleEn' => 'Course Instructor',
+                'signatoryTitleAr' => 'مدرّب الدورة',
+                'accentColor' => '#0F4C81',
+            ],
+            7 => $common + [
+                'titleEn' => 'Certificate of Accomplishment',
+                'titleAr' => 'شهادة إنجاز',
+                'presentationEn' => 'Is hereby awarded to',
+                'presentationAr' => 'تُمنح هذه الشهادة إلى',
+                'bodyEn' => 'For outstanding performance and for reaching a new milestone on the learning journey.',
+                'bodyAr' => 'للأداء المتميّز وبلوغ مرحلةٍ جديدة في رحلة التعلّم.',
+                'signatoryTitleEn' => 'Head of Academy',
+                'signatoryTitleAr' => 'رئيس الأكاديمية',
+                'accentColor' => '#0D9488',
+            ],
+            8 => $common + [
+                'titleEn' => 'Star Student Award',
+                'titleAr' => 'شهادة الطالب المتميّز',
+                'presentationEn' => 'Well done! This award goes to',
+                'presentationAr' => 'أحسنت! هذه الشهادة لبطلنا',
+                'bodyEn' => 'For shining effort, beautiful manners and a real love of learning. Keep reaching for the stars!',
+                'bodyAr' => 'لاجتهادك الرائع وأخلاقك الجميلة وحبّك للتعلّم. واصل التألّق يا بطل!',
+                'signatoryTitleEn' => 'Your Teacher',
+                'signatoryTitleAr' => 'معلّمك',
+                'accentColor' => '#EF6C4A',
+            ],
+            default => $common + [
+                'titleEn' => 'Young Hafiz Certificate',
+                'titleAr' => 'شهادة الحافظ الصغير',
+                'presentationEn' => 'Shining bright, this certificate goes to',
+                'presentationAr' => 'بكل فخر تُهدى هذه الشهادة لنجمنا',
+                'bodyEn' => 'For memorising with love and dedication. May the Qur’an light your heart and your path.',
+                'bodyAr' => 'لحفظه بحبٍّ واجتهاد، جعل الله القرآن نورًا لقلبه ودربه.',
+                'signatoryTitleEn' => 'Teacher',
+                'signatoryTitleAr' => 'المعلّم',
+                'accentColor' => '#F4C542',
+            ],
+        };
     }
 }

@@ -145,7 +145,7 @@ function SalarySummaryPanel({
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {range.currencies.map((bucket) => {
         const fmt = (v: number) => formatMoney({ amount: v, currency: bucket.currency }, locale);
 
@@ -238,13 +238,66 @@ function SalaryByTeacher({
 
   return (
     <section className="space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Users className="text-primary size-4" aria-hidden />
         <h2 className="text-sm font-semibold">{t("rangeByTeacher")}</h2>
         <span className="text-muted-foreground text-xs">{t("rangeByTeacherHint")}</span>
       </div>
 
-      <div className="bg-card overflow-x-auto rounded-2xl border shadow-sm">
+      {/* A phone gets one card per teacher: six money columns side by side do not fit, and a
+          salary is read teacher by teacher anyway. */}
+      <ul className="space-y-2 sm:hidden">
+        {range.teachers.map((row) => {
+          const fmt = (v: number) => formatMoney({ amount: v, currency: row.currency }, locale);
+
+          return (
+            <li
+              key={`${row.teacher_id}-${row.currency}`}
+              className="bg-card overflow-hidden rounded-xl border text-sm shadow-sm"
+            >
+              <div className="from-primary/[0.07] flex items-center gap-2.5 border-b bg-gradient-to-r to-transparent px-4 py-3">
+                <span className="bg-primary/10 text-primary flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">
+                  {initials(row.teacher_name)}
+                </span>
+                <span className="min-w-0 flex-1 truncate font-medium">{row.teacher_name ?? "—"}</span>
+                {row.has_open && (
+                  <span className="bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
+                    {t("status.OPEN")}
+                  </span>
+                )}
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 px-4 py-3 text-xs">
+                <div className="min-w-0">
+                  <dt className="text-muted-foreground">{t("rangeTaughtShort")}</dt>
+                  <dd className="mt-0.5 font-medium tabular-nums">{formatHours(row.minutes, locale)}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-muted-foreground">{t("rangeLessons")}</dt>
+                  <dd className="mt-0.5 font-medium break-words tabular-nums">{fmt(row.lessons_minor)}</dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-muted-foreground">{t("rangeRewards")}</dt>
+                  <dd className="mt-0.5 font-medium break-words tabular-nums text-emerald-600 dark:text-emerald-400">
+                    {row.rewards_minor > 0 ? fmt(row.rewards_minor) : "—"}
+                  </dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-muted-foreground">{t("rangeDeductions")}</dt>
+                  <dd className="mt-0.5 font-medium break-words tabular-nums text-red-600 dark:text-red-400">
+                    {row.deductions_minor > 0 ? fmt(row.deductions_minor) : "—"}
+                  </dd>
+                </div>
+              </dl>
+              <div className="bg-muted/25 flex items-center justify-between gap-3 border-t px-4 py-2.5">
+                <span className="text-muted-foreground text-xs">{t("rangePayable")}</span>
+                <span className="font-bold tabular-nums">{fmt(row.net_minor)}</span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      <div className="bg-card hidden overflow-x-auto rounded-2xl border shadow-sm sm:block">
         <table className="w-full text-sm" data-testid="salary-by-teacher">
           <thead className="text-muted-foreground bg-muted/40 text-xs">
             <tr>

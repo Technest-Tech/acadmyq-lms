@@ -145,6 +145,14 @@ export function WeeklyCalendar({
   const [timetables, setTimetables] = useState<TimetableSummary[]>([]);
   const [ttLoading, setTtLoading] = useState(false);
 
+  // Seven hour-columns do not fit a phone, so a phone opens on the agenda. Read after mount —
+  // the server render cannot know the width.
+  useEffect(() => {
+    if (typeof window.matchMedia === "function" && window.matchMedia("(max-width: 639px)").matches) {
+      setView("list");
+    }
+  }, []);
+
   // The fetch window + the title both follow the active view.
   const { from, to, title } = useMemo(() => {
     switch (view) {
@@ -433,7 +441,7 @@ export function WeeklyCalendar({
       {!isTeacher && (
         <div
           role="tablist"
-          className="bg-card flex gap-1 rounded-2xl border p-1.5 shadow-sm"
+          className="bg-card no-scrollbar flex gap-1 overflow-x-auto rounded-2xl border p-1.5 shadow-sm"
         >
           <PageTabButton
             tabKey="calendar"
@@ -774,7 +782,7 @@ function TrialEventCard({
         </div>
       </div>
 
-      <dl className="grid gap-3 sm:grid-cols-2">
+      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <dt className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
             {t("trialEvent.when")}
@@ -945,7 +953,7 @@ function PageTabButton({
       data-testid={`calendar-tab-${tabKey}`}
       onClick={onClick}
       className={cn(
-        "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all",
+        "relative flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-medium transition-all sm:px-4",
         active
           ? "bg-primary/10 text-primary ring-primary/20 ring-1"
           : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",

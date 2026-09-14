@@ -181,7 +181,7 @@ export function SystemTab() {
           <div className="bg-muted h-40 animate-pulse rounded-xl" aria-hidden />
         ) : (
           <>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label={t("system.minInterval")} value={form.minIntervalMs} onChange={(v) => set("minIntervalMs", v)} />
               <Field label={t("system.maxInterval")} value={form.maxIntervalMs} onChange={(v) => set("maxIntervalMs", v)} />
               <Field label={t("system.dailyCap")} value={form.dailyCap} min={1} onChange={(v) => set("dailyCap", v)} />
@@ -193,7 +193,7 @@ export function SystemTab() {
                 <p className="text-sm font-medium">{t("system.warmupTitle")}</p>
               </div>
               <p className="text-muted-foreground mb-3 text-xs">{t("system.warmupHint")}</p>
-              <div className="grid gap-4 sm:grid-cols-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
                 <Field label={t("system.warmupDays")} value={form.warmupDays} onChange={(v) => set("warmupDays", v)} />
                 <Field label={t("system.warmupDailyCap")} value={form.warmupDailyCap} min={1} onChange={(v) => set("warmupDailyCap", v)} />
                 <Field label={t("system.warmupMinInterval")} value={form.warmupMinIntervalMs} onChange={(v) => set("warmupMinIntervalMs", v)} />

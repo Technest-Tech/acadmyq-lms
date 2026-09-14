@@ -75,7 +75,7 @@ export function TeacherCalendar({
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center rounded-xl border bg-card shadow-sm">
             <Button
               type="button"

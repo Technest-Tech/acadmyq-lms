@@ -211,7 +211,7 @@ export function PayoutDetailModal({
             </div>
 
             {/* Ledger breakdown */}
-            <div className="grid gap-2.5 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
               <BreakdownTile
                 icon={CalendarDays}
                 tone="neutral"
@@ -237,8 +237,8 @@ export function PayoutDetailModal({
 
             {/* Session line items */}
             <Section title={t("lineItems")}>
-              <div className="overflow-hidden rounded-xl border">
-                <table className="w-full text-sm">
+              <div className="overflow-x-auto rounded-xl border">
+                <table className="w-full min-w-[30rem] text-sm">
                   <thead>
                     <tr className="bg-muted/30 border-b">
                       <Th>{t("liDate")}</Th>

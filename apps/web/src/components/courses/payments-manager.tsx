@@ -163,7 +163,7 @@ export function PaymentsManager() {
         desc={t("payments.accountsHint")}
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {methods.map((m) => (
           <MethodCard
             key={m.type}
@@ -224,7 +224,7 @@ function MethodCard({
         </label>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {meta.needsNumber && (
           <Field label={t(`payments.number.${method.type}`)}>
             <input

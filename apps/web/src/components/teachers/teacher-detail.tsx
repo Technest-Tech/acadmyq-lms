@@ -256,7 +256,7 @@ export function TeacherDetail({
           Only when this component stands alone (the modal path). Inside the workspace the page
           already carries a hero and a fact strip, so it renders straight into the cards. */}
       {showHero && (
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <FactCard
             icon={isActive ? BadgeCheck : ShieldAlert}
             label={t("filter.status")}
@@ -315,7 +315,7 @@ export function TeacherDetail({
         />
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* ── Identity & pay ─────────────────────────────────────────── */}
         <ProfileCard
           icon={User}

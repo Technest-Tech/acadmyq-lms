@@ -335,7 +335,7 @@ export function DealFormModal({
               data-testid="finance-deal-client"
             />
           ) : (
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <Field
                 label={t("form.clientName")}
                 htmlFor="fin-deal-client-name"
@@ -378,7 +378,7 @@ export function DealFormModal({
         </section>
 
         {/* ── What was sold ──────────────────────────────────────────────── */}
-        <section className="grid gap-4 sm:grid-cols-2">
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field
             label={t("form.title")}
             htmlFor="fin-deal-title"
@@ -575,7 +575,7 @@ export function DealFormModal({
               </span>
             </label>
             {paidNow ? (
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field
                   label={`${t("form.paidAmount")} (${currency})`}
                   htmlFor="fin-deal-paid-amount"

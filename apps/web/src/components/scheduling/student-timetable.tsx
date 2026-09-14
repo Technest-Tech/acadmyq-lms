@@ -94,7 +94,7 @@ export function StudentTimetable({
             </p>
           </div>
 
-          <div className="ms-auto flex items-center gap-1.5">
+          <div className="ms-auto flex flex-wrap items-center justify-end gap-1.5">
             {/* Month nav */}
             <div className="flex items-center gap-1 rounded-xl border bg-muted/30 p-1">
               <button

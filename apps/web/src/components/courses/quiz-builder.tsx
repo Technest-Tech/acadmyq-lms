@@ -178,7 +178,7 @@ export function QuizBuilder({
           </div>
         ) : (
           <>
-            <div className="bg-muted/40 grid gap-4 rounded-xl p-3 sm:grid-cols-2">
+            <div className="bg-muted/40 grid grid-cols-1 gap-4 rounded-xl p-3 sm:grid-cols-2">
               <Field label={t("passMark")}>
                 <input
                   type="number"

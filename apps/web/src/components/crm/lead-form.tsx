@@ -200,7 +200,7 @@ export function LeadForm({
         </datalist>
       </Field>
 
-      <div className="grid gap-5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Field label={t("form.followUp")} hint={t("form.followUpHint")}>
           <div className="relative">
             <CalendarClock className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />

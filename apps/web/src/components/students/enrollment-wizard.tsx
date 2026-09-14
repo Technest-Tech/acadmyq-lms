@@ -402,7 +402,7 @@ export function EnrollmentWizard({
       {packagesAvailable && (
         <div className="space-y-1.5">
           <span className="text-sm font-medium">{t("form.billingTitle")}</span>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <ChoiceCard
               icon={CalendarRange}
               title={t("form.billingMonthly")}
@@ -503,7 +503,7 @@ export function EnrollmentWizard({
       </div>
 
       {/* ── Footer ──────────────────────────────────────────────────────── */}
-      <div className="mt-6 flex items-center justify-between gap-2 border-t pt-4">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t pt-4">
         {step === 0 ? (
           <>
             <Button

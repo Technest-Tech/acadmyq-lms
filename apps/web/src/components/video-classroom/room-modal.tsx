@@ -289,7 +289,7 @@ export function RoomModal({
             </div>
 
             {(teacherOn || studentOn) && (
-              <div className="grid gap-3 pt-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-2">
                 {teacherOn && (
                   <div className="space-y-1.5">
                     <label htmlFor="room-teacher-password" className="flex items-center gap-1.5 text-sm font-medium">
@@ -334,7 +334,7 @@ export function RoomModal({
 
         {/* Options — guest waiting list + allow recording */}
         <Section icon={SlidersHorizontal} title={t("sectionOptions")}>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ToggleRow
               icon={KeyRound}
               title={t("waitingRoom")}

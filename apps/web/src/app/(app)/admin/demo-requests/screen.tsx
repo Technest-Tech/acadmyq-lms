@@ -308,7 +308,7 @@ function DetailModal({
       }
     >
       <div className="space-y-4 text-sm">
-        <dl className="grid gap-3 sm:grid-cols-2">
+        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Row label={t("columns.contact")}>
             <span dir="ltr" className="block">
               {request.phone}
@@ -344,7 +344,7 @@ function DetailModal({
           </p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label
               htmlFor="demo-request-status"

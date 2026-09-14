@@ -214,7 +214,7 @@ export function StaffDetail({ id }: { id: string }) {
       {/* ── Fact strip ───────────────────────────────────────────────────
           Department, pay, phone and tenure — the four things anyone opening a staff file wants,
           previously a single stacked list of rows below a decorative header band. */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <FactCard
           icon={Building2}
           label={t("detail.department")}
@@ -264,14 +264,14 @@ export function StaffDetail({ id }: { id: string }) {
       </div>
 
       {/* ── Record + notes ───────────────────────────────────────────── */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ProfileCard
           icon={UserCircle2}
           title={t("detail.profile")}
           description={t("detail.profileDesc")}
           tone="emerald"
         >
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <DetailRow
               icon={Building2}
               label={t("detail.department")}
@@ -441,15 +441,15 @@ export function StaffDetailSkeleton() {
           size={64}
           className="pointer-events-none absolute inset-0 h-full w-full text-white opacity-[0.16]"
         />
-        <div className="relative flex items-center gap-4 p-6">
+        <div className="relative flex items-center gap-4 p-4 sm:p-6">
           <div className="size-16 shrink-0 animate-pulse rounded-2xl bg-white/20" />
-          <div className="space-y-2">
-            <div className="h-6 w-52 animate-pulse rounded bg-white/25" />
+          <div className="min-w-0 space-y-2">
+            <div className="h-6 w-40 animate-pulse rounded bg-white/25 sm:w-52" />
             <div className="h-4 w-36 animate-pulse rounded bg-white/15" />
           </div>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
@@ -463,7 +463,7 @@ export function StaffDetailSkeleton() {
           </div>
         ))}
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {Array.from({ length: 2 }).map((_, i) => (
           <div key={i} className="bg-card rounded-2xl border shadow-sm">
             <div className="bg-muted/40 h-16 rounded-t-2xl border-b" />

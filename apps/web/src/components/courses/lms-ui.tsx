@@ -197,7 +197,7 @@ export function LmsHero({
   children?: ReactNode;
 }) {
   return (
-    <header className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 p-6 text-white shadow-lg sm:p-7">
+    <header className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 p-5 text-white shadow-lg sm:p-7">
       <svg className="pointer-events-none absolute inset-0 size-full opacity-[0.18]" aria-hidden>
         <defs>
           <pattern id="lms-hero-dots" width="22" height="22" patternUnits="userSpaceOnUse">
@@ -219,7 +219,7 @@ export function LmsHero({
           {eyebrow && (
             <div className="flex items-center gap-2 text-xs font-medium text-white/80">{eyebrow}</div>
           )}
-          <h1 className="mt-1.5 truncate text-2xl font-bold tracking-tight drop-shadow-sm sm:text-[1.7rem]">
+          <h1 className="mt-1.5 text-2xl font-bold tracking-tight break-words drop-shadow-sm sm:truncate sm:text-[1.7rem]">
             {title}
           </h1>
           {subtitle && <p className="mt-1 max-w-2xl text-sm text-white/85">{subtitle}</p>}
@@ -252,7 +252,7 @@ export function PageHeader({
 }) {
   const c = lmsColor(color);
   return (
-    <header className="bg-card relative overflow-hidden rounded-2xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
+    <header className="bg-card relative overflow-hidden rounded-2xl p-4 shadow-sm ring-1 ring-foreground/[0.06] sm:p-5">
       <div className={cn("absolute inset-x-0 top-0 h-1 bg-gradient-to-r", c.stripe)} />
       <div
         className={cn(
@@ -277,7 +277,7 @@ export function PageHeader({
             <Icon className="size-5" />
           </span>
           <div className="min-w-0">
-            <h1 className="truncate text-xl font-bold tracking-tight">{title}</h1>
+            <h1 className="text-xl font-bold tracking-tight break-words sm:truncate">{title}</h1>
             {subtitle && (
               <p className="text-muted-foreground mt-0.5 max-w-2xl text-sm">{subtitle}</p>
             )}
@@ -306,19 +306,19 @@ export function SectionTitle({
 }) {
   const c = lmsColor(color);
   return (
-    <div className="flex items-end justify-between gap-4">
-      <div className="flex items-center gap-2.5">
+    <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+      <div className="flex min-w-0 items-center gap-2.5">
         {Icon && (
           <span
             className={cn(
-              "flex size-8 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm",
+              "flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm",
               c.chip,
             )}
           >
             <Icon className="size-4" />
           </span>
         )}
-        <div>
+        <div className="min-w-0">
           <h2 className="text-base font-bold tracking-tight">{title}</h2>
           {desc && <p className="text-muted-foreground mt-0.5 text-xs">{desc}</p>}
         </div>
@@ -399,7 +399,7 @@ export function StatCard({
           </>
         ) : (
           <>
-            <p className="text-2xl font-bold tracking-tight tabular-nums">
+            <p className="text-xl font-bold tracking-tight break-words tabular-nums sm:text-2xl">
               {typeof value === "number" && animate ? (
                 <CountUp value={value} locale={locale} />
               ) : typeof value === "number" ? (
@@ -515,8 +515,8 @@ export function Panel({
       )}
     >
       {title && (
-        <div className="flex items-center justify-between gap-3 border-b px-5 py-3.5">
-          <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3.5 sm:px-5">
+          <h2 className="flex min-w-0 items-center gap-2 text-sm font-bold tracking-tight">
             {Icon && (
               <span
                 className={cn(
@@ -532,7 +532,7 @@ export function Panel({
           {action}
         </div>
       )}
-      <div className={flush ? "" : "p-5"}>{children}</div>
+      <div className={flush ? "" : "p-4 sm:p-5"}>{children}</div>
     </section>
   );
 }
@@ -667,7 +667,8 @@ export function SegmentedFilter<T extends string>({
   locale: string;
 }) {
   return (
-    <div className="bg-muted/60 inline-flex items-center gap-0.5 rounded-xl p-1">
+    // `max-w-full` + a sideways scroll: four counted segments are wider than a phone.
+    <div className="bg-muted/60 no-scrollbar inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-xl p-1">
       {options.map((o) => {
         const active = o.value === value;
         return (
@@ -677,7 +678,7 @@ export function SegmentedFilter<T extends string>({
             aria-pressed={active}
             onClick={() => onChange(o.value)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-all",
+              "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all",
               active
                 ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",

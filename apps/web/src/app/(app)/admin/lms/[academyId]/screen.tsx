@@ -192,7 +192,7 @@ export function AdminLmsAcademyScreen({ academyId }: { academyId: string }) {
           </div>
 
           {/* Controls */}
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <SiteCard detail={detail} academyId={academyId} onSaved={setDetail} />
             <LimitsCard
               key={JSON.stringify(detail.academy.lms_overrides)}

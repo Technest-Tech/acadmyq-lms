@@ -361,7 +361,7 @@ export function PackagesManager() {
             {t("finance.currencyNote")}
           </span>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <FinanceTile
             icon={Timer}
             label={t("finance.activeValue")}
@@ -449,7 +449,7 @@ export function PackagesManager() {
           </p>
         )}
 
-        <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {visible.map((row) => (
             <PackageCard
               key={row.id}

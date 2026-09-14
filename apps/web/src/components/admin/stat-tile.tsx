@@ -50,7 +50,11 @@ export function StatTile({
       {loading ? (
         <div className="bg-muted mt-2 h-7 w-16 animate-pulse rounded-md" aria-hidden />
       ) : (
-        <p className="mt-1.5 truncate text-2xl font-bold tracking-tight tabular-nums" dir="ltr">
+        // Wraps on a phone: two tiles abreast are ~150px, and a cut-off MRR reads as a different one.
+        <p
+          className="mt-1.5 text-xl font-bold tracking-tight break-words tabular-nums sm:truncate sm:text-2xl"
+          dir="ltr"
+        >
           {value}
         </p>
       )}

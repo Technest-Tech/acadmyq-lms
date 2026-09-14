@@ -213,7 +213,7 @@ export function GuardianDetail({
           The three things anyone opening a guardian wants: are they live, how do we reach them,
           and what currency do we invoice them in. Previously a row of pills on a grey hero, at
           the same weight as everything else on the page. */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <FactCard
           icon={isActive ? Check : ShieldAlert}
           label={t("colStatus")}
@@ -284,7 +284,7 @@ export function GuardianDetail({
               </div>
             </Field>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label={t("form.country")}>
                 <div className="relative">
                   <Globe className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />

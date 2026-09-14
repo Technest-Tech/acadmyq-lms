@@ -286,7 +286,7 @@ function QualityStats({
 
   if (summary === null) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
           <div key={i} className="bg-card h-[92px] animate-pulse rounded-2xl border shadow-sm" aria-hidden />
         ))}
@@ -297,7 +297,7 @@ function QualityStats({
   const tone = scoreTone(summary.avg_score);
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <div className="bg-card flex items-center gap-3 rounded-2xl border p-4 shadow-sm">
         <ScoreRing score={summary.avg_score} size={44} />
         <div className="min-w-0">

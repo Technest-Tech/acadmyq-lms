@@ -620,7 +620,7 @@ function AddLessonPanel({
             {t("detail.newHint")}
           </p>
 
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="flex flex-col gap-1">
               <span className="text-muted-foreground text-[11px] font-medium">
                 {t("detail.fieldWhen")}

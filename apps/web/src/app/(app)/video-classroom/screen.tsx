@@ -718,7 +718,7 @@ export function VideoClassroomScreen() {
         {/* Toolbar: search + filters + view toggle (only once there are rooms to act on) */}
         {hasRooms && (
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative min-w-48 flex-1">
+            <div className="relative min-w-full flex-1 sm:min-w-48">
               <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" />
               <input
                 type="search"
@@ -762,8 +762,9 @@ export function VideoClassroomScreen() {
                 testId="filter-recording"
               />
             )}
-            {/* Cards ⇄ Table toggle */}
-            <div className="bg-muted/60 ms-auto inline-flex rounded-lg p-0.5" role="group" aria-label={t("viewLabel")}>
+            {/* Cards ⇄ Table toggle. A seven-column table is no view for a phone, so it stays on
+                the cards there. */}
+            <div className="bg-muted/60 ms-auto hidden rounded-lg p-0.5 sm:inline-flex" role="group" aria-label={t("viewLabel")}>
               {(["cards", "table"] as const).map((v) => (
                 <button
                   key={v}
@@ -788,7 +789,7 @@ export function VideoClassroomScreen() {
         )}
 
         {rooms === null ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="bg-card h-64 animate-pulse rounded-2xl border shadow-sm" aria-hidden />
             ))}
@@ -801,7 +802,7 @@ export function VideoClassroomScreen() {
         ) : visibleRooms.length === 0 ? (
           <EmptyState title={t("noResults")} />
         ) : view === "cards" ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="video-rooms">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="video-rooms">
             {visibleRooms.map((room) => (
               <article
                 key={room.id}
@@ -894,7 +895,7 @@ export function VideoClassroomScreen() {
             <EmptyState title={t("recordingsEmpty")} />
           ) : (
             <div
-              className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
               data-testid="video-recordings"
             >
               {recordings.map((rec) => {

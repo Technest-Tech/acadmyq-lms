@@ -96,7 +96,7 @@ export function NewClientScreen() {
         <h2 className="text-sm font-semibold">{t("typeTitle")}</h2>
         <p className="text-muted-foreground mt-0.5 text-xs">{t("typeHint")}</p>
 
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {CLIENT_TYPES.map((type) => {
             const Icon = TYPE_ICON[type];
             const selected = clientType === type;

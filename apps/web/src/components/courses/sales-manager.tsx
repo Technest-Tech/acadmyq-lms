@@ -228,7 +228,7 @@ export function SalesManager() {
 
       {/* The money, then the queue. Pending receipts is first because it is the only tile that asks
           the client to do something. */}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           Icon={Receipt}
           color="amber"
@@ -316,7 +316,7 @@ export function SalesManager() {
       )}
 
       <Panel flush>
-        <div className="flex flex-wrap items-center gap-3 border-b px-5 py-3.5">
+        <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3.5 sm:px-5">
           <SegmentedFilter<Tab>
             value={tab}
             onChange={setTab}
@@ -333,11 +333,11 @@ export function SalesManager() {
             value={search}
             onChange={setSearch}
             placeholder={t("sales.searchPlaceholder")}
-            className="min-w-56 flex-1"
+            className="min-w-full flex-1 sm:min-w-56"
           />
         </div>
 
-        <div className="flex flex-wrap items-end gap-3 border-b px-5 py-3">
+        <div className="flex flex-wrap items-end gap-3 border-b px-4 py-3 sm:px-5">
           <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs font-semibold">
             <Filter className="size-3.5" />
             {t("sales.filters")}
@@ -345,7 +345,7 @@ export function SalesManager() {
           <select
             value={courseId}
             onChange={(e) => setCourseId(e.target.value)}
-            className={cn(selectClass, "h-8 w-auto min-w-44 text-xs")}
+            className={cn(selectClass, "h-8 w-full min-w-0 text-xs sm:w-auto sm:min-w-44")}
           >
             <option value="">{t("sales.allCourses")}</option>
             {courses.map((c) => (
@@ -359,14 +359,14 @@ export function SalesManager() {
             value={from}
             onChange={(e) => setFrom(e.target.value)}
             aria-label={t("sales.from")}
-            className={cn(inputClass, "h-8 w-auto text-xs")}
+            className={cn(inputClass, "h-8 w-auto min-w-0 flex-1 text-xs sm:flex-none")}
           />
           <input
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
             aria-label={t("sales.to")}
-            className={cn(inputClass, "h-8 w-auto text-xs")}
+            className={cn(inputClass, "h-8 w-auto min-w-0 flex-1 text-xs sm:flex-none")}
           />
           {(courseId || from || to) && (
             <button
@@ -384,7 +384,51 @@ export function SalesManager() {
           )}
         </div>
 
-        <div className="overflow-x-auto">
+        {/* The queue as cards on a phone — buyer, amount, status and the review button in one
+            glance, instead of a seven-column table whose action sits off the edge. */}
+        {!loading && rows.length > 0 && (
+          <ul className="divide-y sm:hidden">
+            {rows.map((r) => (
+              <li key={r.id} className="space-y-2.5 px-4 py-3.5">
+                <div className="flex items-start gap-2.5">
+                  <InitialsAvatar name={r.buyer_name || r.buyer_email || "?"} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{r.buyer_name || "—"}</p>
+                    <p className="text-muted-foreground truncate text-xs" dir="auto">
+                      {r.item_title ?? r.course_title ?? "—"}
+                      {r.item_type === "PRODUCT" && ` · ${t("sales.itemBook")}`}
+                    </p>
+                  </div>
+                  <StatusPill tone={STATUS_TONE[r.status]}>{t(`sales.status.${r.status}`)}</StatusPill>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold tabular-nums">
+                      {formatMoney({ amount: r.price_minor, currency: r.currency }, locale)}
+                    </p>
+                    <p className="text-muted-foreground truncate text-[11px]">
+                      {r.payment_method_type ? t(`sales.method.${r.payment_method_type}`) : "—"}
+                      {" · "}
+                      {fmtDate(r.created_at, locale)}
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setOpenId(r.id)}>
+                    {r.receipt_count ? (
+                      <>
+                        <Receipt className="size-3.5" />
+                        {t("sales.review")}
+                      </>
+                    ) : (
+                      t("sales.open")
+                    )}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className={cn("overflow-x-auto", !loading && rows.length > 0 && "hidden sm:block")}>
           <table className="w-full text-sm">
             <thead className={tableHeadClass}>
               <tr>
@@ -469,7 +513,7 @@ export function SalesManager() {
         </div>
 
         {pages > 1 && (
-          <div className="flex items-center justify-between gap-3 border-t px-5 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 sm:px-5">
             <p className="text-muted-foreground text-xs">
               {t("sales.pageOf", { page, pages, total: formatNumber(total, locale) })}
             </p>
@@ -672,7 +716,7 @@ function OrderDrawer({
           )}
         </div>
       ) : (
-        <div className="grid gap-5 lg:grid-cols-[1fr_1.1fr]">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.1fr]">
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <StatusPill tone={STATUS_TONE[order.status]}>{t(`sales.status.${order.status}`)}</StatusPill>

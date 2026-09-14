@@ -453,7 +453,7 @@ function AdjustmentStats({
 
   if (summary === null) {
     return (
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[0, 1, 2].map((i) => (
           <div key={i} className="bg-card h-[92px] animate-pulse rounded-2xl border shadow-sm" aria-hidden />
         ))}
@@ -462,7 +462,7 @@ function AdjustmentStats({
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <MoneyTile
         tone="reward"
         icon={TrendingUp}

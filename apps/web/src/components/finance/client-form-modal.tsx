@@ -134,7 +134,7 @@ export function ClientFormModal({
         </div>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field
           label={t("clients.form.name")}
           htmlFor="fin-client-name"

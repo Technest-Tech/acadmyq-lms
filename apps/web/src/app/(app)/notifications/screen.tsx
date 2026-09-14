@@ -151,7 +151,7 @@ export function NotificationsScreen() {
       {/* ── Tabs ─────────────────────────────────────────────────────── */}
       <div
         role="tablist"
-        className="bg-card flex gap-1 rounded-2xl border p-1.5 shadow-sm"
+        className="bg-card no-scrollbar flex gap-1 overflow-x-auto rounded-2xl border p-1.5 shadow-sm"
       >
         {TABS.map(({ key, icon: Icon, count }) => (
           <button
@@ -162,7 +162,7 @@ export function NotificationsScreen() {
             data-testid={`tab-${key}`}
             onClick={() => setTab(key)}
             className={cn(
-              "relative flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all",
+              "relative flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-medium transition-all sm:px-4",
               tab === key
                 ? "bg-primary/10 text-primary ring-primary/20 ring-1"
                 : "hover:bg-muted/60 hover:text-foreground text-muted-foreground",
@@ -301,7 +301,7 @@ function RequestCard({
       data-status={r.status}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
           {isFree ? (
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-teal-100 ring-1 ring-teal-200/60 dark:bg-teal-950/40">
               <Gift
@@ -491,11 +491,11 @@ function ReportsTab({
               data-testid="report-card"
               data-unread={unread}
               className={cn(
-                "bg-card flex items-start justify-between gap-3 rounded-2xl border p-4",
+                "bg-card flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-start sm:justify-between",
                 unread && "border-primary/30 bg-primary/[0.03]",
               )}
             >
-              <div className="flex items-start gap-3">
+              <div className="flex min-w-0 items-start gap-3">
                 <div className="bg-amber-100 ring-amber-200/60 dark:bg-amber-950/40 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1">
                   <ClipboardX
                     className="size-5 text-amber-700 dark:text-amber-400"
@@ -528,7 +528,7 @@ function ReportsTab({
                   size="sm"
                   onClick={() => void markRead(n.id)}
                   data-testid="mark-read"
-                  className="shrink-0 gap-1.5"
+                  className="shrink-0 gap-1.5 self-end sm:self-auto"
                 >
                   <Check className="size-3.5" />
                   {t("actions.markRead")}
@@ -618,12 +618,12 @@ function PackagesTab({
               data-testid="package-alert"
               data-unread={unread}
               className={cn(
-                "bg-card flex items-start justify-between gap-3 rounded-2xl border p-4",
+                "bg-card flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-start sm:justify-between",
                 unread && "border-primary/30 bg-primary/[0.03]",
                 alarming && "border-destructive/30",
               )}
             >
-              <div className="flex items-start gap-3">
+              <div className="flex min-w-0 items-start gap-3">
                 <div
                   className={cn(
                     "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1",
@@ -672,7 +672,7 @@ function PackagesTab({
                   variant="ghost"
                   size="sm"
                   onClick={() => void markRead(n.id)}
-                  className="shrink-0 gap-1.5"
+                  className="shrink-0 gap-1.5 self-end sm:self-auto"
                 >
                   <Check className="size-3.5" />
                   {t("actions.markRead")}

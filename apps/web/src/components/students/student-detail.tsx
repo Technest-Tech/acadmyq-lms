@@ -427,7 +427,7 @@ export function ProfileSection({
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2" data-testid="student-profile">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="student-profile">
       <ProfileCard
         icon={UserCircle2}
         title={t("profile.identityTitle")}
@@ -532,7 +532,7 @@ function GuardianCard({ data }: { data: StudentDetailData }) {
               {t("form.selfGuardianBadge")}
             </p>
           )}
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <DetailRow
               icon={UserCircle2}
               label={t("form.guardian")}
@@ -868,7 +868,7 @@ export function SubscriptionSection({
             </p>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t("subscription.priceHourly")}>
               <div className="relative">
                 <Banknote className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
@@ -1020,7 +1020,7 @@ export function TeacherSection({
 
   return (
     <div className="space-y-4" data-testid="student-teacher">
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ProfileCard
           icon={GraduationCap}
           title={t("teacher.current")}

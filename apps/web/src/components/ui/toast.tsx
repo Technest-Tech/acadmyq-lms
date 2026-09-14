@@ -80,7 +80,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {mounted &&
         createPortal(
           <div
-            className={`pointer-events-none fixed end-4 z-[100] flex w-full max-w-sm flex-col gap-2 ${
+            // `inset-x-4` on a phone: a full-width column pinned 1rem from one edge would hang
+            // 1rem off the other.
+            className={`pointer-events-none fixed inset-x-4 z-[100] flex flex-col gap-2 sm:start-auto sm:end-4 sm:w-full sm:max-w-sm ${
               isDesktop ? "top-14" : "top-4"
             }`}
             role="region"

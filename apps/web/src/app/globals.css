@@ -337,6 +337,32 @@
   .scroll-ornate::-webkit-scrollbar-corner {
     background: transparent;
   }
+
+  /*
+   * A strip that scrolls sideways without drawing a bar — segmented tabs and chip rows on a phone.
+   * The row still pans under a finger or a trackpad; the bar would only sit under the labels and
+   * read as a stray rule.
+   */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/*
+ * iOS Safari zooms the whole page in when a field under 16px takes focus, and does not zoom back
+ * out — the panel is left cropped mid-form. Every field in the app is 13–14px, so on iOS alone
+ * (`-webkit-touch-callout` is WebKit-on-iOS only) they are lifted to 16px. Deliberately unlayered:
+ * it has to beat the `text-sm` utility on each field.
+ */
+@supports (-webkit-touch-callout: none) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 /*

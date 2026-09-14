@@ -101,7 +101,12 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   return (
-    <div className={cn("bg-muted/70 flex items-center gap-0.5 rounded-lg p-0.5", className)}>
+    <div
+      className={cn(
+        "bg-muted/70 no-scrollbar flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg p-0.5",
+        className,
+      )}
+    >
       {items.map((item) => {
         const active = item.value === value;
         return (
@@ -113,7 +118,7 @@ export function Segmented<T extends string>({
             title={iconOnly ? item.label : undefined}
             aria-label={iconOnly ? item.label : undefined}
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all",
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-all",
               active
                 ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",

@@ -125,7 +125,7 @@ export function LmsDashboardScreen() {
           title={t("sections.overview")}
           desc={t("sections.overviewDesc")}
         />
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <StatCard
             Icon={BookOpen}
             color="violet"
@@ -227,7 +227,7 @@ export function LmsDashboardScreen() {
       </section>
 
       {/* ── Storage + quick actions ── */}
-      <section className="grid gap-4 lg:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <StatCard
           Icon={HardDrive}
           color="slate"
@@ -269,7 +269,7 @@ export function LmsDashboardScreen() {
           title={t("sections.activity")}
           desc={t("sections.activityDesc")}
         />
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Panel
             Icon={BookOpen}
             color="violet"

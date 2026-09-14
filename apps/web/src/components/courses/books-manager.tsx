@@ -249,7 +249,7 @@ export function BooksManager() {
       </div>
 
       {loading && rows.length === 0 ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div
               key={i}
@@ -298,7 +298,7 @@ export function BooksManager() {
           )}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {rows.map((b) => (
             <BookCard
               key={b.id}
@@ -911,7 +911,7 @@ function AddFileRow({
 
   return (
     <div className="border-input space-y-3 rounded-xl border border-dashed p-3">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label={t("files.newTitle")}>
           <input
             className={inputClass}

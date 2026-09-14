@@ -233,33 +233,35 @@ function ChildLessonsCard({
           </p>
         </div>
       </div>
-      {/* Lessons */}
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-muted-foreground bg-muted/10 border-b">
-            <th className="px-4 py-2 text-start text-[11px] font-semibold uppercase tracking-wide">
-              {t("liDate")}
-            </th>
-            <th className="px-4 py-2 text-start text-[11px] font-semibold uppercase tracking-wide">
-              {t("liTeacher")}
-            </th>
-            <th className="px-4 py-2 text-start text-[11px] font-semibold uppercase tracking-wide">
-              {t("liStatus")}
-            </th>
-            <th className="px-4 py-2 text-end text-[11px] font-semibold uppercase tracking-wide">
-              {t("liDuration")}
-            </th>
-            <th className="px-4 py-2 text-end text-[11px] font-semibold uppercase tracking-wide">
-              {t("liAmount")}
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {group.lines.map((li) => (
-            <LessonRow key={li.id} li={li} showStudent={false} />
-          ))}
-        </tbody>
-      </table>
+      {/* Lessons — five columns are wider than a phone's sheet, so the table pans sideways there. */}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[30rem] text-sm">
+          <thead>
+            <tr className="text-muted-foreground bg-muted/10 border-b">
+              <th className="px-4 py-2 text-start text-[11px] font-semibold uppercase tracking-wide">
+                {t("liDate")}
+              </th>
+              <th className="px-4 py-2 text-start text-[11px] font-semibold uppercase tracking-wide">
+                {t("liTeacher")}
+              </th>
+              <th className="px-4 py-2 text-start text-[11px] font-semibold uppercase tracking-wide">
+                {t("liStatus")}
+              </th>
+              <th className="px-4 py-2 text-end text-[11px] font-semibold uppercase tracking-wide">
+                {t("liDuration")}
+              </th>
+              <th className="px-4 py-2 text-end text-[11px] font-semibold uppercase tracking-wide">
+                {t("liAmount")}
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {group.lines.map((li) => (
+              <LessonRow key={li.id} li={li} showStudent={false} />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -612,8 +614,8 @@ export function InvoiceDetailModal({
             ) : (
               <div>
                 <h3 className="mb-2 text-sm font-semibold">{t("lessons")}</h3>
-                <div className="overflow-hidden rounded-xl border">
-                  <table className="w-full text-sm">
+                <div className="overflow-x-auto rounded-xl border">
+                  <table className="w-full min-w-[30rem] text-sm">
                     <thead>
                       <tr className="bg-muted/30 border-b">
                         <th className="text-muted-foreground px-4 py-2.5 text-start text-xs font-semibold uppercase tracking-wide">

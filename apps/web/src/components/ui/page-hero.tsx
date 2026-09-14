@@ -38,7 +38,7 @@ export function PageHero({
 }) {
   return (
     <header
-      className="relative overflow-hidden rounded-2xl border border-transparent p-5 text-white shadow-lg sm:p-6"
+      className="relative overflow-hidden rounded-2xl border border-transparent p-4 text-white shadow-lg sm:p-6"
       style={{
         background:
           "linear-gradient(135deg, oklch(0.30 0.065 163) 0%, oklch(0.38 0.105 168) 48%, oklch(0.32 0.085 196) 100%)",
@@ -61,18 +61,19 @@ export function PageHero({
       )}
 
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-4">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           {avatarName !== undefined ? (
             <HeroAvatar name={avatarName} />
           ) : (
             Icon && (
-              <div className="ring-gold/40 flex size-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 backdrop-blur-sm">
-                <Icon className="size-6" aria-hidden />
+              <div className="ring-gold/40 flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 backdrop-blur-sm sm:size-12">
+                <Icon className="size-5 sm:size-6" aria-hidden />
               </div>
             )
           )}
           <div className="min-w-0">
-            <h1 className="truncate text-2xl font-bold leading-tight tracking-tight drop-shadow-sm">
+            {/* A phone wraps the title rather than cutting a student's name off mid-word. */}
+            <h1 className="text-xl font-bold leading-tight tracking-tight break-words drop-shadow-sm sm:truncate sm:text-2xl">
               {title}
             </h1>
             {subtitle && <p className="mt-0.5 text-sm text-white/85">{subtitle}</p>}
@@ -101,7 +102,7 @@ function HeroAvatar({ name }: { name: string }) {
 
   return (
     <div className="relative shrink-0">
-      <div className="ring-gold/45 flex size-16 items-center justify-center rounded-2xl bg-white/15 text-xl font-bold ring-1 backdrop-blur-sm">
+      <div className="ring-gold/45 flex size-14 items-center justify-center rounded-2xl bg-white/15 text-lg font-bold ring-1 backdrop-blur-sm sm:size-16 sm:text-xl">
         {initials}
       </div>
       <Octagram className="text-gold absolute -bottom-1 -end-1 size-4 drop-shadow" />

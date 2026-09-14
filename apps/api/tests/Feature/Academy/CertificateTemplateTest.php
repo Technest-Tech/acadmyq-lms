@@ -20,19 +20,23 @@ beforeEach(function () {
     $this->ownerA = $this->makeUser($this->A, 'ACADEMY_OWNER');
 });
 
-// ── Both templates are returned, with defaults filled and the academy name pre-filled ──
-it('returns two templates with defaults for an academy that never edited them', function () {
+// ── Every design is returned, with defaults filled and the academy name pre-filled ──
+it('returns every design with defaults for an academy that never edited them', function () {
     Sanctum::actingAs($this->ownerA);
 
     $templates = $this->getJson('/api/certificate-templates')->assertOk()->json('templates');
 
-    expect($templates)->toHaveCount(2);
-    expect(collect($templates)->pluck('templateNumber')->all())->toBe([1, 2]);
+    expect($templates)->toHaveCount(9);
+    expect(collect($templates)->pluck('templateNumber')->all())->toBe([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(collect($templates)->pluck('customized')->unique()->all())->toBe([false]);
 
     $first = $templates[0];
     expect($first['content']['titleEn'])->toBe('Certificate of Achievement');
     expect($first['content']['academyNameEn'])->toBe('Al-Falah Academy');
     expect($first['content']['accentColor'])->toBe('#C9A227');
+    expect($first['content']['showLogo'])->toBeTrue();
+    // Each design ships its own wording.
+    expect(collect($templates)->pluck('content.titleEn')->unique())->toHaveCount(9);
 
     // Defaults are NOT persisted until an explicit save.
     $this->asAcademy($this->A);
@@ -81,7 +85,56 @@ it('upserts the same template row on repeated saves', function () {
 // ── An unknown template number is a 404 ──
 it('rejects an unknown template number', function () {
     Sanctum::actingAs($this->ownerA);
-    $this->putJson('/api/certificate-templates/3', ['titleEn' => 'x'])->assertNotFound();
+    $this->putJson('/api/certificate-templates/0', ['titleEn' => 'x'])->assertNotFound();
+    $this->putJson('/api/certificate-templates/10', ['titleEn' => 'x'])->assertNotFound();
+});
+
+// ── A design beyond the original two saves like any other ──
+it('saves a design from the extended catalogue', function () {
+    Sanctum::actingAs($this->ownerA);
+
+    $this->putJson('/api/certificate-templates/9', [
+        'titleEn' => 'Juz Amma Star',
+        'signatory2NameEn' => 'Ustadha Maryam',
+        'signatory2TitleEn' => 'Class Teacher',
+        'showLogo' => false,
+    ])->assertOk();
+
+    $nine = collect($this->getJson('/api/certificate-templates')->json('templates'))->firstWhere('templateNumber', 9);
+    expect($nine['customized'])->toBeTrue();
+    expect($nine['content']['titleEn'])->toBe('Juz Amma Star');
+    expect($nine['content']['signatory2NameEn'])->toBe('Ustadha Maryam');
+    expect($nine['content']['showLogo'])->toBeFalse();
+    // The design's own defaults travel alongside, untouched by the save.
+    expect($nine['defaults']['titleEn'])->toBe('Young Hafiz Certificate');
+});
+
+// ── Designs the academy never opened inherit its brand, but keep their own wording ──
+it('carries the latest saved brand into designs the academy has not edited', function () {
+    Sanctum::actingAs($this->ownerA);
+
+    $this->putJson('/api/certificate-templates/1', [
+        'academyNameEn' => 'Al-Falah Qur’an School',
+        'signatoryNameEn' => 'Sheikh Ahmad',
+        'signatoryTitleEn' => 'Principal',
+        'titleEn' => 'Only on Al-Noor',
+    ])->assertOk();
+
+    $templates = collect($this->getJson('/api/certificate-templates')->json('templates'));
+    $four = $templates->firstWhere('templateNumber', 4);
+
+    expect($four['customized'])->toBeFalse();
+    expect($four['content']['academyNameEn'])->toBe('Al-Falah Qur’an School');
+    expect($four['content']['signatoryNameEn'])->toBe('Sheikh Ahmad');
+    expect($four['content']['signatoryTitleEn'])->toBe('Principal');
+    expect($four['content']['titleEn'])->toBe('Certificate of Completion');
+});
+
+// ── showLogo must be a boolean ──
+it('rejects a non-boolean logo toggle', function () {
+    Sanctum::actingAs($this->ownerA);
+    $this->putJson('/api/certificate-templates/1', ['showLogo' => 'sometimes'])
+        ->assertStatus(422)->assertJsonValidationErrors('showLogo');
 });
 
 // ── A malformed accent colour is rejected ──

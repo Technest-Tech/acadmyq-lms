@@ -67,7 +67,7 @@ export function TeacherStudentSessions({
   return (
     <div className="space-y-4">
       {/* Month nav */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center rounded-xl border bg-card shadow-sm">
           <Button
             type="button"

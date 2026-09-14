@@ -366,7 +366,7 @@ export function StudentForm({
       {choosable ? (
         <div className="space-y-1.5">
           <span className="text-sm font-medium">{t("form.intentTitle")}</span>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <ChoiceCard
               icon={Zap}
               title={t("form.intentTrial")}
@@ -429,7 +429,7 @@ export function StudentForm({
           answers are equally ordinary — an adult booking for themselves is not "the exception". */}
       <div className="space-y-1.5">
         <span className="text-sm font-medium">{t("form.guardianMode")}</span>
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <ChoiceCard
             icon={Users}
             title={t("form.guardianModeFamily")}
@@ -527,7 +527,7 @@ export function StudentForm({
             </div>
 
             {packagesAvailable && (
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <ChoiceCard
                   icon={CalendarRange}
                   title={t("form.billingMonthly")}
@@ -550,7 +550,7 @@ export function StudentForm({
             {onPackage ? (
               <PackageTermsFields terms={terms} idPrefix="new-student-pkg" />
             ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label={t("subscription.priceHourly")} required>
                 <div className="relative">
                   <Banknote className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />

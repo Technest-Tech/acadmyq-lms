@@ -211,9 +211,10 @@ function RoomLogModal({ academyId, room, onClose }: { academyId: string; room: V
   const fmtDur = (s: number | null) => (s === null ? null : s >= 60 ? `${Math.round(s / 60)}m` : `${s}s`);
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-card max-h-[85dvh] w-full max-w-2xl overflow-hidden rounded-2xl border shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b px-5 py-4">
+    // A bottom sheet on a phone, like the shared Modal.
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
+      <div className="bg-card max-h-[92dvh] w-full max-w-2xl overflow-hidden rounded-t-2xl border shadow-xl sm:max-h-[85dvh] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-4 sm:px-5">
           <div>
             <h2 className="text-sm font-semibold">{room.name}</h2>
             <p className="text-muted-foreground text-xs">{t("roomLog.title")}</p>
@@ -223,7 +224,7 @@ function RoomLogModal({ academyId, room, onClose }: { academyId: string; room: V
           </button>
         </div>
 
-        <div className="max-h-[70dvh] space-y-5 overflow-y-auto p-5">
+        <div className="max-h-[75dvh] space-y-5 overflow-y-auto p-4 sm:max-h-[70dvh] sm:p-5">
           {failed ? (
             <AlertBanner variant="error" message={t("loadError")} />
           ) : log === null ? (

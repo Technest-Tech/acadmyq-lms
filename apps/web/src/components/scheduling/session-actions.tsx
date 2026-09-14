@@ -276,7 +276,7 @@ export function SessionActions({
 
       {/* ── What do you want to do? ───────────────────────────────────── */}
       {showPicker && mode === null && (
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <ActionTile
             Icon={ClipboardCheck}
             label={t("actions.attendance")}
@@ -364,7 +364,7 @@ export function SessionActions({
             <span className="text-muted-foreground text-xs font-medium">
               {t("actions.cancelWho")}
             </span>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Button
                 type="button"
                 variant="destructive"

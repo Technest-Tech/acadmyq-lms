@@ -17,7 +17,7 @@ export function GuideTab() {
   const steps = [t("guide.step1"), t("guide.step2"), t("guide.step3"), t("guide.step4")];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {/* Statuses legend */}
       <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">

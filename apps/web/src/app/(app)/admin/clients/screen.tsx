@@ -133,7 +133,7 @@ export function ClientsScreen() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2.5">
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search
             className="text-muted-foreground absolute inset-y-0 start-2.5 my-auto size-4"
             aria-hidden
@@ -143,11 +143,11 @@ export function ClientsScreen() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("searchPlaceholder")}
-            className="bg-card focus-visible:ring-ring/50 h-9 w-64 max-w-full rounded-lg border ps-8 pe-3 text-sm outline-none focus-visible:ring-2"
+            className="bg-card focus-visible:ring-ring/50 h-9 w-full max-w-full rounded-lg border ps-8 pe-3 text-sm outline-none focus-visible:ring-2 sm:w-64"
           />
         </div>
 
-        <div className="bg-card inline-flex overflow-hidden rounded-lg border text-xs font-medium">
+        <div className="bg-card no-scrollbar inline-flex max-w-full overflow-x-auto rounded-lg border text-xs font-medium">
           {(["ALL", "ACTIVE", "TRIAL", "SUSPENDED"] as const).map((s) => (
             <button
               key={s}
@@ -155,7 +155,7 @@ export function ClientsScreen() {
               onClick={() => setStatus(s)}
               aria-pressed={status === s}
               className={cn(
-                "px-3 py-2 transition-colors",
+                "shrink-0 whitespace-nowrap px-3 py-2 transition-colors",
                 status === s
                   ? "bg-primary/10 text-primary font-semibold"
                   : "text-muted-foreground hover:bg-accent",
@@ -169,13 +169,13 @@ export function ClientsScreen() {
           ))}
         </div>
 
-        <div className="bg-card inline-flex overflow-hidden rounded-lg border text-xs font-medium">
+        <div className="bg-card no-scrollbar inline-flex max-w-full overflow-x-auto rounded-lg border text-xs font-medium">
           <button
             type="button"
             onClick={() => setModuleFilter("ALL")}
             aria-pressed={moduleFilter === "ALL"}
             className={cn(
-              "px-3 py-2 transition-colors",
+              "shrink-0 whitespace-nowrap px-3 py-2 transition-colors",
               moduleFilter === "ALL"
                 ? "bg-primary/10 text-primary font-semibold"
                 : "text-muted-foreground hover:bg-accent",
@@ -190,7 +190,7 @@ export function ClientsScreen() {
               onClick={() => setModuleFilter(code)}
               aria-pressed={moduleFilter === code}
               className={cn(
-                "px-3 py-2 transition-colors",
+                "shrink-0 whitespace-nowrap px-3 py-2 transition-colors",
                 moduleFilter === code
                   ? "bg-primary/10 text-primary font-semibold"
                   : "text-muted-foreground hover:bg-accent",
@@ -203,16 +203,18 @@ export function ClientsScreen() {
       </div>
 
       {/* Roster */}
+      {/* On a phone the roster sheds its secondary columns (modules move under the name, the row
+          itself is the link) instead of scrolling a 720px table sideways. */}
       <TableCard>
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full text-sm sm:min-w-[720px]">
           <thead>
             <tr className={TR_HEAD}>
               <Th>{t("table.client")}</Th>
-              <Th>{t("table.modules")}</Th>
+              <Th className="hidden sm:table-cell">{t("table.modules")}</Th>
               <Th>{t("table.status")}</Th>
               <Th>{t("table.monthly")}</Th>
-              <Th>{t("table.people")}</Th>
-              <Th />
+              <Th className="hidden sm:table-cell">{t("table.people")}</Th>
+              <Th className="hidden sm:table-cell" />
             </tr>
           </thead>
             <tbody>
@@ -238,15 +240,18 @@ export function ClientsScreen() {
                     className="hover:bg-accent/50 cursor-pointer border-b transition-colors last:border-b-0"
                   >
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="font-semibold">{c.name}</span>
                         <StatusChip tone="neutral">{t(`type.${c.client_type}`)}</StatusChip>
                       </div>
-                      <div className="text-muted-foreground text-xs">
+                      <div className="text-muted-foreground text-xs break-all">
                         {c.owner_email ?? t("noOwner")}
                       </div>
+                      <div className="mt-1.5 sm:hidden">
+                        <ModuleChips modules={c.modules} clientType={c.client_type} />
+                      </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="hidden px-4 py-3 sm:table-cell">
                       <ModuleChips modules={c.modules} clientType={c.client_type} />
                     </td>
                     <td className="px-4 py-3">
@@ -261,13 +266,13 @@ export function ClientsScreen() {
                     <td className="px-4 py-3 font-medium tabular-nums">
                       {revenueLabel(c)}
                     </td>
-                    <td className="text-muted-foreground px-4 py-3 tabular-nums">
+                    <td className="text-muted-foreground hidden px-4 py-3 tabular-nums sm:table-cell">
                       {t("people", {
                         students: c.student_count,
                         teachers: c.teacher_count,
                       })}
                     </td>
-                    <td className="px-4 py-3 text-end">
+                    <td className="hidden px-4 py-3 text-end sm:table-cell">
                       <Link
                         href={`/admin/clients/${c.id}`}
                         className="text-primary text-xs font-semibold hover:underline"

@@ -132,7 +132,9 @@ export function Modal({
       />
 
       <div className="fixed inset-0 z-50 overflow-y-auto">
-        <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+        {/* On a phone the dialog is a bottom sheet: full width, docked to the thumb's edge, with
+            the page still peeking above it. From `sm` up it is the centred card. */}
+        <div className="flex min-h-full items-end justify-center pt-8 sm:items-center sm:p-6">
           <div
             ref={dialogRef}
             role="dialog"
@@ -140,17 +142,17 @@ export function Modal({
             aria-labelledby={titleId}
             tabIndex={-1}
             className={cn(
-              "animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-4 outline-none",
+              "animate-in fade-in-0 slide-in-from-bottom-8 sm:zoom-in-95 sm:slide-in-from-bottom-4 outline-none",
               // dvh, not vh: with the mobile keyboard open the visual viewport shrinks, and a
               // dialog sized to the layout viewport puts its submit button under the keyboard.
-              "relative flex w-full flex-col max-h-[90dvh]",
-              "rounded-2xl bg-card shadow-2xl ring-1 ring-foreground/[0.08] duration-200",
+              "relative flex w-full flex-col max-h-[92dvh] sm:max-h-[90dvh]",
+              "rounded-t-2xl bg-card shadow-2xl ring-1 ring-foreground/[0.08] duration-200 sm:rounded-2xl",
               SIZE_CLASSES[size],
             )}
           >
             {/* Header */}
-            <div className="flex shrink-0 items-start justify-between gap-4 border-b px-6 py-4">
-              <div>
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b px-4 py-3.5 sm:px-6 sm:py-4">
+              <div className="min-w-0">
                 <h2
                   id={titleId}
                   className="text-base font-semibold leading-snug"
@@ -174,13 +176,20 @@ export function Modal({
             </div>
 
             {/* Body */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <div
+              className={cn(
+                "min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5",
+                // With no footer the body is the sheet's last strip — keep it clear of the iPhone
+                // home indicator.
+                !footer && "pb-[max(1rem,env(safe-area-inset-bottom))]",
+              )}
+            >
               {children}
             </div>
 
             {/* Footer */}
             {footer && (
-              <div className="bg-muted/30 flex shrink-0 items-center justify-end gap-2 border-t px-6 py-4">
+              <div className="bg-muted/30 flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-4">
                 {footer}
               </div>
             )}

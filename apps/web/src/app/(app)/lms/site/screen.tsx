@@ -411,7 +411,7 @@ export function LmsSiteScreen() {
     return (
       <div className="space-y-4">
         <div className="bg-muted h-16 animate-pulse rounded-2xl" />
-        <div className="grid gap-4 lg:grid-cols-[minmax(360px,26rem)_1fr]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(360px,26rem)_1fr]">
           <div className="bg-muted h-[32rem] animate-pulse rounded-2xl" />
           <div className="bg-muted hidden h-[32rem] animate-pulse rounded-2xl lg:block" />
         </div>
@@ -536,12 +536,14 @@ export function LmsSiteScreen() {
 
       {!editable && <AlertBanner variant="info" message={t("readOnly")} />}
 
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(360px,26rem)_1fr]">
+      {/* `grid-cols-1` below lg is load-bearing: an implicit track grows to its widest nowrap line
+          (a section's truncated description), which pushed the rail off a phone's screen. */}
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(360px,26rem)_1fr]">
         {/* ── left: the rail, or the open section's fields ── */}
         <div
           ref={panelRef}
           className={cn(
-            "bg-card scroll-mt-24 overflow-clip rounded-2xl shadow-sm ring-1 ring-foreground/[0.06]",
+            "bg-card min-w-0 scroll-mt-24 overflow-clip rounded-2xl shadow-sm ring-1 ring-foreground/[0.06]",
             view === "preview" && "hidden lg:block",
           )}
         >
@@ -602,7 +604,9 @@ export function LmsSiteScreen() {
         {/* ── right: the site itself ── */}
         <div
           className={cn(
-            "bg-card sticky top-[5.5rem] flex h-[calc(100vh-9rem)] min-h-[30rem] flex-col overflow-hidden rounded-2xl shadow-sm ring-1 ring-foreground/[0.06]",
+            // Sticky only beside the editor: on a phone the header above wraps to two rows, so a
+            // fixed 5.5rem offset would slide the pane under it.
+            "bg-card flex h-[calc(100dvh-12rem)] min-h-[30rem] min-w-0 flex-col overflow-hidden rounded-2xl shadow-sm ring-1 ring-foreground/[0.06] lg:sticky lg:top-[5.5rem] lg:h-[calc(100vh-9rem)]",
             view === "edit" && "hidden lg:flex",
           )}
         >
@@ -673,7 +677,7 @@ function SectionEditor({
 
   return (
     <div>
-      <div className="bg-card sticky top-[5.5rem] z-10 flex items-center gap-3 border-b px-3 py-3">
+      <div className="bg-card z-10 flex items-center gap-3 border-b px-3 py-3 lg:sticky lg:top-[5.5rem]">
         <button
           type="button"
           onClick={onBack}
@@ -768,7 +772,7 @@ function BlockFields({
     case "brand":
       return (
         <>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t("f.name")} hint={fallbackHint}>
               <input
                 className={inputClass}
@@ -792,7 +796,7 @@ function BlockFields({
               onChange={(color) => set("brand", { color })}
             />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t("f.logo")} hint={t("hint.url")} optional={t("optional")}>
               <ImageField
                 value={draft.brand.logo_url}
@@ -872,7 +876,7 @@ function BlockFields({
               {...imageLabels}
             />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t("f.primaryCta")}>
               <select
                 className={selectClass}
@@ -923,7 +927,7 @@ function BlockFields({
           title={(item) => item.label}
         >
           {(item, update) => (
-            <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[140px_1fr]">
               <Field label={t("f.value")}>
                 <input
                   className={inputClass}
@@ -973,7 +977,7 @@ function BlockFields({
           >
             {(item, update) => (
               <>
-                <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[140px_1fr]">
                   <Field label={t("f.icon")}>
                     <select
                       className={selectClass}
@@ -1141,7 +1145,7 @@ function BlockFields({
           >
             {(item, update) => (
               <>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Field label={t("f.personName")}>
                     <input
                       className={inputClass}
@@ -1230,7 +1234,7 @@ function BlockFields({
                     onChange={(e) => update({ quote: e.target.value })}
                   />
                 </Field>
-                <div className="grid gap-3 sm:grid-cols-[1fr_1fr_80px]">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_80px]">
                   <Field label={t("f.personName")}>
                     <input
                       className={inputClass}
@@ -1337,7 +1341,7 @@ function BlockFields({
               onChange={(e) => set("cta", { subtitle: e.target.value })}
             />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t("f.buttonLabel")} hint={fallbackHint}>
               <input
                 className={inputClass}
@@ -1361,7 +1365,7 @@ function BlockFields({
     case "contact":
       return (
         <>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t("f.whatsapp")} hint={t("hint.whatsapp")} optional={t("optional")}>
               <input
                 className={inputClass}
@@ -1410,7 +1414,7 @@ function BlockFields({
           </Field>
           <div className="space-y-2">
             <span className="text-sm font-medium">{t("f.socials")}</span>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {SOCIALS.map((network) => (
                 <label key={network} className="block space-y-1">
                   <span className="text-muted-foreground text-xs capitalize">{network}</span>
@@ -1455,7 +1459,7 @@ function BlockFields({
               title={(item) => item.label}
             >
               {(item, update) => (
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Field label={t("f.linkLabel")}>
                     <input
                       className={inputClass}
@@ -1544,7 +1548,7 @@ function BlockFields({
     case "legal":
       return (
         <>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t("f.businessName")} hint={t("hint.businessName")}>
               <input
                 className={inputClass}

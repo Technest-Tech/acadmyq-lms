@@ -291,7 +291,7 @@ function MoneyStack({
   return (
     <span className="flex flex-col gap-0.5">
       {entries.map((e) => (
-        <span key={e.currency} className={cn("truncate", multi && "text-lg")}>
+        <span key={e.currency} className={cn("break-words sm:truncate", multi && "text-lg")}>
           {formatMoney({ amount: e.minor, currency: e.currency }, locale)}
         </span>
       ))}
@@ -342,14 +342,15 @@ function KpiCard({
   trend?: "up" | "down";
 }) {
   return (
-    <div className="bg-card relative overflow-hidden rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.03] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+    <div className="bg-card relative overflow-hidden rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.03] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md sm:p-5">
+      {/* Icon above the label on a phone, so the figure gets the tile's full width. */}
+      <div className="flex flex-col-reverse items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
+        <div className="min-w-0 max-w-full">
           <p className="text-muted-foreground text-[0.67rem] font-semibold uppercase tracking-wider">
             {label}
           </p>
           <div className="mt-1.5 flex items-start gap-1.5">
-            <div className="min-w-0 text-2xl font-bold tracking-tight tabular-nums">
+            <div className="min-w-0 text-xl font-bold tracking-tight break-words tabular-nums sm:text-2xl">
               {value}
             </div>
             {trend === "up" && (
@@ -368,11 +369,11 @@ function KpiCard({
         </div>
         <div
           className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-xl",
+            "flex size-8 shrink-0 items-center justify-center rounded-xl sm:size-10",
             TONE_ICON[tone],
           )}
         >
-          <Icon className="size-5" aria-hidden />
+          <Icon className="size-4 sm:size-5" aria-hidden />
         </div>
       </div>
 
@@ -409,7 +410,7 @@ function CurrencyBreakdown({
   t: ReturnType<typeof useTranslations>;
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {money.map((bucket) => {
         const rate =
           bucket.billed_minor > 0
@@ -513,7 +514,7 @@ function DueCards({
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {money.map((bucket) => {
         const fmt = (v: number) =>
           formatMoney({ amount: v, currency: bucket.currency }, locale);
@@ -587,7 +588,7 @@ function ProfitBreakdown({
   }
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {summary.rows.map((row) => {
         const salaries = staffSalaries[row.currency] ?? 0;
         const trueProfit = row.profit_minor - salaries;
@@ -736,8 +737,8 @@ function ConversionRates({
   }
 
   return (
-    <div className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.03]">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="bg-card rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.03] sm:p-5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {fx.rates.map((r) => (
           <div
             key={r.currency}
@@ -803,11 +804,11 @@ function ConvertedSummary({
   ] as const;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       {/* Net profit headline */}
       <div
         className={cn(
-          "relative overflow-hidden rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04]",
+          "relative overflow-hidden rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.04] sm:p-5",
           positive
             ? "bg-emerald-50/60 dark:bg-emerald-950/20"
             : "bg-rose-50/60 dark:bg-rose-950/20",
@@ -850,7 +851,7 @@ function ConvertedSummary({
       </div>
 
       {/* Breakdown */}
-      <div className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.04] lg:col-span-2">
+      <div className="bg-card rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.04] sm:p-5 lg:col-span-2">
         <div className="space-y-2.5">
           {rows.map((r) => (
             <div
@@ -1298,7 +1299,7 @@ export function FinancialStatisticsScreen() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       {/* ── Page header ───────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -1390,7 +1391,7 @@ export function FinancialStatisticsScreen() {
                 <span className="flex flex-col gap-0.5">
                   {rateEntries.map((r) => (
                     <span key={r.currency} className="text-lg">
-                      <span className="text-muted-foreground mr-1 text-xs font-semibold tracking-widest">
+                      <span className="text-muted-foreground me-1 text-xs font-semibold tracking-widest">
                         {r.currency}
                       </span>
                       {pctFmt.format(r.rate)}%
@@ -1443,9 +1444,9 @@ export function FinancialStatisticsScreen() {
       )}
 
       {/* ── Charts row ────────────────────────────────────────────────────── */}
-      <div className="grid gap-4 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         {/* Monthly bar chart — 3 of 5 cols */}
-        <div className="bg-card xl:col-span-3 rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.03]">
+        <div className="bg-card xl:col-span-3 rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.03] sm:p-5">
           <SectionHeader
             icon={BarChart3}
             title={t("chart.monthlyTitle")}
@@ -1479,7 +1480,7 @@ export function FinancialStatisticsScreen() {
         </div>
 
         {/* Status donut — 2 of 5 cols */}
-        <div className="bg-card xl:col-span-2 rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.03]">
+        <div className="bg-card xl:col-span-2 rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.03] sm:p-5">
           <SectionHeader
             icon={PieChart}
             title={t("chart.statusTitle")}
@@ -1580,7 +1581,7 @@ export function FinancialStatisticsScreen() {
           sub={t("section.duesHint")}
         />
         {loading ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} className="h-32 border shadow-sm" />
             ))}
@@ -1626,7 +1627,7 @@ export function FinancialStatisticsScreen() {
           </Link>
         </div>
 
-        <div className="bg-card rounded-2xl border p-5 shadow-sm ring-1 ring-foreground/[0.03]">
+        <div className="bg-card rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.03] sm:p-5">
           {loading ? (
             <div className="space-y-3">
               {Array.from({ length: 5 }).map((_, i) => (

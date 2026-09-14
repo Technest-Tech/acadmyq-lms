@@ -720,9 +720,9 @@ export function AttendanceReport({
       {/* ── Report text editor ────────────────────────────────────────── */}
       {canWrite && (
         <section>
-          <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">{t("reportTitle")}</h3>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {report?.filled_at && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                   <Check className="size-3" />
@@ -818,7 +818,7 @@ export function AttendanceReport({
           )}
 
           <div className="mt-3">
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {/* Report card — the branded image the guardian actually receives. The teacher who
                   taught the lesson gets it too: they write the report, and the card is how a
                   family sees that work, so making them ask an admin for a PNG helped nobody.

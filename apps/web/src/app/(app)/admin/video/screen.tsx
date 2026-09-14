@@ -344,7 +344,7 @@ function HealthCard({ health, fmtTime }: { health: VideoHealth | null; fmtTime: 
         )}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <ProbeRow icon={Server} label={t("health.livekit")} state={livekitState} detail={health && health.livekit.ok ? t("health.liveRooms", { count: formatNumber(health.livekit.rooms ?? 0, locale) }) : undefined} />
         <ProbeRow icon={Film} label={t("health.egress")} state={egressState} />
         <ProbeRow icon={Database} label={t("health.storage")} state={storageState} detail={health?.storage.bucket ? t("health.bucket", { bucket: health.storage.bucket }) : undefined} />

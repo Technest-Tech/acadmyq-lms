@@ -313,7 +313,7 @@ export function DataTable<T>({
       <div className="bg-muted/35 rounded-xl border p-2">
         <div className="flex flex-wrap items-center gap-2">
           {searchable && (
-            <div className="relative min-w-52 flex-1">
+            <div className="relative min-w-full flex-1 sm:min-w-52">
               <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" />
               <input
                 type="search"
@@ -338,22 +338,24 @@ export function DataTable<T>({
             </div>
           )}
 
-          {filters.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5">
+          {filters.some((f) => !f.hidden) && (
+            // On a phone the selects share an even two-up grid instead of a ragged wrap where
+            // every row is a different width.
+            <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
               <ListFilter
-                className="text-muted-foreground/70 size-3.5 shrink-0"
+                className="text-muted-foreground/70 hidden size-3.5 shrink-0 sm:block"
                 aria-hidden
               />
               {filters.filter((f) => !f.hidden).map((f) => {
                 const isActive = !!filterValues[f.key];
                 return (
-                  <div key={f.key} className="relative">
+                  <div key={f.key} className="relative min-w-0">
                     <select
                       aria-label={f.label}
                       value={filterValues[f.key] ?? ""}
                       onChange={(e) => setFilter(f.key, e.target.value)}
                       className={cn(
-                        "h-9 cursor-pointer appearance-none rounded-lg border pe-8 ps-3 text-sm font-medium shadow-sm outline-none transition-all",
+                        "h-9 w-full cursor-pointer appearance-none truncate rounded-lg border pe-8 ps-3 text-sm font-medium shadow-sm outline-none transition-all sm:w-auto",
                         "focus:ring-2 focus:ring-primary/20 focus:outline-none",
                         isActive
                           ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
@@ -381,15 +383,16 @@ export function DataTable<T>({
             </div>
           )}
 
-          <div className="ms-auto flex items-center gap-2">
-            {/* Density — the difference between reading ten rows and scanning fifty. */}
+          <div className="ms-auto flex flex-wrap items-center justify-end gap-2">
+            {/* Density — the difference between reading ten rows and scanning fifty. A phone gets
+                the card list, which has no density to change, so the toggle is desktop-only. */}
             <button
               type="button"
               onClick={() => setCompact((c) => !c)}
               title={compact ? t("comfortable") : t("compact")}
               aria-label={t("density")}
               aria-pressed={compact}
-              className="border-input bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 flex size-9 items-center justify-center rounded-lg border shadow-sm transition-colors"
+              className="border-input bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 hidden size-9 items-center justify-center rounded-lg border shadow-sm transition-colors sm:flex"
               data-testid="dt-density"
             >
               {compact ? (
@@ -720,7 +723,10 @@ export function DataTable<T>({
                   ))}
                 </div>
                 {rowActions && (
-                  <div className="bg-muted/25 flex justify-end border-t px-4 py-2.5">
+                  <div
+                    className="bg-muted/25 flex flex-wrap justify-end gap-2 border-t px-4 py-2.5"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     {rowActions(row)}
                   </div>
                 )}

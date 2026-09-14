@@ -308,7 +308,7 @@ export function PlatformSettingsScreen() {
               <Mail className="text-muted-foreground size-4" aria-hidden />
               {t("generalHeading")}
             </h2>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {SETTING_FIELDS.map((key) => (
                 <label key={key} className="block space-y-1.5">
                   <span className="text-sm font-medium">

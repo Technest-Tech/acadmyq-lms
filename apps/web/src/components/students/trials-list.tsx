@@ -130,7 +130,7 @@ export function TrialsList({
   return (
     <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
       {/* Header */}
-      <div className="flex items-center justify-between border-b bg-gradient-to-r from-amber-500/[0.1] via-amber-500/[0.04] to-transparent px-6 py-4">
+      <div className="flex items-center justify-between border-b bg-gradient-to-r from-amber-500/[0.1] via-amber-500/[0.04] to-transparent px-4 py-4 sm:px-6">
         <div className="flex items-center gap-3">
           <div className="flex size-9 items-center justify-center rounded-xl bg-amber-500/10 ring-1 ring-amber-500/20">
             <Sparkles className="size-4 text-amber-500" aria-hidden />

@@ -46,7 +46,7 @@ export function SettingsManager() {
       <div
         role="tablist"
         aria-label={t("title")}
-        className="flex gap-1 rounded-2xl border bg-muted/40 p-1.5 shadow-sm"
+        className="no-scrollbar flex gap-1 overflow-x-auto rounded-2xl border bg-muted/40 p-1.5 shadow-sm"
       >
         {TABS.map(({ key, icon: Icon }) => {
           const selected = active === key;
@@ -59,7 +59,7 @@ export function SettingsManager() {
               onClick={() => setActive(key)}
               data-testid={`settings-tab-${key}`}
               className={cn(
-                "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all",
+                "flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-medium transition-all sm:px-4",
                 selected
                   ? "bg-card text-foreground shadow-sm ring-1 ring-black/5"
                   : "text-muted-foreground hover:bg-card/50 hover:text-foreground",

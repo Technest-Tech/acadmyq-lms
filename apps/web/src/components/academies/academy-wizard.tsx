@@ -169,7 +169,7 @@ export function AcademyWizard({
               </option>
             ))}
           </select>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {types.map((ty) => (
               <button
                 key={ty.id}
@@ -194,7 +194,7 @@ export function AcademyWizard({
         </Field>
 
         <Field label={t("start")}>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               type="button"
               onClick={() => setStartAsTrial(true)}
@@ -241,7 +241,7 @@ export function AcademyWizard({
           title={t("ownerSection")}
           hint={t("ownerSectionHint")}
         />
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label={t("ownerEmail")} required>
             <input
               aria-label={t("ownerEmail")}
@@ -320,7 +320,7 @@ export function AcademyWizard({
                 onChange={(e) => set("brand_display_name", e.target.value)}
               />
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label={t("logoUrl")}>
                 <input
                   aria-label={t("logoUrl")}

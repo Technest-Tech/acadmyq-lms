@@ -287,9 +287,11 @@ export function CourseEditor({ courseId }: { courseId: string }) {
         />
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+      {/* `grid-cols-1` is load-bearing below xl: an implicit track sizes to its widest child, and
+          one unbreakable row was pushing the whole editor off a phone's screen. */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
         {/* ── Curriculum (main column) ── */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <SectionTitle
             Icon={Layers}
             color="indigo"
@@ -425,7 +427,7 @@ export function CourseEditor({ courseId }: { courseId: string }) {
         </div>
 
         {/* ── Details + publishing (sidebar) ── */}
-        <aside className="order-first space-y-4 xl:sticky xl:top-4 xl:order-none">
+        <aside className="order-first min-w-0 space-y-4 xl:sticky xl:top-4 xl:order-none">
           {canManage && (
             <Panel Icon={Rocket} color="emerald" title={t("editor.publishing")}>
               <div className="space-y-3">
@@ -626,7 +628,7 @@ export function CourseEditor({ courseId }: { courseId: string }) {
                   </p>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label={t("sales.level")} optional={t("form.optional")}>
                     <select
                       value={details.level}
@@ -807,7 +809,7 @@ function CourseBanner({
   const c = lmsColor("violet");
 
   return (
-    <header className="bg-card relative overflow-hidden rounded-2xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
+    <header className="bg-card relative overflow-hidden rounded-2xl p-4 shadow-sm ring-1 ring-foreground/[0.06] sm:p-5">
       <div className={cn("absolute inset-x-0 top-0 h-1 bg-gradient-to-r", c.stripe)} />
       <div
         className={cn("pointer-events-none absolute -top-20 -end-10 size-48 rounded-full blur-3xl", c.glow)}
@@ -829,7 +831,7 @@ function CourseBanner({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-bold tracking-tight">{course.title}</h1>
+            <h1 className="min-w-0 text-xl font-bold tracking-tight break-words">{course.title}</h1>
             <CourseStatusBadge status={course.status} />
             <PriceTag
               priceMinor={course.price_minor}
@@ -950,7 +952,7 @@ function EditorSkeleton() {
     <div className="space-y-5">
       <Sk className="h-4 w-32" />
       <Sk className="h-32 rounded-2xl" />
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-3">
           <Sk className="h-40 rounded-2xl" />
           <Sk className="h-40 rounded-2xl" />

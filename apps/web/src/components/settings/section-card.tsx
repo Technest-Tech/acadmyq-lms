@@ -30,7 +30,7 @@ export function SectionCard({
       className="overflow-hidden rounded-2xl border bg-card shadow-sm ring-1 ring-black/[0.02]"
       data-testid={testId}
     >
-      <div className="flex items-center gap-3.5 border-b bg-gradient-to-r from-muted/40 to-transparent px-6 py-5">
+      <div className="flex items-center gap-3.5 border-b bg-gradient-to-r from-muted/40 to-transparent px-4 py-4 sm:px-6 sm:py-5">
         <div
           className={cn(
             "flex size-11 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm",
@@ -44,7 +44,7 @@ export function SectionCard({
           <p className="text-muted-foreground mt-0.5 text-xs">{description}</p>
         </div>
       </div>
-      <div className="p-6">{children}</div>
+      <div className="p-4 sm:p-6">{children}</div>
     </div>
   );
 }

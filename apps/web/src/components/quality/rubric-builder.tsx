@@ -309,7 +309,7 @@ function CategoryForm({
 
   return (
     <div className="bg-card space-y-3 rounded-2xl border border-dashed p-4">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <input
           autoFocus
           value={name}
