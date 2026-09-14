@@ -300,7 +300,7 @@ export function StudentReportsScreen() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold">{t("list.heading")}</h2>
           {reports.length > 0 && (
-            <div className="relative min-w-56">
+            <div className="relative w-full sm:w-auto sm:min-w-56">
               <Search
                 className="text-muted-foreground pointer-events-none absolute inset-y-0 start-3 my-auto size-4"
                 aria-hidden
@@ -419,7 +419,7 @@ function ReportComposer({
     <form
       ref={formRef}
       onSubmit={onSubmit}
-      className="bg-card ring-foreground/[0.06] space-y-4 rounded-2xl border p-5 shadow-sm ring-1"
+      className="bg-card ring-foreground/[0.06] space-y-4 rounded-2xl border p-4 shadow-sm ring-1 sm:p-5"
       data-testid="student-report-form"
     >
       <div className="flex items-start justify-between gap-3">
@@ -545,7 +545,7 @@ function ReportComposer({
             />
           </label>
 
-          <div className="flex items-center gap-3 border-t pt-4">
+          <div className="flex flex-wrap items-center gap-3 border-t pt-4">
             <Button
               type="submit"
               disabled={!canSubmit}

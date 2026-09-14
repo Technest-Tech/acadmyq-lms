@@ -567,7 +567,7 @@ function StatCard({
           </>
         ) : (
           <>
-            <p className="text-2xl font-bold tracking-tight tabular-nums">
+            <p className="text-xl font-bold tracking-tight break-words tabular-nums sm:text-2xl">
               {isMoney && moneyAmount !== undefined && moneyCurrency
                 ? formatMoney({ amount: moneyAmount, currency: moneyCurrency }, locale)
                 : value !== null
@@ -739,10 +739,10 @@ function SectionTitle({
 }) {
   const c = COLORS[color] ?? COLORS.violet!;
   return (
-    <div className="flex items-end justify-between gap-4">
-      <div className="flex items-center gap-2.5">
+    <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+      <div className="flex min-w-0 items-center gap-2.5">
         {Icon && (
-          <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm", c.chip)}>
+          <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm", c.chip)}>
             <Icon className="h-4 w-4" />
           </span>
         )}
@@ -1057,7 +1057,7 @@ export function AcademyDashboard() {
           khatam lattice, so the panel opens on the same language as the client's sign-in door
           (components/ornaments) instead of a generic violet dashboard header. */}
       <header
-        className="relative overflow-hidden rounded-2xl border border-transparent p-6 text-white shadow-lg sm:p-7"
+        className="relative overflow-hidden rounded-2xl border border-transparent p-5 text-white shadow-lg sm:p-7"
         style={{
           background:
             "linear-gradient(135deg, oklch(0.30 0.065 163) 0%, oklch(0.38 0.105 168) 48%, oklch(0.32 0.085 196) 100%)",
@@ -1082,7 +1082,7 @@ export function AcademyDashboard() {
               <LayoutDashboard className="h-3.5 w-3.5" />
               <span>{dateLabel}</span>
             </div>
-            <h1 className="mt-1.5 truncate text-2xl font-bold tracking-tight drop-shadow-sm sm:text-[1.7rem]">
+            <h1 className="mt-1.5 text-2xl font-bold tracking-tight break-words drop-shadow-sm sm:truncate sm:text-[1.7rem]">
               {greeting}, {session?.user.fullName?.split(" ")[0] ?? "—"} 👋
             </h1>
             <p className="mt-1 text-sm text-white/85">{t("hero.subtitle")}</p>
@@ -1177,7 +1177,7 @@ export function AcademyDashboard() {
           title={t("sections.metrics")}
           desc={t("sections.metricsDesc")}
         />
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {can("student.read") && (
             <StatCard
               Icon={GraduationCap}
@@ -1286,7 +1286,7 @@ export function AcademyDashboard() {
           />
 
           {/* Money headline cards — always visible within the financial section */}
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
               <StatCard
                 Icon={Wallet}
                 color="teal"

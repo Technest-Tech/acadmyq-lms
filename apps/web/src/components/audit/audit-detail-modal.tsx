@@ -103,7 +103,7 @@ export function AuditDetailModal({
           <p className="text-muted-foreground text-sm">{t("noChanges")}</p>
         ) : (
           <div className="overflow-hidden rounded-xl border">
-            <div className="bg-muted/30 text-muted-foreground grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-3 py-2 text-[10px] font-semibold uppercase tracking-wide">
+            <div className="bg-muted/30 text-muted-foreground grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b px-3 py-2 text-[10px] font-semibold uppercase tracking-wide">
               <span>{t("before")}</span>
               <span />
               <span>{t("after")}</span>
@@ -116,7 +116,7 @@ export function AuditDetailModal({
                 return (
                   <li
                     key={key}
-                    className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 py-2 text-xs"
+                    className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-3 py-2 text-xs wrap-anywhere"
                   >
                     <span className="min-w-0">
                       <span className="text-muted-foreground block text-[10px] uppercase tracking-wide">

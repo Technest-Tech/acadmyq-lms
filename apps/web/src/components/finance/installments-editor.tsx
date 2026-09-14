@@ -117,7 +117,7 @@ export function InstallmentsEditor({
           {rows.map((row, i) => (
             <li
               key={row.key}
-              className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2 sm:grid-cols-[auto_1fr_1fr_1.4fr_auto]"
+              className="grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 sm:grid-cols-[auto_1fr_1fr_1.4fr_auto]"
             >
               <span className="text-muted-foreground w-5 text-center text-xs tabular-nums">
                 {i + 1}
