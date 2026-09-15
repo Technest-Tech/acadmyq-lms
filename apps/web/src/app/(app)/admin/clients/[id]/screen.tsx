@@ -31,9 +31,11 @@ import { ClientWhatsappGroupsCard } from "@/components/clients/whatsapp-groups-c
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { Modal } from "@/components/ui/modal";
 import {
   ApiError,
   deleteAcademyLogo,
+  deleteClient,
   enterAcademy,
   getClient,
   getPlatformSettings,
@@ -318,9 +320,12 @@ export function ClientScreen({ clientId }: { clientId: string }) {
             <ClientVideoCard clientId={clientId} />
           )}
           {tab === "settings" && (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <ClientSettingsForm client={client} onSaved={() => void load()} />
-              <AcademyOwnerSection academyId={clientId} />
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <ClientSettingsForm client={client} onSaved={() => void load()} />
+                <AcademyOwnerSection academyId={clientId} />
+              </div>
+              <DeleteClientCard client={client} />
             </div>
           )}
         </div>
@@ -593,5 +598,131 @@ function ClientSettingsForm({
         </Button>
       </div>
     </section>
+  );
+}
+
+/**
+ * The one irreversible action on this page: wipe the client and everything in it. It lives at the
+ * bottom of Settings, away from Suspend (the everyday, reversible off-switch), and the button stays
+ * dead until the admin has typed the client's name — which the API checks again on its side.
+ */
+export function DeleteClientCard({ client }: { client: ClientDetail["client"] }) {
+  const t = useTranslations("clients.detail");
+  const { can } = useAuth();
+  const [open, setOpen] = useState(false);
+  // Stable on purpose: Modal re-runs its focus trap whenever onClose changes, which would pull
+  // focus out of the name field on every keystroke.
+  const close = useCallback(() => setOpen(false), []);
+
+  if (!can("academy.delete")) return null;
+
+  return (
+    <section
+      className="border-destructive/30 bg-destructive/[0.03] flex flex-col gap-3 rounded-2xl border p-5 sm:flex-row sm:items-center sm:justify-between"
+      data-testid="client-delete-card"
+    >
+      <div className="min-w-0">
+        <h3 className="text-destructive flex items-center gap-1.5 text-sm font-bold">
+          <Trash2 className="size-4" aria-hidden />
+          {t("deleteTitle")}
+        </h3>
+        <p className="text-muted-foreground mt-1 text-xs">{t("deleteHint")}</p>
+      </div>
+      <Button
+        variant="destructive"
+        size="sm"
+        className="shrink-0"
+        onClick={() => setOpen(true)}
+        data-testid="client-delete-open"
+      >
+        <Trash2 className="size-4" aria-hidden />
+        {t("deleteOpen")}
+      </Button>
+
+      <Modal open={open} onClose={close} title={t("deleteTitle")} size="sm">
+        {/* Mounted only while open, so the typed name never survives a close. */}
+        {open && <DeleteClientForm client={client} onCancel={close} />}
+      </Modal>
+    </section>
+  );
+}
+
+function DeleteClientForm({
+  client,
+  onCancel,
+}: {
+  client: ClientDetail["client"];
+  onCancel: () => void;
+}) {
+  const t = useTranslations("clients.detail");
+  const ts = useTranslations("clients");
+  const toast = useToast();
+  const router = useRouter();
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const matches = typed.trim() !== "" && typed.trim() === client.name.trim();
+
+  const confirm = async () => {
+    if (!matches || busy) return;
+    setBusy(true);
+    try {
+      await deleteClient(client.id, typed.trim());
+      toast.success(t("deleted", { name: client.name }));
+      router.replace("/admin/clients");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-muted-foreground text-sm">
+        {t.rich("deleteBody", {
+          name: client.name,
+          b: (chunks) => <span className="text-foreground font-semibold">{chunks}</span>,
+        })}
+      </p>
+      <label className="block text-xs font-medium">
+        <span className="text-muted-foreground mb-1 block">
+          {t.rich("deleteTypeName", {
+            name: client.name,
+            b: (chunks) => (
+              <span className="text-foreground select-all font-mono font-semibold">{chunks}</span>
+            ),
+          })}
+        </span>
+        <input
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void confirm();
+          }}
+          autoComplete="off"
+          spellCheck={false}
+          className="bg-card h-9 w-full rounded-lg border px-3 text-sm"
+          data-testid="client-delete-name"
+        />
+      </label>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>
+          {ts("subs.cancel")}
+        </Button>
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={!matches || busy}
+          onClick={() => void confirm()}
+          className="gap-1.5"
+          data-testid="client-delete-confirm"
+        >
+          {busy && (
+            <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+          )}
+          {t("deleteConfirm")}
+        </Button>
+      </div>
+    </div>
   );
 }

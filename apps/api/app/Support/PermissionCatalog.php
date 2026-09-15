@@ -16,6 +16,9 @@ final class PermissionCatalog
     /** Every capability code the platform recognises (§5.3). */
     public const PERMISSIONS = [
         'academy.create', 'academy.suspend', 'academy.configure', 'academy.enter', 'academy.read',
+        // Permanently wipe a client and all of its data (DELETE /admin/clients/{id}). Kept apart
+        // from academy.suspend: suspending is reversible, this is not.
+        'academy.delete',
         'plan.manage',
         // Platform↔Academy subscription billing + per-academy WhatsApp automation (Super-Admin only).
         'academy_billing.manage', 'automation.manage',
@@ -199,7 +202,7 @@ final class PermissionCatalog
             // (report_field.manage) are platform actions the Super Admin performs in the new
             // academy's context (§3.4, §4.2, §7).
             'SUPER_ADMIN' => [
-                'academy.create', 'academy.suspend', 'academy.configure', 'academy.enter', 'academy.read',
+                'academy.create', 'academy.suspend', 'academy.configure', 'academy.enter', 'academy.read', 'academy.delete',
                 'plan.manage', 'academy_billing.manage', 'automation.manage',
                 'user.invite', 'role.assign', 'role.manage', 'user.read_platform', 'platform.manage', 'report_field.manage', 'specialization.manage', 'teacher_report.manage', 'audit.read',
                 'staff_department.manage',

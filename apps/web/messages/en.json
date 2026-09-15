@@ -400,6 +400,13 @@
       },
       "videoSaved": "Video configuration saved",
       "settingsTitle": "Name & branding",
+      "deleteTitle": "Delete client",
+      "deleteHint": "Permanently erases this client and all of its data. To switch them off for now, use Suspend instead.",
+      "deleteOpen": "Delete client",
+      "deleteBody": "This permanently deletes <b>{name}</b> and everything in it — logins, students, teachers, lessons, invoices, payouts, reports, courses, files, the WhatsApp connection and its audit history. There is no undo.",
+      "deleteTypeName": "Type <b>{name}</b> to confirm",
+      "deleteConfirm": "Delete permanently",
+      "deleted": "{name} was deleted.",
       "fieldName": "Name",
       "fieldBrandName": "Brand display name",
       "fieldSubdomain": "Subdomain",
@@ -5474,7 +5481,8 @@
       "COMPLETED": "Completed",
       "NO_SHOW": "No-show",
       "CANCELLED": "Cancelled",
-      "CONVERTED": "Became a student"
+      "CONVERTED": "Became a student",
+      "DELETED": "Deleted"
     },
     "trial": {
       "title": "Book the trial",
@@ -5531,6 +5539,7 @@
       "recordOutcome": "Outcome",
       "convert": "Convert",
       "cancel": "Cancel trial",
+      "delete": "Delete trial",
       "crmTag": "CRM",
       "awaitingOutcome": "Result missing",
       "minutes": "{count} min",
@@ -5570,12 +5579,20 @@
       "keep": "Keep trial",
       "confirm": "Cancel trial"
     },
+    "deleteModal": {
+      "title": "Delete trial",
+      "body": "Delete the trial for <b>{name}</b>? It disappears from this list, the stats and the calendar. A student it became stays.",
+      "keep": "Keep trial",
+      "confirm": "Delete trial"
+    },
     "alerts": {
       "booked": "Trial booked.",
       "outcomeSaved": "Outcome recorded.",
       "converted": "Prospect converted to a student.",
       "cancelled": "Trial cancelled.",
-      "cancelFailed": "Couldn't cancel the trial. Please try again."
+      "cancelFailed": "Couldn't cancel the trial. Please try again.",
+      "deleted": "Trial deleted.",
+      "deleteFailed": "Couldn't delete the trial. Please try again."
     },
     "bookInCrm": "Book in the CRM",
     "breakdown": {
@@ -5910,6 +5927,9 @@
       },
       "academy_suspend": {
         "label": "Suspend academies"
+      },
+      "academy_delete": {
+        "label": "Delete academies permanently"
       },
       "academy_configure": {
         "label": "Configure academies"

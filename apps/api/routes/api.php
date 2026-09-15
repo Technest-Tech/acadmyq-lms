@@ -399,8 +399,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::patch('/auth/locale', [AuthController::class, 'setLocale']);
 
     // Super Admin platform actions (§4.4) + academy onboarding/lifecycle (Sprint 3 §7).
-    // Capability Gates live in the controllers; RLS is the database backstop. There is
-    // deliberately NO academy hard-delete route (decision §3.1 — academies are SUSPENDED).
+    // Capability Gates live in the controllers; RLS is the database backstop. Suspending is the
+    // everyday off-switch; the one hard delete is DELETE /admin/clients/{id} (academy.delete).
     // Platform dashboard — Super Admin landing KPIs + recent activity (academy.read).
     Route::get('/admin/dashboard', [DashboardController::class, 'index']);
 
@@ -440,6 +440,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/admin/clients', [ClientController::class, 'index']);
     Route::post('/admin/clients', [ClientController::class, 'store']); // WhatsApp-only external client (M-CLI-2)
     Route::get('/admin/clients/{id}', [ClientController::class, 'show']);
+    Route::delete('/admin/clients/{id}', [ClientController::class, 'destroy']); // permanent wipe — name-confirmed
     Route::post('/admin/clients/{id}/modules/{module}/subscription', [ClientController::class, 'enableModule']);
     Route::put('/admin/clients/{id}/modules/{module}/subscription', [ClientController::class, 'updateModule']);
     Route::put('/admin/clients/{id}/modules/{module}/features', [ClientController::class, 'updateModuleFeatures']);
@@ -756,7 +757,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/trials', [TrialController::class, 'store']);
         Route::patch('/trials/{id}', [TrialController::class, 'update']);
         Route::post('/trials/{id}/convert', [TrialController::class, 'convert']);
-        Route::delete('/trials/{id}', [TrialController::class, 'destroy']);
+        Route::delete('/trials/{id}', [TrialController::class, 'destroy']); // cancel — row stays as CANCELLED
+        Route::delete('/trials/{id}/permanent', [TrialController::class, 'remove']); // delete — gone from the record
     });
 
     // CRM / Leads (CRM module). Sales/support staff capture prospective students as leads and

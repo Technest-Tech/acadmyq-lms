@@ -604,6 +604,20 @@ export function getClient(id: string): Promise<ClientDetail> {
 }
 
 /**
+ * Permanently wipe a client and ALL of its data (academy.delete). No undo — the API refuses unless
+ * `confirmName` matches the client's name exactly.
+ */
+export function deleteClient(
+  id: string,
+  confirmName: string,
+): Promise<{ ok: boolean; deleted: Record<string, number> }> {
+  return apiFetch(`/api/admin/clients/${id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirm_name: confirmName }),
+  });
+}
+
+/**
  * Provision a WHATSAPP-ONLY external client (R4, M-CLI-2): a lightweight client with NO owner
  * login — connected by QR from its client page and served over the external API.
  */
@@ -4696,6 +4710,11 @@ export function convertTrial(
 
 export function cancelTrial(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/trials/${id}`, { method: "DELETE" });
+}
+
+/** Remove a trial from the record entirely (any status) — cancel keeps it as CANCELLED, this doesn't. */
+export function deleteTrial(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/trials/${id}/permanent`, { method: "DELETE" });
 }
 
 // ── CRM / Leads (CRM module) ─────────────────────────────────────────────────

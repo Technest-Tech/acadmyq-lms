@@ -20,7 +20,13 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import { SegmentTile } from "@/components/ui/segment-tile";
-import { cancelTrial, getTrialSummary, type TrialRow, type TrialSummary } from "@/lib/api";
+import {
+  cancelTrial,
+  deleteTrial,
+  getTrialSummary,
+  type TrialRow,
+  type TrialSummary,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,7 +51,8 @@ type ModalState =
   | { kind: "closed" }
   | { kind: "outcome"; trial: TrialRow }
   | { kind: "convert"; trial: TrialRow }
-  | { kind: "cancel"; trial: TrialRow };
+  | { kind: "cancel"; trial: TrialRow }
+  | { kind: "delete"; trial: TrialRow };
 
 /**
  * The Free Trials overview: every trial the academy has run, what came of it, and the numbers
@@ -65,7 +72,7 @@ export function TrialsManager() {
   const [alert, setAlert] = useState<{ variant: "success" | "error"; message: string } | null>(
     null,
   );
-  const [cancelBusy, setCancelBusy] = useState(false);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const [segment, setSegment] = useState<SegmentKey>("all");
   const [presetToken, setPresetToken] = useState(0);
 
@@ -90,19 +97,23 @@ export function TrialsManager() {
       .catch(() => {});
   }, [refreshToken]);
 
-  async function confirmCancel(trial: TrialRow) {
-    setCancelBusy(true);
+  /** Cancel keeps the row as CANCELLED; delete takes it off the record. Same confirm, two verbs. */
+  async function confirmRemoval(kind: "cancel" | "delete", trial: TrialRow) {
+    setConfirmBusy(true);
     try {
-      await cancelTrial(trial.id);
+      await (kind === "cancel" ? cancelTrial(trial.id) : deleteTrial(trial.id));
       setModal({ kind: "closed" });
       refresh();
-      showAlert("success", t("alerts.cancelled"));
+      showAlert("success", t(kind === "cancel" ? "alerts.cancelled" : "alerts.deleted"));
     } catch {
-      showAlert("error", t("alerts.cancelFailed"));
+      showAlert("error", t(kind === "cancel" ? "alerts.cancelFailed" : "alerts.deleteFailed"));
     } finally {
-      setCancelBusy(false);
+      setConfirmBusy(false);
     }
   }
+
+  const confirmKind = modal.kind === "cancel" || modal.kind === "delete" ? modal.kind : null;
+  const confirmCopy = confirmKind === "delete" ? "deleteModal" : "cancelModal";
 
   const pct = (value: number | null) =>
     summary && summary.total > 0 && value !== null
@@ -218,6 +229,7 @@ export function TrialsManager() {
         onOutcome={(trial) => setModal({ kind: "outcome", trial })}
         onConvert={(trial) => setModal({ kind: "convert", trial })}
         onCancel={(trial) => setModal({ kind: "cancel", trial })}
+        onDelete={(trial) => setModal({ kind: "delete", trial })}
       />
 
       {/* ── Outcome modal ─────────────────────────────────────────────── */}
@@ -261,17 +273,17 @@ export function TrialsManager() {
         )}
       </Modal>
 
-      {/* ── Cancel confirmation ───────────────────────────────────────── */}
+      {/* ── Cancel / delete confirmation ──────────────────────────────── */}
       <Modal
-        open={modal.kind === "cancel"}
+        open={confirmKind !== null}
         onClose={() => setModal({ kind: "closed" })}
-        title={t("cancelModal.title")}
+        title={t(`${confirmCopy}.title`)}
         size="sm"
       >
-        {modal.kind === "cancel" && (
-          <div className="space-y-4">
+        {(modal.kind === "cancel" || modal.kind === "delete") && (
+          <div className="space-y-4" data-testid={`trial-${modal.kind}-confirm`}>
             <p className="text-muted-foreground text-sm">
-              {t.rich("cancelModal.body", {
+              {t.rich(`${confirmCopy}.body`, {
                 name: modal.trial.display_name ?? "",
                 b: (chunks) => <span className="text-foreground font-semibold">{chunks}</span>,
               })}
@@ -282,22 +294,22 @@ export function TrialsManager() {
                 variant="outline"
                 size="sm"
                 onClick={() => setModal({ kind: "closed" })}
-                disabled={cancelBusy}
+                disabled={confirmBusy}
               >
-                {t("cancelModal.keep")}
+                {t(`${confirmCopy}.keep`)}
               </Button>
               <Button
                 type="button"
                 variant="destructive"
                 size="sm"
-                disabled={cancelBusy}
-                onClick={() => void confirmCancel(modal.trial)}
+                disabled={confirmBusy}
+                onClick={() => void confirmRemoval(modal.kind, modal.trial)}
                 className="gap-1.5"
               >
-                {cancelBusy && (
+                {confirmBusy && (
                   <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
                 )}
-                {t("cancelModal.confirm")}
+                {t(`${confirmCopy}.confirm`)}
               </Button>
             </div>
           </div>

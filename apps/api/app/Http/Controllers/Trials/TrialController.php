@@ -367,6 +367,43 @@ final class TrialController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /**
+     * DELETE /api/trials/{id}/permanent — take a trial off the record entirely (any status,
+     * converted included). Unlike cancel it leaves no row behind: the trial drops out of the list,
+     * the stats, the calendar and the lead's card. The student a conversion created is untouched —
+     * that person is real whether or not the trial that found them is kept.
+     *
+     * Soft-deleted (`deleted_at`) like every other tenant record, so every reader already skips it.
+     */
+    public function remove(string $id): JsonResponse
+    {
+        Gate::authorize('trial.manage');
+
+        $academyId = $this->currentAcademyId();
+        $trial = DB::table('trials')->where('id', $id)->whereNull('deleted_at')->first();
+        if ($trial === null) {
+            abort(404, 'Trial not found.');
+        }
+
+        DB::table('trials')->where('id', $id)->update(['deleted_at' => now(), 'updated_at' => now()]);
+        Audit::log('trial.delete', 'trial', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+            before: [
+                'status' => $trial->status,
+                'lead_id' => $trial->lead_id,
+                'student_id' => $trial->student_id,
+                'lead_name' => $trial->lead_name,
+                'scheduled_at_utc' => Carbon::parse($trial->scheduled_at_utc)->utc()->toIso8601String(),
+            ]);
+
+        // The lead's timeline still says a trial was booked — say what became of it.
+        $this->noteOnLead($trial, LeadTimeline::TRIAL_OUTCOME, [
+            'trial_id' => $id,
+            'status' => 'DELETED',
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
     // ── internals ────────────────────────────────────────────────────────────
 
     /**

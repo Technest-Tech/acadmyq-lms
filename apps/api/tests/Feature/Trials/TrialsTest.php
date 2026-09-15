@@ -6,6 +6,7 @@ use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesSchedules;
@@ -160,10 +161,46 @@ it('converts a completed lead trial into a real student', function () {
     $this->postJson("/api/trials/{$trialId}/convert", ['student_id' => $this->student])->assertStatus(422);
 });
 
+it('deletes a trial off the record — converted ones too — while cancel keeps the row', function () {
+    Sanctum::actingAs($this->owner);
+
+    $book = fn (string $name, string $phone) => $this->postJson('/api/trials', [
+        'teacher_id' => $this->teacher,
+        'lead_name' => $name,
+        'lead_whatsapp' => $phone,
+        'local_datetime' => '2026-06-16 17:00',
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 30,
+    ])->assertCreated()->json('trialId');
+
+    $cancelled = $book('Cancel Me', '+201000000001');
+    $converted = $book('Delete Me', '+201000000002');
+
+    $this->deleteJson("/api/trials/{$cancelled}")->assertOk();
+    $this->patchJson("/api/trials/{$converted}", ['status' => 'COMPLETED'])->assertOk();
+    $this->postJson("/api/trials/{$converted}/convert", ['student_id' => $this->student])->assertOk();
+
+    $this->deleteJson("/api/trials/{$converted}/permanent")->assertOk();
+
+    $ids = collect($this->getJson('/api/trials')->assertOk()->json('rows'))->pluck('id');
+    expect($ids)->toContain($cancelled);
+    expect($ids)->not->toContain($converted);
+    expect($this->getJson('/api/trials/summary')->json('total'))->toBe(1);
+
+    // Gone is gone: a second delete, or any other verb on it, finds nothing.
+    $this->deleteJson("/api/trials/{$converted}/permanent")->assertNotFound();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('trials')->where('id', $converted)->value('deleted_at'))->not->toBeNull();
+    // The student the conversion made is not collateral.
+    expect(DB::table('students')->where('id', $this->student)->whereNull('deleted_at')->exists())->toBeTrue();
+});
+
 it('forbids a teacher from reaching the trials surface', function () {
     $teacherUser = $this->makeUser($this->academy, 'TEACHER', ['email' => 'teacher-trial@test.local']);
     Sanctum::actingAs($teacherUser);
 
     $this->getJson('/api/trials')->assertForbidden();
     $this->getJson('/api/trials/summary')->assertForbidden();
+    $this->deleteJson('/api/trials/'.Str::uuid().'/permanent')->assertForbidden();
 });

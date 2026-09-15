@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Sparkles, Trash2, UserPlus, UserRoundSearch } from "lucide-react";
+import { Ban, CheckCircle2, Sparkles, Trash2, UserPlus, UserRoundSearch } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { Octagram } from "@/components/ornaments";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ export function TrialsTable({
   onOutcome,
   onConvert,
   onCancel,
+  onDelete,
 }: {
   refreshToken: number;
   /** Set by the segment tiles above the table — see `trials-manager`. */
@@ -38,6 +39,7 @@ export function TrialsTable({
   onOutcome: (trial: TrialRow) => void;
   onConvert: (trial: TrialRow) => void;
   onCancel: (trial: TrialRow) => void;
+  onDelete: (trial: TrialRow) => void;
 }) {
   const t = useTranslations("trials");
   const locale = useLocale();
@@ -207,11 +209,24 @@ export function TrialsTable({
               size="icon-xs"
               onClick={() => onCancel(row)}
               aria-label={t("table.cancel")}
+              title={t("table.cancel")}
               data-testid="trial-cancel"
             >
-              <Trash2 className="size-3.5 text-destructive" aria-hidden />
+              <Ban className="text-muted-foreground size-3.5" aria-hidden />
             </Button>
           )}
+          {/* Cancel keeps the row as CANCELLED; delete takes it off the record — any status. */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onDelete(row)}
+            aria-label={t("table.delete")}
+            title={t("table.delete")}
+            data-testid="trial-delete"
+          >
+            <Trash2 className="size-3.5 text-destructive" aria-hidden />
+          </Button>
         </div>
       )}
       />

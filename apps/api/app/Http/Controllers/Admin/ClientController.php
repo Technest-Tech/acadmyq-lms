@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\ClientPurge;
 use App\Services\ModuleBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -16,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * R1 (docs/superadmin-modules/04-CLIENT-FIRST-REDESIGN) — the client-first Super Admin surface:
@@ -376,6 +378,47 @@ final class ClientController extends Controller
         });
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * DELETE /admin/clients/{id} — wipe the client and everything it owns, permanently (see
+     * {@see ClientPurge}). There is no undo, so the request must carry the client's name exactly as
+     * stored (`confirm_name`), checked here rather than trusted to the dialog. The record of who
+     * deleted what survives as a platform-level audit entry (academy_id null), since the client's
+     * own audit history goes with it.
+     */
+    public function destroy(Request $request, string $id, ClientPurge $purge): JsonResponse
+    {
+        Gate::authorize('academy.delete');
+        $this->assertAcademyExists($id);
+
+        $data = $request->validate(['confirm_name' => ['required', 'string', 'max:255']]);
+        $ctx = app(AuthContext::class);
+
+        $academy = DB::table('academies')->where('id', $id)->first(['name', 'client_type', 'status', 'subdomain', 'created_at']);
+        if (trim((string) $data['confirm_name']) !== trim((string) $academy->name)) {
+            throw ValidationException::withMessages([
+                'confirm_name' => ['Type the client name exactly as shown to delete it.'],
+            ]);
+        }
+
+        $counts = $purge->purge($id, $ctx);
+
+        Audit::log('client.deleted', 'academy', $id, null, $ctx->userId, 'SUPER_ADMIN', before: [
+            'name' => $academy->name,
+            'client_type' => $academy->client_type,
+            'status' => $academy->status,
+            'subdomain' => $academy->subdomain,
+            'created_at' => $academy->created_at,
+            'rows' => $counts,
+        ]);
+
+        // Don't leave the deleting admin "inside" a client that no longer exists.
+        if ($request->hasSession() && $request->session()->get('entered_academy_id') === $id) {
+            $request->session()->forget('entered_academy_id');
+        }
+
+        return response()->json(['ok' => true, 'deleted' => $counts]);
     }
 
     // ── internals ────────────────────────────────────────────────────────────
