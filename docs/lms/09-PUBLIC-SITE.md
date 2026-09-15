@@ -65,17 +65,18 @@ looking page:
 
 ## The identity rule
 
-An academy created for the course platform is normally seeded with its **subdomain as its name**, so
-"lms" or "academy-2" is the DEFAULT state of a new client — and putting it in 48px type at the top of
-a public page ("تعلّم مع lms") is the single most amateur thing this template can do.
-
 `apps/web/src/lib/learn-brand.ts` is the one place that decides: the client's brand name wins, then
-the academy's own name, and a "name" that is merely the URL handle (compared folded — case,
-spacing and punctuation ignored) counts as **no name at all**. The template then renders translated
-neutral copy — "المنصة التعليمية" / "The learning platform" — in the header, the headline, the page
-title and the footer. The moment the client types a real name it wins everywhere, with no other
-logic. The outage fallback in `learn-server.ts` follows the same rule: it never fills the brand name
-with the handle.
+the academy's own name — the identity the Super Admin assigned when the client was created. Only a
+client with **neither** gets translated neutral copy — "المنصة التعليمية" / "The learning platform" —
+in the header, the headline, the page title and the footer. The outage fallback in `learn-server.ts`
+follows the same rule.
+
+This rule used to also discard a name that folded to the URL handle (case, spacing and punctuation
+ignored), on the theory that "lms" or "academy-2" was a seeded slug rather than a brand. It was
+wrong in the ordinary case: a one-word brand and the handle chosen to match it are the same string,
+and the first real LMS client (`zad` at `zad.acadmyq.com`) published "المنصة التعليمية" instead of
+the name its owner had just assigned. Replacing an assigned name is worse than showing a short one —
+an ugly name is fixed by renaming the client or typing a brand name in the site editor.
 
 ## What the storefront adapts to — `commerce`
 

@@ -156,26 +156,28 @@ export function SiteHeader() {
           : "border-transparent bg-background/75 backdrop-blur-md",
       )}
     >
-      <div className="mx-auto flex h-[4.5rem] max-w-7xl items-center gap-3 px-4 sm:px-6 lg:gap-5">
+      <div className="mx-auto flex h-20 max-w-7xl items-center gap-3 px-4 sm:px-6 lg:gap-5">
         {/* max-w keeps a 60-character academy name from eating the nav; the tagline is the first
             thing to go, because the name is the part that has to survive. */}
         <Link
           href={base}
           className="group focus-visible:ring-ring/60 flex min-w-0 max-w-[55%] items-center gap-2.5 rounded-xl focus-visible:ring-2 focus-visible:outline-none sm:max-w-xs sm:gap-3"
         >
+          {/* A client's logo is usually a lockup — mark, wordmark, sometimes a tagline line — and
+              below ~56px none of the type in it survives. The bar is 80px to hold it. */}
           <SiteLogo
-            size={40}
+            size={56}
             className="shadow-sm transition-transform group-hover:scale-[1.03]"
           />
           <span className="min-w-0">
             <span
               dir="auto"
-              className="block truncate text-[15px] leading-tight font-extrabold tracking-tight"
+              className="block truncate text-base leading-tight font-extrabold tracking-tight"
             >
               {siteName}
             </span>
             {site.brand.tagline && (
-              <span className="text-muted-foreground hidden truncate text-[11px] leading-tight sm:block">
+              <span className="text-muted-foreground hidden truncate text-xs leading-tight sm:block">
                 {site.brand.tagline}
               </span>
             )}
@@ -273,7 +275,7 @@ export function SiteHeader() {
       {open && (
         // Capped and scrollable: a client with five pages plus the redeem row must not push its own
         // last item under the fold on a short phone in landscape.
-        <div className="bg-background/96 max-h-[calc(100dvh-4.5rem)] overflow-y-auto border-t px-4 py-3 shadow-xl backdrop-blur-xl lg:hidden">
+        <div className="bg-background/96 max-h-[calc(100dvh-5rem)] overflow-y-auto border-t px-4 py-3 shadow-xl backdrop-blur-xl lg:hidden">
           <nav className="bg-card flex flex-col rounded-2xl border p-1.5 shadow-sm">
             {items.map((item) => (
               <Link

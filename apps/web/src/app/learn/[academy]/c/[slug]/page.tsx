@@ -388,7 +388,7 @@ export default function CourseDetailPage() {
       </section>
 
       {/* A compact, persistent course index keeps long sales pages easy to scan on desktop. */}
-      <div className="bg-card/90 sticky top-[4.5rem] z-30 hidden border-b backdrop-blur-xl lg:block">
+      <div className="bg-card/90 sticky top-20 z-30 hidden border-b backdrop-blur-xl lg:block">
         <Container>
           <nav
             aria-label={t("course.about")}

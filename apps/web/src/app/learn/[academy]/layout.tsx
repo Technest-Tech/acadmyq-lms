@@ -33,10 +33,10 @@ export async function generateMetadata({
   const t = await getTranslations("learn");
   const { site, academy: info } = await load(academy);
 
-  // The tab title is the most-seen piece of this client's branding; the subdomain handle must never
-  // stand in for their name there either (lib/learn-brand.ts).
+  // The tab title is the most-seen piece of this client's branding, so it uses the same name the
+  // header does — theirs, with neutral copy only when they have none (lib/learn-brand.ts).
   const name =
-    resolveSiteName(site.brand.name, info.name, academy) ?? t("brand.fallbackName");
+    resolveSiteName(site.brand.name, info.name) ?? t("brand.fallbackName");
   const title = site.seo.title || `${name} — ${t("meta.suffix")}`;
   const description = site.seo.description || site.brand.tagline || t("meta.description", { name });
   const image = site.seo.og_image_url || site.hero.image_url || site.brand.logo_url;

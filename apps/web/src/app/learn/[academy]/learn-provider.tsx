@@ -139,10 +139,10 @@ export function LearnProvider({
     [learner],
   );
 
-  // The handle is an address, not a brand: a site that has neither a brand name nor a real academy
-  // name says "the learning platform" in the visitor's language rather than publishing its slug.
+  // The brand name the client typed wins, else the name their client record carries; only a site
+  // with neither says "the learning platform" in the visitor's language (lib/learn-brand.ts).
   const siteName =
-    resolveSiteName(site.brand.name, academyName, academy) ?? t("brand.fallbackName");
+    resolveSiteName(site.brand.name, academyName) ?? t("brand.fallbackName");
   const resolvedCommerce = commerce ?? NO_COMMERCE;
 
   const value = useMemo<LearnContextValue>(

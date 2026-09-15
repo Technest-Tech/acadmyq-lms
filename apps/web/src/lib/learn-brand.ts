@@ -1,61 +1,39 @@
 /**
  * Who the storefront says it is (docs/lms/09 §1).
  *
- * Every LMS client renders the same template, so the ONE thing that must never look unfinished is
- * the name in the header, the footer, the page title and half the default copy. Three things can be
+ * Every LMS client renders the same template, so the name in the header, the footer, the page title
+ * and half the default copy is the one thing that must never look unfinished. Two things can be
  * true when the site renders:
  *
- *  1. the client wrote a brand name — use it, always;
- *  2. they wrote nothing, and the academy row carries a real business name — use that;
- *  3. neither is a name at all, only the URL handle the platform assigned them (`lms`, `noor`,
- *     `academy-2`) — which is a slug, not a brand, and putting it in 48px type at the top of a
- *     public page ("تعلّم مع lms") is the single most amateur thing this template can do.
+ *  1. the client wrote a brand name in the site editor — use it, always;
+ *  2. they wrote nothing — use the academy's own name, the identity the platform assigned the
+ *     client when it was created.
  *
- * Case 3 is not hypothetical: an academy created for the course platform is normally seeded with
- * its subdomain as its name, so it is the DEFAULT state of a brand-new client. The rule below is
- * therefore deliberate rather than defensive — a name that is merely the address is treated as no
- * name, and the caller substitutes translated neutral copy ("المنصة التعليمية" / "The learning
- * platform"), which reads as a considered choice instead of a leaked internal identifier.
+ * Only a client with neither gets the translated neutral copy ("المنصة التعليمية" / "The learning
+ * platform").
  *
- * The moment the client types a real name in the site editor it wins, in every language, with no
- * further logic — which is the whole point of keeping this in one pure function.
+ * This used to throw away a name that folded to the site's URL handle as well, on the theory that
+ * `zad` at `zad.acadmyq.com` was a leaked slug rather than a brand. It is not: a one-word brand and
+ * a handle chosen to match it are the ordinary case, and the rule fired on a live client, replacing
+ * the name the owner had just assigned with generic copy on the client's own public site. An
+ * assigned name wins now — short, lowercase and handle-shaped included. The cure for an ugly one is
+ * to rename the client (or type a brand name in the site editor), not to hide it.
  */
 
-/** Lowercase, strip everything that is not a letter or digit — "Noor Academy" ⇒ "nooracademy". */
-function fold(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^\p{L}\p{N}]+/gu, "");
-}
-
 /**
- * Is this "name" just the site's own URL handle? Compared folded, so `Al-Furqan`, `alfurqan` and
- * `AL FURQAN` all match the handle `alfurqan` — a client whose real brand happens to read exactly
- * like their subdomain is indistinguishable from one who never set a name, and in that case the
- * neutral fallback is still the better of the two outcomes.
- */
-export function isHandleName(name: string, handle: string): boolean {
-  const folded = fold(name);
-  return folded !== "" && folded === fold(handle);
-}
-
-/**
- * The display name for a storefront, or `null` when the client has supplied no real one and the
- * caller should render its own translated fallback.
+ * The display name for a storefront, or `null` when the client has no name at all and the caller
+ * should render its own translated fallback.
  *
  * @param brandName   `site.brand.name` — what the client typed in the site editor.
- * @param academyName the academies row's name, the only identity a fresh client has.
- * @param handle      the subdomain / route segment this site answers on.
+ * @param academyName the academies row's name, assigned when the client was created.
  */
 export function resolveSiteName(
   brandName: string | null | undefined,
   academyName: string | null | undefined,
-  handle: string,
 ): string | null {
   for (const candidate of [brandName, academyName]) {
     const value = (candidate ?? "").trim();
-    if (value !== "" && !isHandleName(value, handle)) return value;
+    if (value !== "") return value;
   }
   return null;
 }
