@@ -71,6 +71,13 @@ client with **neither** gets translated neutral copy — "المنصة التع�
 in the header, the headline, the page title and the footer. The outage fallback in `learn-server.ts`
 follows the same rule.
 
+The **tab icon** follows the same principle: `brand.favicon_url`, else the compact mark, else the
+full logo, so a client who uploaded one file gets a branded tab. This needs the platform's own icons
+to stay OUT of the `app/favicon.ico` / `app/icon.png` file conventions — Next injects a root
+`favicon.ico` at the FRONT of every route's icon list, nested `icons` metadata included, so the
+Acadmyq mark sat in the tab of every client site. They live in `public/` and are declared in the
+root layout's `metadata.icons`, which `learn/[academy]/layout.tsx` then replaces per tenant.
+
 This rule used to also discard a name that folded to the URL handle (case, spacing and punctuation
 ignored), on the theory that "lms" or "academy-2" was a seeded slug rather than a brand. It was
 wrong in the ordinary case: a one-word brand and the handle chosen to match it are the same string,

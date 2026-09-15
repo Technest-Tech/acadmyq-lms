@@ -41,7 +41,10 @@ export async function generateMetadata({
   const description = site.seo.description || site.brand.tagline || t("meta.description", { name });
   const image = site.seo.og_image_url || site.hero.image_url || site.brand.logo_url;
   // A tenant's own favicon first, then their compact mark, then the full logo — a client who
-  // uploaded one file still gets a branded tab.
+  // uploaded one file still gets a branded tab. Setting `icons` here REPLACES the platform icons
+  // the root layout declares, which is the point: the Acadmyq mark has no business in the tab of a
+  // white-label site. A client with no image of any kind still inherits it, and that is the only
+  // case that should.
   const icon = site.brand.favicon_url || site.brand.logo_mark_url || site.brand.logo_url;
 
   return {
@@ -61,7 +64,7 @@ export async function generateMetadata({
       images: image ? [image] : undefined,
     },
     twitter: { card: image ? "summary_large_image" : "summary", title, description },
-    icons: icon ? { icon } : undefined,
+    icons: icon ? { icon, shortcut: icon, apple: icon } : undefined,
   };
 }
 

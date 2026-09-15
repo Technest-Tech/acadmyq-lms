@@ -58,6 +58,17 @@ const greatVibes = Great_Vibes({
 export const metadata: Metadata = {
   title: "Acadmyq",
   description: "Academy Management Platform",
+  // Declared here rather than as `app/favicon.ico` + `app/icon.png` file conventions, which Next
+  // emits on EVERY route under app/ — including a client's white-label course site, whose tab then
+  // showed the Acadmyq mark next to the client's own name. As metadata they are a normal field, so
+  // `learn/[academy]/layout.tsx` replaces them with the tenant's logo (docs/lms/09).
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.png", type: "image/png" },
+    ],
+    apple: "/apple-icon.png",
+  },
 };
 
 /**
