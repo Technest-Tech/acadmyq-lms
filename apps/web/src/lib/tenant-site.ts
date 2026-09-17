@@ -17,6 +17,13 @@
  *    old), and only if there has never been one does it assume MANAGEMENT — the login page renders
  *    correctly unbranded, whereas guessing "course site" would show a stranger's 404 to a client
  *    whose whole product is the panel.
+ *
+ * A client's OWN domain (docs/custom-domains) is looked up the same way, keyed by the full host
+ * instead of a handle — the host is all such a request carries. One asymmetry, in that last
+ * fail-safe: an unknown HANDLE arrived through our own wildcard DNS, so assuming it is a client is
+ * safe, while an unknown HOST is any address on the internet someone pointed at our IP. Guessing
+ * there would serve a stranger's domain a branded login page, so a host with no known answer stays
+ * `null` and the router 404s it.
  */
 
 import { apiBase } from "@/lib/api-base";
@@ -25,6 +32,12 @@ const FRESH_MS = 60_000;
 const STALE_MS = 24 * 60 * 60_000;
 
 export type SiteKind = "MANAGEMENT" | "LMS";
+
+/**
+ * How a site is addressed: a platform handle (`noor`) or a client's own host
+ * (`{ host: "portal.noor.edu" }`). The bare-string form is the original one and stays the default.
+ */
+export type SiteKey = string | { host: string };
 
 export interface TenantSite {
   kind: SiteKind;
@@ -59,38 +72,48 @@ function unbranded(handle: string): TenantSite {
 }
 
 /**
- * Resolve a subdomain handle → the site it serves. `null` means the handle resolves to no academy,
- * which is a real 404 (the site does not exist for that host).
+ * Resolve an address → the site it serves. `null` means it resolves to no academy, which is a real
+ * 404 (the site does not exist for that host).
  */
 export async function resolveTenantSite(
-  handle: string,
+  key: SiteKey,
 ): Promise<TenantSite | null> {
-  const key = handle.toLowerCase();
-  const cached = cache.get(key);
+  const byHost = typeof key !== "string";
+  const value = (typeof key === "string" ? key : key.host).toLowerCase();
+  // Namespaced so a handle and a host can never collide in one map.
+  const cacheKey = byHost ? `host:${value}` : `handle:${value}`;
+  const cached = cache.get(cacheKey);
   const now = Date.now();
   if (cached && now - cached.at < FRESH_MS) return cached.value;
+
+  /** The last known answer, or — for a host we have never resolved — nothing at all. See above. */
+  const onOutage = (): TenantSite | null => {
+    if (cached && now - cached.at < STALE_MS) return cached.value;
+    return byHost ? null : unbranded(value);
+  };
 
   let res: Response;
   try {
     res = await fetch(`${apiBase()}/api/site`, {
-      headers: { Accept: "application/json", "X-Academy": key },
+      headers: {
+        Accept: "application/json",
+        ...(byHost ? { "X-Academy-Host": value } : { "X-Academy": value }),
+      },
       // Honoured where a data cache exists (the page render); inert in middleware, which is what
       // the map above covers.
-      next: { revalidate: 60, tags: [`tenant-site:${key}`] },
+      next: { revalidate: 60, tags: [`tenant-site:${cacheKey}`] },
     });
   } catch {
-    if (cached && now - cached.at < STALE_MS) return cached.value;
-    return unbranded(key);
+    return onOutage();
   }
 
   if (res.status === 404) {
-    cache.set(key, { value: null, at: now });
+    cache.set(cacheKey, { value: null, at: now });
     return null;
   }
 
   if (!res.ok) {
-    if (cached && now - cached.at < STALE_MS) return cached.value;
-    return unbranded(key);
+    return onOutage();
   }
 
   const body = (await res.json()) as {
@@ -110,12 +133,15 @@ export async function resolveTenantSite(
       name: body.academy?.name ?? "",
       displayName: body.academy?.display_name || (body.academy?.name ?? ""),
       logoUrl: body.academy?.logo_url || null,
-      subdomain: body.academy?.subdomain ?? key,
+      // For a host lookup this is the ANSWER, not the key: a custom domain resolves to the client's
+      // platform handle, which is what the router forwards on as `x-academy` and what the course
+      // site is served from. Falling back to the key would name a host where a handle belongs.
+      subdomain: body.academy?.subdomain ?? (byHost ? null : value),
       status: body.academy?.status ?? "",
     },
   };
 
-  cache.set(key, { value: site, at: now });
+  cache.set(cacheKey, { value: site, at: now });
   return site;
 }
 

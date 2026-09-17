@@ -1,0 +1,15 @@
+# Custom-domain certificates for Acadmyq (docs/custom-domains).
+# Installed to /etc/cron.d/acadmyq-certs by deploy/provision.sh.
+#
+# Runs as ROOT, which is the point: this is the one step of the custom-domain flow that
+# needs privileges (certbot writes to /etc/letsencrypt and reloads nginx), and keeping
+# it here is what lets the PHP-FPM pool stay unprivileged. The application only ever
+# marks a domain VERIFIED; this turns VERIFIED into LIVE.
+#
+# flock because certbot must never run twice at once — concurrent orders for the same
+# host burn Let's Encrypt's failed-validation budget (5 per hostname per hour) and lock
+# the domain out of issuance for exactly as long as the client is waiting for it.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+*/5 * * * * root /usr/bin/flock -n /var/lock/acadmyq-certs.lock /usr/local/bin/acadmyq-issue-certs.sh >> /var/log/acadmyq-certs.log 2>&1

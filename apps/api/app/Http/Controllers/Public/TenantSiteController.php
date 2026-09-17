@@ -49,7 +49,7 @@ final class TenantSiteController extends Controller
         $logo = trim((string) ($academy->brand_logo_url ?? ''));
 
         return response()->json([
-            'kind' => $this->kind($academyId),
+            'kind' => $this->kind($request, $academyId),
             'academy' => [
                 'name' => $name,
                 'display_name' => $display !== '' ? $display : $name,
@@ -65,9 +65,19 @@ final class TenantSiteController extends Controller
      * LINK points, so the routing and the link can never disagree. (A school that also sells courses
      * keeps its full panel, and therefore its sign-in, at the root of its own address; its course
      * site stays one path away at /learn.)
+     *
+     * On a CUSTOM domain the plan does not get a say: the client bought that host for one purpose
+     * and `academy_domains.kind` records which, so a school can put its panel on portal.school.com
+     * and its course site on courses.school.com — two hosts, two answers, one academy. The resolver
+     * put that on the request; its absence means we arrived by handle, and the plan decides as before.
      */
-    private function kind(string $academyId): string
+    private function kind(Request $request, string $academyId): string
     {
+        $byDomain = $request->attributes->get('lms_domain_kind');
+        if (is_string($byDomain) && $byDomain !== '') {
+            return $byDomain;
+        }
+
         return LmsSite::ownsRoot($academyId) ? 'LMS' : 'MANAGEMENT';
     }
 }

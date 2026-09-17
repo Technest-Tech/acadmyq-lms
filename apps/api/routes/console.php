@@ -132,3 +132,12 @@ Schedule::command('whatsapp:group-alerts')->everyMinute()->name('whatsapp-group-
 | not grow unbounded. Idempotent and per-academy tenant-isolated, so missed/duplicated runs are safe.
 */
 Schedule::job(new PurgeExpiredRecordingsJob)->dailyAt('03:30')->name('purge-expired-recordings')->withoutOverlapping();
+
+/*
+| Custom-domain DNS checks (docs/custom-domains). Every ten minutes, look at the client domains that
+| are still waiting and ask whether they resolve to this server yet; the ones that do become
+| VERIFIED, which is the signal the root cert cron waits for. Cheap (one resolver call per waiting
+| host, and nothing at all once they are live) and scheduled rather than manual because DNS
+| propagation finishes long after whoever set it up has stopped watching the panel.
+*/
+Schedule::command('domains:verify')->everyTenMinutes()->name('verify-custom-domains')->withoutOverlapping();

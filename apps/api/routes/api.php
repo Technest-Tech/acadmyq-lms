@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\AcademyLogoController;
 use App\Http\Controllers\Admin\AcademySubscriptionController;
 use App\Http\Controllers\Admin\BillingController;
 use App\Http\Controllers\Admin\ClientController;
+use App\Http\Controllers\Admin\ClientDomainController;
 use App\Http\Controllers\Admin\ClientPaymentController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DemoRequestController as AdminDemoRequestController;
@@ -455,6 +456,16 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/admin/clients/{id}/payments/xpay', [ClientPaymentController::class, 'showXpay']);
     Route::put('/admin/clients/{id}/payments/xpay', [ClientPaymentController::class, 'updateXpay']);
     Route::post('/admin/clients/{id}/payments/xpay/test', [ClientPaymentController::class, 'testXpay']);
+
+    // Domains → the addresses a client answers on (docs/custom-domains). Adding one is a platform
+    // decision, not a client setting: it costs a DNS conversation and a certificate, and a host is
+    // unique platform-wide. `verify` only re-runs the DNS check — nothing here issues a certificate,
+    // which needs root and happens in a cron drop-in instead.
+    Route::get('/admin/clients/{id}/domains', [ClientDomainController::class, 'index']);
+    Route::post('/admin/clients/{id}/domains', [ClientDomainController::class, 'store']);
+    Route::post('/admin/clients/{id}/domains/{domainId}/verify', [ClientDomainController::class, 'verify']);
+    Route::post('/admin/clients/{id}/domains/{domainId}/primary', [ClientDomainController::class, 'primary']);
+    Route::delete('/admin/clients/{id}/domains/{domainId}', [ClientDomainController::class, 'destroy']);
 
     // Platform → Academy bills (academy_billing.manage). Academy-scoped so the Super Admin write
     // runs in the academy's context (no cross-tenant lookup); send delivers the bill over WhatsApp.

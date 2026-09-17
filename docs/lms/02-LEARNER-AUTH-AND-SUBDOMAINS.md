@@ -78,9 +78,15 @@ The API mirrors this: `/api/learn/*` requests carry the subdomain (from `Host` o
 - One **wildcard** DNS record `*.<root>` → the web app (and `*.api.<root>` or a shared `/api` → the
   API). No per-academy DNS work; adding an academy is a row, not an ops task.
 - TLS: a wildcard certificate for `*.<root>` (Let's Encrypt DNS-01 or the platform's managed certs).
-- This is exactly why **subdomains, not custom domains**, keep everything in one deploy: custom
-  domains would need per-client cert issuance + domain verification, which is what would have pushed
-  the learner site into its own app.
+- Subdomains are what keep everything in one deploy: one wildcard record, one wildcard certificate,
+  and adding a client is a row rather than an ops task.
+
+> **Custom domains exist too, since 2026-09-17** — a client answering on an address they own
+> (`docs/custom-domains/00-SPEC.md`). They did need per-client certificate issuance and domain
+> verification, as this section predicted, but neither turned out to need a second app: the host is
+> LOOKED UP into the same handle everything below already uses, and nginx picks a certificate by SNI
+> out of a flat directory, so there is no per-client vhost either. The handle described here stays
+> required — a custom domain resolves *to* it.
 
 ## One address space, two products
 

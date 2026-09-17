@@ -463,7 +463,37 @@
       "logoRemoved": "Logo removed",
       "logoTypeError": "Pick a PNG, JPG or WebP image.",
       "logoSizeError": "That image is larger than 2 MB.",
-      "logoUrlHint": "Or paste the address of a logo hosted elsewhere."
+      "logoUrlHint": "Or paste the address of a logo hosted elsewhere.",
+      "domains": {
+        "title": "Domains",
+        "subtitle": "Addresses this client answers on. Their platform handle keeps working — these are extra.",
+        "loading": "Loading…",
+        "disabled": "Custom domains are not enabled on this server yet. Ask the platform admin to set CUSTOM_DOMAINS_ENABLED and install the certificate cron.",
+        "needsHandle": "Give this client a subdomain handle first, under Settings. A custom domain points at the handle — it does not replace it.",
+        "dnsLabel": "DNS records for the client to create",
+        "dnsOnlyWarning": "The record must be DNS-only. If it is proxied (Cloudflare's orange cloud, or any CDN) the certificate can never be issued and the address will not work.",
+        "empty": "No custom domains. This client is reachable at their handle only.",
+        "hostLabel": "Hostname",
+        "hostPlaceholder": "portal.theirschool.com",
+        "kindLabel": "What this address serves",
+        "kindManagement": "Management panel",
+        "kindLms": "Course site",
+        "add": "Add",
+        "added": "Domain added. It goes live once DNS points here and the certificate is issued.",
+        "verify": "Check DNS",
+        "makePrimary": "Make primary",
+        "primary": "Primary",
+        "primarySet": "This is now the address links are built from.",
+        "remove": "Remove",
+        "removed": "Domain removed.",
+        "status": {
+          "PENDING_DNS": "Waiting for DNS",
+          "VERIFIED": "Waiting for certificate",
+          "ISSUING": "Issuing certificate",
+          "LIVE": "Live",
+          "FAILED": "Failed"
+        }
+      }
     },
     "new": {
       "back": "All clients",

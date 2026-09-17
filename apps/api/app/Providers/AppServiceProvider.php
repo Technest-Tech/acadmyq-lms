@@ -8,8 +8,10 @@ use App\Billing\BillingHook;
 use App\Payroll\PayoutHook;
 use App\Services\Invoicing;
 use App\Services\Payroll;
+use App\Support\CustomDomain;
 use App\Support\Lms\FfmpegHlsTranscoder;
 use App\Support\Lms\HlsTranscoder;
+use App\Support\LmsSite;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -46,6 +48,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $this->bootCustomDomainOrigin();
+
         // The marketing site's demo form. Six an hour per IP: a prospect fills this in ONCE, so the
         // ceiling is invisible to a real visitor and makes an open, unauthenticated POST endpoint
         // worthless to a spammer. Deliberately per-IP and not per-email — an email address is
@@ -81,6 +85,11 @@ class AppServiceProvider extends ServiceProvider
         */
         $perTenant = static function (Request $request): string {
             $handle = strtolower(trim((string) $request->header('X-Academy', '')));
+            // A client on their own domain forwards no handle (docs/custom-domains) — the host is
+            // the tenant key there, and without this every custom domain would share one bucket.
+            if ($handle === '') {
+                $handle = strtolower(trim((string) $request->header('X-Academy-Host', '')));
+            }
 
             return ($handle !== '' ? $handle : '-').'|'.$request->ip();
         };
@@ -99,6 +108,66 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('learn-auth', fn (Request $request) => [
             Limit::perMinute(10)->by($perTenant($request)),
             Limit::perHour(60)->by($perTenant($request)),
+        ]);
+    }
+
+    /**
+     * Make a client's OWN domain a first-class origin for this request (docs/custom-domains).
+     *
+     * Three settings decide whether a browser on `portal.theirschool.com` can hold a session, and
+     * all three are configured for `*.acadmyq.com` — a fixed list that cannot name an address the
+     * platform learns about from a database row. So they are re-decided per request, here, which is
+     * early enough: providers boot before any middleware runs, so the session has not started and
+     * CORS has not been negotiated yet.
+     *
+     *  - `session.domain` → NULL. The configured `.acadmyq.com` does not match this host at all, so
+     *    the browser would silently DISCARD the session cookie and sign-in would never complete —
+     *    a failure with no error anywhere. A host-only cookie is also the honest scope: a session
+     *    on a client's own domain has no business travelling to the platform's.
+     *  - `sanctum.stateful` → plus this host, or Sanctum treats the request as a token API call,
+     *    never starts a session, and `Auth::attempt` does not persist.
+     *  - `cors.allowed_origins` → plus this origin. Same-origin requests need none of it, but the
+     *    setup exists to be reachable both ways and a preflight that 403s is a blank screen.
+     *
+     * Costs one cached lookup on requests whose host is not the platform's, and nothing at all on
+     * the platform's own hosts (which is nearly all traffic) or when the feature is off. It also
+     * fails OPEN: this runs in front of every request, so a cache or database blip must degrade to
+     * "no custom domain" rather than turn the whole app into a 500 from inside a provider.
+     */
+    private function bootCustomDomainOrigin(): void
+    {
+        if ($this->app->runningInConsole() || ! CustomDomain::enabled()) {
+            return;
+        }
+
+        $host = CustomDomain::normalize($this->app->make('request')->getHost());
+        if ($host === null) {
+            return;
+        }
+
+        // A platform host can never be a custom domain, and it is the overwhelming majority of
+        // requests — so answer that from the string, before touching the cache.
+        foreach (LmsSite::roots() as $root) {
+            if ($host === $root || str_ends_with($host, '.'.$root)) {
+                return;
+            }
+        }
+
+        try {
+            if (! CustomDomain::isLive($host)) {
+                return;
+            }
+        } catch (\Throwable) {
+            return;
+        }
+
+        config([
+            'session.domain' => null,
+            'sanctum.stateful' => array_values(array_unique([...(array) config('sanctum.stateful', []), $host])),
+            'cors.allowed_origins' => array_values(array_unique([
+                ...(array) config('cors.allowed_origins', []),
+                ...CustomDomain::origins(),
+            ])),
         ]);
     }
 }

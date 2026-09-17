@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Services\ModuleBilling;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\CustomDomain;
 use App\Support\FeatureCatalog;
 use App\Support\LmsSite;
 use App\Support\Subdomain;
@@ -274,6 +275,10 @@ final class LmsOversightController extends Controller
         $data['site'] = LmsSite::block(
             $data['academy']['subdomain'] ?? null,
             $this->inAcademyContext($id, static fn (): bool => LmsSite::ownsRoot($id)),
+            // Same context rule as `ownsRoot` above, and for the same reason: `academy_domains` is
+            // owner-readable, so a contextless Super Admin would see no domain and link the client
+            // to the platform handle they have stopped using.
+            $this->inAcademyContext($id, static fn (): ?string => CustomDomain::primaryOrigin($id, 'LMS')),
         );
 
         return $data;

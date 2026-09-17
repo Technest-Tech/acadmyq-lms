@@ -53,6 +53,9 @@ final class Subdomain
         'www', 'app', 'api', 'admin', 'mail', 'static', 'assets', 'cdn',
         // Explicit DNS records that outrank the wildcard (DEPLOYMENT.md §DNS records).
         'media', 'turn', 'livekit', 'video',
+        // The DNS-only CNAME target clients point their OWN domains at (docs/custom-domains). Same
+        // reason as `media`/`turn`: it is a real record that must never be shadowed by a tenant.
+        'connect',
         // Infrastructure names a future record may need.
         'ns', 'ns1', 'ns2', 'mx', 'smtp', 'imap', 'pop', 'webmail', 'email', 'ftp', 'vpn',
         'gateway', 'wa', 'whatsapp', 'db', 'redis', 'proxy', 'edge', 'origin',

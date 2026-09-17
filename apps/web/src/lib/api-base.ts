@@ -20,15 +20,41 @@
  *
  * On the SERVER (middleware, RSC loaders) there is no page host and no cookie to preserve — those
  * calls are plain server-to-server — so a port-only value resolves against loopback.
+ *
+ * A client's OWN domain (docs/custom-domains) is the same cookie problem again, and in production
+ * this time. `portal.theirschool.com` and `api.acadmyq.com` share no registrable parent, so the
+ * session cookie the API sets is a third-party cookie there — dropped outright by Safari, and on
+ * borrowed time everywhere else. The answer is the same as the local one: the API is served from the
+ * page's OWN origin (nginx routes `/api` and `/sanctum` on a custom-domain vhost straight to
+ * PHP-FPM), so the request is same-origin and the cookie is ordinary. Which means the absolute
+ * `NEXT_PUBLIC_API_URL` must NOT be used on those pages — hence the host check below.
  */
+
+import { ROOT_DOMAINS, isPlatformHost } from "@/lib/root-domains";
 
 const RAW = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").trim();
 
 /** The API origin to call from here: no trailing slash, ready for `${apiBase()}/api/...`. */
 export function apiBase(): string {
-  if (!RAW.startsWith(":")) return RAW.replace(/\/+$/, "");
+  if (RAW.startsWith(":")) {
+    return typeof window === "undefined"
+      ? `http://localhost${RAW}`
+      : `${window.location.protocol}//${window.location.hostname}${RAW}`;
+  }
 
-  return typeof window === "undefined"
-    ? `http://localhost${RAW}`
-    : `${window.location.protocol}//${window.location.hostname}${RAW}`;
+  // In the browser, on an address that is not the platform's: talk to this origin's own API.
+  // Server-side rendering has no page host and no cookie at stake, so it keeps the absolute URL.
+  //
+  // Gated on a root being CONFIGURED, or this would swallow every plain dev box: with no roots,
+  // "not the platform's host" is true of localhost too, and the app would call itself for an API
+  // that is on another port.
+  if (
+    ROOT_DOMAINS.length > 0 &&
+    typeof window !== "undefined" &&
+    !isPlatformHost(window.location.hostname)
+  ) {
+    return window.location.origin;
+  }
+
+  return RAW.replace(/\/+$/, "");
 }

@@ -26,6 +26,7 @@ import { useAuth } from "@/components/auth-provider";
 import { FeaturesCard } from "@/components/clients/features-card";
 import { ClientVideoCard, ClientWhatsappCard } from "@/components/clients/module-tabs";
 import { ModulesCard } from "@/components/clients/modules-card";
+import { ClientDomainsCard } from "@/components/clients/client-domains-card";
 import { ClientXpayCard } from "@/components/clients/client-xpay-card";
 import { ClientWhatsappGroupsCard } from "@/components/clients/whatsapp-groups-card";
 import { AlertBanner } from "@/components/ui/alert";
@@ -325,6 +326,9 @@ export function ClientScreen({ clientId }: { clientId: string }) {
                 <ClientSettingsForm client={client} onSaved={() => void load()} />
                 <AcademyOwnerSection academyId={clientId} />
               </div>
+              {/* Next to the subdomain field on purpose: a custom domain points AT that handle,
+                  and the two are read together whenever a client's address comes up. */}
+              <ClientDomainsCard clientId={clientId} />
               <DeleteClientCard client={client} />
             </div>
           )}

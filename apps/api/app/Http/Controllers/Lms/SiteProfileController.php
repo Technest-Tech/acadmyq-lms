@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Lms;
 
 use App\Http\Controllers\Controller;
+use App\Support\CustomDomain;
 use App\Http\Controllers\Lms\Concerns\InteractsWithLms;
 use App\Support\LmsSite;
 use App\Support\LmsSiteProfile;
@@ -86,6 +87,7 @@ final class SiteProfileController extends Controller
             'site' => LmsSite::block(
                 isset($academy->subdomain) ? (string) $academy->subdomain : null,
                 LmsSite::ownsRoot($academyId),
+                CustomDomain::primaryOrigin($academyId, 'LMS'),
             ),
         ];
     }

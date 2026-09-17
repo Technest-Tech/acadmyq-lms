@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveTenantSite = vi.fn();
 vi.mock("@/lib/tenant-site", () => ({
-  resolveTenantSite: (handle: string) => resolveTenantSite(handle),
+  resolveTenantSite: (key: string | { host: string }) => resolveTenantSite(key),
 }));
 
 const MANAGEMENT = {
@@ -28,9 +28,15 @@ const MANAGEMENT = {
 const LMS = { ...MANAGEMENT, kind: "LMS" };
 
 /** `root: null` is "subdomain routing not configured" — the opt-in switch being off. */
-async function run(host: string, path: string, root: string | null = "acadmyq.com") {
+async function run(
+  host: string,
+  path: string,
+  root: string | null = "acadmyq.com",
+  customDomains = false,
+) {
   vi.resetModules();
   vi.stubEnv("NEXT_PUBLIC_ROOT_DOMAIN", root ?? "");
+  vi.stubEnv("NEXT_PUBLIC_CUSTOM_DOMAINS", customDomains ? "1" : "");
 
   const { middleware } = await import("./middleware");
   const req = new NextRequest(`https://${host}${path}`, {
@@ -170,6 +176,75 @@ describe("subdomain routing", () => {
 
     expect((await run("skills.acadmyq.com", "/learn/skills/courses")).rewrite).toBeNull();
     expect((await run("skills.acadmyq.com", "/api/health")).rewrite).toBeNull();
+    expect(resolveTenantSite).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A client's own domain (docs/custom-domains). The host spells no handle, so it is resolved by
+ * lookup — and everything after that lookup is the same routing the platform subdomain gets.
+ */
+describe("custom domains", () => {
+  const OWN_LMS = {
+    kind: "LMS",
+    academy: {
+      name: "Skills",
+      displayName: "Skills",
+      logoUrl: null,
+      subdomain: "skills",
+      status: "ACTIVE",
+    },
+  };
+  const OWN_MANAGEMENT = { ...OWN_LMS, kind: "MANAGEMENT", academy: { ...OWN_LMS.academy, subdomain: "noor" } };
+
+  it("is off by default — an unknown host is not a client address", async () => {
+    const { rewrite, status } = await run("portal.noor.edu", "/");
+
+    expect(rewrite).toBeNull();
+    expect(status).not.toBe(404);
+    expect(resolveTenantSite).not.toHaveBeenCalled();
+  });
+
+  it("opens a management client's own domain on their branded sign-in", async () => {
+    resolveTenantSite.mockResolvedValue(OWN_MANAGEMENT);
+
+    const { rewrite, academy } = await run("portal.noor.edu", "/", "acadmyq.com", true);
+
+    // Looked up by HOST — the handle is the answer, not the key.
+    expect(resolveTenantSite).toHaveBeenCalledWith({ host: "portal.noor.edu" });
+    expect(rewrite).toBe("https://portal.noor.edu/login");
+    expect(academy).toBe("noor");
+  });
+
+  it("serves a course site from the client's own domain at its root", async () => {
+    resolveTenantSite.mockResolvedValue(OWN_LMS);
+
+    expect((await run("courses.skills.eg", "/", "acadmyq.com", true)).rewrite).toBe(
+      "https://courses.skills.eg/learn/skills",
+    );
+    expect((await run("courses.skills.eg", "/courses", "acadmyq.com", true)).rewrite).toBe(
+      "https://courses.skills.eg/learn/skills/courses",
+    );
+  });
+
+  it("404s a host nobody has claimed instead of serving it the marketing site", async () => {
+    resolveTenantSite.mockResolvedValue(null);
+
+    const { status, rewrite } = await run("someone-elses.example", "/", "acadmyq.com", true);
+
+    expect(status).toBe(404);
+    expect(rewrite).toBeNull();
+  });
+
+  it("never mistakes the platform's own hosts for a custom domain", async () => {
+    expect((await run("acadmyq.com", "/", "acadmyq.com", true)).rewrite).toBeNull();
+    expect((await run("app.acadmyq.com", "/login", "acadmyq.com", true)).rewrite).toBeNull();
+    expect(resolveTenantSite).not.toHaveBeenCalled();
+  });
+
+  it("leaves an already-routed path alone on a custom domain too", async () => {
+    expect((await run("courses.skills.eg", "/learn/skills/x", "acadmyq.com", true)).rewrite).toBeNull();
+    expect((await run("courses.skills.eg", "/api/health", "acadmyq.com", true)).rewrite).toBeNull();
     expect(resolveTenantSite).not.toHaveBeenCalled();
   });
 });

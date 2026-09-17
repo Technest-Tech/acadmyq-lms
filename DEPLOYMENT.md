@@ -319,3 +319,88 @@ reads the same predicate — they cannot disagree.
 
 A client's subdomain is Super-Admin-owned: `PUT /api/admin/lms/academies/{id}/subdomain`
 (lowercase alnum + hyphens, ≤63 chars, unique). No per-tenant DNS work — the wildcard covers it.
+
+---
+
+## 10. Custom domains (a client's own address)
+
+A client answering on `portal.theirschool.com` as well as on their handle. Full design in
+[`docs/custom-domains/00-SPEC.md`](docs/custom-domains/00-SPEC.md); this is the install.
+
+Certificates are Let's Encrypt on this box — no per-hostname SaaS bill. The trick is that nginx
+accepts **variables in `ssl_certificate`**, so one catch-all vhost picks a cert by SNI out of a flat
+directory: adding a client domain is two symlinks and **no nginx reload, no generated vhost**.
+
+**The split that matters:** the application only ever marks a domain VERIFIED (it resolves DNS,
+which needs no privileges). A **root cron** runs certbot and is the only thing that makes a domain
+LIVE. PHP-FPM never needs root.
+
+### Install (once)
+
+```bash
+# 1. The DNS-only CNAME target clients may point at (grey cloud — a proxied record breaks ACME).
+#    Cloudflare → acadmyq.com → A  connect  169.58.59.194  DNS only
+
+# 2. Scripts
+install -m 755 deploy/bin/acadmyq-cert-link.sh   /usr/local/bin/acadmyq-cert-link.sh
+install -m 755 deploy/bin/acadmyq-issue-certs.sh /usr/local/bin/acadmyq-issue-certs.sh
+install -m 644 deploy/cron/acadmyq-certs         /etc/cron.d/acadmyq-certs
+
+# 3. Cert directory + the fallback the vhost falls back to
+mkdir -p /etc/nginx/certs
+ln -sfn /etc/letsencrypt/live/acadmyq.com /etc/nginx/certs/_fallback
+
+# 4. The catch-all vhost (it is `default_server`; the named vhosts still win for acadmyq.com)
+cp deploy/nginx/custom-domains.conf /etc/nginx/sites-available/custom-domains.conf
+ln -sfn /etc/nginx/sites-available/custom-domains.conf /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default        # Debian's default_server would collide
+nginx -t && systemctl reload nginx
+
+# 5. Switch it on — API
+#    CUSTOM_DOMAINS_ENABLED=true
+#    CUSTOM_DOMAINS_ORIGIN_IP=169.58.59.194
+#    CUSTOM_DOMAINS_CNAME_TARGET=connect.acadmyq.com
+php8.2 artisan config:cache
+
+# 6. Switch it on — Web (INLINED AT BUILD TIME, so rebuild after)
+#    NEXT_PUBLIC_CUSTOM_DOMAINS=1
+pnpm --filter web build && systemctl restart acadmyq-web
+```
+
+⚠️ Do **not** set `CUSTOM_DOMAINS_ENABLED=true` before steps 2–4. A domain can then be marked live
+with nowhere to terminate TLS — a client promised an address that cannot work.
+
+### Adding one
+
+Super Admin → Clients → *client* → Settings → **Domains**. The client needs a subdomain handle
+first; the custom domain points at it and does not replace it.
+
+Tell the client to create **one DNS-only record**:
+
+| Type | Value |
+|---|---|
+| A | `169.58.59.194` |
+| *or* CNAME | `connect.acadmyq.com` |
+
+Then: `domains:verify` runs every 10 minutes and flips it to VERIFIED once DNS points here
+(**Check DNS** in the panel does it now), and the cert cron runs every 5 minutes and takes it to
+LIVE. Whole thing is usually live within ~15 minutes of the record propagating.
+
+### When it does not work
+
+| Symptom | Cause |
+|---|---|
+| Stuck on `PENDING_DNS`, error names someone else's IPs | The record is **proxied** (orange cloud / a CDN). ACME cannot reach us. Switch it to DNS-only. |
+| Stuck on `VERIFIED` | The cert cron is not installed or not running — `tail /var/log/acadmyq-certs.log` |
+| `FAILED` | `last_error` in the panel is certbot's own message. Retried automatically once an hour (the ACME failure budget is 5/hostname/hour). |
+| Certificate warning on the client's host | Expected before issuance — it is being served `_fallback`. |
+| Signed in on `app.acadmyq.com` but not on their domain | Correct: one session per origin, they are different sites. |
+
+```bash
+tail -f /var/log/acadmyq-certs.log                 # the cert cron
+sudo -u acadmyq php8.2 artisan domains:verify -v   # the DNS sweep, by hand
+certbot certificates | grep -A3 theirschool        # what was actually issued
+```
+
+Custom domains **bypass Cloudflare** (they must, for ACME), so they get no CDN or DDoS shielding and
+the origin IP becomes publicly known.

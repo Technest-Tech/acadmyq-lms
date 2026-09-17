@@ -2560,6 +2560,94 @@ export function testClientXpay(
   });
 }
 
+// ── Client custom domains (docs/custom-domains) ───────────────────────────────
+
+/** Which product a domain serves — the per-domain answer to "what owns `/` on this host". */
+export type ClientDomainKind = "MANAGEMENT" | "LMS";
+
+/**
+ * The lifecycle of an address, and the only thing the panel really has to get across:
+ *
+ *   PENDING_DNS → the record is not pointing at us yet (or is behind someone else's proxy)
+ *   VERIFIED    → DNS is right; waiting for a certificate
+ *   ISSUING     → certbot is running
+ *   LIVE        → the client's address works
+ *   FAILED      → issuance failed; `last_error` says why
+ */
+export type ClientDomainStatus =
+  | "PENDING_DNS"
+  | "VERIFIED"
+  | "ISSUING"
+  | "LIVE"
+  | "FAILED";
+
+export interface ClientDomain {
+  id: string;
+  host: string;
+  kind: ClientDomainKind;
+  status: ClientDomainStatus;
+  is_primary: boolean;
+  /** Why it is not moving forward — shown verbatim, because it is what to read out on the phone. */
+  last_error: string | null;
+  last_checked_at: string | null;
+  verified_at: string | null;
+  issued_at: string | null;
+  url: string;
+}
+
+export interface ClientDomains {
+  /** `CUSTOM_DOMAINS_ENABLED` on the API. Off ⇒ the card explains itself and writes are refused. */
+  enabled: boolean;
+  /** The DNS records to dictate to the client. */
+  instructions: { origin_ip: string; cname_target: string | null };
+  /** The platform handle these addresses resolve TO — a custom domain never replaces it. */
+  subdomain: string | null;
+  domains: ClientDomain[];
+}
+
+export function getClientDomains(clientId: string): Promise<ClientDomains> {
+  return apiFetch(`/api/admin/clients/${clientId}/domains`);
+}
+
+export function addClientDomain(
+  clientId: string,
+  payload: { host: string; kind: ClientDomainKind },
+): Promise<ClientDomains> {
+  return apiFetch(`/api/admin/clients/${clientId}/domains`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Re-run the DNS check now instead of waiting for the ten-minute sweep. */
+export function verifyClientDomain(
+  clientId: string,
+  domainId: string,
+): Promise<ClientDomains> {
+  return apiFetch(`/api/admin/clients/${clientId}/domains/${domainId}/verify`, {
+    method: "POST",
+  });
+}
+
+/** Make this the address links are BUILT from (emails, WhatsApp, payment returns). */
+export function setClientDomainPrimary(
+  clientId: string,
+  domainId: string,
+): Promise<ClientDomains> {
+  return apiFetch(`/api/admin/clients/${clientId}/domains/${domainId}/primary`, {
+    method: "POST",
+  });
+}
+
+export function removeClientDomain(
+  clientId: string,
+  domainId: string,
+): Promise<ClientDomains> {
+  return apiFetch(`/api/admin/clients/${clientId}/domains/${domainId}`, {
+    method: "DELETE",
+  });
+}
+
 // ── Teacher reports (internal performance notes ABOUT a teacher) ──────────────
 
 export type TeacherReportKind = "NOTE" | "INCIDENT" | "PRAISE";

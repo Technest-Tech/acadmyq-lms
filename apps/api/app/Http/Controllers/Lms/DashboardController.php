@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Lms;
 
 use App\Http\Controllers\Controller;
+use App\Support\CustomDomain;
 use App\Http\Controllers\Lms\Concerns\InteractsWithLms;
 use App\Support\LmsMedia;
 use App\Support\LmsSite;
@@ -105,6 +106,9 @@ final class DashboardController extends Controller
         return LmsSite::block(
             $subdomain !== null ? (string) $subdomain : null,
             LmsSite::ownsRoot($academyId),
+            // A client who bought their own address expects to be sent to IT, not to the platform
+            // handle it resolves through (docs/custom-domains).
+            CustomDomain::primaryOrigin($academyId, 'LMS'),
         ) + [
             'published_courses' => (int) DB::table('courses')
                 ->where('status', 'PUBLISHED')->whereNull('deleted_at')->count(),

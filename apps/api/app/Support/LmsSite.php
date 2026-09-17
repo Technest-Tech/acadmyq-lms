@@ -93,7 +93,13 @@ final class LmsSite
             return $sub;
         }
 
-        return null;
+        // Not under any platform root — it may still be a client address, just one they own
+        // (docs/custom-domains). A custom domain resolves TO the handle rather than spelling it, so
+        // everything above this call site carries on unchanged; in particular the branded sign-in
+        // stays bound to its client, which is the reason this lookup belongs here and not only in
+        // the router. Without it a login on a client's own domain would fall through to the
+        // PLATFORM door, where any academy's user signs in.
+        return CustomDomain::resolve($host)['subdomain'] ?? null;
     }
 
     /** Is subdomain routing configured? False ⇒ URLs are in-app paths, not real origins. */
@@ -132,8 +138,14 @@ final class LmsSite
      * `/learn/{sub}` under their own origin, because `/` there is their sign-in. Unconfigured roots
      * are unaffected: the in-app path is the same either way.
      */
-    public static function url(?string $subdomain, bool $ownsRoot = true): ?string
+    public static function url(?string $subdomain, bool $ownsRoot = true, ?string $customOrigin = null): ?string
     {
+        // A domain the client bought to BE their course site owns the root of its own host, whatever
+        // their plan says about the platform subdomain — so no `/learn/` suffix and no root check.
+        if ($customOrigin !== null && $customOrigin !== '') {
+            return $customOrigin;
+        }
+
         if ($subdomain === null || $subdomain === '') {
             return null;
         }
@@ -151,13 +163,16 @@ final class LmsSite
      * The site block both LMS surfaces embed, so the client dashboard and the admin page expose an
      * identical contract.
      *
-     * @return array{subdomain: ?string, url: ?string, root_domain: ?string, configured: bool}
+     * @return array{subdomain: ?string, url: ?string, root_domain: ?string, configured: bool, custom_domain: ?string}
      */
-    public static function block(?string $subdomain, bool $ownsRoot = true): array
+    public static function block(?string $subdomain, bool $ownsRoot = true, ?string $customOrigin = null): array
     {
         return [
             'subdomain' => $subdomain,
-            'url' => self::url($subdomain, $ownsRoot),
+            'url' => self::url($subdomain, $ownsRoot, $customOrigin),
+            // Named separately from `url` so a surface can say "your own domain" rather than only
+            // linking it — the platform address stays valid and is still the support fallback.
+            'custom_domain' => $customOrigin,
             'root_domain' => self::configured() ? self::rootDomain() : null,
             'configured' => self::configured(),
         ];
