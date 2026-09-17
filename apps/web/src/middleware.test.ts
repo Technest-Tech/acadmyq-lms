@@ -239,6 +239,9 @@ describe("custom domains", () => {
   it("never mistakes the platform's own hosts for a custom domain", async () => {
     expect((await run("acadmyq.com", "/", "acadmyq.com", true)).rewrite).toBeNull();
     expect((await run("app.acadmyq.com", "/login", "acadmyq.com", true)).rewrite).toBeNull();
+    // `connect` is the real DNS-only CNAME target clients aim at — a reserved platform host, not
+    // a handle. It was missing from the router's list and served a course-site 404 instead.
+    expect((await run("connect.acadmyq.com", "/", "acadmyq.com", true)).rewrite).toBeNull();
     expect(resolveTenantSite).not.toHaveBeenCalled();
   });
 

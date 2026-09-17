@@ -18,8 +18,19 @@ export const ROOT_DOMAINS: readonly string[] = (
   .map((root) => root.split(":")[0]?.trim().toLowerCase() ?? "")
   .filter(Boolean);
 
-/** Subdomains that are the platform itself, never an academy handle. */
-const RESERVED = new Set(["www", "app", "api", "admin", "mail", "static", "assets", "cdn"]);
+/**
+ * Subdomains that are the platform itself, never an academy handle.
+ *
+ * The API's `App\Support\Subdomain::RESERVED` is the longer list — it also refuses names that
+ * would be dishonest or would collide with a real DNS record — and this one only has to name the
+ * hosts the ROUTER must not treat as a tenant. They have to agree about those, though: `connect` is
+ * a live DNS-only record (the CNAME target clients point their own domains at, docs/custom-domains),
+ * and while it was missing here the router read it as a handle and served its course-site 404
+ * instead of passing it through.
+ */
+const RESERVED = new Set([
+  "www", "app", "api", "admin", "mail", "static", "assets", "cdn", "connect",
+]);
 
 /** Is this host the platform's own — an apex, or anything under one of its roots? */
 export function isPlatformHost(host: string): boolean {
