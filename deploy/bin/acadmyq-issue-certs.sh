@@ -20,7 +20,6 @@
 set -euo pipefail
 
 CERT_DIR=/etc/nginx/certs
-FALLBACK=/etc/letsencrypt/live/acadmyq.com
 WEBROOT=/var/www/html
 DB=academiq
 EMAIL="${ACADMYQ_ACME_EMAIL:-admin@acadmyq.com}"
@@ -31,12 +30,33 @@ psql_do() { sudo -u postgres psql -qtAX -v ON_ERROR_STOP=1 -d "$DB" -c "$1"; }
 sql_quote() { printf "%s" "${1//\'/\'\'}"; }
 is_host() { [[ "$1" =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]]; }
 
-mkdir -p "$CERT_DIR"
+mkdir -p "$CERT_DIR"; chmod 0755 "$CERT_DIR"
 
-# The certificate served to a client that sends no SNI, and to a host whose own
-# certificate does not exist yet. A name mismatch is an honest, readable failure;
-# a missing file is a refused handshake with nothing to read.
-[ -e "$CERT_DIR/_fallback" ] || ln -sfn "$FALLBACK" "$CERT_DIR/_fallback"
+# The certificate served to a client that sends no SNI, and to a host whose own certificate does
+# not exist yet. Without it those handshakes are REFUSED outright (nginx: `cannot load
+# certificate … Permission denied`), which is a worse failure than a warning because there is
+# nothing for the visitor or the admin to read.
+#
+# Deliberately SELF-SIGNED rather than the platform wildcard. Whoever reaches this path is getting
+# a browser warning either way — the whole point is that the name does not match — so pointing it
+# at the real wildcard would buy nothing and would hand the wildcard's private key to www-data,
+# which must be able to read every certificate this directory serves (see acadmyq-cert-link.sh).
+# The `-L` arm is not redundant: an earlier version of this script made `_fallback` a SYMLINK into
+# certbot's tree, and through that symlink the `-f` test below succeeds — so on an upgraded box the
+# broken, unreadable shape would survive every run and every handshake would keep failing.
+if [ -L "$CERT_DIR/_fallback" ] || [ ! -f "$CERT_DIR/_fallback/fullchain.pem" ]; then
+    rm -rf "$CERT_DIR/_fallback"
+    mkdir -p "$CERT_DIR/_fallback"
+    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+        -subj "/CN=unconfigured.invalid" \
+        -keyout "$CERT_DIR/_fallback/privkey.pem" \
+        -out    "$CERT_DIR/_fallback/fullchain.pem" >/dev/null 2>&1
+    chown -R root:"${NGINX_GROUP:-www-data}" "$CERT_DIR/_fallback"
+    chmod 0750 "$CERT_DIR/_fallback"
+    chmod 0644 "$CERT_DIR/_fallback/fullchain.pem"
+    chmod 0640 "$CERT_DIR/_fallback/privkey.pem"
+    echo "acadmyq-issue-certs: generated the self-signed fallback certificate"
+fi
 
 # Every host that is not live yet gets that placeholder, so the moment DNS points here
 # the address answers — badly, but visibly, and the panel explains why.
@@ -60,10 +80,10 @@ while IFS='|' read -r id host; do
     if err=$(certbot certonly --non-interactive --agree-tos -m "$EMAIL" \
                 --webroot -w "$WEBROOT" -d "$host" \
                 --deploy-hook "$HOOK" 2>&1); then
-        # The hook has already pointed $CERT_DIR/$host at the new lineage; this is the
-        # belt-and-braces path for a certificate certbot considered "not due" and so
-        # did not run a deploy hook for.
-        [ -d "/etc/letsencrypt/live/$host" ] && ln -sfn "/etc/letsencrypt/live/$host" "$CERT_DIR/$host"
+        # The hook has already published the pair; this is the belt-and-braces path for a
+        # certificate certbot considered "not due" and so did not run a deploy hook for. Same
+        # script, called directly — nginx must read a COPY, never certbot's own root-only tree.
+        [ -d "/etc/letsencrypt/live/$host" ] && "$HOOK" "$host" "/etc/letsencrypt/live/$host" >/dev/null
 
         psql_do "update academy_domains
                     set status = 'LIVE', issued_at = now(), last_error = null, updated_at = now()
