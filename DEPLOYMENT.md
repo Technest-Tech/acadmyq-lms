@@ -382,6 +382,9 @@ Tell the client to create **one DNS-only record**:
 | A | `169.58.59.194` |
 | *or* CNAME | `connect.acadmyq.com` |
 
+Add the domain in the panel **first**, then have them create the record: a host we hold no row for
+refuses the TLS handshake outright, whereas one we do serves the fallback (a warning, but it loads).
+
 Then: `domains:verify` runs every 10 minutes and flips it to VERIFIED once DNS points here
 (**Check DNS** in the panel does it now), and the cert cron runs every 5 minutes and takes it to
 LIVE. Whole thing is usually live within ~15 minutes of the record propagating.
@@ -393,7 +396,8 @@ LIVE. Whole thing is usually live within ~15 minutes of the record propagating.
 | Stuck on `PENDING_DNS`, error names someone else's IPs | The record is **proxied** (orange cloud / a CDN). ACME cannot reach us. Switch it to DNS-only. |
 | Stuck on `VERIFIED` | The cert cron is not installed or not running — `tail /var/log/acadmyq-certs.log` |
 | `FAILED` | `last_error` in the panel is certbot's own message. Retried automatically once an hour (the ACME failure budget is 5/hostname/hour). |
-| Certificate warning on the client's host | Expected before issuance — it is being served `_fallback`. |
+| Certificate warning on the client's host | Expected before issuance — it is being served the self-signed `_fallback`. |
+| Hard TLS error (not a warning) on the client's host | The host is in no domain row yet, so no certificate exists to offer. Add it in the panel — the cert cron gives it the fallback within 5 minutes. Add the domain **before** the client points DNS to avoid this. |
 | Signed in on `app.acadmyq.com` but not on their domain | Correct: one session per origin, they are different sites. |
 
 ```bash

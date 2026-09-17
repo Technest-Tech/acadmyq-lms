@@ -98,10 +98,22 @@ request path.
 Two tradeoffs, both accepted:
 
 - nginx cannot cache a certificate it resolves through a variable, so it reads the file on every
-  handshake. The session cache in the vhost is what keeps that from mattering at this scale.
-- `_fallback` (the acadmyq wildcard) answers for a client sending no SNI and for a host whose own
-  certificate has not been issued yet. A name-mismatch warning is a much better failure than a
-  refused handshake with nothing to read.
+  handshake — and, crucially, **a worker does the reading, not the master**. Workers run as
+  `www-data`, while certbot keeps `/etc/letsencrypt/archive` at `0700 root:root`. So certificates
+  are **copied** into `/etc/nginx/certs/<host>/` (key `0640 root:www-data`) by the deploy hook, on
+  issuance and on every renewal. Symlinking into certbot's tree does not work, and loosening that
+  tree would expose the platform wildcard's key to the web server. This was found the hard way:
+  every handshake failed with `BIO_new_file() failed … Permission denied`.
+- `_fallback` is a **self-signed** certificate, answering for a client that sends no SNI and for a
+  host whose own certificate has not been issued yet — both of which are getting a browser warning
+  regardless, which is why it is not worth pointing at the real wildcard.
+
+**A host that is in no `academy_domains` row refuses the TLS handshake outright** (no per-host
+directory exists, and a `map` cannot test for one). That is deliberate: we have no business
+presenting a certificate for a domain we do not serve. The consequence to know is the ORDER of
+operations — add the client's domain in the panel *before* telling them to point DNS, or their first
+visit is a hard TLS error rather than a warning page. Once the row exists the cert cron gives that
+host the fallback within five minutes.
 
 ## 6. The session problem, and why the API moves
 
