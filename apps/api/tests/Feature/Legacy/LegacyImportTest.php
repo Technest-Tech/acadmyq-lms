@@ -335,3 +335,68 @@ it('still groups by shared phone when the old app has no families at all', funct
     expect(DB::table('legacy_import_map')->where('entity', 'guardian')->value('legacy_key'))
         ->toBe('phone:+447000000001');
 });
+
+it('gives each contactless student an unroutable number of their own', function () {
+    // Yaqen's shape: the phone column was required, so whoever entered the roster typed a letter.
+    $fixture = legacyExportFixture();
+    $fixture['source'] = 'yaqen';
+    $fixture['students'] = [
+        ['legacy_id' => 200, 'name' => 'بلا رقم أول', 'email' => null, 'phone_raw' => 'ت', 'hour_price' => 12.5, 'currency' => 'QAR', 'timezone' => null, 'created_at' => '2025-02-01 00:00:00', 'first_activity_date' => '2025-02-09'],
+        ['legacy_id' => 201, 'name' => 'بلا رقم ثانٍ', 'email' => null, 'phone_raw' => 'ت', 'hour_price' => 12.5, 'currency' => 'QAR', 'timezone' => null, 'created_at' => '2025-02-01 00:00:00', 'first_activity_date' => '2025-02-09'],
+        ['legacy_id' => 202, 'name' => 'له رقم', 'email' => null, 'phone_raw' => '+201145741183', 'hour_price' => 12.5, 'currency' => 'QAR', 'timezone' => null, 'created_at' => '2025-02-01 00:00:00', 'first_activity_date' => '2025-02-09'],
+    ];
+    $fixture['assignments'] = [];
+    $fixture['schedules'] = [];
+
+    $file = tempnam(sys_get_temp_dir(), 'legacyph').'.json';
+    file_put_contents($file, json_encode($fixture, JSON_UNESCAPED_UNICODE));
+    runImport($file, $this->academy, ['--placeholder-phones' => true]);
+    @unlink($file);
+
+    $this->asAcademy($this->academy);
+
+    // Nobody is dropped, and the one real number is still used as-is.
+    expect(DB::table('students')->count())->toBe(3);
+    expect(DB::table('students')->where('full_name', 'له رقم')->value('whatsapp_phone'))->toBe('+201145741183');
+
+    // Two students whose old "number" was the same letter are NOT filed as siblings: a shared
+    // synthetic number would put one family's invoice in front of another.
+    $first = DB::table('students')->where('full_name', 'بلا رقم أول')->first();
+    $second = DB::table('students')->where('full_name', 'بلا رقم ثانٍ')->first();
+    expect($first->guardian_id)->not->toBe($second->guardian_id);
+    expect(DB::table('guardians')->count())->toBe(3);
+
+    // +999 is reserved by ITU-T and assigned to nobody, so a send fails rather than reaching a stranger.
+    expect($first->whatsapp_phone)->toStartWith('+999');
+    expect($second->whatsapp_phone)->not->toBe($first->whatsapp_phone);
+    expect($first->notes)->toContain('NO CONTACT NUMBER ON FILE');
+});
+
+it('mints the same placeholder every time, so a re-run does not duplicate anybody', function () {
+    $fixture = legacyExportFixture();
+    $fixture['source'] = 'yaqen';
+    $fixture['students'] = [
+        ['legacy_id' => 200, 'name' => 'بلا رقم', 'email' => null, 'phone_raw' => 'ت', 'hour_price' => 12.5, 'currency' => 'QAR', 'timezone' => null, 'created_at' => '2025-02-01 00:00:00', 'first_activity_date' => null],
+    ];
+    $fixture['assignments'] = [];
+    $fixture['schedules'] = [];
+
+    $file = tempnam(sys_get_temp_dir(), 'legacyph').'.json';
+    file_put_contents($file, json_encode($fixture, JSON_UNESCAPED_UNICODE));
+    runImport($file, $this->academy, ['--placeholder-phones' => true]);
+    runImport($file, $this->academy, ['--placeholder-phones' => true]);
+    @unlink($file);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('students')->count())->toBe(1);
+    expect(DB::table('guardians')->count())->toBe(1);
+});
+
+it('refuses to guess between one shared number and a placeholder each', function () {
+    $this->artisan('legacy:import', [
+        'file' => $this->exportFile,
+        '--academy' => $this->academy,
+        '--fallback-phone' => '+201555000111',
+        '--placeholder-phones' => true,
+    ])->run();
+})->throws(RuntimeException::class, 'not both');

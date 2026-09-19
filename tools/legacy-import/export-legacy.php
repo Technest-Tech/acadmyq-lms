@@ -80,12 +80,26 @@ $hasStudentType = Schema::hasColumn('users', 'student_type');
 // ---------------------------------------------------------------------------- people
 
 /** Old `users` is one table for every role; `user_type` splits it. */
-$userColumns = ['id', 'user_name', 'email', 'user_type', 'whatsapp_number', 'hour_price', 'currency', 'timezone', 'created_at'];
+// The family of old apps is not uniform even in `users` — the earliest of them (yaqen) never
+// grew a `timezone`. So every column beyond the four that define a person is probed, and a
+// missing one reads as null instead of aborting the export.
+$userColumns = ['id', 'user_name', 'user_type', 'created_at'];
+$optional = ['email', 'whatsapp_number', 'hour_price', 'currency', 'timezone'];
 if ($hasFamilies) {
-    $userColumns[] = 'family_id';
+    $optional[] = 'family_id';
 }
 if ($hasStudentType) {
-    $userColumns[] = 'student_type';
+    $optional[] = 'student_type';
+}
+
+$hasUserColumn = [];
+foreach ($optional as $column) {
+    $hasUserColumn[$column] = Schema::hasColumn('users', $column);
+    if ($hasUserColumn[$column]) {
+        $userColumns[] = $column;
+    } else {
+        $warn('users_column_missing', "`users` has no `{$column}` column in this app; exported as null.", ['column' => $column]);
+    }
 }
 
 $userRows = DB::table('users')->select($userColumns)->orderBy('id')->get();
@@ -95,20 +109,22 @@ $students = [];
 $others = [];
 
 foreach ($userRows as $u) {
+    $col = fn (string $name) => ($hasUserColumn[$name] ?? false) ? ($u->{$name} ?? null) : null;
+
     $person = [
         'legacy_id' => (int) $u->id,
         'name' => trim((string) $u->user_name),
-        'email' => $u->email !== null && $u->email !== '' ? strtolower(trim((string) $u->email)) : null,
-        'phone_raw' => $u->whatsapp_number !== null && trim((string) $u->whatsapp_number) !== '' ? trim((string) $u->whatsapp_number) : null,
-        'hour_price' => $u->hour_price !== null ? (float) $u->hour_price : null,
-        'currency' => $u->currency !== null && $u->currency !== '' ? strtoupper(trim((string) $u->currency)) : null,
-        'timezone' => $u->timezone !== null && $u->timezone !== '' ? (string) $u->timezone : null,
+        'email' => $col('email') !== null && $col('email') !== '' ? strtolower(trim((string) $col('email'))) : null,
+        'phone_raw' => $col('whatsapp_number') !== null && trim((string) $col('whatsapp_number')) !== '' ? trim((string) $col('whatsapp_number')) : null,
+        'hour_price' => $col('hour_price') !== null ? (float) $col('hour_price') : null,
+        'currency' => $col('currency') !== null && $col('currency') !== '' ? strtoupper(trim((string) $col('currency'))) : null,
+        'timezone' => $col('timezone') !== null && $col('timezone') !== '' ? (string) $col('timezone') : null,
         'created_at' => $u->created_at !== null ? (string) $u->created_at : null,
         // Which household pays for them, when the old app knows. NULL means nobody recorded one.
-        'family_legacy_id' => ($hasFamilies && $u->family_id !== null) ? (int) $u->family_id : null,
+        'family_legacy_id' => $col('family_id') !== null ? (int) $col('family_id') : null,
         // The client's own split of their roster (arabic/english). Nothing here reads it, so it
         // is carried into the student's notes rather than dropped on the floor.
-        'student_type' => ($hasStudentType && $u->student_type !== null && $u->student_type !== '') ? (string) $u->student_type : null,
+        'student_type' => $col('student_type') !== null && $col('student_type') !== '' ? (string) $col('student_type') : null,
     ];
 
     match ((string) $u->user_type) {

@@ -64,7 +64,8 @@ final class LegacyImport extends Command
         {--source= : Override the source name recorded in legacy_import_map (default: the export\'s own)}
         {--timezone= : Timezone the old wall-clock times are in (default: the academy timezone)}
         {--schedule-start= : Local date imported timetables start producing lessons (default: today)}
-        {--fallback-phone= : Guardian phone for students who have none (default: skip them)}
+        {--fallback-phone= : ONE guardian phone shared by every student who has none (default: skip them)}
+        {--placeholder-phones : Give each contactless student their own unroutable +999 placeholder instead}
         {--max-duration=240 : A slot longer than this many minutes is corrupt; fall back to 60}
         {--teacher-rate=0 : Session rate for every imported teacher, in major units}
         {--teacher-currency= : Currency for teacher rates (default: the academy default)}
@@ -75,6 +76,9 @@ final class LegacyImport extends Command
 
     /** Not a `users` row — Audit maps it to a null actor rather than breaking the FK. */
     private const SYSTEM_ACTOR = Audit::SYSTEM_ACTOR_ID;
+
+    /** How many real examples of a repeated note to print before summarising the rest. */
+    private const NOTE_EXAMPLES = 5;
 
     /** @var list<array{code:string,detail:string}> */
     private array $notes = [];
@@ -262,6 +266,15 @@ final class LegacyImport extends Command
         $fallback = $this->option('fallback-phone')
             ? $this->phone((string) $this->option('fallback-phone'), 'fallback-phone')
             : null;
+        $placeholders = (bool) $this->option('placeholder-phones');
+
+        if ($placeholders && $fallback !== null) {
+            // One is "send everyone's invoices to this number", the other is "send nobody's
+            // anywhere". Silently picking one would be a guess about who gets a parent's bill.
+            throw new RuntimeException('Pass either --fallback-phone or --placeholder-phones, not both.');
+        }
+
+        $minted = 0;
 
         // Some of the old apps grew a real `families` table — a named household with its own
         // WhatsApp number. That is an answer the client wrote down, so it beats inferring a family
@@ -285,11 +298,22 @@ final class LegacyImport extends Command
                 // A household with no number of its own is still a household; bill it on the
                 // number of the student who is in it.
                 $phone = $this->phone($family['phone_raw'] ?? null, "family {$family['name']}") ?? $own ?? $fallback;
+                if ($phone === null && $placeholders) {
+                    $phone = $this->placeholderPhone($source, 'family', (int) $familyId);
+                    $minted++;
+                }
                 $key = 'family:'.(int) $familyId;
                 $name = (string) $family['name'];
                 $explicit = true;
             } else {
                 $phone = $own ?? $fallback;
+                if ($phone === null && $placeholders) {
+                    // Their OWN placeholder, never a shared one: a synthetic number that two
+                    // students had in common would file them as siblings and put one family's
+                    // invoice in front of another.
+                    $phone = $this->placeholderPhone($source, 'student', (int) $s['legacy_id']);
+                    $minted++;
+                }
                 $key = $phone !== null ? 'phone:'.$phone : null;
                 $name = null;
                 $explicit = false;
@@ -373,7 +397,8 @@ final class LegacyImport extends Command
                     'status' => StudentStatus::REGULAR,
                     'is_self_guardian' => count($members) === 1 && ! $group['explicit'],
                     'notes' => 'Imported from '.$source.' #'.$legacyId
-                        .($s['student_type'] ?? null ? ' · '.$s['student_type'] : ''),
+                        .($s['student_type'] ?? null ? ' · '.$s['student_type'] : '')
+                        .(str_starts_with($phone, '+999') ? ' · NO CONTACT NUMBER ON FILE' : ''),
                 ]);
                 $this->remember($academyId, $source, 'student', (string) $legacyId, $studentId);
                 Audit::log('student.create', 'student', $studentId, $academyId, self::SYSTEM_ACTOR, 'SUPER_ADMIN', after: [
@@ -410,6 +435,10 @@ final class LegacyImport extends Command
         $this->counts['students_skipped'] = $skipped;
         $this->counts['subscriptions_created'] = $subscriptions;
         $this->counts['guardians_from_family_table'] = $fromFamily;
+        $this->counts['placeholder_numbers_minted'] = $minted;
+        if ($minted > 0) {
+            $this->note('placeholder_phones', "{$minted} guardian(s) have a placeholder number on +999 because the old system held no real one. Nothing can be sent to them — WhatsApp reports and invoice links will fail until a real number is entered. They are tagged 'NO CONTACT NUMBER ON FILE' in the student's notes.");
+        }
         if ($siblingGroups > 0) {
             $this->note('siblings_grouped', "{$siblingGroups} WhatsApp number(s) were shared by more than one student; each became one guardian with several students.");
         }
@@ -747,6 +776,28 @@ final class LegacyImport extends Command
         return $cleaned;
     }
 
+    /**
+     * A number that is guaranteed to reach nobody.
+     *
+     * Some of the old apps never really collected a phone: the column is required, so whoever was
+     * entering students typed a single letter to get past it. There is no number to migrate, but a
+     * guardian must have one (`guardians.whatsapp_phone` is NOT NULL and E.164 checked), and the
+     * two obvious escapes are both worse than this. Skipping loses the whole roster. Pointing them
+     * all at one real number puts a hundred families' invoices and reports in one stranger's chat.
+     *
+     * So: country code 999, which ITU-T E.164 reserves and has never assigned to anyone. It passes
+     * our format check, it is unmistakably not a real number, and a send to it fails instead of
+     * reaching a person. One per student, never shared, so nobody is filed as somebody's sibling
+     * by accident. The source code in the middle keeps two legacy systems from colliding if they
+     * are ever merged into one academy.
+     */
+    private function placeholderPhone(string $source, string $kind, int $id): string
+    {
+        $sourceCode = str_pad((string) (crc32($source) % 1000), 3, '0', STR_PAD_LEFT);
+
+        return '+999'.$sourceCode.($kind === 'family' ? '1' : '0').str_pad((string) $id, 6, '0', STR_PAD_LEFT);
+    }
+
     /** @param list<array<string,mixed>> $members */
     private function commonCurrency(array $members): ?string
     {
@@ -816,16 +867,24 @@ final class LegacyImport extends Command
         if ($this->notes !== []) {
             $this->newLine();
             $this->warn('Needs a human:');
-            $seen = [];
+
+            // A hundred lines of "could not read this phone number" buries the one line that says
+            // what happened to all of them. Each kind of note shows a few real examples and then
+            // says how many more there were; nothing is hidden, but the report stays readable.
+            $byCode = [];
             foreach ($this->notes as $n) {
-                // Per-row notes (a bad phone number, an impossible slot) are listed in full; the
-                // summary notes are one line each.
-                $line = '  • '.$n['detail'];
-                if (isset($seen[$line])) {
-                    continue;
+                $byCode[$n['code']][$n['detail']] = true;
+            }
+
+            foreach ($byCode as $details) {
+                $lines = array_keys($details);
+                foreach (array_slice($lines, 0, self::NOTE_EXAMPLES) as $line) {
+                    $this->line('  • '.$line);
                 }
-                $seen[$line] = true;
-                $this->line($line);
+                $extra = count($lines) - self::NOTE_EXAMPLES;
+                if ($extra > 0) {
+                    $this->line("    …and {$extra} more like it.");
+                }
             }
         }
 

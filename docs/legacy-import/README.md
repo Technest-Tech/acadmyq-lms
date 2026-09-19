@@ -94,12 +94,32 @@ the real run will land.
 | --- | --- |
 | `--dry-run` | Always, first. |
 | `--schedule-start=YYYY-MM-DD` | Start the imported timetables on a day other than today. A past date **back-fills lessons** — see decision 2. |
-| `--fallback-phone=+20…` | Include students who have no WhatsApp number at all. Without it they are skipped, because a guardian's number is where every report and invoice is sent and inventing one is worse than leaving the student out. |
+| `--fallback-phone=+20…` | Put every contactless student under ONE shared guardian number. Only right when there really is one person to bill. |
+| `--placeholder-phones` | Give each contactless student their own unroutable `+999…` guardian instead. For an app that never collected phones at all — see below. The two are mutually exclusive and passing both is an error. |
 | `--teacher-rate=` / `--teacher-currency=` | Give every imported teacher a payout rate. The old app never stored one, so without this they land at 0. |
 | `--timezone=` | The timezone the old wall-clock times are in. Defaults to the academy's. |
 | `--max-duration=240` | A slot longer than this is treated as a typo in the old data and imported as 60 minutes. |
 | `--no-generate` | Skip the session generator afterwards. |
 | `--source=` | Override the name recorded in `legacy_import_map`. Only matters if two legacy systems are merged into one academy. |
+
+## When the old app never collected phone numbers
+
+Yaqen's `whatsapp_number` column was required, so whoever entered the roster typed a single Arabic
+letter to get past it: `ت` on 47 students, `ع` on 21, and so on. 128 of its 130 students have no
+number at all, and there is nowhere else in that database they survive.
+
+A guardian must be reachable — `guardians.whatsapp_phone` is NOT NULL and E.164 checked, because it
+is where every report and invoice goes. Both obvious escapes are worse than the third:
+
+- **Skip them** and the roster is 2 students.
+- **One shared fallback** and a hundred families' invoices and reports land in one stranger's chat.
+- **`--placeholder-phones`**: each student gets their own guardian on country code **999**, which
+  ITU-T E.164 reserves and has never assigned. It passes the format check, it is unmistakably not
+  real, and a send to it fails rather than reaching a person. One per student, never shared, so
+  nobody is filed as somebody's sibling by accident. The number is derived from the source name and
+  the legacy id, so a re-run lands on the same guardian. Every such student is tagged
+  `NO CONTACT NUMBER ON FILE` in their notes — find them with that, and replace the numbers as you
+  collect them.
 
 ## After the import — what still needs a human
 
@@ -140,6 +160,20 @@ assignments  160 live / 18 past      lessons left in the archive  7,557
 ```
 
 A before/after diff of `pg_stat_user_tables` showed no table losing a row.
+
+### Yaqen — LIVE on prod 2026-09-20
+
+Academy `7e646087-182b-402d-8ca9-407249977751` (أكاديمية اليقين). Two things make it the odd one
+out: it has **no `timetable` table at all**, so there were no appointments to bring over and no
+lessons were generated; and 128 of its 130 students needed a `+999` placeholder.
+
+```
+teachers                      35     guardians   130 (128 placeholders)
+students                     130     timetables                     0
+students skipped               0     lessons generated              0
+subscriptions                130     lessons left in the archive 6,487
+assignments  130 live / 18 past
+```
 
 ### Tarteel — LIVE on prod 2026-09-20
 
