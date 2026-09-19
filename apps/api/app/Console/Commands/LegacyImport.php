@@ -263,13 +263,39 @@ final class LegacyImport extends Command
             ? $this->phone((string) $this->option('fallback-phone'), 'fallback-phone')
             : null;
 
-        /** @var array<string, list<array<string,mixed>>> $families */
-        $families = [];
+        // Some of the old apps grew a real `families` table — a named household with its own
+        // WhatsApp number. That is an answer the client wrote down, so it beats inferring a family
+        // from a shared number, and two households that happen to share a phone stay separate.
+        $declared = [];
+        foreach ($payload['families'] ?? [] as $f) {
+            $declared[(int) $f['legacy_id']] = $f;
+        }
+
+        /** @var array<string, array{name:?string, phone:string, explicit:bool, members:list<array<string,mixed>>}> $groups */
+        $groups = [];
         $skipped = 0;
+        $fromFamily = 0;
 
         foreach ($payload['students'] ?? [] as $s) {
-            $phone = $this->phone($s['phone_raw'] ?? null, "student {$s['name']}") ?? $fallback;
-            if ($phone === null) {
+            $own = $this->phone($s['phone_raw'] ?? null, "student {$s['name']}");
+            $familyId = $s['family_legacy_id'] ?? null;
+            $family = $familyId !== null ? ($declared[(int) $familyId] ?? null) : null;
+
+            if ($family !== null) {
+                // A household with no number of its own is still a household; bill it on the
+                // number of the student who is in it.
+                $phone = $this->phone($family['phone_raw'] ?? null, "family {$family['name']}") ?? $own ?? $fallback;
+                $key = 'family:'.(int) $familyId;
+                $name = (string) $family['name'];
+                $explicit = true;
+            } else {
+                $phone = $own ?? $fallback;
+                $key = $phone !== null ? 'phone:'.$phone : null;
+                $name = null;
+                $explicit = false;
+            }
+
+            if ($phone === null || $key === null) {
                 // A guardian must be reachable — `guardians.whatsapp_phone` is NOT NULL and E.164
                 // checked, because it is where every report and invoice is sent. Inventing a
                 // number to get the row in would be worse than leaving the student out.
@@ -278,7 +304,14 @@ final class LegacyImport extends Command
 
                 continue;
             }
-            $families[$phone][] = $s;
+
+            if (! isset($groups[$key])) {
+                $groups[$key] = ['name' => $name, 'phone' => $phone, 'explicit' => $explicit, 'members' => []];
+                if ($explicit) {
+                    $fromFamily++;
+                }
+            }
+            $groups[$key]['members'][] = $s;
         }
 
         $studentIds = [];
@@ -288,13 +321,14 @@ final class LegacyImport extends Command
         $subscriptions = 0;
         $siblingGroups = 0;
 
-        foreach ($families as $phone => $members) {
+        foreach ($groups as $guardianKey => $group) {
+            $members = $group['members'];
+            $phone = $group['phone'];
             usort($members, fn ($a, $b) => $a['legacy_id'] <=> $b['legacy_id']);
-            if (count($members) > 1) {
+            if (count($members) > 1 && ! $group['explicit']) {
                 $siblingGroups++;
             }
 
-            $guardianKey = 'phone:'.$phone;
             $guardianCurrency = $this->commonCurrency($members) ?? $defaultCurrency;
             $guardianId = $this->mapped($academyId, $source, 'guardian', $guardianKey);
 
@@ -303,9 +337,9 @@ final class LegacyImport extends Command
                 DB::table('guardians')->insert([
                     'id' => $guardianId,
                     'academy_id' => $academyId,
-                    // The old app has no payer of its own, so the guardian is named after the
-                    // eldest record on the number rather than given an invented family name.
-                    'full_name' => $members[0]['name'],
+                    // The household's own name where the old app recorded one; otherwise the
+                    // eldest record on the number, rather than an invented family name.
+                    'full_name' => $group['name'] ?? $members[0]['name'],
                     'whatsapp_phone' => $phone,
                     'currency' => $guardianCurrency,
                 ]);
@@ -337,8 +371,9 @@ final class LegacyImport extends Command
                     'full_name' => $s['name'],
                     'whatsapp_phone' => $phone,
                     'status' => StudentStatus::REGULAR,
-                    'is_self_guardian' => count($members) === 1,
-                    'notes' => 'Imported from '.$source.' #'.$legacyId,
+                    'is_self_guardian' => count($members) === 1 && ! $group['explicit'],
+                    'notes' => 'Imported from '.$source.' #'.$legacyId
+                        .($s['student_type'] ?? null ? ' · '.$s['student_type'] : ''),
                 ]);
                 $this->remember($academyId, $source, 'student', (string) $legacyId, $studentId);
                 Audit::log('student.create', 'student', $studentId, $academyId, self::SYSTEM_ACTOR, 'SUPER_ADMIN', after: [
@@ -374,6 +409,7 @@ final class LegacyImport extends Command
         $this->counts['students_updated'] = $studentsUpdated;
         $this->counts['students_skipped'] = $skipped;
         $this->counts['subscriptions_created'] = $subscriptions;
+        $this->counts['guardians_from_family_table'] = $fromFamily;
         if ($siblingGroups > 0) {
             $this->note('siblings_grouped', "{$siblingGroups} WhatsApp number(s) were shared by more than one student; each became one guardian with several students.");
         }

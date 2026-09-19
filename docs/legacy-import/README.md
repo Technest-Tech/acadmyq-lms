@@ -38,10 +38,15 @@ mints its own.
    date would invent months of lessons nobody taught — each one markable and billable. Override
    with `--schedule-start=` only if you mean it.
 
-3. **A shared phone is a family.** The old app has no payer; it bills the student directly. Here
-   a guardian owns the money and can own several students. Students sharing a WhatsApp number are
-   therefore landed under one guardian — which is what siblings on a parent's phone are. Ehsan
-   has 23 such numbers.
+3. **The payer is recovered, by the client's own answer where there is one.** Here a guardian owns
+   the money and can own several students; the old app mostly has no payer at all and bills the
+   student directly. Two routes, in order:
+   - **A declared family.** The later apps (tarteel) grew a `families` table — a named household
+     with its own WhatsApp number. That is the client's own bookkeeping, so it wins: members land
+     under it whatever their own numbers are, and two households that happen to share a number stay
+     two households. A family with no number of its own is billed on a member's.
+   - **A shared phone**, for the students nobody filed. Sharing a number means siblings on a
+     parent's phone. Ehsan has 23 such numbers; tarteel 47.
 
 4. **It is re-runnable.** Every row created is recorded in `legacy_import_map`, so a second run
    updates what the first made instead of creating a second copy of everybody. Useful, because the
@@ -114,23 +119,38 @@ The command prints a **Needs a human** list. For Ehsan it was:
 
 ## The same old app, other clients
 
-`asaneed`, `azhari`, `israa-meraj`, `tarteel` and `yaqen` run the same schema, so both pieces work
-on them unchanged. `tarteel` also has a `families` table the exporter does not read yet — its
-students will be grouped by shared phone like everyone else's, which is the same answer by a
-different route. Apps with a different shape entirely (`azhary`, `esra`, `tayser`, `alwahy`,
-`alarabiya`) are not covered.
+`asaneed`, `azhari`, `israa-meraj` and `yaqen` run the same schema, so both pieces work on them
+unchanged. The extra tables the later apps grew are detected, not assumed: `families` +
+`users.family_id` are read where they exist and ignored where they don't, and the same goes for
+`users.student_type` (kept in the student's notes). Apps with a different shape entirely
+(`azhary`, `esra`, `tayser`, `alwahy`, `alarabiya`) are not covered.
 
-## Rehearsal notes (Ehsan, 2026-09-18)
+## Runs so far
 
-Exported and imported into a throwaway academy on the local test database:
+### Ehsan — LIVE on prod 2026-09-20
+
+Academy `b308dba3-8256-469a-9816-4f987d5f2d6b` (أكاديميه الاحسان).
 
 ```
-teachers created              32     guardians                    215
-students created             240     timetables created           106
+teachers                      32     guardians                    215
+students                     240     timetables                   106
 students skipped               1     timetable slots              241
-subscriptions created        240     sessions generated         1,489
-assignments active           160     lessons in file (not imported) 7,519
-assignments historical        18     expired series skipped         3
+subscriptions                240     lessons generated          1,446
+assignments  160 live / 18 past      lessons left in the archive  7,557
 ```
 
-A second run created nothing and generated no sessions.
+A before/after diff of `pg_stat_user_tables` showed no table losing a row.
+
+### Tarteel — LIVE on prod 2026-09-20
+
+Academy `a0e623a4-e1fe-4939-be1b-60db7b9e4ab1` (أكاديمية ترتيل), the first run to use the
+`families` table: 70 of its 377 guardians are declared households, the rest inferred from shared
+numbers.
+
+```
+teachers                      53     guardians      377 (70 declared)
+students                     542     timetables                   143
+students skipped               0     timetable slots              511
+subscriptions                542     lessons generated          3,066
+assignments 425 live / 319 past      expired series skipped       412
+```

@@ -55,13 +55,40 @@ $warn = function (string $code, string $message, array $context = []) use (&$war
 
 $has = fn (string $table): bool => Schema::hasTable($table);
 
+// ------------------------------------------------------------------- the payer, if any
+
+// Some of the old apps grew a real payer: a `families` row holding the name and the WhatsApp
+// number the whole household is billed on. Where it exists it beats guessing from a shared
+// phone, so it is exported and the importer prefers it.
+$families = [];
+$hasFamilies = $has('families') && Schema::hasColumn('users', 'family_id');
+
+if ($hasFamilies) {
+    foreach (DB::table('families')->orderBy('id')->get() as $f) {
+        $families[] = [
+            'legacy_id' => (int) $f->id,
+            'name' => trim((string) $f->family_name),
+            'phone_raw' => $f->whatsapp_number !== null && trim((string) $f->whatsapp_number) !== '' ? trim((string) $f->whatsapp_number) : null,
+        ];
+    }
+} elseif ($has('families')) {
+    $warn('families_unlinked', 'This app has a `families` table but `users` has no `family_id`; students will be grouped by shared phone instead.');
+}
+
+$hasStudentType = Schema::hasColumn('users', 'student_type');
+
 // ---------------------------------------------------------------------------- people
 
 /** Old `users` is one table for every role; `user_type` splits it. */
-$userRows = DB::table('users')
-    ->select('id', 'user_name', 'email', 'user_type', 'whatsapp_number', 'hour_price', 'currency', 'timezone', 'created_at')
-    ->orderBy('id')
-    ->get();
+$userColumns = ['id', 'user_name', 'email', 'user_type', 'whatsapp_number', 'hour_price', 'currency', 'timezone', 'created_at'];
+if ($hasFamilies) {
+    $userColumns[] = 'family_id';
+}
+if ($hasStudentType) {
+    $userColumns[] = 'student_type';
+}
+
+$userRows = DB::table('users')->select($userColumns)->orderBy('id')->get();
 
 $teachers = [];
 $students = [];
@@ -77,6 +104,11 @@ foreach ($userRows as $u) {
         'currency' => $u->currency !== null && $u->currency !== '' ? strtoupper(trim((string) $u->currency)) : null,
         'timezone' => $u->timezone !== null && $u->timezone !== '' ? (string) $u->timezone : null,
         'created_at' => $u->created_at !== null ? (string) $u->created_at : null,
+        // Which household pays for them, when the old app knows. NULL means nobody recorded one.
+        'family_legacy_id' => ($hasFamilies && $u->family_id !== null) ? (int) $u->family_id : null,
+        // The client's own split of their roster (arabic/english). Nothing here reads it, so it
+        // is carried into the student's notes rather than dropped on the floor.
+        'student_type' => ($hasStudentType && $u->student_type !== null && $u->student_type !== '') ? (string) $u->student_type : null,
     ];
 
     match ((string) $u->user_type) {
@@ -261,6 +293,7 @@ $payload = [
     'counts' => [
         'teachers' => count($teachers),
         'students' => count($students),
+        'families' => count($families),
         'other_users' => count($others),
         'assignments' => count($assignments),
         'schedules' => count($schedules),
@@ -269,6 +302,7 @@ $payload = [
     ],
     'teachers' => $teachers,
     'students' => $students,
+    'families' => $families,
     'other_users' => $others,
     'assignments' => $assignments,
     'schedules' => $schedules,

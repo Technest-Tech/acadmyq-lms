@@ -252,3 +252,86 @@ it('includes a student with no number when given one to fall back on', function 
     expect(DB::table('students')->count())->toBe(3);
     expect(DB::table('students')->where('full_name', 'بلا رقم')->value('whatsapp_phone'))->toBe('+201555000111');
 });
+
+/**
+ * The later old apps (tarteel) grew a real `families` table: a named household with its own
+ * WhatsApp number. Where the client wrote the answer down we use it, and only guess from a shared
+ * phone for the students they never filed.
+ */
+function legacyExportWithFamilies(): array
+{
+    return [
+        'format' => 'academiq.legacy-export/1',
+        'source' => 'tarteel',
+        'exported_at' => '2026-09-20T09:00:00+00:00',
+        'teachers' => [
+            ['legacy_id' => 10, 'name' => 'معلم', 'email' => null, 'phone_raw' => null, 'hour_price' => null, 'currency' => null, 'timezone' => null, 'created_at' => '2024-01-01 00:00:00'],
+        ],
+        'families' => [
+            // Pretty-printed exactly as the old app stores it.
+            ['legacy_id' => 1, 'name' => 'عائلة تميم', 'phone_raw' => '+1 (647) 829-4887'],
+            // A second household that happens to sit on the same number as the first.
+            ['legacy_id' => 2, 'name' => 'عائلة نايف', 'phone_raw' => '+1 (647) 829-4887'],
+            // A household nobody gave a number to.
+            ['legacy_id' => 3, 'name' => 'عائلة بلا رقم', 'phone_raw' => null],
+        ],
+        'students' => [
+            ['legacy_id' => 100, 'name' => 'تميم الأول', 'email' => null, 'phone_raw' => '15550000001', 'hour_price' => 5.0, 'currency' => 'USD', 'timezone' => null, 'created_at' => '2024-02-01 00:00:00', 'first_activity_date' => '2024-02-02', 'family_legacy_id' => 1, 'student_type' => 'arabic'],
+            ['legacy_id' => 101, 'name' => 'تميم الثاني', 'email' => null, 'phone_raw' => '15550000002', 'hour_price' => 5.0, 'currency' => 'USD', 'timezone' => null, 'created_at' => '2024-02-01 00:00:00', 'first_activity_date' => '2024-02-02', 'family_legacy_id' => 1, 'student_type' => 'english'],
+            ['legacy_id' => 102, 'name' => 'نايف', 'email' => null, 'phone_raw' => '15550000003', 'hour_price' => 4.0, 'currency' => 'USD', 'timezone' => null, 'created_at' => '2024-02-01 00:00:00', 'first_activity_date' => null, 'family_legacy_id' => 2, 'student_type' => null],
+            ['legacy_id' => 103, 'name' => 'يتيم الرقم', 'email' => null, 'phone_raw' => '15550000004', 'hour_price' => 3.0, 'currency' => 'USD', 'timezone' => null, 'created_at' => '2024-02-01 00:00:00', 'first_activity_date' => null, 'family_legacy_id' => 3, 'student_type' => null],
+            // No family on file at all — falls back to grouping by their own number.
+            ['legacy_id' => 104, 'name' => 'بلا عائلة', 'email' => null, 'phone_raw' => '15550000009', 'hour_price' => 2.0, 'currency' => 'USD', 'timezone' => null, 'created_at' => '2024-02-01 00:00:00', 'first_activity_date' => null, 'family_legacy_id' => null, 'student_type' => null],
+        ],
+        'other_users' => [],
+        'assignments' => [],
+        'schedules' => [],
+        'lessons' => [],
+        'warnings' => [],
+    ];
+}
+
+it('bills a declared family as one household, whatever its members\' own numbers are', function () {
+    $file = tempnam(sys_get_temp_dir(), 'legacyfam').'.json';
+    file_put_contents($file, json_encode(legacyExportWithFamilies(), JSON_UNESCAPED_UNICODE));
+    runImport($file, $this->academy);
+    @unlink($file);
+
+    $this->asAcademy($this->academy);
+
+    // Three declared households + one student with no family on their own number.
+    expect(DB::table('guardians')->count())->toBe(4);
+    expect(DB::table('students')->count())->toBe(5);
+
+    $tameem = DB::table('guardians')->where('full_name', 'عائلة تميم')->first();
+    expect($tameem->whatsapp_phone)->toBe('+16478294887');   // read out of "+1 (647) 829-4887"
+    // Both brothers land on the household even though each has a different number of their own.
+    expect(DB::table('students')->where('guardian_id', $tameem->id)->count())->toBe(2);
+
+    // Two households on one number stay two households — the client filed them separately.
+    $nayef = DB::table('guardians')->where('full_name', 'عائلة نايف')->first();
+    expect($nayef->id)->not->toBe($tameem->id);
+    expect($nayef->whatsapp_phone)->toBe('+16478294887');
+
+    // A household with no number of its own is billed on its member's.
+    expect(DB::table('guardians')->where('full_name', 'عائلة بلا رقم')->value('whatsapp_phone'))->toBe('+15550000004');
+
+    // Nobody in a declared household is their own guardian, however alone they are.
+    expect(DB::table('students')->where('full_name', 'نايف')->value('is_self_guardian'))->toBeFalse();
+    // A student with no family filed still gets the old behaviour.
+    expect(DB::table('students')->where('full_name', 'بلا عائلة')->value('is_self_guardian'))->toBeTrue();
+
+    // The client's own arabic/english split is kept rather than dropped.
+    expect(DB::table('students')->where('full_name', 'تميم الثاني')->value('notes'))->toContain('english');
+});
+
+it('still groups by shared phone when the old app has no families at all', function () {
+    // The Ehsan shape. This must not drift: that academy is live, and a re-import has to land on
+    // the guardians it made the first time.
+    runImport($this->exportFile, $this->academy);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('guardians')->count())->toBe(1);
+    expect(DB::table('legacy_import_map')->where('entity', 'guardian')->value('legacy_key'))
+        ->toBe('phone:+447000000001');
+});
