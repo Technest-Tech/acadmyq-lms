@@ -18,6 +18,7 @@ import {
   RotateCcw,
   ShieldAlert,
   UserCircle2,
+  UserPlus,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -25,7 +26,7 @@ import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { StudentForm } from "@/components/students/student-form";
+import { ChoiceCard, StudentForm } from "@/components/students/student-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
@@ -436,11 +437,15 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [modal, setModal] = useState<"none" | "add" | "link" | "deactivate">(
-    "none",
-  );
+  const [modal, setModal] = useState<"none" | "add" | "deactivate">("none");
 
-  // The inline "link an existing student" picker.
+  /**
+   * Adding a child is one flow with two ways in: enrol someone new, or move a student who is
+   * already on the roster. They used to be two buttons in two places — the big one in the hero
+   * and a small "Link existing" in a card header — so the second was easy to miss entirely when
+   * the student you wanted was already in the system.
+   */
+  const [addMode, setAddMode] = useState<"new" | "existing">("new");
   const [studentOptions, setStudentOptions] = useState<ComboboxOption[]>([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState("");
@@ -460,8 +465,10 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
     void refresh();
   }, [refresh]);
 
+  // The roster is fetched when the picker is actually shown, not when the modal opens — a user
+  // enrolling a new child never pays for a list of 200 students they are not going to look at.
   useEffect(() => {
-    if (modal !== "link") return;
+    if (modal !== "add" || addMode !== "existing") return;
     setSelectedStudentId("");
     setLoadingStudents(true);
     const linked = new Set(children.map((c) => c.id));
@@ -473,6 +480,8 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
             .map((s) => ({
               value: s.id,
               label: s.full_name,
+              // Which family they sit in today — moving a child OUT of one parent and into
+              // another is exactly what this does, so say whose child they are now.
               sublabel: s.guardian_name ?? undefined,
             })),
         ),
@@ -481,7 +490,7 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
         setError(err instanceof ApiError ? err.message : String(err)),
       )
       .finally(() => setLoadingStudents(false));
-  }, [modal, children]);
+  }, [modal, addMode, children]);
 
   if (notFound) {
     return (
@@ -542,6 +551,16 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
     }
   }
 
+  /**
+   * Open the add flow. Every entry point lands in the same modal; the argument only decides
+   * which of the two ways in is preselected, and the user can switch there.
+   */
+  function openAdd(mode: "new" | "existing") {
+    setAddMode(mode);
+    setSelectedStudentId("");
+    setModal("add");
+  }
+
   async function linkStudent() {
     if (!selectedStudentId) return;
     setLinking(true);
@@ -590,7 +609,7 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
             <Button
               type="button"
               size="lg"
-              onClick={() => setModal("add")}
+              onClick={() => openAdd("new")}
               data-testid="add-child"
               className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
             >
@@ -672,12 +691,12 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setModal("link")}
+              onClick={() => openAdd("existing")}
               data-testid="link-child"
               className="gap-1"
             >
               <Link2 className="size-3" aria-hidden />
-              {t("detail.linkExisting")}
+              {t("detail.addExisting")}
             </Button>
           ) : undefined
         }
@@ -700,7 +719,7 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
               <Button
                 type="button"
                 size="sm"
-                onClick={() => setModal("add")}
+                onClick={() => openAdd("new")}
                 data-testid="add-child-empty"
                 className="gap-1.5"
               >
@@ -907,72 +926,100 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
         </ProfileCard>
       )}
 
-      {/* ── Add a child ──────────────────────────────────────────────── */}
+      {/* ── Add a child: a new student, or one already on the roster ─── */}
       <Modal
         open={modal === "add"}
         onClose={() => setModal("none")}
         title={t("detail.addChildTitle", { name: guardian.full_name })}
         description={t("detail.addChildDesc")}
         size="md"
-      >
-        {modal === "add" && (
-          <StudentForm
-            fixedGuardianId={guardianId}
-            onCancel={() => setModal("none")}
-            onCreated={() => {
-              setModal("none");
-              void refresh();
-              flash(t("detail.childAdded"));
-            }}
-          />
-        )}
-      </Modal>
-
-      {/* ── Link an existing student ─────────────────────────────────── */}
-      <Modal
-        open={modal === "link"}
-        onClose={() => setModal("none")}
-        title={t("detail.linkStudent")}
-        description={t("detail.linkStudentHint")}
-        size="sm"
         footer={
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={linking}
-              onClick={() => setModal("none")}
-            >
-              {t("detail.deactivateCancel")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              disabled={!selectedStudentId || linking}
-              onClick={() => void linkStudent()}
-              data-testid="confirm-link-child"
-              className="gap-1"
-            >
-              {linking && (
-                <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
-              )}
-              {linking ? t("detail.linking") : t("detail.linkExisting")}
-            </Button>
-          </>
+          // The create form carries its own buttons; only the picker needs a footer.
+          addMode === "existing" ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={linking}
+                onClick={() => setModal("none")}
+              >
+                {t("detail.deactivateCancel")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={!selectedStudentId || linking}
+                onClick={() => void linkStudent()}
+                data-testid="confirm-link-child"
+                className="gap-1"
+              >
+                {linking && (
+                  <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
+                )}
+                {linking ? t("detail.linking") : t("detail.moveHere")}
+              </Button>
+            </>
+          ) : undefined
         }
       >
-        <Combobox
-          options={studentOptions}
-          value={selectedStudentId}
-          onChange={setSelectedStudentId}
-          placeholder={
-            loadingStudents ? t("detail.linking") : t("detail.searchStudents")
-          }
-          searchPlaceholder={t("detail.searchStudents")}
-          disabled={loadingStudents}
-          data-testid="link-student-picker"
-        />
+        {modal === "add" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <ChoiceCard
+                icon={UserPlus}
+                title={t("detail.addNew")}
+                hint={t("detail.addNewHint")}
+                selected={addMode === "new"}
+                onSelect={() => setAddMode("new")}
+                testId="add-mode-new"
+              />
+              <ChoiceCard
+                icon={Link2}
+                title={t("detail.addExisting")}
+                hint={t("detail.addExistingHint")}
+                selected={addMode === "existing"}
+                onSelect={() => setAddMode("existing")}
+                testId="add-mode-existing"
+              />
+            </div>
+
+            {addMode === "new" ? (
+              <StudentForm
+                fixedGuardianId={guardianId}
+                onCancel={() => setModal("none")}
+                onCreated={() => {
+                  setModal("none");
+                  void refresh();
+                  flash(t("detail.childAdded"));
+                }}
+              />
+            ) : (
+              <div className="space-y-3">
+                <Combobox
+                  options={studentOptions}
+                  value={selectedStudentId}
+                  onChange={setSelectedStudentId}
+                  placeholder={
+                    loadingStudents
+                      ? t("detail.linking")
+                      : t("detail.searchStudents")
+                  }
+                  searchPlaceholder={t("detail.searchStudents")}
+                  disabled={loadingStudents}
+                  data-testid="link-student-picker"
+                />
+                {/* Moving a child is not the same act as enrolling one — the student keeps
+                    their teacher, timetable and price, and only the payer changes. */}
+                <p className="text-muted-foreground text-xs">
+                  {!loadingStudents && studentOptions.length === 0
+                    ? t("detail.noStudentsToLink")
+                    : t("detail.linkStudentHint")}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
 
       {/* ── Deactivate confirmation ──────────────────────────────────── */}

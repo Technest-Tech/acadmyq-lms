@@ -187,6 +187,63 @@ describe("FamilyProfile", () => {
     );
   });
 
+  // Adding a child is one flow: the "already in the system" path must be reachable from the
+  // primary Add button, not only from a second button somewhere else on the page.
+  it("offers the existing-student picker inside the add flow", async () => {
+    vi.mocked(api.listStudents).mockResolvedValue({
+      rows: [
+        {
+          id: "s9",
+          full_name: "Bilal",
+          guardian_name: "Another Family",
+          deleted_at: null,
+        } as unknown as api.StudentRow,
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 200,
+    });
+    renderProfile();
+    await screen.findByTestId("family-profile");
+    const user = userEvent.setup();
+
+    // The primary action opens on "new student" — the create form, not a picker.
+    await user.click(screen.getByTestId("add-child"));
+    expect(screen.getByTestId("student-form")).toBeInTheDocument();
+    expect(screen.queryByTestId("link-student-picker")).not.toBeInTheDocument();
+
+    // …and the other way in is one click away, in the same modal.
+    await user.click(screen.getByTestId("add-mode-existing"));
+    expect(
+      await screen.findByTestId("link-student-picker"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("student-form")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("link-student-picker"));
+    await user.click(await screen.findByText("Bilal"));
+    await user.click(screen.getByTestId("confirm-link-child"));
+
+    await waitFor(() =>
+      expect(api.updateStudent).toHaveBeenCalledWith("s9", {
+        guardian_id: "g1",
+      }),
+    );
+  });
+
+  it("says so when there is no one left to move in", async () => {
+    renderProfile();
+    await screen.findByTestId("family-profile");
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("link-child"));
+
+    expect(
+      await screen.findByText(
+        "Every active student is already in this family.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("saves the billing contact", async () => {
     renderProfile();
     await screen.findByTestId("family-profile");
