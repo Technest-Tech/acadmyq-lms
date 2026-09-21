@@ -31,11 +31,68 @@ or redeploy from it.
 | GitHub repo | `git@github.com:Technest-Tech/acadmyq-lms.git` |
 | Deploy key | `/root/.ssh/acadmyq_deploy` (+ `.pub`); added to repo → Settings → Deploy keys |
 | Secrets file | `/root/acadmyq-secrets.env` (DB password, etc. — chmod 600, never committed) |
-| Deployed branch | `feat/video-platform` (prod ran commit `9b3832f` at migration) |
+| Deployed branch | **`feat/superadmin-reorg`** (was `feat/video-platform` at the 2026-07-22 migration) |
 
 > The **media/video plane is a second box** — Contabo VPS 6 `169.58.59.255`
 > (`ssh academiq-s2`, `media.acadmyq.com` + `turn.acadmyq.com`). See
 > [`docs/video-platform/07-DEPLOYMENT.md`](docs/video-platform/07-DEPLOYMENT.md).
+
+### Connecting, and running anything by hand
+
+`ssh academiq-s1` is the whole connection. It resolves from `~/.ssh/config` on the Mac:
+
+```
+Host academiq-s1
+    HostName 169.58.59.194
+    User root
+    IdentityFile ~/.ssh/contabo_academiq_s1
+    IdentitiesOnly yes
+```
+
+**You land as `root`, but almost nothing should be run as root.** The app is owned by the
+`acadmyq` user; run app commands through it, or you will leave root-owned files behind that
+break the next deploy.
+
+```bash
+# artisan / composer / pnpm — always as the app user
+ssh academiq-s1 "cd /var/www/acadmyq/apps/api && sudo -u acadmyq php artisan <cmd>"
+
+# a deploy (see §6)
+ssh academiq-s1 'sudo -u acadmyq APP_BRANCH=feat/superadmin-reorg /var/www/acadmyq/deploy/deploy.sh'
+```
+
+> ⚠️ **Never run `git` as root in `/var/www/acadmyq`** — not even `git status`. It writes
+> `.git/index` and loose objects as root, and the next deploy dies at the pull with
+> `insufficient permission for adding an object to repository database .git/objects`
+> (it fails *before* changing anything, so the live site stays up). Bit us 2026-09-20.
+> Repair, non-destructive: `chown -R acadmyq:acadmyq /var/www/acadmyq/.git`, then confirm
+> `sudo -u acadmyq git fetch origin` works. Prefix every read too: `sudo -u acadmyq git status`.
+
+#### Querying the database
+
+The database is **`academiq`**. There is no database called `acadmyq` — that is the *app*
+directory, the OS user and the domain, and reaching for it is the most common wasted minute here.
+
+```bash
+# cross-tenant diagnostics — superuser, BYPASSES RLS, sees every academy
+ssh academiq-s1 "sudo -u postgres psql -d academiq -c '<sql>'"
+```
+
+Every tenant table is `FORCE ROW LEVEL SECURITY`. Connecting as `academiq_app` (the role the app
+uses) returns **zero rows** from `whatsapp_groups`, `sessions`, `invoices` … unless the tenant GUC
+is set first — and an empty result reads exactly like "nothing is configured", which is the trap:
+
+```sql
+set local app.current_academy_id = '<academy-uuid>';   -- inside a transaction
+```
+
+So: use `postgres` to diagnose, `academiq_app` only to reproduce what the app itself sees.
+
+Backups before anything destructive (`/root` is not writable by postgres):
+
+```bash
+sudo -u postgres pg_dump -Fc -d academiq -f /var/backups/acadmyq/academiq-$(date +%Y%m%d-%H%M%S).dump
+```
 
 ### DNS records (Cloudflare → acadmyq.com)
 
@@ -123,7 +180,8 @@ The real password lives in `/root/acadmyq-secrets.env`.
 | API runtime | `php8.2-fpm` (pool `acadmyq`, socket `/run/php/php8.2-fpm-acadmyq.sock`) | serves Laravel |
 | Web runtime | `acadmyq-web.service` (`pnpm start` → `next start` on :3000) | serves Next.js |
 | Queue worker | `acadmyq-queue.service` (`php artisan queue:work`) | background jobs |
-| Scheduler | cron `* * * * * php artisan schedule:run` (user `acadmyq`) | hourly alerts etc. |
+| Scheduler | cron `* * * * * php artisan schedule:run` (user `acadmyq`) | drives **every** recurring job, down to per-minute ones (see `apps/api/routes/console.php`) |
+| WhatsApp gateway | `wa-gateway.service` (user `acadmyq`, `127.0.0.1:8088`, own PG db `wa_gateway`) | self-hosted Baileys; sends every academy's WhatsApp |
 | Web server | `nginx` | TLS + routing |
 
 Config sources (committed, installed by `provision.sh`):
@@ -226,16 +284,35 @@ certbot renew --dry-run     # confirm auto-renewal works (certbot.timer runs it 
 ## 6. Recurring deploys (after the first one)
 
 ```bash
-sudo -u acadmyq APP_BRANCH=feat/video-platform /var/www/acadmyq/deploy/deploy.sh
+ssh academiq-s1 'sudo -u acadmyq APP_BRANCH=feat/superadmin-reorg /var/www/acadmyq/deploy/deploy.sh'
 ```
+
+**Always pass `APP_BRANCH` explicitly** — the script's own default is still the old
+`sprint-9-audit-gating-hardening`. It does `git reset --hard origin/$APP_BRANCH`, so local work
+deploys **only after commit + push**. Takes ~10 min (the Next build dominates); run it in the
+background and read the log.
 
 [`deploy/deploy.sh`](deploy/deploy.sh) pulls the branch, `pnpm install` + builds web,
 `composer install --no-dev`, caches config/routes/views, runs `migrate --force`, and
 restarts `php8.2-fpm`, `acadmyq-web`, `acadmyq-queue`.
 
-> `acadmyq` needs passwordless sudo for those three `systemctl restart` calls. Grant via
-> `/etc/sudoers.d/acadmyq`:
-> `acadmyq ALL=(root) NOPASSWD: /usr/bin/systemctl restart php8.2-fpm, /usr/bin/systemctl restart acadmyq-web, /usr/bin/systemctl restart acadmyq-queue`
+> The passwordless-sudo grant for those three restarts is **installed** (since 2026-09-14) at
+> `/etc/sudoers.d/acadmyq-deploy`, so the script finishes on its own. If it ever stops at
+> `sudo: a password is required`, the grant was lost — finish by hand with
+> `ssh academiq-s1 'systemctl restart php8.2-fpm acadmyq-web acadmyq-queue'` and confirm
+> `acadmyq-web`'s `ActiveEnterTimestamp` is later than the mtime of `apps/web/.next/BUILD_ID`.
+
+> **`deploy.sh` does not touch the WhatsApp gateway.** After a deploy that changed
+> `apps/wa-gateway`, run as root:
+> ```bash
+> cd /var/www/acadmyq && sudo -u acadmyq pnpm --filter @academiq/wa-gateway build \
+>   && sudo -u acadmyq bash -c 'set -a; . /etc/wa-gateway/wa-gateway.env; set +a; cd apps/wa-gateway && node dist/migrate.js' \
+>   && systemctl restart wa-gateway
+> ```
+
+> **nginx is not in the deploy either.** `deploy/nginx/*.conf` are copies you apply by hand;
+> after changing one, `nginx -t` **before** `systemctl reload nginx`. A broken config keeps
+> serving from memory and only takes the site down at the next reload (a certbot renewal, a reboot).
 
 ---
 
@@ -256,8 +333,9 @@ The session cookie is then first-party across the apex and every academy subdoma
 ## 8. Health checks & troubleshooting
 
 ```bash
-curl -s https://api.acadmyq.com/api/health          # → {"app":"ok","db":"ok",...}
-curl -sI https://app.acadmyq.com                     # → 200, served by Next.js
+curl -s https://api.acadmyq.com/api/health          # → {"app","db","scheduler":{"age_seconds"},...}
+curl -sI https://acadmyq.com                         # → 200, served by Next.js
+curl -s localhost:8088/health                        # WhatsApp gateway (on the box; loopback only)
 systemctl status php8.2-fpm acadmyq-web acadmyq-queue nginx postgresql
 journalctl -u acadmyq-web -n 50                      # Next.js logs (also /var/log/acadmyq-web.log)
 tail -n 50 /var/log/acadmyq-queue.log                # queue logs
@@ -266,6 +344,9 @@ tail -n 50 /var/www/acadmyq/apps/api/storage/logs/laravel.log
 
 | Symptom | Check |
 |---|---|
+| `/api/health` returns a Next.js 404 page | you asked **`acadmyq.com`**, which is the web app. The API is only on **`api.acadmyq.com`**. (`web.acadmyq.com` is a stub that 404s — not a broken deploy.) |
+| a scheduled job never fires | `scheduler.age_seconds` on `/api/health` — one cron line drives them all, so if it is stale *nothing* recurring is running |
+| a new authed route "is missing" | it proves itself with **401** (or 405 on a wrong verb), never 404. `sudo -u acadmyq php artisan route:list --path=<x>` confirms the route cache picked it up |
 | 502 on api | `php8.2-fpm` running? socket path matches nginx `fastcgi_pass`? |
 | 502 on web | `acadmyq-web` running? `journalctl -u acadmyq-web` |
 | `db: error` on /api/health | `.env` DB_PASSWORD matches `/root/acadmyq-secrets.env`? `php artisan config:cache` after edits |
