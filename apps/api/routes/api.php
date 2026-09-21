@@ -646,6 +646,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/guardians/{id}', [GuardianController::class, 'show']);
     Route::patch('/guardians/{id}', [GuardianController::class, 'update']);
     Route::post('/guardians/{id}/deactivate', [GuardianController::class, 'deactivate']);
+    Route::post('/guardians/{id}/reactivate', [GuardianController::class, 'reactivate']);
 
     Route::get('/students', [StudentController::class, 'index']);
     Route::post('/students', [StudentController::class, 'store']);

@@ -1,55 +1,63 @@
 "use client";
 
-import { Plus, UserCheck, UserCog, Users, UserX } from "lucide-react";
+import {
+  LayoutGrid,
+  Plus,
+  Table2,
+  UserCog,
+  UserX,
+  Users,
+  UsersRound,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { GuardianDetail } from "@/components/guardians/guardian-detail";
+import { FamilyBook } from "@/components/guardians/family-book";
 import { GuardianForm } from "@/components/guardians/guardian-form";
 import { GuardiansList } from "@/components/guardians/guardians-list";
-import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import { SegmentTile } from "@/components/ui/segment-tile";
 import { listGuardians } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface Stats {
   total: number;
-  active: number;
+  multi: number;
+  single: number;
   inactive: number;
 }
 
-type ModalState =
-  | { kind: "closed" }
-  | { kind: "new" }
-  | { kind: "detail"; id: string; name: string };
-
 /**
- * The guardians book. Same shape as the students roll (hero → segment tiles → one table), because
- * they are the same job done from the other side: a guardian is who the academy bills, and a
- * student is who it teaches.
+ * The segments are FAMILY SHAPES, not record states. "Active vs inactive" was a distinction the
+ * status filter already made and nobody came to this page to ask; "which families have more than
+ * one child here" is the question that actually changes what an academy does — siblings share an
+ * invoice, a phone number and usually a decision to leave.
  */
-type SegmentKey = "total" | "active" | "inactive";
+type SegmentKey = "total" | "multi" | "single" | "inactive";
 
 const SEGMENT_FILTERS: Record<SegmentKey, Record<string, string>> = {
   total: {},
-  active: { status: "active" },
+  multi: { family: "multi" },
+  single: { family: "single" },
   inactive: { status: "inactive" },
 };
 
+type View = "board" | "table";
+
 export function GuardianManager() {
   const t = useTranslations("guardians");
+  const router = useRouter();
   const { can } = useAuth();
-  const [modal, setModal] = useState<ModalState>({ kind: "closed" });
+
+  const [creating, setCreating] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
   const [segment, setSegment] = useState<SegmentKey>("total");
+  const [view, setView] = useState<View>("board");
   const [presetToken, setPresetToken] = useState(0);
-  const [alert, setAlert] = useState<{
-    variant: "success" | "error";
-    message: string;
-  } | null>(null);
 
   function refresh() {
     setRefreshToken((n) => n + 1);
@@ -61,37 +69,30 @@ export function GuardianManager() {
     setPresetToken((n) => n + 1);
   }
 
-  function showAlert(variant: "success" | "error", message: string) {
-    setAlert({ variant, message });
-    if (variant === "success") {
-      const timer = setTimeout(() => setAlert(null), 4500);
-      return () => clearTimeout(timer);
-    }
-  }
-
   useEffect(() => {
     void Promise.all([
       listGuardians({ pageSize: 1 }),
-      listGuardians({ pageSize: 1, filter: { status: "active" } }),
+      listGuardians({ pageSize: 1, filter: { family: "multi" } }),
+      listGuardians({ pageSize: 1, filter: { family: "single" } }),
       listGuardians({ pageSize: 1, filter: { status: "inactive" } }),
     ])
-      .then(([all, active, inactive]) =>
+      .then(([all, multi, single, inactive]) =>
         setStats({
           total: all.total,
-          active: active.total,
+          multi: multi.total,
+          single: single.total,
           inactive: inactive.total,
         }),
       )
       .catch(() => {});
   }, [refreshToken]);
 
-  const detailId = modal.kind === "detail" ? modal.id : null;
-  const detailName = modal.kind === "detail" ? modal.name : "";
-
   const pct = (value: number | null) =>
     stats && stats.total > 0 && value !== null
       ? Math.round((value / stats.total) * 100)
       : null;
+
+  const filter = SEGMENT_FILTERS[segment];
 
   return (
     <div className="space-y-5">
@@ -112,7 +113,7 @@ export function GuardianManager() {
               <Button
                 type="button"
                 size="lg"
-                onClick={() => setModal({ kind: "new" })}
+                onClick={() => setCreating(true)}
                 data-testid="new-guardian"
                 className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
               >
@@ -126,7 +127,7 @@ export function GuardianManager() {
 
       {/* ── Segment tiles ───────────────────────────────────────────────── */}
       <div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <SegmentTile
             testKey="total"
             icon={Users}
@@ -139,15 +140,26 @@ export function GuardianManager() {
             onSelect={() => selectSegment("total")}
           />
           <SegmentTile
-            testKey="active"
-            icon={UserCheck}
-            label={t("stats.active")}
-            hint={t("stats.activeSub")}
-            value={stats?.active ?? null}
-            share={pct(stats?.active ?? null)}
+            testKey="multi"
+            icon={UsersRound}
+            label={t("stats.multi")}
+            hint={t("stats.multiSub")}
+            value={stats?.multi ?? null}
+            share={pct(stats?.multi ?? null)}
+            tone="violet"
+            selected={segment === "multi"}
+            onSelect={() => selectSegment("multi")}
+          />
+          <SegmentTile
+            testKey="single"
+            icon={UserCog}
+            label={t("stats.single")}
+            hint={t("stats.singleSub")}
+            value={stats?.single ?? null}
+            share={pct(stats?.single ?? null)}
             tone="teal"
-            selected={segment === "active"}
-            onSelect={() => selectSegment("active")}
+            selected={segment === "single"}
+            onSelect={() => selectSegment("single")}
           />
           <SegmentTile
             testKey="inactive"
@@ -161,68 +173,80 @@ export function GuardianManager() {
             onSelect={() => selectSegment("inactive")}
           />
         </div>
-        <p className="text-muted-foreground/80 mt-2 text-[11px]">
-          {t("stats.filterHint")}
-        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-muted-foreground/80 text-[11px]">
+            {t("stats.filterHint")}
+          </p>
+          {/* The table is still here: it is the view that exports, and sorts by column. The
+              board is the default because it answers "who is in this family" without a click. */}
+          <div
+            className="bg-muted/60 inline-flex items-center gap-0.5 rounded-xl p-0.5"
+            role="group"
+            aria-label={t("view.label")}
+          >
+            {[
+              {
+                key: "board" as const,
+                icon: LayoutGrid,
+                label: t("view.board"),
+              },
+              { key: "table" as const, icon: Table2, label: t("view.table") },
+            ].map(({ key, icon: Icon, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setView(key)}
+                aria-pressed={view === key}
+                data-testid={`guardians-view-${key}`}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",
+                  view === key
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Icon className="size-3.5" aria-hidden />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* ── Alert ────────────────────────────────────────────────────────── */}
-      {alert && (
-        <AlertBanner
-          variant={alert.variant}
-          message={alert.message}
-          onDismiss={() => setAlert(null)}
+      {/* ── The families ─────────────────────────────────────────────────── */}
+      {view === "board" ? (
+        <FamilyBook
+          filter={filter}
+          refreshToken={refreshToken}
+          onNew={() => setCreating(true)}
+        />
+      ) : (
+        <GuardiansList
+          refreshToken={refreshToken}
+          filterPreset={{ values: filter, token: presetToken }}
+          onNew={() => setCreating(true)}
+          onOpen={(id) => router.push(`/guardians/${id}`)}
         />
       )}
 
-      {/* ── Guardian list ────────────────────────────────────────────────── */}
-      <GuardiansList
-        refreshToken={refreshToken}
-        filterPreset={{ values: SEGMENT_FILTERS[segment], token: presetToken }}
-        onNew={() => setModal({ kind: "new" })}
-        onOpen={(id, name) => setModal({ kind: "detail", id, name })}
-      />
-
       {/* ── Create modal ─────────────────────────────────────────────────── */}
       <Modal
-        open={modal.kind === "new"}
-        onClose={() => setModal({ kind: "closed" })}
+        open={creating}
+        onClose={() => setCreating(false)}
         title={t("new")}
         description={t("newModal.description")}
         size="md"
       >
         <GuardianForm
-          onCancel={() => setModal({ kind: "closed" })}
-          onCreated={() => {
-            setModal({ kind: "closed" });
+          onCancel={() => setCreating(false)}
+          onCreated={(guardianId) => {
+            setCreating(false);
             refresh();
-            showAlert("success", t("form.saved"));
+            // Straight into the new family: a parent is created in order to put children under
+            // them, and adding the first one is the next thing the user came to do.
+            router.push(`/guardians/${guardianId}`);
           }}
         />
-      </Modal>
-
-      {/* ── Detail modal ─────────────────────────────────────────────────── */}
-      <Modal
-        open={modal.kind === "detail"}
-        onClose={() => setModal({ kind: "closed" })}
-        title={detailName}
-        size="lg"
-      >
-        {detailId && (
-          <GuardianDetail
-            guardianId={detailId}
-            onBack={() => setModal({ kind: "closed" })}
-            onSaved={() => {
-              refresh();
-              showAlert("success", t("form.saved"));
-            }}
-            onDeactivated={() => {
-              setModal({ kind: "closed" });
-              refresh();
-              showAlert("success", t("detail.deactivated"));
-            }}
-          />
-        )}
       </Modal>
     </div>
   );

@@ -1,6 +1,13 @@
 "use client";
 
-import { Coins, MapPin, MessageCircle, Plus, UserCog } from "lucide-react";
+import {
+  Coins,
+  GraduationCap,
+  MapPin,
+  MessageCircle,
+  Plus,
+  UserCog,
+} from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -136,6 +143,25 @@ export function GuardiansList({
           ),
       },
       {
+        // The table carries the family size too, now that the row knows it — otherwise the two
+        // views of the same page would disagree about what a parent record is.
+        key: "students",
+        header: t("colStudents"),
+        sortKey: "children",
+        headerClassName: "min-w-28",
+        render: (r) => {
+          const count = r.children_count ?? 0;
+          return count > 0 ? (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-violet-500/10 px-2 py-0.5 text-xs font-semibold text-violet-700 ring-1 ring-violet-500/20 dark:text-violet-300">
+              <GraduationCap className="size-3" aria-hidden />
+              {count}
+            </span>
+          ) : (
+            <span className="text-muted-foreground/35">—</span>
+          );
+        },
+      },
+      {
         key: "currency",
         header: t("colCurrency"),
         headerClassName: "min-w-28",
@@ -154,12 +180,12 @@ export function GuardiansList({
           r.deleted_at == null ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/15 dark:bg-emerald-950/40 dark:text-emerald-300">
               <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-              {t("filter.active")}
+              {t("state.active")}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500 ring-1 ring-inset ring-slate-500/15 dark:bg-slate-800/40 dark:text-slate-400">
               <span className="size-1.5 rounded-full bg-slate-400" />
-              {t("filter.inactive")}
+              {t("state.inactive")}
             </span>
           ),
       },
@@ -198,6 +224,16 @@ export function GuardiansList({
         label: t("filter.currency"),
         options: CURRENCIES.map((c) => ({ value: c.code, label: c.code })),
       },
+      // The same family-size question the board's tiles ask, so switching view keeps the filter.
+      {
+        key: "family",
+        label: t("filter.family"),
+        options: [
+          { value: "multi", label: t("filter.familyMulti") },
+          { value: "single", label: t("filter.familySingle") },
+          { value: "none", label: t("filter.familyNone") },
+        ],
+      },
     ],
     [t],
   );
@@ -206,12 +242,16 @@ export function GuardiansList({
     () => [
       { header: t("colName"), value: (r) => r.full_name, width: 26 },
       { header: t("colPhone"), value: (r) => r.whatsapp_phone },
-      { header: t("colCountry"), value: (r) => countryCell(r.country)?.name ?? "" },
+      {
+        header: t("colCountry"),
+        value: (r) => countryCell(r.country)?.name ?? "",
+      },
+      { header: t("colStudents"), value: (r) => r.children_count ?? 0 },
       { header: t("colCurrency"), value: (r) => r.currency },
       {
         header: t("colStatus"),
         value: (r) =>
-          r.deleted_at == null ? t("filter.active") : t("filter.inactive"),
+          r.deleted_at == null ? t("state.active") : t("state.inactive"),
       },
       { header: t("colAdded"), value: (r) => r.created_at?.slice(0, 10) ?? "" },
       { header: t("form.notes"), value: (r) => r.notes, width: 32 },

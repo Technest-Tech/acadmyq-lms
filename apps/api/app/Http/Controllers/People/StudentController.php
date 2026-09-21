@@ -237,7 +237,15 @@ final class StudentController extends Controller
         ]);
     }
 
-    /** PATCH /api/students/{id} — edit the student's own fields. */
+    /**
+     * PATCH /api/students/{id} — edit the student's own fields, and move them between families.
+     *
+     * `guardian_id` is the one field here that is not a plain column edit: it re-points the
+     * learner at a different payer, so it validates the target, carries its own audit action
+     * and drops the adult-solo flag (a student stops being their own guardian the moment a real
+     * one takes over). The old self-guardian row is left alone — deactivating a record the user
+     * did not ask about would be a surprise, and it is deactivatable from the parents page.
+     */
     public function update(Request $request, string $id): JsonResponse
     {
         Gate::authorize('student.update');
@@ -275,14 +283,36 @@ final class StudentController extends Controller
                 $after[$col] = $data[$col];
             }
         }
-        if ($after === []) {
+
+        // The move between families, kept apart from the field diff above so it gets its own
+        // validation and its own audit line — "who pays for this child" is not a typo fix.
+        $move = [];
+        if (array_key_exists('guardian_id', $data) && $data['guardian_id'] !== null
+            && (string) $data['guardian_id'] !== (string) $existing->guardian_id) {
+            $target = DB::table('guardians')->where('id', $data['guardian_id'])->whereNull('deleted_at')->first();
+            if ($target === null) {
+                throw ValidationException::withMessages(['guardian_id' => ['Unknown or inactive guardian.']]);
+            }
+            $move = ['guardian_id' => (string) $data['guardian_id'], 'is_self_guardian' => false];
+        }
+
+        if ($after === [] && $move === []) {
             return response()->json(['ok' => true, 'changed' => []]);
         }
 
-        DB::table('students')->where('id', $id)->update($after + ['updated_at' => now()]);
-        Audit::log('student.update', 'student', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
+        $academyId = $this->currentAcademyId();
+        DB::table('students')->where('id', $id)->update($after + $move + ['updated_at' => now()]);
 
-        return response()->json(['ok' => true, 'changed' => array_keys($after)]);
+        if ($after !== []) {
+            Audit::log('student.update', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
+        }
+        if ($move !== []) {
+            Audit::log('student.guardian_reassigned', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: $move,
+                before: ['guardian_id' => $existing->guardian_id, 'is_self_guardian' => $existing->is_self_guardian]);
+        }
+
+        return response()->json(['ok' => true, 'changed' => array_keys($after + $move)]);
     }
 
     /**
@@ -806,12 +836,13 @@ final class StudentController extends Controller
             'country' => ['nullable', 'string', 'max:2'],
             'status' => ['sometimes', 'nullable', Rule::in($statusVocab)],
             'notes' => ['nullable', 'string', 'max:2000'],
+            // On create, presence is enforced in store(): required unless is_self_guardian
+            // (R-STU-2). On update it is the reassignment — the student changes family.
+            'guardian_id' => ['nullable', 'uuid'],
         ];
 
         if ($creating) {
             $rules['is_self_guardian'] = ['sometimes', 'boolean'];
-            // Presence is enforced in store(): required unless is_self_guardian (R-STU-2).
-            $rules['guardian_id'] = ['nullable', 'uuid'];
             $rules['currency'] = ['sometimes', 'nullable', 'string', 'size:3'];
             $rules['teacher_id'] = ['sometimes', 'nullable', 'uuid'];
             $rules['subscription'] = ['sometimes', 'array'];

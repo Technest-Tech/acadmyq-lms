@@ -12,34 +12,41 @@ import {
   Layers,
   MapPin,
   Phone,
+  MessageCircle,
+  Pencil,
+  Plus,
   ShieldAlert,
   ShieldCheck,
   Trash2,
   Undo2,
   UserCircle2,
   UserRoundCog,
+  Users,
 } from "lucide-react";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { GuardianForm } from "@/components/guardians/guardian-form";
 import { ScheduleSection } from "@/components/scheduling/schedule-editor";
-import {
-  DetailRow,
-  ProfileCard,
-} from "@/components/ui/profile-card";
+import { DetailRow, ProfileCard } from "@/components/ui/profile-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { StudentPackagePanel } from "@/components/packages/student-package-panel";
-import { Combobox } from "@/components/ui/combobox";
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Modal } from "@/components/ui/modal";
 import {
   ApiError,
   deactivateStudent,
   deleteStudent,
+  getGuardian,
   getRepricePreview,
   getStudent,
   getStudentSchedule,
   getTeacherHistory,
+  type GuardianChild,
+  type GuardianRow,
+  listGuardians,
   listTeachers,
   reactivateStudent,
   reassignTeacher,
@@ -48,6 +55,7 @@ import {
   type StudentDetail as StudentDetailData,
   type TeacherAssignmentHistoryItem,
   type TeacherRow,
+  updateGuardian,
   updateStudent,
 } from "@/lib/api";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
@@ -117,7 +125,9 @@ function Field({
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <label className="text-xs font-medium text-muted-foreground">
+        {label}
+      </label>
       {children}
     </div>
   );
@@ -186,12 +196,13 @@ export function StudentDetail({
 
   return (
     <div className="space-y-6" data-testid="student-detail">
-
       {/* ── Profile hero ────────────────────────────────────────────── */}
       <div className="flex items-start gap-4 rounded-2xl border bg-gradient-to-br from-muted/60 to-muted/10 p-5">
         <Avatar name={data.student.full_name} size="lg" />
         <div className="min-w-0 flex-1">
-          <h3 className="text-lg font-bold leading-tight">{data.student.full_name}</h3>
+          <h3 className="text-lg font-bold leading-tight">
+            {data.student.full_name}
+          </h3>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {isActive ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
@@ -237,18 +248,26 @@ export function StudentDetail({
 
       {/* ── Alerts ──────────────────────────────────────────────────── */}
       {error && (
-        <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
+        <AlertBanner
+          variant="error"
+          message={error}
+          onDismiss={() => setError(null)}
+        />
       )}
       {notice && (
-        <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />
+        <AlertBanner
+          variant="success"
+          message={notice}
+          onDismiss={() => setNotice(null)}
+        />
       )}
 
       {/* ── Profile section ──────────────────────────────────────────── */}
       <ProfileSection
         data={data}
         canEdit={canEdit}
-        onSaved={() => {
-          setNotice(t("form.saved"));
+        onSaved={(message) => {
+          setNotice(message ?? t("form.saved"));
           onSaved?.();
           void refresh();
         }}
@@ -396,7 +415,8 @@ export function ProfileSection({
 }: {
   data: StudentDetailData;
   canEdit: boolean;
-  onSaved: () => void;
+  /** Refresh the profile and say so; the message defaults to a plain "Saved." */
+  onSaved: (message?: string) => void;
   onError: (msg: string) => void;
 }) {
   const t = useTranslations("students");
@@ -427,7 +447,10 @@ export function ProfileSection({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="student-profile">
+    <div
+      className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+      data-testid="student-profile"
+    >
       <ProfileCard
         icon={UserCircle2}
         title={t("profile.identityTitle")}
@@ -448,7 +471,11 @@ export function ProfileSection({
           <Field label={t("form.status")}>
             <select
               aria-label={t("form.status")}
-              className={cn(inputBase, "px-3.5 py-2.5", !canEdit && "appearance-none")}
+              className={cn(
+                inputBase,
+                "px-3.5 py-2.5",
+                !canEdit && "appearance-none",
+              )}
               value={STUDENT_STATUSES.includes(status as never) ? status : ""}
               disabled={!canEdit}
               onChange={(e) => setStatus(e.target.value)}
@@ -497,24 +524,121 @@ export function ProfileSection({
         </div>
       </ProfileCard>
 
-      <GuardianCard data={data} />
+      <ParentCard
+        data={data}
+        canEdit={canEdit}
+        onChanged={onSaved}
+        onError={onError}
+      />
     </div>
   );
 }
 
-// ── GuardianCard ──────────────────────────────────────────────────────────────
+// ── ParentCard ────────────────────────────────────────────────────────────────
 
-function GuardianCard({ data }: { data: StudentDetailData }) {
+/**
+ * The adult behind the student — and, from here, an editable one. It used to be four read-only
+ * lines, so the three things a front desk actually does with a parent all meant leaving the
+ * student: correcting a mistyped number, moving a child onto a sibling's billing contact, and
+ * attaching a parent to a student created without one. All three happen here now.
+ *
+ * The siblings are shown because a parent is rarely a single relationship: seeing "also here:
+ * Maryam, Bilal" is what tells you this is the Hassan family and not a name collision.
+ */
+function ParentCard({
+  data,
+  canEdit,
+  onChanged,
+  onError,
+}: {
+  data: StudentDetailData;
+  /** `student.update` — the right to move this student onto another parent. */
+  canEdit: boolean;
+  onChanged: (message: string) => void;
+  onError: (msg: string) => void;
+}) {
   const t = useTranslations("students");
+  const tg = useTranslations("guardians");
+  const { can } = useAuth();
+
   const guardian = data.guardian;
   const isSelf = data.student.is_self_guardian;
   const country = countryLabel(guardian?.country ?? null);
+  const studentId = data.student.id;
+
+  const [action, setAction] = useState<"none" | "move" | "edit" | "new">(
+    "none",
+  );
+  const [siblings, setSiblings] = useState<GuardianChild[] | null>(null);
+  const [options, setOptions] = useState<ComboboxOption[]>([]);
+  const [loadingOptions, setLoadingOptions] = useState(false);
+  const [picked, setPicked] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // The family this student sits in, for the sibling strip. One small request, and it is also
+  // what keeps the strip honest after a move — it is re-read whenever the parent changes.
+  const guardianId = guardian?.id ?? null;
+  useEffect(() => {
+    if (!guardianId) {
+      setSiblings(null);
+      return;
+    }
+    let live = true;
+    void getGuardian(guardianId)
+      .then((res) => {
+        if (live) setSiblings(res.children.filter((c) => c.id !== studentId));
+      })
+      .catch(() => {
+        if (live) setSiblings(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [guardianId, studentId]);
+
+  // The parents to move to — loaded when the picker opens, never before.
+  useEffect(() => {
+    if (action !== "move") return;
+    setPicked("");
+    setLoadingOptions(true);
+    void listGuardians({ pageSize: 200, filter: { status: "active" } })
+      .then(({ rows }) =>
+        setOptions(
+          rows
+            .filter((g) => g.id !== guardianId)
+            .map((g) => ({
+              value: g.id,
+              label: g.full_name,
+              sublabel: g.whatsapp_phone,
+            })),
+        ),
+      )
+      .catch((err) =>
+        onError(err instanceof ApiError ? err.message : String(err)),
+      )
+      .finally(() => setLoadingOptions(false));
+  }, [action, guardianId, onError]);
+
+  async function moveTo(id: string, name: string) {
+    setBusy(true);
+    try {
+      await updateStudent(studentId, { guardian_id: id });
+      setAction("none");
+      onChanged(t("profile.parentMoved", { name }));
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const activeSiblings = (siblings ?? []).filter((c) => c.deleted_at == null);
 
   return (
     <ProfileCard
       icon={ShieldCheck}
-      title={t("form.guardianDetails")}
-      description={t("profile.guardianDesc")}
+      title={t("profile.parentTitle")}
+      description={t("profile.parentDesc")}
       tone="violet"
       action={
         isSelf ? (
@@ -547,16 +671,331 @@ function GuardianCard({ data }: { data: StudentDetailData }) {
               />
             )}
             {country && (
-              <DetailRow icon={MapPin} label={t("form.country")} value={country} />
+              <DetailRow
+                icon={MapPin}
+                label={t("form.country")}
+                value={country}
+              />
+            )}
+          </div>
+
+          {/* ── Siblings ─────────────────────────────────────────────── */}
+          {siblings !== null && (
+            <div className="space-y-2 border-t pt-3">
+              <p className="text-muted-foreground/80 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
+                <Users className="size-3.5" aria-hidden />
+                {t("profile.parentSiblings", { count: activeSiblings.length })}
+              </p>
+              {activeSiblings.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {activeSiblings.map((s) => (
+                    <Link
+                      key={s.id}
+                      href={`/students/${s.id}`}
+                      className="bg-primary/8 text-primary ring-primary/15 hover:bg-primary/15 inline-flex max-w-full items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium ring-1 ring-inset transition-colors"
+                    >
+                      <span className="truncate">{s.full_name}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Actions ──────────────────────────────────────────────── */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3">
+            <Link
+              href={`/guardians/${guardian.id}`}
+              className="text-primary inline-flex items-center gap-1 text-xs font-semibold underline-offset-4 hover:underline"
+            >
+              <Users className="size-3" aria-hidden />
+              {t("profile.parentOpen")}
+            </Link>
+            {can("guardian.update") && (
+              <button
+                type="button"
+                onClick={() => setAction("edit")}
+                data-testid="edit-parent"
+                className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs font-semibold underline-offset-4 hover:underline"
+              >
+                <Pencil className="size-3" aria-hidden />
+                {t("profile.parentEdit")}
+              </button>
+            )}
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setAction("move")}
+                data-testid="change-parent"
+                className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs font-semibold underline-offset-4 hover:underline"
+              >
+                <UserRoundCog className="size-3" aria-hidden />
+                {t("profile.parentChange")}
+              </button>
             )}
           </div>
         </div>
       ) : (
-        <p className="text-muted-foreground bg-muted/10 rounded-xl border border-dashed px-4 py-8 text-center text-sm">
-          {t("form.noGuardian")}
-        </p>
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-4 py-8 text-center">
+          <p className="text-muted-foreground text-sm">
+            {t("profile.parentNone")}
+          </p>
+          <p className="text-muted-foreground/70 text-xs">
+            {t("profile.parentNoneHint")}
+          </p>
+          {canEdit && (
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setAction("move")}
+                data-testid="change-parent"
+              >
+                {t("profile.parentChange")}
+              </Button>
+              {can("guardian.create") && (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setAction("new")}
+                  className="gap-1.5"
+                >
+                  <Plus className="size-3.5" aria-hidden />
+                  {t("profile.parentNew")}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       )}
+
+      {/* ── Move to another parent ───────────────────────────────────── */}
+      <Modal
+        open={action === "move"}
+        onClose={() => setAction("none")}
+        title={t("profile.parentChangeTitle")}
+        description={t("profile.parentChangeHint")}
+        size="sm"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => setAction("none")}
+            >
+              {t("profile.parentCancel")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!picked || busy}
+              data-testid="confirm-change-parent"
+              onClick={() =>
+                void moveTo(
+                  picked,
+                  options.find((o) => o.value === picked)?.label ?? "",
+                )
+              }
+              className="gap-1"
+            >
+              {busy && (
+                <span className="size-3 animate-spin rounded-full border border-current border-t-transparent" />
+              )}
+              {t("profile.parentChangeConfirm")}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Combobox
+            options={options}
+            value={picked}
+            onChange={setPicked}
+            placeholder={t("profile.parentSearch")}
+            searchPlaceholder={t("profile.parentSearch")}
+            disabled={loadingOptions}
+          />
+          {can("guardian.create") && (
+            <button
+              type="button"
+              onClick={() => setAction("new")}
+              className="text-primary inline-flex items-center gap-1 text-xs font-semibold underline-offset-4 hover:underline"
+            >
+              <Plus className="size-3" aria-hidden />
+              {t("profile.parentNew")}
+            </button>
+          )}
+        </div>
+      </Modal>
+
+      {/* ── Edit this parent ─────────────────────────────────────────── */}
+      <Modal
+        open={action === "edit"}
+        onClose={() => setAction("none")}
+        title={t("profile.parentEdit")}
+        description={t("profile.parentEditHint")}
+        size="md"
+      >
+        {action === "edit" && guardian && (
+          <ParentEditForm
+            guardian={guardian}
+            onCancel={() => setAction("none")}
+            onSaved={() => {
+              setAction("none");
+              onChanged(t("profile.parentSaved"));
+            }}
+            onError={onError}
+          />
+        )}
+      </Modal>
+
+      {/* ── A brand-new parent, attached in one step ─────────────────── */}
+      <Modal
+        open={action === "new"}
+        onClose={() => setAction("none")}
+        title={t("profile.parentNew")}
+        description={t("profile.parentNewHint")}
+        size="md"
+      >
+        {action === "new" && (
+          <GuardianForm
+            onCancel={() => setAction("none")}
+            onCreated={(newId) => void moveTo(newId, tg("title"))}
+          />
+        )}
+      </Modal>
     </ProfileCard>
+  );
+}
+
+/**
+ * Editing the parent from the student's page. The fields live in their own component so a
+ * keystroke re-renders this form and not the whole profile around it — a `useState` beside the
+ * modal's `onClose` is what makes an input lose focus on every character.
+ */
+function ParentEditForm({
+  guardian,
+  onCancel,
+  onSaved,
+  onError,
+}: {
+  guardian: GuardianRow;
+  onCancel: () => void;
+  onSaved: () => void;
+  onError: (msg: string) => void;
+}) {
+  const t = useTranslations("guardians");
+  const [fullName, setFullName] = useState(guardian.full_name);
+  const [phone, setPhone] = useState(guardian.whatsapp_phone);
+  const [country, setCountry] = useState(guardian.country ?? "");
+  const [currency, setCurrency] = useState(guardian.currency);
+  const [notes, setNotes] = useState(guardian.notes ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await updateGuardian(guardian.id, {
+        full_name: fullName,
+        whatsapp_phone: phone,
+        country: country || null,
+        currency: currency || null,
+        notes: notes || null,
+      });
+      onSaved();
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Field label={t("form.fullName")}>
+        <input
+          aria-label={t("form.fullName")}
+          className={cn(inputBase, "px-3.5 py-2.5")}
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+        />
+      </Field>
+
+      <Field label={t("form.phone")}>
+        <div className="relative">
+          <MessageCircle className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-emerald-500" />
+          <input
+            aria-label={t("form.phone")}
+            dir="ltr"
+            className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+        </div>
+      </Field>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label={t("form.country")}>
+          <input
+            aria-label={t("form.country")}
+            className={cn(inputBase, "px-3.5 py-2.5")}
+            maxLength={2}
+            value={country}
+            onChange={(e) => setCountry(e.target.value.toUpperCase())}
+          />
+        </Field>
+        <Field label={t("form.currency")}>
+          <input
+            aria-label={t("form.currency")}
+            className={cn(inputBase, "px-3.5 py-2.5")}
+            maxLength={3}
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+          />
+        </Field>
+      </div>
+
+      <Field label={t("form.notes")}>
+        <textarea
+          aria-label={t("form.notes")}
+          className={cn(inputBase, "resize-none px-3.5 py-2.5")}
+          rows={2}
+          placeholder={t("form.notesPlaceholder")}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </Field>
+
+      <div className="flex justify-end gap-2 border-t pt-4">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={saving}
+          onClick={onCancel}
+        >
+          {t("detail.deactivateCancel")}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={saving || !fullName.trim()}
+          onClick={() => void save()}
+          data-testid="save-parent"
+          className="gap-1.5"
+        >
+          {saving ? (
+            <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+          ) : (
+            <Check className="size-3.5" aria-hidden />
+          )}
+          {saving ? t("form.saving") : t("form.save")}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -634,7 +1073,9 @@ export function SubscriptionSection({
 
   function openForm() {
     if (sub) {
-      setSessions(sub.sessions_per_month != null ? String(sub.sessions_per_month) : "");
+      setSessions(
+        sub.sessions_per_month != null ? String(sub.sessions_per_month) : "",
+      );
       setPrice((sub.price_minor / 100).toString());
       setCurrency(sub.currency);
       setStartDate(sub.start_date);
@@ -755,13 +1196,20 @@ export function SubscriptionSection({
           {/* The three numbers that decide the invoice, given equal weight and one baseline. */}
           <div className="grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0 rtl:sm:divide-x-reverse">
             <Figure
-              label={isHourly ? t("subscription.priceHourly") : t("subscription.price")}
+              label={
+                isHourly
+                  ? t("subscription.priceHourly")
+                  : t("subscription.price")
+              }
             >
               <span data-testid="subscription-price">
                 {/* Blanked by the API for a role that may not see rates — the card still shows
                     the plan, the quota and the start date, which are not money. */}
                 {sub.price_minor != null && sub.currency
-                  ? formatMoney({ amount: sub.price_minor, currency: sub.currency }, locale)
+                  ? formatMoney(
+                      { amount: sub.price_minor, currency: sub.currency },
+                      locale,
+                    )
                   : "—"}
               </span>
               {isHourly && (
@@ -777,9 +1225,13 @@ export function SubscriptionSection({
                   : t("subscription.sessionsPerMonth")
               }
             >
-              {sub.sessions_per_month ?? <span className="text-muted-foreground/40">—</span>}
+              {sub.sessions_per_month ?? (
+                <span className="text-muted-foreground/40">—</span>
+              )}
             </Figure>
-            <Figure label={t("subscription.startDate")}>{sub.start_date}</Figure>
+            <Figure label={t("subscription.startDate")}>
+              {sub.start_date}
+            </Figure>
           </div>
         </ProfileCard>
       ) : (
@@ -815,7 +1267,9 @@ export function SubscriptionSection({
       <Modal
         open={showSet && canEdit}
         onClose={() => !saving && setShowSet(false)}
-        title={sub ? t("subscription.replaceTitle") : t("subscription.setTitle")}
+        title={
+          sub ? t("subscription.replaceTitle") : t("subscription.setTitle")
+        }
         size="md"
         footer={
           <>
@@ -957,13 +1411,21 @@ export function SubscriptionSection({
 }
 
 /** One number in a card's figure strip. */
-function Figure({ label, children }: { label: string; children: React.ReactNode }) {
+function Figure({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="px-5 py-4">
       <p className="text-muted-foreground/80 text-[10px] font-bold uppercase tracking-wider">
         {label}
       </p>
-      <p className="mt-1 text-lg font-bold leading-none tabular-nums">{children}</p>
+      <p className="mt-1 text-lg font-bold leading-none tabular-nums">
+        {children}
+      </p>
     </div>
   );
 }
@@ -1032,14 +1494,18 @@ export function TeacherSection({
               <Avatar name={currentName} size="lg" />
             ) : (
               <div className="bg-muted ring-border flex size-14 shrink-0 items-center justify-center rounded-2xl ring-1">
-                <GraduationCap className="text-muted-foreground size-6" aria-hidden />
+                <GraduationCap
+                  className="text-muted-foreground size-6"
+                  aria-hidden
+                />
               </div>
             )}
             <div className="min-w-0 flex-1">
               <p
                 className={cn(
                   "truncate text-lg font-bold leading-tight",
-                  !currentName && "text-muted-foreground text-base font-medium italic",
+                  !currentName &&
+                    "text-muted-foreground text-base font-medium italic",
                 )}
                 data-testid="current-teacher"
               >
@@ -1065,7 +1531,10 @@ export function TeacherSection({
             <div className="space-y-3">
               <Field label={t("teacher.change")}>
                 <Combobox
-                  options={teachers.map((tch) => ({ value: tch.id, label: tch.full_name }))}
+                  options={teachers.map((tch) => ({
+                    value: tch.id,
+                    label: tch.full_name,
+                  }))}
                   value={teacherId}
                   onChange={setTeacherId}
                   placeholder={t("form.none")}
@@ -1151,7 +1620,9 @@ export function TeacherSection({
                     </div>
                     <p className="text-muted-foreground mt-0.5 text-xs tabular-nums">
                       {h.started_at.slice(0, 10)} →{" "}
-                      {h.ended_at ? h.ended_at.slice(0, 10) : t("teacher.ongoing")}
+                      {h.ended_at
+                        ? h.ended_at.slice(0, 10)
+                        : t("teacher.ongoing")}
                     </p>
                   </div>
                 </li>
@@ -1339,7 +1810,10 @@ function DangerRow({
   return (
     <div className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-start gap-3">
-        <Icon className="text-destructive/60 mt-0.5 size-4 shrink-0" aria-hidden />
+        <Icon
+          className="text-destructive/60 mt-0.5 size-4 shrink-0"
+          aria-hidden
+        />
         <div className="min-w-0">
           <p className="text-destructive text-sm font-semibold">{title}</p>
           <p className="text-muted-foreground mt-0.5 text-xs">{hint}</p>

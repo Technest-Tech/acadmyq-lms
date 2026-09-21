@@ -92,19 +92,33 @@ export function StudentProfile({ studentId }: { studentId: string }) {
   }, [refresh]);
 
   const canEdit = can("student.update");
-  const isActive = data ? (data.student.deleted_at as string | null) == null : true;
+  const isActive = data
+    ? (data.student.deleted_at as string | null) == null
+    : true;
 
   const tabs = useMemo(() => {
     const list: { key: TabKey; label: string; icon: typeof UserCircle2 }[] = [
       { key: "profile", label: t("profile.tabProfile"), icon: UserCircle2 },
-      { key: "subscription", label: t("profile.tabSubscription"), icon: BookOpen },
+      {
+        key: "subscription",
+        label: t("profile.tabSubscription"),
+        icon: BookOpen,
+      },
       { key: "teacher", label: t("profile.tabTeacher"), icon: GraduationCap },
     ];
     if (can("schedule.read")) {
-      list.push({ key: "schedule", label: t("profile.tabSchedule"), icon: CalendarDays });
+      list.push({
+        key: "schedule",
+        label: t("profile.tabSchedule"),
+        icon: CalendarDays,
+      });
     }
     if (canEdit) {
-      list.push({ key: "settings", label: t("profile.tabSettings"), icon: Settings2 });
+      list.push({
+        key: "settings",
+        label: t("profile.tabSettings"),
+        icon: Settings2,
+      });
     }
     return list;
   }, [t, can, canEdit]);
@@ -138,7 +152,9 @@ export function StudentProfile({ studentId }: { studentId: string }) {
   const trialStep: "schedule" | "booked" | "done" =
     status === "TRIAL" ? "schedule" : data.trialResolved ? "done" : "booked";
   const bannerTitle =
-    trialStep === "done" ? t("profile.trialDoneTitle") : t("profile.trialBannerTitle");
+    trialStep === "done"
+      ? t("profile.trialDoneTitle")
+      : t("profile.trialBannerTitle");
   const bannerHint =
     trialStep === "schedule"
       ? t("profile.trialBannerHint")
@@ -242,7 +258,10 @@ export function StudentProfile({ studentId }: { studentId: string }) {
         <div className="flex flex-col gap-3 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-500/[0.1] to-transparent p-4 sm:flex-row sm:items-center sm:justify-between dark:border-amber-800/40">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 ring-1 ring-amber-500/25">
-              <Zap className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />
+              <Zap
+                className="size-4 text-amber-600 dark:text-amber-400"
+                aria-hidden
+              />
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
@@ -285,7 +304,11 @@ export function StudentProfile({ studentId }: { studentId: string }) {
 
       {/* ── Alerts ──────────────────────────────────────────────────── */}
       {error && (
-        <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
+        <AlertBanner
+          variant="error"
+          message={error}
+          onDismiss={() => setError(null)}
+        />
       )}
       {notice && (
         <AlertBanner
@@ -333,8 +356,8 @@ export function StudentProfile({ studentId }: { studentId: string }) {
         <ProfileSection
           data={data}
           canEdit={canEdit && isActive}
-          onSaved={() => {
-            setNotice(t("form.saved"));
+          onSaved={(message) => {
+            setNotice(message ?? t("form.saved"));
             void refresh();
           }}
           onError={setError}
@@ -381,10 +404,11 @@ export function StudentProfile({ studentId }: { studentId: string }) {
         />
       )}
 
-      {tab === "settings" && canEdit && (
+      {tab === "settings" &&
+        canEdit &&
         // A deactivated student had no route back from this page before — the reactivate panel
         // existed but was never rendered anywhere. Now the tab shows whichever applies.
-        isActive ? (
+        (isActive ? (
           <DangerZone
             studentId={studentId}
             onDeactivated={() => router.push("/students")}
@@ -399,8 +423,7 @@ export function StudentProfile({ studentId }: { studentId: string }) {
             }}
             onError={setError}
           />
-        )
-      )}
+        ))}
 
       {/* ── Schedule trial ──────────────────────────────────────────── */}
       {action === "trial" && (

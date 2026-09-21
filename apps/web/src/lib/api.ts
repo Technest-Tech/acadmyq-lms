@@ -1124,7 +1124,9 @@ export function getWhatsAppGroups(
 export function getAvailableWhatsAppGroups(
   academyId: string,
 ): Promise<{ groups: AvailableWhatsAppGroup[] }> {
-  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/groups/available`);
+  return apiFetch(
+    `/api/admin/academies/${academyId}/whatsapp/groups/available`,
+  );
 }
 
 export function linkWhatsAppGroup(
@@ -1142,28 +1144,41 @@ export function updateWhatsAppGroup(
   groupId: string,
   body: WhatsAppGroupInput,
 ): Promise<{ group: WhatsAppGroup }> {
-  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/groups/${groupId}`, {
-    method: "PUT",
-    body: JSON.stringify(body),
-  });
+  return apiFetch(
+    `/api/admin/academies/${academyId}/whatsapp/groups/${groupId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export function unlinkWhatsAppGroup(
   academyId: string,
   groupId: string,
 ): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/groups/${groupId}`, {
-    method: "DELETE",
-  });
+  return apiFetch(
+    `/api/admin/academies/${academyId}/whatsapp/groups/${groupId}`,
+    {
+      method: "DELETE",
+    },
+  );
 }
 
 export function testWhatsAppGroup(
   academyId: string,
   groupId: string,
-): Promise<{ ok: boolean; error: string | null; alert: WhatsAppGroupAlert | null }> {
-  return apiFetch(`/api/admin/academies/${academyId}/whatsapp/groups/${groupId}/test`, {
-    method: "POST",
-  });
+): Promise<{
+  ok: boolean;
+  error: string | null;
+  alert: WhatsAppGroupAlert | null;
+}> {
+  return apiFetch(
+    `/api/admin/academies/${academyId}/whatsapp/groups/${groupId}/test`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export function getWhatsAppGroupAlerts(
@@ -1915,15 +1930,43 @@ export interface GuardianRow {
   notes: string | null;
   deleted_at: string | null;
   created_at: string;
+  /**
+   * How many ACTIVE students this parent sponsors. Present on the LIST only (the parents page
+   * is family-shaped and sorts/filters on it); `getGuardian` returns the bare record, so the
+   * detail counts its own `children` array instead.
+   */
+  children_count?: number;
+  /**
+   * The family's active students — id, name and lifecycle status only, enough for one card on
+   * the parents page to name its children. LIST only, for the same reason as `children_count`.
+   */
+  children?: Array<{ id: string; full_name: string; status: string | null }>;
 }
 
+/**
+ * One child on the family file. Carries what the parents page shows without opening the student:
+ * their teacher and billing terms as well as their name. The money keys are present and `null`
+ * for a role that may not price — that is "not your business", not "no subscription".
+ */
 export interface GuardianChild {
   id: string;
   full_name: string;
   whatsapp_phone: string | null;
+  country: string | null;
   status: string | null;
   is_self_guardian: boolean;
+  notes: string | null;
   deleted_at: string | null;
+  created_at: string;
+  teacher_id: string | null;
+  teacher_name: string | null;
+  subscription_id: string | null;
+  plan_label: string | null;
+  sessions_per_month: number | null;
+  price_minor: number | null;
+  price_currency: string | null;
+  price_basis: string | null;
+  start_date: string | null;
 }
 
 export interface GuardianInput {
@@ -1967,6 +2010,11 @@ export function updateGuardian(
 
 export function deactivateGuardian(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/guardians/${id}/deactivate`, { method: "POST" });
+}
+
+/** The way back from a deactivated parent — their children are restored separately. */
+export function reactivateGuardian(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/guardians/${id}/reactivate`, { method: "POST" });
 }
 
 // ── Teachers (Sprint 4 §8) ───────────────────────────────────────────────────
@@ -2634,9 +2682,12 @@ export function setClientDomainPrimary(
   clientId: string,
   domainId: string,
 ): Promise<ClientDomains> {
-  return apiFetch(`/api/admin/clients/${clientId}/domains/${domainId}/primary`, {
-    method: "POST",
-  });
+  return apiFetch(
+    `/api/admin/clients/${clientId}/domains/${domainId}/primary`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export function removeClientDomain(
@@ -3394,7 +3445,9 @@ export interface SessionFollowState {
  * instant; silences the WhatsApp not-marked reminder and feeds the Supervision page. Pressing
  * again is harmless (200 with the same state).
  */
-export function followSession(sessionId: string): Promise<{ follow: SessionFollowState }> {
+export function followSession(
+  sessionId: string,
+): Promise<{ follow: SessionFollowState }> {
   return apiFetch(`/api/sessions/${sessionId}/follow`, { method: "POST" });
 }
 
@@ -3458,7 +3511,12 @@ export function getOverdueSessions(): Promise<{
 // Two clocks per lesson: the first "Following" click measured from the START, and the recorded
 // outcome measured from the END. "pending" = the deadline has not passed yet, so not late.
 
-export type FollowBucket = "on_time" | "late" | "pending" | "none" | "not_needed";
+export type FollowBucket =
+  | "on_time"
+  | "late"
+  | "pending"
+  | "none"
+  | "not_needed";
 export type MarkBucket = "on_time" | "late" | "pending" | "none";
 
 export interface SupervisionPerson {
@@ -3491,7 +3549,12 @@ export interface SupervisionSessionRow {
   /** Minutes from the start to the first click — negative when it came before the start. */
   follow_delay_minutes: number | null;
   followed_by: { id: string; name: string | null } | null;
-  follow_ups: { user_id: string; name: string | null; followed_at: string; delay_minutes: number }[];
+  follow_ups: {
+    user_id: string;
+    name: string | null;
+    followed_at: string;
+    delay_minutes: number;
+  }[];
   mark_bucket: MarkBucket;
   outcome_set_at: string | null;
   /** Minutes from the end to the recorded outcome — negative when marked before the end. */
@@ -3530,8 +3593,10 @@ export function getSupervisionStats(params: {
   mark_minutes?: number;
 }): Promise<SupervisionStats> {
   const qs = new URLSearchParams({ from: params.from, to: params.to });
-  if (params.follow_minutes !== undefined) qs.set("follow_minutes", String(params.follow_minutes));
-  if (params.mark_minutes !== undefined) qs.set("mark_minutes", String(params.mark_minutes));
+  if (params.follow_minutes !== undefined)
+    qs.set("follow_minutes", String(params.follow_minutes));
+  if (params.mark_minutes !== undefined)
+    qs.set("mark_minutes", String(params.mark_minutes));
   return apiFetch(`/api/supervision/stats?${qs.toString()}`);
 }
 
@@ -7374,9 +7439,7 @@ export function getLmsPaymentMethods(): Promise<{
 }
 
 /** Saves all four slots in one write — no half-configured method can exist. */
-export function saveLmsPaymentMethods(
-  methods: LmsPaymentMethod[],
-): Promise<{
+export function saveLmsPaymentMethods(methods: LmsPaymentMethod[]): Promise<{
   methods: LmsPaymentMethod[];
   currency: string;
   active_count: number;
@@ -7479,7 +7542,11 @@ export type FinanceKind = (typeof FINANCE_KINDS)[number];
 export const FINANCE_INTERVALS = ["MONTHLY", "QUARTERLY", "YEARLY"] as const;
 export type FinanceInterval = (typeof FINANCE_INTERVALS)[number];
 
-export const FINANCE_DEAL_STATUSES = ["ACTIVE", "COMPLETED", "CANCELLED"] as const;
+export const FINANCE_DEAL_STATUSES = [
+  "ACTIVE",
+  "COMPLETED",
+  "CANCELLED",
+] as const;
 export type FinanceDealStatus = (typeof FINANCE_DEAL_STATUSES)[number];
 
 export const FINANCE_METHODS = [
@@ -7493,10 +7560,21 @@ export const FINANCE_METHODS = [
 ] as const;
 export type FinanceMethod = (typeof FINANCE_METHODS)[number];
 
-export const FINANCE_CURRENCIES = ["EGP", "USD", "SAR", "AED", "EUR", "GBP"] as const;
+export const FINANCE_CURRENCIES = [
+  "EGP",
+  "USD",
+  "SAR",
+  "AED",
+  "EUR",
+  "GBP",
+] as const;
 
 /** Derived per installment by the waterfall: PAID, PARTIAL, OVERDUE (owed past its date), PENDING. */
-export type FinanceInstallmentStatus = "PAID" | "PARTIAL" | "OVERDUE" | "PENDING";
+export type FinanceInstallmentStatus =
+  | "PAID"
+  | "PARTIAL"
+  | "OVERDUE"
+  | "PENDING";
 
 export interface FinanceClientRow {
   id: string;
@@ -7598,7 +7676,10 @@ export interface FinanceDealPayload {
   payments: FinancePayment[];
 }
 
-export type FinanceDealCounts = Record<FinanceDealStatus | "total" | "overdue", number>;
+export type FinanceDealCounts = Record<
+  FinanceDealStatus | "total" | "overdue",
+  number
+>;
 
 export interface FinanceSum {
   currency: string;
@@ -7623,7 +7704,11 @@ export interface FinancePaymentInput {
 export interface FinanceDealInput {
   client_id?: string | null;
   /** Inline new client — an existing name lands on that client rather than a twin. */
-  client?: { name: string; phone?: string | null; email?: string | null } | null;
+  client?: {
+    name: string;
+    phone?: string | null;
+    email?: string | null;
+  } | null;
   title: string;
   service: FinanceService;
   kind: FinanceKind;
@@ -7692,7 +7777,11 @@ export interface FinanceOverview {
     active_subscriptions: number;
     overdue_deals: number;
   };
-  by_service: Array<{ service: FinanceService; currency: string; amount_minor: number }>;
+  by_service: Array<{
+    service: FinanceService;
+    currency: string;
+    amount_minor: number;
+  }>;
   monthly: Array<{ month: string; currency: string; amount_minor: number }>;
   upcoming: FinanceUpcomingDue[];
   recent_payments: FinanceLedgerRow[];
@@ -7708,7 +7797,9 @@ export function listFinanceClients(
   return apiFetch(`/api/admin/finance/clients${toQueryString(q)}`);
 }
 
-export function listFinanceClientOptions(): Promise<{ clients: FinanceClientOption[] }> {
+export function listFinanceClientOptions(): Promise<{
+  clients: FinanceClientOption[];
+}> {
   return apiFetch("/api/admin/finance/clients/all");
 }
 
@@ -7745,7 +7836,9 @@ export function getFinanceDeal(id: string): Promise<FinanceDealPayload> {
   return apiFetch(`/api/admin/finance/deals/${id}`);
 }
 
-export function createFinanceDeal(input: FinanceDealInput): Promise<FinanceDealPayload> {
+export function createFinanceDeal(
+  input: FinanceDealInput,
+): Promise<FinanceDealPayload> {
   return apiFetch("/api/admin/finance/deals", {
     method: "POST",
     body: JSON.stringify(input),
