@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Services\Invoicing;
 use App\Services\Whatsapp\WhatsAppSender;
+use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\DataTable;
@@ -52,7 +53,7 @@ final class InvoiceController extends Controller
                 'inv.subtotal_minor',
                 'inv.total_minor',
                 'inv.amount_paid_minor',
-                DB::raw('coalesce(g.full_name, s.full_name) as payer_name'),
+                DB::raw('coalesce(g.full_name, s.full_name, inv.payer_name) as payer_name'),
                 DB::raw("case when inv.guardian_id is not null then 'GUARDIAN' else 'STUDENT' end as payer_type"),
                 'inv.sent_at',
                 'inv.closed_at',
@@ -61,7 +62,7 @@ final class InvoiceController extends Controller
             ]);
 
         $result = DataTable::paginate($query, $request, [
-            'searchable' => ['g.full_name', 's.full_name'],
+            'searchable' => ['g.full_name', 's.full_name', 'inv.payer_name'],
             'filters' => [
                 'status' => fn ($q, $v) => $q->where('inv.status', $v),
                 'kind' => fn ($q, $v) => $q->where('inv.kind', $v),
@@ -175,6 +176,75 @@ final class InvoiceController extends Controller
         );
 
         return response()->json(['id' => $invoiceId], 201);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/invoices/quick  — one-line custom bill, straight to a pay link
+    // -------------------------------------------------------------------------
+
+    /**
+     * The basic custom bill: a student picked from the list OR a name typed by hand, one amount,
+     * one currency, one description. Billed to the current month (academy timezone) as an OPEN
+     * MANUAL invoice — already payable — and answered with its public link on the academy's own
+     * address, so the operator can copy or send it immediately.
+     */
+    public function storeQuick(Request $request): JsonResponse
+    {
+        Gate::authorize('invoice.create');
+
+        $validated = $request->validate([
+            'student_id' => ['nullable', 'uuid', 'required_without:payer_name'],
+            'payer_name' => ['nullable', 'string', 'max:120', 'required_without:student_id'],
+            'amount_minor' => ['required', 'integer', 'min:1'],
+            'currency' => ['required', 'string', 'size:3'],
+            'description' => ['required', 'string', 'max:500'],
+        ]);
+
+        $ctx = app(AuthContext::class);
+        $academyId = (string) $ctx->academyId;
+
+        $studentId = null;
+        $payerName = null;
+        if (! empty($validated['student_id'])) {
+            // RLS scopes the lookup, so another academy's student is simply not found.
+            $found = DB::table('students')->where('id', $validated['student_id'])->value('id');
+            if ($found === null) {
+                abort(422, 'Student not found.');
+            }
+            $studentId = (string) $found;
+        } else {
+            $payerName = trim((string) $validated['payer_name']);
+            if ($payerName === '') {
+                abort(422, 'Enter the payer name.');
+            }
+        }
+
+        $tz = (string) (DB::table('academies')->where('id', $academyId)->value('timezone') ?: 'UTC');
+        $today = now($tz);
+
+        $invoiceId = app(Invoicing::class)->createManualInvoice(
+            $academyId,
+            null,
+            $studentId,
+            (int) $today->year,
+            (int) $today->month,
+            strtoupper((string) $validated['currency']),
+            [[
+                'description' => trim((string) $validated['description']),
+                'amount_minor' => (int) $validated['amount_minor'],
+                'student_id' => $studentId,
+            ]],
+            (string) $ctx->userId,
+            $ctx->role,
+            $payerName,
+        );
+
+        $token = (string) DB::table('invoices')->where('id', $invoiceId)->value('public_token');
+
+        return response()->json([
+            'id' => $invoiceId,
+            'url' => AcademyUrl::invoice($academyId, $token),
+        ], 201);
     }
 
     // -------------------------------------------------------------------------
@@ -352,7 +422,7 @@ final class InvoiceController extends Controller
                 'inv.sent_at',
                 'inv.sent_channel',
                 'inv.created_at',
-                DB::raw('coalesce(g.full_name, s.full_name) as payer_name'),
+                DB::raw('coalesce(g.full_name, s.full_name, inv.payer_name) as payer_name'),
                 DB::raw("case when inv.guardian_id is not null then 'GUARDIAN' else 'STUDENT' end as payer_type"),
                 DB::raw('coalesce(g.whatsapp_phone, s.whatsapp_phone) as payer_phone'),
             ])
@@ -700,7 +770,7 @@ final class InvoiceController extends Controller
                 'inv.total_minor',
                 'inv.amount_paid_minor',
                 'a.name as academy_name',
-                DB::raw('coalesce(g.full_name, s.full_name) as payer_name'),
+                DB::raw('coalesce(g.full_name, s.full_name, inv.payer_name) as payer_name'),
                 DB::raw('coalesce(g.whatsapp_phone, s.whatsapp_phone) as payer_phone'),
             ])
             ->first();
@@ -711,8 +781,9 @@ final class InvoiceController extends Controller
 
         $phone = (string) ($invoice->payer_phone ?? '');
 
-        $frontendUrl = config('app.frontend_url') ?: config('app.url');
-        $url = rtrim((string) $frontendUrl, '/').'/i/'.$invoice->public_token;
+        // The academy's own address (subdomain / custom domain), not the platform's — the payer
+        // should land where the academy already sends them.
+        $url = AcademyUrl::invoice((string) $invoice->academy_id, (string) $invoice->public_token);
 
         $message = $this->buildInvoiceWhatsAppMessage($invoice, $url);
 

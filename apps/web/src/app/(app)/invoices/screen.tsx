@@ -18,7 +18,7 @@ import { Octagram } from "@/components/ornaments";
 import { ClosePeriodModal } from "@/components/invoices/close-period-modal";
 import { InvoiceDetailModal } from "@/components/invoices/invoice-detail-modal";
 import { InvoiceRowActions } from "@/components/invoices/invoice-row-actions";
-import { ManualBillModal } from "@/components/invoices/manual-bill-modal";
+import { QuickBillModal } from "@/components/invoices/quick-bill-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/ui/page-hero";
@@ -788,9 +788,10 @@ function ManualTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   const [summary, setSummary] = useState<InvoiceSummary | null>(null);
-  const [flash, setFlash] = useState<string | null>(null);
 
   const refreshAll = useCallback(() => setRefreshToken((n) => n + 1), []);
+  // Stable: the modal holds text inputs, and a fresh onClose each render steals their focus.
+  const closeCreate = useCallback(() => setCreateOpen(false), []);
   const columns = useInvoiceColumns();
   const exportColumns = useInvoiceExportColumns();
 
@@ -850,14 +851,6 @@ function ManualTab() {
         )}
       </div>
 
-      {flash && (
-        <AlertBanner
-          variant="success"
-          message={flash}
-          onDismiss={() => setFlash(null)}
-        />
-      )}
-
       <SummaryCards summary={summary} locale={locale} />
 
       {/* ── Panel ────────────────────────────────────────────────────── */}
@@ -910,13 +903,12 @@ function ManualTab() {
         </div>
       </section>
 
-      <ManualBillModal
+      <QuickBillModal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={(id) => {
+        onClose={closeCreate}
+        onCreated={refreshAll}
+        onView={(id) => {
           setCreateOpen(false);
-          setFlash(t("manualCreated"));
-          refreshAll();
           setSelectedId(id);
         }}
       />

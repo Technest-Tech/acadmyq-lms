@@ -178,6 +178,14 @@ describe("subdomain routing", () => {
     expect((await run("skills.acadmyq.com", "/api/health")).rewrite).toBeNull();
     expect(resolveTenantSite).not.toHaveBeenCalled();
   });
+
+  it("serves the public invoice page on any client host — payment links live there", async () => {
+    resolveTenantSite.mockResolvedValue(LMS);
+
+    // A course-platform host would otherwise wrap it into /learn/<handle>/i/…, a 404.
+    expect((await run("skills.acadmyq.com", "/i/tok123")).rewrite).toBeNull();
+    expect((await run("courses.skills.eg", "/i/tok123", "acadmyq.com", true)).rewrite).toBeNull();
+  });
 });
 
 /**

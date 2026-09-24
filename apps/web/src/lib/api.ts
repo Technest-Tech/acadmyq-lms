@@ -180,6 +180,11 @@ export interface SessionAcademy {
   /** The brand name when the client set one, else the academy name. Never empty. */
   displayName: string;
   logoUrl: string | null;
+  /**
+   * The academy's public address (custom domain → `<handle>.<root>` → platform). Links we hand to
+   * payers are built on it — see `useInvoiceUrl`.
+   */
+  publicOrigin?: string;
 }
 
 export interface LoginResult {
@@ -3738,6 +3743,21 @@ export interface ManualInvoiceInput {
 }
 
 /** Create a MANUAL itemized invoice (OPEN draft). Returns the new invoice id. */
+/** The basic custom bill: a listed student OR a typed name, one amount, one line. */
+export type QuickBillInput = {
+  amount_minor: number;
+  currency: string;
+  description: string;
+} & ({ student_id: string; payer_name?: never } | { payer_name: string; student_id?: never });
+
+/** Create a quick custom bill; answers with its pay link on the academy's own address. */
+export function createQuickBill(input: QuickBillInput): Promise<{ id: string; url: string }> {
+  return apiFetch("/api/invoices/quick", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function createManualInvoice(
   input: ManualInvoiceInput,
 ): Promise<{ id: string }> {

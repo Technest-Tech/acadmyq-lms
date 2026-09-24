@@ -973,6 +973,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/invoices/advance-quote', [InvoiceController::class, 'advanceQuote']);
         Route::post('/invoices', [InvoiceController::class, 'store']);
         Route::post('/invoices/advance', [InvoiceController::class, 'storeAdvance']);
+        Route::post('/invoices/quick', [InvoiceController::class, 'storeQuick']);
         Route::post('/invoices/close', [InvoiceController::class, 'close']);
         Route::get('/invoices/{id}', [InvoiceController::class, 'show']);
         Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);

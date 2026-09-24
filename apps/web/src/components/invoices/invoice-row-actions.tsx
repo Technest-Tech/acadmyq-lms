@@ -20,6 +20,7 @@ import {
 import type { InvoiceRow } from "@/app/(app)/invoices/screen";
 import { useAuth } from "@/components/auth-provider";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
+import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -106,10 +107,8 @@ export function InvoiceRowActions({
     row.status === "OPEN" ||
     row.status === "CLOSED" ||
     row.status === "PARTIALLY_PAID";
-  const publicUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/i/${row.public_token}`
-      : "";
+  const invoiceUrl = useInvoiceUrl();
+  const publicUrl = invoiceUrl(row.public_token);
 
   function openMenu() {
     const rect = btnRef.current?.getBoundingClientRect();

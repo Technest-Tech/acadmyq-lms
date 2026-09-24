@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Whatsapp;
 
+use App\Support\AcademyUrl;
 use App\Support\AuthContext;
 use App\Support\Entitlement;
 use App\Support\Tenancy;
@@ -379,7 +380,7 @@ final class GroupAlerts
     private function packageNotifications(string $academyId, string $notificationType, string $alertType, CarbonImmutable $floor, CarbonImmutable $now): array
     {
         $lower = $this->later($floor, $now->subMinutes(GroupAlertCatalog::MAX_AGE_MINUTES[$alertType]));
-        $frontend = rtrim((string) (config('app.frontend_url') ?: config('app.url')), '/');
+        $frontend = AcademyUrl::origin($academyId);
 
         $rows = DB::table('notifications as n')
             ->leftJoin('lesson_packages as p', 'p.id', '=', 'n.subject_id')
@@ -437,7 +438,7 @@ final class GroupAlerts
             ->get([
                 'e.id', 'e.occurred_at', 'e.amount_minor', 'e.paid_total_minor', 'e.invoice_total_minor',
                 'e.currency', 'e.status_after', 'e.payment_method', 'i.period_month', 'i.period_year',
-                DB::raw('coalesce(g.full_name, s.full_name) as payer'),
+                DB::raw('coalesce(g.full_name, s.full_name, i.payer_name) as payer'),
             ]);
 
         return $rows->map(fn (object $e): array => [

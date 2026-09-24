@@ -6,6 +6,7 @@ namespace App\Jobs;
 
 use App\Services\Whatsapp\MessageTemplateRenderer;
 use App\Services\Whatsapp\WhatsAppSender;
+use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Tenancy;
@@ -47,7 +48,6 @@ final class MonthlyStudentBillingJob implements ShouldQueue
         $month = (int) $last->format('n');
         $period = sprintf('%04d-%02d', $year, $month);
         $stamp = now()->format('Y-m');
-        $frontendUrl = rtrim((string) (config('app.frontend_url') ?: config('app.url')), '/');
 
         $results = [];
         foreach ($this->targetAcademyIds() as $academyId) {
@@ -58,7 +58,10 @@ final class MonthlyStudentBillingJob implements ShouldQueue
                 permissions: [],
             );
 
-            $results[$academyId] = Tenancy::withContext($ctx, function () use ($academyId, $year, $month, $period, $stamp, $frontendUrl, $sender, $templates) {
+            $results[$academyId] = Tenancy::withContext($ctx, function () use ($academyId, $year, $month, $period, $stamp, $sender, $templates) {
+                // The academy's own address (subdomain / custom domain) — read inside the context.
+                $origin = AcademyUrl::origin($academyId);
+
                 if (! $this->enabled($academyId)) {
                     return 0;
                 }
@@ -70,6 +73,8 @@ final class MonthlyStudentBillingJob implements ShouldQueue
                     ->where('inv.period_year', $year)
                     ->where('inv.period_month', $month)
                     ->whereIn('inv.status', ['OPEN', 'CLOSED', 'PARTIALLY_PAID'])
+                    // A hand-named quick bill has nobody on file to message.
+                    ->whereNull('inv.payer_name')
                     ->get([
                         'inv.id', 'inv.public_token', 'inv.total_minor', 'inv.currency',
                         'inv.guardian_id', 'inv.student_id',
@@ -83,7 +88,7 @@ final class MonthlyStudentBillingJob implements ShouldQueue
                         'name' => (string) ($inv->payer_name ?? ''),
                         'period' => $period,
                         'amount' => $this->money((int) $inv->total_minor, (string) $inv->currency),
-                        'url' => $frontendUrl.'/i/'.$inv->public_token,
+                        'url' => $origin.'/i/'.$inv->public_token,
                     ]);
 
                     $res = $sender->sendOrLink($academyId, (string) ($inv->payer_phone ?? ''), $message, [

@@ -12,6 +12,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
+import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -91,7 +92,7 @@ function StatusBadge({ status }: { status: InvoiceDetail["status"] }) {
 
 // ── Copy-to-clipboard button ────────────────────────────────────────────────────
 
-function CopyButton({
+export function CopyButton({
   value,
   label,
   copiedLabel,
@@ -137,7 +138,7 @@ export interface InvoiceDetailModalProps {
 }
 
 /** Digits-only phone for a wa.me deep link (drops +, spaces, dashes). */
-function waLink(phone: string, message: string): string {
+export function waLink(phone: string, message: string): string {
   const digits = phone.replace(/\D/g, "");
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 }
@@ -329,6 +330,7 @@ export function InvoiceDetailModal({
   const t = useTranslations("invoices");
   const locale = useLocale();
   const { can } = useAuth();
+  const invoiceUrl = useInvoiceUrl();
 
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([]);
@@ -411,10 +413,7 @@ export function InvoiceDetailModal({
   const showActions =
     canAct && (can("invoice.send_link") || can("invoice.mark_paid"));
 
-  const publicUrl =
-    invoice && typeof window !== "undefined"
-      ? `${window.location.origin}/i/${invoice.public_token}`
-      : "";
+  const publicUrl = invoice ? invoiceUrl(invoice.public_token) : "";
 
   const balanceDue = invoice
     ? Math.max(0, invoice.total_minor - invoice.amount_paid_minor)

@@ -2060,7 +2060,7 @@
       "manual": "Manual bills"
     },
     "manualSectionTitle": "Custom bills",
-    "manualListHint": "Bills you create by hand — itemized charges or advance payments.",
+    "manualListHint": "Bill anyone in seconds — pick a student or type a name, and share the payment link.",
     "manualNew": "New bill",
     "manualEmpty": "No manual bills yet.",
     "manualTitle": "New manual bill",
@@ -2088,7 +2088,30 @@
     "panelAuto": "Automatic invoices",
     "panelAutoHint": "Generated from delivered lessons — click a row to open it",
     "panelManual": "Manual invoices",
-    "panelManualHint": "Raised by hand for anything outside the lesson billing"
+    "panelManualHint": "Raised by hand for anything outside the lesson billing",
+    "quick": {
+      "title": "New bill",
+      "subtitle": "Pick a student or type a name, set the amount, and get a payment link.",
+      "payer": "Bill to",
+      "mode_student": "Student",
+      "mode_name": "Type a name",
+      "studentSelect": "Select a student…",
+      "studentSearch": "Search students…",
+      "namePlaceholder": "e.g. Ahmed Ali",
+      "amount": "Amount",
+      "descriptionPlaceholder": "e.g. Summer workshop fee",
+      "create": "Create payment link",
+      "validation": "Choose a student or type a name, then add an amount and a description.",
+      "doneTitle": "Payment link ready",
+      "doneSubtitle": "Share it with the payer — they can see the bill and pay from it.",
+      "created": "Bill created",
+      "link": "Payment link",
+      "openLink": "Open the payment page",
+      "sendWhatsApp": "Send on WhatsApp",
+      "sent": "Sent on WhatsApp.",
+      "viewBill": "View bill",
+      "done": "Done"
+    }
   },
   "packages": {
     "title": "Lesson Packages",

@@ -22,6 +22,7 @@ import {
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useState, type ReactNode } from "react";
+import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import type { LessonPackageRow } from "@/lib/api";
 import { apiBase } from "@/lib/api-base";
 import { formatMoney, formatNumber } from "@/lib/money";
@@ -68,10 +69,8 @@ export function PackageCard({
   const low = isActive && row.minutes_remaining <= 60;
   const owes = row.outstanding_minor > 0;
   const strandedOverdraft = row.minutes_overdrawn > 0 && !row.overdraft_billed;
-  const paymentUrl =
-    row.invoice_token !== null && typeof window !== "undefined"
-      ? `${window.location.origin}/i/${row.invoice_token}`
-      : null;
+  const invoiceUrl = useInvoiceUrl();
+  const paymentUrl = row.invoice_token !== null ? invoiceUrl(row.invoice_token) : null;
 
   async function copyPaymentLink() {
     if (paymentUrl === null) return;

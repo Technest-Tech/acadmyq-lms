@@ -324,6 +324,7 @@ final class Invoicing implements BillingHook
         array $lines,
         string $actorUserId,
         string $actorRole,
+        ?string $payerName = null,
     ): string {
         $total = 0;
         foreach ($lines as $line) {
@@ -338,6 +339,8 @@ final class Invoicing implements BillingHook
             'kind' => 'MANUAL',
             'guardian_id' => $guardianId,
             'student_id' => $studentId,
+            // A typed name for a payer who is not on the books — only when neither link is set.
+            'payer_name' => $guardianId === null && $studentId === null ? $payerName : null,
             'period_year' => $year,
             'period_month' => $month,
             'status' => 'OPEN',

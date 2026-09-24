@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Entitlement;
@@ -161,7 +162,7 @@ final class AuthController extends Controller
      * own identity. Readable under the caller's own context (academies_select is
      * `id = app.current_academy_id()`), so this can only ever describe the caller's academy.
      *
-     * @return array{name: string, displayName: string, logoUrl: ?string, subdomain: ?string}|null
+     * @return array{name: string, displayName: string, logoUrl: ?string, subdomain: ?string, publicOrigin: string}|null
      */
     private function academyIdentity(?string $academyId): ?array
     {
@@ -190,6 +191,9 @@ final class AuthController extends Controller
             // signed-in user can sit on another client's subdomain looking at their OWN data under
             // someone else's name and logo, with nothing anywhere saying so.
             'subdomain' => ($academy->subdomain ?? null) ?: null,
+            // Where links we hand to the academy's payers point (custom domain → subdomain →
+            // platform), so a copied invoice link carries the academy's address, not the tab's.
+            'publicOrigin' => AcademyUrl::origin($academyId),
         ];
     }
 
