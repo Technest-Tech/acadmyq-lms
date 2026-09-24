@@ -13,6 +13,7 @@ import {
   getMe,
   logout as apiLogout,
   setLocale as apiSetLocale,
+  SESSION_EXPIRED_EVENT,
   type Session,
 } from "@/lib/api";
 
@@ -62,6 +63,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // A session that idles out mid-use: any 401 clears it, and the shell sends the user to /login.
+  useEffect(() => {
+    const expire = () => setSession(null);
+    window.addEventListener(SESSION_EXPIRED_EVENT, expire);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, expire);
+  }, []);
 
   const can = useCallback(
     (permission: string) => session?.permissions.includes(permission) ?? false,

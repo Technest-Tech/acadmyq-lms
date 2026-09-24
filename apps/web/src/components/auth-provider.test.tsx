@@ -61,4 +61,26 @@ describe("AuthProvider route protection (AC-2.13)", () => {
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
   });
+
+  it("redirects to /login when a session idles out mid-use (any API 401)", async () => {
+    getMe.mockResolvedValue({
+      user: { id: "u1", fullName: "Owner Noor", email: "o@x.test" },
+      role: "ACADEMY_OWNER",
+      academyId: "a1",
+      permissions: ["student.read"],
+      locale: "ar",
+    });
+    renderApp();
+    expect(await screen.findByTestId("sidebar")).toBeInTheDocument();
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: "Unauthenticated." }), { status: 401 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { apiFetch } = await import("@/lib/api");
+    await expect(apiFetch("/api/courses/products")).rejects.toThrow("Unauthenticated.");
+    vi.unstubAllGlobals();
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+  });
 });

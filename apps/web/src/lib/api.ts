@@ -30,6 +30,9 @@ const AUTH_MODE: "cookie" | "token" =
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/** Fired on `window` when an API call answers 401 — the AuthProvider drops the session on it. */
+export const SESSION_EXPIRED_EVENT = "academiq:session-expired";
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -105,6 +108,17 @@ export async function apiFetch<T>(
   // server-side); re-prime the cookie and retry the write once before failing.
   if (response.status === 419 && isCookieWrite) {
     response = await send(true);
+  }
+
+  // 401 on anything but the sign-in itself means the session is gone (it idles out after
+  // SESSION_LIFETIME). /auth/me is read once per shell mount, so without this the panel keeps
+  // rendering and every widget fails on its own with "Unauthenticated." — tell the AuthProvider.
+  if (
+    response.status === 401 &&
+    path !== "/api/auth/login" &&
+    typeof window !== "undefined"
+  ) {
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
   }
 
   if (!response.ok) {
