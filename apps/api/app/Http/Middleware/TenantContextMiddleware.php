@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Support\AcademySettings;
 use App\Support\AuthContext;
 use App\Support\PermissionResolver;
 use App\Support\Tenancy;
@@ -64,7 +65,8 @@ final class TenantContextMiddleware
             userId: (string) $user->getKey(),
             academyId: $academyId,
             role: $role,
-            permissions: PermissionResolver::forRole($role),
+            // The role's grants, minus whatever this academy's controls take away (AcademySettings).
+            permissions: AcademySettings::restrict($role, $academyId, PermissionResolver::forRole($role)),
         );
 
         // Bind for the Gate::before callback (AuthServiceProvider) for this request.

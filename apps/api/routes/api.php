@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Controllers\AcademyProfileController;
 use App\Http\Controllers\AcademyRoleController;
+use App\Http\Controllers\AcademySettingsController;
 use App\Http\Controllers\Admin\AcademyAutomationController;
 use App\Http\Controllers\Admin\AcademyController;
 use App\Http\Controllers\Admin\AcademyLogoController;
@@ -715,6 +716,11 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // to Super Admin only (§10).
     Route::get('/academy', [AcademyProfileController::class, 'show']);
     Route::patch('/academy', [AcademyProfileController::class, 'update']);
+
+    // Academy controls (Settings → Controls) — per-academy feature switches, e.g. making
+    // lessons read-only for teachers. specialization.manage for both read and write.
+    Route::get('/academy/settings', [AcademySettingsController::class, 'show']);
+    Route::put('/academy/settings', [AcademySettingsController::class, 'update']);
 
     // Per-academy teacher specializations (Settings). Read for the teacher-form dropdown;
     // create/edit/delete require specialization.manage.

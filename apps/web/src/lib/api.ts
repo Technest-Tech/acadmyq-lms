@@ -2529,6 +2529,25 @@ export function updateAcademyProfile(patch: {
   });
 }
 
+// ── Academy controls (Settings → Controls) ───────────────────────────────────
+
+/** Per-academy feature switches. Enforced server-side by trimming the affected role's capabilities. */
+export interface AcademyControls {
+  /** Teachers see their lessons but cannot add, mark, report on, reschedule or request changes. */
+  teacher_lessons_read_only: boolean;
+}
+
+export function getAcademyControls(): Promise<{ settings: AcademyControls }> {
+  return apiFetch("/api/academy/settings");
+}
+
+export function updateAcademyControls(settings: AcademyControls): Promise<{ settings: AcademyControls }> {
+  return apiFetch("/api/academy/settings", {
+    method: "PUT",
+    body: JSON.stringify(settings),
+  });
+}
+
 // ── Payment Settings (Settings → Payment) ────────────────────────────────────
 
 export function listPaymentSettings(): Promise<{

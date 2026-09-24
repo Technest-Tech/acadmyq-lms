@@ -1,24 +1,20 @@
 "use client";
 
-import { BookOpen, CreditCard, ImageIcon, Palette, ScrollText, Settings, type LucideIcon } from "lucide-react";
+import { BookOpen, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { AcademyNameCard } from "@/components/settings/academy-name-card";
-import { ColorsManager } from "@/components/settings/colors-manager";
-import { LogoManager } from "@/components/settings/logo-manager";
-import { PaymentSettingsManager } from "@/components/settings/payment-settings-manager";
+import { ControlsManager } from "@/components/settings/controls-manager";
 import { ReportCardManager } from "@/components/settings/report-card-manager";
 import { SpecializationsManager } from "@/components/settings/specializations-manager";
 import { cn } from "@/lib/utils";
 
-type TabKey = "courses" | "logo" | "colors" | "reportCard" | "payment";
+type TabKey = "courses" | "reportCard" | "controls";
 
 const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon }> = [
   { key: "courses", icon: BookOpen },
-  { key: "logo", icon: ImageIcon },
-  { key: "colors", icon: Palette },
   { key: "reportCard", icon: ScrollText },
-  { key: "payment", icon: CreditCard },
+  { key: "controls", icon: SlidersHorizontal },
 ];
 
 /** The Settings container: academy configuration, organized into top tabs. */
@@ -75,10 +71,8 @@ export function SettingsManager() {
       {/* ── Tab panels ────────────────────────────────────────────────────── */}
       <div role="tabpanel" aria-label={t(`tabs.${active}`)}>
         {active === "courses" && <SpecializationsManager />}
-        {active === "logo" && <LogoManager />}
-        {active === "colors" && <ColorsManager />}
         {active === "reportCard" && <ReportCardManager />}
-        {active === "payment" && <PaymentSettingsManager />}
+        {active === "controls" && <ControlsManager />}
       </div>
     </div>
   );

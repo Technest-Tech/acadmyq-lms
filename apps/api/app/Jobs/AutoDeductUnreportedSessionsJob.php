@@ -6,6 +6,7 @@ namespace App\Jobs;
 
 use App\Services\Payroll;
 use App\Services\TeacherQuality;
+use App\Support\AcademySettings;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Tenancy;
@@ -104,6 +105,12 @@ final class AutoDeductUnreportedSessionsJob implements ShouldQueue
             ->first();
 
         if ($settings === null || ! $settings->auto_deduct_enabled) {
+            return 0;
+        }
+
+        // A teacher the academy has barred from marking lessons cannot be docked for not marking
+        // them — the "unreported" session is the academy's to record, not theirs.
+        if (AcademySettings::forAcademy($academyId)['teacher_lessons_read_only']) {
             return 0;
         }
 

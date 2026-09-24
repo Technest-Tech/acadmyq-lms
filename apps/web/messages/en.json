@@ -1066,10 +1066,8 @@
     "forbidden": "You don't have access to settings.",
     "tabs": {
       "courses": "Courses",
-      "logo": "Logo",
-      "colors": "Colors",
       "reportCard": "Report card",
-      "payment": "Payment"
+      "controls": "Controls"
     },
     "specializations": {
       "title": "Courses",
@@ -1098,74 +1096,6 @@
       "saved": "Saved",
       "unsaved": "Unsaved changes"
     },
-    "payment": {
-      "cardTitle": "Payment Settings",
-      "cardDesc": "Configure how students can pay their invoices. Active methods are shown on the public invoice page.",
-      "save": "Save",
-      "saving": "Saving…",
-      "saved": "Saved",
-      "activate": "Activate",
-      "deactivate": "Deactivate",
-      "active": "Active",
-      "inactive": "Inactive",
-      "bankTransfer": {
-        "title": "Bank Transfer",
-        "desc": "Students pay by transferring to your bank account.",
-        "accountNumber": "Account number",
-        "accountHolder": "Account holder name",
-        "bankName": "Bank name",
-        "iban": "IBAN (optional)"
-      },
-      "paypal": {
-        "title": "PayPal",
-        "desc": "Accept payments via PayPal — share your email for manual transfers, or add API keys to enable real-time checkout.",
-        "email": "PayPal email",
-        "emailHint": "Students will see this email for manual PayPal transfers.",
-        "apiKeys": "API Integration (optional)",
-        "apiKeysHint": "Add your Client ID and Secret to enable one-click PayPal checkout on the invoice page.",
-        "clientId": "Client ID",
-        "clientSecret": "Client Secret",
-        "secretHint": "Stored securely — never sent to the browser.",
-        "showSecret": "show",
-        "hideSecret": "hide",
-        "mode": "Environment",
-        "modeLive": "Live (production)",
-        "modeSandbox": "Sandbox (testing)",
-        "keysConfigured": "API keys configured — checkout buttons are active",
-        "keysOptional": "Leave blank to use email-only mode."
-      },
-      "xpay": {
-        "title": "Card payments (XPay)",
-        "desc": "Accept Visa, Mastercard and Meeza on your invoices.",
-        "active": "Card payment is live on your invoices",
-        "inactive": "Card payment is not enabled yet",
-        "managed": "The merchant account is set up and managed by Academiq — you choose whether the button appears on your invoices.",
-        "notProvisioned": "Card payment has not been set up for your academy yet. Contact Academiq to have it enabled.",
-        "toggleHint": "Turning this off hides the card button. Bills already sent keep working through your other payment methods."
-      }
-    },
-    "branding": {
-      "logoCardTitle": "Academy logo",
-      "logoCardDesc": "Upload your logo from this device. Shown across the academy workspace.",
-      "logoPreviewAlt": "Academy logo preview",
-      "logoEmpty": "No logo",
-      "logoUpload": "Upload logo",
-      "logoReplace": "Replace logo",
-      "logoRemove": "Remove",
-      "logoFileHint": "PNG, JPG or SVG — up to 512 KB.",
-      "logoTypeError": "Please choose an image file.",
-      "logoSizeError": "Image is too large — please choose one under 512 KB.",
-      "logoReadError": "Could not read that file. Please try another.",
-      "colorsCardTitle": "Brand colors",
-      "colorsCardDesc": "Pick your primary and accent colors from the palette. Applied across the app.",
-      "previewBadge": "Accent",
-      "primaryLabel": "Primary color",
-      "accentLabel": "Accent color",
-      "save": "Save",
-      "saved": "Saved ✓",
-      "unsaved": "Unsaved changes",
-      "reset": "Reset to default"
-    },
     "reportCard": {
       "title": "Report card",
       "description": "The wording that appears on every session and trial report you send home",
@@ -1189,6 +1119,20 @@
       "field_championMessage": "A word to the child",
       "field_dua": "Closing du'a",
       "field_tagline": "Academy tagline"
+    },
+    "controls": {
+      "cardTitle": "Academy controls",
+      "cardDesc": "Turn features on or off for your academy. Changes apply right away.",
+      "saved": "Saved",
+      "groups": {
+        "lessons": "Lessons"
+      },
+      "items": {
+        "teacher_lessons_read_only": {
+          "title": "Teachers can only view lessons",
+          "desc": "Teachers still see their schedule and lessons, but can't add a class, mark attendance, write a report, reschedule, or request a cancellation or free lesson. You and your admins record lessons instead. Auto-deductions for unmarked lessons pause while this is on."
+        }
+      }
     }
   },
   "students": {
