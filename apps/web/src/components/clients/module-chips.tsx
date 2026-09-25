@@ -35,6 +35,22 @@ export const MODULE_STYLE: Record<
   },
 };
 
+/** The module's coloured letter square — the identity mark the Modules card, Features card and
+ *  overview all lead their rows with, so one glance says "this row is Video" everywhere. */
+export function ModuleIcon({ code, className }: { code: ModuleCode; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold ring-1",
+        MODULE_STYLE[code].on,
+        className,
+      )}
+      aria-hidden
+    >
+      {MODULE_STYLE[code].label}
+    </span>
+  );
+}
 
 export function ModuleChips({
   modules,

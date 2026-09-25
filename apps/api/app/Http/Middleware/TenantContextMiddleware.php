@@ -51,6 +51,13 @@ final class TenantContextMiddleware
             abort(401, 'No role assigned.'); // fail closed — never default to an academy
         }
 
+        // A custom role the academy has switched off: its holders are locked out with a reason,
+        // not resolved to an empty capability set and left staring at a blank panel. 401 so the
+        // web shell drops the session; the login endpoint then explains why (role_inactive).
+        if (PermissionResolver::isCustom($role) && ! PermissionResolver::isActive($role)) {
+            abort(401, 'Your role has been deactivated.');
+        }
+
         // A SUSPENDED academy blocks its owner/teacher access (AC-3.6) — not just at login
         // but on every request, so an already-open session dies the moment it is suspended.
         // SUPER_ADMIN is exempt (no home academy; may still administer a suspended tenant).
@@ -61,12 +68,25 @@ final class TenantContextMiddleware
             }
         }
 
+        $permissions = PermissionResolver::forRole($role);
+
+        // A Super Admin who has ENTERED an academy acts inside it with everything its owner can do,
+        // on top of the platform set. The SUPER_ADMIN catalog alone has no student.read or
+        // invoice.read — it is the platform's role, not an academy's — so without this merge the
+        // entered academy was a blank dashboard and a three-item sidebar, which made "enter" useless
+        // as a support tool. RLS already admits the super admin to that academy's rows (§4.4); this
+        // brings the Gates in line with the database.
+        if ($role === 'SUPER_ADMIN' && $academyId !== null) {
+            $permissions = array_values(array_unique(array_merge($permissions, PermissionResolver::forRole('ACADEMY_OWNER'))));
+            sort($permissions);
+        }
+
         $ctx = new AuthContext(
             userId: (string) $user->getKey(),
             academyId: $academyId,
             role: $role,
             // The role's grants, minus whatever this academy's controls take away (AcademySettings).
-            permissions: AcademySettings::restrict($role, $academyId, PermissionResolver::forRole($role)),
+            permissions: AcademySettings::restrict($role, $academyId, $permissions),
         );
 
         // Bind for the Gate::before callback (AuthServiceProvider) for this request.

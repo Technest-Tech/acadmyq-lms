@@ -15,6 +15,7 @@ import { UserAvatar } from "@/components/admin/user-avatar";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { roleLabel } from "@/lib/roles";
 import {
   ApiError,
   deactivateUser,
@@ -24,6 +25,7 @@ import {
   resetUserPassword,
   setUserRole,
   type AcademyListItem,
+  type AssignableRole,
   type PlatformUserDetail,
 } from "@/lib/api";
 
@@ -52,6 +54,7 @@ export function UserDetailModal({
   onChanged: () => void;
 }) {
   const t = useTranslations("platformUsers");
+  const tRole = useTranslations("platformUsers.role");
   const locale = useLocale();
 
   const [user, setUser] = useState<PlatformUserDetail | null>(null);
@@ -61,9 +64,7 @@ export function UserDetailModal({
   const [busy, setBusy] = useState(false);
 
   const [assignAcademy, setAssignAcademy] = useState("");
-  const [assignRole, setAssignRole] = useState<"ACADEMY_OWNER" | "TEACHER">(
-    "TEACHER",
-  );
+  const [assignRole, setAssignRole] = useState<AssignableRole>("TEACHER");
 
   const load = useCallback(async () => {
     const res = await getPlatformUser(userId);
@@ -136,7 +137,7 @@ export function UserDetailModal({
                   >
                     <span className="flex items-center gap-2">
                       <StatusChip tone={ROLE_TONE[r.role] ?? "neutral"}>
-                        {t(`role.${r.role}`)}
+                        {roleLabel(tRole, r.role)}
                       </StatusChip>
                       {r.academy_name && (
                         <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
@@ -157,7 +158,7 @@ export function UserDetailModal({
                             () =>
                               setUserRole(user.id, {
                                 academy_id: r.academy_id as string,
-                                role: r.role as "ACADEMY_OWNER" | "TEACHER",
+                                role: r.role as AssignableRole,
                                 grant: false,
                               }),
                             t("roleRevoked"),
@@ -207,10 +208,12 @@ export function UserDetailModal({
                   className={inputClass}
                   value={assignRole}
                   onChange={(e) =>
-                    setAssignRole(e.target.value as "ACADEMY_OWNER" | "TEACHER")
+                    setAssignRole(e.target.value as AssignableRole)
                   }
                 >
+                  <option value="STAFF">{t("role.STAFF")}</option>
                   <option value="TEACHER">{t("role.TEACHER")}</option>
+                  <option value="SUPERVISOR">{t("role.SUPERVISOR")}</option>
                   <option value="ACADEMY_OWNER">
                     {t("role.ACADEMY_OWNER")}
                   </option>
@@ -246,7 +249,12 @@ export function UserDetailModal({
               variant="outline"
               disabled={busy}
               onClick={() =>
-                void run(() => resetUserPassword(user.id), t("resetSent"))
+                void run(async () => {
+                  // The API says whether the mail actually went; "sent" on a failure was
+                  // exactly the lie this button told for months.
+                  const r = await resetUserPassword(user.id);
+                  if (!r.sent) throw new Error(t("resetNotSent"));
+                }, t("resetSent"))
               }
               data-testid="reset-password"
             >

@@ -118,7 +118,7 @@ final class ClientController extends Controller
         return response()->json(['clientId' => $clientId], 201);
     }
 
-    /** GET /admin/clients/{id} — one client: academy facts + module subscriptions + add-ons. */
+    /** GET /admin/clients/{id} — one client: academy facts + owner/size summary + module subscriptions + add-ons. */
     public function show(string $id): JsonResponse
     {
         Gate::authorize('academy.read');
@@ -131,8 +131,27 @@ final class ClientController extends Controller
                 'brand_display_name', 'brand_logo_url', 'subdomain', 'created_at',
             ]);
 
+            // The profile header + overview read these at a glance (who owns it, how big it is)
+            // without a second round-trip; same sources as app.admin_client_directory().
+            $owner = DB::table('users as u')
+                ->join('user_roles as ur', 'ur.user_id', '=', 'u.id')
+                ->where('ur.academy_id', $id)
+                ->where('ur.role', 'ACADEMY_OWNER')
+                ->orderBy('u.created_at')
+                ->first(['u.id', 'u.full_name', 'u.email', 'u.is_active']);
+
             return [
                 'client' => $academy,
+                'summary' => [
+                    'owner' => $owner === null ? null : [
+                        'id' => $owner->id,
+                        'full_name' => $owner->full_name,
+                        'email' => $owner->email,
+                        'is_active' => (bool) $owner->is_active,
+                    ],
+                    'student_count' => DB::table('students')->where('academy_id', $id)->count(),
+                    'teacher_count' => DB::table('teachers')->where('academy_id', $id)->count(),
+                ],
                 'catalog' => $this->featureCatalogFor((string) ($academy->client_type ?? 'MANAGEMENT')),
                 'modules' => $this->moduleRows($id),
                 'addOns' => DB::table('academy_addons as aa')

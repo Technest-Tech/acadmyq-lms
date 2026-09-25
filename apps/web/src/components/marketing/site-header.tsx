@@ -92,12 +92,13 @@ export function SiteHeader({ t }: { t: MarketingContent }) {
             <LocaleSwitcher />
           </div>
 
-          <Link
+          {/* A plain <a>, not <Link>: see CtaLink (marketing/ui.tsx) — login needs a full page load. */}
+          <a
             href={ROUTES.login}
             className="text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:outline-ring hidden rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 sm:block"
           >
             {t.nav.login}
-          </Link>
+          </a>
 
           <Link
             href={ROUTES.contact}
@@ -142,12 +143,12 @@ export function SiteHeader({ t }: { t: MarketingContent }) {
               </li>
             ))}
             <li>
-              <Link
+              <a
                 href={ROUTES.login}
                 className="hover:bg-muted focus-visible:outline-ring block rounded-lg px-3 py-3 text-base font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2"
               >
                 {t.nav.login}
-              </Link>
+              </a>
             </li>
           </ul>
 

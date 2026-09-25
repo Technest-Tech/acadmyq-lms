@@ -23,7 +23,13 @@ final class AcademyProfileController extends Controller
     /** GET /api/academy — the current academy's editable profile fields. */
     public function show(): JsonResponse
     {
-        Gate::authorize('invoice.read');
+        // Two readers: the invoicing screens (currency, grouping, billing day) and the Settings
+        // page itself. A SUPERVISOR manages settings but is denied every money capability, so gating
+        // the read on invoice.read alone broke the academy-name card for exactly the role the
+        // Settings tab is shown to.
+        if (! Gate::any(['invoice.read', 'specialization.manage'])) {
+            abort(403, 'This action is unauthorized.');
+        }
 
         $row = DB::table('academies')
             ->select(['id', 'name', 'timezone', 'default_currency', 'invoice_grouping', 'billing_day'])
@@ -42,7 +48,7 @@ final class AcademyProfileController extends Controller
         Gate::authorize('specialization.manage');
 
         $data = $request->validate([
-            'name'     => ['required', 'string', 'min:2', 'max:120'],
+            'name' => ['required', 'string', 'min:2', 'max:120'],
             'timezone' => ['sometimes', 'string', 'max:60'],
         ]);
 
@@ -55,7 +61,7 @@ final class AcademyProfileController extends Controller
             ->select(['name', 'timezone'])
             ->first();
 
-        $name     = trim($data['name']);
+        $name = trim($data['name']);
         $timezone = isset($data['timezone']) ? trim($data['timezone']) : ($before->timezone ?? 'UTC');
 
         $ok = DB::selectOne(
@@ -75,7 +81,7 @@ final class AcademyProfileController extends Controller
             $ctx->userId,
             $ctx->role,
             before: ['name' => $before?->name, 'timezone' => $before?->timezone],
-            after:  ['name' => $name, 'timezone' => $timezone],
+            after: ['name' => $name, 'timezone' => $timezone],
         );
 
         return response()->json(['ok' => true]);

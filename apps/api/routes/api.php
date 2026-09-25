@@ -74,6 +74,7 @@ use App\Http\Controllers\Public\WhatsAppConnectController;
 use App\Http\Controllers\Quality\QualityReportController;
 use App\Http\Controllers\Quality\QualityRubricController;
 use App\Http\Controllers\Quality\TeacherAdjustmentController;
+use App\Http\Controllers\Quality\TeacherInsightsController;
 use App\Http\Controllers\ReportCardTemplateController;
 use App\Http\Controllers\ReportFieldController;
 use App\Http\Controllers\Scheduling\AttendanceController;
@@ -83,7 +84,9 @@ use App\Http\Controllers\Scheduling\GenerateSessionsController;
 use App\Http\Controllers\Scheduling\ScheduleController;
 use App\Http\Controllers\Scheduling\SessionController;
 use App\Http\Controllers\Scheduling\SessionFollowUpController;
+use App\Http\Controllers\Scheduling\SessionJoinController;
 use App\Http\Controllers\Scheduling\SupervisionStatsController;
+use App\Http\Controllers\Scheduling\TeacherPunctualityController;
 use App\Http\Controllers\SessionReportController;
 use App\Http\Controllers\SpecializationController;
 use App\Http\Controllers\StaffDepartmentController;
@@ -149,6 +152,11 @@ Route::get('/health', function (): JsonResponse {
 | primes the CSRF cookie via GET /sanctum/csrf-cookie (registered by Sanctum) first.
 */
 Route::post('/auth/login', [AuthController::class, 'login']);
+// The only two anonymous writes on the management side: request a reset link (always 202, never
+// an oracle for which emails exist) and consume one. Tighter throttles than login — a caller has
+// no business asking for many of these.
+Route::middleware('throttle:5,1')->post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
+Route::middleware('throttle:10,1')->post('/auth/reset-password', [AuthController::class, 'resetPassword']);
 
 /*
 | Public invoice view (Sprint 7 §6). Token-authenticated — no Sanctum session required.
@@ -399,6 +407,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
     Route::patch('/auth/locale', [AuthController::class, 'setLocale']);
+    // The signed-in user changes their own password (current one required).
+    Route::post('/auth/password', [AuthController::class, 'changePassword']);
 
     // Super Admin platform actions (§4.4) + academy onboarding/lifecycle (Sprint 3 §7).
     // Capability Gates live in the controllers; RLS is the database backstop. Suspending is the
@@ -675,10 +685,12 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // and assigns them to staff. role.manage (RBAC) gates everything; tenant-scoped by RLS
     // (academy_roles / academy_role_permissions).
     //
-    // Plan-gated (entitled:custom_roles — a FREE-trial & PRO feature, not BASIC); role.manage
-    // (RBAC) still guards each operation.
+    // LISTING is free: the staff form needs it to offer the built-in STAFF/SUPERVISOR roles (and
+    // whatever custom roles employees already hold) whether or not the client still has the
+    // builder. Only BUILDING roles is plan-gated (entitled:custom_roles); role.manage (RBAC)
+    // guards each operation either way.
+    Route::get('/roles', [AcademyRoleController::class, 'index']);
     Route::middleware('entitled:custom_roles')->group(function () {
-        Route::get('/roles', [AcademyRoleController::class, 'index']);
         Route::post('/roles', [AcademyRoleController::class, 'store']);
         Route::patch('/roles/{id}', [AcademyRoleController::class, 'update']);
         Route::delete('/roles/{id}', [AcademyRoleController::class, 'destroy']);
@@ -692,6 +704,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/staff', [StaffController::class, 'store']);
         Route::get('/staff/{id}', [StaffController::class, 'show']);
         Route::patch('/staff/{id}', [StaffController::class, 'update']);
+        // The employee's sign-in login: create one, change its email/password/role, or switch it off.
+        Route::patch('/staff/{id}/login', [StaffController::class, 'updateLogin']);
         Route::post('/staff/{id}/deactivate', [StaffController::class, 'deactivate']);
         Route::post('/staff/{id}/reactivate', [StaffController::class, 'reactivate']);
     });
@@ -709,6 +723,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/teachers/{id}/reports', [TeacherReportController::class, 'index']);
     Route::post('/teachers/{id}/reports', [TeacherReportController::class, 'store']);
     Route::delete('/teachers/{id}/reports/{reportId}', [TeacherReportController::class, 'destroy']);
+    // When the teacher pressed Enter on each lesson, against its start (teacher.read).
+    Route::get('/teachers/{id}/punctuality', [TeacherPunctualityController::class, 'show']);
 
     // Academy profile settings — name and timezone. Read: invoice.read (all owners).
     // Write: specialization.manage (the "settings" capability). The UPDATE uses a
@@ -745,8 +761,11 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // image (the design lives in the web client). NOT plan-gated: every academy that can write a
     // session report can send its guardian a branded card. `session.read` guards the preview,
     // `report_field.manage` the edit (see ReportCardTemplateController).
-    Route::get('/report-card-template', [ReportCardTemplateController::class, 'show']);
-    Route::put('/report-card-template', [ReportCardTemplateController::class, 'update']);
+    // Switchable per client (entitled:report_card): without it there is no card to draw.
+    Route::middleware('entitled:report_card')->group(function () {
+        Route::get('/report-card-template', [ReportCardTemplateController::class, 'show']);
+        Route::put('/report-card-template', [ReportCardTemplateController::class, 'update']);
+    });
 
     // Scheduling & sessions (Sprint 5 §8). The weekly schedule is the rule; sessions are the
     // materialised occurrences. Every route is capability-gated and tenant-scoped by RLS;
@@ -927,9 +946,17 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/sessions/{id}/attendance/revert', [AttendanceController::class, 'revert']);
     // "Following": a supervisor records that they are on this lesson (session.follow). Silences the
     // WhatsApp not-marked reminder for it and feeds the Supervision statistics page.
-    Route::post('/sessions/{id}/follow', [SessionFollowUpController::class, 'store']);
-    // Supervision statistics (supervision.stats): follow promptness + marking promptness per person.
-    Route::get('/supervision/stats', [SupervisionStatsController::class, 'index']);
+    // Both are the Supervision feature — switchable per client (entitled:supervision), because a
+    // small academy with one teacher has nobody to supervise.
+    Route::middleware('entitled:supervision')->group(function () {
+        Route::post('/sessions/{id}/follow', [SessionFollowUpController::class, 'store']);
+        // Supervision statistics (supervision.stats): follow promptness + marking promptness per person.
+        Route::get('/supervision/stats', [SupervisionStatsController::class, 'index']);
+    });
+    // "Enter": the lesson's own teacher opens their meeting link; the press is logged for the
+    // punctuality statistics on the teacher's profile. Not part of Supervision — every academy
+    // whose teachers teach online needs it.
+    Route::post('/sessions/{id}/join', [SessionJoinController::class, 'store']);
     Route::put('/sessions/{id}/report', [SessionReportController::class, 'put']);
     Route::post('/sessions/{id}/report/whatsapp-sent', [SessionReportController::class, 'whatsappSent']);
     Route::get('/students/{id}/reports', [SessionReportController::class, 'archive']);
@@ -981,9 +1008,12 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/invoices/{id}/send-link', [InvoiceController::class, 'sendLink']);
 
         // Lesson packages (docs/lesson-packages) — the hour-based billing mode that replaces the
-        // monthly invoice for the students on it. Same plan gate as invoicing because it IS
-        // invoicing, just on a different clock. Literal segments (`summary`, `students`) are
-        // declared before `{id}` so they are never captured as a package ID.
+        // monthly invoice for the students on it. It IS invoicing on a different clock, so it
+        // stays inside that gate — and carries its own switch (entitled:packages) on top, because
+        // most academies bill monthly and never want the second clock offered to their staff.
+        // Literal segments (`summary`, `students`) are declared before `{id}` so they are never
+        // captured as a package ID.
+        Route::middleware('entitled:packages')->group(function () {
         Route::get('/packages', [LessonPackageController::class, 'index']);
         Route::get('/packages/summary', [LessonPackageController::class, 'summary']);
         Route::get('/packages/students', [LessonPackageController::class, 'students']);
@@ -1002,12 +1032,15 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/packages/{id}/lessons', [LessonPackageController::class, 'addLesson']);
         Route::patch('/packages/{id}/lessons/{creditId}', [LessonPackageController::class, 'updateLesson']);
         Route::delete('/packages/{id}/lessons/{creditId}', [LessonPackageController::class, 'removeLesson']);
+        });
     });
 
     // Live FX rates (owner) — converts every academy currency into the home currency (EGP) so the
-    // financial-statistics page can show one converted grand total and salaries in EGP. Not plan-gated;
-    // guarded by invoice.read inside the controller (same gate as the statistics page).
-    Route::get('/reports/exchange-rates', [ExchangeRateController::class, 'index']);
+    // financial-statistics page can show one converted grand total and salaries in EGP. Switchable
+    // per client with the page it feeds (entitled:financial_statistics); guarded by invoice.read
+    // inside the controller (same gate as the statistics page).
+    Route::middleware('entitled:financial_statistics')
+        ->get('/reports/exchange-rates', [ExchangeRateController::class, 'index']);
 
     // Payroll (Sprint 8 §8) — the second money document. Plan-gated (entitled:payroll).
     // `finalize` and `/me/payouts` are declared before `{id}` so the literal segments are
@@ -1031,6 +1064,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         // adjustment and stays on payout.read / payout.adjust — nobody gains a way to move a
         // teacher's pay that they didn't already have. Literal segments (`summary`, `settings`,
         // `rubric`) are declared before `{id}` so they aren't captured as an id.
+        // Switchable per client on top of payroll (entitled:teacher_quality): an academy can pay
+        // teachers without grading them.
+        Route::middleware('entitled:teacher_quality')->group(function () {
         Route::get('/quality/rubric', [QualityRubricController::class, 'index']);
         Route::post('/quality/rubric/categories', [QualityRubricController::class, 'storeCategory']);
         Route::patch('/quality/rubric/categories/{id}', [QualityRubricController::class, 'updateCategory']);
@@ -1059,6 +1095,16 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/me/quality-reports', [QualityReportController::class, 'mine']);
         Route::get('/me/quality-reports/{id}', [QualityReportController::class, 'mineShow']);
         Route::get('/me/adjustments', [TeacherAdjustmentController::class, 'mine']);
+        });
+    });
+
+    // Teacher performance — the Teacher Quality page: Enter punctuality, report speed and
+    // attendance for every teacher, read from records the system already keeps. Same switch and
+    // capability as the page it replaced (teacher_quality / teacher_quality.read), but OUTSIDE the
+    // payroll gate: it reads lessons, never pay.
+    Route::middleware('entitled:teacher_quality')->group(function () {
+        Route::get('/teacher-insights', [TeacherInsightsController::class, 'index']);
+        Route::get('/teacher-insights/teachers/{id}', [TeacherInsightsController::class, 'show']);
     });
 
     // Video classroom (docs/video-platform). Plan-gated by entitled:video.conferencing (402 on a

@@ -2,11 +2,14 @@
 
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/auth-provider";
-import { QualityManager } from "@/components/quality/quality-manager";
+import { TeacherInsights } from "@/components/teacher-insights/teacher-insights";
 
-/** The Teacher Quality page. RBAC gate only — the plan gate renders as the nav lock + a 402 server-side. */
+/**
+ * Teacher performance (was Teacher Quality — the route keeps its address so bookmarks and the
+ * sidebar key survive). RBAC gate only — the plan gate renders as the nav lock + a 402 server-side.
+ */
 export function TeacherQualityScreen() {
-  const t = useTranslations("quality");
+  const t = useTranslations("teacherInsights");
   const { can } = useAuth();
 
   if (!can("teacher_quality.read")) {
@@ -15,5 +18,5 @@ export function TeacherQualityScreen() {
     );
   }
 
-  return <QualityManager />;
+  return <TeacherInsights />;
 }

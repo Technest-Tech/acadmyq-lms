@@ -74,12 +74,34 @@ final class SessionController extends Controller
             ->addSelect(['fu.followed_at', 'fu.user_id as followed_by_user_id', 'fuu.full_name as followed_by_name']);
     }
 
-    /** Present a row's timestamps as UTC ISO strings (the join above adds `followed_at`). */
+    /**
+     * Join the lesson teacher's meeting link and their FIRST press of Enter on it, so the teacher's
+     * row can open the room and everyone's row can show when the teacher went in. Grouped by
+     * (session, teacher) and joined on both, so a lesson handed to another teacher shows the new
+     * teacher's press, never the old one's.
+     */
+    private function joinTeacherEntry(Builder $query): Builder
+    {
+        $first = DB::table('session_joins')
+            ->selectRaw('session_id, teacher_id, min(joined_at) as joined_at')
+            ->groupBy('session_id', 'teacher_id');
+
+        return $query
+            ->leftJoinSub($first, 'sj', function ($join) {
+                $join->on('sj.session_id', '=', 'se.id')->on('sj.teacher_id', '=', 'se.teacher_id');
+            })
+            ->addSelect(['te.meeting_url', 'sj.joined_at as teacher_joined_at']);
+    }
+
+    /** Present a row's timestamps as UTC ISO strings (the joins above add `followed_at`/`teacher_joined_at`). */
     private function presentRowTimes(object $r): object
     {
         $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
         $r->followed_at = isset($r->followed_at) ? Carbon::parse($r->followed_at)->utc()->toIso8601String() : null;
         $r->followed_by_user_id = isset($r->followed_by_user_id) ? (string) $r->followed_by_user_id : null;
+        if (property_exists($r, 'teacher_joined_at')) {
+            $r->teacher_joined_at = $r->teacher_joined_at !== null ? Carbon::parse($r->teacher_joined_at)->utc()->toIso8601String() : null;
+        }
 
         return $r;
     }
@@ -504,6 +526,7 @@ final class SessionController extends Controller
             ])
             ->orderBy('se.scheduled_at_utc')->orderBy('se.id');
         $this->joinFirstFollowUp($query);
+        $this->joinTeacherEntry($query);
 
         if ($this->ctx()->role === 'TEACHER') {
             $ownTeacherId = $this->callerTeacherId();
@@ -645,6 +668,7 @@ final class SessionController extends Controller
             ])
             ->orderBy('se.scheduled_at_utc')->orderBy('se.id');
         $this->joinFirstFollowUp($query);
+        $this->joinTeacherEntry($query);
 
         if (! empty($data['teacher_id'])) {
             $query->where('se.teacher_id', $data['teacher_id']);

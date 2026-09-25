@@ -382,3 +382,159 @@ it('returns 404 when patching a non-existent staff id', function () {
         'full_name' => 'Ghost',
     ])->assertNotFound();
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// The login has a lifecycle: it can be seen, changed, switched off, and it leaves with the employee
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A real sign-in attempt (stateful, so the Origin header) that does NOT leave the header behind:
+ * `withHeader` persists for the rest of the test, and a later request as another user would then
+ * be stateful too and resolve against the session this login just opened.
+ */
+function staffSignIn(string $email, string $password)
+{
+    $res = test()->withHeader('Origin', 'http://localhost:3000')
+        ->postJson('/api/auth/login', ['email' => $email, 'password' => $password]);
+    // Leave no trace of the attempt in the harness: the header, the session it opened, and the
+    // guard instances that now remember it. Otherwise the next stateful request as the owner
+    // (Sanctum::actingAs) trips AuthenticateSession against this user's session and 401s.
+    test()->flushHeaders();
+    test()->flushSession();
+    app('auth')->forgetGuards();
+
+    return $res;
+}
+
+/** Create a staff member with a login through the API, as the owner; returns [staffId, userId]. */
+function staffWithLogin(string $email, string $role = 'STAFF'): array
+{
+    Sanctum::actingAs(test()->owner);
+    $res = test()->postJson('/api/staff', [
+        'full_name' => 'Login Person', 'create_login' => true,
+        'email' => $email, 'password' => 'secret-pass-123', 'role' => $role,
+    ])->assertStatus(201);
+
+    return [$res->json('staffId'), $res->json('userId')];
+}
+
+it('deactivating an employee switches their login off, and reactivating switches it back on', function () {
+    [$staffId, $userId] = staffWithLogin('leaver@test.local');
+    $login = fn () => staffSignIn('leaver@test.local', 'secret-pass-123');
+
+    $login()->assertOk();
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/staff/{$staffId}/deactivate")->assertOk();
+    $login()->assertStatus(403);
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/staff/{$staffId}")->assertOk()->assertJsonPath('login.is_active', false);
+    $this->postJson("/api/staff/{$staffId}/reactivate")->assertOk();
+    $login()->assertOk();
+});
+
+it('shows the login on the detail and lets the owner change its email, password, role and state', function () {
+    [$staffId, $userId] = staffWithLogin('desk@test.local');
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/staff/{$staffId}")->assertOk()
+        ->assertJsonPath('login.has_login', true)
+        ->assertJsonPath('login.email', 'desk@test.local')
+        ->assertJsonPath('login.role', 'STAFF')
+        ->assertJsonPath('login.is_active', true);
+
+    $this->patchJson("/api/staff/{$staffId}/login", [])->assertStatus(422);
+
+    $this->patchJson("/api/staff/{$staffId}/login", [
+        'email' => 'desk2@test.local', 'password' => 'new-secret-456', 'role' => 'SUPERVISOR',
+    ])->assertOk()->assertJsonPath('changed', ['email', 'password', 'role']);
+
+    $this->getJson("/api/staff/{$staffId}")->assertOk()
+        ->assertJsonPath('login.email', 'desk2@test.local')
+        ->assertJsonPath('login.role', 'SUPERVISOR');
+    $this->asAcademy($this->academy);
+    expect(DB::table('user_roles')->where('user_id', $userId)->count())->toBe(1);
+
+    staffSignIn('desk2@test.local', 'new-secret-456')->assertOk()->assertJsonPath('role', 'SUPERVISOR');
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/staff/{$staffId}/login", ['is_active' => false])->assertOk();
+    staffSignIn('desk2@test.local', 'new-secret-456')->assertStatus(403);
+});
+
+it('creates a login later for an employee who was added without one', function () {
+    Sanctum::actingAs($this->owner);
+    $staffId = $this->postJson('/api/staff', ['full_name' => 'No Login Yet', 'create_login' => false])
+        ->assertStatus(201)->json('staffId');
+
+    $this->patchJson("/api/staff/{$staffId}/login", ['email' => 'late@test.local'])->assertStatus(422);
+    $this->patchJson("/api/staff/{$staffId}/login", ['email' => 'late@test.local', 'password' => 'secret-pass-123'])
+        ->assertStatus(201)->assertJsonPath('created', true);
+
+    $this->getJson("/api/staff/{$staffId}")->assertOk()->assertJsonPath('login.role', 'STAFF');
+});
+
+it('never lets an owner switch off or deactivate their own login from the staff pages', function () {
+    // An owner who also appears on the roster.
+    Sanctum::actingAs($this->owner);
+    $staffId = $this->postJson('/api/staff', ['full_name' => 'Me', 'create_login' => false])->json('staffId');
+    $this->asAcademy($this->academy);
+    DB::table('staff')->where('id', $staffId)->update(['user_id' => $this->owner->id]);
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/staff/{$staffId}/login", ['is_active' => false])->assertStatus(422);
+    $this->postJson("/api/staff/{$staffId}/deactivate")->assertStatus(422);
+});
+
+it('clamps assignment: a delegated HR role cannot hand out a role bigger than itself', function () {
+    // Two owner-built roles: a small HR role that may create staff and assign roles, and a big one.
+    $this->asAcademy($this->academy);
+    $permIds = DB::table('permissions')->pluck('id', 'code');
+    $mk = function (string $name, array $codes) use ($permIds): string {
+        $id = (string) Str::uuid();
+        $code = 'CR_'.str_replace('-', '', $id);
+        DB::table('academy_roles')->insert([
+            'id' => $id, 'academy_id' => $this->academy, 'code' => $code, 'name' => $name,
+            'is_active' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        foreach ($codes as $c) {
+            DB::table('academy_role_permissions')->insert(['academy_id' => $this->academy, 'role_id' => $id, 'permission_id' => $permIds[$c]]);
+        }
+
+        return $code;
+    };
+    // HR holds the STAFF baseline (so it can hand that out) plus the delegation capabilities.
+    $hr = $mk('HR', ['student.read', 'guardian.read', 'schedule.read', 'session.read',
+        'staff.read', 'staff.create', 'staff.update', 'user.invite', 'role.assign', 'role.manage']);
+    $big = $mk('Everything', ['staff.read', 'staff.create', 'user.invite', 'role.assign', 'invoice.read', 'payout.read']);
+    $this->clearTenantContext();
+    $hrUser = $this->makeUser($this->academy, $hr, ['email' => 'hr@test.local']);
+
+    Sanctum::actingAs($hrUser);
+    $payload = ['full_name' => 'New Hire', 'create_login' => true, 'email' => 'hire@test.local', 'password' => 'secret-pass-123'];
+
+    // A role holding invoice.read / payout.read the HR person does not have: refused.
+    $this->postJson('/api/staff', $payload + ['role' => $big])->assertStatus(422);
+    // The built-in SUPERVISOR is bigger than HR too.
+    $this->postJson('/api/staff', $payload + ['role' => 'SUPERVISOR'])->assertStatus(422);
+    // Their own role, or the minimal STAFF baseline: fine.
+    $this->postJson('/api/staff', $payload + ['role' => 'STAFF'])->assertStatus(201);
+
+    // The same clamp on a later role change.
+    $staffId = DB::table('staff')->where('full_name', 'New Hire')->value('id');
+    $this->patchJson("/api/staff/{$staffId}/login", ['role' => $big])->assertStatus(422);
+    $this->patchJson("/api/staff/{$staffId}/login", ['role' => $hr])->assertOk();
+
+    // And the owner, who holds everything, can hand out the big role.
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/staff/{$staffId}/login", ['role' => $big])->assertOk();
+});
+
+it('lists the login role next to each employee', function () {
+    staffWithLogin('listed@test.local', 'SUPERVISOR');
+    Sanctum::actingAs($this->owner);
+
+    $rows = collect($this->getJson('/api/staff')->assertOk()->json('rows'));
+    expect($rows->firstWhere('full_name', 'Login Person')['login_role'])->toBe('SUPERVISOR');
+});

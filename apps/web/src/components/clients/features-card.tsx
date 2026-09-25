@@ -1,10 +1,14 @@
 "use client";
 
+import { SlidersHorizontal } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
+import { Field, fieldClass } from "@/components/admin/field";
+import { SectionCard } from "@/components/admin/section-card";
 import { useAuth } from "@/components/auth-provider";
-import { MODULE_STYLE } from "@/components/clients/module-chips";
+import { ModuleIcon } from "@/components/clients/module-chips";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast";
 import {
   ApiError,
@@ -14,6 +18,8 @@ import {
   type ModuleSubscription,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { decodeOverrides } from "./client-summary";
+import { useFeatureLabels } from "./feature-labels";
 
 /**
  * The per-client feature switches (05-MODULES-NOT-PACKAGES §4) — the whole point of dropping
@@ -45,17 +51,13 @@ export function FeaturesCard({
   }
 
   return (
-    <section
-      className="bg-card overflow-hidden rounded-xl shadow-sm ring-1 ring-foreground/[0.06]"
-      data-testid="features-card"
+    <SectionCard
+      icon={SlidersHorizontal}
+      title={t("title")}
+      description={t("hint")}
+      flush
+      testId="features-card"
     >
-      <header className="bg-muted/40 border-b px-4 py-2.5">
-        <h2 className="text-muted-foreground text-[11px] font-bold uppercase tracking-[0.08em]">
-          {t("title")}
-        </h2>
-        <p className="text-muted-foreground mt-0.5 text-xs">{t("hint")}</p>
-      </header>
-
       <div className="divide-y">
         {live.map((sub) => (
           <ModuleFeatures
@@ -70,34 +72,8 @@ export function FeaturesCard({
           />
         ))}
       </div>
-    </section>
+    </SectionCard>
   );
-}
-
-/** `overrides` arrives as jsonb — an object from the directory read, a string from a write. */
-function decodeOverrides(raw: ModuleSubscription["overrides"]): {
-  disabled: string[];
-  limits: Record<string, number>;
-} {
-  let parsed: unknown = raw;
-  if (typeof raw === "string") {
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = null;
-    }
-  }
-  const obj = (parsed ?? {}) as { disabled?: unknown; limits?: unknown };
-
-  return {
-    disabled: Array.isArray(obj.disabled) ? obj.disabled.map(String) : [],
-    limits:
-      obj.limits !== null && typeof obj.limits === "object"
-        ? Object.fromEntries(
-            Object.entries(obj.limits as Record<string, unknown>).map(([k, v]) => [k, Number(v)]),
-          )
-        : {},
-  };
 }
 
 function ModuleFeatures({
@@ -118,24 +94,41 @@ function ModuleFeatures({
   onChanged: () => void;
 }) {
   const t = useTranslations("clients.features");
+  const labels = useFeatureLabels();
   const toast = useToast();
   const stored = useMemo(() => decodeOverrides(sub.overrides), [sub.overrides]);
 
   const [disabled, setDisabled] = useState<string[]>(stored.disabled);
   const [limits, setLimits] = useState<Record<string, string>>(() =>
-    Object.fromEntries(Object.entries(stored.limits).map(([k, v]) => [k, String(v)])),
+    Object.fromEntries(
+      Object.entries(stored.limits).map(([k, v]) => [k, String(v)]),
+    ),
   );
   const [busy, setBusy] = useState(false);
 
   // A refetch (or another edit on the page) re-seeds the form from the server's truth.
   useEffect(() => {
     setDisabled(stored.disabled);
-    setLimits(Object.fromEntries(Object.entries(stored.limits).map(([k, v]) => [k, String(v)])));
+    setLimits(
+      Object.fromEntries(
+        Object.entries(stored.limits).map(([k, v]) => [k, String(v)]),
+      ),
+    );
   }, [stored]);
 
   const dirty =
-    JSON.stringify([...disabled].sort()) !== JSON.stringify([...stored.disabled].sort()) ||
+    JSON.stringify([...disabled].sort()) !==
+      JSON.stringify([...stored.disabled].sort()) ||
     JSON.stringify(cleanLimits(limits)) !== JSON.stringify(stored.limits);
+
+  const reset = () => {
+    setDisabled(stored.disabled);
+    setLimits(
+      Object.fromEntries(
+        Object.entries(stored.limits).map(([k, v]) => [k, String(v)]),
+      ),
+    );
+  };
 
   const save = async () => {
     setBusy(true);
@@ -155,49 +148,48 @@ function ModuleFeatures({
   const offCount = disabled.length;
 
   return (
-    <div className="px-4 py-3" data-testid={`features-${sub.module}`}>
-      <div className="mb-2.5 flex flex-wrap items-center gap-2">
-        <span className="flex items-center gap-2 text-sm font-bold">
-          <span
+    <div className="px-5 py-4" data-testid={`features-${sub.module}`}>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <ModuleIcon
+          code={sub.module as ModuleCode}
+          className="size-7 text-[10px]"
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">{label}</p>
+          <p
             className={cn(
-              "inline-flex size-5 items-center justify-center rounded-md text-[10px] ring-1",
-              MODULE_STYLE[sub.module as ModuleCode].on,
+              "text-xs",
+              offCount === 0
+                ? "text-muted-foreground"
+                : "text-amber-700 dark:text-amber-300",
             )}
-            aria-hidden
           >
-            {MODULE_STYLE[sub.module as ModuleCode].label}
-          </span>
-          {label}
-        </span>
-        <span className="text-muted-foreground text-xs">
-          {offCount === 0
-            ? t("allOn")
-            : t("someOff", { count: offCount, total: Object.keys(capabilities).length })}
-        </span>
+            {offCount === 0
+              ? t("allOn")
+              : t("someOff", {
+                  count: offCount,
+                  total: Object.keys(capabilities).length,
+                })}
+          </p>
+        </div>
         {canManage && dirty && (
-          <div className="ms-auto flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setDisabled(stored.disabled);
-                setLimits(
-                  Object.fromEntries(
-                    Object.entries(stored.limits).map(([k, v]) => [k, String(v)]),
-                  ),
-                );
-              }}
-            >
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={reset}>
               {t("reset")}
             </Button>
-            <Button size="sm" disabled={busy} onClick={save} data-testid={`save-${sub.module}`}>
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={save}
+              data-testid={`save-${sub.module}`}
+            >
               {t("save")}
             </Button>
           </div>
         )}
       </div>
 
-      <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {Object.entries(capabilities).map(([key, featureLabel]) => {
           const on = !disabled.includes(key);
 
@@ -205,25 +197,36 @@ function ModuleFeatures({
             <li key={key}>
               <label
                 className={cn(
-                  "flex cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-1.5 text-sm",
-                  on ? "bg-card" : "bg-muted/40 text-muted-foreground",
-                  !canManage && "cursor-default opacity-70",
+                  "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 transition-colors",
+                  on ? "bg-card hover:bg-muted/30" : "bg-muted/40",
+                  canManage ? "cursor-pointer" : "cursor-default opacity-70",
                 )}
               >
-                <input
-                  type="checkbox"
+                <span className="min-w-0">
+                  <span
+                    className={cn(
+                      "block truncate text-sm font-medium",
+                      !on && "text-muted-foreground",
+                    )}
+                  >
+                    {labels.capability(key, featureLabel)}
+                  </span>
+                  <code className="text-muted-foreground/60 block truncate font-mono text-[10px]">
+                    {key}
+                  </code>
+                </span>
+                <Switch
                   checked={on}
                   disabled={!canManage}
                   data-testid={`feature-${key}`}
                   onChange={(e) =>
                     setDisabled((prev) =>
-                      e.target.checked ? prev.filter((k) => k !== key) : [...prev, key],
+                      e.target.checked
+                        ? prev.filter((k) => k !== key)
+                        : [...prev, key],
                     )
                   }
-                  className="size-4 shrink-0"
                 />
-                <span className="min-w-0 flex-1">{featureLabel}</span>
-                <code className="text-muted-foreground/70 shrink-0 text-[10px]">{key}</code>
               </label>
             </li>
           );
@@ -231,14 +234,13 @@ function ModuleFeatures({
       </ul>
 
       {Object.keys(limitKeys).length > 0 && (
-        <div className="mt-3">
-          <p className="text-muted-foreground mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em]">
+        <div className="mt-4">
+          <p className="text-muted-foreground mb-2 text-xs font-semibold">
             {t("caps")}
           </p>
-          <div className="flex flex-wrap gap-2.5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
             {Object.entries(limitKeys).map(([key, capLabel]) => (
-              <label key={key} className="text-xs font-medium">
-                <span className="text-muted-foreground mb-1 block">{capLabel}</span>
+              <Field key={key} label={labels.limit(key, capLabel)}>
                 <input
                   type="number"
                   min={0}
@@ -249,9 +251,9 @@ function ModuleFeatures({
                   onChange={(e) =>
                     setLimits((prev) => ({ ...prev, [key]: e.target.value }))
                   }
-                  className="bg-card h-8 w-32 rounded-md border px-2 text-sm tabular-nums"
+                  className={cn(fieldClass, "tabular-nums")}
                 />
-              </label>
+              </Field>
             ))}
           </div>
         </div>

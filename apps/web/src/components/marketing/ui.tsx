@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
-import type { IconName, SectionHead } from "@/content/marketing";
+import { ROUTES, type IconName, type SectionHead } from "@/content/marketing";
 import { cn } from "@/lib/utils";
 
 /**
@@ -213,6 +213,17 @@ export function CtaLink({
   variant?: keyof typeof ctaClass;
   className?: string;
 }) {
+  // The login page leaves the marketing site, so it gets a full page load: marketing pages are
+  // handed a trimmed message catalogue (app/layout.tsx), and a client-side hop would carry that
+  // catalogue into the login screen, which then renders raw keys until a refresh.
+  if (href === ROUTES.login) {
+    return (
+      <a href={href} className={cn(ctaClass[variant], className)}>
+        {children}
+      </a>
+    );
+  }
+
   return (
     <Link href={href} className={cn(ctaClass[variant], className)}>
       {children}

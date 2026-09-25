@@ -211,7 +211,8 @@ export function StudentForm({
     canPrice &&
     can("package.manage") &&
     (session?.capabilities == null ||
-      session.capabilities.includes("invoicing"));
+      (session.capabilities.includes("invoicing") &&
+        session.capabilities.includes("packages")));
   const [billing, setBilling] = useState<Billing>("monthly");
   const onPackage = packagesAvailable && billing === "package";
 

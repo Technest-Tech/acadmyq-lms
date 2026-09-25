@@ -11,6 +11,7 @@ import {
   Smartphone,
   User,
   Users,
+  Video,
   Wallet,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
@@ -161,6 +162,7 @@ export function TeacherDetail({
   // "InstaPay" with nothing to send to is not a state the API (or the DB) accepts.
   const [payoutMethod, setPayoutMethod] = useState<PayoutMethod>("INSTAPAY");
   const [payoutHandle, setPayoutHandle] = useState("");
+  const [meetingUrl, setMeetingUrl] = useState("");
   const [availability, setAvailability] = useState<AvailabilityWindow[]>([]);
   const [specs, setSpecs] = useState<Specialization[]>([]);
 
@@ -204,6 +206,7 @@ export function TeacherDetail({
     // No destination yet → the switch rests on InstaPay with an empty field, which saves nothing.
     setPayoutMethod(res.teacher.payout_method ?? "INSTAPAY");
     setPayoutHandle(res.teacher.payout_handle ?? "");
+    setMeetingUrl(res.teacher.meeting_url ?? "");
     setAvailability(res.teacher.availability ?? []);
   }, [teacherId]);
 
@@ -238,6 +241,8 @@ export function TeacherDetail({
         // therefore how you remove a destination, and it clears both halves.
         payout_handle: payoutHandle.trim() || null,
         payout_method: payoutHandle.trim() ? payoutMethod : null,
+        // Emptying the field removes the link (the teacher's Enter button goes grey).
+        meeting_url: meetingUrl.trim() || null,
         availability,
       });
       setNotice(t("form.saved"));
@@ -379,6 +384,27 @@ export function TeacherDetail({
                 disabled={!canEdit}
                 data-testid="specialization-select"
               />
+            </Field>
+
+            {/* The room this teacher teaches in. Their Enter button on each lesson opens it, and
+                the press is what the Punctuality tab measures. */}
+            <Field label={t("form.meetingUrl")}>
+              <div className="relative">
+                <Video className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                <input
+                  dir="ltr"
+                  type="url"
+                  inputMode="url"
+                  aria-label={t("form.meetingUrl")}
+                  className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                  placeholder={t("form.meetingUrlPlaceholder")}
+                  value={meetingUrl}
+                  disabled={!canEdit}
+                  onChange={(e) => setMeetingUrl(e.target.value)}
+                  data-testid="meeting-url"
+                />
+              </div>
+              <p className="text-muted-foreground text-[11px]">{t("form.meetingUrlHint")}</p>
             </Field>
 
             {/* The rate and its currency are one decision — they sit on one row so nobody

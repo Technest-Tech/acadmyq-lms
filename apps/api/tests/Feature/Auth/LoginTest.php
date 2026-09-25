@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -74,4 +75,70 @@ it('logs out and writes an auth.logout audit entry', function () {
         ->where('action', 'auth.logout')
         ->where('actor_user_id', $owner->id)
         ->exists())->toBeTrue();
+});
+
+// ── Refusals that name their reason (the account exists; nothing to hide) ─────
+
+it('refuses a user who has no role at all, with a code the sign-in screen can explain', function () {
+    $orphan = $this->makeUser($this->academy, 'TEACHER', ['email' => 'orphan@test.local']);
+    $this->asAcademy($this->academy);
+    DB::table('user_roles')->where('user_id', $orphan->id)->delete();
+    $this->clearTenantContext();
+
+    fromFrontend()
+        ->postJson('/api/auth/login', ['email' => 'orphan@test.local', 'password' => 'password'])
+        ->assertStatus(403)
+        ->assertJsonPath('code', 'no_role');
+
+    // No session was left behind.
+    $this->getJson('/api/auth/me')->assertStatus(401);
+});
+
+it('tells the owner of a suspended academy why they cannot sign in', function () {
+    $this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-susp@test.local']);
+    $this->asSuperAdmin();
+    DB::table('academies')->where('id', $this->academy)->update(['status' => 'SUSPENDED']);
+    $this->clearTenantContext();
+
+    fromFrontend()
+        ->postJson('/api/auth/login', ['email' => 'owner-susp@test.local', 'password' => 'password'])
+        ->assertStatus(403)
+        ->assertJsonPath('code', 'academy_suspended');
+});
+
+it('locks out the holders of a custom role the academy switched off, at login and mid-session', function () {
+    $roleId = (string) Str::uuid();
+    $code = 'CR_'.str_replace('-', '', $roleId);
+    $this->asAcademy($this->academy);
+    DB::table('academy_roles')->insert([
+        'id' => $roleId, 'academy_id' => $this->academy, 'code' => $code, 'name' => 'Front desk',
+        'is_active' => true, 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $permId = DB::table('permissions')->where('code', 'student.read')->value('id');
+    DB::table('academy_role_permissions')->insert(['academy_id' => $this->academy, 'role_id' => $roleId, 'permission_id' => $permId]);
+    $this->clearTenantContext();
+
+    $clerk = $this->makeUser($this->academy, $code, ['email' => 'clerk@test.local']);
+
+    // Active: signs in, holds the role's capability, and /auth/me carries the role's NAME.
+    fromFrontend()
+        ->postJson('/api/auth/login', ['email' => 'clerk@test.local', 'password' => 'password'])
+        ->assertOk()
+        ->assertJsonPath('role', $code);
+    Sanctum::actingAs($clerk);
+    $this->getJson('/api/auth/me')->assertOk()
+        ->assertJsonPath('roleName', 'Front desk')
+        ->assertJsonPath('permissions.0', 'student.read');
+
+    // Switched off: the live session dies with a reason…
+    $this->asAcademy($this->academy);
+    DB::table('academy_roles')->where('id', $roleId)->update(['is_active' => false]);
+    $this->clearTenantContext();
+    $this->getJson('/api/auth/me')->assertStatus(401);
+
+    // …and a fresh sign-in is refused with the same reason.
+    fromFrontend()
+        ->postJson('/api/auth/login', ['email' => 'clerk@test.local', 'password' => 'password'])
+        ->assertStatus(403)
+        ->assertJsonPath('code', 'role_inactive');
 });

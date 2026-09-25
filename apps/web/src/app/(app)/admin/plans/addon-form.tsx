@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { useFeatureLabels } from "@/components/clients/feature-labels";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -35,6 +36,7 @@ export function AddOnFormModal({
   onSaved: () => void;
 }) {
   const t = useTranslations("planAdmin.form");
+  const labels = useFeatureLabels();
   const editing = addOn !== null;
   const capKeys = Object.keys(catalog.capabilities);
 
@@ -160,7 +162,7 @@ export function AddOnFormModal({
           >
             {capKeys.map((k) => (
               <option key={k} value={k}>
-                {catalog.capabilities[k]} ({k})
+                {labels.capability(k, catalog.capabilities[k] ?? k)} ({k})
               </option>
             ))}
           </select>

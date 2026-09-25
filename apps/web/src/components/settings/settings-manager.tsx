@@ -7,6 +7,7 @@ import { AcademyNameCard } from "@/components/settings/academy-name-card";
 import { ControlsManager } from "@/components/settings/controls-manager";
 import { ReportCardManager } from "@/components/settings/report-card-manager";
 import { SpecializationsManager } from "@/components/settings/specializations-manager";
+import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 type TabKey = "courses" | "reportCard" | "controls";
@@ -20,7 +21,12 @@ const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon }> = [
 /** The Settings container: academy configuration, organized into top tabs. */
 export function SettingsManager() {
   const t = useTranslations("settings");
-  const [active, setActive] = useState<TabKey>("courses");
+  const [chosen, setChosen] = useState<TabKey>("courses");
+  // The report card is a per-client feature; without it the tab (and its template) do not exist.
+  const hasReportCard = useCapability("report_card");
+  const tabs = hasReportCard ? TABS : TABS.filter((tab) => tab.key !== "reportCard");
+  const active: TabKey = tabs.some((tab) => tab.key === chosen) ? chosen : "courses";
+  const setActive = setChosen;
 
   return (
     <div className="w-full space-y-6">
@@ -44,7 +50,7 @@ export function SettingsManager() {
         aria-label={t("title")}
         className="no-scrollbar flex gap-1 overflow-x-auto rounded-2xl border bg-muted/40 p-1.5 shadow-sm"
       >
-        {TABS.map(({ key, icon: Icon }) => {
+        {tabs.map(({ key, icon: Icon }) => {
           const selected = active === key;
           return (
             <button

@@ -31,6 +31,11 @@ import {
 } from "react";
 import { AttendanceReportModal } from "@/components/attendance/attendance-report-modal";
 import { CreateClassModal } from "@/components/attendance/create-class-modal";
+import {
+  EnterLessonButton,
+  TeacherEnteredChip,
+  useNow,
+} from "@/components/attendance/enter-lesson-button";
 import { FollowControl, type FollowInfo } from "@/components/attendance/follow-control";
 import {
   OverdueLessonsPanel,
@@ -146,6 +151,9 @@ const STATUS_DOT: Record<string, string> = {
   RESCHEDULED: "bg-violet-500",
 };
 
+/** How far ahead a row shows its greyed-out Enter button — beyond this the row stays quiet. */
+const ENTER_EARLY_HORIZON_MINUTES = 180;
+
 export function AttendanceManager() {
   const t = useTranslations("attendance");
   const tSched = useTranslations("scheduling");
@@ -165,6 +173,8 @@ export function AttendanceManager() {
   // "Following": a supervisor saying they are on this lesson. The click is measured on the
   // Supervision page and silences the WhatsApp not-marked reminder for the lesson.
   const canFollow = can("session.follow");
+  // The Enter button's clock: re-read every half minute so a lesson's button lights up on time.
+  const now = useNow();
 
   // `date` is the ANCHOR day; `range` says how much of the calendar around it the list covers.
   const [date, setDate] = useState<string>(() => todayStr());
@@ -979,6 +989,9 @@ export function AttendanceManager() {
                             <td className="px-5 py-3.5">
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <StatusBadge status={displayStatus} />
+                                {s.teacher_joined_at && (
+                                  <TeacherEnteredChip at={s.teacher_joined_at} timeFmt={timeFmt} />
+                                )}
                                 {s.pending_cancel_type && displayStatus === "SCHEDULED" && (
                                   <span
                                     data-testid="awaiting-approval"
@@ -1010,6 +1023,16 @@ export function AttendanceManager() {
                                     <MessageCircle className="size-3.5" />
                                     {t("sendWhatsapp")}
                                   </Button>
+                                )}
+                                {/* Enter: only the lesson's own teacher opens the room — an
+                                    owner's press would read as the teacher arriving. */}
+                                {isTeacher && (
+                                  <EnterLessonButton
+                                    lesson={{ ...s, status: displayStatus }}
+                                    meetingUrl={s.meeting_url}
+                                    now={now}
+                                    earlyHorizonMinutes={ENTER_EARLY_HORIZON_MINUTES}
+                                  />
                                 )}
                                 {displayStatus === "SCHEDULED" && (
                                   <FollowControl
@@ -1135,6 +1158,9 @@ export function AttendanceManager() {
                           </div>
                           <div className="flex shrink-0 flex-col items-end gap-1">
                             <StatusBadge status={displayStatus} className="shrink-0" />
+                            {s.teacher_joined_at && (
+                              <TeacherEnteredChip at={s.teacher_joined_at} timeFmt={timeFmt} />
+                            )}
                             {s.pending_cancel_type && displayStatus === "SCHEDULED" && (
                               <span
                                 data-testid="awaiting-approval"
@@ -1162,6 +1188,14 @@ export function AttendanceManager() {
                               <MessageCircle className="size-3.5" />
                               {t("sendWhatsapp")}
                             </Button>
+                          )}
+                          {isTeacher && (
+                            <EnterLessonButton
+                              lesson={{ ...s, status: displayStatus }}
+                              meetingUrl={s.meeting_url}
+                              now={now}
+                              earlyHorizonMinutes={ENTER_EARLY_HORIZON_MINUTES}
+                            />
                           )}
                           {displayStatus === "SCHEDULED" && (
                             <FollowControl

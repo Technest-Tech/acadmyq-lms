@@ -19,6 +19,7 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { useCapability } from "@/lib/capabilities";
 import { ReportCardModal } from "@/components/reports/report-card-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -123,6 +124,8 @@ export function AttendanceReport({
   const ts = useTranslations("scheduling");
   const locale = useLocale();
   const { can, session: auth } = useAuth();
+  // Switched off per client from the Super Admin profile: then there is no card to draw.
+  const hasReportCard = useCapability("report_card");
 
   // The four selectable outcomes are the same for everyone now (attended / free / the two
   // cancellations). A teacher's cancel still routes through approval; an owner's opens the
@@ -825,7 +828,7 @@ export function AttendanceReport({
                   Dispatching it (the WhatsApp button below) stays an academy-admin action.
                   Allowed in readOnly as well: producing the card changes nothing, and looking
                   back at a past lesson to re-send its card is the common case. */}
-              {canWrite && isAttended && report && (
+              {canWrite && isAttended && report && hasReportCard && (
                 <Button
                   type="button"
                   size="sm"

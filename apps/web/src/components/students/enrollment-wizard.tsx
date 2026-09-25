@@ -143,7 +143,8 @@ export function EnrollmentWizard({
     canPrice &&
     can("package.manage") &&
     (session?.capabilities == null ||
-      session.capabilities.includes("invoicing"));
+      (session.capabilities.includes("invoicing") &&
+        session.capabilities.includes("packages")));
   const [billing, setBilling] = useState<"monthly" | "package">("monthly");
   const onPackage = packagesAvailable && billing === "package";
   // The guardian pays, so their currency seeds the package's. Fetched only when it can matter.

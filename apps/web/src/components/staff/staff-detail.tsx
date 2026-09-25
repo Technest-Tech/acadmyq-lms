@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { KhatamLattice } from "@/components/ornaments";
 import { StaffForm } from "@/components/staff/staff-form";
+import { StaffLoginSection } from "@/components/staff/staff-login-section";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -31,9 +32,11 @@ import {
   deactivateStaff,
   getStaff,
   reactivateStaff,
+  type StaffLogin,
   type StaffRow,
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
+import { roleLabel } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
 // ── StaffDetail ───────────────────────────────────────────────────────────────
@@ -41,9 +44,11 @@ import { cn } from "@/lib/utils";
 export function StaffDetail({ id }: { id: string }) {
   const t = useTranslations("staff");
   const locale = useLocale();
-  const { can } = useAuth();
+  const tRoles = useTranslations("roles");
+  const { can, session } = useAuth();
 
   const [member, setMember] = useState<StaffRow | null>(null);
+  const [login, setLogin] = useState<StaffLogin | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -65,6 +70,7 @@ export function StaffDetail({ id }: { id: string }) {
     try {
       const res = await getStaff(id);
       setMember(res.staff);
+      setLogin(res.login);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -165,7 +171,11 @@ export function StaffDetail({ id }: { id: string }) {
               {member.user_id ? (
                 <>
                   <ShieldCheck className="size-3" aria-hidden />
-                  {t("detail.hasLogin")}
+                  {login?.is_active === false
+                    ? t("detail.loginOff")
+                    : login?.role
+                      ? roleLabel(tRoles, login.role)
+                      : t("detail.hasLogin")}
                 </>
               ) : (
                 <>
@@ -284,8 +294,21 @@ export function StaffDetail({ id }: { id: string }) {
             <DetailRow
               icon={member.user_id ? ShieldCheck : ShieldOff}
               label={t("detail.loginStatus")}
-              value={member.user_id ? t("detail.hasLogin") : t("detail.noLogin")}
+              value={
+                !member.user_id
+                  ? t("detail.noLogin")
+                  : login?.is_active === false
+                    ? t("detail.loginOff")
+                    : t("detail.hasLogin")
+              }
             />
+            {login?.role && (
+              <DetailRow
+                icon={ShieldCheck}
+                label={t("detail.role")}
+                value={roleLabel(tRoles, login.role)}
+              />
+            )}
             {member.phone && (
               <DetailRow
                 icon={Phone}
@@ -319,6 +342,16 @@ export function StaffDetail({ id }: { id: string }) {
           )}
         </ProfileCard>
       </div>
+
+      {/* ── Account & login ─────────────────────────────────────────────── */}
+      {can("staff.update") && login && (
+        <StaffLoginSection
+          staffId={member.id}
+          login={login}
+          isSelf={member.user_id !== null && member.user_id === session?.user.id}
+          onChanged={load}
+        />
+      )}
 
       {/* ── Danger zone ───────────────────────────────────────────────────
           One deactivate control, not two. The old page offered it in the header AND again in a

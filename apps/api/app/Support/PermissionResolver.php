@@ -34,4 +34,22 @@ final class PermissionResolver
             DB::select('select code from app.role_capabilities(?) order by code', [$role]),
         );
     }
+
+    /**
+     * Is this role code assignable and usable right now? System roles always are; a per-academy
+     * custom role only while the academy keeps it active. Checked at login and on every request,
+     * so a role switched off on the Roles page locks its holders out with a clear message instead
+     * of resolving them to an empty capability set. Reads through the BYPASSRLS function because
+     * both callers run before a tenant context exists.
+     */
+    public static function isActive(string $role): bool
+    {
+        return (bool) (DB::selectOne('select app.auth_role_active(?) as active', [$role])->active ?? false);
+    }
+
+    /** A custom (academy-built) role code, as opposed to a platform system role. */
+    public static function isCustom(string $role): bool
+    {
+        return str_starts_with($role, 'CR_');
+    }
 }

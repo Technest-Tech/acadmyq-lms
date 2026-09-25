@@ -42,7 +42,7 @@ final class TeacherController extends Controller
         $query = DB::table('teachers')->select([
             'id', 'user_id', 'full_name', 'phone', 'specialization',
             'session_rate_minor', 'currency', 'timezone', 'availability',
-            'payout_method', 'payout_handle',
+            'payout_method', 'payout_handle', 'meeting_url',
             'is_active', 'deleted_at', 'created_at',
         ]);
         $this->applyActiveScope($query, $request);
@@ -89,6 +89,7 @@ final class TeacherController extends Controller
 
         $data = $this->validatePayload($request, creating: true);
         $payout = $this->resolvePayout($data, null) ?? ['payout_method' => null, 'payout_handle' => null];
+        $meetingUrl = $this->cleanMeetingUrl($data['meeting_url'] ?? null);
 
         $teacherId = (string) Str::uuid();
         $userId = null;
@@ -114,6 +115,9 @@ final class TeacherController extends Controller
             'availability' => json_encode($data['availability'] ?? []),
             'payout_method' => $payout['payout_method'],
             'payout_handle' => $payout['payout_handle'],
+            'meeting_url' => $meetingUrl,
+            // Explicit offset: a naive Carbon bind lands hours off in a timestamptz.
+            'join_tracking_since' => $meetingUrl !== null ? now()->toIso8601String() : null,
             'is_active' => true,
         ]);
 
@@ -215,6 +219,11 @@ final class TeacherController extends Controller
             ]);
         }
 
+        // Re-issuing someone's credentials IS handing out a login, so it takes the same capability
+        // as creating one. teacher.update alone let a SUPERVISOR — a role built to hold no login
+        // authority at all — reset any teacher's password and sign in as them.
+        Gate::authorize('user.invite');
+
         $update = [];
         $changed = [];
         if (array_key_exists('email', $data)) {
@@ -261,10 +270,13 @@ final class TeacherController extends Controller
         if (array_key_exists('currency', $data) && $data['currency'] !== null) {
             $data['currency'] = strtoupper($data['currency']);
         }
+        if (array_key_exists('meeting_url', $data)) {
+            $data['meeting_url'] = $this->cleanMeetingUrl($data['meeting_url']);
+        }
 
         $before = [];
         $after = [];
-        foreach (['full_name', 'phone', 'specialization', 'session_rate_minor', 'currency', 'timezone'] as $col) {
+        foreach (['full_name', 'phone', 'specialization', 'session_rate_minor', 'currency', 'timezone', 'meeting_url'] as $col) {
             if (array_key_exists($col, $data) && (string) $data[$col] !== (string) $existing->{$col}) {
                 $before[$col] = $existing->{$col};
                 $after[$col] = $data[$col];
@@ -291,7 +303,14 @@ final class TeacherController extends Controller
             return response()->json(['ok' => true, 'changed' => []]);
         }
 
-        DB::table('teachers')->where('id', $id)->update($after + ['updated_at' => now()]);
+        // The first link this teacher ever gets starts the punctuality clock. A later change or
+        // removal leaves it alone — see the 2026_09_26 teacher_meeting_links migration.
+        $extra = ['updated_at' => now()];
+        if (($after['meeting_url'] ?? null) !== null && $existing->join_tracking_since === null) {
+            $extra['join_tracking_since'] = now()->toIso8601String();
+        }
+
+        DB::table('teachers')->where('id', $id)->update($after + $extra);
         Audit::log('teacher.update', 'teacher', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
 
         return response()->json(['ok' => true, 'changed' => array_keys($after)]);
@@ -317,12 +336,22 @@ final class TeacherController extends Controller
             abort(422, 'Reassign this teacher\'s active students before deactivating them.');
         }
 
-        DB::table('teachers')->where('id', $id)->update([
-            'is_active' => false,
-            'deleted_at' => now(),
-            'updated_at' => now(),
+        // A deactivated teacher loses their sign-in as well: until now only the teachers row was
+        // touched, so they kept a working login to the academy they had been removed from.
+        DB::transaction(function () use ($id, $teacher): void {
+            DB::table('teachers')->where('id', $id)->update([
+                'is_active' => false,
+                'deleted_at' => now(),
+                'updated_at' => now(),
+            ]);
+            if ($teacher->user_id !== null) {
+                DB::table('users')->where('id', $teacher->user_id)->update(['is_active' => false, 'updated_at' => now()]);
+            }
+        });
+        Audit::log('teacher.deactivate', 'teacher', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: [
+            'deleted_at' => now()->toIso8601String(),
+            'login_disabled' => $teacher->user_id !== null,
         ]);
-        Audit::log('teacher.deactivate', 'teacher', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['deleted_at' => now()->toIso8601String()]);
 
         return response()->json(['ok' => true]);
     }
@@ -490,6 +519,14 @@ final class TeacherController extends Controller
         return ['payout_method' => (string) $method, 'payout_handle' => $handle];
     }
 
+    /** An empty meeting-link field means "no link", never an empty string in the column. */
+    private function cleanMeetingUrl(mixed $value): ?string
+    {
+        $url = trim((string) ($value ?? ''));
+
+        return $url === '' ? null : $url;
+    }
+
     /** @return array<string,mixed> */
     private function validatePayload(Request $request, bool $creating): array
     {
@@ -510,6 +547,8 @@ final class TeacherController extends Controller
             // address or a share link. Normalising one shape would corrupt the other.
             'payout_method' => ['sometimes', 'nullable', Rule::in(self::PAYOUT_METHODS)],
             'payout_handle' => ['sometimes', 'nullable', 'string', 'max:255'],
+            // Any provider's room — Zoom, Meet, Teams… — as long as a browser can open it.
+            'meeting_url' => ['sometimes', 'nullable', 'string', 'max:2048', 'url:http,https'],
         ];
 
         if ($creating) {

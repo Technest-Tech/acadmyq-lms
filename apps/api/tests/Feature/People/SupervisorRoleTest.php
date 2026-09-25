@@ -231,3 +231,10 @@ it('offers the supervisor as a starting point and marks what costs money', funct
 it('leaves the owner able to price, since they always could', function () {
     expect(PermissionResolver::forRole('ACADEMY_OWNER'))->toContain('student.set_price');
 });
+
+it('opens the Settings page for a supervisor: the academy profile reads without invoice.read', function () {
+    Sanctum::actingAs($this->supervisor);
+
+    $this->getJson('/api/academy')->assertOk()->assertJsonPath('academy.id', $this->academy);
+    $this->getJson('/api/academy/settings')->assertOk();
+});

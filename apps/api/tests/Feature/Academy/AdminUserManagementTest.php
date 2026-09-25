@@ -131,3 +131,18 @@ it('forbids an Owner from every admin user endpoint', function () {
         'academy_id' => $this->B, 'role' => 'TEACHER', 'grant' => true,
     ])->assertForbidden();
 });
+
+it('replaces a user\'s role in an academy on grant, so one role is ever in force', function () {
+    Sanctum::actingAs($this->admin);
+    $this->postJson("/api/admin/users/{$this->teacherA->id}/roles", [
+        'academy_id' => $this->A, 'role' => 'SUPERVISOR', 'grant' => true,
+    ])->assertOk();
+
+    $this->enterAcademyAsSuperAdmin($this->A);
+    $roles = DB::table('user_roles')->where('user_id', $this->teacherA->id)->where('academy_id', $this->A)->pluck('role')->all();
+    expect($roles)->toBe(['SUPERVISOR']);
+
+    Sanctum::actingAs($this->admin);
+    $this->getJson('/api/admin/users?role=SUPERVISOR')->assertOk()
+        ->assertJsonFragment(['id' => $this->teacherA->id]);
+});

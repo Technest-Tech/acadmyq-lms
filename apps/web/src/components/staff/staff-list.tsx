@@ -28,6 +28,7 @@ import {
 } from "@/lib/api";
 import { type ExcelColumn } from "@/lib/export-excel";
 import { formatMoney } from "@/lib/money";
+import { roleLabel } from "@/lib/roles";
 
 // ── Avatar ───────────────────────────────────────────────────────────────────
 
@@ -109,6 +110,7 @@ export function StaffList({
   onPrefetch?: (id: string) => void;
 }) {
   const t = useTranslations("staff");
+  const tRoles = useTranslations("roles");
   const locale = useLocale();
   const { can } = useAuth();
   const [departments, setDepartments] = useState<StaffDepartment[]>([]);
@@ -139,7 +141,7 @@ export function StaffList({
               {r.user_id ? (
                 <div className="text-muted-foreground mt-0.5 inline-flex items-center gap-1 text-[11px]">
                   <ShieldCheck className="text-primary size-3 shrink-0" aria-hidden />
-                  {t("detail.hasLogin")}
+                  {r.login_role ? roleLabel(tRoles, r.login_role) : t("detail.hasLogin")}
                 </div>
               ) : (
                 <div className="text-muted-foreground/50 mt-0.5 inline-flex items-center gap-1 text-[11px]">
@@ -222,7 +224,7 @@ export function StaffList({
         ),
       },
     ],
-    [t, locale],
+    [t, locale, tRoles],
   );
 
   const filters = useMemo<FilterDef[]>(

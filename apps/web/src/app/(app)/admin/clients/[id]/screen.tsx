@@ -2,82 +2,75 @@
 
 import {
   ArrowLeft,
-  Ban,
-  CheckCircle2,
+  Blocks,
   CreditCard,
-  LogIn,
+  LayoutDashboard,
+  MessageCircle,
   MonitorPlay,
   ReceiptText,
   Settings2,
-  MessageCircle,
-  ImageIcon,
-  Trash2,
-  Upload,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AcademyOwnerSection } from "@/components/academies/academy-owner-section";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { AcademySubscriptionPanel } from "@/components/academies/academy-subscription-panel";
-import { AdminPageHeader } from "@/components/admin/page-header";
-import { StatusChip, SUBSCRIPTION_TONE } from "@/components/admin/status-chip";
+import { SectionTabs, type SectionTab } from "@/components/admin/section-tabs";
 import { useAuth } from "@/components/auth-provider";
-import { FeaturesCard } from "@/components/clients/features-card";
-import { ClientVideoCard, ClientWhatsappCard } from "@/components/clients/module-tabs";
-import { ModulesCard } from "@/components/clients/modules-card";
-import { ClientDomainsCard } from "@/components/clients/client-domains-card";
+import { ClientHeader } from "@/components/clients/client-header";
+import { ClientKpis } from "@/components/clients/client-kpis";
+import { ClientOverview } from "@/components/clients/client-overview";
+import { ClientSettingsTab } from "@/components/clients/client-settings";
+import type { ClientTab } from "@/components/clients/client-summary";
 import { ClientXpayCard } from "@/components/clients/client-xpay-card";
+import { FeaturesCard } from "@/components/clients/features-card";
+import {
+  ClientVideoCard,
+  ClientWhatsappCard,
+} from "@/components/clients/module-tabs";
+import { ModulesCard } from "@/components/clients/modules-card";
 import { ClientWhatsappGroupsCard } from "@/components/clients/whatsapp-groups-card";
 import { AlertBanner } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { Modal } from "@/components/ui/modal";
 import {
   ApiError,
-  deleteAcademyLogo,
-  deleteClient,
   enterAcademy,
   getClient,
   getPlatformSettings,
   reactivateAcademy,
   suspendAcademy,
-  updateAcademy,
-  uploadAcademyLogo,
   type ClientDetail,
   type ModuleCode,
   type PlatformSettings,
 } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 /**
- * /admin/clients/[id] — the client control center (05-MODULES-NOT-PACKAGES §4): header with the
- * derived status + Enter/Suspend, the Modules card (THE writer for which modules this client holds,
- * at what price, on what trial), the Features card (every feature its modules grant, with the
- * switches that take one away for this client alone), and tabs that appear only for the modules it
- * holds — Billing, WhatsApp, Video, Settings.
+ * /admin/clients/[id] — the client control center (05-MODULES-NOT-PACKAGES §4), laid out the way
+ * a customer page reads in any grown-up admin: an identity header with the lifecycle verbs, four
+ * KPIs, then one section per concern behind a tab strip —
+ *
+ *   Overview            what needs a decision, what the client holds, the facts for a call
+ *   Modules & features  THE writer for which modules it holds, at what price, and the switches
+ *   Billing             our bills to this client and their payment proofs
+ *   Payments            how the client collects from its own students (XPay)
+ *   WhatsApp / Video    only when the client holds that module
+ *   Settings            identity, owner login, domains, danger zone
+ *
+ * `?tab=` on the URL names the open section, so a refresh keeps its place and any other page can
+ * link straight to a client's billing or settings.
  */
-
-type Tab = "billing" | "payments" | "whatsapp" | "video" | "settings";
-
-/** Subdomain provisioning (docs/lms/02): a DNS-safe handle gives the client its own address —
- *  their branded sign-in and panel, or the public course site when the course platform is their
- *  whole product. Mirrors the API's validation + the routing middleware's reserved list so the
- *  admin sees the resulting URL and never round-trips an avoidable 422. */
-const SUBDOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
-const RESERVED_SUBDOMAINS = new Set(["www", "app", "api", "admin", "mail", "static", "assets", "cdn"]);
-/** The CANONICAL root: `NEXT_PUBLIC_ROOT_DOMAIN` may list several (see middleware.ts), and a link
- *  handed to a client has to name exactly one — the first. */
-const CLIENT_ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN?.split(",")[0]?.trim();
-/** `http` for local development, `https` in prod — mirror of the API's LMS_SITE_SCHEME. */
-const CLIENT_SCHEME =
-  process.env.NEXT_PUBLIC_ROOT_SCHEME === "http" ? "http" : "https";
-
 export function ClientScreen({ clientId }: { clientId: string }) {
   const t = useTranslations("clients.detail");
   const ts = useTranslations("clients");
-  const locale = useLocale();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { can, refresh: refreshSession } = useAuth();
   const toast = useToast();
 
@@ -87,10 +80,6 @@ export function ClientScreen({ clientId }: { clientId: string }) {
     Partial<Record<ModuleCode, { price_minor: number; currency: string }>>
   >({});
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("billing");
-  const [confirmEnter, setConfirmEnter] = useState(false);
-  const [suspendOpen, setSuspendOpen] = useState(false);
-  const [suspendReason, setSuspendReason] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -98,12 +87,16 @@ export function ClientScreen({ clientId }: { clientId: string }) {
       const [client, settings] = await Promise.all([
         getClient(clientId),
         can("platform.manage")
-          ? getPlatformSettings().catch(() => ({ settings: {} as PlatformSettings }))
+          ? getPlatformSettings().catch(() => ({
+              settings: {} as PlatformSettings,
+            }))
           : Promise.resolve({ settings: {} as PlatformSettings }),
       ]);
       setData(client);
       setDefaultPricing(
-        (settings.settings.module_pricing as typeof defaultPricing | undefined) ?? {},
+        (settings.settings.module_pricing as
+          | typeof defaultPricing
+          | undefined) ?? {},
       );
       setError(null);
     } catch (e) {
@@ -120,45 +113,84 @@ export function ClientScreen({ clientId }: { clientId: string }) {
     [data],
   );
 
-  const tabs = useMemo(() => {
-    const list: { key: Tab; icon: typeof ReceiptText }[] = [
-      { key: "billing", icon: ReceiptText },
+  const tabs = useMemo<SectionTab<ClientTab>[]>(() => {
+    const list: SectionTab<ClientTab>[] = [
+      { key: "overview", label: t("tabs.overview"), icon: LayoutDashboard },
+      {
+        key: "modules",
+        label: t("tabs.modules"),
+        icon: Blocks,
+        badge: activeModules.size > 0 ? activeModules.size : undefined,
+      },
+      { key: "billing", label: t("tabs.billing"), icon: ReceiptText },
       // Unconditional: how a client collects money from its own students is not a module, it is a
       // property of every client that bills anyone.
-      { key: "payments", icon: CreditCard },
+      { key: "payments", label: t("tabs.payments"), icon: CreditCard },
     ];
-    if (activeModules.has("WHATSAPP")) list.push({ key: "whatsapp", icon: MessageCircle });
-    if (activeModules.has("VIDEO")) list.push({ key: "video", icon: MonitorPlay });
-    list.push({ key: "settings", icon: Settings2 });
+    if (activeModules.has("WHATSAPP")) {
+      list.push({
+        key: "whatsapp",
+        label: t("tabs.whatsapp"),
+        icon: MessageCircle,
+      });
+    }
+    if (activeModules.has("VIDEO")) {
+      list.push({ key: "video", label: t("tabs.video"), icon: MonitorPlay });
+    }
+    list.push({ key: "settings", label: t("tabs.settings"), icon: Settings2 });
     return list;
-  }, [activeModules]);
+  }, [activeModules, t]);
 
-  const enter = async () => {
+  // The open section lives on the URL. An unknown or not-yet-available tab falls back to Overview.
+  const requested = searchParams.get("tab");
+  const tab: ClientTab = tabs.some((x) => x.key === requested)
+    ? (requested as ClientTab)
+    : "overview";
+  const setTab = (next: ClientTab) => {
+    router.replace(next === "overview" ? pathname : `${pathname}?tab=${next}`, {
+      scroll: false,
+    });
+  };
+
+  const fail = (e: unknown) => {
+    toast.error(e instanceof ApiError ? e.message : String(e));
+    return false;
+  };
+
+  const enter = async (): Promise<boolean> => {
     setBusy(true);
     try {
       await enterAcademy(clientId);
       await refreshSession();
       router.push("/dashboard");
+      return true;
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      setBusy(false);
+      return fail(e);
+    }
+  };
+
+  const suspend = async (reason: string): Promise<boolean> => {
+    setBusy(true);
+    try {
+      await suspendAcademy(clientId, reason === "" ? undefined : reason);
+      await load();
+      return true;
+    } catch (e) {
+      return fail(e);
+    } finally {
       setBusy(false);
     }
   };
 
-  const toggleSuspension = async () => {
-    if (data === null) return;
+  const reactivate = async (): Promise<boolean> => {
     setBusy(true);
     try {
-      if (data.client.status === "SUSPENDED") {
-        await reactivateAcademy(clientId);
-      } else {
-        await suspendAcademy(clientId, suspendReason.trim() || undefined);
-      }
-      setSuspendOpen(false);
-      setSuspendReason("");
+      await reactivateAcademy(clientId);
       await load();
+      return true;
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
+      return fail(e);
     } finally {
       setBusy(false);
     }
@@ -167,566 +199,156 @@ export function ClientScreen({ clientId }: { clientId: string }) {
   if (error !== null) {
     return (
       <div className="space-y-4">
-        <BackLink label={t("back")} />
+        <Link
+          href="/admin/clients"
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-xs font-medium"
+        >
+          <ArrowLeft className="size-3.5 rtl:rotate-180" aria-hidden />
+          {t("back")}
+        </Link>
         <AlertBanner variant="error" message={error} />
       </div>
     );
   }
 
   if (data === null) {
-    return <p className="text-muted-foreground py-10 text-center text-sm">{ts("loading")}</p>;
+    return <ClientSkeleton label={t("loadingProfile")} />;
   }
 
   const { client } = data;
 
   return (
-    <div className="space-y-5" data-testid="client-screen">
-      <AdminPageHeader
-        backHref="/admin/clients"
-        backLabel={t("back")}
-        title={client.name}
-        titleExtra={
-          <StatusChip tone={SUBSCRIPTION_TONE[client.status] ?? "neutral"} dot>
-            {ts(`status.${client.status}`)}
-          </StatusChip>
-        }
-        subtitle={
-          <>
-            {client.default_currency} · {client.timezone}
-            {client.subdomain !== null && <> · {client.subdomain}</>}
-            {" · "}
-            {t("since", {
-              date: new Date(client.created_at).toLocaleDateString(locale),
-            })}
-          </>
-        }
-        actions={
-          <>
-            {can("academy.enter") && (
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => setConfirmEnter(true)}>
-                <LogIn className="size-4" aria-hidden />
-                {t("enter")}
-              </Button>
-            )}
-            {can("academy.suspend") &&
-              (client.status === "SUSPENDED" ? (
-                <Button size="sm" disabled={busy} onClick={toggleSuspension}>
-                  <CheckCircle2 className="size-4" aria-hidden />
-                  {t("reactivate")}
-                </Button>
-              ) : (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => setSuspendOpen(true)}
-                >
-                  <Ban className="size-4" aria-hidden />
-                  {t("suspend")}
-                </Button>
-              ))}
-          </>
-        }
+    <div className="space-y-6" data-testid="client-screen">
+      <ClientHeader
+        data={data}
+        busy={busy}
+        onEnter={enter}
+        onSuspend={suspend}
+        onReactivate={reactivate}
       />
-      {client.status === "SUSPENDED" && client.suspended_reason !== null && (
-        <p className="text-destructive -mt-2 text-xs font-medium">
-          {t("suspendedReason", { reason: client.suspended_reason })}
-        </p>
-      )}
 
-      {/* Enter confirmation */}
-      {confirmEnter && (
-        <div className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-xl border p-3 text-sm">
-          <span className="flex-1">{t("enterConfirm", { name: client.name })}</span>
-          <Button size="sm" variant="outline" onClick={() => setConfirmEnter(false)}>
-            {ts("subs.cancel")}
-          </Button>
-          <Button size="sm" disabled={busy} onClick={enter}>
-            {t("enter")}
-          </Button>
-        </div>
-      )}
+      <ClientKpis data={data} />
 
-      {/* Suspend form */}
-      {suspendOpen && client.status !== "SUSPENDED" && (
-        <div className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-xl border p-3 text-sm">
-          <input
-            value={suspendReason}
-            onChange={(e) => setSuspendReason(e.target.value)}
-            placeholder={t("suspendReasonPlaceholder")}
-            className="bg-card h-9 min-w-56 flex-1 rounded-lg border px-3 text-sm"
+      <SectionTabs
+        tabs={tabs}
+        value={tab}
+        onChange={setTab}
+        ariaLabel={ts("title")}
+      />
+
+      {tab === "overview" && <ClientOverview data={data} clientId={clientId} />}
+
+      {tab === "modules" && (
+        <TabSection
+          title={t("sections.modules")}
+          hint={t("sections.modulesHint")}
+        >
+          <ModulesCard
+            clientId={clientId}
+            clientType={data.catalog.clientType}
+            modules={data.modules}
+            currency={client.default_currency}
+            defaultPricing={defaultPricing}
+            onChanged={() => void load()}
           />
-          <Button size="sm" variant="outline" onClick={() => setSuspendOpen(false)}>
-            {ts("subs.cancel")}
-          </Button>
-          <Button size="sm" variant="destructive" disabled={busy} onClick={toggleSuspension}>
-            {t("suspend")}
-          </Button>
-        </div>
+          <FeaturesCard
+            clientId={clientId}
+            catalog={data.catalog}
+            modules={data.modules}
+            onChanged={() => void load()}
+          />
+        </TabSection>
       )}
 
-      {/* ── Modules: what this client is subscribed to, and what it pays ── */}
-      <ModulesCard
-        clientId={clientId}
-        clientType={data.catalog.clientType}
-        modules={data.modules}
-        currency={client.default_currency}
-        defaultPricing={defaultPricing}
-        onChanged={() => void load()}
-      />
+      {tab === "billing" && (
+        <TabSection
+          title={t("sections.billing")}
+          hint={t("sections.billingHint")}
+        >
+          <AcademySubscriptionPanel
+            academyId={clientId}
+            onChanged={() => void load()}
+          />
+        </TabSection>
+      )}
 
-      {/* ── Features: everything those modules grant, and what we switched off ── */}
-      <FeaturesCard
-        clientId={clientId}
-        catalog={data.catalog}
-        modules={data.modules}
-        onChanged={() => void load()}
-      />
+      {tab === "payments" && (
+        <TabSection
+          title={t("sections.payments")}
+          hint={t("sections.paymentsHint")}
+        >
+          <ClientXpayCard clientId={clientId} />
+        </TabSection>
+      )}
 
-      {/* ── Module tabs (only enabled modules render one) ───────────────── */}
+      {tab === "whatsapp" && activeModules.has("WHATSAPP") && (
+        <TabSection
+          title={t("sections.whatsapp")}
+          hint={t("sections.whatsappHint")}
+        >
+          <ClientWhatsappCard clientId={clientId} />
+          <ClientWhatsappGroupsCard clientId={clientId} />
+        </TabSection>
+      )}
+
+      {tab === "video" && activeModules.has("VIDEO") && (
+        <TabSection title={t("sections.video")} hint={t("sections.videoHint")}>
+          <ClientVideoCard clientId={clientId} />
+        </TabSection>
+      )}
+
+      {tab === "settings" && (
+        <TabSection
+          title={t("sections.settings")}
+          hint={t("sections.settingsHint")}
+        >
+          <ClientSettingsTab data={data} onSaved={() => void load()} />
+        </TabSection>
+      )}
+    </div>
+  );
+}
+
+/** A section's heading line, then its panels. */
+function TabSection({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="space-y-4" role="tabpanel">
       <div>
-        <div className="flex gap-1 overflow-x-auto border-b" role="tablist">
-          {tabs.map(({ key, icon: Icon }) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={tab === key}
-              onClick={() => setTab(key)}
-              className={cn(
-                "-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-semibold transition-colors",
-                tab === key
-                  ? "border-primary text-primary"
-                  : "text-muted-foreground hover:text-foreground border-transparent",
-              )}
-            >
-              <Icon className="size-4" aria-hidden />
-              {t(`tabs.${key}`)}
-            </button>
-          ))}
-        </div>
-
-        <div className="pt-4">
-          {tab === "billing" && (
-            <AcademySubscriptionPanel academyId={clientId} onChanged={() => void load()} />
-          )}
-          {tab === "payments" && <ClientXpayCard clientId={clientId} />}
-          {tab === "whatsapp" && activeModules.has("WHATSAPP") && (
-            <div className="space-y-4">
-              <ClientWhatsappCard clientId={clientId} />
-              <ClientWhatsappGroupsCard clientId={clientId} />
-            </div>
-          )}
-          {tab === "video" && activeModules.has("VIDEO") && (
-            <ClientVideoCard clientId={clientId} />
-          )}
-          {tab === "settings" && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <ClientSettingsForm client={client} onSaved={() => void load()} />
-                <AcademyOwnerSection academyId={clientId} />
-              </div>
-              {/* Next to the subdomain field on purpose: a custom domain points AT that handle,
-                  and the two are read together whenever a client's address comes up. */}
-              <ClientDomainsCard clientId={clientId} />
-              <DeleteClientCard client={client} />
-            </div>
-          )}
-        </div>
+        <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+        <p className="text-muted-foreground mt-0.5 text-sm">{hint}</p>
       </div>
+      {children}
     </div>
   );
 }
 
-function BackLink({ label }: { label: string }) {
+/** The page's shape while the client read is in flight — header, KPI strip, tab strip. */
+function ClientSkeleton({ label }: { label: string }) {
   return (
-    <Link
-      href="/admin/clients"
-      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-xs font-medium"
-    >
-      <ArrowLeft className="size-3.5 rtl:rotate-180" aria-hidden />
-      {label}
-    </Link>
-  );
-}
-
-/**
- * The client's logo. An UPLOAD, not a URL to find somewhere else: the Super Admin picks a file and
- * the API stores it and rewrites `brand_logo_url` — the single column the client's branded sign-in,
- * their subdomain's front door and their course site all read — so it appears on every one of those
- * without a second step. The URL box stays underneath for a client whose logo is already hosted.
- *
- * Upload and Remove write immediately (they are their own endpoints); only the pasted URL waits for
- * Save, which is why the preview follows `logoUrl` either way.
- */
-function LogoField({
-  clientId,
-  logoUrl,
-  onChange,
-  onUploaded,
-  field,
-}: {
-  clientId: string;
-  logoUrl: string;
-  onChange: (url: string) => void;
-  onUploaded: () => void;
-  field: string;
-}) {
-  const t = useTranslations("clients.detail");
-  const toast = useToast();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-
-  const pick = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = ""; // let the same file be re-picked after a failure
-    if (!file) return;
-
-    // Mirrors the API's own rules so an obvious reject never costs a round-trip.
-    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
-      toast.error(t("logoTypeError"));
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error(t("logoSizeError"));
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const res = await uploadAcademyLogo(clientId, file);
-      onChange(res.brand_logo_url);
-      toast.success(t("logoSaved"));
-      onUploaded();
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async () => {
-    setBusy(true);
-    try {
-      await deleteAcademyLogo(clientId);
-      onChange("");
-      toast.success(t("logoRemoved"));
-      onUploaded();
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="space-y-2 text-xs font-medium">
-      <span className="text-muted-foreground block">{t("logoTitle")}</span>
-      <div className="flex items-center gap-4">
-        <div className="bg-muted/30 flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed">
-          {logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element -- arbitrary client-owned host
-            <img
-              src={logoUrl}
-              alt={t("logoPreviewAlt")}
-              className="size-full object-contain p-1.5"
-              data-testid="client-logo-preview"
-            />
-          ) : (
-            <div className="text-muted-foreground/50 flex flex-col items-center gap-1">
-              <ImageIcon className="size-6" aria-hidden />
-              <span className="text-[10px]">{t("logoEmpty")}</span>
-            </div>
-          )}
-        </div>
-        <div className="space-y-2">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            className="hidden"
-            onChange={pick}
-            data-testid="client-logo-file"
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="gap-1.5"
-              disabled={busy}
-              onClick={() => fileRef.current?.click()}
-              data-testid="client-logo-upload"
-            >
-              <Upload className="size-3.5" />
-              {busy
-                ? t("logoUploading")
-                : logoUrl
-                  ? t("logoReplace")
-                  : t("logoUpload")}
-            </Button>
-            {logoUrl !== "" && (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="text-muted-foreground hover:text-destructive gap-1.5"
-                disabled={busy}
-                onClick={remove}
-                data-testid="client-logo-remove"
-              >
-                <Trash2 className="size-3.5" />
-                {t("logoRemove")}
-              </Button>
-            )}
-          </div>
-          <p className="text-muted-foreground max-w-xs font-normal">
-            {t("logoHint")}
-          </p>
+    <div className="space-y-6" aria-busy data-testid="client-skeleton">
+      <span className="sr-only">{label}</span>
+      <div className="bg-muted h-3.5 w-20 animate-pulse rounded" />
+      <div className="flex items-start gap-4">
+        <div className="bg-muted size-14 animate-pulse rounded-xl" />
+        <div className="space-y-2.5 pt-1">
+          <div className="bg-muted h-6 w-56 animate-pulse rounded-md" />
+          <div className="bg-muted h-3 w-80 max-w-[70vw] animate-pulse rounded" />
         </div>
       </div>
-      <label className="block">
-        <span className="text-muted-foreground mb-1 block">
-          {t("fieldLogoUrl")}
-        </span>
-        <input
-          value={logoUrl}
-          onChange={(e) => onChange(e.target.value)}
-          className={field}
-        />
-        <span className="text-muted-foreground mt-1 block font-normal">
-          {t("logoUrlHint")}
-        </span>
-      </label>
-    </div>
-  );
-}
-
-/** Name / branding / subdomain — the client-page home of the old academy config card. */
-function ClientSettingsForm({
-  client,
-  onSaved,
-}: {
-  client: ClientDetail["client"];
-  onSaved: () => void;
-}) {
-  const t = useTranslations("clients.detail");
-  const { can } = useAuth();
-  const toast = useToast();
-  const [name, setName] = useState(client.name);
-  const [brandName, setBrandName] = useState(client.brand_display_name ?? "");
-  const [subdomain, setSubdomain] = useState(client.subdomain ?? "");
-  const [logoUrl, setLogoUrl] = useState(client.brand_logo_url ?? "");
-  const [saving, setSaving] = useState(false);
-
-  if (!can("academy.configure")) return null;
-
-  // Live subdomain feedback: format/reserved checks + the public URL the handle resolves to.
-  const sub = subdomain.trim();
-  const subValid = sub === "" || SUBDOMAIN_RE.test(sub);
-  const subReserved = RESERVED_SUBDOMAINS.has(sub);
-  const subUrl =
-    sub === "" || !subValid || subReserved
-      ? null
-      : CLIENT_ROOT_DOMAIN
-        ? `${CLIENT_SCHEME}://${sub}.${CLIENT_ROOT_DOMAIN}`
-        : // Subdomain routing is off (no root domain configured): the only address that resolves
-          // is the in-app course-site path, so show that rather than a link that would not open.
-          `/learn/${sub}`;
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await updateAcademy(client.id, {
-        name: name.trim(),
-        brand_display_name: brandName.trim() === "" ? null : brandName.trim(),
-        subdomain: subdomain.trim() === "" ? null : subdomain.trim(),
-        brand_logo_url: logoUrl.trim() === "" ? null : logoUrl.trim(),
-      });
-      toast.success(t("saved"));
-      onSaved();
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const field = "bg-card h-9 w-full rounded-lg border px-3 text-sm";
-
-  return (
-    <section className="bg-card space-y-3 rounded-2xl border p-5 shadow-sm">
-      <h3 className="text-sm font-bold">{t("settingsTitle")}</h3>
-      <label className="block text-xs font-medium">
-        <span className="text-muted-foreground mb-1 block">{t("fieldName")}</span>
-        <input value={name} onChange={(e) => setName(e.target.value)} className={field} />
-      </label>
-      <label className="block text-xs font-medium">
-        <span className="text-muted-foreground mb-1 block">{t("fieldBrandName")}</span>
-        <input value={brandName} onChange={(e) => setBrandName(e.target.value)} className={field} />
-      </label>
-      <label className="block text-xs font-medium">
-        <span className="text-muted-foreground mb-1 block">{t("fieldSubdomain")}</span>
-        <input
-          value={subdomain}
-          onChange={(e) => setSubdomain(e.target.value.toLowerCase())}
-          placeholder="my-academy"
-          className={cn(field, !subValid || subReserved ? "border-red-400 dark:border-red-500" : "")}
-        />
-        {subReserved ? (
-          <span className="mt-1 block text-red-600 dark:text-red-400">{t("subdomainReserved")}</span>
-        ) : !subValid ? (
-          <span className="mt-1 block text-red-600 dark:text-red-400">{t("subdomainInvalid")}</span>
-        ) : subUrl ? (
-          <span className="text-muted-foreground mt-1 block break-all">
-            {t("subdomainPreview", { url: subUrl })}
-          </span>
-        ) : (
-          <span className="text-muted-foreground mt-1 block">{t("subdomainHint")}</span>
-        )}
-      </label>
-      <LogoField
-        clientId={client.id}
-        logoUrl={logoUrl}
-        onChange={setLogoUrl}
-        onUploaded={onSaved}
-        field={field}
-      />
-      <div className="flex justify-end">
-        <Button
-          size="sm"
-          disabled={saving || name.trim() === "" || !subValid || subReserved}
-          onClick={save}
-        >
-          {t("save")}
-        </Button>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="bg-muted h-24 animate-pulse rounded-xl" />
+        ))}
       </div>
-    </section>
-  );
-}
-
-/**
- * The one irreversible action on this page: wipe the client and everything in it. It lives at the
- * bottom of Settings, away from Suspend (the everyday, reversible off-switch), and the button stays
- * dead until the admin has typed the client's name — which the API checks again on its side.
- */
-export function DeleteClientCard({ client }: { client: ClientDetail["client"] }) {
-  const t = useTranslations("clients.detail");
-  const { can } = useAuth();
-  const [open, setOpen] = useState(false);
-  // Stable on purpose: Modal re-runs its focus trap whenever onClose changes, which would pull
-  // focus out of the name field on every keystroke.
-  const close = useCallback(() => setOpen(false), []);
-
-  if (!can("academy.delete")) return null;
-
-  return (
-    <section
-      className="border-destructive/30 bg-destructive/[0.03] flex flex-col gap-3 rounded-2xl border p-5 sm:flex-row sm:items-center sm:justify-between"
-      data-testid="client-delete-card"
-    >
-      <div className="min-w-0">
-        <h3 className="text-destructive flex items-center gap-1.5 text-sm font-bold">
-          <Trash2 className="size-4" aria-hidden />
-          {t("deleteTitle")}
-        </h3>
-        <p className="text-muted-foreground mt-1 text-xs">{t("deleteHint")}</p>
-      </div>
-      <Button
-        variant="destructive"
-        size="sm"
-        className="shrink-0"
-        onClick={() => setOpen(true)}
-        data-testid="client-delete-open"
-      >
-        <Trash2 className="size-4" aria-hidden />
-        {t("deleteOpen")}
-      </Button>
-
-      <Modal open={open} onClose={close} title={t("deleteTitle")} size="sm">
-        {/* Mounted only while open, so the typed name never survives a close. */}
-        {open && <DeleteClientForm client={client} onCancel={close} />}
-      </Modal>
-    </section>
-  );
-}
-
-function DeleteClientForm({
-  client,
-  onCancel,
-}: {
-  client: ClientDetail["client"];
-  onCancel: () => void;
-}) {
-  const t = useTranslations("clients.detail");
-  const ts = useTranslations("clients");
-  const toast = useToast();
-  const router = useRouter();
-  const [typed, setTyped] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const matches = typed.trim() !== "" && typed.trim() === client.name.trim();
-
-  const confirm = async () => {
-    if (!matches || busy) return;
-    setBusy(true);
-    try {
-      await deleteClient(client.id, typed.trim());
-      toast.success(t("deleted", { name: client.name }));
-      router.replace("/admin/clients");
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : String(e));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <p className="text-muted-foreground text-sm">
-        {t.rich("deleteBody", {
-          name: client.name,
-          b: (chunks) => <span className="text-foreground font-semibold">{chunks}</span>,
-        })}
-      </p>
-      <label className="block text-xs font-medium">
-        <span className="text-muted-foreground mb-1 block">
-          {t.rich("deleteTypeName", {
-            name: client.name,
-            b: (chunks) => (
-              <span className="text-foreground select-all font-mono font-semibold">{chunks}</span>
-            ),
-          })}
-        </span>
-        <input
-          value={typed}
-          onChange={(e) => setTyped(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void confirm();
-          }}
-          autoComplete="off"
-          spellCheck={false}
-          className="bg-card h-9 w-full rounded-lg border px-3 text-sm"
-          data-testid="client-delete-name"
-        />
-      </label>
-      <div className="flex justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>
-          {ts("subs.cancel")}
-        </Button>
-        <Button
-          variant="destructive"
-          size="sm"
-          disabled={!matches || busy}
-          onClick={() => void confirm()}
-          className="gap-1.5"
-          data-testid="client-delete-confirm"
-        >
-          {busy && (
-            <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
-          )}
-          {t("deleteConfirm")}
-        </Button>
-      </div>
+      <div className="bg-muted h-10 animate-pulse rounded-lg" />
     </div>
   );
 }

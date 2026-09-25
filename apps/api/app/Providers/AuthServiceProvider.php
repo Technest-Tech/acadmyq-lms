@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Auth\RlsBypassUserProvider;
+use App\Support\AcademyUrl;
 use App\Support\AuthContext;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -28,6 +30,16 @@ class AuthServiceProvider extends ServiceProvider
     {
         Auth::provider('rls-eloquent', function ($app, array $config) {
             return new RlsBypassUserProvider($app['hash'], $config['model']);
+        });
+
+        // Where a password-reset mail points. Without this Laravel builds the link from a
+        // `password.reset` route this API does not have, the notification throws, and every
+        // "send reset link" (owner provisioning, the admin reset button, forgot-password) silently
+        // sent nothing. The platform door takes any management user, so the link always lands
+        // somewhere that can serve it — a client's own address might be a course site instead.
+        ResetPassword::createUrlUsing(static function (object $notifiable, string $token): string {
+            return AcademyUrl::platform().'/reset-password?token='.$token
+                .'&email='.rawurlencode((string) $notifiable->getEmailForPasswordReset());
         });
 
         Gate::before(function (Authenticatable $user, string $ability): ?bool {

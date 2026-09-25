@@ -12,11 +12,14 @@ export function DownloadPdfButton() {
     <button
       type="button"
       onClick={() => window.print()}
-      className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white ring-1 ring-white/25 backdrop-blur transition-colors hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/60 print:hidden"
+      className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg bg-white/10 px-3 text-sm font-medium text-white ring-1 ring-inset ring-white/20 transition-colors hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/70 print:hidden"
     >
-      <Download className="size-3.5" aria-hidden />
-      <span className="ltr:inline rtl:hidden">Download PDF</span>
-      <span className="rtl:inline ltr:hidden">تنزيل PDF</span>
+      <Download className="size-4" aria-hidden />
+      <span className="hidden sm:inline">
+        <span className="ltr:inline rtl:hidden">Download PDF</span>
+        <span className="rtl:inline ltr:hidden">تنزيل PDF</span>
+      </span>
+      <span className="sm:hidden">PDF</span>
     </button>
   );
 }

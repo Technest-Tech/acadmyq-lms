@@ -6,7 +6,7 @@ import { AuthContext } from "@/components/auth-provider";
 import { ToastProvider } from "@/components/ui/toast";
 import { authValue, makeSession } from "@/test/auth";
 import enMessages from "../../../../../../messages/en.json";
-import { DeleteClientCard } from "./screen";
+import { DeleteClientCard } from "@/components/clients/client-settings";
 
 // The one irreversible action on the client page: hidden without academy.delete, and dead until
 // the client's exact name is typed.

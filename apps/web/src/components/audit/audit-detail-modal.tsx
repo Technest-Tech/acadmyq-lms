@@ -2,6 +2,7 @@
 
 import { ArrowRight } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
+import { roleLabel } from "@/lib/roles";
 import { Modal } from "@/components/ui/modal";
 import type { AuditEntry } from "@/lib/api";
 import { formatLocalDateTime } from "@/lib/time";
@@ -33,6 +34,7 @@ export function AuditDetailModal({
   onClose: () => void;
 }) {
   const t = useTranslations("audit");
+  const tRoles = useTranslations("audit.roles");
   const locale = useLocale();
 
   // Nothing selected → render nothing (the Modal is closed anyway).
@@ -69,7 +71,7 @@ export function AuditDetailModal({
               {entry.actor_name ?? t("systemActor")}
             </p>
             <p className="text-muted-foreground truncate text-xs">
-              {entry.actor_role ? t(`roles.${entry.actor_role}`) : "—"}
+              {roleLabel(tRoles, entry.actor_role)}
               {entry.academy_name ? ` · ${entry.academy_name}` : ""}
             </p>
           </div>

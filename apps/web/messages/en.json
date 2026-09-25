@@ -53,6 +53,13 @@
       "overdueDescTeacher": "{count, plural, one {# lesson} other {# lessons}} you taught ended over {hours} hours ago and still have no attendance recorded.",
       "cta": "Mark them"
     },
+    "today": {
+      "title": "Today's lessons",
+      "subtitle": "Enter opens {minutes} minutes before each lesson and takes you to your meeting room.",
+      "noLink": "You have no meeting link yet — ask the academy to add it, then Enter will open it.",
+      "enteredAt": "Entered at {time}",
+      "ended": "Ended"
+    },
     "empty": {
       "noData": "No data available yet"
     },
@@ -165,7 +172,7 @@
     "platformSettings": "Platform Settings",
     "roles": "Roles & Permissions",
     "academyRoles": "Roles & Permissions",
-    "teacherQuality": "Teacher Quality",
+    "teacherQuality": "Teacher Performance",
     "discountsAwards": "Discounts & Awards",
     "lmsHome": "LMS Dashboard",
     "lmsQuizzes": "Quizzes",
@@ -232,8 +239,8 @@
       "people": "People"
     },
     "subs": {
-      "title": "Modules — the only place to change them",
-      "total": "Total {total}/mo",
+      "title": "Modules",
+      "total": "Total {total}",
       "off": "Not enabled",
       "paused": "Paused",
       "trialLeft": "Trial · {days} days left",
@@ -262,7 +269,12 @@
       "yearly": "Yearly",
       "perYearSuffix": "/yr",
       "changePrice": "Price…",
-      "savePrice": "Save price"
+      "savePrice": "Save price",
+      "hint": "The only place a module is enabled, priced, paused or removed for this client.",
+      "more": "More actions",
+      "editorEnable": "Enable {module}",
+      "editorPrice": "Change price",
+      "editorExtend": "Extend trial"
     },
     "detail": {
       "back": "All clients",
@@ -278,7 +290,9 @@
         "whatsapp": "WhatsApp",
         "video": "Video",
         "settings": "Settings",
-        "payments": "Payments"
+        "payments": "Payments",
+        "overview": "Overview",
+        "modules": "Modules & features"
       },
       "videoCardTitle": "Video settings & rooms",
       "videoCardHint": "Tier, room limits, recordings and room logs live in Video Ops for this client.",
@@ -493,7 +507,117 @@
           "LIVE": "Live",
           "FAILED": "Failed"
         }
-      }
+      },
+      "header": {
+        "ownerNone": "No owner login",
+        "openAddress": "Open site",
+        "suspendedSince": "Suspended since {date}",
+        "suspendedSinceReason": "Suspended since {date} — {reason}",
+        "enterTitle": "Enter this academy?",
+        "enterBody": "You will act inside {name} as one of its staff until you exit. Everything you do there is audited under your name.",
+        "suspendTitle": "Suspend {name}?",
+        "suspendBody": "Staff and students can no longer sign in, and every automation for this client stops. Nothing is deleted — reactivate at any time.",
+        "suspendReasonLabel": "Reason",
+        "suspendReasonHint": "Shown on the client's row and in the audit trail.",
+        "reactivateTitle": "Reactivate {name}?",
+        "reactivateBody": "Sign-in and automations resume immediately."
+      },
+      "kpi": {
+        "revenue": "Revenue",
+        "revenueNone": "Nothing billed yet",
+        "revenuePaid": "{count} paid modules",
+        "revenueTrial": "On trial — not billed yet",
+        "modules": "Modules",
+        "modulesOf": "{active} of {total}",
+        "modulesAllOn": "Every module is live",
+        "modulesNone": "No module enabled",
+        "modulesTrial": "{module} trial · {days} days left",
+        "modulesTrialExpired": "{module} trial expired",
+        "modulesPaused": "{count} paused",
+        "students": "Students",
+        "teachers": "{count} teachers",
+        "upcoming": "Next date",
+        "upcomingNone": "Nothing scheduled",
+        "renewal": "{module} renews in {days} days",
+        "renewalToday": "{module} renews today",
+        "renewalOverdue": "{module} renewal was {days} days ago",
+        "trialEnds": "{module} trial ends in {days} days",
+        "trialEndsToday": "{module} trial ends today",
+        "trialEnded": "{module} trial ended {days} days ago"
+      },
+      "overview": {
+        "attentionTitle": "Needs attention",
+        "attentionHint": "What to look at first for this client.",
+        "allClear": "Nothing needs attention right now.",
+        "open": "Open",
+        "issue": {
+          "suspended": "This client is suspended. Staff and students cannot sign in.",
+          "trialEnding": "{module} trial ends in {days} days — activate it or extend the trial.",
+          "trialEndsToday": "{module} trial ends today — activate it or extend the trial.",
+          "trialExpired": "{module} trial has expired — the module is off until it is activated or extended.",
+          "paused": "{module} is paused — the client cannot use it.",
+          "noOwner": "No owner login yet — nobody can sign in to this client.",
+          "noAddress": "No address yet — set a subdomain so the client gets its own sign-in page.",
+          "featuresOff": "{count} features are switched off for this client.",
+          "waDisconnected": "WhatsApp is not connected — automated messages are not being sent."
+        },
+        "modulesTitle": "Modules",
+        "modulesHint": "What this client holds, and what each module costs.",
+        "manage": "Manage",
+        "off": "Not enabled",
+        "renews": "Renews {date}",
+        "trialEnds": "Trial ends {date}",
+        "detailsTitle": "Details",
+        "edit": "Edit",
+        "owner": "Owner",
+        "ownerNone": "No owner login",
+        "clientType": "Client type",
+        "address": "Address",
+        "addressNone": "No subdomain yet",
+        "currency": "Currency",
+        "timezone": "Timezone",
+        "billingDay": "Billing day",
+        "billingDayValue": "Day {day} of each month",
+        "invoiceGrouping": "Invoices grouped",
+        "grouping": {
+          "PER_GUARDIAN": "Per guardian",
+          "PER_STUDENT": "Per student"
+        },
+        "created": "Client since",
+        "linksTitle": "Quick links",
+        "linkSignIn": "Client sign-in page",
+        "linkCourseSite": "Course site",
+        "linkVideoOps": "Video rooms & logs",
+        "linkLmsOps": "Course platform oversight",
+        "linkWaOps": "WhatsApp operations",
+        "linkBilling": "Bills & payment proofs"
+      },
+      "sections": {
+        "modules": "Modules & features",
+        "modulesHint": "Everything this client is sold, and the switches that shape it. This is the only place a module is enabled, priced, paused or removed.",
+        "billing": "Billing",
+        "billingHint": "What this client is charged, its bills, and the payment proofs it sends in.",
+        "payments": "Payments",
+        "paymentsHint": "How this client collects money from its own students.",
+        "whatsapp": "WhatsApp",
+        "whatsappHint": "The client's WhatsApp connection, API keys and staff group alerts.",
+        "video": "Video",
+        "videoHint": "The client's video classroom — rooms, recordings and limits.",
+        "settings": "Settings",
+        "settingsHint": "Identity, owner login, addresses — and the one irreversible action."
+      },
+      "settings": {
+        "generalHint": "The client's name, brand and platform address.",
+        "brandNameHint": "Shown on the client's sign-in page and course site instead of the name.",
+        "dangerTitle": "Danger zone"
+      },
+      "moduleHint": {
+        "MANAGEMENT": "Students, lessons, invoices, payroll and reports",
+        "VIDEO": "Live classroom rooms and recordings",
+        "WHATSAPP": "Automated messages and the WhatsApp API",
+        "LMS": "Course site, learners and digital products"
+      },
+      "loadingProfile": "Loading client…"
     },
     "new": {
       "back": "All clients",
@@ -529,7 +653,19 @@
       "caps": "Caps (blank = unlimited)",
       "unlimited": "Unlimited",
       "save": "Save",
-      "reset": "Reset"
+      "reset": "Reset",
+      "limit": {
+        "maxStudents": "Max students",
+        "maxTeachers": "Max teachers",
+        "maxRooms": "Max video rooms",
+        "maxRoomParticipants": "Max participants per room",
+        "recordingRetentionDays": "Recording retention (days)",
+        "recordingAllowed": "Recording allowed (1 = yes, 0 = no)",
+        "monitorAllowed": "Supervisor monitoring allowed (1 = yes, 0 = no)",
+        "maxCourses": "Max published courses",
+        "maxLearners": "Max learners",
+        "maxStorageGb": "Media storage (GB)"
+      }
     }
   },
   "header": {
@@ -559,7 +695,35 @@
     "emailPlaceholder": "you@academy.com",
     "passwordPlaceholder": "••••••••",
     "showPassword": "Show password",
-    "hidePassword": "Hide password"
+    "hidePassword": "Hide password",
+    "forgotPassword": "Forgot your password?",
+    "forgotTitle": "Reset your password",
+    "forgotSubtitle": "Enter your sign-in email and we'll send you a link to choose a new one.",
+    "sendResetLink": "Send reset link",
+    "sending": "Sending…",
+    "resetLinkSent": "If that email has an account, a reset link is on its way. Check your inbox.",
+    "resetTitle": "Choose a new password",
+    "resetSubtitle": "Pick a new password for {email}.",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "passwordMismatch": "The passwords do not match.",
+    "passwordTooShort": "Use at least 8 characters.",
+    "resetPassword": "Set new password",
+    "resetting": "Saving…",
+    "resetDone": "Your password has been changed. You can sign in now.",
+    "resetInvalid": "This reset link is invalid or has expired. Request a new one.",
+    "resetMissing": "This link is incomplete. Request a new reset link.",
+    "backToLogin": "Back to sign in",
+    "academySuspended": "This academy is suspended. Contact the platform to restore access.",
+    "roleInactive": "Your role has been deactivated. Contact your academy's owner.",
+    "noRole": "No role is assigned to this account yet. Contact your academy's owner.",
+    "changePassword": "Change password",
+    "changePasswordHint": "Your current session stays signed in; use the new password next time.",
+    "currentPassword": "Current password",
+    "passwordChanged": "Your password has been changed.",
+    "wrongCurrentPassword": "The current password is incorrect.",
+    "cancel": "Cancel",
+    "close": "Close"
   },
   "login": {
     "heroSubtitle": "Sign in to reach your dashboard: build courses and manage learners, or run your academy from schedules through to invoices.",
@@ -573,7 +737,10 @@
   "roles": {
     "SUPER_ADMIN": "Platform Admin",
     "ACADEMY_OWNER": "Academy Owner",
-    "TEACHER": "Teacher"
+    "SUPERVISOR": "Supervisor",
+    "TEACHER": "Teacher",
+    "STAFF": "Staff",
+    "other": "Custom role"
   },
   "locale": {
     "ar": "العربية",
@@ -930,6 +1097,7 @@
     "tabs": {
       "profile": "Profile",
       "calendar": "Calendar",
+      "punctuality": "Punctuality",
       "salary": "Salary",
       "reports": "Reports"
     },
@@ -980,6 +1148,9 @@
       "specialization": "Specialization",
       "noSpecialization": "No specialization",
       "searchSpecialization": "Search specialization…",
+      "meetingUrl": "Meeting link",
+      "meetingUrlPlaceholder": "https://zoom.us/j/… or https://meet.google.com/…",
+      "meetingUrlHint": "Zoom, Google Meet or any room link. The teacher's Enter button on each lesson opens it, and the time they press it is recorded.",
       "rate": "Hourly rate",
       "currency": "Currency",
       "searchCurrency": "Search currency…",
@@ -1058,6 +1229,53 @@
       "hoursWeek": "{hours} hrs / week",
       "windows": "{count, plural, one {# window} other {# windows}}",
       "noAvailability": "Not set"
+    },
+    "punctuality": {
+      "intro": "When this teacher pressed Enter on each lesson, measured from the lesson's start.",
+      "period": {
+        "week": "This week",
+        "month": "This month",
+        "last30": "Last 30 days",
+        "last90": "Last 90 days"
+      },
+      "from": "From",
+      "to": "To",
+      "lateAfter": "Late after",
+      "minutes": "{n} min",
+      "tiles": {
+        "onTime": "On time",
+        "onTimeSub": "{on_time} of {measured} lessons",
+        "avgDelay": "Average delay",
+        "avgDelaySub": "Entering early counts as zero",
+        "avgLateSub": "When late: {n} min on average",
+        "late": "Late",
+        "missed": "Never entered",
+        "shareSub": "{pct} of lessons"
+      },
+      "measuredNote": "{measured} lessons measured · late means more than {late} min after the start",
+      "pendingNote": "{n} still on, not counted yet",
+      "since": "measured from {date}, when the meeting link was added",
+      "noLink": "No meeting link yet. Add one on the Profile tab — punctuality is measured from then on.",
+      "log": {
+        "title": "Lesson log",
+        "empty": "No lessons in this period.",
+        "date": "Lesson",
+        "student": "Student",
+        "status": "Status",
+        "entered": "Entered"
+      },
+      "bucket": {
+        "on_time": "On time",
+        "late": "Late",
+        "missed": "Never entered",
+        "pending": "In progress"
+      },
+      "afterStart": "{n} min after start",
+      "beforeStart": "{n} min before start",
+      "atStart": "right at the start",
+      "presses": "×{n}",
+      "truncated": "Showing the latest {n} lessons only.",
+      "loadError": "Could not load punctuality."
     }
   },
   "settings": {
@@ -2358,6 +2576,15 @@
       "by": "{name} · {time}",
       "error": "Could not record that you are following this lesson."
     },
+    "enter": {
+      "action": "Enter",
+      "opensAt": "Opens {time}",
+      "hint": "The Enter button opens {minutes} minutes before the lesson starts.",
+      "liveHint": "Open your meeting room — the time you enter is recorded.",
+      "noLink": "No meeting link yet — ask the academy to add one.",
+      "entered": "Entered {time}",
+      "enteredHint": "When the teacher pressed Enter on this lesson"
+    },
     "freeStatusLabel": "Free (Trial)",
     "magicFormat": "✦ Format",
     "magicFormatTitle": "Format as a structured professional report",
@@ -2650,7 +2877,10 @@
     "roles": {
       "SUPER_ADMIN": "Platform Admin",
       "ACADEMY_OWNER": "Academy Owner",
-      "TEACHER": "Teacher"
+      "SUPERVISOR": "Supervisor",
+      "TEACHER": "Teacher",
+      "STAFF": "Staff",
+      "other": "Custom role"
     },
     "panelTitle": "Activity trail",
     "panelHint": "Click any entry to see exactly what changed"
@@ -2683,23 +2913,35 @@
     "upgradeBody": "This feature isn't included in your subscription. Talk to us and we'll switch it on.",
     "upgradeCta": "Contact us",
     "feature": {
-      "staff": "Staff management",
-      "custom_roles": "Custom roles & permissions",
-      "trials": "Free trials pipeline",
-      "certificates": "Certificates",
+      "staff": "Non-teaching staff management",
+      "custom_roles": "Custom roles & permissions builder",
+      "trials": "Free trials pipeline & availability matcher",
+      "certificates": "Student certificates",
       "student_reports": "Student progress reports",
       "audit": {
-        "full": "Full audit history"
+        "full": "Full audit history (beyond 30 days)"
       },
       "report_field": {
         "custom": "Custom report fields"
       },
       "whatsapp": {
         "auto": "Automated WhatsApp",
-        "automation": "WhatsApp automation"
+        "automation": "WhatsApp automation & notifications"
       },
       "payments": {
         "gateway": "Payment gateway"
+      },
+      "invoicing": "Invoice management & billing",
+      "payroll": "Teacher payout calculation",
+      "crm": "CRM — leads pipeline & follow-ups",
+      "supervision": "Supervision — lesson following & marking statistics",
+      "packages": "Lesson packages (hour-based billing)",
+      "teacher_quality": "Teacher quality rubric, discounts & awards",
+      "financial_statistics": "Financial statistics & exchange rates",
+      "report_card": "Report card image (shareable lesson/trial report)",
+      "lms": "Online courses — course builder & learner site",
+      "video": {
+        "conferencing": "Video classroom — rooms & recordings"
       }
     }
   },
@@ -2880,10 +3122,14 @@
     "reactivate": "Reactivate",
     "reactivated": "User reactivated.",
     "created": "Created {date}",
+    "resetNotSent": "The reset link could not be sent. Check the mail settings.",
     "role": {
       "SUPER_ADMIN": "Super Admin",
       "ACADEMY_OWNER": "Owner",
-      "TEACHER": "Teacher"
+      "SUPERVISOR": "Supervisor",
+      "TEACHER": "Teacher",
+      "STAFF": "Staff",
+      "other": "Custom role"
     }
   },
   "planAdmin": {
@@ -3054,6 +3300,8 @@
       "loginStatus": "System login",
       "hasLogin": "Has login",
       "noLogin": "No login",
+      "loginOff": "Login switched off",
+      "role": "Login role",
       "memberSince": "Added",
       "deactivate": "Deactivate",
       "reactivate": "Reactivate",
@@ -3074,6 +3322,27 @@
     },
     "backToList": "All staff",
     "colAdded": "Added",
+    "account": {
+      "title": "Account & login",
+      "hint": "Change this employee's sign-in email, reset their password, change their role, or switch the login off.",
+      "createHint": "This employee has no login yet. Set an email and password to create one.",
+      "email": "Sign-in email",
+      "password": "Password",
+      "newPassword": "New password",
+      "passwordPlaceholder": "Leave blank to keep current",
+      "passwordHint": "Min. 8 characters",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "role": "Role",
+      "active": "Login enabled",
+      "activeHint": "Switch off to block sign-in without removing the employee from the roster.",
+      "create": "Create login",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "created": "Login created.",
+      "updated": "Login updated.",
+      "self": "This is your own login — change your password from the account menu."
+    },
     "hero": {
       "onRoster": "{count} on the roster"
     }
@@ -7162,6 +7431,177 @@
       "archived": "Book archived",
       "restored": "Book restored",
       "failed": "Something went wrong. Please try again."
+    }
+  },
+  "teacherInsights": {
+    "title": "Teacher performance",
+    "subtitle": "How every teacher enters their lessons, files reports and shows up — measured from what the system records, never typed in.",
+    "noAccess": "You don't have access to teacher performance.",
+    "loadError": "Could not load teacher performance.",
+    "periodLabel": "Period",
+    "period": {
+      "week": "This week",
+      "month": "This month",
+      "last30": "Last 30 days",
+      "last90": "Last 90 days"
+    },
+    "from": "From",
+    "to": "To",
+    "lateAfter": "Late after",
+    "reportWithin": "Report due within",
+    "dur": {
+      "min": "{n} min",
+      "hm": "{h} h {m} min",
+      "h": "{h} h",
+      "dh": "{d} d {h} h",
+      "d": "{d} d"
+    },
+    "kpi": {
+      "score": "Academy score",
+      "scoreSub": "{n, plural, =0 {No lessons taught in this period} one {Across # teacher who taught in this period} other {Across # teachers who taught in this period}}",
+      "enter": "Entered on time",
+      "enterSub": "{on_time} of {measured} lessons · {avg} after the start on average",
+      "enterEmpty": "Nothing measured yet — teachers need a meeting link",
+      "reports": "Reports on time",
+      "reportsSub": "{on_time} of {due} reports · {avg} after the lesson on average",
+      "reportsEmpty": "No reports due in this period",
+      "attendance": "Teacher attendance",
+      "attendanceSub": "{absent, plural, =0 {No teacher absences} one {# teacher absence} other {# teacher absences}} · students attended {student}",
+      "attendanceEmpty": "No lessons in this period"
+    },
+    "tier": {
+      "excellent": "Excellent",
+      "good": "Good",
+      "fair": "Fair",
+      "weak": "Needs work"
+    },
+    "legend": {
+      "onTime": "On time",
+      "late": "Late",
+      "missed": "Never entered",
+      "missing": "Not filed",
+      "taught": "Taught",
+      "studentAbsent": "Student absent",
+      "teacherAbsent": "Teacher absent"
+    },
+    "noLinkBanner": "{n, plural, one {# teacher has} other {# teachers have}} no meeting link, so their entering can't be measured. Add one on the teacher's profile:",
+    "highlights": {
+      "punctual": "Most punctual",
+      "punctualMetric": "{rate} on time · {avg} after the start",
+      "fastest": "Fastest reports",
+      "fastestMetric": "{avg} after the lesson · {rate} on time",
+      "attention": "Needs attention",
+      "attentionMetric": "Score {score} — open to see the lessons behind it",
+      "notEnough": "Not enough lessons yet to call it",
+      "allGood": "Every teacher is scoring 75 or above"
+    },
+    "table": {
+      "title": "All teachers",
+      "hint": "Ranked by score. Click a teacher to see every lesson behind their numbers.",
+      "search": "Search teachers",
+      "sortBy": "Sort by",
+      "sort": {
+        "score": "Score",
+        "join": "Entered on time",
+        "reports": "Reports on time",
+        "attendance": "Attendance",
+        "joinDelay": "Fastest to enter",
+        "reportDelay": "Fastest to report",
+        "lessons": "Most lessons",
+        "name": "Name"
+      },
+      "empty": "No teachers yet.",
+      "noMatch": "No teacher matches your search.",
+      "teacher": "Teacher",
+      "score": "Score",
+      "enter": "Entered on time",
+      "avgEnter": "Avg. entry",
+      "reports": "Reports on time",
+      "avgReport": "Avg. report time",
+      "attendance": "Attendance",
+      "lessons": "Lessons",
+      "noLessons": "No lessons",
+      "notMeasured": "Not measured",
+      "noReports": "None due",
+      "absences": "{n, plural, one {# absence} other {# absences}}"
+    },
+    "chips": {
+      "inactive": "Inactive",
+      "noLink": "No link"
+    },
+    "card": {
+      "avgEnter": "Entry: {v}",
+      "avgReport": "Report: {v}",
+      "lessons": "{n, plural, one {# lesson} other {# lessons}}"
+    },
+    "how": {
+      "title": "How these numbers are measured",
+      "enter": "Entered on time — the teacher's first press of Enter on a lesson, against its start. On time means within {late} min (the button opens {opens} min early, and entering early counts as on time). Only measured from the day the teacher got a meeting link, and never on a cancelled lesson.",
+      "reports": "Reports on time — when the lesson's report was first filed, against the lesson's end. On time means within {within}. Owed by every lesson that went ahead or is still unmarked.",
+      "attendance": "Teacher attendance — of the lessons that were decided, the share the teacher showed up for. A lesson the teacher cancelled is their absence; a student no-show still counts as the teacher attending.",
+      "score": "Score — the plain average of the three rates above that the teacher has data for. No hidden weights.",
+      "unmarked": "{n, plural, one {# lesson} other {# lessons}} in this period still {n, plural, one {has} other {have}} no recorded outcome, so {n, plural, one {it isn't} other {they aren't}} counted in attendance yet."
+    },
+    "detail": {
+      "subtitle": "Every lesson in the period, with when the teacher entered and when the report came in.",
+      "close": "Close",
+      "score": "Performance score",
+      "noScore": "Not enough data for a score",
+      "profile": "Open profile",
+      "enter": "Entered on time",
+      "reports": "Reports on time",
+      "attendance": "Attendance",
+      "avgAfterStart": "Average after the start",
+      "avgWhenLate": "Average when late",
+      "enteredAtAll": "Entered at all",
+      "noneYet": "Nothing to measure in this period.",
+      "noLinkHint": "No meeting link yet — add one on the profile to start measuring.",
+      "avgAfterEnd": "Average after the lesson",
+      "filedAtAll": "Filed at all",
+      "pending": "Still within time",
+      "taughtOf": "Taught (of {n})",
+      "absenceRate": "Absence rate",
+      "studentAttendance": "Student attendance",
+      "log": "Lessons",
+      "filter": {
+        "all": "All",
+        "lateEntry": "Late entry",
+        "missedEntry": "Never entered",
+        "lateReport": "Late report",
+        "missingReport": "No report",
+        "absent": "Teacher absent"
+      },
+      "truncated": "Showing the latest {n} lessons only.",
+      "loading": "Loading lessons…",
+      "empty": "No lessons in this period.",
+      "emptyFilter": "No lessons match this filter.",
+      "minutesShort": "{n}m",
+      "col": {
+        "lesson": "Lesson",
+        "student": "Student",
+        "status": "Status",
+        "entered": "Entered",
+        "report": "Report"
+      },
+      "join": {
+        "on_time": "On time",
+        "late": "Late",
+        "missed": "Never entered",
+        "pending": "In progress",
+        "not_tracked": "Not measured"
+      },
+      "report": {
+        "on_time": "On time",
+        "late": "Late",
+        "missing": "Not filed",
+        "pending": "Within time",
+        "not_needed": "Not needed"
+      },
+      "afterStart": "{n} min after start",
+      "beforeStart": "{n} min before start",
+      "atStart": "right at the start",
+      "afterEnd": "{v} after the lesson",
+      "beforeEnd": "before the lesson ended"
     }
   }
 }

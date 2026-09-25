@@ -2,7 +2,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { vi } from "vitest";
 import { AuthContext } from "@/components/auth-provider";
 import { ThemeProvider } from "@/components/theme-provider";
-import type { AppRole, Session } from "@/lib/api";
+import type { AppRole, Session, SystemRole } from "@/lib/api";
 import arMessages from "../../messages/ar.json";
 
 /**
@@ -11,7 +11,7 @@ import arMessages from "../../messages/ar.json";
  * how the resolved session shapes the UI.
  */
 
-const PERMISSIONS_BY_ROLE: Record<AppRole, string[]> = {
+const PERMISSIONS_BY_ROLE: Record<SystemRole, string[]> = {
   SUPER_ADMIN: ["academy.read", "academy.enter", "plan.manage", "audit.read"],
   ACADEMY_OWNER: [
     "guardian.read",
@@ -32,6 +32,21 @@ const PERMISSIONS_BY_ROLE: Record<AppRole, string[]> = {
     "specialization.manage",
     "teacher_report.manage",
     "audit.read",
+    // Handing out logins and roles (the teacher/staff login editors key on these).
+    "user.invite",
+    "role.assign",
+  ],
+  // The academy minus the money and minus delegation (PermissionCatalog::roleMap).
+  SUPERVISOR: [
+    "guardian.read",
+    "student.read",
+    "student.update",
+    "teacher.read",
+    "teacher.update",
+    "schedule.read",
+    "session.read",
+    "session.mark_attendance",
+    "specialization.manage",
   ],
   TEACHER: [
     "schedule.read",
@@ -40,6 +55,8 @@ const PERMISSIONS_BY_ROLE: Record<AppRole, string[]> = {
     "session.write_report",
     "payout.read_own",
   ],
+  // The reception-desk baseline: see who is enrolled and the day's schedule, change nothing.
+  STAFF: ["student.read", "guardian.read", "schedule.read", "session.read"],
 };
 
 export function makeSession(
@@ -50,7 +67,8 @@ export function makeSession(
     user: { id: "u1", fullName: "Test User", email: "test@example.com" },
     role,
     academyId: role === "SUPER_ADMIN" ? null : "academy-1",
-    permissions: PERMISSIONS_BY_ROLE[role],
+    // A custom role code (`CR_…`) has no built-in set; a test that needs one passes `permissions`.
+    permissions: PERMISSIONS_BY_ROLE[role as SystemRole] ?? [],
     locale: "ar",
     capabilities: null,
     // The panel's own identity travels with the session; a platform Super Admin has no academy, so
@@ -81,6 +99,11 @@ export function makeSession(
             "student_reports",
             "audit.full",
             "report_field.custom",
+            "supervision",
+            "packages",
+            "teacher_quality",
+            "financial_statistics",
+            "report_card",
             "video.conferencing",
           ];
   }

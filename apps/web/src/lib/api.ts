@@ -145,7 +145,20 @@ export function getHealth(): Promise<HealthResponse> {
 
 // ── Auth surface (Sprint 2 §8) ───────────────────────────────────────────────
 
-export type AppRole = "SUPER_ADMIN" | "ACADEMY_OWNER" | "TEACHER";
+/** The platform's built-in roles. */
+export type SystemRole =
+  | "SUPER_ADMIN"
+  | "ACADEMY_OWNER"
+  | "SUPERVISOR"
+  | "TEACHER"
+  | "STAFF";
+
+/**
+ * A role code as the API reports it: a system role, or an academy-built custom role (an opaque
+ * `CR_…` token — its human name travels separately, see `Session.roleName`). The `string & {}`
+ * keeps the literal suggestions while admitting custom codes.
+ */
+export type AppRole = SystemRole | (string & {});
 
 export interface SessionUser {
   id: string;
@@ -156,6 +169,8 @@ export interface SessionUser {
 export interface Session {
   user: SessionUser;
   role: AppRole;
+  /** A custom role's display name; null for system roles (whose labels the web owns). */
+  roleName?: string | null;
   academyId: string | null;
   permissions: string[];
   locale: "ar" | "en";
@@ -229,6 +244,40 @@ export function setLocale(
   return apiFetch("/api/auth/locale", {
     method: "PATCH",
     body: JSON.stringify({ locale }),
+  });
+}
+
+/**
+ * POST /api/auth/forgot-password — email a reset link. Always resolves (202), whatever the email:
+ * the form must never confirm whether an address has an account.
+ */
+export function forgotPassword(email: string): Promise<{ ok: boolean }> {
+  return apiFetch("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+/** POST /api/auth/reset-password — consume a reset link's token and set a new password. */
+export function resetPassword(input: {
+  email: string;
+  token: string;
+  password: string;
+}): Promise<{ ok: boolean }> {
+  return apiFetch("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** POST /api/auth/password — the signed-in user changes their own password. */
+export function changePassword(input: {
+  current_password: string;
+  password: string;
+}): Promise<{ ok: boolean }> {
+  return apiFetch("/api/auth/password", {
+    method: "POST",
+    body: JSON.stringify(input),
   });
 }
 
@@ -602,6 +651,12 @@ export interface ClientDetail {
     brand_logo_url: string | null;
     subdomain: string | null;
     created_at: string;
+  };
+  /** Who owns it and how big it is — the header/overview facts, same sources as the directory. */
+  summary: {
+    owner: AcademyOwner | null;
+    student_count: number;
+    teacher_count: number;
   };
   catalog: ClientFeatureCatalog;
   modules: ModuleSubscription[];
@@ -2064,6 +2119,10 @@ export interface TeacherRow {
   /** Always both set or both null — the API refuses a half-filled pair. */
   payout_method: PayoutMethod | null;
   payout_handle: string | null;
+  /** The teacher's own room (Zoom, Meet, Teams…) — what their Enter button opens. */
+  meeting_url?: string | null;
+  /** The first instant this teacher had a link: punctuality is measured from here on. */
+  join_tracking_since?: string | null;
   is_active: boolean;
   deleted_at: string | null;
   created_at: string;
@@ -2092,6 +2151,7 @@ export interface TeacherInput {
   availability?: AvailabilityWindow[];
   payout_method?: PayoutMethod | null;
   payout_handle?: string | null;
+  meeting_url?: string | null;
   create_login?: boolean;
   email?: string | null;
   password?: string | null;
@@ -2198,6 +2258,8 @@ export function deleteStaffDepartment(id: string): Promise<{ ok: boolean }> {
 export interface StaffRow {
   id: string;
   user_id: string | null;
+  /** The role the employee's login carries (list rows only); null without a login. */
+  login_role?: string | null;
   full_name: string;
   department: string;
   phone: string | null;
@@ -2229,8 +2291,38 @@ export function listStaff(
   return apiFetch(`/api/staff${toQueryString(q)}`);
 }
 
-export function getStaff(id: string): Promise<{ staff: StaffRow }> {
+/** The employee's sign-in login as the detail page shows it. */
+export interface StaffLogin {
+  has_login: boolean;
+  email: string | null;
+  is_active: boolean | null;
+  role: string | null;
+}
+
+export function getStaff(
+  id: string,
+): Promise<{ staff: StaffRow; login: StaffLogin }> {
   return apiFetch(`/api/staff/${id}`);
+}
+
+/**
+ * PATCH /api/staff/{id}/login — create the employee's login (email + password required) or change
+ * its email / password / role / enabled state. Credentials and state need user.invite server-side,
+ * a role change needs role.assign and is clamped to what the caller holds.
+ */
+export function updateStaffLogin(
+  id: string,
+  input: {
+    email?: string;
+    password?: string;
+    role?: string;
+    is_active?: boolean;
+  },
+): Promise<{ ok: boolean; created: boolean; changed: string[] }> {
+  return apiFetch(`/api/staff/${id}/login`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export function createStaff(
@@ -3468,6 +3560,10 @@ export interface PendingSession {
   followed_at?: string | null;
   followed_by_user_id?: string | null;
   followed_by_name?: string | null;
+  /** The lesson teacher's meeting link — what their Enter button opens. null = none set yet. */
+  meeting_url?: string | null;
+  /** When the lesson's teacher first pressed Enter on it. null = not yet. */
+  teacher_joined_at?: string | null;
 }
 
 /** The lesson's follow state as the follow endpoint returns it. */
@@ -3487,6 +3583,24 @@ export function followSession(
   sessionId: string,
 ): Promise<{ follow: SessionFollowState }> {
   return apiFetch(`/api/sessions/${sessionId}/follow`, { method: "POST" });
+}
+
+/**
+ * POST /api/sessions/{id}/join — the lesson's own teacher pressed Enter. The server stamps the
+ * press with its own clock (it is what the teacher's punctuality is measured by) and refuses it
+ * outside the lesson's window. The browser opens the link itself, from the click, so a popup
+ * blocker never eats it; `keepalive` lets the record finish even if the page is backgrounded as
+ * the meeting app takes over.
+ */
+export function enterSession(sessionId: string): Promise<{
+  url: string;
+  joined_at: string;
+  first_joined_at: string;
+}> {
+  return apiFetch(`/api/sessions/${sessionId}/join`, {
+    method: "POST",
+    keepalive: true,
+  });
 }
 
 export function getPendingAttendance(): Promise<{
@@ -3636,6 +3750,192 @@ export function getSupervisionStats(params: {
   if (params.mark_minutes !== undefined)
     qs.set("mark_minutes", String(params.mark_minutes));
   return apiFetch(`/api/supervision/stats?${qs.toString()}`);
+}
+
+// ── Teacher punctuality (GET /api/teachers/{id}/punctuality) ───────────────────────────────
+// Per lesson, the teacher's FIRST press of Enter measured from the start. "pending" = no press
+// yet but the lesson is still on, so it counts neither way.
+
+export type PunctualityBucket = "on_time" | "late" | "missed" | "pending";
+
+export interface PunctualitySessionRow {
+  id: string;
+  scheduled_at_utc: string;
+  local_date: string;
+  duration_minutes: number;
+  status: SessionStatus;
+  student_name: string | null;
+  bucket: PunctualityBucket;
+  first_joined_at: string | null;
+  /** Minutes from the start to the first press — negative when it came before the start. */
+  delay_minutes: number | null;
+  /** Every press, oldest first. */
+  joins: string[];
+}
+
+export interface TeacherPunctuality {
+  window: { from: string; to: string; timezone: string };
+  late_minutes: number;
+  opens_minutes_before: number;
+  has_meeting_url: boolean;
+  /** null = the teacher never had a link, so nothing can be measured yet. */
+  tracking_since: string | null;
+  totals: {
+    lessons: number;
+    measured: number;
+    entered: number;
+    on_time: number;
+    late: number;
+    missed: number;
+    pending: number;
+    on_time_rate: number | null;
+    entered_rate: number | null;
+    avg_delay_minutes: number | null;
+    avg_late_minutes: number | null;
+  };
+  sessions: PunctualitySessionRow[];
+  truncated: boolean;
+}
+
+export function getTeacherPunctuality(
+  teacherId: string,
+  params: { from: string; to: string; late_minutes?: number },
+): Promise<TeacherPunctuality> {
+  const qs = new URLSearchParams({ from: params.from, to: params.to });
+  if (params.late_minutes !== undefined)
+    qs.set("late_minutes", String(params.late_minutes));
+  return apiFetch(`/api/teachers/${teacherId}/punctuality?${qs.toString()}`);
+}
+
+// ── Teacher performance (GET /api/teacher-insights) ────────────────────────────────────────
+// The Teacher Quality page: per teacher, Enter punctuality (from the lesson's start), report speed
+// (first filing, from the lesson's end) and attendance. Every rate sits beside the counts it is
+// made of; rates are over DECIDED lessons only and null when there is nothing to decide.
+
+export interface InsightJoin {
+  measured: number;
+  entered: number;
+  on_time: number;
+  late: number;
+  missed: number;
+  pending: number;
+  on_time_rate: number | null;
+  entered_rate: number | null;
+  /** Minutes after the start, entering early counted as zero. */
+  avg_delay_minutes: number | null;
+  avg_late_minutes: number | null;
+}
+
+export interface InsightReports {
+  due: number;
+  filed: number;
+  on_time: number;
+  late: number;
+  missing: number;
+  pending: number;
+  on_time_rate: number | null;
+  filed_rate: number | null;
+  /** Minutes after the lesson ended, filing before the end counted as zero. */
+  avg_delay_minutes: number | null;
+}
+
+export interface InsightAttendance {
+  lessons: number;
+  attended: number;
+  free: number;
+  student_absent: number;
+  /** Lessons the teacher cancelled — their absences. */
+  teacher_absent: number;
+  student_cancelled: number;
+  unmarked: number;
+  in_progress: number;
+  teacher_attendance_rate: number | null;
+  teacher_absence_rate: number | null;
+  student_attendance_rate: number | null;
+}
+
+export interface InsightScores {
+  /** Plain mean of the on-time entry, on-time report and attendance rates the teacher has data for. */
+  score: number | null;
+  join: InsightJoin;
+  reports: InsightReports;
+  attendance: InsightAttendance;
+}
+
+export interface InsightTeacher extends InsightScores {
+  id: string;
+  name: string;
+  is_active: boolean;
+  has_meeting_url: boolean;
+  /** null = never had a meeting link, so Enter is not measured. */
+  tracking_since: string | null;
+}
+
+export interface InsightThresholds {
+  late_minutes: number;
+  report_minutes: number;
+  opens_minutes_before: number;
+}
+
+export interface TeacherInsights {
+  window: { from: string; to: string; timezone: string };
+  thresholds: InsightThresholds;
+  totals: InsightScores;
+  teachers: InsightTeacher[];
+}
+
+export type InsightJoinBucket = "not_tracked" | "on_time" | "late" | "missed" | "pending";
+export type InsightReportBucket = "not_needed" | "on_time" | "late" | "missing" | "pending";
+
+export interface InsightLesson {
+  id: string;
+  scheduled_at_utc: string;
+  local_date: string;
+  duration_minutes: number;
+  status: SessionStatus;
+  student_name: string | null;
+  join_bucket: InsightJoinBucket;
+  first_joined_at: string | null;
+  /** Minutes from the start — negative when the teacher entered early. */
+  join_delay_minutes: number | null;
+  presses: number;
+  report_bucket: InsightReportBucket;
+  reported_at: string | null;
+  /** Minutes from the end — negative when filed before the lesson ended. */
+  report_delay_minutes: number | null;
+}
+
+export interface TeacherInsightLessons {
+  window: { from: string; to: string; timezone: string };
+  thresholds: InsightThresholds;
+  teacher: Omit<InsightTeacher, keyof InsightScores>;
+  lessons: InsightLesson[];
+  truncated: boolean;
+}
+
+export interface TeacherInsightsParams {
+  from: string;
+  to: string;
+  late_minutes?: number;
+  report_minutes?: number;
+}
+
+function insightsQuery(params: TeacherInsightsParams): string {
+  const qs = new URLSearchParams({ from: params.from, to: params.to });
+  if (params.late_minutes !== undefined) qs.set("late_minutes", String(params.late_minutes));
+  if (params.report_minutes !== undefined) qs.set("report_minutes", String(params.report_minutes));
+  return qs.toString();
+}
+
+export function getTeacherInsights(params: TeacherInsightsParams): Promise<TeacherInsights> {
+  return apiFetch(`/api/teacher-insights?${insightsQuery(params)}`);
+}
+
+export function getTeacherInsightLessons(
+  teacherId: string,
+  params: TeacherInsightsParams,
+): Promise<TeacherInsightLessons> {
+  return apiFetch(`/api/teacher-insights/teachers/${teacherId}?${insightsQuery(params)}`);
 }
 
 /**
@@ -4411,15 +4711,21 @@ export function reactivateUser(
   return apiFetch(`/api/admin/users/${id}/reactivate`, { method: "POST" });
 }
 
-export function resetUserPassword(id: string): Promise<{ ok: boolean }> {
+/** `sent` is false when the mail could not go out — say so rather than pretending. */
+export function resetUserPassword(
+  id: string,
+): Promise<{ ok: boolean; sent: boolean }> {
   return apiFetch(`/api/admin/users/${id}/reset-password`, { method: "POST" });
 }
+
+/** Roles a Super Admin may hand out inside an academy — never the platform role. */
+export type AssignableRole = "ACADEMY_OWNER" | "SUPERVISOR" | "TEACHER" | "STAFF";
 
 export function setUserRole(
   id: string,
   input: {
     academy_id: string;
-    role: "ACADEMY_OWNER" | "TEACHER";
+    role: AssignableRole;
     grant: boolean;
   },
 ): Promise<{ ok: boolean }> {

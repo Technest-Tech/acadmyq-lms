@@ -3,6 +3,7 @@
 import { ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { LocaleSwitcher } from "@/components/locale-switcher";
 import { ArchPanel, KhatamLattice, StarDivider } from "@/components/ornaments";
@@ -88,10 +89,23 @@ export function LoginScreen({ brand }: { brand?: LoginBrand | null }) {
     } catch (err) {
       // Bad credentials (422), inactive (403) and "not this academy" (422) all collapse to one
       // neutral message, so we never reveal whether an account exists — or where it belongs.
+      // The refusals the server NAMES (a suspended academy, a switched-off role, no role at all)
+      // are different: the password was right, the account exists, and "wrong password" would
+      // send the person off to reset a password that works.
+      const code =
+        err instanceof ApiError && err.status === 403
+          ? (err.body as { code?: string } | undefined)?.code
+          : undefined;
       setError(
         err instanceof ApiError && err.status >= 500
           ? t("auth.serverError")
-          : t("auth.invalidCredentials"),
+          : code === "academy_suspended"
+            ? t("auth.academySuspended")
+            : code === "role_inactive"
+              ? t("auth.roleInactive")
+              : code === "no_role"
+                ? t("auth.noRole")
+                : t("auth.invalidCredentials"),
       );
     } finally {
       setSubmitting(false);
@@ -130,9 +144,17 @@ export function LoginScreen({ brand }: { brand?: LoginBrand | null }) {
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="password" className="text-sm font-medium">
-          {t("auth.password")}
-        </label>
+        <div className="flex items-center justify-between gap-3">
+          <label htmlFor="password" className="text-sm font-medium">
+            {t("auth.password")}
+          </label>
+          <Link
+            href="/forgot-password"
+            className="text-primary text-xs font-medium underline-offset-4 hover:underline"
+          >
+            {t("auth.forgotPassword")}
+          </Link>
+        </div>
         <div className="relative">
           <Lock
             className="text-muted-foreground/70 pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2"

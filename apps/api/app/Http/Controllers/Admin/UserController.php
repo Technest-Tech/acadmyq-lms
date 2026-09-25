@@ -31,7 +31,11 @@ final class UserController extends Controller
 {
     private const MAX_PAGE_SIZE = 100;
 
-    private const ROLES = ['SUPER_ADMIN', 'ACADEMY_OWNER', 'TEACHER'];
+    /** System roles the directory can filter by. Custom codes (`CR_…`) pass through as-is. */
+    private const ROLES = ['SUPER_ADMIN', 'ACADEMY_OWNER', 'SUPERVISOR', 'TEACHER', 'STAFF'];
+
+    /** Roles a Super Admin may hand out inside an academy — never the platform role from here. */
+    private const ASSIGNABLE = ['ACADEMY_OWNER', 'SUPERVISOR', 'TEACHER', 'STAFF'];
 
     /** GET /api/admin/users — platform-wide, filterable user list. */
     public function index(Request $request): JsonResponse
@@ -40,7 +44,11 @@ final class UserController extends Controller
 
         $filters = $request->validate([
             'academy' => ['nullable', 'uuid'],
-            'role' => ['nullable', Rule::in(self::ROLES)],
+            'role' => ['nullable', 'string', 'max:64', function (string $attribute, mixed $value, \Closure $fail): void {
+                if (! in_array($value, self::ROLES, true) && ! str_starts_with((string) $value, 'CR_')) {
+                    $fail('Unknown role.');
+                }
+            }],
             'active' => ['nullable', 'boolean'],
             'search' => ['nullable', 'string', 'max:128'],
             'page' => ['nullable', 'integer', 'min:1'],
@@ -110,16 +118,18 @@ final class UserController extends Controller
 
         $ctx = app(AuthContext::class);
 
+        // Best-effort, retriable side effect (same posture as owner provisioning, §10) — but say
+        // whether it went: for months this answered `ok` while the link builder threw every time.
+        $sent = false;
         try {
-            Password::broker()->sendResetLink(['email' => $user['email']]);
+            $sent = Password::broker()->sendResetLink(['email' => $user['email']]) === Password::RESET_LINK_SENT;
         } catch (Throwable) {
-            // Best-effort, retriable side effect (same posture as owner provisioning, §10).
         }
 
         Audit::log('user.reset_password', 'user', $id, $user['academy_id'], $ctx->userId, $ctx->role,
-            after: ['email' => $user['email']]);
+            after: ['email' => $user['email'], 'sent' => $sent]);
 
-        return response()->json(['ok' => true]);
+        return response()->json(['ok' => true, 'sent' => $sent]);
     }
 
     /** POST /api/admin/users/{id}/roles — grant or revoke a role for the user in an academy. */
@@ -137,7 +147,7 @@ final class UserController extends Controller
 
         $data = $request->validate([
             'academy_id' => ['required', 'uuid', Rule::exists('academies', 'id')],
-            'role' => ['required', Rule::in(['ACADEMY_OWNER', 'TEACHER'])],
+            'role' => ['required', Rule::in(self::ASSIGNABLE)],
             'grant' => ['required', 'boolean'],
         ]);
 
@@ -151,6 +161,14 @@ final class UserController extends Controller
                 ->where('user_id', $id)->where('academy_id', $academyId)->where('role', $role)->exists();
 
             if ($grant && ! $exists) {
+                // One role per user per academy — the tenant middleware only ever reads the
+                // oldest, so a second row would be silently ignored. Granting REPLACES.
+                $replaced = DB::table('user_roles')->where('user_id', $id)->where('academy_id', $academyId)->pluck('role')->all();
+                DB::table('user_roles')->where('user_id', $id)->where('academy_id', $academyId)->delete();
+                foreach ($replaced as $old) {
+                    Audit::log('role.revoke', 'user_role', $id, $academyId, $ctx->userId, $ctx->role,
+                        before: ['role' => $old]);
+                }
                 DB::table('user_roles')->insert([
                     'id' => (string) Str::uuid(),
                     'user_id' => $id,
@@ -158,7 +176,7 @@ final class UserController extends Controller
                     'role' => $role,
                 ]);
                 Audit::log('role.assign', 'user_role', $id, $academyId, $ctx->userId, $ctx->role,
-                    after: ['role' => $role]);
+                    after: ['role' => $role], before: ['role' => $replaced[0] ?? null]);
             } elseif (! $grant && $exists) {
                 DB::table('user_roles')
                     ->where('user_id', $id)->where('academy_id', $academyId)->where('role', $role)->delete();

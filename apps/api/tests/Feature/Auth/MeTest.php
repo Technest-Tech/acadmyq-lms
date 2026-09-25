@@ -106,3 +106,25 @@ it('rejects an inactive user at the middleware (fail closed)', function () {
 
     $this->getJson('/api/auth/me')->assertUnauthorized();
 });
+
+// ── An entered academy is a real workspace for the platform admin ────────────
+it('gives a Super Admin who entered an academy everything its owner holds, on top of the platform set', function () {
+    $admin = $this->makeUser(null, 'SUPER_ADMIN');
+    Sanctum::actingAs($admin);
+
+    // "Entered" lives in the session, so the request has to be stateful (a frontend Origin).
+    $res = $this->withHeader('Origin', 'http://localhost:3000')
+        ->withSession(['entered_academy_id' => $this->academy])
+        ->getJson('/api/auth/me')
+        ->assertOk()
+        ->assertJsonPath('role', 'SUPER_ADMIN')
+        ->assertJsonPath('academyId', $this->academy);
+
+    $perms = $res->json('permissions');
+    expect($perms)->toContain('student.read')->toContain('invoice.read')->toContain('session.mark_attendance')
+        ->toContain('academy.enter')->toContain('platform.manage');
+
+    // And the gates agree: the students list opens for them inside the academy.
+    $this->withHeader('Origin', 'http://localhost:3000')
+        ->withSession(['entered_academy_id' => $this->academy])->getJson('/api/students')->assertOk();
+});

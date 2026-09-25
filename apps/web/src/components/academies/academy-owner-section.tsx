@@ -3,6 +3,11 @@
 import { Eye, EyeOff, UserCircle } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
+import { Field, fieldClass } from "@/components/admin/field";
+import {
+  SectionCard,
+  SectionCardFooter,
+} from "@/components/admin/section-card";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -14,8 +19,6 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const inputClass =
-  "border-input bg-background w-full rounded-md border px-3 py-2 text-sm";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
@@ -85,43 +88,41 @@ export function AcademyOwnerSection({ academyId }: { academyId: string }) {
   }
 
   return (
-    <section className="space-y-3" data-testid="academy-owner-section">
-      <h2 className="flex items-center gap-2 text-sm font-semibold">
-        <UserCircle className="text-muted-foreground size-4" aria-hidden />
-        {t("ownerSection")}
-      </h2>
-      <p className="text-muted-foreground text-sm">{t("ownerManageHint")}</p>
-
+    <SectionCard
+      icon={UserCircle}
+      title={t("ownerSection")}
+      description={t("ownerManageHint")}
+      testId="academy-owner-section"
+    >
       {loaded && owner === null ? (
-        <p className="bg-muted/40 text-muted-foreground rounded-md px-3 py-2.5 text-sm">
+        <p className="bg-muted/40 text-muted-foreground rounded-lg px-3 py-2.5 text-sm">
           {t("ownerNone")}
         </p>
       ) : (
-        <form className="space-y-3" onSubmit={submit}>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">{t("ownerEmailLabel")}</span>
+        <form className="space-y-4" onSubmit={submit}>
+          {owner !== null && (
+            <p className="text-sm font-medium">{owner.full_name}</p>
+          )}
+          <Field label={t("ownerEmailLabel")}>
             <input
               aria-label={t("ownerEmailLabel")}
               type="email"
               dir="ltr"
               autoComplete="off"
-              className={inputClass}
+              className={fieldClass}
               value={email}
               disabled={!loaded || owner === null}
               onChange={(e) => setEmail(e.target.value)}
             />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium">
-              {t("ownerNewPassword")}
-            </span>
-            <div className="relative">
+          </Field>
+          <Field label={t("ownerNewPassword")}>
+            <span className="relative block">
               <input
                 aria-label={t("ownerNewPassword")}
                 type={showPassword ? "text" : "password"}
                 dir="ltr"
                 autoComplete="new-password"
-                className={cn(inputClass, "pe-10")}
+                className={cn(fieldClass, "pe-10")}
                 placeholder={t("ownerPasswordPlaceholder")}
                 value={password}
                 disabled={!loaded || owner === null}
@@ -141,18 +142,20 @@ export function AcademyOwnerSection({ academyId }: { academyId: string }) {
                   <Eye className="size-4" aria-hidden />
                 )}
               </button>
-            </div>
-          </label>
-          <Button
-            type="submit"
-            size="sm"
-            disabled={!canSave}
-            data-testid="save-owner"
-          >
-            {busy ? t("ownerSaving") : t("ownerSave")}
-          </Button>
+            </span>
+          </Field>
+          <SectionCardFooter>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={!canSave}
+              data-testid="save-owner"
+            >
+              {busy ? t("ownerSaving") : t("ownerSave")}
+            </Button>
+          </SectionCardFooter>
         </form>
       )}
-    </section>
+    </SectionCard>
   );
 }

@@ -88,13 +88,14 @@ it('blocks the roles module for a client whose custom_roles we switched off (402
     clientWith(['staff'], $this->academy); // custom_roles switched off for this client
     Sanctum::actingAs($this->owner);
 
-    // The module is entitlement-gated (entitled:custom_roles): a client we switched it off for
+    // BUILDING is entitlement-gated (entitled:custom_roles): a client we switched it off for
     // gets a 402 upgrade response, not a 201.
     $this->postJson('/api/roles', [
         'name' => 'Front Desk',
         'permissions' => ['student.read'],
     ])->assertStatus(402);
-    $this->getJson('/api/roles')->assertStatus(402);
+    // LISTING stays free — the staff form needs the built-in STAFF/SUPERVISOR roles either way.
+    $this->getJson('/api/roles')->assertOk()->assertJsonPath('system.1.code', 'SUPERVISOR');
 });
 
 // ── Update ───────────────────────────────────────────────────────────────────

@@ -36,7 +36,10 @@ Workspace collapse is now DERIVED from the type, not stored on a plan:
 one module):
 
 - **MANAGEMENT** — `invoicing`, `payroll`, `certificates`, `staff`, `custom_roles`, `trials`,
-  `crm`, `student_reports`, `audit.full`, `report_field.custom`
+  `crm`, `student_reports`, `audit.full`, `report_field.custom`, `supervision`, `packages`,
+  `teacher_quality`, `financial_statistics`, `report_card` (the last five added 2026-09-26 so
+  every screen an academy sees has a switch; `packages` sits inside `invoicing` and
+  `teacher_quality` inside `payroll` — both gates apply)
 - **VIDEO** — `video.conferencing`
 - **WHATSAPP** — `whatsapp.automation`
 - **LMS** — `lms`

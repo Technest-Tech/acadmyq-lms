@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { ClientScreen } from "./screen";
 
 export default async function ClientPage({
@@ -7,5 +8,10 @@ export default async function ClientPage({
 }) {
   const { id } = await params;
 
-  return <ClientScreen clientId={id} />;
+  // The screen reads its open tab from `?tab=`, which needs a Suspense boundary above it.
+  return (
+    <Suspense fallback={null}>
+      <ClientScreen clientId={id} />
+    </Suspense>
+  );
 }

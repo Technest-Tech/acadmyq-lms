@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlarmClock,
   ArrowLeft,
   BadgeCheck,
   Banknote,
@@ -21,6 +22,7 @@ import { useAuth } from "@/components/auth-provider";
 import { KhatamLattice } from "@/components/ornaments";
 import { TeacherCalendar } from "@/components/teachers/teacher-calendar";
 import { TeacherDetail } from "@/components/teachers/teacher-detail";
+import { TeacherPunctuality } from "@/components/teachers/teacher-punctuality";
 import { TeacherReports } from "@/components/teachers/teacher-reports";
 import { TeacherSalary } from "@/components/teachers/teacher-salary";
 import { HeroBadge, PageHero } from "@/components/ui/page-hero";
@@ -29,7 +31,7 @@ import { getTeacher, type TeacherRow, type TeacherStudent } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-type Tab = "profile" | "calendar" | "salary" | "reports";
+type Tab = "profile" | "calendar" | "punctuality" | "salary" | "reports";
 
 /** Total teaching hours a week, from the availability windows. */
 function weeklyHours(windows: { start_local: string; end_local: string }[]): number {
@@ -74,6 +76,8 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
   const tabs: { key: Tab; icon: ComponentType<{ className?: string }>; show: boolean }[] = [
     { key: "profile", icon: User, show: true },
     { key: "calendar", icon: CalendarDays, show: can("schedule.read") },
+    // When the teacher pressed Enter on each lesson — the workspace itself is teacher.read.
+    { key: "punctuality", icon: AlarmClock, show: can("teacher.read") },
     { key: "salary", icon: Wallet, show: can("payout.read") },
     {
       key: "reports",
@@ -223,6 +227,12 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
           availability={teacher.availability ?? []}
           timeZone={teacher.timezone ?? undefined}
         />
+      )}
+
+      {tab === "punctuality" && (
+        <div className="bg-card rounded-2xl border p-5 shadow-sm sm:p-6">
+          <TeacherPunctuality teacherId={teacherId} />
+        </div>
       )}
 
       {tab === "salary" && (

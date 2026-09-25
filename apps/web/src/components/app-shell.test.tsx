@@ -268,4 +268,33 @@ describe("AppShell header", () => {
 
     expect(push).not.toHaveBeenCalled();
   });
+
+  it("hides the screens whose own switch is off, and keeps the ones that are on", async () => {
+    // Supervision, packages, teacher quality (+ discounts & awards) and financial statistics each
+    // have their own switch now — invoicing and payroll alone no longer carry them.
+    const permissions = [
+      "schedule.read",
+      "student.read",
+      "invoice.read",
+      "payout.read",
+      "payout.adjust",
+      "package.read",
+      "teacher_quality.read",
+      "supervision.stats",
+    ];
+    renderShell("ACADEMY_OWNER", {
+      permissions,
+      capabilities: ["invoicing", "payroll", "supervision"],
+    });
+    await ready();
+
+    const keys = navKeys();
+    expect(keys).toContain("invoices");
+    expect(keys).toContain("payroll");
+    expect(keys).toContain("supervision");
+    expect(keys).not.toContain("packages");
+    expect(keys).not.toContain("teacherQuality");
+    expect(keys).not.toContain("discountsAwards");
+    expect(keys).not.toContain("financialStatistics");
+  });
 });

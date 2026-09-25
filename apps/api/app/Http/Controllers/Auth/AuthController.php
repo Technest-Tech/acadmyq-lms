@@ -10,13 +10,18 @@ use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Entitlement;
 use App\Support\LmsSite;
+use App\Support\PermissionResolver;
 use App\Support\Subdomain;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Sanctum SPA session auth (Sprint 2 §2, §8). Login is public and runs OUTSIDE the tenant
@@ -64,15 +69,24 @@ final class AuthController extends Controller
 
         [$role, $academyId] = $this->primaryRole($user->getKey());
 
+        // A valid password with no role behind it is not a session: the tenant middleware would
+        // 401 every request anyway ("No role assigned"), so refuse here with a reason instead of
+        // handing out a cookie that bounces straight back to this form.
+        if ($role === null) {
+            return $this->refuse($request, 'No role is assigned to this account.', 'no_role');
+        }
+
         // A SUSPENDED academy blocks its owner/teacher logins; data is retained (AC-3.6,
         // TC-3.15). Read the status via the BYPASSRLS reader since no context is set yet.
         // SUPER_ADMIN has no home academy, so this never gates a platform admin.
         if ($role !== 'SUPER_ADMIN' && $academyId !== null && $this->academyIsSuspended($academyId)) {
-            Auth::guard('web')->logout();
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
+            return $this->refuse($request, 'This academy is suspended.', 'academy_suspended');
+        }
 
-            return response()->json(['message' => 'This academy is suspended.'], 403);
+        // A custom role the academy switched off. Its holder is told so, rather than signed in to
+        // an empty panel (the middleware would drop the session on the next request regardless).
+        if (PermissionResolver::isCustom($role) && ! PermissionResolver::isActive($role)) {
+            return $this->refuse($request, 'Your role has been deactivated. Contact your academy.', 'role_inactive');
         }
 
         // A client's own address is a door for that client's people only: signing in at
@@ -143,6 +157,11 @@ final class AuthController extends Controller
                 'email' => $user->email,
             ],
             'role' => $ctx->role,
+            // A custom role's human name (its code is an opaque `CR_…` token). Null for system
+            // roles, whose labels the web owns. Read under the caller's own tenant context.
+            'roleName' => PermissionResolver::isCustom($ctx->role)
+                ? DB::table('academy_roles')->where('code', $ctx->role)->value('name')
+                : null,
             'academyId' => $ctx->academyId,
             'permissions' => $ctx->permissions,
             'locale' => $user->preferred_locale,
@@ -214,10 +233,12 @@ final class AuthController extends Controller
     }
 
     /**
-     * The user's primary (role, academy) for audit attribution at login time — read via the
-     * BYPASSRLS function since no context is set yet. SUPER_ADMIN wins when present.
+     * The user's primary (role, academy) at login time — read via the BYPASSRLS function since no
+     * context is set yet. SUPER_ADMIN wins when present; otherwise the oldest assignment, exactly
+     * as TenantContextMiddleware resolves it on every later request. A user with no assignment at
+     * all yields a null role — never a default one.
      *
-     * @return array{0: string, 1: ?string}
+     * @return array{0: ?string, 1: ?string}
      */
     private function primaryRole(string $userId): array
     {
@@ -229,11 +250,109 @@ final class AuthController extends Controller
         }
 
         $first = $roles[0] ?? null;
+        if ($first === null) {
+            return [null, null];
+        }
 
         return [
-            $first->role ?? 'TEACHER',
+            (string) $first->role,
             isset($first->academy_id) && $first->academy_id !== null ? (string) $first->academy_id : null,
         ];
+    }
+
+    /**
+     * Turn a just-authenticated attempt away: tear the session down and answer 403 with a machine
+     * `code` the sign-in screen can translate (the account exists, so there is nothing to hide —
+     * unlike a wrong password, which stays deliberately neutral).
+     */
+    private function refuse(Request $request, string $message, string $code): JsonResponse
+    {
+        Auth::guard('web')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return response()->json(['message' => $message, 'code' => $code], 403);
+    }
+
+    /**
+     * POST /api/auth/forgot-password (public, throttled) — email a reset link.
+     *
+     * Always 202, whatever the email: this form must never confirm whether an address has an
+     * account. The link is built by ResetPassword::createUrlUsing (AuthServiceProvider) and lands on
+     * the web's /reset-password page; the broker's own 60-second throttle stops a burst of mails.
+     */
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $data = $request->validate(['email' => ['required', 'email', 'max:255']]);
+
+        try {
+            Password::broker()->sendResetLink(['email' => strtolower($data['email'])]);
+        } catch (Throwable $e) {
+            // Mail transport trouble must not become an oracle either; log it and answer the same.
+            Log::warning('forgot-password: could not send reset link', ['error' => $e->getMessage()]);
+        }
+
+        return response()->json(['ok' => true], 202);
+    }
+
+    /**
+     * POST /api/auth/reset-password (public, throttled) — consume a reset token and set a new
+     * password. The write goes through the BYPASSRLS setter: nobody is signed in, so there is no
+     * tenant context under which a plain UPDATE on `users` could succeed.
+     */
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'token' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:8', 'max:255'],
+        ]);
+
+        $status = Password::broker()->reset(
+            ['email' => strtolower($data['email']), 'token' => $data['token'], 'password' => $data['password']],
+            function (object $user, string $password): void {
+                DB::statement('select app.auth_set_password(?::uuid, ?)', [(string) $user->getKey(), Hash::make($password)]);
+                Audit::log('auth.password_reset', 'user', (string) $user->getKey(), $user->academy_id, (string) $user->getKey(), null);
+            },
+        );
+
+        if ($status !== Password::PASSWORD_RESET) {
+            throw ValidationException::withMessages([
+                'token' => ['This reset link is invalid or has expired. Request a new one.'],
+            ]);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * POST /api/auth/password (auth) — the signed-in user changes their OWN password. The current
+     * one is required, so a walked-away session cannot be turned into a permanent takeover.
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'current_password' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:8', 'max:255', 'different:current_password'],
+        ]);
+
+        $user = $request->user();
+        // Check against the STORED hash, read fresh through the identity bypass: the request's
+        // user model is whatever the guard hydrated (a test double, a stale row), not necessarily
+        // the password column.
+        $hash = (string) (DB::selectOne('select password from app.auth_find_by_id(?::uuid)', [(string) $user->getKey()])->password ?? '');
+        if ($hash === '' || ! Hash::check($data['current_password'], $hash)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['The current password is incorrect.'],
+            ]);
+        }
+
+        DB::statement('select app.auth_set_password(?::uuid, ?)', [(string) $user->getKey(), Hash::make($data['password'])]);
+
+        $ctx = app(AuthContext::class);
+        Audit::log('auth.password_changed', 'user', (string) $user->getKey(), $ctx->academyId, $ctx->userId, $ctx->role);
+
+        return response()->json(['ok' => true]);
     }
 
     /**

@@ -103,3 +103,39 @@ it('forbids a teacher from setting a login (owner-only)', function () {
         'email' => 'x@test.local', 'password' => 'secret-pass-123',
     ])->assertStatus(403);
 });
+
+it('switches the login off when the teacher is deactivated', function () {
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/teachers/{$this->teacher}/login", ['email' => 'gone@test.local', 'password' => 'secret-pass-123'])
+        ->assertStatus(201);
+
+    $login = function () {
+        $res = test()->withHeader('Origin', 'http://localhost:3000')
+            ->postJson('/api/auth/login', ['email' => 'gone@test.local', 'password' => 'secret-pass-123']);
+        // Leave no trace in the harness (header, session, guard instances), or the next stateful
+        // request as the owner trips AuthenticateSession against this session and 401s.
+        test()->flushHeaders();
+        test()->flushSession();
+        app('auth')->forgetGuards();
+
+        return $res;
+    };
+    $login()->assertOk();
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/teachers/{$this->teacher}/deactivate")->assertOk();
+    $login()->assertStatus(403);
+});
+
+it('keeps a supervisor from re-issuing a teacher\'s credentials', function () {
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/teachers/{$this->teacher}/login", ['email' => 't-cred@test.local', 'password' => 'secret-pass-123'])
+        ->assertStatus(201);
+
+    $supervisor = $this->makeUser($this->academy, 'SUPERVISOR', ['email' => 'sup-cred@test.local']);
+    Sanctum::actingAs($supervisor);
+    // teacher.update lets a supervisor edit the teacher…
+    $this->patchJson("/api/teachers/{$this->teacher}", ['full_name' => 'Renamed'])->assertOk();
+    // …but not take over their login.
+    $this->patchJson("/api/teachers/{$this->teacher}/login", ['password' => 'mine-now-12345'])->assertStatus(403);
+});

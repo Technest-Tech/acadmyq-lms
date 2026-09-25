@@ -32,6 +32,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FollowControl, type FollowInfo } from "@/components/attendance/follow-control";
 import { useAuth } from "@/components/auth-provider";
+import { MyLessonsToday } from "@/components/dashboard/my-lessons-today";
 import { SubscriptionBanner } from "@/components/dashboard/subscription-banner";
 import { MyQualityPanel } from "@/components/quality/my-quality-panel";
 import {
@@ -863,7 +864,10 @@ export function AcademyDashboard() {
       can("teacher.read") ? listTeachers({ pageSize: 1 }).then((r) => setTeachersTotal(r.total)).catch(() => {}) : Promise.resolve(),
     ]).finally(() => setLdPeople(false));
 
-    if (can("attendance.record") || can("attendance.read")) {
+    // `session.read` is the attendance capability every role that sees lessons holds; the codes
+    // this used to test (`attendance.record` / `attendance.read`) never existed in the catalog, so
+    // the pending-attendance card and the overdue banner rendered for nobody, owners included.
+    if (can("session.mark_attendance") || can("session.read")) {
       getPendingAttendance().then((r) => setPending(r.sessions)).catch(() => setPending([])).finally(() => setLdAttend(false));
       getOverdueSessions()
         .then((r) => setOverdue({ sessions: r.sessions, count: r.count, graceHours: r.grace_hours }))
@@ -876,7 +880,7 @@ export function AcademyDashboard() {
       setOverdue(null);
     }
 
-    if (can("invoice.view")) {
+    if (can("invoice.read")) {
       getInvoiceSummary()
         .then(setInvoiceSummary)
         .catch(() => {})
@@ -885,7 +889,7 @@ export function AcademyDashboard() {
       setLdInv(false);
     }
 
-    if (can("schedule.read") || can("attendance.read")) {
+    if (can("schedule.read") || can("session.read")) {
       const now = new Date();
       const fromM = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
       const toM = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
@@ -929,7 +933,7 @@ export function AcademyDashboard() {
       setLdEarnings(false);
     }
 
-    if (can("payout.read") || can("invoice.view")) {
+    if (can("payout.read") || can("invoice.read")) {
       const months = getLast6Months();
       Promise.all(months.map((m) =>
         can("payout.read")
@@ -1025,7 +1029,7 @@ export function AcademyDashboard() {
     monthProfit?.find((r) => r.currency)?.currency ??
     myEarnings?.currency ??
     "EGP";
-  const canInvoice = can("invoice.view");
+  const canInvoice = can("invoice.read");
   const invoiceCount = invoiceSummary?.counts.all ?? 0;
   const studentLimit = entitlements?.limits?.students ?? null;
   const teacherLimit = entitlements?.limits?.teachers ?? null;
@@ -1169,6 +1173,11 @@ export function AcademyDashboard() {
         </Link>
       )}
 
+      {/* ── Today's lessons (teacher) ──
+          The teacher's own day with an Enter button per lesson — it opens their meeting link when
+          the lesson opens, and the press is what their punctuality is measured by. */}
+      {isTeacher && <MyLessonsToday />}
+
       {/* ── Key metrics ── */}
       <section className="space-y-3">
         <SectionTitle
@@ -1206,7 +1215,7 @@ export function AcademyDashboard() {
               progressLabel={teacherLimit ? `${teacherLimit - (teachersTotal ?? 0)} ${t("kpi.slotsRemaining")}` : undefined}
             />
           )}
-          {(can("schedule.read") || can("attendance.read")) && (
+          {(can("schedule.read") || can("session.read")) && (
             <StatCard
               Icon={CalendarDays}
               color="gold"
@@ -1218,7 +1227,7 @@ export function AcademyDashboard() {
               locale={locale}
             />
           )}
-          {(can("attendance.record") || can("attendance.read")) && (
+          {(can("session.mark_attendance") || can("session.read")) && (
             <StatCard
               Icon={ClipboardCheck}
               color={pendingCount > 0 ? "amber" : "slate"}
@@ -1231,7 +1240,7 @@ export function AcademyDashboard() {
               locale={locale}
             />
           )}
-          {can("invoice.view") && (
+          {can("invoice.read") && (
             <StatCard
               Icon={ReceiptText}
               color={openInvoices > 0 ? "blue" : "slate"}

@@ -187,6 +187,23 @@ min 1); per checked module pick plan + trial-or-active; trial days prefilled fro
 A WhatsApp-only client with no owner login (`M-CLI-2`) is the same wizard with only WHATSAPP
 checked and "create owner login" unchecked. Wizard still sets name/type/owner/branding.
 
+### 4.1 Layout as built (2026-09-26 revamp)
+
+The page reads top-down like a customer page in any grown-up admin, and every panel wears one
+frame (`components/admin/section-card.tsx`):
+
+1. **Header** — logo or initials · name · status chip · client-type chip · one meta line
+   (owner email · `handle.root` ↗ · currency · timezone · since). Verbs on the end: *Open site*,
+   *Enter academy*, *Suspend…* / *Reactivate* — the last two confirm in a dialog, never inline.
+2. **KPI strip** — Revenue (per currency AND interval), Modules (live of allowed, with the soonest
+   trial), Students (+ teachers), Next date (soonest trial end or renewal). All derived from the
+   one client read, which now carries a `summary` block (owner, student/teacher counts).
+3. **Section tabs**, named on the URL as `?tab=` so links land on a section:
+   *Overview* (needs-attention list → the tab that fixes it, modules at a glance, details,
+   quick links; read-only by design) · *Modules & features* (the Modules card — still THE one
+   writer — and the Features switches) · *Billing* · *Payments* · *WhatsApp* / *Video* (only
+   when held) · *Settings* (general + logo, owner login, domains, danger zone).
+
 ## 5. Backend — make `module_subscriptions` the single source of truth
 
 The half-built model becomes the real one; legacy stores become derived mirrors until dropped.

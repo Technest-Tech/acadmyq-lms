@@ -291,6 +291,10 @@ it('lists every client with its module chips in the directory (SUPER_ADMIN only)
     // Composite client read.
     $show = $this->getJson("/api/admin/clients/{$academyId}")->assertOk();
     expect(collect($show->json('modules'))->pluck('module'))->toContain('VIDEO');
+    // The profile's header/overview summary rides along: owner login + how big the client is.
+    expect($show->json('summary.student_count'))->toBe(0);
+    expect($show->json('summary.teacher_count'))->toBe(0);
+    expect($show->json())->toHaveKey('summary.owner');
 
     // An academy owner is forbidden.
     $owner = $this->makeUser($academyId, 'ACADEMY_OWNER');

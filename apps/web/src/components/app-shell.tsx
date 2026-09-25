@@ -13,6 +13,7 @@ import {
   ClipboardCheck,
   CreditCard,
   Eye,
+  Gauge,
   FileCheck2,
   Globe,
   GraduationCap,
@@ -53,6 +54,7 @@ import { useTranslations } from "next-intl";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { ChangePasswordModal } from "@/components/change-password-modal";
 import { CommandPalette, type CommandItem } from "@/components/command-palette";
 import { LocaleSwitcher } from "@/components/locale-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -77,6 +79,7 @@ import {
   OrnateRule,
 } from "@/components/ornaments";
 import { applyBranding, loadBranding } from "@/lib/branding";
+import { roleLabel } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
 type NavKey =
@@ -207,6 +210,15 @@ const NAV: ReadonlyArray<{
     icon: Eye,
     permission: "supervision.stats",
     href: "/supervision",
+    group: "people",
+  },
+  // Teacher performance: how each teacher enters, reports and attends — measured from the Enter
+  // button, the report log and attendance, so it sits with the people it measures, not with pay.
+  {
+    key: "teacherQuality",
+    icon: Gauge,
+    permission: "teacher_quality.read",
+    href: "/teacher-quality",
     group: "people",
   },
   {
@@ -377,15 +389,8 @@ const NAV: ReadonlyArray<{
     href: "/payroll",
     group: "financial",
   },
-  // Payroll's two management surfaces sit directly under it — both only ever move money on the
+  // Payroll's management surface sits directly under it — it only ever moves money on the
   // statements the item above shows.
-  {
-    key: "teacherQuality",
-    icon: ClipboardCheck,
-    permission: "teacher_quality.read",
-    href: "/teacher-quality",
-    group: "financial",
-  },
   {
     key: "discountsAwards",
     icon: Scale,
@@ -575,15 +580,18 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   studentReports: "student_reports",
   studentReportReviews: "student_reports",
   invoices: "invoicing",
-  // Packages ARE invoicing — the same money on a different clock — so they live and die with
-  // the same entitlement rather than being a module of their own.
-  packages: "invoicing",
+  // Packages ARE invoicing (the same money on a different clock) and the server keeps them inside
+  // that gate — but they carry their own switch on top, so an academy that bills monthly is never
+  // offered the second clock.
+  packages: "packages",
   payroll: "payroll",
-  // Both live behind the payroll entitlement — they are payroll features, not a separate module,
-  // so a client without payroll loses them exactly as it loses payroll.
-  teacherQuality: "payroll",
-  discountsAwards: "payroll",
+  // Teacher performance and Discounts & Awards share one switch of their own, so an academy can
+  // pay teachers without measuring them.
+  teacherQuality: "teacher_quality",
+  discountsAwards: "teacher_quality",
   myPayroll: "payroll",
+  supervision: "supervision",
+  financialStats: "financial_statistics",
 };
 
 /**
@@ -633,11 +641,13 @@ function NavBadge({ count, label }: { count: number; label: string }) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations();
+  const tRoles = useTranslations("roles");
   const { session, loading, can, signOut, exitAcademy, changeLocale } =
     useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [notifCount, setNotifCount] = useState(0);
   const [srCount, setSrCount] = useState(0);
@@ -1126,7 +1136,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     {academyName}
                   </div>
                   <div className="text-sidebar-foreground/35 truncate text-[10px] leading-tight tracking-wide">
-                    {t(`roles.${session.role}`)}
+                    {roleLabel(tRoles, session.role, session.roleName)}
                   </div>
                 </div>
               )}
@@ -1372,7 +1382,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         {session.user.email}
                       </p>
                       <p className="text-muted-foreground/70 mt-1 text-[11px]">
-                        {t(`roles.${session.role}`)}
+                        {roleLabel(tRoles, session.role, session.roleName)}
                       </p>
                     </div>
                   </DropdownMenuLabel>
@@ -1386,6 +1396,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       {t("nav.settings")}
                     </DropdownMenuItem>
                   )}
+                  <DropdownMenuItem
+                    onClick={() => setPasswordOpen(true)}
+                    closeOnClick
+                    data-testid="change-password"
+                  >
+                    <KeyRound aria-hidden />
+                    {t("auth.changePassword")}
+                  </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => router.push("/docs/teacher-guide")}
                     closeOnClick
@@ -1415,6 +1433,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </DropdownMenu>
             </div>
           </header>
+
+          <ChangePasswordModal
+            open={passwordOpen}
+            onClose={() => setPasswordOpen(false)}
+          />
 
           {/* The width cap stops tables from stretching to the far edge of a 27" display, where the
               eye has to travel the whole desk to tie a row back to its header. */}

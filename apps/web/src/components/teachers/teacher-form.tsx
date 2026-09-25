@@ -1,6 +1,6 @@
 "use client";
 
-import { AtSign, Banknote, Check, Eye, EyeOff, KeyRound, User } from "lucide-react";
+import { AtSign, Banknote, Check, Eye, EyeOff, KeyRound, User, Video } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { AvailabilityEditor } from "@/components/teachers/availability-editor";
@@ -80,6 +80,7 @@ export function TeacherForm({
   const [specialization, setSpecialization] = useState("");
   const [rate, setRate] = useState("");
   const [currency, setCurrency] = useState("EGP");
+  const [meetingUrl, setMeetingUrl] = useState("");
   const [createLogin, setCreateLogin] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -118,6 +119,7 @@ export function TeacherForm({
         specialization: specialization || null,
         session_rate_minor: toMinor(rate),
         currency: currency || undefined,
+        meeting_url: meetingUrl.trim() || null,
         availability,
         create_login: createLogin,
         email: createLogin ? email : null,
@@ -216,6 +218,24 @@ export function TeacherForm({
           />
         </Field>
       </div>
+
+      <Field label={t("form.meetingUrl")}>
+        <div className="relative">
+          <Video className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            dir="ltr"
+            type="url"
+            inputMode="url"
+            aria-label={t("form.meetingUrl")}
+            className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+            placeholder={t("form.meetingUrlPlaceholder")}
+            value={meetingUrl}
+            onChange={(e) => setMeetingUrl(e.target.value)}
+            data-testid="meeting-url"
+          />
+        </div>
+        <p className="text-[11px] text-muted-foreground">{t("form.meetingUrlHint")}</p>
+      </Field>
 
       <Field label={t("detail.availability")}>
         <AvailabilityEditor value={availability} onChange={setAvailability} />

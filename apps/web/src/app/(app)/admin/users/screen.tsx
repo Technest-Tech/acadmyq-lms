@@ -19,6 +19,7 @@ import {
   type AppRole,
   type PlatformUserResult,
 } from "@/lib/api";
+import { roleLabel } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 25;
@@ -37,6 +38,7 @@ const ROLE_TONE: Record<string, "accent" | "info" | "neutral"> = {
  */
 export function PlatformUsersScreen() {
   const t = useTranslations("platformUsers");
+  const tRole = useTranslations("platformUsers.role");
   const { can } = useAuth();
 
   const [academies, setAcademies] = useState<AcademyListItem[]>([]);
@@ -145,7 +147,9 @@ export function PlatformUsersScreen() {
           <option value="">{t("allRoles")}</option>
           <option value="SUPER_ADMIN">{t("role.SUPER_ADMIN")}</option>
           <option value="ACADEMY_OWNER">{t("role.ACADEMY_OWNER")}</option>
+          <option value="SUPERVISOR">{t("role.SUPERVISOR")}</option>
           <option value="TEACHER">{t("role.TEACHER")}</option>
+          <option value="STAFF">{t("role.STAFF")}</option>
         </select>
         <select
           aria-label={t("status")}
@@ -236,7 +240,7 @@ export function PlatformUsersScreen() {
                     <div className="flex flex-wrap gap-1">
                       {u.roles.map((r) => (
                         <StatusChip key={r} tone={ROLE_TONE[r] ?? "neutral"}>
-                          {t(`role.${r}`)}
+                          {roleLabel(tRole, r)}
                         </StatusChip>
                       ))}
                     </div>
