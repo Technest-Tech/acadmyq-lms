@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\Entitlement;
 use App\Support\PermissionCatalog;
 use App\Support\PermissionResolver;
 use Illuminate\Http\JsonResponse;
@@ -30,6 +31,12 @@ use Illuminate\Validation\ValidationException;
  * the ACTING user themselves holds, intersected with the academy-scoped catalog — so a custom
  * role can never exceed its creator, and platform capabilities are unreachable by construction.
  * Capability codes are validated against this grantable set on every create/update.
+ *
+ * Module clamp (presentation, not security): a capability for a module the academy does not have
+ * — video rooms, the LMS, CRM, payroll… — is not offered at all, and is left out of the role
+ * details too. The `entitled:*` route gates already make such a grant inert; listing it only put
+ * "Create classrooms" in front of an academy with no classroom. A role that already holds one
+ * keeps it through an edit (see update()), so gaining the module later needs no re-ticking.
  *
  * Roles are tenant-scoped (RLS on academy_roles / academy_role_permissions). The role `code`
  * is a generated, globally-unique token so it can be stored verbatim in user_roles.role and
@@ -57,17 +64,39 @@ final class AcademyRoleController extends Controller
     }
 
     /**
-     * The capabilities the acting user may hand out: their OWN capability set, intersected with
-     * the academy-scoped catalog (so platform caps are excluded even for a Super Admin acting
-     * inside an academy). This is the allow-list for every grant.
+     * The capabilities the acting user holds and could delegate: their OWN capability set,
+     * intersected with the academy-scoped catalog (so platform caps are excluded even for a Super
+     * Admin acting inside an academy). The privilege clamp.
      *
      * @return list<string>
      */
-    private function grantable(): array
+    private function holdable(): array
     {
         $academyScoped = PermissionCatalog::roleMap()['ACADEMY_OWNER'];
 
         return array_values(array_intersect($this->ctx()->permissions, $academyScoped));
+    }
+
+    /**
+     * What the builder offers and accepts: {@see holdable()} narrowed to the modules this academy
+     * actually has. This is the allow-list for every grant.
+     *
+     * @return list<string>
+     */
+    private function grantable(?array $features = null): array
+    {
+        return PermissionCatalog::usableWith($this->holdable(), $features ?? $this->features());
+    }
+
+    /**
+     * This academy's plan features. Deliberately not memoised on the controller: Laravel keeps
+     * one controller instance per route, so a cached property would outlive the request.
+     *
+     * @return list<string>
+     */
+    private function features(): array
+    {
+        return Entitlement::resolve($this->academyId())['capabilities'];
     }
 
     /**
@@ -78,11 +107,22 @@ final class AcademyRoleController extends Controller
     private function assertGrantable(array $requested): void
     {
         $extra = array_values(array_diff($requested, $this->grantable()));
-        if ($extra !== []) {
-            throw ValidationException::withMessages([
-                'permissions' => ['You cannot grant capabilities you do not hold: '.implode(', ', $extra)],
-            ]);
+        if ($extra === []) {
+            return;
         }
+
+        // Two different refusals: a module the academy lacks is an upgrade question, not an
+        // escalation attempt, and saying "you do not hold" to an owner about their own
+        // academy's capabilities would read as a bug.
+        $notHeld = array_values(array_diff($extra, $this->holdable()));
+        throw ValidationException::withMessages([
+            'permissions' => [
+                $notHeld !== []
+                    ? 'You cannot grant capabilities you do not hold: '.implode(', ', $notHeld)
+                    : 'These belong to a module this academy does not have: '.implode(', ', $extra)
+                        .' / هذه الصلاحيات تتبع وحدة غير مفعّلة لدى الأكاديمية.',
+            ],
+        ]);
     }
 
     /** How many user_roles rows reference this role code (tenant-scoped by RLS). */
@@ -111,13 +151,18 @@ final class AcademyRoleController extends Controller
     {
         Gate::authorize('role.manage');
 
+        $features = $this->features();
+
         $system = [];
         foreach (self::ASSIGNABLE_SYSTEM_ROLES as $code) {
             $system[] = [
                 'code'          => $code,
                 'name'          => $code,
                 'system'        => true,
-                'permissions'   => PermissionResolver::forRole($code),
+                // Only what this academy can use: a TEACHER's `room.join` means nothing without
+                // the video module, and listing it is how "rooms" showed up on a management-only
+                // academy's roles page.
+                'permissions'   => PermissionCatalog::usableWith(PermissionResolver::forRole($code), $features),
                 'assignedCount' => $this->assignedCount($code),
             ];
         }
@@ -138,11 +183,11 @@ final class AcademyRoleController extends Controller
             'description'   => $r->description,
             'isActive'      => (bool) $r->is_active,
             'system'        => false,
-            'permissions'   => $permsByRole[$r->id] ?? [],
+            'permissions'   => PermissionCatalog::usableWith($permsByRole[$r->id] ?? [], $features),
             'assignedCount' => $this->assignedCount($r->code),
         ])->all();
 
-        $grantable = $this->grantable();
+        $grantable = $this->grantable($features);
 
         return response()->json([
             'system'    => $system,
@@ -237,7 +282,14 @@ final class AcademyRoleController extends Controller
         $before = ['permissions' => PermissionResolver::forRole($role->code)];
 
         if (array_key_exists('permissions', $data)) {
-            $this->assertGrantable($data['permissions']);
+            // A capability this role holds for a module the academy has since lost (or never had)
+            // is hidden from the builder, so the edit cannot mention it — carry it over rather than
+            // silently stripping it, so re-gaining the module needs no re-ticking. Only ever what
+            // the role ALREADY had: the builder still cannot add a hidden capability.
+            $hidden = array_values(array_diff($this->holdable(), $this->grantable()));
+            $kept = array_values(array_intersect($before['permissions'], $hidden));
+            $this->assertGrantable(array_values(array_diff($data['permissions'], $kept)));
+            $data['permissions'] = array_values(array_unique([...$data['permissions'], ...$kept]));
         }
 
         try {

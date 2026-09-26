@@ -118,6 +118,63 @@ final class PermissionCatalog
     ];
 
     /**
+     * The plan feature (Entitlement capability key) a capability only means something with, keyed
+     * by the capability's domain — the part before its last dot. These mirror the `entitled:*`
+     * route gates: an academy without the video module cannot open a room whatever its roles say,
+     * so the role builder has no business offering "Create classrooms" to it. A domain not listed
+     * here belongs to the core management product and is always offered.
+     */
+    private const FEATURE_BY_DOMAIN = [
+        'room' => 'video.conferencing', 'recording' => 'video.conferencing',
+        'course' => 'lms', 'access_code' => 'lms', 'learner' => 'lms',
+        'course_order' => 'lms', 'payment_method' => 'lms',
+        'crm' => 'crm',
+        'invoice' => 'invoicing',
+        'payout' => 'payroll',
+        'package' => 'packages',
+        'trial' => 'trials',
+        'teacher_quality' => 'teacher_quality',
+        'certificate' => 'certificates',
+        'student_report' => 'student_reports',
+        'staff' => 'staff',
+        'supervision' => 'supervision',
+    ];
+
+    /** Single capabilities whose feature differs from their domain's. */
+    private const FEATURE_BY_CODE = [
+        // The "Following" button is the supervision module's, though it acts on a session.
+        'session.follow' => 'supervision',
+    ];
+
+    /** The plan feature `$code` needs, or null when it is part of the core product. */
+    public static function requiredFeature(string $code): ?string
+    {
+        if (isset(self::FEATURE_BY_CODE[$code])) {
+            return self::FEATURE_BY_CODE[$code];
+        }
+
+        $domain = str_contains($code, '.') ? substr($code, 0, (int) strrpos($code, '.')) : $code;
+
+        return self::FEATURE_BY_DOMAIN[$domain] ?? null;
+    }
+
+    /**
+     * Keep only the capabilities an academy holding `$features` can actually use.
+     *
+     * @param  list<string>  $codes
+     * @param  list<string>  $features  Entitlement capability keys (Entitlement::resolve()['capabilities'])
+     * @return list<string>
+     */
+    public static function usableWith(array $codes, array $features): array
+    {
+        return array_values(array_filter($codes, static function (string $code) use ($features): bool {
+            $feature = self::requiredFeature($code);
+
+            return $feature === null || in_array($feature, $features, true);
+        }));
+    }
+
+    /**
      * Capabilities a SUPERVISOR is denied on top of {@see FINANCIAL}.
      *
      * Delegation: a supervisor supervises PEOPLE, not permissions. Handing out logins and roles

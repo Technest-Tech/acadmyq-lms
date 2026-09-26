@@ -6099,7 +6099,15 @@
       "academy_billing": "Billing",
       "automation": "Automation",
       "platform": "Platform",
-      "teacher_quality": "Teacher quality"
+      "teacher_quality": "Teacher performance",
+      "supervision": "Supervision",
+      "course": "Online courses",
+      "access_code": "Access codes",
+      "learner": "Learners",
+      "course_order": "Course orders",
+      "payment_method": "Receiving accounts",
+      "room": "Video classroom",
+      "recording": "Recordings"
     },
     "items": {
       "crm_read": {
@@ -6355,16 +6363,96 @@
         "label": "Manage staff departments"
       },
       "teacher_quality_read": {
-        "label": "View quality reports",
-        "desc": "See the quality rubric and the reports written about teachers"
+        "label": "View teacher performance",
+        "desc": "See each teacher's punctuality, reports and attendance"
       },
       "teacher_quality_manage": {
-        "label": "Manage quality",
-        "desc": "Edit the rubric, write and withdraw reports, and set the automatic discount rule"
+        "label": "Manage the automatic discount",
+        "desc": "Set the discount applied when a teacher leaves a lesson unmarked"
       },
       "teacher_quality_read_own": {
         "label": "View own quality reports",
         "desc": "A teacher reads the quality reports written about themselves"
+      },
+      "session_create": {
+        "label": "Add one-off classes",
+        "desc": "Log a class that no timetable produced"
+      },
+      "session_revert_attendance": {
+        "label": "Undo attendance",
+        "desc": "Put a marked lesson back to scheduled to fix a mistake"
+      },
+      "session_free": {
+        "label": "Make lessons free",
+        "desc": "Make a lesson free, choosing whether the student is charged and the teacher paid"
+      },
+      "session_free_request": {
+        "label": "Request a free lesson",
+        "desc": "Ask the academy to make a lesson free"
+      },
+      "session_free_approve": {
+        "label": "Approve free-lesson requests",
+        "desc": "Approve or reject teachers' requests to make a lesson free"
+      },
+      "session_follow": {
+        "label": "Follow lessons",
+        "desc": "Press “Following” on a lesson to take charge of it and silence its reminder"
+      },
+      "supervision_stats": {
+        "label": "View supervision stats",
+        "desc": "See how quickly each supervisor followed and recorded lessons"
+      },
+      "course_read": {
+        "label": "View courses",
+        "desc": "See the online courses and their content"
+      },
+      "course_manage": {
+        "label": "Manage courses",
+        "desc": "Build and edit courses, lessons and the course site"
+      },
+      "access_code_manage": {
+        "label": "Manage access codes",
+        "desc": "Create and revoke the codes learners redeem"
+      },
+      "learner_read": {
+        "label": "View learners",
+        "desc": "See learners and their enrollments"
+      },
+      "course_order_read": {
+        "label": "View course orders",
+        "desc": "See course purchases and what each buyer paid"
+      },
+      "course_order_manage": {
+        "label": "Manage course orders",
+        "desc": "Approve transfer receipts, refund, and remove access"
+      },
+      "payment_method_manage": {
+        "label": "Manage receiving accounts",
+        "desc": "Set the accounts course buyers pay into"
+      },
+      "room_read": {
+        "label": "View classrooms",
+        "desc": "See the academy's video classrooms"
+      },
+      "room_create": {
+        "label": "Create classrooms",
+        "desc": "Open new video classrooms"
+      },
+      "room_join": {
+        "label": "Join classrooms",
+        "desc": "Enter a live video class"
+      },
+      "room_manage": {
+        "label": "Manage classrooms",
+        "desc": "Edit and close video classrooms"
+      },
+      "recording_view": {
+        "label": "Watch recordings",
+        "desc": "Play back recorded video classes"
+      },
+      "room_monitor": {
+        "label": "Monitor classes silently",
+        "desc": "Enter a live class unseen to observe it for quality and safety"
       }
     }
   },

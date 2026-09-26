@@ -123,7 +123,8 @@ it('updates a custom role name and re-grants permissions', function () {
 // ── Assigning a custom role to a staff login ─────────────────────────────────
 
 it('assigns a custom role to a staff member login', function () {
-    clientWith(['custom_roles', 'staff'], $this->academy);
+    // `invoicing` too: the builder only offers capabilities of modules the academy has.
+    clientWith(['custom_roles', 'staff', 'invoicing'], $this->academy);
     Sanctum::actingAs($this->owner);
 
     $code = $this->postJson('/api/roles', [
@@ -209,4 +210,57 @@ it('denies a user without role.manage', function () {
     Sanctum::actingAs($teacher);
 
     $this->getJson('/api/roles')->assertForbidden();
+});
+
+// ── Module clamp: only what this academy can actually use ─────────────────────
+
+it('offers no capability for a module the academy does not have', function () {
+    // A management client without video, LMS, CRM or invoicing.
+    clientWith(['custom_roles', 'staff'], $this->academy);
+    Sanctum::actingAs($this->owner);
+
+    $res = $this->getJson('/api/roles')->assertOk();
+
+    $grantable = $res->json('grantable');
+    expect($grantable)->toContain('student.read')->toContain('session.mark_attendance')
+        ->not->toContain('room.create')->not->toContain('recording.view')
+        ->not->toContain('course.manage')->not->toContain('learner.read')
+        ->not->toContain('crm.read')->not->toContain('invoice.read');
+
+    // The system role cards say the same: a teacher's "join classroom" means nothing here.
+    $teacher = collect($res->json('system'))->firstWhere('code', 'TEACHER');
+    expect($teacher['permissions'])->toContain('session.mark_attendance')
+        ->not->toContain('room.join')->not->toContain('recording.view');
+});
+
+it('refuses a hidden-module capability with a module message, not an escalation one', function () {
+    clientWith(['custom_roles'], $this->academy);
+    Sanctum::actingAs($this->owner);
+
+    $this->postJson('/api/roles', ['name' => 'Classroom host', 'permissions' => ['room.create']])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('permissions')
+        ->assertJsonFragment(['message' => 'These belong to a module this academy does not have: room.create / هذه الصلاحيات تتبع وحدة غير مفعّلة لدى الأكاديمية.']);
+});
+
+it('keeps a hidden-module capability a role already holds through an edit', function () {
+    // The role was built while the academy had invoicing…
+    clientWith(['custom_roles', 'invoicing'], $this->academy);
+    Sanctum::actingAs($this->owner);
+    $id = $this->postJson('/api/roles', [
+        'name' => 'Front desk',
+        'permissions' => ['student.read', 'invoice.read'],
+    ])->assertCreated()->json('roleId');
+
+    // …which is then switched off. The builder no longer shows invoice.read…
+    clientWith(['custom_roles'], $this->academy);
+    Sanctum::actingAs($this->owner);
+    $role = collect($this->getJson('/api/roles')->assertOk()->json('custom'))->firstWhere('id', $id);
+    expect($role['permissions'])->toBe(['student.read']);
+
+    // …so an edit cannot mention it, and must not strip it either.
+    $this->patchJson("/api/roles/{$id}", ['permissions' => ['student.read', 'guardian.read']])->assertOk();
+
+    $code = collect($this->getJson('/api/roles')->json('custom'))->firstWhere('id', $id)['code'];
+    expect(PermissionResolver::forRole($code))->toEqual(['guardian.read', 'invoice.read', 'student.read']);
 });

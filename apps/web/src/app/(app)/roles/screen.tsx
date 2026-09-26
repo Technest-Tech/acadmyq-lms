@@ -35,18 +35,35 @@ import { cn } from "@/lib/utils";
 
 // Display order for capability groups — the domains an academy admin cares about first.
 const DOMAIN_ORDER = [
-  "student", "guardian", "teacher", "schedule", "session", "trial", "crm",
-  "invoice", "payout", "teacher_quality", "certificate", "student_report", "teacher_report",
+  "student", "guardian", "teacher", "schedule", "session", "supervision", "trial", "crm",
+  "invoice", "payout", "package", "teacher_quality", "certificate", "student_report", "teacher_report",
   "report_field", "specialization", "payment_settings", "staff", "staff_department",
-  "user", "role", "notification", "audit",
+  "user", "role", "notification", "audit", "course", "room",
   "academy", "plan", "academy_billing", "automation", "platform",
 ];
 
-// The capability's domain prefix. Multi-word domains (report_field, student_report,
-// staff_department, payment_settings, academy_billing) keep their underscore — only the part
-// before the FINAL dot is the domain.
+// Domains shown inside another's group: the LMS is one module to an academy, not five one-line
+// sections ("Access codes", "Learners"…), and a recording belongs with its classroom.
+const GROUP_OF: Record<string, string> = {
+  access_code: "course",
+  learner: "course",
+  course_order: "course",
+  payment_method: "course",
+  recording: "room",
+};
+
+// Single capabilities filed away from their own domain.
+const CODE_GROUP: Record<string, string> = {
+  // The "Following" button is the supervision module, though it acts on a session.
+  "session.follow": "supervision",
+};
+
+// The group a capability is listed under. Its domain is the part before the FINAL dot, so
+// multi-word domains (report_field, student_report, payment_settings…) keep their underscore.
 function domainOf(code: string): string {
-  return code.includes(".") ? code.slice(0, code.lastIndexOf(".")) : code;
+  if (CODE_GROUP[code]) return CODE_GROUP[code];
+  const domain = code.includes(".") ? code.slice(0, code.lastIndexOf(".")) : code;
+  return GROUP_OF[domain] ?? domain;
 }
 
 // Group flat capability codes by domain for a readable picker/list, ordered by DOMAIN_ORDER
