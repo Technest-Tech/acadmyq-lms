@@ -38,6 +38,8 @@ describe("TeacherDetail (Sprint 4 §7)", () => {
         phone: null,
         specialization: "Tajweed",
         session_rate_minor: 8000,
+        pay_type: "HOURLY",
+        fixed_salary_minor: 0,
         currency: "EGP",
         timezone: null,
         payout_method: null,
@@ -49,7 +51,8 @@ describe("TeacherDetail (Sprint 4 §7)", () => {
         deleted_at: null,
         created_at: "",
       },
-      students: [{ id: "s1", full_name: "Yusuf", started_at: "2026-06-01" }],
+      students: [{ id: "s1", full_name: "Yusuf", started_at: "2026-06-01", rate_minor: null }],
+      student_rates: [],
       login: { has_login: false, email: null, is_active: null },
     });
     vi.mocked(api.updateTeacher).mockResolvedValue({ ok: true, changed: [] });
@@ -95,6 +98,8 @@ describe("TeacherDetail (Sprint 4 §7)", () => {
         phone: null,
         specialization: "Tajweed",
         session_rate_minor: 8000,
+        pay_type: "HOURLY",
+        fixed_salary_minor: 0,
         currency: "EGP",
         timezone: null,
         payout_method: "INSTAPAY",
@@ -105,6 +110,7 @@ describe("TeacherDetail (Sprint 4 §7)", () => {
         created_at: "",
       },
       students: [],
+      student_rates: [],
       login: { has_login: false, email: null, is_active: null },
     });
 
@@ -128,22 +134,18 @@ describe("TeacherDetail (Sprint 4 §7)", () => {
     );
   });
 
-  // AC-4.5 (UI side): editing the rate sends the new minor-unit rate.
-  it("saves a rate change in minor units", async () => {
+  // Pay moved to the Salary tab (TeacherPayCard): the profile save must not touch it, or a
+  // supervisor editing a phone number would be re-sending the teacher's rate.
+  it("does not send pay fields from the profile card", async () => {
     renderDetail();
     await screen.findByTestId("teacher-rate");
     const user = userEvent.setup();
 
-    const rate = screen.getByLabelText("Hourly rate");
-    await user.clear(rate);
-    await user.type(rate, "90");
     await user.click(screen.getByTestId("save-teacher"));
 
-    await waitFor(() =>
-      expect(api.updateTeacher).toHaveBeenCalledWith(
-        "t1",
-        expect.objectContaining({ session_rate_minor: 9000 }),
-      ),
-    );
+    await waitFor(() => expect(api.updateTeacher).toHaveBeenCalled());
+    const patch = vi.mocked(api.updateTeacher).mock.calls[0]![1];
+    expect(patch).not.toHaveProperty("session_rate_minor");
+    expect(patch).not.toHaveProperty("pay_type");
   });
 });

@@ -1,9 +1,15 @@
 "use client";
 
-import { AtSign, Banknote, Check, Eye, EyeOff, KeyRound, User, Video } from "lucide-react";
+import { AtSign, Check, Eye, EyeOff, KeyRound, User, Video, Wallet } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { AvailabilityEditor } from "@/components/teachers/availability-editor";
+import {
+  EMPTY_PAY_DRAFT,
+  type PayDraft,
+  payDraftToInput,
+  TeacherPayEditor,
+} from "@/components/teachers/teacher-pay-editor";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +25,7 @@ import {
   type Specialization,
   type TeacherInput,
 } from "@/lib/api";
-import { COUNTRIES, CURRENCIES } from "@/lib/countries";
+import { COUNTRIES } from "@/lib/countries";
 import { cn } from "@/lib/utils";
 
 const inputBase =
@@ -30,12 +36,6 @@ const dialOptions: ComboboxOption[] = COUNTRIES.map((c) => ({
   label: c.name,
   sublabel: c.dialCode,
   pre: c.flag,
-}));
-
-const currencyOptions: ComboboxOption[] = CURRENCIES.map((c) => ({
-  value: c.code,
-  label: c.code,
-  sublabel: c.name,
 }));
 
 function Field({
@@ -58,11 +58,7 @@ function Field({
   );
 }
 
-function toMinor(major: string): number {
-  return Math.round(parseFloat(major || "0") * 100);
-}
-
-/** Create a teacher: name, session rate (drives payroll), availability and an optional login. */
+/** Create a teacher: name, how they are paid (drives payroll), availability and an optional login. */
 export function TeacherForm({
   onCreated,
   onCancel,
@@ -78,8 +74,7 @@ export function TeacherForm({
   const [dialCountry, setDialCountry] = useState("EG");
   const [localNumber, setLocalNumber] = useState("");
   const [specialization, setSpecialization] = useState("");
-  const [rate, setRate] = useState("");
-  const [currency, setCurrency] = useState("EGP");
+  const [pay, setPay] = useState<PayDraft>(EMPTY_PAY_DRAFT);
   const [meetingUrl, setMeetingUrl] = useState("");
   const [createLogin, setCreateLogin] = useState(false);
   const [email, setEmail] = useState("");
@@ -117,8 +112,7 @@ export function TeacherForm({
         full_name: fullName,
         phone: buildPhone(),
         specialization: specialization || null,
-        session_rate_minor: toMinor(rate),
-        currency: currency || undefined,
+        ...payDraftToInput(pay),
         meeting_url: meetingUrl.trim() || null,
         availability,
         create_login: createLogin,
@@ -151,7 +145,7 @@ export function TeacherForm({
         </div>
       </Field>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label={t("form.specialization")}>
           <Combobox
             options={specOptions}
@@ -192,31 +186,16 @@ export function TeacherForm({
           </div>
         </Field>
 
-        <Field label={t("form.rate")} required>
-          <div className="relative">
-            <Banknote className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="number"
-              step="0.01"
-              aria-label={t("form.rate")}
-              className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
-              value={rate}
-              onChange={(e) => setRate(e.target.value)}
-              required
-            />
-          </div>
-        </Field>
+      </div>
 
-        <Field label={t("form.currency")}>
-          <Combobox
-            options={currencyOptions}
-            value={currency}
-            onChange={setCurrency}
-            placeholder={t("form.currency")}
-            searchPlaceholder={t("form.searchCurrency")}
-            data-testid="currency-select"
-          />
-        </Field>
+      {/* How this teacher is paid — the whole pay decision in one bordered block, because the
+          pay type decides which amounts the rest of it even asks for. */}
+      <div className="rounded-xl border p-3 sm:p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Wallet className="text-primary size-4" aria-hidden />
+          <span className="text-sm font-semibold">{t("pay.title")}</span>
+        </div>
+        <TeacherPayEditor value={pay} onChange={setPay} required />
       </div>
 
       <Field label={t("form.meetingUrl")}>

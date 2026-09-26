@@ -158,6 +158,7 @@ final class PayoutController extends Controller
                 'p.period_year',
                 'p.period_month',
                 'p.total_minor',
+                'p.base_minor',
                 'p.rewards_minor',
                 'p.deductions_minor',
                 'p.currency',
@@ -173,10 +174,16 @@ final class PayoutController extends Controller
             abort(404, 'Payout not found.');
         }
 
-        // Sessions subtotal = net − rewards + deductions (the per-session gross before adjustments).
+        // Sessions subtotal = net − fixed salary − rewards + deductions (the per-session gross
+        // before adjustments).
         $payout->sessions_minor = (int) $payout->total_minor
+            - (int) $payout->base_minor
             - (int) $payout->rewards_minor
             + (int) $payout->deductions_minor;
+
+        // How the teacher is paid NOW — lets the statement say "fixed salary" / "per student" and
+        // offer to re-price an open month after the rates changed.
+        $payout->pay_type = DB::table('teachers')->where('id', $payout->teacher_id)->value('pay_type');
 
         // Teacher self-scope (§3.6): without payout.read, you may only open your own statement.
         if (! $canReadAll) {
@@ -199,6 +206,8 @@ final class PayoutController extends Controller
                 'li.amount_minor',
                 'li.currency',
                 'li.session_date',
+                'se.student_id',
+                'se.duration_minutes',
                 DB::raw('st.full_name as student_name'),
                 DB::raw("case when sr.whatsapp_sent_at is not null then 'SENT' when sr.filled_at is not null then 'FILLED' else 'MISSING' end as report_status"),
             ])
@@ -281,6 +290,31 @@ final class PayoutController extends Controller
         );
 
         return response()->json(['ok' => true]);
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /api/payouts/{id}/reprice  — apply the teacher's current pay to an open month
+    // -------------------------------------------------------------------------
+
+    /**
+     * Re-price an OPEN statement at the teacher's current rates / fixed salary. Lessons are
+     * snapshotted when marked, so without this a rate set mid-month never reaches the lessons
+     * already on the statement. Money, so `payout.adjust` — the same right as a manual bonus.
+     */
+    public function reprice(string $id): JsonResponse
+    {
+        Gate::authorize('payout.adjust');
+
+        $ctx = app(AuthContext::class);
+
+        $delta = app(Payroll::class)->repricePayout(
+            $id,
+            (string) $ctx->academyId,
+            (string) $ctx->userId,
+            $ctx->role,
+        );
+
+        return response()->json(['ok' => true, 'delta_minor' => $delta]);
     }
 
     // -------------------------------------------------------------------------
@@ -394,6 +428,10 @@ final class PayoutController extends Controller
      *     the payroll engine already snapshotted onto every line, so a window never disagrees with
      *     the statement a line came from.
      *
+     *   • A fixed monthly salary (`payouts.base_minor`) belongs to a whole month, so it is anchored
+     *     on that month's FIRST day: "this month" shows this month's salaries in full, and a window
+     *     never shows a fraction of one. Pro-rating by days would invent a number nobody agreed to.
+     *
      *   • Adjustments have no lesson to sit on, so they are anchored on the date they REFER to:
      *     the lesson's own date for the unmarked-lesson sweep (which is about one specific
      *     session), and otherwise the date the reward or deduction was recorded. A window
@@ -457,23 +495,55 @@ final class PayoutController extends Controller
             ])
             ->get();
 
+        // Fixed salaries, anchored on the first day of the month they are for.
+        $salaries = DB::table('payouts as p')
+            ->leftJoin('teachers as t', 't.id', '=', 'p.teacher_id')
+            ->where('p.base_minor', '>', 0)
+            ->whereRaw('make_date(p.period_year, p.period_month, 1) between ?::date and ?::date', [$from, $to])
+            ->groupBy('p.teacher_id', 't.full_name', 'p.currency')
+            ->select([
+                'p.teacher_id',
+                'p.currency',
+                DB::raw('t.full_name as teacher_name'),
+                DB::raw('sum(p.base_minor) as base_minor'),
+                DB::raw('bool_or(p.finalized_at is null) as has_open'),
+            ])
+            ->get();
+
         /** @var array<string, array<string,mixed>> $rows keyed by "teacherId|CUR" */
         $rows = [];
 
         $key = static fn (?string $teacherId, string $currency): string => ($teacherId ?? '—').'|'.$currency;
 
+        $blank = static fn (string $teacherId, ?string $name, string $currency): array => [
+            'teacher_id' => $teacherId,
+            'teacher_name' => $name,
+            'currency' => $currency,
+            'sessions' => 0,
+            'minutes' => 0,
+            'base_minor' => 0,
+            'lessons_minor' => 0,
+            'rewards_minor' => 0,
+            'deductions_minor' => 0,
+            'has_open' => false,
+        ];
+
         foreach ($lessons as $row) {
             $rows[$key($row->teacher_id, (string) $row->currency)] = [
-                'teacher_id' => (string) $row->teacher_id,
-                'teacher_name' => $row->teacher_name !== null ? (string) $row->teacher_name : null,
-                'currency' => (string) $row->currency,
+                ...$blank((string) $row->teacher_id, $row->teacher_name !== null ? (string) $row->teacher_name : null, (string) $row->currency),
                 'sessions' => (int) $row->sessions,
                 'minutes' => (int) $row->minutes,
                 'lessons_minor' => (int) $row->lessons_minor,
-                'rewards_minor' => 0,
-                'deductions_minor' => 0,
                 'has_open' => (bool) $row->has_open,
             ];
+        }
+
+        foreach ($salaries as $row) {
+            $k = $key($row->teacher_id, (string) $row->currency);
+            // A salaried teacher is on the list whether or not they taught in the window.
+            $rows[$k] ??= $blank((string) $row->teacher_id, $row->teacher_name !== null ? (string) $row->teacher_name : null, (string) $row->currency);
+            $rows[$k]['base_minor'] += (int) $row->base_minor;
+            $rows[$k]['has_open'] = $rows[$k]['has_open'] || (bool) $row->has_open;
         }
 
         foreach ($adjustments as $row) {
@@ -481,24 +551,18 @@ final class PayoutController extends Controller
 
             // A teacher can have an adjustment in the window with no lessons in it (a deduction
             // recorded after their last class, say) — they still belong on the list.
-            $rows[$k] ??= [
-                'teacher_id' => (string) $row->teacher_id,
-                'teacher_name' => (string) DB::table('teachers')->where('id', $row->teacher_id)->value('full_name'),
-                'currency' => (string) $row->currency,
-                'sessions' => 0,
-                'minutes' => 0,
-                'lessons_minor' => 0,
-                'rewards_minor' => 0,
-                'deductions_minor' => 0,
-                'has_open' => false,
-            ];
+            $rows[$k] ??= $blank(
+                (string) $row->teacher_id,
+                (string) DB::table('teachers')->where('id', $row->teacher_id)->value('full_name'),
+                (string) $row->currency,
+            );
 
             $field = $row->type === 'REWARD' ? 'rewards_minor' : 'deductions_minor';
             $rows[$k][$field] += (int) $row->amount_minor;
         }
 
         $teachers = array_values(array_map(static function (array $row): array {
-            $row['net_minor'] = $row['lessons_minor'] + $row['rewards_minor'] - $row['deductions_minor'];
+            $row['net_minor'] = $row['base_minor'] + $row['lessons_minor'] + $row['rewards_minor'] - $row['deductions_minor'];
 
             return $row;
         }, $rows));
@@ -514,13 +578,14 @@ final class PayoutController extends Controller
                 'teachers' => 0,
                 'sessions' => 0,
                 'minutes' => 0,
+                'base_minor' => 0,
                 'lessons_minor' => 0,
                 'rewards_minor' => 0,
                 'deductions_minor' => 0,
                 'net_minor' => 0,
             ];
             $currencies[$cur]['teachers']++;
-            foreach (['sessions', 'minutes', 'lessons_minor', 'rewards_minor', 'deductions_minor', 'net_minor'] as $field) {
+            foreach (['sessions', 'minutes', 'base_minor', 'lessons_minor', 'rewards_minor', 'deductions_minor', 'net_minor'] as $field) {
                 $currencies[$cur][$field] += $row[$field];
             }
         }

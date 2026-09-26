@@ -2106,13 +2106,28 @@ export interface AvailabilityWindow {
  */
 export type PayoutMethod = "INSTAPAY" | "WALLET";
 
+/**
+ * How a teacher is paid:
+ *  • HOURLY      — `session_rate_minor` per teaching hour, for every student.
+ *  • PER_STUDENT — each student's own hourly rate (`student_rates`); a student without one falls
+ *                  back to `session_rate_minor`.
+ *  • FIXED       — `fixed_salary_minor` a month; lessons still show on the statement at 0.
+ * Every hourly rate is pro-rated by lesson length and snapshotted when the lesson is marked.
+ */
+export type TeacherPayType = "HOURLY" | "PER_STUDENT" | "FIXED";
+export const TEACHER_PAY_TYPES: readonly TeacherPayType[] = ["HOURLY", "PER_STUDENT", "FIXED"];
+
 export interface TeacherRow {
   id: string;
   user_id: string | null;
   full_name: string;
   phone: string | null;
   specialization: string | null;
+  /** Hourly rate — for PER_STUDENT, the default for students without a rate of their own. */
   session_rate_minor: number;
+  pay_type: TeacherPayType;
+  /** The monthly salary when `pay_type` is FIXED; 0 otherwise. */
+  fixed_salary_minor: number;
   currency: string;
   timezone: string | null;
   availability: AvailabilityWindow[];
@@ -2132,6 +2147,17 @@ export interface TeacherStudent {
   id: string;
   full_name: string;
   started_at: string;
+  /** This teacher's hourly rate for this student; null = the teacher's default rate. */
+  rate_minor: number | null;
+}
+
+/** A per-student rate on file (GET /api/teachers/{id} → student_rates). */
+export interface TeacherStudentRate {
+  student_id: string;
+  full_name: string;
+  rate_minor: number;
+  /** Currently assigned to this teacher (a rate outlives a reassignment). */
+  is_current: boolean;
 }
 
 /** The teacher's optional sign-in login (GET /api/teachers/{id}). */
@@ -2146,6 +2172,10 @@ export interface TeacherInput {
   phone?: string | null;
   specialization?: string | null;
   session_rate_minor?: number;
+  pay_type?: TeacherPayType;
+  fixed_salary_minor?: number;
+  /** The WHOLE set of per-student rates — a student left out goes back to the default rate. */
+  student_rates?: { student_id: string; rate_minor: number }[];
   currency?: string | null;
   timezone?: string | null;
   availability?: AvailabilityWindow[];
@@ -2166,6 +2196,7 @@ export function listTeachers(
 export function getTeacher(id: string): Promise<{
   teacher: TeacherRow;
   students: TeacherStudent[];
+  student_rates: TeacherStudentRate[];
   login: TeacherLogin;
 }> {
   return apiFetch(`/api/teachers/${id}`);
@@ -4135,6 +4166,8 @@ export interface PayoutLineItem {
   id: string;
   session_id: string | null;
   session_date: string | null;
+  student_id: string | null;
+  duration_minutes: number | null;
   student_name: string | null;
   amount_minor: number;
   currency: string;
@@ -4175,6 +4208,10 @@ export interface PayoutAdjustment {
 
 export interface PayoutDetail extends PayoutRow {
   notes: string | null;
+  /** The month's fixed salary (0 unless the teacher is on one). */
+  base_minor: number;
+  /** How the teacher is paid NOW (not necessarily when each line was paid). */
+  pay_type: TeacherPayType | null;
   /** Per-session gross before adjustments. */
   sessions_minor: number;
   rewards_minor: number;
@@ -4201,6 +4238,16 @@ export function addPayoutAdjustment(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+/**
+ * Re-price an OPEN statement at the teacher's current rates / fixed salary (payout.adjust).
+ * Lessons are snapshotted when marked, so this is how a rate set mid-month reaches them.
+ */
+export function repricePayout(
+  payoutId: string,
+): Promise<{ ok: boolean; delta_minor: number }> {
+  return apiFetch(`/api/payouts/${payoutId}/reprice`, { method: "POST" });
 }
 
 /** Remove an adjustment from an OPEN payout. */
@@ -4277,6 +4324,8 @@ export interface PayrollRangeTeacher {
   sessions: number;
   /** Minutes taught in the window — the figure a salary gets checked against. */
   minutes: number;
+  /** Fixed monthly salaries whose month STARTS inside the window. */
+  base_minor: number;
   lessons_minor: number;
   rewards_minor: number;
   deductions_minor: number;
@@ -4290,6 +4339,7 @@ export interface PayrollRangeCurrency {
   teachers: number;
   sessions: number;
   minutes: number;
+  base_minor: number;
   lessons_minor: number;
   rewards_minor: number;
   deductions_minor: number;

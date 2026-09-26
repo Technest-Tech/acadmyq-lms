@@ -1075,7 +1075,7 @@
     },
     "colName": "Name",
     "colSpecialization": "Specialization",
-    "colRate": "Hourly rate",
+    "colRate": "Pay",
     "colPhone": "Phone",
     "colWhatsapp": "WhatsApp",
     "colStudents": "Students",
@@ -1111,7 +1111,7 @@
     "salary": {
       "title": "Payout statements",
       "empty": "No payouts yet.",
-      "hint": "A statement opens automatically once this teacher delivers an attended session.",
+      "hint": "A statement opens with the first attended lesson — or at the start of the month for a fixed salary.",
       "open": "Open",
       "finalized": "Finalized"
     },
@@ -1206,7 +1206,7 @@
       "nextDay": "Next day (+1)",
       "loading": "Loading profile…",
       "profileTitle": "Identity & pay",
-      "profileDesc": "Name, contact, specialization, the hourly rate payroll uses and where pay is sent",
+      "profileDesc": "Name, contact, specialization and where pay is sent",
       "availabilityDesc": "The weekly windows this teacher can be scheduled in",
       "availabilitySaveHint": "Availability is saved with the profile — use Save changes above.",
       "studentsDesc": "Students currently assigned to this teacher",
@@ -1276,6 +1276,38 @@
       "presses": "×{n}",
       "truncated": "Showing the latest {n} lessons only.",
       "loadError": "Could not load punctuality."
+    },
+    "pay": {
+      "title": "How this teacher is paid",
+      "description": "Per hour, per student, or a fixed monthly salary — each month’s statement is worked out from this",
+      "typeLabel": "Pay type",
+      "type": {
+        "HOURLY": "Per hour",
+        "PER_STUDENT": "Per student",
+        "FIXED": "Fixed monthly"
+      },
+      "typeHint": {
+        "HOURLY": "One hourly rate for every lesson, whoever the student.",
+        "PER_STUDENT": "A different hourly rate for each student. The month’s salary adds up every lesson at its own student’s rate.",
+        "FIXED": "The same salary every month, however many lessons they teach."
+      },
+      "monthlySalary": "Monthly salary",
+      "defaultRate": "Default hourly rate",
+      "studentRates": "Rate per student (per hour)",
+      "emptyUsesDefault": "Empty = default ({rate})",
+      "emptyUsesDefaultNone": "Empty = the default rate",
+      "noStudentRates": "No students yet. Search below to give a student their own rate — students assigned to this teacher show up here too.",
+      "notAssigned": "Not currently assigned",
+      "rateFor": "Hourly rate for {name}",
+      "perHourShort": "/hr",
+      "removeStudent": "Remove {name}",
+      "addStudent": "Add a student…",
+      "proRateNote": "Rates are per teaching hour, so a 30-minute lesson pays half. A lesson’s pay is locked in when it is marked attended.",
+      "fixedNote": "Paid in full on each month’s statement. Lessons still show on it, at no extra pay.",
+      "summaryFixed": "Fixed / month",
+      "summaryPerStudent": "Default {rate} / hr",
+      "save": "Save pay",
+      "saved": "Pay saved. Lessons already marked this month keep their old rate — open this month’s statement and press “Recalculate” to apply the new one."
     }
   },
   "settings": {
@@ -2848,7 +2880,20 @@
       "last30": "Last 30 days"
     },
     "statementsTitle": "Monthly statements",
-    "statementsHint": "Every statement the period touches — open one to see its lessons or finalize it"
+    "statementsHint": "Every statement the period touches — open one to see its lessons or finalize it",
+    "breakdownFixed": "Fixed salary",
+    "breakdownFixedSub": "For the month",
+    "byStudent": "By student",
+    "bsLessons": "Lessons",
+    "bsHours": "Hours",
+    "bsRate": "Rate / hr",
+    "reprice": "Recalculate",
+    "repriceHint": "Changed this teacher’s pay? Recalculate applies their current rates and salary to this month’s lessons.",
+    "repriceConfirmTitle": "Recalculate this statement?",
+    "repriceConfirmBody": "Every lesson on this statement is re-priced at the teacher’s current rate for its student, and the fixed salary is set to their current one. Rewards and deductions you added stay as they are.",
+    "repriceDone": "Recalculated: {delta}",
+    "repriceNoChange": "Already up to date — nothing changed.",
+    "rangeFixed": "Fixed salaries"
   },
   "audit": {
     "title": "Audit Log",

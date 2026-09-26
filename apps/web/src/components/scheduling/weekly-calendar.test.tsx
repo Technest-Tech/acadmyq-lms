@@ -87,6 +87,8 @@ describe("WeeklyCalendar (Sprint 5 §5.5)", () => {
           phone: null,
           specialization: null,
           session_rate_minor: 5000,
+          pay_type: "HOURLY",
+          fixed_salary_minor: 0,
           currency: "EGP",
           timezone: null,
           payout_method: null,

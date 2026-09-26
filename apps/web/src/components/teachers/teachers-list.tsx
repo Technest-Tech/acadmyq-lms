@@ -9,10 +9,11 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Octagram } from "@/components/ornaments";
+import { usePaySummary } from "@/components/teachers/teacher-pay-editor";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   type ColumnDef,
@@ -25,7 +26,6 @@ import {
   type TeacherRow,
 } from "@/lib/api";
 import { type ExcelColumn } from "@/lib/export-excel";
-import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /**
@@ -130,7 +130,7 @@ export function TeachersList({
   onPrefetch?: (id: string) => void;
 }) {
   const t = useTranslations("teachers");
-  const locale = useLocale();
+  const paySummary = usePaySummary();
   const { can } = useAuth();
 
   const columns = useMemo<ColumnDef<TeacherRow>[]>(
@@ -166,14 +166,15 @@ export function TeachersList({
         sortKey: "rate",
         className: "text-end",
         headerClassName: "min-w-28",
-        render: (r) => (
-          <span className="font-medium tabular-nums">
-            {formatMoney(
-              { amount: r.session_rate_minor, currency: r.currency },
-              locale,
-            )}
-          </span>
-        ),
+        render: (r) => {
+          const pay = paySummary(r);
+          return (
+            <div className="text-end">
+              <div className="font-medium tabular-nums">{pay.value}</div>
+              <div className="text-muted-foreground text-[11px]">{pay.sub}</div>
+            </div>
+          );
+        },
       },
       {
         key: "phone",
@@ -224,7 +225,7 @@ export function TeachersList({
         },
       },
     ],
-    [t, locale],
+    [t, paySummary],
   );
 
   const filters = useMemo<FilterDef[]>(
@@ -248,11 +249,10 @@ export function TeachersList({
       { header: t("colSpecialization"), value: (r) => r.specialization },
       {
         header: t("colRate"),
-        value: (r) =>
-          formatMoney(
-            { amount: r.session_rate_minor, currency: r.currency },
-            locale,
-          ),
+        value: (r) => {
+          const pay = paySummary(r);
+          return `${pay.value} · ${pay.sub}`;
+        },
       },
       { header: t("colWhatsapp"), value: (r) => r.phone },
       {
@@ -260,7 +260,7 @@ export function TeachersList({
         value: (r) => (r.deleted_at == null ? t("stat.active") : t("stat.inactive")),
       },
     ],
-    [t, locale],
+    [t, paySummary],
   );
 
   const newButton = can("teacher.create") ? (

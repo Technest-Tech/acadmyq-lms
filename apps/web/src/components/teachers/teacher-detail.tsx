@@ -14,10 +14,11 @@ import {
   Video,
   Wallet,
 } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AvailabilityEditor } from "@/components/teachers/availability-editor";
+import { usePaySummary } from "@/components/teachers/teacher-pay-editor";
 import { TeacherLoginSection } from "@/components/teachers/teacher-login-section";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -41,8 +42,7 @@ import {
   type TeacherStudent,
   updateTeacher,
 } from "@/lib/api";
-import { COUNTRIES, CURRENCIES } from "@/lib/countries";
-import { formatMoney } from "@/lib/money";
+import { COUNTRIES } from "@/lib/countries";
 import { cn } from "@/lib/utils";
 
 const dialOptions: ComboboxOption[] = COUNTRIES.map((c) => ({
@@ -50,12 +50,6 @@ const dialOptions: ComboboxOption[] = COUNTRIES.map((c) => ({
   label: c.name,
   sublabel: c.dialCode,
   pre: c.flag,
-}));
-
-const currencyOptions: ComboboxOption[] = CURRENCIES.map((c) => ({
-  value: c.code,
-  label: c.code,
-  sublabel: c.name,
 }));
 
 /** Split a stored E.164 phone into a dial-country ISO code + local digits (default Egypt). */
@@ -120,13 +114,10 @@ function Field({
 const inputBase =
   "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:cursor-not-allowed disabled:opacity-50";
 
-function toMinor(major: string): number {
-  return Math.round(parseFloat(major || "0") * 100);
-}
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
-/** Teacher detail: edit the session rate (audited) + availability, see current students. */
+/** Teacher detail: edit identity, contact, payout destination + availability, see current students.
+ *  How the teacher is PAID is edited on the Salary tab (TeacherPayCard) — pay is money. */
 export function TeacherDetail({
   teacherId,
   onBack,
@@ -142,8 +133,8 @@ export function TeacherDetail({
   showHero?: boolean;
 }) {
   const t = useTranslations("teachers");
-  const locale = useLocale();
   const { can } = useAuth();
+  const paySummary = usePaySummary();
 
   const [teacher, setTeacher] = useState<TeacherRow | null>(null);
   const [students, setStudents] = useState<TeacherStudent[]>([]);
@@ -152,8 +143,6 @@ export function TeacherDetail({
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const [rate, setRate] = useState("");
-  const [currency, setCurrency] = useState("EGP");
   const [fullName, setFullName] = useState("");
   const [dialCountry, setDialCountry] = useState("EG");
   const [localNumber, setLocalNumber] = useState("");
@@ -196,8 +185,6 @@ export function TeacherDetail({
     setTeacher(res.teacher);
     setStudents(res.students);
     setLogin(res.login);
-    setRate((res.teacher.session_rate_minor / 100).toString());
-    setCurrency(res.teacher.currency);
     setFullName(res.teacher.full_name);
     const { code, local } = splitPhone(res.teacher.phone);
     setDialCountry(code);
@@ -234,8 +221,6 @@ export function TeacherDetail({
       await updateTeacher(teacherId, {
         full_name: fullName,
         phone: buildPhone(),
-        session_rate_minor: toMinor(rate),
-        currency,
         specialization: specialization || null,
         // The handle is the fact; the method only says how to read it. Emptying the field is
         // therefore how you remove a destination, and it clears both halves.
@@ -273,18 +258,8 @@ export function TeacherDetail({
             icon={Banknote}
             label={t("colRate")}
             tone="violet"
-            value={
-              <span data-testid="teacher-rate">
-                {formatMoney(
-                  {
-                    amount: teacher.session_rate_minor,
-                    currency: teacher.currency,
-                  },
-                  locale,
-                )}
-              </span>
-            }
-            sub={t("fact.perHour")}
+            value={<span data-testid="teacher-rate">{paySummary(teacher).value}</span>}
+            sub={paySummary(teacher).sub}
           />
           <FactCard
             icon={MessageCircle}
@@ -407,41 +382,10 @@ export function TeacherDetail({
               <p className="text-muted-foreground text-[11px]">{t("form.meetingUrlHint")}</p>
             </Field>
 
-            {/* The rate and its currency are one decision — they sit on one row so nobody
-                changes 80 → 90 without noticing it is EGP and not USD. */}
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={t("form.rate")}>
-                <div className="relative">
-                  <Banknote className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
-                  <input
-                    type="number"
-                    step="0.01"
-                    aria-label={t("form.rate")}
-                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
-                    value={rate}
-                    disabled={!canEdit}
-                    onChange={(e) => setRate(e.target.value)}
-                  />
-                </div>
-              </Field>
-
-              <Field label={t("form.currency")}>
-                <Combobox
-                  options={currencyOptions}
-                  value={currency}
-                  onChange={setCurrency}
-                  placeholder={t("form.currency")}
-                  searchPlaceholder={t("form.searchCurrency")}
-                  disabled={!canEdit}
-                  data-testid="currency-select"
-                />
-              </Field>
-            </div>
-
             {/* ── Payout destination ──────────────────────────────────────
                 Payroll works out WHAT to pay; this is the only place that says where it goes.
                 It sits on the pay card because the two are read in the same breath — whoever
-                makes the transfer is looking at the rate above it. */}
+                makes the transfer reads it beside who they are paying. */}
             <div className="space-y-2 border-t pt-4">
               <span className="text-sm font-medium">{t("form.payoutDestination")}</span>
               <p className="text-muted-foreground text-xs">{t("form.payoutHint")}</p>

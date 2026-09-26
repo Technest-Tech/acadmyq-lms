@@ -147,8 +147,8 @@ final class AutoDeductUnreportedSessionsJob implements ShouldQueue
                     ->where('pa.source', 'AUTO_UNREPORTED');
             })
             ->select([
-                'se.id', 'se.scheduled_at_utc', 'se.duration_minutes', 'se.teacher_id',
-                'te.session_rate_minor', 'te.currency',
+                'se.id', 'se.scheduled_at_utc', 'se.duration_minutes', 'se.teacher_id', 'se.student_id',
+                'te.session_rate_minor', 'te.pay_type', 'te.currency',
             ])
             ->limit(500)
             ->get();
@@ -179,7 +179,7 @@ final class AutoDeductUnreportedSessionsJob implements ShouldQueue
                 continue;
             }
 
-            $amountMinor = $this->amountFor($basis, $flatMinor, $bp, $session);
+            $amountMinor = $this->amountFor($payroll, $basis, $flatMinor, $bp, $session);
             if ($amountMinor <= 0) {
                 continue;
             }
@@ -238,21 +238,29 @@ final class AutoDeductUnreportedSessionsJob implements ShouldQueue
     /**
      * What the unmarked lesson costs the teacher.
      *
-     * PERCENT_SESSION prices off the teacher's rate × duration rather than a payout line, because
-     * an unmarked session HAS no line — never being marked is the whole reason we're here. So the
-     * percent bites into what the lesson would have paid had they done the paperwork, using the
-     * same integer basis-point arithmetic the rest of the money path uses (AC-1.10).
+     * PERCENT_SESSION prices off what the lesson is worth rather than a payout line, because an
+     * unmarked session HAS no line — never being marked is the whole reason we're here. So the
+     * percent bites into what the lesson would have paid had they done the paperwork — priced by
+     * the SAME rule attendance uses (the student's own rate for a per-student teacher, nothing for
+     * a fixed-salary one) — using the integer basis-point arithmetic the rest of the money path
+     * uses (AC-1.10).
      */
-    private function amountFor(string $basis, int $flatMinor, int $bp, object $session): int
+    private function amountFor(Payroll $payroll, string $basis, int $flatMinor, int $bp, object $session): int
     {
         if ($basis === 'FIXED') {
             return $flatMinor;
         }
 
-        $hourlyRateMinor = (int) ($session->session_rate_minor ?? 0);
-        $durationMinutes = (int) ($session->duration_minutes ?? 0);
-        // Mirrors Payroll::onSessionAttended's pro-rating of the hourly rate.
-        $wouldHavePaid = (int) round($hourlyRateMinor * $durationMinutes / 60);
+        $teacher = (object) [
+            'id' => $session->teacher_id,
+            'pay_type' => $session->pay_type ?? Payroll::PAY_HOURLY,
+            'session_rate_minor' => (int) ($session->session_rate_minor ?? 0),
+        ];
+        $wouldHavePaid = $payroll->lessonPayMinor(
+            $teacher,
+            $session->student_id !== null ? (string) $session->student_id : null,
+            (int) ($session->duration_minutes ?? 0),
+        );
 
         return TeacherQuality::applyBasisPoints($wouldHavePaid, $bp);
     }

@@ -15,10 +15,14 @@ use Illuminate\Validation\ValidationException;
  * Sprint 8 real payroll implementation — the SECOND money document, structurally parallel to
  * {@see Invoicing}. Where invoicing bills the student, this pays the teacher, from the SAME
  * session data and the SAME {@see \App\Domain\SessionClassifier} truth: only an ATTENDED session
- * pays, at the teacher's hourly `session_rate_minor` pro-rated by the session length + currency,
- * snapshotted at attendance time (R-PAY-1/3,
- * decision §2). One payout per teacher per period; totals maintained transactionally; immutable
- * after finalize.
+ * pays, at the teacher's hourly rate pro-rated by the session length + currency, snapshotted at
+ * attendance time (R-PAY-1/3, decision §2). One payout per teacher per period; totals maintained
+ * transactionally; immutable after finalize.
+ *
+ * WHICH hourly rate depends on the teacher's `pay_type` (see {@see lessonPayMinor}): one rate for
+ * everyone (HOURLY), the student's own rate with the teacher's as the fallback (PER_STUDENT), or
+ * nothing per lesson at all (FIXED) — a fixed-salary teacher is paid `fixed_salary_minor` a month,
+ * carried on the statement as `base_minor`. Net = base + Σ lines + rewards − deductions.
  *
  * Idempotency contract: the caller (AttendanceService) guards via `sessions.paid_to_teacher`; this
  * service also uses `insertOrIgnore` on the unique `(payout_id, session_id)` constraint as a
@@ -57,21 +61,10 @@ final class Payroll implements PayoutHook
         $month = (int) $local->month;
 
         // Snapshot NOW — later rate edits (Sprint 4) must not rewrite this line (R-PAY-1/3).
-        // `teachers.session_rate_minor` is the teacher's HOURLY rate; a session pays that rate
-        // pro-rated by its length, so a 30-min session at 50/hr pays 25 (decision: hourly pay).
-        $durationMinutes = (int) ($session->duration_minutes
-            ?? DB::table('sessions')->where('id', $session->id)->value('duration_minutes')
-            ?? 0);
-        // A free-trial lesson is free for the academy too: the teacher accrues nothing for it
-        // (decision — a trial is unpaid demo time). The line is still recorded at zero so the
-        // delivered session is visible on the payout statement.
-        $hourlyRateMinor = (int) $teacher->session_rate_minor;
-        $amountMinor     = $this->isFreeTrial((string) $session->id)
-            ? 0
-            : (int) round($hourlyRateMinor * $durationMinutes / 60);
-        $currency        = (string) $teacher->currency;
+        $amountMinor = $this->linePayMinor($teacher, $session);
+        $currency    = (string) $teacher->currency;
 
-        $payoutId = $this->ensureOpenPayout($academy, (string) $session->teacher_id, $year, $month, $currency);
+        $payoutId = $this->ensureOpenPayout($academy, $teacher, $year, $month);
 
         // Idempotency: if a line already exists for this session, do nothing.
         $exists = DB::table('payout_line_items')
@@ -221,18 +214,18 @@ final class Payroll implements PayoutHook
             return;
         }
 
-        // Integrity check: net total must equal sessions + rewards − deductions (AC-8.7,
-        // extended for adjustments). sessions = sum of per-session line items.
+        // Integrity check: net total must equal base + sessions + rewards − deductions (AC-8.7,
+        // extended for adjustments and the fixed salary). sessions = sum of per-session lines.
         $lineSum = (int) DB::table('payout_line_items')
             ->where('payout_id', $payoutId)
             ->sum('amount_minor');
 
-        $expected = $lineSum + (int) $payout->rewards_minor - (int) $payout->deductions_minor;
+        $expected = (int) $payout->base_minor + $lineSum + (int) $payout->rewards_minor - (int) $payout->deductions_minor;
 
         if ((int) $payout->total_minor !== $expected) {
             throw new \RuntimeException(
                 "Payout {$payoutId} integrity failure: total_minor={$payout->total_minor} but "
-                . "sessions({$lineSum}) + rewards({$payout->rewards_minor}) − deductions({$payout->deductions_minor}) = {$expected}."
+                . "base({$payout->base_minor}) + sessions({$lineSum}) + rewards({$payout->rewards_minor}) − deductions({$payout->deductions_minor}) = {$expected}."
             );
         }
 
@@ -442,6 +435,250 @@ final class Payroll implements PayoutHook
     }
 
     // -------------------------------------------------------------------------
+    // Pay types — HOURLY, PER_STUDENT, FIXED
+    // -------------------------------------------------------------------------
+
+    public const PAY_HOURLY = 'HOURLY';
+
+    public const PAY_PER_STUDENT = 'PER_STUDENT';
+
+    public const PAY_FIXED = 'FIXED';
+
+    public const PAY_TYPES = [self::PAY_HOURLY, self::PAY_PER_STUDENT, self::PAY_FIXED];
+
+    /**
+     * What one lesson with this student pays the teacher, before any free-trial zeroing — THE
+     * pricing rule, shared by attendance, re-pricing and the unmarked-lesson sweep so the three
+     * can never disagree about what a lesson is worth.
+     *
+     * Every rate is HOURLY and pro-rated by the lesson's length (a 30-min lesson at 50/hr pays
+     * 25). PER_STUDENT takes the student's own rate when one is set and the teacher's rate
+     * otherwise. FIXED pays nothing per lesson: the month's salary is the pay.
+     */
+    public function lessonPayMinor(object $teacher, ?string $studentId, int $durationMinutes): int
+    {
+        $payType = (string) ($teacher->pay_type ?? self::PAY_HOURLY);
+
+        if ($payType === self::PAY_FIXED) {
+            return 0;
+        }
+
+        $hourlyRateMinor = (int) $teacher->session_rate_minor;
+
+        if ($payType === self::PAY_PER_STUDENT && $studentId !== null) {
+            $own = DB::table('teacher_student_rates')
+                ->where('teacher_id', $teacher->id)
+                ->where('student_id', $studentId)
+                ->value('rate_minor');
+            if ($own !== null) {
+                $hourlyRateMinor = (int) $own;
+            }
+        }
+
+        return (int) round($hourlyRateMinor * $durationMinutes / 60);
+    }
+
+    /** The month's fixed salary a teacher is owed — 0 for anyone paid by the lesson. */
+    public static function baseSalaryMinor(object $teacher): int
+    {
+        return ($teacher->pay_type ?? self::PAY_HOURLY) === self::PAY_FIXED
+            ? (int) $teacher->fixed_salary_minor
+            : 0;
+    }
+
+    /**
+     * Bring the teacher's CURRENT month's statement in line with their fixed salary, after their
+     * pay setup changed (switched to/from FIXED, or the salary itself moved).
+     *
+     * Only the current month: last month's statement, still open until the 3rd, was earned under
+     * the old terms. When a salary is owed and there is no statement yet, one is opened — so a
+     * fixed-salary teacher shows on payroll from day one instead of from their first lesson.
+     * Moves the net by the DELTA, never by restating it (the finalize integrity check).
+     */
+    public function syncFixedSalary(string $teacherId, ?string $actorUserId = null, string $actorRole = 'SUPER_ADMIN'): void
+    {
+        $teacher = DB::table('teachers')->where('id', $teacherId)->first();
+        if ($teacher === null || $teacher->deleted_at !== null) {
+            return;
+        }
+
+        $academy = DB::table('academies')->where('id', $teacher->academy_id)->first();
+        if ($academy === null) {
+            return;
+        }
+
+        [$year, $month] = $this->currentPeriod($academy);
+        $base = self::baseSalaryMinor($teacher);
+
+        $payout = DB::table('payouts')
+            ->where('teacher_id', $teacherId)
+            ->where('period_year', $year)
+            ->where('period_month', $month)
+            ->first();
+
+        if ($payout === null) {
+            if ($base > 0) {
+                $this->ensureOpenPayout($academy, $teacher, $year, $month);
+            }
+
+            return;
+        }
+
+        // A sealed statement is money already paid; a statement in another currency cannot take
+        // a salary quoted in this one without inventing an exchange rate.
+        if ($payout->finalized_at !== null || $payout->currency !== $teacher->currency) {
+            return;
+        }
+
+        $this->moveBase($payout, $base, $actorUserId, $actorRole);
+    }
+
+    /**
+     * Open this month's statement for every active fixed-salary teacher who has none yet. Run
+     * daily by {@see \App\Jobs\OpenFixedSalaryPayoutsJob}: a salaried teacher is owed their pay
+     * whether or not they taught, so their statement cannot wait for an attended lesson to exist.
+     *
+     * @return int statements opened
+     */
+    public function openFixedSalaryPayouts(string $academyId): int
+    {
+        $academy = DB::table('academies')->where('id', $academyId)->first();
+        if ($academy === null) {
+            return 0;
+        }
+
+        [$year, $month] = $this->currentPeriod($academy);
+
+        $teachers = DB::table('teachers as t')
+            ->where('t.pay_type', self::PAY_FIXED)
+            ->where('t.fixed_salary_minor', '>', 0)
+            ->where('t.is_active', true)
+            ->whereNull('t.deleted_at')
+            ->whereNotExists(function ($q) use ($year, $month) {
+                $q->select(DB::raw(1))
+                    ->from('payouts as p')
+                    ->whereColumn('p.teacher_id', 't.id')
+                    ->where('p.period_year', $year)
+                    ->where('p.period_month', $month);
+            })
+            ->get(['t.*']);
+
+        foreach ($teachers as $teacher) {
+            $this->ensureOpenPayout($academy, $teacher, $year, $month);
+        }
+
+        return $teachers->count();
+    }
+
+    /**
+     * Re-price an OPEN statement against the teacher's CURRENT pay setup: every lesson line at
+     * today's rate for its student, and the fixed salary at today's amount.
+     *
+     * Lines are snapshotted at attendance on purpose (R-PAY-1/3), so a rate set AFTER lessons were
+     * marked — the common case when an academy configures pay mid-month — would otherwise never
+     * reach them. This is the owner's explicit "apply the new rates to this month", never an
+     * automatic side effect of editing a teacher. Each line moves by its own delta and the net by
+     * their sum, so the finalize integrity check still means something.
+     *
+     * @return int the net change applied to the statement (may be negative or zero)
+     *
+     * @throws ValidationException missing/finalized statement, or a currency that no longer matches
+     */
+    public function repricePayout(string $payoutId, string $academyId, string $actorUserId, string $actorRole): int
+    {
+        $payout = DB::table('payouts')
+            ->where('id', $payoutId)
+            ->where('academy_id', $academyId)
+            ->first();
+
+        if ($payout === null) {
+            throw ValidationException::withMessages(['payout' => ['Payout not found.']]);
+        }
+        if ($payout->finalized_at !== null) {
+            throw ValidationException::withMessages([
+                'payout' => ['Cannot recalculate a finalized payout. / لا يمكن إعادة حساب كشف راتب نهائي.'],
+            ]);
+        }
+
+        $teacher = DB::table('teachers')->where('id', $payout->teacher_id)->first();
+        if ($teacher === null) {
+            throw ValidationException::withMessages(['payout' => ['The teacher on this statement no longer exists.']]);
+        }
+        if ($teacher->currency !== $payout->currency) {
+            throw ValidationException::withMessages([
+                'payout' => [
+                    "This statement is in {$payout->currency} but the teacher is now paid in {$teacher->currency}; it cannot be recalculated. / "
+                    ."هذا الكشف بعملة {$payout->currency} بينما أجر المعلم الآن بعملة {$teacher->currency}؛ لا يمكن إعادة حسابه.",
+                ],
+            ]);
+        }
+
+        $lines = DB::table('payout_line_items as li')
+            ->join('sessions as se', 'se.id', '=', 'li.session_id')
+            ->where('li.payout_id', $payoutId)
+            ->get(['li.id', 'li.amount_minor', 'se.id as session_id', 'se.student_id', 'se.duration_minutes']);
+
+        $linesDelta = 0;
+        $linesChanged = 0;
+        foreach ($lines as $line) {
+            $session = (object) [
+                'id' => $line->session_id,
+                'student_id' => $line->student_id,
+                'duration_minutes' => $line->duration_minutes,
+            ];
+            $fresh = $this->linePayMinor($teacher, $session);
+            $delta = $fresh - (int) $line->amount_minor;
+            if ($delta === 0) {
+                continue;
+            }
+
+            DB::table('payout_line_items')->where('id', $line->id)->update(['amount_minor' => $fresh]);
+            $linesDelta += $delta;
+            $linesChanged++;
+        }
+
+        $baseBefore = (int) $payout->base_minor;
+        $baseAfter = self::baseSalaryMinor($teacher);
+
+        if ($linesDelta === 0 && $baseAfter === $baseBefore) {
+            return 0;
+        }
+
+        DB::table('payouts')
+            ->where('id', $payoutId)
+            ->update([
+                'base_minor' => DB::raw('base_minor + '.($baseAfter - $baseBefore)),
+                'total_minor' => DB::raw('total_minor + '.($linesDelta + $baseAfter - $baseBefore)),
+                'updated_at' => now(),
+            ]);
+
+        Audit::log(
+            'payout.repriced',
+            'payout',
+            $payoutId,
+            $academyId,
+            $actorUserId,
+            $actorRole,
+            after: [
+                'pay_type' => $teacher->pay_type,
+                'lines_changed' => $linesChanged,
+                'lines_delta_minor' => $linesDelta,
+                'base_minor' => $baseAfter,
+                'total_minor' => (int) $payout->total_minor + $linesDelta + $baseAfter - $baseBefore,
+            ],
+            before: [
+                'base_minor' => $baseBefore,
+                'total_minor' => (int) $payout->total_minor,
+            ],
+        );
+
+        // The gross moved — re-derive the percent-based quality deductions against it.
+        $this->quality()->syncPayout($payoutId);
+
+        return $linesDelta + $baseAfter - $baseBefore;
+    }
+
+    // -------------------------------------------------------------------------
     // Derived-adjustment support (teacher quality + the auto-deduction sweep)
     // -------------------------------------------------------------------------
 
@@ -464,7 +701,7 @@ final class Payroll implements PayoutHook
             return null;
         }
 
-        return $this->ensureOpenPayout($academy, $teacherId, $year, $month, (string) $teacher->currency);
+        return $this->ensureOpenPayout($academy, $teacher, $year, $month);
     }
 
     /**
@@ -482,13 +719,17 @@ final class Payroll implements PayoutHook
     }
 
     /**
-     * Σ of the statement's per-session lines — the period's GROSS pay, before rewards/deductions.
-     * This is the base a MONTHLY quality report docks its percent from ("% of the total salary at
-     * the end of the month"), and it keeps growing until the statement is finalized.
+     * The period's GROSS pay, before rewards/deductions: the fixed salary (0 unless the teacher is
+     * on one) plus Σ of the per-session lines. This is the base a MONTHLY quality report docks its
+     * percent from ("% of the total salary at the end of the month") — for a fixed-salary teacher
+     * that IS the salary, since their lessons each pay 0 — and it moves until the statement is
+     * finalized.
      */
     public function grossMinor(string $payoutId): int
     {
-        return (int) DB::table('payout_line_items')
+        $base = (int) DB::table('payouts')->where('id', $payoutId)->value('base_minor');
+
+        return $base + (int) DB::table('payout_line_items')
             ->where('payout_id', $payoutId)
             ->sum('amount_minor');
     }
@@ -528,6 +769,76 @@ final class Payroll implements PayoutHook
     }
 
     /**
+     * What an ATTENDED session's payout line is worth: the lesson's price under the teacher's pay
+     * type, or 0 for a free trial — a trial is unpaid demo time for the academy AND the teacher
+     * (decision). The line is still recorded at zero so the delivered session shows on the
+     * statement; the same goes for every lesson of a fixed-salary teacher.
+     */
+    private function linePayMinor(object $teacher, object $session): int
+    {
+        if ($this->isFreeTrial((string) $session->id)) {
+            return 0;
+        }
+
+        $durationMinutes = $session->duration_minutes ?? null;
+        $studentId = $session->student_id ?? null;
+        if ($durationMinutes === null || $studentId === null) {
+            $row = DB::table('sessions')->where('id', $session->id)->first(['duration_minutes', 'student_id']);
+            $durationMinutes ??= $row?->duration_minutes;
+            $studentId ??= $row?->student_id;
+        }
+
+        return $this->lessonPayMinor(
+            $teacher,
+            $studentId !== null ? (string) $studentId : null,
+            (int) ($durationMinutes ?? 0),
+        );
+    }
+
+    /** Set an open statement's fixed salary to `$base`, moving the net by the difference. */
+    private function moveBase(object $payout, int $base, ?string $actorUserId, string $actorRole): void
+    {
+        $delta = $base - (int) $payout->base_minor;
+        if ($delta === 0) {
+            return;
+        }
+
+        DB::table('payouts')
+            ->where('id', $payout->id)
+            ->update([
+                'base_minor' => DB::raw("base_minor + {$delta}"),
+                'total_minor' => DB::raw("total_minor + {$delta}"),
+                'updated_at' => now(),
+            ]);
+
+        Audit::log(
+            'payout.base_synced',
+            'payout',
+            (string) $payout->id,
+            (string) $payout->academy_id,
+            $actorUserId,
+            $actorRole,
+            after: ['base_minor' => $base],
+            before: ['base_minor' => (int) $payout->base_minor],
+        );
+
+        // A MONTHLY quality report docks a % of the gross, and the salary is part of it.
+        $this->quality()->syncPayout((string) $payout->id);
+    }
+
+    /**
+     * The academy-local month it is right now — the period a fixed salary is being earned in.
+     *
+     * @return array{0: int, 1: int} [year, month]
+     */
+    private function currentPeriod(object $academy): array
+    {
+        $local = now()->setTimezone($academy->timezone ?: 'UTC');
+
+        return [(int) $local->year, (int) $local->month];
+    }
+
+    /**
      * Whether the session's report flags it as a free trial (reserved JSONB key written by the
      * report endpoint). A trial pays the teacher nothing — it mirrors the same zeroing the
      * student invoice applies, so the lesson is free for the teacher and the academy alike.
@@ -548,18 +859,16 @@ final class Payroll implements PayoutHook
      * Find or open the OPEN monthly payout for the given teacher/period (one per teacher per
      * period — unique(academy_id, teacher_id, period_year, period_month), Sprint 1).
      *
+     * A new statement is born carrying the teacher's fixed salary (0 for anyone paid by the
+     * lesson), so the net already includes it and finalize's integrity sum holds from row one.
+     *
      * @return string the payout UUID
      */
-    private function ensureOpenPayout(
-        object $academy,
-        string $teacherId,
-        int $year,
-        int $month,
-        string $currency,
-    ): string {
+    private function ensureOpenPayout(object $academy, object $teacher, int $year, int $month): string
+    {
         $existing = DB::table('payouts')
             ->where('academy_id', $academy->id)
-            ->where('teacher_id', $teacherId)
+            ->where('teacher_id', $teacher->id)
             ->where('period_year', $year)
             ->where('period_month', $month)
             ->first();
@@ -568,16 +877,18 @@ final class Payroll implements PayoutHook
             return (string) $existing->id;
         }
 
-        $id = (string) Str::uuid();
+        $id   = (string) Str::uuid();
+        $base = self::baseSalaryMinor($teacher);
 
         DB::table('payouts')->insert([
             'id'           => $id,
             'academy_id'   => $academy->id,
-            'teacher_id'   => $teacherId,
+            'teacher_id'   => $teacher->id,
             'period_year'  => $year,
             'period_month' => $month,
-            'total_minor'  => 0,
-            'currency'     => $currency,
+            'base_minor'   => $base,
+            'total_minor'  => $base,
+            'currency'     => (string) $teacher->currency,
             'created_at'   => now(),
             'updated_at'   => now(),
         ]);

@@ -3,6 +3,7 @@
 import {
   BadgeMinus,
   BadgePlus,
+  CalendarCheck,
   CalendarRange,
   Clock3,
   Lock,
@@ -170,8 +171,23 @@ function SalarySummaryPanel({
             </p>
 
             {/* What the total is MADE OF. A salary you cannot decompose is a salary you cannot
-                defend to the person receiving it. */}
-            <dl className="mt-3 grid grid-cols-3 gap-2 border-t pt-3 text-xs">
+                defend to the person receiving it. Fixed salaries get their own figure only when
+                someone in this currency is on one. */}
+            <dl
+              className={cn(
+                "mt-3 grid gap-2 border-t pt-3 text-xs",
+                bucket.base_minor > 0 ? "grid-cols-2" : "grid-cols-3",
+              )}
+            >
+              {bucket.base_minor > 0 && (
+                <div>
+                  <dt className="text-muted-foreground flex items-center gap-1">
+                    <CalendarCheck className="size-3" aria-hidden />
+                    {t("rangeFixed")}
+                  </dt>
+                  <dd className="mt-0.5 font-semibold break-words tabular-nums">{fmt(bucket.base_minor)}</dd>
+                </div>
+              )}
               <div>
                 <dt className="text-muted-foreground flex items-center gap-1">
                   <Clock3 className="size-3" aria-hidden />
@@ -236,6 +252,9 @@ function SalaryByTeacher({
 
   if (loading || range === null || range.teachers.length === 0) return null;
 
+  // The fixed-salary column only earns its width when somebody in the window is on a salary.
+  const anyFixed = range.teachers.some((row) => row.base_minor > 0);
+
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -267,6 +286,12 @@ function SalaryByTeacher({
                 )}
               </div>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 px-4 py-3 text-xs">
+                {row.base_minor > 0 && (
+                  <div className="col-span-2 min-w-0">
+                    <dt className="text-muted-foreground">{t("rangeFixed")}</dt>
+                    <dd className="mt-0.5 font-medium break-words tabular-nums">{fmt(row.base_minor)}</dd>
+                  </div>
+                )}
                 <div className="min-w-0">
                   <dt className="text-muted-foreground">{t("rangeTaughtShort")}</dt>
                   <dd className="mt-0.5 font-medium tabular-nums">{formatHours(row.minutes, locale)}</dd>
@@ -303,6 +328,9 @@ function SalaryByTeacher({
             <tr>
               <th className="px-4 py-2.5 text-start font-medium">{t("colTeacher")}</th>
               <th className="px-4 py-2.5 text-end font-medium">{t("rangeTaughtShort")}</th>
+              {anyFixed && (
+                <th className="px-4 py-2.5 text-end font-medium">{t("rangeFixed")}</th>
+              )}
               <th className="px-4 py-2.5 text-end font-medium">{t("rangeLessons")}</th>
               <th className="px-4 py-2.5 text-end font-medium">{t("rangeRewards")}</th>
               <th className="px-4 py-2.5 text-end font-medium">{t("rangeDeductions")}</th>
@@ -332,6 +360,11 @@ function SalaryByTeacher({
                   <td className="text-muted-foreground px-4 py-2.5 text-end tabular-nums">
                     {formatHours(row.minutes, locale)}
                   </td>
+                  {anyFixed && (
+                    <td className="px-4 py-2.5 text-end tabular-nums">
+                      {row.base_minor > 0 ? fmt(row.base_minor) : "—"}
+                    </td>
+                  )}
                   <td className="px-4 py-2.5 text-end tabular-nums">{fmt(row.lessons_minor)}</td>
                   <td className="px-4 py-2.5 text-end tabular-nums text-emerald-600 dark:text-emerald-400">
                     {row.rewards_minor > 0 ? fmt(row.rewards_minor) : "—"}

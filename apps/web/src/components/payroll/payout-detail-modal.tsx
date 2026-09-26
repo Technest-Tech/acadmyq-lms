@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CalendarCheck,
   CalendarDays,
   CheckCircle2,
   FileText,
@@ -8,12 +9,14 @@ import {
   Loader2,
   MinusCircle,
   Receipt,
+  RefreshCw,
   Send,
   Trash2,
   TrendingDown,
+  Users,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AdjustmentReason,
   SourceBadge,
@@ -35,6 +38,7 @@ import {
   type PayoutReportStatus,
   type ReportField,
   removePayoutAdjustment,
+  repricePayout,
   type SessionReportData,
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
@@ -91,6 +95,9 @@ export function PayoutDetailModal({
   const [adjOpen, setAdjOpen] = useState(false);
   const [adjType, setAdjType] = useState<AdjustmentType>("REWARD");
   const [reportSessionId, setReportSessionId] = useState<string | null>(null);
+  const [repriceOpen, setRepriceOpen] = useState(false);
+  const [repricing, setRepricing] = useState(false);
+  const [repriceNotice, setRepriceNotice] = useState<string | null>(null);
 
   const load = useCallback(async (id: string) => {
     setLoading(true);
@@ -112,6 +119,7 @@ export function PayoutDetailModal({
       setPayout(null);
       setLineItems([]);
       setAdjustments([]);
+      setRepriceNotice(null);
       void load(payoutId);
     }
   }, [payoutId, load]);
@@ -130,6 +138,57 @@ export function PayoutDetailModal({
       setRemovingId(null);
     }
   }
+
+  async function handleReprice() {
+    if (!payoutId) return;
+    setRepricing(true);
+    setError(null);
+    try {
+      const res = await repricePayout(payoutId);
+      setRepriceOpen(false);
+      await load(payoutId);
+      onMutated?.();
+      setRepriceNotice(
+        res.delta_minor === 0
+          ? t("repriceNoChange")
+          : t("repriceDone", {
+              delta: `${res.delta_minor > 0 ? "+" : "−"} ${formatMoney(
+                { amount: Math.abs(res.delta_minor), currency: payout?.currency ?? "" },
+                locale,
+              )}`,
+            }),
+      );
+    } catch (err) {
+      setRepriceOpen(false);
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setRepricing(false);
+    }
+  }
+
+  // The statement read student by student: what each one's lessons came to. This is where a
+  // per-student salary is checked — "12 hours with Omar at 100/hr" — rather than line by line.
+  const byStudent = useMemo(() => {
+    const groups = new Map<
+      string,
+      { key: string; name: string; lessons: number; minutes: number; amount: number }
+    >();
+    for (const li of lineItems) {
+      const key = li.student_id ?? li.student_name ?? "—";
+      const g = groups.get(key) ?? {
+        key,
+        name: li.student_name ?? "—",
+        lessons: 0,
+        minutes: 0,
+        amount: 0,
+      };
+      g.lessons += 1;
+      g.minutes += li.duration_minutes ?? 0;
+      g.amount += li.amount_minor;
+      groups.set(key, g);
+    }
+    return [...groups.values()].sort((a, b) => b.amount - a.amount || b.minutes - a.minutes);
+  }, [lineItems]);
 
   const dateFmt = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
   const fmt = (minor: number) =>
@@ -210,8 +269,31 @@ export function PayoutDetailModal({
               </div>
             </div>
 
-            {/* Ledger breakdown */}
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            {repriceNotice && (
+              <AlertBanner
+                variant="success"
+                message={repriceNotice}
+                onDismiss={() => setRepriceNotice(null)}
+              />
+            )}
+
+            {/* Ledger breakdown. The fixed-salary tile only exists for a statement that carries
+                one — an hourly teacher's statement reads exactly as it always has. */}
+            <div
+              className={cn(
+                "grid grid-cols-1 gap-2.5",
+                payout.base_minor > 0 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3",
+              )}
+            >
+              {payout.base_minor > 0 && (
+                <BreakdownTile
+                  icon={CalendarCheck}
+                  tone="neutral"
+                  label={t("breakdownFixed")}
+                  value={fmt(payout.base_minor)}
+                  sub={t("breakdownFixedSub")}
+                />
+              )}
               <BreakdownTile
                 icon={CalendarDays}
                 tone="neutral"
@@ -234,6 +316,68 @@ export function PayoutDetailModal({
                 muted={payout.deductions_minor === 0}
               />
             </div>
+
+            {/* Re-price the open month at the teacher's current pay. Lessons are priced when they
+                are marked, so a rate set after that never reaches them on its own. */}
+            {canAdjust && (
+              <div className="bg-muted/30 flex flex-col gap-2 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-muted-foreground min-w-0 text-xs">{t("repriceHint")}</p>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  className="shrink-0 gap-1.5"
+                  onClick={() => setRepriceOpen(true)}
+                  data-testid="reprice-payout"
+                >
+                  <RefreshCw className="size-3" aria-hidden />
+                  {t("reprice")}
+                </Button>
+              </div>
+            )}
+
+            {/* Per-student summary */}
+            {byStudent.length > 0 && (
+              <Section title={t("byStudent")}>
+                <div className="overflow-x-auto rounded-xl border">
+                  <table className="w-full min-w-[26rem] text-sm" data-testid="payout-by-student">
+                    <thead>
+                      <tr className="bg-muted/30 border-b">
+                        <Th>{t("liStudent")}</Th>
+                        <Th className="text-end">{t("bsLessons")}</Th>
+                        <Th className="text-end">{t("bsHours")}</Th>
+                        <Th className="text-end">{t("bsRate")}</Th>
+                        <Th className="text-end">{t("liAmount")}</Th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {byStudent.map((g) => (
+                        <tr key={g.key} className="hover:bg-muted/20 transition-colors">
+                          <td className="px-4 py-2.5">
+                            <span className="inline-flex items-center gap-1.5">
+                              <Users className="text-muted-foreground size-3 shrink-0" aria-hidden />
+                              {g.name}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-end tabular-nums">{g.lessons}</td>
+                          <td className="text-muted-foreground px-4 py-2.5 text-end tabular-nums">
+                            {(g.minutes / 60).toLocaleString(locale, { maximumFractionDigits: 2 })}
+                          </td>
+                          {/* The hourly rate these lessons actually paid — derived, so a month that
+                              mixes two rates shows their blend rather than pretending to be one. */}
+                          <td className="text-muted-foreground px-4 py-2.5 text-end tabular-nums">
+                            {g.minutes > 0 && g.amount > 0 ? fmt(Math.round((g.amount * 60) / g.minutes)) : "—"}
+                          </td>
+                          <td className="px-4 py-2.5 text-end font-medium tabular-nums">
+                            {fmt(g.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Section>
+            )}
 
             {/* Session line items */}
             <Section title={t("lineItems")}>
@@ -376,6 +520,43 @@ export function PayoutDetailModal({
             )}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={repriceOpen}
+        onClose={() => !repricing && setRepriceOpen(false)}
+        title={t("repriceConfirmTitle")}
+        size="sm"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={repricing}
+              onClick={() => setRepriceOpen(false)}
+            >
+              {t("cancel")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={repricing}
+              onClick={() => void handleReprice()}
+              data-testid="confirm-reprice"
+              className="gap-1.5"
+            >
+              {repricing ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <RefreshCw className="size-3.5" aria-hidden />
+              )}
+              {t("reprice")}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm">{t("repriceConfirmBody")}</p>
       </Modal>
 
       <AdjustmentFormModal

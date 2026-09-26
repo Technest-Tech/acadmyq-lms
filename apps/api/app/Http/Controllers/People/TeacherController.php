@@ -6,6 +6,7 @@ namespace App\Http\Controllers\People;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
+use App\Services\Payroll;
 use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\Phone;
@@ -19,9 +20,11 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Teachers — a session rate + currency that will drive Sprint 8 payroll (R-PAY-1/3), plus
- * weekly availability that guides Sprint 5 scheduling. Editing the rate is forward-looking
- * metadata only; it is audited and never rewrites already-computed payouts (AC-4.5).
+ * Teachers — how they are paid (drives Sprint 8 payroll, R-PAY-1/3), plus weekly availability that
+ * guides Sprint 5 scheduling. Pay is one of three types (see {@see Payroll::lessonPayMinor}): an
+ * hourly rate for everyone, an hourly rate per student, or a fixed monthly salary. Editing pay is
+ * forward-looking: it is audited and never rewrites a lesson already paid (AC-4.5) — the owner
+ * applies new rates to an open month explicitly, from the statement.
  *
  * Teacher self-view (Sprint 2 §3.6): a TEACHER lacks `teacher.read` (the full list) but holds
  * `teacher.read_own`, so `show` lets them read ONLY their own teacher row — never list all
@@ -41,7 +44,7 @@ final class TeacherController extends Controller
 
         $query = DB::table('teachers')->select([
             'id', 'user_id', 'full_name', 'phone', 'specialization',
-            'session_rate_minor', 'currency', 'timezone', 'availability',
+            'session_rate_minor', 'pay_type', 'fixed_salary_minor', 'currency', 'timezone', 'availability',
             'payout_method', 'payout_handle', 'meeting_url',
             'is_active', 'deleted_at', 'created_at',
         ]);
@@ -102,6 +105,9 @@ final class TeacherController extends Controller
             $userId = $this->provisionLogin($academyId, $data['full_name'], strtolower((string) $data['email']), $data['password'] ?? null);
         }
 
+        $payType = $data['pay_type'] ?? Payroll::PAY_HOURLY;
+        $studentRates = $this->normalizeStudentRates($data['student_rates'] ?? []);
+
         DB::table('teachers')->insert([
             'id' => $teacherId,
             'academy_id' => $academyId,
@@ -109,7 +115,10 @@ final class TeacherController extends Controller
             'full_name' => $data['full_name'],
             'phone' => Phone::normalize($data['phone'] ?? null, 'phone'),
             'specialization' => $data['specialization'] ?? null,
-            'session_rate_minor' => $data['session_rate_minor'],
+            // A fixed-salary teacher has no per-lesson rate to give; 0 keeps the column honest.
+            'session_rate_minor' => $data['session_rate_minor'] ?? 0,
+            'pay_type' => $payType,
+            'fixed_salary_minor' => $data['fixed_salary_minor'] ?? 0,
             'currency' => strtoupper($data['currency'] ?? $this->academyDefaultCurrency($academyId)),
             'timezone' => $data['timezone'] ?? null,
             'availability' => json_encode($data['availability'] ?? []),
@@ -121,12 +130,21 @@ final class TeacherController extends Controller
             'is_active' => true,
         ]);
 
+        $this->writeStudentRates($academyId, $teacherId, $studentRates);
+
         Audit::log('teacher.create', 'teacher', $teacherId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
             'full_name' => $data['full_name'],
-            'session_rate_minor' => $data['session_rate_minor'],
+            'pay_type' => $payType,
+            'session_rate_minor' => $data['session_rate_minor'] ?? 0,
+            'fixed_salary_minor' => $data['fixed_salary_minor'] ?? 0,
+            'student_rates' => $studentRates,
             'currency' => strtoupper($data['currency'] ?? $this->academyDefaultCurrency($academyId)),
             'has_login' => $userId !== null,
         ]);
+
+        // A salaried teacher is owed this month from today: open their statement now so they are on
+        // payroll before their first lesson, not after it.
+        app(Payroll::class)->syncFixedSalary($teacherId, $this->ctx()->userId, $this->ctx()->role);
 
         return response()->json(['teacherId' => $teacherId, 'userId' => $userId], 201);
     }
@@ -150,13 +168,33 @@ final class TeacherController extends Controller
 
         $teacher->availability = json_decode((string) $teacher->availability, true);
 
+        // Each current student carries the teacher's rate for them (null = the teacher's default).
         $students = DB::table('student_teacher_assignments as a')
             ->join('students as s', 's.id', '=', 'a.student_id')
+            ->leftJoin('teacher_student_rates as r', function ($j) {
+                $j->on('r.student_id', '=', 'a.student_id')->on('r.teacher_id', '=', 'a.teacher_id');
+            })
             ->where('a.teacher_id', $id)
             ->whereNull('a.ended_at')
             ->whereNull('s.deleted_at')
             ->orderBy('s.full_name')
-            ->get(['s.id', 's.full_name', 'a.started_at']);
+            ->get(['s.id', 's.full_name', 'a.started_at', 'r.rate_minor']);
+
+        // Every rate on file, including students no longer assigned (a rate outlives the
+        // assignment — see the teacher_pay_types migration) and students this teacher covers
+        // without being their teacher of record.
+        $currentIds = $students->pluck('id')->map(fn ($v) => (string) $v)->all();
+        $studentRates = DB::table('teacher_student_rates as r')
+            ->join('students as s', 's.id', '=', 'r.student_id')
+            ->where('r.teacher_id', $id)
+            ->orderBy('s.full_name')
+            ->get(['r.student_id', 's.full_name', 'r.rate_minor'])
+            ->map(fn (object $r): array => [
+                'student_id' => (string) $r->student_id,
+                'full_name' => $r->full_name,
+                'rate_minor' => (int) $r->rate_minor,
+                'is_current' => in_array((string) $r->student_id, $currentIds, true),
+            ]);
 
         // The teacher's linked sign-in login (optional). Surfaced so the detail page can show the
         // current email and let an owner set/change the account (see updateLogin).
@@ -168,7 +206,12 @@ final class TeacherController extends Controller
             }
         }
 
-        return response()->json(['teacher' => $teacher, 'students' => $students, 'login' => $login]);
+        return response()->json([
+            'teacher' => $teacher,
+            'students' => $students,
+            'student_rates' => $studentRates,
+            'login' => $login,
+        ]);
     }
 
     /**
@@ -276,7 +319,7 @@ final class TeacherController extends Controller
 
         $before = [];
         $after = [];
-        foreach (['full_name', 'phone', 'specialization', 'session_rate_minor', 'currency', 'timezone', 'meeting_url'] as $col) {
+        foreach (['full_name', 'phone', 'specialization', 'session_rate_minor', 'pay_type', 'fixed_salary_minor', 'currency', 'timezone', 'meeting_url'] as $col) {
             if (array_key_exists($col, $data) && (string) $data[$col] !== (string) $existing->{$col}) {
                 $before[$col] = $existing->{$col};
                 $after[$col] = $data[$col];
@@ -299,6 +342,25 @@ final class TeacherController extends Controller
             }
         }
 
+        // Per-student rates: the payload is the WHOLE set (a student left out goes back to the
+        // default rate), diffed against what is on file so the audit shows only what moved.
+        if (array_key_exists('student_rates', $data)) {
+            $academyId = $this->currentAcademyId();
+            $newRates = $this->normalizeStudentRates($data['student_rates'] ?? []);
+            $oldRates = DB::table('teacher_student_rates')
+                ->where('teacher_id', $id)
+                ->pluck('rate_minor', 'student_id')
+                ->map(fn ($v) => (int) $v)
+                ->all();
+            ksort($oldRates);
+            ksort($newRates);
+            if ($oldRates !== $newRates) {
+                $before['student_rates'] = $oldRates;
+                $after['student_rates'] = $newRates;
+                $this->writeStudentRates($academyId, $id, $newRates);
+            }
+        }
+
         if ($after === []) {
             return response()->json(['ok' => true, 'changed' => []]);
         }
@@ -310,8 +372,17 @@ final class TeacherController extends Controller
             $extra['join_tracking_since'] = now()->toIso8601String();
         }
 
-        DB::table('teachers')->where('id', $id)->update($after + $extra);
+        // `student_rates` lives in its own table (written above) — everything else is a column.
+        $columns = $after;
+        unset($columns['student_rates']);
+        DB::table('teachers')->where('id', $id)->update($columns + $extra);
         Audit::log('teacher.update', 'teacher', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
+
+        // A move onto, off or within a fixed salary lands on this month's statement right away;
+        // lesson rates only reach lessons marked from now on (AC-4.5).
+        if (array_intersect(array_keys($after), ['pay_type', 'fixed_salary_minor', 'currency']) !== []) {
+            app(Payroll::class)->syncFixedSalary($id, $this->ctx()->userId, $this->ctx()->role);
+        }
 
         return response()->json(['ok' => true, 'changed' => array_keys($after)]);
     }
@@ -519,6 +590,64 @@ final class TeacherController extends Controller
         return ['payout_method' => (string) $method, 'payout_handle' => $handle];
     }
 
+    /**
+     * The wire's `[{student_id, rate_minor}]` as a `student_id => rate_minor` map, refusing any
+     * student this academy does not have (RLS scopes the lookup, so another academy's student
+     * reads as unknown too).
+     *
+     * @param  list<array{student_id: string, rate_minor: int}>  $rows
+     * @return array<string, int>
+     */
+    private function normalizeStudentRates(array $rows): array
+    {
+        $rates = [];
+        foreach ($rows as $row) {
+            $rates[strtolower((string) $row['student_id'])] = (int) $row['rate_minor'];
+        }
+
+        if ($rates !== []) {
+            $known = DB::table('students')->whereIn('id', array_keys($rates))->count();
+            if ($known !== count($rates)) {
+                throw ValidationException::withMessages([
+                    'student_rates' => ['One of these students was not found. / أحد هؤلاء الطلاب غير موجود.'],
+                ]);
+            }
+        }
+
+        return $rates;
+    }
+
+    /**
+     * Replace this teacher's per-student rates with `$rates` (a student absent from it goes back
+     * to the teacher's default rate).
+     *
+     * @param  array<string, int>  $rates
+     */
+    private function writeStudentRates(string $academyId, string $teacherId, array $rates): void
+    {
+        DB::table('teacher_student_rates')
+            ->where('teacher_id', $teacherId)
+            ->when($rates !== [], fn ($q) => $q->whereNotIn('student_id', array_keys($rates)))
+            ->delete();
+
+        if ($rates === []) {
+            return;
+        }
+
+        DB::table('teacher_student_rates')->upsert(
+            array_map(fn (string $studentId, int $rate): array => [
+                'academy_id' => $academyId,
+                'teacher_id' => $teacherId,
+                'student_id' => $studentId,
+                'rate_minor' => $rate,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ], array_keys($rates), array_values($rates)),
+            ['teacher_id', 'student_id'],
+            ['rate_minor', 'updated_at'],
+        );
+    }
+
     /** An empty meeting-link field means "no link", never an empty string in the column. */
     private function cleanMeetingUrl(mixed $value): ?string
     {
@@ -536,7 +665,13 @@ final class TeacherController extends Controller
             'full_name' => [$req, 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:32'],
             'specialization' => ['nullable', 'string', 'max:255'],
-            'session_rate_minor' => [$req, 'integer', 'min:0'],
+            // Not needed by a fixed-salary teacher — their lessons pay nothing individually.
+            'session_rate_minor' => [$creating ? 'required_unless:pay_type,'.Payroll::PAY_FIXED : 'sometimes', 'integer', 'min:0'],
+            'pay_type' => ['sometimes', Rule::in(Payroll::PAY_TYPES)],
+            'fixed_salary_minor' => [$creating ? 'required_if:pay_type,'.Payroll::PAY_FIXED : 'sometimes', 'integer', 'min:0'],
+            'student_rates' => ['sometimes', 'array', 'max:1000'],
+            'student_rates.*.student_id' => ['required', 'uuid', 'distinct'],
+            'student_rates.*.rate_minor' => ['required', 'integer', 'min:0'],
             'currency' => ['sometimes', 'nullable', 'string', 'size:3'],
             'timezone' => ['nullable', 'string', 'max:64'],
             'availability' => ['sometimes', 'array'],

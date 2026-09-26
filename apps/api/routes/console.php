@@ -10,6 +10,7 @@ use App\Jobs\FlagOverdueReportsJob;
 use App\Jobs\GenerateAcademyInvoicesJob;
 use App\Jobs\LessonReminderJob;
 use App\Jobs\MonthlyStudentBillingJob;
+use App\Jobs\OpenFixedSalaryPayoutsJob;
 use App\Jobs\PurgeExpiredRecordingsJob;
 use App\Jobs\RollSessionWindowJob;
 use App\Jobs\SendAcademyBillRemindersJob;
@@ -61,6 +62,13 @@ Schedule::job(new CloseMonthlyInvoicesJob)->monthlyOn(2, '01:00')->name('close-m
 | The job sets its own per-academy tenant context and is idempotent, so re-runs are safe.
 */
 Schedule::job(new CloseMonthlyPayoutsJob)->monthlyOn(3, '01:30')->name('close-monthly-payouts')->withoutOverlapping();
+
+/*
+| Daily fixed-salary statements. A teacher on a monthly salary is owed it whether or not they taught,
+| so their statement for the month is opened up front instead of waiting for an attended lesson.
+| Daily, not on the 1st, so a missed run heals itself the next morning. Idempotent per academy.
+*/
+Schedule::job(new OpenFixedSalaryPayoutsJob)->dailyAt('00:40')->name('open-fixed-salary-payouts')->withoutOverlapping();
 
 /*
 | Hourly overdue-report sweep (Notifications "Reports" tab). For every active academy, flag

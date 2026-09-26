@@ -16,19 +16,19 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { type ComponentType, useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { KhatamLattice } from "@/components/ornaments";
 import { TeacherCalendar } from "@/components/teachers/teacher-calendar";
 import { TeacherDetail } from "@/components/teachers/teacher-detail";
+import { usePaySummary } from "@/components/teachers/teacher-pay-editor";
 import { TeacherPunctuality } from "@/components/teachers/teacher-punctuality";
 import { TeacherReports } from "@/components/teachers/teacher-reports";
 import { TeacherSalary } from "@/components/teachers/teacher-salary";
 import { HeroBadge, PageHero } from "@/components/ui/page-hero";
 import { FactCard } from "@/components/ui/profile-card";
 import { getTeacher, type TeacherRow, type TeacherStudent } from "@/lib/api";
-import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 type Tab = "profile" | "calendar" | "punctuality" | "salary" | "reports";
@@ -55,13 +55,13 @@ function weeklyHours(windows: { start_local: string; end_local: string }[]): num
  */
 export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
   const t = useTranslations("teachers");
-  const locale = useLocale();
   const router = useRouter();
   const { can } = useAuth();
 
   const [teacher, setTeacher] = useState<TeacherRow | null>(null);
   const [students, setStudents] = useState<TeacherStudent[]>([]);
   const [tab, setTab] = useState<Tab>("profile");
+  const paySummary = usePaySummary();
 
   const loadHeader = useCallback(async () => {
     const res = await getTeacher(teacherId);
@@ -90,6 +90,7 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
 
   const isActive = teacher.deleted_at == null;
   const hours = weeklyHours(teacher.availability ?? []);
+  const pay = paySummary(teacher);
 
   return (
     <div className="space-y-5" data-testid="teacher-workspace">
@@ -140,11 +141,8 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
           icon={Banknote}
           label={t("colRate")}
           tone="violet"
-          value={formatMoney(
-            { amount: teacher.session_rate_minor, currency: teacher.currency },
-            locale,
-          )}
-          sub={t("fact.perHour")}
+          value={<span className="break-words">{pay.value}</span>}
+          sub={pay.sub}
         />
         <FactCard
           icon={Users}
@@ -236,9 +234,7 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
       )}
 
       {tab === "salary" && (
-        <div className="bg-card rounded-2xl border p-5 shadow-sm sm:p-6">
-          <TeacherSalary teacherId={teacherId} />
-        </div>
+        <TeacherSalary teacherId={teacherId} onPayChanged={() => void loadHeader()} />
       )}
 
       {tab === "reports" && <TeacherReports teacherId={teacherId} />}
