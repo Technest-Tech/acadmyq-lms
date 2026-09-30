@@ -314,11 +314,11 @@ class ShowcaseAcademySeeder extends Seeder
                     'timezone' => 'Africa/Cairo',
                     'is_active' => true,
                     'availability' => json_encode([
-                        ['weekday' => 0, 'from' => '16:00', 'to' => '21:00'],
-                        ['weekday' => 1, 'from' => '16:00', 'to' => '21:00'],
-                        ['weekday' => 2, 'from' => '16:00', 'to' => '21:00'],
-                        ['weekday' => 3, 'from' => '16:00', 'to' => '21:00'],
-                        ['weekday' => 6, 'from' => '10:00', 'to' => '14:00'],
+                        ['weekday' => 0, 'start_local' => '16:00', 'end_local' => '21:00'],
+                        ['weekday' => 1, 'start_local' => '16:00', 'end_local' => '21:00'],
+                        ['weekday' => 2, 'start_local' => '16:00', 'end_local' => '21:00'],
+                        ['weekday' => 3, 'start_local' => '16:00', 'end_local' => '21:00'],
+                        ['weekday' => 6, 'start_local' => '10:00', 'end_local' => '14:00'],
                     ]),
                 ]
             );

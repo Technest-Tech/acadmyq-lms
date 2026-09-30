@@ -36,6 +36,8 @@ type Tab = "profile" | "calendar" | "punctuality" | "salary" | "reports";
 /** Total teaching hours a week, from the availability windows. */
 function weeklyHours(windows: { start_local: string; end_local: string }[]): number {
   const minutes = windows.reduce((sum, w) => {
+    // A window missing either end counts for nothing rather than taking the page down with it.
+    if (!w.start_local || !w.end_local) return sum;
     const [sh, sm] = w.start_local.split(":").map(Number);
     const [eh, em] = w.end_local.split(":").map(Number);
     const span = (eh ?? 0) * 60 + (em ?? 0) - ((sh ?? 0) * 60 + (sm ?? 0));
