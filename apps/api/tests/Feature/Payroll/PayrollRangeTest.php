@@ -230,3 +230,37 @@ it('lists the monthly statements a window touches, on both sides of the boundary
     expect($juneOnly['total'])->toBe(1)
         ->and((int) $juneOnly['rows'][0]['period_month'])->toBe(6);
 });
+
+// ─── The lessons behind a teacher's figure ──────────────────────────────────
+
+it('lists exactly the lessons the window counted for that teacher', function () {
+    ($this->lessonOn)('2026-06-05 10:00:00+00');
+    $inside = ($this->lessonOn)('2026-06-15 10:00:00+00', 90);
+    ($this->lessonOn)('2026-06-25 10:00:00+00');
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/payouts/range/lessons?teacher_id={$this->teacher}&from=2026-06-10&to=2026-06-20")
+        ->assertOk()
+        ->assertJsonCount(1, 'lessons')
+        ->assertJsonPath('lessons.0.session_id', $inside)
+        ->assertJsonPath('lessons.0.session_date', '2026-06-15')
+        ->assertJsonPath('lessons.0.duration_minutes', 90)
+        ->assertJsonPath('lessons.0.amount_minor', 7500)
+        ->assertJsonPath('lessons.0.finalized', false);
+});
+
+it('keeps another teacher\'s lessons out of the list', function () {
+    ($this->lessonOn)('2026-06-15 10:00:00+00');
+    $other = $this->createTeacher($this->academy, ['session_rate_minor' => 5000, 'currency' => 'EGP']);
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/payouts/range/lessons?teacher_id={$other}&from=2026-06-01&to=2026-06-30")
+        ->assertOk()
+        ->assertJsonCount(0, 'lessons');
+});
+
+it('forbids a teacher from listing salary lessons', function () {
+    Sanctum::actingAs($this->teacherUser);
+    $this->getJson("/api/payouts/range/lessons?teacher_id={$this->teacher}&from=2026-06-01&to=2026-06-30")
+        ->assertForbidden();
+});

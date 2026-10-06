@@ -331,6 +331,7 @@ final class WhatsAppGroupController extends Controller
             'settings' => ['sometimes', 'array'],
             'settings.not_marked_after_minutes' => ['sometimes', 'integer', 'min:1', 'max:240'],
             'settings.report_overdue_hours' => ['sometimes', 'integer', 'min:1', 'max:72'],
+            'settings.payment_reminder_days' => ['sometimes', 'integer', 'min:1', 'max:30'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

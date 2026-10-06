@@ -2,10 +2,12 @@
 
 import {
   AlertTriangle,
+  ArrowLeftRight,
   BadgeCheck,
   BookOpenCheck,
   CalendarDays,
   CalendarClock,
+  CalendarX,
   Check,
   Clock3,
   Copy,
@@ -14,20 +16,44 @@ import {
   Link2,
   Loader2,
   MessageCircle,
+  MoreHorizontal,
   Pencil,
+  Plus,
   Receipt,
   RefreshCw,
   WalletCards,
 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { LessonPackageRow } from "@/lib/api";
 import { apiBase } from "@/lib/api-base";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { formatDateTime, formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
+
+/** One thing the card can do. Exactly one of `onClick` / `href` / `external` is set. */
+type CardAction = {
+  key: string;
+  icon: typeof Clock3;
+  label: string;
+  onClick?: () => void;
+  /** An in-app route. */
+  href?: string;
+  /** Opens in a new tab. */
+  external?: string;
+  danger?: boolean;
+  disabled?: boolean;
+  spin?: boolean;
+  testId?: string;
+};
 
 /** A compact operational card: balance, lesson count, dates and collection actions. */
 export function PackageCard({
@@ -40,6 +66,8 @@ export function PackageCard({
   onSyncLessons,
   onSendPayment,
   onMarkPaid,
+  onRenew,
+  onReturnToMonthly,
   canManage,
   canSendInvoice,
   canMarkPaid,
@@ -55,6 +83,10 @@ export function PackageCard({
   onSyncLessons: () => void;
   onSendPayment: () => void;
   onMarkPaid: () => void;
+  /** Sell this student their next block. */
+  onRenew: () => void;
+  /** Take a student whose block ran out off package billing altogether. */
+  onReturnToMonthly: () => void;
   canManage: boolean;
   canSendInvoice: boolean;
   canMarkPaid: boolean;
@@ -68,6 +100,9 @@ export function PackageCard({
   const isActive = row.status === "ACTIVE";
   const low = isActive && row.minutes_remaining <= 60;
   const owes = row.outstanding_minor > 0;
+  // Still being taught with no package open — money is accruing somewhere this card can't hold.
+  const outOfHours = row.gap !== null;
+  const alarm = owes || outOfHours;
   const strandedOverdraft = row.minutes_overdrawn > 0 && !row.overdraft_billed;
   const invoiceUrl = useInvoiceUrl();
   const paymentUrl = row.invoice_token !== null ? invoiceUrl(row.invoice_token) : null;
@@ -79,19 +114,138 @@ export function PackageCard({
     window.setTimeout(() => setCopied(false), 1800);
   }
 
+  /**
+   * Every action this card offers, in the order they matter for THIS package's state. The first
+   * two are buttons; the rest sit behind "⋯". It used to be up to eleven buttons at once, which
+   * buried the one that mattered (open the next block, collect what's owed) among the ones that
+   * almost never do (sync, copy link, proof).
+   */
+  const actions: CardAction[] = [];
+  const add = (when: boolean, action: CardAction) => {
+    if (when) actions.push(action);
+  };
+  const hasInvoice = row.invoice_id !== null;
+
+  add(canManage && row.awaiting_next_package, {
+    key: "renew",
+    icon: Plus,
+    label: t("actions.renew"),
+    onClick: onRenew,
+    testId: "renew-package",
+  });
+  add(canManage && !isActive && strandedOverdraft, {
+    key: "billOverdraft",
+    icon: AlertTriangle,
+    label: t("actions.billOverdraft"),
+    onClick: onBillOverdraft,
+    danger: true,
+  });
+  add(canSendInvoice && hasInvoice && owes, {
+    key: "sendPayment",
+    icon: sendingPayment ? Loader2 : MessageCircle,
+    label: t("actions.sendPayment"),
+    onClick: onSendPayment,
+    disabled: sendingPayment,
+    spin: sendingPayment,
+  });
+  add(canMarkPaid && hasInvoice && owes, {
+    key: "markPaid",
+    icon: BadgeCheck,
+    label: t("actions.markPaid"),
+    onClick: onMarkPaid,
+  });
+  add(true, {
+    key: "viewLessons",
+    icon: BookOpenCheck,
+    label: t("actions.viewLessons"),
+    onClick: onOpenDetail,
+  });
+  add(hasInvoice, {
+    key: "viewInvoice",
+    icon: Receipt,
+    label: t("actions.viewInvoice"),
+    href: `/invoices?id=${row.invoice_id}`,
+  });
+  add(canSendInvoice && hasInvoice && !owes, {
+    key: "sendPaymentPaid",
+    icon: sendingPayment ? Loader2 : MessageCircle,
+    label: t("actions.sendPayment"),
+    onClick: onSendPayment,
+    disabled: sendingPayment,
+    spin: sendingPayment,
+  });
+  if (paymentUrl !== null) {
+    actions.push(
+      {
+        key: "paymentLink",
+        icon: ExternalLink,
+        label: t("actions.paymentLink"),
+        external: paymentUrl,
+      },
+      {
+        key: "copyLink",
+        icon: Copy,
+        label: t("actions.copyLink"),
+        onClick: () => void copyPaymentLink(),
+      },
+    );
+  }
+  add(row.payment_proof_url !== null, {
+    key: "viewProof",
+    icon: FileImage,
+    label: t("actions.viewProof"),
+    external: `${apiBase()}${row.payment_proof_url}`,
+  });
+  if (canManage && isActive) {
+    actions.push(
+      {
+        key: "edit",
+        icon: Pencil,
+        label: t("actions.edit"),
+        onClick: onEdit,
+        testId: "edit-package",
+      },
+      {
+        key: "sync",
+        icon: syncing ? Loader2 : RefreshCw,
+        label: t("actions.syncLessons"),
+        onClick: onSyncLessons,
+        disabled: syncing,
+        spin: syncing,
+      },
+      {
+        key: "close",
+        icon: Link2,
+        label: t("actions.close"),
+        onClick: onClose,
+        testId: "close-package",
+      },
+    );
+  }
+  add(canManage && row.awaiting_next_package, {
+    key: "toMonthly",
+    icon: ArrowLeftRight,
+    label: t("actions.toMonthly"),
+    onClick: onReturnToMonthly,
+    testId: "package-to-monthly",
+  });
+
+  const featured = actions.slice(0, 2);
+  const overflow = actions.slice(2);
+
   return (
     <article
       data-testid="package-card"
       className={cn(
         "bg-card group flex min-w-0 flex-col overflow-hidden rounded-2xl border shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg",
-        owes && "border-rose-300/70 dark:border-rose-800/60",
-        !owes && low && "border-amber-300/70 dark:border-amber-800/60",
+        alarm && "border-rose-300/70 dark:border-rose-800/60",
+        !alarm && low && "border-amber-300/70 dark:border-amber-800/60",
       )}
     >
       <div
         className={cn(
           "relative border-b px-4 py-3.5",
-          owes
+          alarm
             ? "bg-gradient-to-br from-rose-500/[0.12] via-rose-500/[0.05] to-transparent"
             : low
               ? "bg-gradient-to-br from-amber-500/[0.13] via-amber-500/[0.05] to-transparent"
@@ -102,7 +256,7 @@ export function PackageCard({
           <div
             className={cn(
               "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1",
-              owes
+              alarm
                 ? "bg-rose-500/10 text-rose-600 ring-rose-500/20"
                 : low
                   ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
@@ -260,115 +414,177 @@ export function PackageCard({
           </p>
         )}
 
-        <div className="mt-auto grid grid-cols-2 gap-1.5 border-t pt-3">
-          <ActionButton icon={BookOpenCheck} onClick={onOpenDetail} primary>
-            {t("actions.viewLessons")}
-          </ActionButton>
-          {row.invoice_id !== null ? (
-            <Link
-              href={`/invoices?id=${row.invoice_id}`}
-              className={actionClass()}
-            >
-              <Receipt className="size-3.5" aria-hidden />
-              {t("actions.viewInvoice")}
-            </Link>
-          ) : (
-            <span />
+        {/* What was taught after the block ran out. Those lessons are billed by the hour on the
+            student's monthly invoice — a different page — so without this the card said "next
+            lesson tomorrow" and nothing about where that lesson's money was going. */}
+        {row.gap !== null && (
+          <div
+            className="mt-3 rounded-xl border border-rose-300/60 bg-rose-500/[0.07] px-3 py-2.5 text-[11px] dark:border-rose-800/50"
+            data-testid="package-gap"
+          >
+            <p className="flex items-center gap-1.5 font-bold text-rose-700 dark:text-rose-300">
+              <CalendarX className="size-3.5 shrink-0" aria-hidden />
+              {t("card.gapTitle")}
+            </p>
+            <p className="mt-0.5 leading-4 text-rose-900/80 dark:text-rose-200/85">
+              {t("card.gapBody", {
+                count: row.gap.lessons,
+                // Pre-formatted so the count wears the same digits as the hours beside it.
+                n: formatNumber(row.gap.lessons, locale),
+                hours: formatHours(row.gap.minutes, locale),
+                amount: row.gap.amounts
+                  .map((a) =>
+                    formatMoney(
+                      { amount: a.amount_minor, currency: a.currency },
+                      locale,
+                    ),
+                  )
+                  .join(" + "),
+              })}
+            </p>
+          </div>
+        )}
+        {row.gap === null &&
+          row.awaiting_next_package &&
+          row.upcoming_lesson_count > 0 && (
+            <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-amber-500/10 px-2.5 py-2 text-[11px] font-semibold text-amber-700 dark:text-amber-400">
+              <CalendarX className="mt-px size-3.5 shrink-0" aria-hidden />
+              {t("card.noPackageOpen")}
+            </p>
           )}
 
-          {paymentUrl !== null && (
-            <>
-              <a
-                href={paymentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={actionClass()}
-              >
-                <ExternalLink className="size-3.5" aria-hidden />
-                {t("actions.paymentLink")}
-              </a>
-              <ActionButton
-                icon={copied ? Check : Copy}
-                onClick={() => void copyPaymentLink()}
-              >
-                {copied ? t("actions.copied") : t("actions.copyLink")}
-              </ActionButton>
-            </>
-          )}
-
-          {canSendInvoice && row.invoice_id !== null && (
-            <ActionButton
-              icon={sendingPayment ? Loader2 : MessageCircle}
-              onClick={onSendPayment}
-              disabled={sendingPayment}
-              iconClassName={sendingPayment ? "animate-spin" : undefined}
-              full
-            >
-              {t("actions.sendPayment")}
-            </ActionButton>
-          )}
-
-          {row.payment_proof_url !== null && (
-            <a
-              href={`${apiBase()}${row.payment_proof_url}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={actionClass()}
-            >
-              <FileImage className="size-3.5" aria-hidden />
-              {t("actions.viewProof")}
-            </a>
-          )}
-
-          {canMarkPaid && row.invoice_id !== null && owes && (
-            <ActionButton icon={BadgeCheck} onClick={onMarkPaid} full>
-              {t("actions.markPaid")}
-            </ActionButton>
-          )}
-
-          {canManage && isActive && (
-            <>
-              {/* Correcting the terms sits with the other things you do TO a running package,
-                  not up in the header: it is a repair, not the card's main verb. */}
-              <ActionButton
-                icon={Pencil}
-                onClick={onEdit}
-                testId="edit-package"
-              >
-                {t("actions.edit")}
-              </ActionButton>
-              <ActionButton
-                icon={syncing ? Loader2 : RefreshCw}
-                onClick={onSyncLessons}
-                disabled={syncing}
-                iconClassName={syncing ? "animate-spin" : undefined}
-              >
-                {t("actions.syncLessons")}
-              </ActionButton>
-              <ActionButton
-                icon={Link2}
-                onClick={onClose}
-                testId="close-package"
-                full
-              >
-                {t("actions.close")}
-              </ActionButton>
-            </>
-          )}
-
-          {canManage && !isActive && strandedOverdraft && (
-            <ActionButton
-              icon={AlertTriangle}
-              onClick={onBillOverdraft}
-              danger
-              full
-            >
-              {t("actions.billOverdraft")}
-            </ActionButton>
+        <div className="mt-auto flex items-stretch gap-1.5 border-t pt-3">
+          {featured.map((action, i) => (
+            <ActionChip
+              key={action.key}
+              action={action}
+              tone={action.danger ? "danger" : i === 0 ? "primary" : "neutral"}
+            />
+          ))}
+          {overflow.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger>
+                <button
+                  type="button"
+                  aria-label={copied ? t("actions.copied") : t("actions.more")}
+                  title={copied ? t("actions.copied") : t("actions.more")}
+                  data-testid="package-card-menu"
+                  className={cn(actionClass(), "w-9 shrink-0 px-0")}
+                >
+                  {copied ? (
+                    <Check className="size-4 text-emerald-600" aria-hidden />
+                  ) : (
+                    <MoreHorizontal className="size-4" aria-hidden />
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                {overflow.map((action) => (
+                  <MenuAction key={action.key} action={action} />
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </div>
     </article>
+  );
+}
+
+/** One of the (at most two) actions shown as a button on the card itself. */
+function ActionChip({
+  action,
+  tone,
+}: {
+  action: CardAction;
+  tone: "primary" | "danger" | "neutral";
+}) {
+  const Icon = action.icon;
+  const className = cn(actionClass({ tone }), "min-w-0 flex-1");
+  const content = (
+    <>
+      <Icon
+        className={cn("size-3.5 shrink-0", action.spin && "animate-spin")}
+        aria-hidden
+      />
+      <span className="truncate">{action.label}</span>
+    </>
+  );
+
+  if (action.href !== undefined) {
+    return (
+      <Link href={action.href} className={className} data-testid={action.testId}>
+        {content}
+      </Link>
+    );
+  }
+  if (action.external !== undefined) {
+    return (
+      <a
+        href={action.external}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={className}
+        data-testid={action.testId}
+      >
+        {content}
+      </a>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={action.onClick}
+      disabled={action.disabled}
+      data-testid={action.testId}
+      className={className}
+    >
+      {content}
+    </button>
+  );
+}
+
+/** One of the actions behind "⋯". Links stay real links, so open-in-new-tab still works. */
+function MenuAction({ action }: { action: CardAction }) {
+  const Icon = action.icon;
+  const content = (
+    <>
+      <Icon className={cn(action.spin && "animate-spin")} aria-hidden />
+      {action.label}
+    </>
+  );
+
+  if (action.href !== undefined) {
+    return (
+      <DropdownMenuItem
+        data-testid={action.testId}
+        render={<Link href={action.href} />}
+      >
+        {content}
+      </DropdownMenuItem>
+    );
+  }
+  if (action.external !== undefined) {
+    return (
+      <DropdownMenuItem
+        data-testid={action.testId}
+        render={
+          <a href={action.external} target="_blank" rel="noopener noreferrer" />
+        }
+      >
+        {content}
+      </DropdownMenuItem>
+    );
+  }
+  return (
+    <DropdownMenuItem
+      onClick={action.onClick}
+      disabled={action.disabled}
+      destructive={action.danger}
+      data-testid={action.testId}
+    >
+      {content}
+    </DropdownMenuItem>
   );
 }
 
@@ -480,10 +696,8 @@ function InfoRow({
  */
 function actionClass({
   tone = "neutral",
-  full,
 }: {
   tone?: "neutral" | "primary" | "danger";
-  full?: boolean;
 } = {}): string {
   return cn(
     "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition-colors disabled:opacity-50",
@@ -493,45 +707,6 @@ function actionClass({
       "border-destructive/25 bg-destructive/10 text-destructive hover:bg-destructive/18",
     tone === "neutral" &&
       "border-border/70 bg-muted/60 text-foreground/80 hover:bg-muted",
-    full && "col-span-2",
-  );
-}
-
-function ActionButton({
-  icon: Icon,
-  children,
-  onClick,
-  primary,
-  danger,
-  disabled,
-  full,
-  iconClassName,
-  testId,
-}: {
-  icon: typeof Clock3;
-  children: ReactNode;
-  onClick: () => void;
-  primary?: boolean;
-  danger?: boolean;
-  disabled?: boolean;
-  full?: boolean;
-  iconClassName?: string;
-  testId?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      data-testid={testId}
-      className={actionClass({
-        tone: primary ? "primary" : danger ? "danger" : "neutral",
-        full,
-      })}
-    >
-      <Icon className={cn("size-3.5", iconClassName)} aria-hidden />
-      {children}
-    </button>
   );
 }
 

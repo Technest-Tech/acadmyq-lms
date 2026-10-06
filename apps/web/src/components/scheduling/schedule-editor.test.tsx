@@ -17,7 +17,13 @@ import * as api from "@/lib/api";
 function renderSection(canManage = true) {
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <ScheduleSection studentId="s1" canManage={canManage} onError={vi.fn()} />
+      <ScheduleSection
+        studentId="s1"
+        teacherId="t1"
+        teacherName="Teacher One"
+        canManage={canManage}
+        onError={vi.fn()}
+      />
     </NextIntlClientProvider>,
   );
 }
@@ -80,6 +86,8 @@ describe("ScheduleSection (Sprint 5 §5.1)", () => {
       expect(api.putStudentSchedule).toHaveBeenCalledWith(
         "s1",
         expect.objectContaining({
+          // Whose timetable this is — a student may have one per teacher.
+          teacher_id: "t1",
           slots: expect.arrayContaining([
             expect.objectContaining({ weekday: 2, start_time_local: "17:00" }),
           ]),
@@ -102,7 +110,7 @@ describe("ScheduleSection (Sprint 5 §5.1)", () => {
     await user.click(screen.getByTestId("delete-schedule"));
 
     await waitFor(() =>
-      expect(api.deleteStudentSchedule).toHaveBeenCalledWith("s1"),
+      expect(api.deleteStudentSchedule).toHaveBeenCalledWith("s1", "t1"),
     );
   });
 

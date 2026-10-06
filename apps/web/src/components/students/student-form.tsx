@@ -18,6 +18,11 @@ import {
   PackageTermsFields,
   usePackageTerms,
 } from "@/components/packages/package-terms";
+import {
+  TeacherLinksField,
+  toTeacherInputs,
+  type TeacherLinkDraft,
+} from "@/components/students/teacher-links-field";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox, DialCodePicker, type ComboboxOption } from "@/components/ui/combobox";
@@ -26,6 +31,8 @@ import {
   createStudent,
   type GuardianRow,
   listGuardians,
+  listTeachers,
+  type TeacherRow,
 } from "@/lib/api";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { cn } from "@/lib/utils";
@@ -146,9 +153,10 @@ type Billing = "monthly" | "package";
 // ── Component ──────────────────────────────────────────────────────────────────
 
 /**
- * A single, general "create student" form. Assigning a teacher and a timetable are still
- * completed afterwards from the student's profile; the price is not, because it decides which
- * lifecycle the student is even in.
+ * A single, general "create student" form. The student's teachers — one per course, as many as
+ * they study with — can be set right here; each teacher's weekly timetable is still built
+ * afterwards from the profile's Schedule tab. The price is set here too, because it decides
+ * which lifecycle the student is even in.
  *
  * `intent` decides which lifecycle the new student starts in, because the two ways people arrive
  * are genuinely different:
@@ -201,6 +209,11 @@ export function StudentForm({
   const [selfGuardian, setSelfGuardian] = useState(false);
   const [guardianId, setGuardianId] = useState(fixedGuardianId ?? "");
 
+  // Teachers are offered only to a role that can see the teacher list at all.
+  const canPickTeachers = can("teacher.read");
+  const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const [teacherLinks, setTeacherLinks] = useState<TeacherLinkDraft[]>([]);
+
   /**
    * Monthly or package — asked right here, so an active student's whole billing setup happens in
    * the save that creates them. Offered only where a package can actually be opened: the role may
@@ -250,6 +263,13 @@ export function StudentForm({
       void listGuardians({ pageSize: 50 }).then((r) => setGuardians(r.rows));
     }
   }, [fixedGuardianId]);
+
+  useEffect(() => {
+    if (!canPickTeachers) return;
+    void listTeachers({ pageSize: 100, filter: { status: "active" } })
+      .then((r) => setTeachers(r.rows))
+      .catch(() => setTeachers([]));
+  }, [canPickTeachers]);
 
   function handleCountryChange(code: string) {
     setCountry(code);
@@ -323,6 +343,7 @@ export function StudentForm({
     if (!validate()) return;
     setBusy(true);
     setError(null);
+    const links = toTeacherInputs(teacherLinks);
     try {
       const res = await createStudent({
         full_name: fullName,
@@ -331,6 +352,7 @@ export function StudentForm({
         is_self_guardian: selfGuardian,
         guardian_id: selfGuardian ? undefined : ((fixedGuardianId ?? guardianId) || undefined),
         status: enrolling ? "REGULAR" : "TRIAL",
+        ...(links.length > 0 ? { teachers: links } : {}),
         // The package path opens the package in the same request, which also creates the
         // student's package-billing subscription — so it sends no `subscription` of its own.
         ...(showPackage && onPackage ? { package: terms.toPayload() } : {}),
@@ -505,6 +527,19 @@ export function StudentForm({
           searchPlaceholder={t("form.searchCountry")}
         />
       </Field>
+
+      {/* ── Teachers ────────────────────────────────────────────────────────
+          A list, because a student may study different courses with different teachers. */}
+      {canPickTeachers && teachers.length > 0 && (
+        <Field label={t("form.teachers")} hint={t("teacher.formHint")}>
+          <TeacherLinksField
+            value={teacherLinks}
+            onChange={setTeacherLinks}
+            teachers={teachers}
+            disabled={busy}
+          />
+        </Field>
+      )}
 
       {/* ── Billing ─────────────────────────────────────────────────────────
           Only for an active student, and only for whoever may name a price. A role without

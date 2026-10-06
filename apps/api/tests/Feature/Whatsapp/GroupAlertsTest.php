@@ -305,6 +305,98 @@ it('does not treat an invoice edit that moves no money as a payment', function (
     expect(DB::table('invoice_payment_events')->where('invoice_id', $invoice)->exists())->toBeFalse();
 });
 
+it('reminds the accounting group about an unpaid invoice every N days until it is paid', function () {
+    linkTestGroup($this->academy, ['PAYMENT_OVERDUE'], settings: ['payment_reminder_days' => 2], since: '2026-08-01T00:00:00+00:00');
+
+    $guardian = $this->createGuardian($this->academy, ['full_name' => 'Hassan Family', 'whatsapp_phone' => '+201001112223']);
+    // Closed by the month-end job just after midnight Cairo on the 1st: "should have paid on the 1st".
+    [$late, $token] = $this->createInvoice($this->academy, $guardian, [
+        'status' => 'CLOSED', 'total_minor' => 100000, 'subtotal_minor' => 100000,
+        'period_month' => 8, 'closed_at' => '2026-08-31 21:05:00+00',
+    ]);
+    // Still accruing and never sent: not due yet. Already paid: not owed.
+    $this->createInvoice($this->academy, $guardian, ['status' => 'OPEN', 'total_minor' => 5000, 'subtotal_minor' => 5000, 'period_month' => 9]);
+    $this->createInvoice($this->academy, $guardian, [
+        'status' => 'PAID', 'total_minor' => 7000, 'subtotal_minor' => 7000, 'amount_paid_minor' => 7000,
+        'period_month' => 7, 'closed_at' => '2026-07-31 21:05:00+00',
+    ]);
+
+    // The due day itself is not a reminder; two days later at 10:00 Cairo (07:00 UTC) is.
+    Carbon::setTestNow('2026-09-01 08:00:00');
+    sweepGroups($this->academy);
+    expect(sentMessages())->toHaveCount(0);
+
+    Carbon::setTestNow('2026-09-03 08:00:00');
+    sweepGroups($this->academy);
+    sweepGroups($this->academy);
+    expect(sentMessages())->toHaveCount(1);
+    expect(sentMessages()[0]->data()['text'])
+        ->toContain('Invoice still unpaid')
+        ->toContain('Hassan Family — 1,000 EGP due — invoice 8/2026 — 2 day(s) late — +201001112223')
+        ->toContain('/i/'.$token)
+        ->not->toContain('50 EGP')
+        ->not->toContain('70 EGP');
+
+    // Same cycle the next day, and the next cycle's day before 10:00: nothing new.
+    Carbon::setTestNow('2026-09-04 08:00:00');
+    sweepGroups($this->academy);
+    Carbon::setTestNow('2026-09-05 06:00:00');
+    sweepGroups($this->academy);
+    expect(sentMessages())->toHaveCount(1);
+
+    Carbon::setTestNow('2026-09-05 08:00:00');
+    sweepGroups($this->academy);
+    expect(sentMessages())->toHaveCount(2);
+    expect(sentMessages()[1]->data()['text'])->toContain('4 day(s) late');
+
+    // Paid in part: still reminded, with what is left.
+    $this->asAcademy($this->academy);
+    DB::table('invoices')->where('id', $late)->update(['status' => 'PARTIALLY_PAID', 'amount_paid_minor' => 40000]);
+    Carbon::setTestNow('2026-09-07 08:00:00');
+    sweepGroups($this->academy);
+    expect(sentMessages()[2]->data()['text'])->toContain('600 EGP due of 1,000 EGP');
+
+    // The rest is paid: the reminders stop (decided by the money owed, not the status label).
+    $this->asAcademy($this->academy);
+    DB::table('invoices')->where('id', $late)->update(['amount_paid_minor' => 100000]);
+    Carbon::setTestNow('2026-09-09 08:00:00');
+    sweepGroups($this->academy);
+    expect(sentMessages())->toHaveCount(3);
+    expect(groupAlerts($this->academy, 'PAYMENT_OVERDUE')->pluck('subject_key')->all())
+        ->toBe([$late.':1', $late.':2', $late.':3']);
+});
+
+it('counts an invoice as due once its pay link was sent, and drops a waiting reminder once it is paid', function () {
+    linkTestGroup($this->academy, ['PAYMENT_OVERDUE'], since: '2026-08-01T00:00:00+00:00', overrides: ['language' => 'ar']);
+    // Still OPEN (mid-month), but the academy sent the pay link on the 10th.
+    [$sent] = $this->createInvoice($this->academy, overrides: [
+        'status' => 'OPEN', 'total_minor' => 30000, 'subtotal_minor' => 30000,
+        'period_month' => 9, 'sent_at' => '2026-09-10 12:00:00+00',
+    ]);
+
+    Carbon::setTestNow('2026-09-12 08:00:00');
+    sweepGroups($this->academy);
+    expect(sentMessages()[0]->data()['text'])
+        ->toContain('فاتورة لم تُدفع بعد')
+        ->toContain('تذكير كل يومين')
+        ->toContain('متأخرة يومين');
+
+    // Next cycle is detected while the number is down, then the invoice is paid before it reconnects.
+    $this->gateway['status'] = 'DISCONNECTED';
+    Carbon::setTestNow('2026-09-14 08:00:00');
+    sweepGroups($this->academy);
+    $this->asAcademy($this->academy);
+    DB::table('invoices')->where('id', $sent)->update(['status' => 'PAID', 'amount_paid_minor' => 30000]);
+
+    $this->gateway['status'] = 'CONNECTED';
+    Carbon::setTestNow('2026-09-14 08:05:00');
+    sweepGroups($this->academy);
+
+    expect(sentMessages())->toHaveCount(1);
+    $waiting = groupAlerts($this->academy, 'PAYMENT_OVERDUE')->firstWhere('subject_key', $sent.':2');
+    expect($waiting->status)->toBe('SKIPPED')->and($waiting->error)->toBe('no_longer_true');
+});
+
 // ── Delivery ────────────────────────────────────────────────────────────────
 
 it('waits while the number is disconnected, then expires a start alert that is no longer news', function () {

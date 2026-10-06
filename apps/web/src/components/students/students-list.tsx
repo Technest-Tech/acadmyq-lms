@@ -272,8 +272,23 @@ export function StudentsList({
           key: "teacher",
           header: t("colTeacher"),
           headerClassName: "min-w-40",
+          // One line per teacher, each with the course they teach — a student studying Qur'an
+          // with one teacher and Arabic with another shows both.
           render: (r) =>
-            r.teacher_name ? (
+            r.teachers && r.teachers.length > 0 ? (
+              <div className="space-y-1.5" data-testid="student-teachers">
+                {r.teachers.map((tch) => (
+                  <div key={tch.teacher_id} className="flex min-w-0 items-center gap-2">
+                    <PersonChip name={tch.teacher_name ?? "—"} icon={GraduationCap} />
+                    {tch.course && (
+                      <span className="text-muted-foreground truncate text-[11px]">
+                        {tch.course}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : r.teacher_name ? (
               <PersonChip name={r.teacher_name} icon={GraduationCap} />
             ) : (
               <span className="text-muted-foreground/70 inline-flex items-center gap-1.5 text-xs italic">

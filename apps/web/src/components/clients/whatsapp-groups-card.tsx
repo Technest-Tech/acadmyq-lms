@@ -287,7 +287,9 @@ function GroupRow({
                     ? t("eventShortMinutes", { event: t(`events.${e}.label`), n: group.settings.not_marked_after_minutes })
                     : e === "REPORT_OVERDUE"
                       ? t("eventShortHours", { event: t(`events.${e}.label`), n: group.settings.report_overdue_hours })
-                      : t(`events.${e}.label`)}
+                      : e === "PAYMENT_OVERDUE"
+                        ? t("eventShortDays", { event: t(`events.${e}.label`), n: group.settings.payment_reminder_days })
+                        : t(`events.${e}.label`)}
                 </StatusChip>
               ))
             )}
@@ -357,6 +359,15 @@ function AlertLine({ alert }: { alert: WhatsAppGroupAlert }) {
         return [
           typeof p.amount_minor === "number"
             ? `${(p.amount_minor / 100).toLocaleString(locale)} ${p.currency ?? ""}`.trim()
+            : null,
+          p.payer,
+        ]
+          .filter(Boolean)
+          .join(" — ");
+      case "PAYMENT_OVERDUE":
+        return [
+          typeof p.remaining_minor === "number"
+            ? `${(p.remaining_minor / 100).toLocaleString(locale)} ${p.currency ?? ""}`.trim()
             : null,
           p.payer,
         ]
@@ -597,6 +608,15 @@ function GroupFormModal({
                         unit={t("hours")}
                         bounds={catalog.setting_bounds.report_overdue_hours}
                         onChange={(v) => setTiming("report_overdue_hours", v)}
+                      />
+                    )}
+                    {e === "PAYMENT_OVERDUE" && events.includes(e) && (
+                      <TimingInput
+                        id="wa-payment-days"
+                        value={settings.payment_reminder_days}
+                        unit={t("days")}
+                        bounds={catalog.setting_bounds.payment_reminder_days}
+                        onChange={(v) => setTiming("payment_reminder_days", v)}
                       />
                     )}
                   </div>

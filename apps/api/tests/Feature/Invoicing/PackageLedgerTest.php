@@ -344,6 +344,91 @@ it('re-opens a package that had closed only because it ran out', function () {
     expect(($this->packageRow)($package['package_id'])->status)->toBe('ACTIVE');
 });
 
+it('keeps paying the teacher by default when a lesson is dropped off the package', function () {
+    $package = ($this->openPackage)();
+    $session = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-09 10:00:00+00',
+        'duration_minutes' => 60,
+        'status' => 'SCHEDULED',
+    ]);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $credit = DB::table('lesson_package_credits')->where('session_id', $session)->first();
+
+    Sanctum::actingAs($this->owner);
+    $this->deleteJson("/api/packages/{$package['package_id']}/lessons/{$credit->id}", ['rebill' => false])
+        ->assertOk()
+        ->assertJson(['teacher_paid' => true]);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('payout_line_items')->where('session_id', $session)->count())->toBe(1)
+        ->and((bool) DB::table('sessions')->where('id', $session)->value('paid_to_teacher'))->toBeTrue();
+});
+
+// Sobol 2026-10: a teacher gave extra lessons, the owner dropped them off the package, and the
+// hours came back while the salary still counted them.
+it('takes the lesson off the teacher\'s statement too when told not to pay the teacher', function () {
+    $package = ($this->openPackage)();
+    $session = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-09 10:00:00+00',
+        'duration_minutes' => 60,
+        'status' => 'SCHEDULED',
+    ]);
+    DB::table('teachers')->where('id', $this->teacher)->update(['session_rate_minor' => 6000]);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $credit = DB::table('lesson_package_credits')->where('session_id', $session)->first();
+    $line = DB::table('payout_line_items')->where('session_id', $session)->first();
+    expect($line)->not->toBeNull();
+    $totalBefore = (int) DB::table('payouts')->where('id', $line->payout_id)->value('total_minor');
+
+    Sanctum::actingAs($this->owner);
+    $this->deleteJson("/api/packages/{$package['package_id']}/lessons/{$credit->id}", [
+        'rebill' => false,
+        'pay_teacher' => false,
+    ])->assertOk()->assertJson(['minutes_returned' => 60, 'rebilled' => false, 'teacher_paid' => false]);
+
+    $this->asAcademy($this->academy);
+    $row = DB::table('sessions')->where('id', $session)->first(['paid_to_teacher', 'teacher_override']);
+
+    expect((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(0)
+        ->and(DB::table('payout_line_items')->where('session_id', $session)->count())->toBe(0)
+        ->and((int) DB::table('payouts')->where('id', $line->payout_id)->value('total_minor'))
+        ->toBe($totalBefore - (int) $line->amount_minor)
+        ->and((bool) $row->paid_to_teacher)->toBeFalse()
+        ->and($row->teacher_override)->toBeFalse();
+});
+
+it('refuses to unpay a teacher whose statement is already finalized', function () {
+    $package = ($this->openPackage)();
+    $session = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-09 10:00:00+00',
+        'duration_minutes' => 60,
+        'status' => 'SCHEDULED',
+    ]);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $credit = DB::table('lesson_package_credits')->where('session_id', $session)->first();
+    $payoutId = DB::table('payout_line_items')->where('session_id', $session)->value('payout_id');
+    DB::table('payouts')->where('id', $payoutId)->update(['finalized_at' => now()]);
+
+    Sanctum::actingAs($this->owner);
+    $this->deleteJson("/api/packages/{$package['package_id']}/lessons/{$credit->id}", [
+        'rebill' => false,
+        'pay_teacher' => false,
+    ])->assertStatus(422);
+
+    // All or nothing: the package keeps the lesson too.
+    $this->asAcademy($this->academy);
+    expect(DB::table('lesson_package_credits')->where('session_id', $session)->count())->toBe(1);
+});
+
 // ─── The gate ────────────────────────────────────────────────────────────────
 
 it('forbids a teacher from moving lessons on a package', function () {

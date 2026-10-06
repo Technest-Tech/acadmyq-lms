@@ -672,6 +672,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::patch('/students/{id}/subscription/price', [StudentController::class, 'changePrice']);
     Route::get('/students/{id}/subscription/reprice-preview', [StudentController::class, 'repricePreview']);
     Route::post('/students/{id}/teacher', [StudentController::class, 'reassignTeacher']);
+    Route::put('/students/{id}/teachers', [StudentController::class, 'setTeachers']);
     Route::get('/students/{id}/teacher-history', [StudentController::class, 'teacherHistory']);
 
     // Staff department catalog — platform-level, managed by Super Admin, readable by all.
@@ -1051,6 +1052,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         // Salaries for an arbitrary window rather than a calendar month. Declared before `{id}`
         // so the literal segment is never read as a payout ID.
         Route::get('/payouts/range', [PayoutController::class, 'range']);
+        Route::get('/payouts/range/lessons', [PayoutController::class, 'rangeLessons']);
         Route::post('/payouts/finalize', [PayoutController::class, 'finalize']);
         Route::get('/me/payouts', [PayoutController::class, 'mePayouts']);
         Route::get('/payouts/{id}', [PayoutController::class, 'show']);

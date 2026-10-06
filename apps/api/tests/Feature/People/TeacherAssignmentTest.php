@@ -48,8 +48,10 @@ it('closes the old assignment and opens a new one on reassignment', function () 
     expect($rows->firstWhere('teacher_id', $this->teacher2)->ended_at)->toBeNull();
 });
 
-// ── TC-4.13 / AC-4.3: the partial unique index rejects a second active row ───
-it('rejects a second active assignment at the database level', function () {
+// ── TC-4.13 / AC-4.3: the partial unique index rejects the same teacher twice ─
+// (A student may have several teachers — one per course — so a SECOND teacher is allowed; see
+// MultipleTeachersTest. The same teacher twice is still refused at the database level.)
+it('rejects a second active assignment of the same teacher at the database level', function () {
     $this->asAcademy($this->academy);
     DB::table('student_teacher_assignments')->insert([
         'id' => (string) Str::uuid(), 'academy_id' => $this->academy,
@@ -58,7 +60,7 @@ it('rejects a second active assignment at the database level', function () {
 
     expect(fn () => DB::table('student_teacher_assignments')->insert([
         'id' => (string) Str::uuid(), 'academy_id' => $this->academy,
-        'student_id' => $this->student, 'teacher_id' => $this->teacher2, 'ended_at' => null,
+        'student_id' => $this->student, 'teacher_id' => $this->teacher1, 'ended_at' => null,
     ]))->toThrow(QueryException::class);
 });
 

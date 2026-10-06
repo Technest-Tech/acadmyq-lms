@@ -134,6 +134,8 @@ export function WeeklyCalendar({
   const [editStudent, setEditStudent] = useState<{
     id: string;
     name: string;
+    /** Whose timetable — a student with two teachers has two. */
+    teacherId: string;
   } | null>(null);
   const [logStudent, setLogStudent] = useState<{
     id: string;
@@ -622,7 +624,9 @@ export function WeeklyCalendar({
             timetables={timetables}
             loading={ttLoading}
             canManage={canManage}
-            onUpdate={(id, name) => setEditStudent({ id, name })}
+            onUpdate={(id, name, teacherId) =>
+              setEditStudent({ id, name, teacherId })
+            }
             onLog={(id, name) => setLogStudent({ id, name })}
             onAddNew={() => setAddOpen(true)}
           />
@@ -681,6 +685,14 @@ export function WeeklyCalendar({
         >
           <ScheduleSection
             studentId={editStudent.id}
+            teacherId={editStudent.teacherId}
+            teacherName={
+              timetables.find(
+                (tt) =>
+                  tt.student_id === editStudent.id &&
+                  tt.teacher_id === editStudent.teacherId,
+              )?.teacher_name
+            }
             canManage={canManage}
             onError={setError}
             onChanged={() => {
@@ -728,6 +740,7 @@ export function WeeklyCalendar({
       {!isTeacher && addOpen && canManage && (
         <AddTimetableModal
           students={students}
+          teachers={teachers}
           defaultTimezone={tz}
           onClose={() => setAddOpen(false)}
           onCreated={() => {

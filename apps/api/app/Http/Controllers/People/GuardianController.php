@@ -9,6 +9,7 @@ use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\Phone;
+use App\Support\StudentTeachers;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -148,10 +149,8 @@ final class GuardianController extends Controller
                     ->whereNull('sub.deleted_at')
                     ->where('sub.status', '=', 'ACTIVE');
             })
-            ->leftJoin('student_teacher_assignments as sta', function ($j): void {
-                $j->on('sta.student_id', '=', 's.id')->whereNull('sta.ended_at');
-            })
-            ->leftJoin('teachers as t', 't.id', '=', 'sta.teacher_id')
+            // Pre-aggregated, so a child with two teachers is still one child.
+            ->leftJoinSub(StudentTeachers::summary(), 'sta', 'sta.student_id', '=', 's.id')
             ->where('s.guardian_id', $id)
             // Active children first, then by name: a family's current students are the point,
             // and the ones who left sit underneath rather than interleaved alphabetically.
@@ -160,12 +159,13 @@ final class GuardianController extends Controller
             ->get([
                 's.id', 's.full_name', 's.whatsapp_phone', 's.country', 's.status',
                 's.is_self_guardian', 's.notes', 's.deleted_at', 's.created_at',
-                'sta.teacher_id', 't.full_name as teacher_name',
+                'sta.teacher_id', 'sta.teacher_name', 'sta.teachers',
                 'sub.id as subscription_id', 'sub.plan_label', 'sub.sessions_per_month',
                 'sub.price_minor', 'sub.currency as price_currency', 'sub.price_basis',
                 'sub.start_date',
             ])
             ->map(function (object $row) use ($seesPricing): object {
+                StudentTeachers::decodeRow($row);
                 if (! $seesPricing) {
                     $row->price_minor = null;
                     $row->price_currency = null;

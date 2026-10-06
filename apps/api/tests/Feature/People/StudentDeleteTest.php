@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use App\Services\LessonPackages;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
@@ -98,4 +100,102 @@ it('forbids a teacher from deleting a student', function () {
     $teacherUser = $this->makeUser($this->academy, 'TEACHER', ['email' => 'teacher-delete@test.local']);
     Sanctum::actingAs($teacherUser);
     $this->deleteJson("/api/students/{$studentId}")->assertForbidden();
+});
+
+// ── Removing a student winds down their lessons, timetable and package ───────
+/** A past lesson nobody marked (it would sit in الحصص المعلقة) with a request waiting on it. */
+function unmarkedLessonWithRequest(string $studentId): array
+{
+    $t = test();
+    $sessionId = $t->createSession($t->academy, $studentId, $t->teacher, [
+        'scheduled_at_utc' => '2026-06-08 10:00:00+00',
+        'status' => 'SCHEDULED',
+    ]);
+    $requestId = (string) \Illuminate\Support\Str::uuid();
+    DB::table('session_cancellation_requests')->insert([
+        'id' => $requestId,
+        'academy_id' => $t->academy,
+        'session_id' => $sessionId,
+        'teacher_id' => $t->teacher,
+        'cancel_type' => 'student',
+        'status' => 'PENDING',
+    ]);
+
+    return [$sessionId, $requestId];
+}
+
+it('ends the timetable and clears every unmarked lesson when a student is deleted', function () {
+    Carbon::setTestNow('2026-06-11 12:00:00');
+    Sanctum::actingAs($this->owner);
+    $studentId = deletableStudent();
+    $this->putJson("/api/students/{$studentId}/schedule", [
+        'timezone' => 'Africa/Cairo',
+        'slots' => [['weekday' => 2, 'start_time_local' => '17:00', 'duration_minutes' => 30]],
+    ])->assertCreated();
+    [$pastId, $requestId] = unmarkedLessonWithRequest($studentId);
+
+    Sanctum::actingAs($this->owner);
+    expect(collect($this->getJson('/api/sessions/overdue')->json('sessions'))->pluck('id'))->toContain($pastId);
+
+    $this->deleteJson("/api/students/{$studentId}")->assertOk();
+
+    // Gone from الحصص المعلقة and from pending attendance.
+    expect(collect($this->getJson('/api/sessions/overdue')->json('sessions'))->pluck('id'))->not->toContain($pastId);
+    expect(collect($this->getJson('/api/sessions/pending-attendance')->json('sessions'))->pluck('id'))->not->toContain($pastId);
+
+    $this->asAcademy($this->academy);
+    // The timetable is ended, so nothing new is generated and future lessons are gone.
+    expect(DB::table('schedules')->where('student_id', $studentId)->where('is_active', true)->count())->toBe(0);
+    expect(DB::table('sessions')->where('student_id', $studentId)->where('scheduled_at_utc', '>', now())->count())->toBe(0);
+    // Nothing of theirs is left waiting to be marked; the past one is kept, closed as not billed.
+    expect(DB::table('sessions')->where('student_id', $studentId)->where('status', 'SCHEDULED')->count())->toBe(0);
+    expect(DB::table('sessions')->where('id', $pastId)->value('status'))->toBe('CANCELLED_BY_STUDENT');
+    // The request waiting on it has left the approvals queue.
+    expect(DB::table('session_cancellation_requests')->where('id', $requestId)->value('status'))->toBe('REJECTED');
+});
+
+it('closes the open lesson package when a student is deleted', function () {
+    Sanctum::actingAs($this->owner);
+    $studentId = deletableStudent();
+
+    $this->asAcademy($this->academy);
+    $packages = app(LessonPackages::class);
+    $open = fn () => $packages->open([
+        'student_id' => $studentId, 'label' => '10 hours', 'minutes_total' => 600,
+        'price_minor' => 200000, 'currency' => 'EGP', 'bill_timing' => 'ON_START',
+        'starts_on' => '2026-06-01', 'carry_over' => false,
+    ], (string) $this->owner->id, 'ACADEMY_OWNER');
+    $packageId = $open()['package_id'];
+
+    $this->deleteJson("/api/students/{$studentId}")->assertOk();
+
+    $this->asAcademy($this->academy);
+    // Untouched → voided, not left ACTIVE.
+    $row = DB::table('lesson_packages')->where('id', $packageId)->first();
+    expect($row->status)->toBe('CANCELLED');
+    expect($row->closed_reason)->toBe('STUDENT_REMOVED');
+    expect($packages->activeFor($studentId))->toBeNull();
+});
+
+it('closes a partly used package as completed, and deactivate does the same wind-down', function () {
+    Sanctum::actingAs($this->owner);
+    $studentId = deletableStudent();
+
+    $this->asAcademy($this->academy);
+    $packageId = app(LessonPackages::class)->open([
+        'student_id' => $studentId, 'label' => '10 hours', 'minutes_total' => 600,
+        'price_minor' => 200000, 'currency' => 'EGP', 'bill_timing' => 'ON_START',
+        'starts_on' => '2026-06-01', 'carry_over' => false,
+    ], (string) $this->owner->id, 'ACADEMY_OWNER')['package_id'];
+    DB::table('lesson_packages')->where('id', $packageId)->update(['minutes_consumed' => 60]);
+    [$pastId] = unmarkedLessonWithRequest($studentId);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/students/{$studentId}/deactivate")->assertOk();
+
+    $this->asAcademy($this->academy);
+    $row = DB::table('lesson_packages')->where('id', $packageId)->first();
+    expect($row->status)->toBe('COMPLETED');
+    expect($row->closed_reason)->toBe('STUDENT_REMOVED');
+    expect(DB::table('sessions')->where('id', $pastId)->value('status'))->toBe('CANCELLED_BY_STUDENT');
 });

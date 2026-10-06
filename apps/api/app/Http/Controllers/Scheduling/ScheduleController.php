@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\SessionGenerator;
 use App\Support\Audit;
+use App\Support\StudentTeachers;
 use App\Support\TimeHelper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,8 +20,11 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * The per-student weekly recurring schedule (the "rule"), and the trigger that materialises it
- * into concrete sessions (§5.1, §5.4). A schedule is one active row per student with a set of
- * per-weekday slots (R-SCH-1). Saving it runs the idempotent generator over the rolling window;
+ * into concrete sessions (§5.1, §5.4). A schedule is one active row per student AND TEACHER —
+ * a student with two teachers has two timetables — with a set of per-weekday slots (R-SCH-1).
+ * Every endpoint takes an optional `teacher_id` to say which one; without it, the student's only
+ * teacher is meant, and a student with several is refused rather than guessed at. Saving runs the
+ * idempotent generator over the rolling window;
  * editing or deleting it regenerates FUTURE UNTOUCHED sessions only and never rewrites history
  * (R-SCH-3, §4.5). Every mutation is capability-gated and audited.
  */
@@ -47,15 +51,22 @@ final class ScheduleController extends Controller
         $query = DB::table('schedules as sch')
             ->leftJoin('students as st', 'st.id', '=', 'sch.student_id')
             ->leftJoin('teachers as te', 'te.id', '=', 'sch.teacher_id')
+            // The course this teacher teaches the student (at most one open link per pair).
+            ->leftJoin('student_teacher_assignments as sta', function ($j): void {
+                $j->on('sta.student_id', '=', 'sch.student_id')
+                    ->on('sta.teacher_id', '=', 'sch.teacher_id')
+                    ->whereNull('sta.ended_at');
+            })
             ->where('sch.is_active', true)
             ->whereNull('sch.deleted_at')
             ->whereNull('st.deleted_at')
             ->select([
                 'sch.id as schedule_id', 'sch.student_id', 'sch.teacher_id',
                 'sch.timezone', 'sch.start_date',
-                'st.full_name as student_name', 'te.full_name as teacher_name',
+                'st.full_name as student_name', 'te.full_name as teacher_name', 'sta.course',
             ])
-            ->orderBy('st.full_name');
+            ->orderBy('st.full_name')
+            ->orderBy('te.full_name');
 
         if ($this->ctx()->role === 'TEACHER') {
             $ownTeacherId = $this->callerTeacherId();
@@ -91,6 +102,7 @@ final class ScheduleController extends Controller
             'student_name' => $s->student_name,
             'teacher_id' => (string) $s->teacher_id,
             'teacher_name' => $s->teacher_name,
+            'course' => $s->course,
             'timezone' => (string) $s->timezone,
             'start_date' => $s->start_date !== null ? Carbon::parse($s->start_date)->format('Y-m-d') : null,
             'slots' => $slotsBySchedule[(string) $s->schedule_id] ?? [],
@@ -99,13 +111,13 @@ final class ScheduleController extends Controller
         return response()->json(['timetables' => $timetables]);
     }
 
-    /** GET /api/students/{id}/schedule — the active schedule + its slots (or null). */
-    public function show(string $studentId): JsonResponse
+    /** GET /api/students/{id}/schedule?teacher_id= — one teacher's active timetable + slots (or null). */
+    public function show(Request $request, string $studentId): JsonResponse
     {
         Gate::authorize('schedule.read');
         $this->assertStudentExists($studentId);
 
-        $schedule = $this->activeSchedule($studentId);
+        $schedule = $this->activeSchedule($studentId, $this->teacherParam($request));
         if ($schedule === null) {
             return response()->json(['schedule' => null, 'slots' => []]);
         }
@@ -132,15 +144,34 @@ final class ScheduleController extends Controller
 
         $data = $this->validateSchedule($request);
         $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
-        $teacherId = $data['teacher_id'] ?? $this->currentTeacherFor($studentId);
+        $teacherId = $data['teacher_id']
+            ?? StudentTeachers::defaultFor($studentId)
+            // A student with no open teacher link but a live timetable (data from before links
+            // were kept in step) — the timetable's own teacher is the one to edit.
+            ?? $this->activeSchedule($studentId)?->teacher_id;
         if ($teacherId === null) {
             throw ValidationException::withMessages([
                 'teacher_id' => ['This student has no assigned teacher; pass teacher_id or assign one first.'],
             ]);
         }
+        $teacherId = (string) $teacherId;
         $this->assertActiveTeacher($teacherId);
 
-        $existing = $this->activeSchedule($studentId);
+        // Giving a teacher a timetable with a student makes them one of that student's teachers —
+        // otherwise they would teach lessons for a student their roster cannot see.
+        if (! StudentTeachers::teaches($studentId, $teacherId)) {
+            DB::table('student_teacher_assignments')->insert([
+                'id' => (string) Str::uuid(),
+                'academy_id' => $academyId,
+                'student_id' => $studentId,
+                'teacher_id' => $teacherId,
+                'started_at' => now(),
+            ]);
+            Audit::log('student.teacher_added', 'student', $studentId, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['teacher_id' => $teacherId, 'course' => null, 'effective_date' => now()->toDateString(), 'via' => 'schedule']);
+        }
+
+        $existing = $this->activeSchedule($studentId, $teacherId);
         $creating = $existing === null;
         $startDate = $this->resolveStartDate($data, $existing, $studentId);
 
@@ -159,7 +190,6 @@ final class ScheduleController extends Controller
         } else {
             $scheduleId = (string) $existing->id;
             DB::table('schedules')->where('id', $scheduleId)->update([
-                'teacher_id' => $teacherId,
                 'timezone' => $timezone,
                 'start_date' => $startDate,
                 'is_active' => true,
@@ -196,15 +226,16 @@ final class ScheduleController extends Controller
     }
 
     /**
-     * DELETE /api/students/{id}/schedule — deactivate the schedule and remove its future
-     * untouched sessions; past and touched sessions are preserved (AC-5.6).
+     * DELETE /api/students/{id}/schedule?teacher_id= — deactivate that teacher's timetable and
+     * remove its future untouched sessions; past and touched sessions are preserved (AC-5.6). The
+     * teacher stays the student's teacher — only their weekly lessons stop.
      */
-    public function destroy(string $studentId): JsonResponse
+    public function destroy(Request $request, string $studentId): JsonResponse
     {
         Gate::authorize('schedule.manage');
 
         $academyId = $this->currentAcademyId();
-        $schedule = $this->activeSchedule($studentId);
+        $schedule = $this->activeSchedule($studentId, $this->teacherParam($request));
         if ($schedule === null) {
             abort(404, 'No active schedule for this student.');
         }
@@ -325,22 +356,39 @@ final class ScheduleController extends Controller
             : Carbon::now()->format('Y-m-d');
     }
 
-    private function activeSchedule(string $studentId): ?object
+    /**
+     * The student's active timetable with this teacher. Without a teacher: the only one they have
+     * (the single-teacher call every client made before), newest first if old data holds two.
+     */
+    private function activeSchedule(string $studentId, ?string $teacherId = null): ?object
     {
         return DB::table('schedules')
             ->where('student_id', $studentId)
+            ->when($teacherId !== null, fn ($q) => $q->where('teacher_id', $teacherId))
             ->where('is_active', true)
             ->whereNull('deleted_at')
             ->orderByDesc('created_at')
             ->first();
     }
 
-    private function currentTeacherFor(string $studentId): ?string
+    /**
+     * Which teacher's timetable a read/delete is about: the `teacher_id` query parameter, else the
+     * student's only teacher. Refuses a student with several, as put() does.
+     */
+    private function teacherParam(Request $request): ?string
     {
-        $id = DB::table('student_teacher_assignments')
-            ->where('student_id', $studentId)->whereNull('ended_at')->value('teacher_id');
+        $teacherId = $request->query('teacher_id');
+        if (is_string($teacherId) && $teacherId !== '') {
+            if (! Str::isUuid($teacherId)) {
+                throw ValidationException::withMessages(['teacher_id' => ['The teacher id must be a valid UUID.']]);
+            }
 
-        return $id !== null ? (string) $id : null;
+            return $teacherId;
+        }
+
+        $studentId = (string) $request->route('id');
+
+        return StudentTeachers::defaultFor($studentId);
     }
 
     private function assertStudentExists(string $studentId): void

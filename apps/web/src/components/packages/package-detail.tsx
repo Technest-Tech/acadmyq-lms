@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { YesNo } from "@/components/attendance/cancellation-billing-modal";
+import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import {
   addPackageLesson,
@@ -361,8 +363,10 @@ export function PackageDetail({
                           <RemoveLessonRow
                             busy={busy}
                             onCancel={() => setRowMode(null)}
-                            onRemove={(rebill) =>
-                              run(() => removePackageLesson(pkg.id, credit.id, rebill))
+                            onRemove={(rebill, payTeacher) =>
+                              run(() =>
+                                removePackageLesson(pkg.id, credit.id, rebill, payTeacher),
+                              )
                             }
                           />
                         </td>
@@ -432,12 +436,14 @@ function EditLengthRow({
 }
 
 /**
- * Take a lesson off the package — and say what happens to the money.
+ * Take a lesson off the package — and say what happens to the money, on both sides.
  *
- * Both answers are a decision someone has to make on purpose, so neither is a default button:
- * the lesson either goes back on the parent's bill (it happened, someone pays for it) or leaves
- * the record entirely (it was never this student's lesson — the shared sibling record, the
- * mis-clicked attendance). Offering only "remove" would silently pick one.
+ * Both questions are a decision someone has to make on purpose, so neither starts answered: the
+ * student is either charged the ordinary way (it happened, someone pays) or not at all (never this
+ * student's lesson, or an extra one the academy will not bill), and the teacher is either still
+ * paid or the lesson leaves their statement too. Asking only about the student is how an owner
+ * dropped a teacher's extra lessons and still paid for them. Only someone who can adjust payroll
+ * is asked about the teacher; for everyone else the teacher keeps the pay.
  */
 function RemoveLessonRow({
   busy,
@@ -446,20 +452,38 @@ function RemoveLessonRow({
 }: {
   busy: boolean;
   onCancel: () => void;
-  onRemove: (rebill: boolean) => void;
+  onRemove: (rebill: boolean, payTeacher: boolean) => void;
 }) {
   const t = useTranslations("packages");
+  const { can } = useAuth();
+  const askTeacher = can("payout.adjust");
+
+  const [charge, setCharge] = useState<boolean | null>(null);
+  const [pay, setPay] = useState<boolean | null>(askTeacher ? null : true);
+  const ready = charge !== null && pay !== null;
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       <p className="text-muted-foreground text-[11px]">{t("detail.removeHint")}</p>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium">{t("detail.removeChargeStudent")}</span>
+        <YesNo value={charge} onChange={setCharge} disabled={busy} />
+      </div>
+      {askTeacher && (
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs font-medium">{t("detail.removePayTeacher")}</span>
+          <YesNo value={pay} onChange={setPay} disabled={busy} />
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="outline" disabled={busy} onClick={() => onRemove(true)}>
-          {t("detail.removeAndBill")}
-        </Button>
-        <Button size="sm" variant="destructive" disabled={busy} onClick={() => onRemove(false)}>
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={busy || !ready}
+          onClick={() => ready && onRemove(charge, pay)}
+        >
           <Trash2 aria-hidden />
-          {t("detail.removeAndDrop")}
+          {t("detail.removeConfirm")}
         </Button>
         <Button size="sm" variant="ghost" disabled={busy} onClick={onCancel}>
           {t("detail.cancel")}

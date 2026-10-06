@@ -87,10 +87,39 @@ a running package; that is snapshotted on the package row.
 
 ### The fallback
 
-If the student is on `PER_PACKAGE` but has **no open package**, `consume()` declines and the lesson
-bills the ordinary monthly way, priced by the hour. This is deliberate: a delivered lesson still has
-to be billed to somebody, and silently swallowing it is lost revenue. The owner gets a
-`NO_ACTIVE_PACKAGE` alert telling them to open the next block.
+If the student is on `PER_PACKAGE` but has **no open package** — the block ran out and nobody has
+opened the next one — `consume()` declines and the lesson bills by the hour on an AUTO monthly
+invoice. This is deliberate: a delivered lesson still has to be billed to somebody, and silently
+swallowing it is lost revenue. Lessons are never blocked for it (rule 3).
+
+Two things about that invoice are particular to package students:
+
+- **It is the student's own**, never the guardian's shared one, even at a `PER_GUARDIAN` academy —
+  the same rule as the package bills. Folding the gap into a sibling's invoice left the parent with
+  a package bill on one page and stray hourly lines on another.
+- **It is priced at the student's last package's hourly rate** (`LessonPackages::lastPackageRate`,
+  same currency). `subscriptions.price_minor` is never rewritten after the first block, so pricing
+  the gap from it billed lessons after a re-priced second block at the first block's rate. It is
+  only the stand-in for a student with no package in that currency. The next block is quoted at the
+  same last-package rate in the open form.
+
+The owner is told three ways, and none of them is a one-off:
+
+- a `NO_ACTIVE_PACKAGE` alert, anchored to the **package that ran out** — so it fires once per
+  block, every time. It used to be anchored to the student, and the `(subject_id, type)` dedupe
+  meant the second time a student ran out nobody was told;
+- the finished card shows **what has been taught since** — lessons, hours and what they were
+  billed (`gap` on the row; "since" is the line's `created_at` against the package's `closed_at`);
+- an **`outOfHours`** counter in the summary, part of the attention total and the sidebar badge.
+  It counts a student while their latest package is finished, they are still on `PER_PACKAGE`, and
+  at least one lesson has been billed since. It clears when the owner decides: open the next
+  block, or move them back to monthly (`close` + `return_to_monthly` works on a finished package
+  too). Paying the old bill does **not** clear it — the old bill being paid is exactly when the
+  student used to vanish from every list while still being taught.
+
+`ensureOpenInvoice` only ever matches `AUTO` invoices (the set its unique index covers). Before,
+a student's MANUAL bill for the same month — a package bill, a quick bill — could be "found" and
+collect lesson lines.
 
 ---
 
@@ -191,7 +220,11 @@ change back, so the ledger and the invoice can never disagree.
   and an "open a package" button that is a link to the form above, never a second copy of it. The
   subscription modal edits the *rate*; it cannot change which clock the student is on.
 - **Sidebar badge** — counts packages that need an action (running low, finished and unpaid,
-  unbilled overdraft), *not* unread rows. It clears when the work is done, not when it is seen.
+  unbilled overdraft, out of hours and still being taught), *not* unread rows. It clears when the
+  work is done, not when it is seen.
+- **The card** — shows at most two actions, picked by state (open the next block, bill a stranded
+  overdraft, collect what is owed, otherwise view the lessons and the bill); everything else sits
+  behind a "⋯" menu.
 - **Notifications → Packages tab** — `PACKAGE_LOW`, `PACKAGE_COMPLETED`, `PACKAGE_UNPAID`,
   `NO_ACTIVE_PACKAGE`.
 

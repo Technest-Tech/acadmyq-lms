@@ -8,6 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesSchedules;
 use Tests\Concerns\CreatesTenantData;
@@ -47,10 +48,11 @@ it('moves future untouched sessions to the new teacher on regeneration; past & t
     DB::table('sessions')->where('id', $touched->id)->update(['status' => 'CANCELLED_BY_STUDENT']);
     $futureUntouched = DB::table('sessions')->where('schedule_id', $schedule)->where('occurrence_local_date', '2026-06-23')->first();
 
-    // Reassign the student's teacher (Sprint 4), then regenerate.
-    $this->assignTeacher($academy, $student, $teacherNew);
-    $this->asAcademy($academy);
-    $generator->generateForSchedule($schedule, ...$window);
+    // Replace the student's teacher through the API (Sprint 4): it hands the old teacher's
+    // timetable to the new one and regenerates — the timetable's teacher is what lessons follow.
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->makeUser($academy, 'ACADEMY_OWNER', ['email' => 'owner-reassign@test.local']));
+    $this->postJson("/api/students/{$student}/teacher", ['teacher_id' => $teacherNew])->assertOk();
 
     $this->asAcademy($academy);
     // Future untouched now carries the NEW teacher…

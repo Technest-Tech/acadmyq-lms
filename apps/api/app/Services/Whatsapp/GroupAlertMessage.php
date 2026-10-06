@@ -24,7 +24,7 @@ final class GroupAlertMessage
 
     /**
      * @param  list<array<string,mixed>>  $payloads
-     * @param  array{not_marked_after_minutes:int, report_overdue_hours:int}  $settings
+     * @param  array{not_marked_after_minutes:int, report_overdue_hours:int, payment_reminder_days:int}  $settings
      */
     public function compose(
         string $eventType,
@@ -70,6 +70,13 @@ final class GroupAlertMessage
             GroupAlertCatalog::PAYMENT_RECEIVED => [
                 $ar ? ($many ? '💰 *تم تسجيل دفعات*' : '💰 *تم تسجيل دفعة*') : ($many ? '💰 *Payments received*' : '💰 *Payment received*'),
                 ...array_map(fn (array $p): string => $this->paymentLine($p, $ar), $payloads),
+            ],
+            GroupAlertCatalog::PAYMENT_OVERDUE => [
+                $ar ? ($many ? '🔔 *فواتير لم تُدفع بعد*' : '🔔 *فاتورة لم تُدفع بعد*') : ($many ? '🔔 *Invoices still unpaid*' : '🔔 *Invoice still unpaid*'),
+                $ar
+                    ? 'تذكير كل '.$this->arDays($settings['payment_reminder_days']).' حتى يُسجَّل الدفع.'
+                    : 'A reminder every '.$settings['payment_reminder_days'].' day(s) until payment is recorded.',
+                ...array_map(fn (array $p): string => $this->overdueLine($p, $ar), $payloads),
             ],
             GroupAlertCatalog::TEST => $this->testLines($payloads[0] ?? [], $ar),
             default => [],
@@ -159,6 +166,38 @@ final class GroupAlertMessage
             $line .= $ar
                 ? ' (مدفوع '.$this->money($paid, $currency).' من '.$this->money($total, $currency).')'
                 : ' ('.$this->money($paid, $currency).' of '.$this->money($total, $currency).' paid)';
+        }
+
+        return $line;
+    }
+
+    /** @param array<string,mixed> $p */
+    private function overdueLine(array $p, bool $ar): string
+    {
+        $currency = (string) ($p['currency'] ?? '');
+        $remaining = $this->money((int) ($p['remaining_minor'] ?? 0), $currency);
+        $payer = $this->name($p['payer'] ?? null);
+        $period = (string) ($p['period'] ?? '');
+        $days = (int) ($p['days_late'] ?? 0);
+
+        $line = $ar ? "• {$payer} — متبقٍ {$remaining}" : "• {$payer} — {$remaining} due";
+        if ((int) ($p['paid_minor'] ?? 0) > 0) {
+            $total = $this->money((int) ($p['total_minor'] ?? 0), $currency);
+            $line .= $ar ? " من {$total}" : " of {$total}";
+        }
+        if ($period !== '') {
+            $line .= $ar ? " — فاتورة {$period}" : " — invoice {$period}";
+        }
+        if ($days > 0) {
+            $line .= $ar ? ' — متأخرة '.$this->arDays($days) : " — {$days} day(s) late";
+        }
+
+        $phone = trim((string) ($p['payer_phone'] ?? ''));
+        if ($phone !== '') {
+            $line .= " — {$phone}";
+        }
+        if (! empty($p['invoice_url'])) {
+            $line .= "\n  ".($ar ? 'الفاتورة: ' : 'Invoice: ').$p['invoice_url'];
         }
 
         return $line;
@@ -257,6 +296,16 @@ final class GroupAlertMessage
             $n === 2 => 'دقيقتان',
             $n >= 3 && $n <= 10 => "{$n} دقائق",
             default => "{$n} دقيقة",
+        };
+    }
+
+    private function arDays(int $n): string
+    {
+        return match (true) {
+            $n === 1 => 'يوم',
+            $n === 2 => 'يومين',
+            $n >= 3 && $n <= 10 => "{$n} أيام",
+            default => "{$n} يومًا",
         };
     }
 

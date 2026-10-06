@@ -414,6 +414,63 @@ final class PayoutController extends Controller
     }
 
     // -------------------------------------------------------------------------
+    // GET /api/payouts/range/lessons  — the lessons behind one teacher's range figure
+    // -------------------------------------------------------------------------
+
+    /**
+     * Every paid lesson of ONE teacher inside the window — the list behind the "lessons" figure
+     * {@see range()} shows for them, sliced on the same `session_date` so the two always agree.
+     *
+     * Owners asked "where do I see this month's lessons?" while looking at that very number: the
+     * by-teacher summary was a dead end, and the lessons only lived inside each monthly statement
+     * further down the page. Owner-only (`payout.read`), like the range itself.
+     */
+    public function rangeLessons(Request $request): JsonResponse
+    {
+        Gate::authorize('payout.read');
+
+        $validated = $request->validate([
+            'teacher_id' => ['required', 'uuid'],
+            'from' => ['required', 'date'],
+            'to' => ['required', 'date', 'after_or_equal:from'],
+            'currency' => ['sometimes', 'nullable', 'string', 'size:3'],
+        ]);
+
+        $lessons = DB::table('payout_line_items as li')
+            ->join('payouts as p', 'p.id', '=', 'li.payout_id')
+            ->leftJoin('sessions as se', 'se.id', '=', 'li.session_id')
+            ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
+            ->where('p.teacher_id', $validated['teacher_id'])
+            ->whereBetween('li.session_date', [(string) $validated['from'], (string) $validated['to']])
+            ->when($validated['currency'] ?? null, fn ($q, $currency) => $q->where('li.currency', $currency))
+            ->orderBy('li.session_date')
+            ->orderBy('se.scheduled_at_utc')
+            ->select([
+                'li.id',
+                'li.payout_id',
+                'li.session_id',
+                'li.amount_minor',
+                'li.currency',
+                'li.session_date',
+                'se.student_id',
+                'se.duration_minutes',
+                'se.scheduled_at_utc',
+                DB::raw('st.full_name as student_name'),
+                DB::raw('(p.finalized_at is not null) as finalized'),
+            ])
+            ->get()
+            ->map(static function (object $row): object {
+                $row->amount_minor = (int) $row->amount_minor;
+                $row->duration_minutes = $row->duration_minutes !== null ? (int) $row->duration_minutes : null;
+                $row->finalized = (bool) $row->finalized;
+
+                return $row;
+            });
+
+        return response()->json(['lessons' => $lessons]);
+    }
+
+    // -------------------------------------------------------------------------
     // GET /api/payouts/range  — what each teacher earned between two dates
     // -------------------------------------------------------------------------
 

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../../messages/ar.json";
 import { makeSession, withAuth } from "@/test/auth";
+import { formatMoney, formatNumber } from "@/lib/money";
 import { formatHours } from "@/lib/time";
 import type { LessonPackageRow, LessonPackageSummary } from "@/lib/api";
 import { PackagesManager } from "./packages-manager";
@@ -73,6 +74,8 @@ function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
     payment_reference: null,
     payment_proof_url: null,
     overdraft_billed: false,
+    awaiting_next_package: false,
+    gap: null,
     created_at: "2026-09-01T00:00:00Z",
     ...overrides,
   };
@@ -86,6 +89,7 @@ const summary: LessonPackageSummary = {
   needsBilling: 0,
   pendingOverdraft: 0,
   unpaid: 1,
+  outOfHours: 0,
   total: 1,
   financials: [
     {
@@ -106,6 +110,15 @@ function renderManager(extraPermissions: string[] = []) {
         permissions: ["package.read", "package.manage", ...extraPermissions],
       }),
       <PackagesManager />,
+    ),
+  );
+}
+
+/** Everything past the card's first two actions lives behind "⋯". */
+async function openCardMenu() {
+  await userEvent.click(
+    within(await screen.findByTestId("package-card")).getByTestId(
+      "package-card-menu",
     ),
   );
 }
@@ -212,11 +225,19 @@ describe("PackagesManager", () => {
     expect(card).toHaveTextContent(arMessages.packages.card.totalHours);
     expect(card).toHaveTextContent(arMessages.packages.card.lessonsUsed);
     expect(card).toHaveTextContent(arMessages.packages.card.startDate);
+
+    // Paid up, so collecting is not the card's job right now: the payment actions are one tap
+    // away behind the menu rather than sitting on the card.
+    await openCardMenu();
     expect(
-      within(card).getByText(arMessages.packages.actions.paymentLink),
+      await screen.findByRole("menuitem", {
+        name: arMessages.packages.actions.paymentLink,
+      }),
     ).toBeInTheDocument();
     expect(
-      within(card).getByText(arMessages.packages.actions.sendPayment),
+      screen.getByRole("menuitem", {
+        name: arMessages.packages.actions.sendPayment,
+      }),
     ).toBeInTheDocument();
   });
 
@@ -289,10 +310,11 @@ describe("PackagesManager", () => {
         name: arMessages.packages.segments.all,
       }),
     );
+    await openCardMenu();
     await userEvent.click(
-      within(await screen.findByTestId("package-card")).getByText(
-        arMessages.packages.actions.syncLessons,
-      ),
+      await screen.findByRole("menuitem", {
+        name: arMessages.packages.actions.syncLessons,
+      }),
     );
 
     expect(syncLessonPackage).toHaveBeenCalledWith("p1");
@@ -310,11 +332,8 @@ describe("PackagesManager", () => {
         name: arMessages.packages.segments.all,
       }),
     );
-    await userEvent.click(
-      within(await screen.findByTestId("package-card")).getByTestId(
-        "edit-package",
-      ),
-    );
+    await openCardMenu();
+    await userEvent.click(await screen.findByTestId("edit-package"));
 
     const price = await screen.findByLabelText(arMessages.packages.form.price);
     expect(price).toHaveValue(4000);
@@ -343,11 +362,8 @@ describe("PackagesManager", () => {
         name: arMessages.packages.segments.all,
       }),
     );
-    await userEvent.click(
-      within(await screen.findByTestId("package-card")).getByTestId(
-        "edit-package",
-      ),
-    );
+    await openCardMenu();
+    await userEvent.click(await screen.findByTestId("edit-package"));
 
     const hours = await screen.findByLabelText(arMessages.packages.form.hours);
     await userEvent.clear(hours);
@@ -374,11 +390,8 @@ describe("PackagesManager", () => {
         name: arMessages.packages.segments.all,
       }),
     );
-    await userEvent.click(
-      within(await screen.findByTestId("package-card")).getByTestId(
-        "close-package",
-      ),
-    );
+    await openCardMenu();
+    await userEvent.click(await screen.findByTestId("close-package"));
 
     const toggle = within(
       await screen.findByTestId("return-to-monthly"),
@@ -393,6 +406,109 @@ describe("PackagesManager", () => {
     expect(closeLessonPackage).toHaveBeenCalledWith("p1", undefined, true);
     expect(
       await screen.findByText(arMessages.packages.alerts.closedAndReturned),
+    ).toBeInTheDocument();
+  });
+  // The block ran out, the bill was even paid, and the student is still coming: the lessons are
+  // billed by the hour somewhere else, so the card has to say so and lead with the decision.
+  it("shows a student still taught after their package ran out, and leads with the next package", async () => {
+    const outOfHours = pkg({
+      status: "COMPLETED",
+      minutes_consumed: 1200,
+      minutes_remaining: 0,
+      percent_used: 100,
+      invoice_status: "PAID",
+      outstanding_minor: 0,
+      awaiting_next_package: true,
+      gap: {
+        lessons: 3,
+        minutes: 270,
+        amounts: [{ currency: "EGP", amount_minor: 90000 }],
+      },
+    });
+    listLessonPackages.mockResolvedValue({ packages: [outOfHours] });
+    getLessonPackageSummary.mockResolvedValue({
+      ...summary,
+      unpaid: 0,
+      outOfHours: 1,
+      total: 1,
+    });
+
+    renderManager();
+
+    // Paid, not overdrawn — the gap alone is what keeps it in the work queue.
+    const card = await screen.findByTestId("package-card");
+    const gap = within(card).getByTestId("package-gap");
+    // Raw textContent: the matcher's whitespace folding would eat the currency's no-break space.
+    expect(gap.textContent).toContain(formatHours(270, "ar"));
+    expect(gap.textContent).toContain(formatNumber(3, "ar"));
+    expect(gap.textContent).toContain(
+      formatMoney({ amount: 90000, currency: "EGP" }, "ar"),
+    );
+    expect(screen.getByTestId("segment-outOfHours")).toBeInTheDocument();
+
+    await userEvent.click(within(card).getByTestId("renew-package"));
+    expect(await screen.findByTestId("package-student")).toBeInTheDocument();
+  });
+
+  it("moves a student whose package ran out back to monthly billing from the card menu", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          status: "COMPLETED",
+          minutes_remaining: 0,
+          outstanding_minor: 0,
+          awaiting_next_package: true,
+        }),
+      ],
+    });
+    renderManager();
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: arMessages.packages.segments.all,
+      }),
+    );
+    await openCardMenu();
+    await userEvent.click(await screen.findByTestId("package-to-monthly"));
+    await userEvent.click(await screen.findByTestId("confirm-to-monthly"));
+
+    expect(closeLessonPackage).toHaveBeenCalledWith("p1", undefined, true);
+    expect(
+      await screen.findByText(
+        arMessages.packages.alerts.returnedToMonthly.replace("{name}", "Sara"),
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps an owing card to two buttons and puts the rest behind the menu", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [pkg({ outstanding_minor: 400000, invoice_paid_minor: 0 })],
+    });
+    renderManager(["invoice.send_link", "invoice.mark_paid"]);
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: arMessages.packages.segments.all,
+      }),
+    );
+    const card = await screen.findByTestId("package-card");
+
+    // Money is owed, so collecting it is what the card offers first…
+    expect(
+      within(card).getByText(arMessages.packages.actions.sendPayment),
+    ).toBeInTheDocument();
+    expect(
+      within(card).getByText(arMessages.packages.actions.markPaid),
+    ).toBeInTheDocument();
+    // …and the repairs are one level down.
+    expect(within(card).queryByTestId("edit-package")).toBeNull();
+
+    await openCardMenu();
+    expect(await screen.findByTestId("edit-package")).toBeInTheDocument();
+    expect(
+      screen.getByRole("menuitem", {
+        name: arMessages.packages.actions.viewLessons,
+      }),
     ).toBeInTheDocument();
   });
 });

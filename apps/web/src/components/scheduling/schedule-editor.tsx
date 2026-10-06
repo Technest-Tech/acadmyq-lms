@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  BookOpen,
   CalendarDays,
   Clock,
+  GraduationCap,
   Globe,
   Info,
   Plus,
@@ -25,6 +27,7 @@ import {
   getStudentSchedule,
   putStudentSchedule,
   type ScheduleSlot,
+  type StudentTeacherLink,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -65,19 +68,78 @@ function hhmm(time: string): string {
 }
 
 /**
- * The per-student weekly recurring schedule editor (Sprint 5 §5.1). A row per weekday slot
- * (weekday + local start time + duration). Saving PUTs the whole slot set and the backend
- * regenerates concrete sessions over the rolling window — the returned created/removed counts
- * are surfaced. Deleting deactivates the schedule (future untouched sessions are removed,
- * history preserved). Read-only when the caller lacks `schedule.manage`.
+ * One weekly timetable per teacher the student has — Qur'an on Tuesdays with one teacher, Arabic
+ * on Thursdays with another. Each section edits only its own teacher's timetable, so saving one
+ * never moves the other's lessons.
  */
-export function ScheduleSection({
+export function TeacherTimetables({
   studentId,
+  teachers,
   canManage,
   onError,
   onChanged,
 }: {
   studentId: string;
+  teachers: StudentTeacherLink[];
+  canManage: boolean;
+  onError: (msg: string) => void;
+  onChanged?: () => void;
+}) {
+  const t = useTranslations("scheduling");
+
+  if (teachers.length === 0) {
+    return (
+      <div
+        className="text-muted-foreground flex items-center gap-3 rounded-2xl border border-dashed bg-card px-5 py-6 text-sm"
+        data-testid="timetable-no-teachers"
+      >
+        <GraduationCap className="size-5 shrink-0 text-muted-foreground/60" aria-hidden />
+        {t("timetable.noTeachers")}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {teachers.map((tch) => (
+        <ScheduleSection
+          key={tch.teacher_id}
+          studentId={studentId}
+          teacherId={tch.teacher_id}
+          teacherName={tch.teacher_name}
+          course={tch.course}
+          canManage={canManage}
+          onError={onError}
+          onChanged={onChanged}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The per-student weekly recurring schedule editor (Sprint 5 §5.1) for ONE of their teachers. A
+ * row per weekday slot (weekday + local start time + duration). Saving PUTs the whole slot set
+ * and the backend regenerates concrete sessions over the rolling window — the returned
+ * created/removed counts are surfaced. Deleting deactivates the schedule (future untouched
+ * sessions are removed, history preserved). Read-only when the caller lacks `schedule.manage`.
+ *
+ * `teacherId` says whose timetable this is. It may be left out only for a student with a single
+ * teacher; the API refuses to guess between several.
+ */
+export function ScheduleSection({
+  studentId,
+  teacherId,
+  teacherName,
+  course,
+  canManage,
+  onError,
+  onChanged,
+}: {
+  studentId: string;
+  teacherId?: string;
+  teacherName?: string | null;
+  course?: string | null;
   canManage: boolean;
   onError: (msg: string) => void;
   onChanged?: () => void;
@@ -115,7 +177,7 @@ export function ScheduleSection({
 
   const load = useCallback(async () => {
     try {
-      const res = await getStudentSchedule(studentId);
+      const res = await getStudentSchedule(studentId, teacherId);
       setActive(res.schedule !== null);
       setTimezone(res.schedule?.timezone ?? "");
       const saved = res.schedule?.start_date?.slice(0, 10) ?? null;
@@ -134,7 +196,7 @@ export function ScheduleSection({
     } finally {
       setLoaded(true);
     }
-  }, [studentId, onError]);
+  }, [studentId, teacherId, onError]);
 
   useEffect(() => {
     void load();
@@ -199,6 +261,7 @@ export function ScheduleSection({
     setNotice(null);
     try {
       const res = await putStudentSchedule(studentId, {
+        ...(teacherId ? { teacher_id: teacherId } : {}),
         timezone: timezone || undefined,
         start_date: startDate || undefined,
         slots: slots.map((s) => ({
@@ -226,7 +289,7 @@ export function ScheduleSection({
     setSaving(true);
     setNotice(null);
     try {
-      const res = await deleteStudentSchedule(studentId);
+      const res = await deleteStudentSchedule(studentId, teacherId);
       setNotice(t("deleted", { removed: res.generated.removed }));
       await load();
       onChanged?.();
@@ -250,6 +313,7 @@ export function ScheduleSection({
       <section
         className="overflow-hidden rounded-2xl border bg-card shadow-sm"
         data-testid="student-schedule"
+        data-teacher={teacherId}
       >
         {/* Header */}
         <div className="flex items-center gap-3 border-b bg-gradient-to-r from-primary/[0.06] to-transparent px-5 py-4">
@@ -258,12 +322,20 @@ export function ScheduleSection({
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold">
-              {t("timetable.recurringTitle")}
+              {teacherName
+                ? t("timetable.withTeacher", { name: teacherName })
+                : t("timetable.recurringTitle")}
             </h3>
             <p className="text-muted-foreground mt-0.5 text-xs">
               {t("timetable.recurringSubtitle")}
             </p>
           </div>
+          {course && (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+              <BookOpen className="size-3" aria-hidden />
+              {course}
+            </span>
+          )}
           {active && (
             <span
               className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"

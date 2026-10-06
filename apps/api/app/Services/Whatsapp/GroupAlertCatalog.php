@@ -30,16 +30,22 @@ final class GroupAlertCatalog
     /** Money was recorded against an invoice — by hand, PayPal or XPay. */
     public const PAYMENT_RECEIVED = 'PAYMENT_RECEIVED';
 
+    /**
+     * An invoice is still owed money. Repeats every N days, from the day it fell due (closed at
+     * month end, or its pay link sent), until it is paid — so a struggling payer is never lost.
+     */
+    public const PAYMENT_OVERDUE = 'PAYMENT_OVERDUE';
+
     /** The operator's "send a test" from the panel. Never selectable. */
     public const TEST = 'TEST';
 
     public const CATEGORIES = [
         'SUPERVISION' => [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE],
-        'ACCOUNTING' => [self::PACKAGE_LOW, self::PACKAGE_ENDED, self::PAYMENT_RECEIVED],
+        'ACCOUNTING' => [self::PACKAGE_LOW, self::PACKAGE_ENDED, self::PAYMENT_RECEIVED, self::PAYMENT_OVERDUE],
     ];
 
     /** The alerts whose truth can lapse before they go out, so they are re-checked at send time. */
-    public const CONDITIONAL = [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE];
+    public const CONDITIONAL = [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE, self::PAYMENT_OVERDUE];
 
     /**
      * How long an alert may wait for a connected number before it stops being worth sending. A
@@ -52,17 +58,21 @@ final class GroupAlertCatalog
         self::PACKAGE_LOW => 48 * 60,
         self::PACKAGE_ENDED => 48 * 60,
         self::PAYMENT_RECEIVED => 48 * 60,
+        // A missed reminder is not chased: the next one is only days away.
+        self::PAYMENT_OVERDUE => 24 * 60,
         self::TEST => 30,
     ];
 
     public const DEFAULT_SETTINGS = [
         'not_marked_after_minutes' => 15,
         'report_overdue_hours' => 2,
+        'payment_reminder_days' => 2,
     ];
 
     public const SETTING_BOUNDS = [
         'not_marked_after_minutes' => [1, 240],
         'report_overdue_hours' => [1, 72],
+        'payment_reminder_days' => [1, 30],
     ];
 
     /** @return list<string> every selectable alert type */
@@ -87,7 +97,7 @@ final class GroupAlertCatalog
      * sweep ask for a negative window.
      *
      * @param  array<mixed>|null  $raw
-     * @return array{not_marked_after_minutes:int, report_overdue_hours:int}
+     * @return array{not_marked_after_minutes:int, report_overdue_hours:int, payment_reminder_days:int}
      */
     public static function settings(?array $raw): array
     {
@@ -117,7 +127,7 @@ final class GroupAlertCatalog
     /**
      * A stored `settings` column read back through {@see settings()}.
      *
-     * @return array{not_marked_after_minutes:int, report_overdue_hours:int}
+     * @return array{not_marked_after_minutes:int, report_overdue_hours:int, payment_reminder_days:int}
      */
     public static function decodeSettings(mixed $raw): array
     {

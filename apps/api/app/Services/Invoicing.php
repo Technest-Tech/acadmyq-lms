@@ -604,7 +604,10 @@ final class Invoicing implements BillingHook
         $sub = $this->getActiveSubscription((string) $session->student_id);
         $currency = $sub?->currency !== null ? (string) $sub->currency : $defaultCurrency;
 
-        if ($grouping === 'PER_STUDENT') {
+        // A package student's money is always per-student, like the package bills themselves: a
+        // lesson taken after the block ran out folded into a shared guardian invoice left the
+        // parent with a package bill on one page and stray hourly lines among a sibling's on another.
+        if ($grouping === 'PER_STUDENT' || $sub?->price_basis === LessonPackages::BASIS) {
             return [null, (string) $session->student_id, $currency];
         }
 
@@ -634,8 +637,12 @@ final class Invoicing implements BillingHook
         int $month,
         string $currency,
     ): string {
+        // AUTO only, matching the unique index this lookup is the read side of. Without it a
+        // student's MANUAL invoice for the same month (a package bill, a quick bill) was "found"
+        // here and collected the month's lesson lines — even after it had been paid.
         $existing = DB::table('invoices')
             ->where('academy_id', $academy->id)
+            ->where('kind', 'AUTO')
             ->where('period_year', $year)
             ->where('period_month', $month)
             ->where('currency', $currency)
@@ -706,11 +713,17 @@ final class Invoicing implements BillingHook
 
         // PER_PACKAGE only reaches here as a FALLBACK: the student is on package billing but has
         // no open package, so LessonPackages::consume() declined the lesson and it must still be
-        // billed to somebody. For a package student subscriptions.price_minor is the default
-        // HOURLY rate (it is what pre-fills the next package), so the fallback prices by the hour
-        // — charging it as a flat per-session fee would silently bill a 90-minute lesson the same
-        // as a 30-minute one.
-        if ($subscription->price_basis === 'PER_HOUR' || $subscription->price_basis === 'PER_PACKAGE') {
+        // billed to somebody. It prices by the hour — a flat per-session fee would bill a 90-minute
+        // lesson the same as a 30-minute one — at the rate of the student's LAST package, which is
+        // the deal they are actually on. The subscription figure is only the stand-in for a
+        // student who has never had a package in this currency.
+        if ($subscription->price_basis === LessonPackages::BASIS) {
+            $rate = $this->packages->lastPackageRate($studentId, (string) $subscription->currency) ?? $priceMinor;
+
+            return (int) round($rate * $durationMinutes / 60);
+        }
+
+        if ($subscription->price_basis === 'PER_HOUR') {
             return (int) round($priceMinor * $durationMinutes / 60);
         }
 

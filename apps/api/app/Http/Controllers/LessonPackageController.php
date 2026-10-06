@@ -11,6 +11,7 @@ use App\Services\LessonPackages;
 use App\Services\SessionDurationCorrection;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\StudentTeachers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -71,18 +72,22 @@ final class LessonPackageController extends Controller
             ->orderByRaw("case when p.status = 'ACTIVE' then 0 else 1 end")
             ->orderByDesc('p.created_at')
             ->limit(500)
-            ->get()
-            ->map(fn ($row) => $this->present($row));
+            ->get();
 
-        return response()->json(['packages' => $rows]);
+        $gaps = $this->gapsFor($rows->pluck('id')->all());
+
+        return response()->json([
+            'packages' => $rows->map(fn ($row) => $this->present($row, $gaps)),
+        ]);
     }
 
     /**
      * GET /api/packages/summary — the attention counters behind the sidebar badge.
      *
      * These are things an owner has to DO, not things they haven't read: a closed package with no
-     * bill, an overdraft still travelling, a finished package nobody paid for, and a balance about
-     * to run out. An ON_START package that has only just opened has an unpaid invoice by design,
+     * bill, an overdraft still travelling, a finished package nobody paid for, a balance about
+     * to run out, and a student still being taught with no package open at all (`outOfHours`,
+     * {@see gapsFor()}). An ON_START package that has only just opened has an unpaid invoice by design,
      * so `unpaid` deliberately counts closed packages only — otherwise the badge would never be
      * clear and would stop meaning anything.
      */
@@ -113,6 +118,13 @@ final class LessonPackageController extends Controller
             ->where('status', 'ACTIVE')
             ->whereRaw('(minutes_total + carried_over_minutes - minutes_consumed) <= 60')
             ->count();
+
+        // Students still being taught after their block ran out, with nobody having decided what
+        // comes next — the case every other counter missed once the old bill was paid.
+        $outOfHours = count(array_filter(
+            $this->gapsFor(null),
+            fn (array $gap): bool => $gap['lessons'] > 0,
+        ));
 
         $active = (int) DB::table('lesson_packages')->where('status', 'ACTIVE')->count();
         $completed = (int) DB::table('lesson_packages')->where('status', 'COMPLETED')->count();
@@ -148,7 +160,8 @@ final class LessonPackageController extends Controller
             'needsBilling' => $needsBilling,
             'pendingOverdraft' => $pendingOverdraft,
             'unpaid' => $unpaid,
-            'total' => $lowBalance + $needsBilling + $pendingOverdraft + $unpaid,
+            'outOfHours' => $outOfHours,
+            'total' => $lowBalance + $needsBilling + $pendingOverdraft + $unpaid + $outOfHours,
             'financials' => $financials,
         ]);
     }
@@ -182,22 +195,39 @@ final class LessonPackageController extends Controller
             })
             ->whereNull('s.deleted_at')
             ->orderBy('s.full_name')
-            ->get([
+            ->select([
                 's.id', 's.full_name',
                 'sub.currency', 'sub.price_minor as default_hourly_rate_minor',
                 'sub.price_basis', 'sub.plan_label',
                 'p.id as active_package_id', 'p.label as active_package_label',
             ])
+            // The rate of the last block they bought, in their own currency — the same figure a
+            // lesson after that block ran out is billed at ({@see LessonPackages::lastPackageRate}).
+            ->selectSub(
+                DB::table('lesson_packages as last')
+                    ->select('last.hourly_rate_minor')
+                    ->whereColumn('last.student_id', 's.id')
+                    ->whereColumn('last.currency', 'sub.currency')
+                    ->whereIn('last.status', ['ACTIVE', 'COMPLETED'])
+                    ->orderByDesc('last.sequence_no')
+                    ->limit(1),
+                'last_package_rate_minor',
+            )
+            ->get()
             ->map(fn ($row) => [
                 'id' => (string) $row->id,
                 'full_name' => (string) $row->full_name,
                 'currency' => (string) ($row->currency ?? $this->academyCurrency()),
                 // Only an hourly figure pre-fills a package sensibly. A PER_MONTH or PER_SESSION
                 // price is a different unit, so it is reported as zero rather than multiplied by
-                // the hours and presented as a quote nobody agreed to.
-                'default_hourly_rate_minor' => in_array($row->price_basis, ['PER_HOUR', LessonPackages::BASIS], true)
-                    ? (int) $row->default_hourly_rate_minor
-                    : 0,
+                // the hours and presented as a quote nobody agreed to. A package student's next
+                // block is quoted at their LAST block's rate, not the subscription figure, which
+                // is never rewritten after their first one.
+                'default_hourly_rate_minor' => match (true) {
+                    $row->price_basis === LessonPackages::BASIS && $row->last_package_rate_minor !== null => (int) $row->last_package_rate_minor,
+                    in_array($row->price_basis, ['PER_HOUR', LessonPackages::BASIS], true) => (int) $row->default_hourly_rate_minor,
+                    default => 0,
+                },
                 'price_basis' => $row->price_basis !== null ? (string) $row->price_basis : null,
                 'plan_label' => $row->plan_label !== null ? (string) $row->plan_label : null,
                 'on_package_billing' => $row->price_basis === LessonPackages::BASIS,
@@ -228,7 +258,7 @@ final class LessonPackageController extends Controller
         }
 
         return response()->json([
-            'package' => $this->present($row),
+            'package' => $this->present($row, $this->gapsFor([$id])),
             'credits' => $this->creditsFor($id),
         ]);
     }
@@ -599,6 +629,10 @@ final class LessonPackageController extends Controller
      * someone pays for it), FALSE drops it entirely (it was never this student's lesson — the
      * shared sibling record, the mis-clicked attendance). Defaulting to TRUE is the conservative
      * half: it never silently loses revenue, and it is the reversible one.
+     *
+     * `pay_teacher` (default TRUE) is the teacher's half of the same decision. FALSE takes the
+     * lesson off the teacher's open statement too, and needs payout.adjust on top of
+     * package.manage.
      */
     public function removeLesson(Request $request, string $id, string $creditId): JsonResponse
     {
@@ -606,7 +640,14 @@ final class LessonPackageController extends Controller
 
         $validated = $request->validate([
             'rebill' => ['sometimes', 'boolean'],
+            'pay_teacher' => ['sometimes', 'boolean'],
         ]);
+
+        // Stopping a teacher's pay is a payroll decision, not a package one.
+        $payTeacher = (bool) ($validated['pay_teacher'] ?? true);
+        if (! $payTeacher) {
+            Gate::authorize('payout.adjust');
+        }
 
         $ctx = app(AuthContext::class);
 
@@ -616,6 +657,7 @@ final class LessonPackageController extends Controller
             (bool) ($validated['rebill'] ?? true),
             $ctx->userId,
             $ctx->role,
+            $payTeacher,
         );
 
         return response()->json(['ok' => true] + $result);
@@ -666,14 +708,96 @@ final class LessonPackageController extends Controller
     }
 
     /**
+     * The packages whose student ran out and is still on package billing with nothing open — and
+     * what has been taught since: lessons, minutes and what they were billed, per currency.
+     *
+     * A package is in here when it is finished, it is the student's LATEST (so no next block has
+     * been opened), and the student's subscription still says PER_PACKAGE (nobody moved them back
+     * to monthly). Every lesson they take from then on is billed by the hour outside any package
+     * ({@see LessonPackages::consume()} declines it), and those lines live on an invoice the
+     * packages screen never showed — so a finished card read "next lesson tomorrow" with no hint
+     * that the lesson would be billed somewhere else.
+     *
+     * "Since" is the invoice line's own created_at against the package's closed_at, not the lesson
+     * date: a lesson taught before the block ran out but marked after it was billed outside it all
+     * the same. Free trials are left out exactly as the backdated sync leaves them out.
+     *
+     * @param  list<string>|null  $packageIds  null = every such package in the academy.
+     * @return array<string, array{lessons:int, minutes:int, amounts:list<array{currency:string, amount_minor:int}>}>
+     */
+    private function gapsFor(?array $packageIds): array
+    {
+        if ($packageIds === []) {
+            return [];
+        }
+
+        $candidates = DB::table('lesson_packages as p')
+            ->when($packageIds !== null, fn ($q) => $q->whereIn('p.id', $packageIds))
+            ->where('p.status', '!=', 'ACTIVE')
+            ->whereNotNull('p.closed_at')
+            ->whereNotExists(fn ($q) => $q->select(DB::raw(1))
+                ->from('lesson_packages as later')
+                ->whereColumn('later.student_id', 'p.student_id')
+                ->whereColumn('later.sequence_no', '>', 'p.sequence_no'))
+            ->whereExists(fn ($q) => $q->select(DB::raw(1))
+                ->from('subscriptions as sub')
+                ->whereColumn('sub.student_id', 'p.student_id')
+                ->where('sub.status', 'ACTIVE')
+                ->whereNull('sub.deleted_at')
+                ->where('sub.price_basis', LessonPackages::BASIS))
+            ->pluck('p.id')
+            ->map(fn ($id) => (string) $id)
+            ->all();
+
+        if ($candidates === []) {
+            return [];
+        }
+
+        $gaps = [];
+        foreach ($candidates as $id) {
+            $gaps[$id] = ['lessons' => 0, 'minutes' => 0, 'amounts' => []];
+        }
+
+        $lines = DB::table('invoice_line_items as li')
+            ->join('lesson_packages as p', 'p.student_id', '=', 'li.student_id')
+            ->join('sessions as sess', 'sess.id', '=', 'li.session_id')
+            ->leftJoin('lesson_package_credits as credit', 'credit.session_id', '=', 'li.session_id')
+            ->leftJoin('session_reports as report', 'report.session_id', '=', 'li.session_id')
+            ->whereIn('p.id', $candidates)
+            ->whereNull('credit.id')
+            ->whereColumn('li.created_at', '>=', 'p.closed_at')
+            ->whereRaw("coalesce((report.values->>'is_free_trial')::boolean, false) = false")
+            ->groupBy('p.id', 'li.currency')
+            ->orderBy('li.currency')
+            ->selectRaw('p.id as package_id, li.currency, count(*) as lessons')
+            ->selectRaw('coalesce(sum(sess.duration_minutes), 0) as minutes, coalesce(sum(li.amount_minor), 0) as amount_minor')
+            ->get();
+
+        foreach ($lines as $line) {
+            $id = (string) $line->package_id;
+            $gaps[$id]['lessons'] += (int) $line->lessons;
+            $gaps[$id]['minutes'] += (int) $line->minutes;
+            // Never summed across currencies — one entry per currency, as everywhere else here.
+            $gaps[$id]['amounts'][] = [
+                'currency' => trim((string) $line->currency),
+                'amount_minor' => (int) $line->amount_minor,
+            ];
+        }
+
+        return $gaps;
+    }
+
+    /**
      * Shape one row for the client. `minutes_remaining` is clamped at zero and the overdraw is
      * reported separately — "how much is left" and "how far past the end we went" are two
      * different questions and collapsing them into one signed number reads wrong on a progress bar.
      *
+     * @param  array<string, array{lessons:int, minutes:int, amounts:list<array{currency:string, amount_minor:int}>}>  $gaps  {@see gapsFor()}
      * @return array<string,mixed>
      */
-    private function present(object $row): array
+    private function present(object $row, array $gaps = []): array
     {
+        $gap = $gaps[(string) $row->id] ?? null;
         $sold = (int) $row->minutes_total + (int) $row->carried_over_minutes;
         $consumed = (int) $row->minutes_consumed;
         $remaining = max(0, $sold - $consumed);
@@ -719,19 +843,13 @@ final class LessonPackageController extends Controller
                 ? "/api/invoices/{$row->invoice_id}/payment-proof"
                 : null,
             'overdraft_billed' => $row->overdraft_invoice_id !== null,
+            // The student's latest block, finished, and they are still on package billing: the
+            // owner owes a decision — open the next block or move them back to monthly.
+            'awaiting_next_package' => $gap !== null,
+            // What has been taught since it ran out, billed by the hour outside any package.
+            'gap' => $gap !== null && $gap['lessons'] > 0 ? $gap : null,
             'created_at' => Carbon::parse($row->created_at)->utc()->toIso8601String(),
         ];
-    }
-
-    /** The teacher currently assigned to this student, if any. */
-    private function currentTeacherFor(string $studentId): ?string
-    {
-        $id = DB::table('student_teacher_assignments')
-            ->where('student_id', $studentId)
-            ->whereNull('ended_at')
-            ->value('teacher_id');
-
-        return $id !== null ? (string) $id : null;
     }
 
     private function assertActiveTeacher(string $teacherId): void
@@ -826,7 +944,7 @@ final class LessonPackageController extends Controller
             ]);
         }
 
-        $teacherId = $data['teacher_id'] ?? $this->currentTeacherFor((string) $package->student_id);
+        $teacherId = $data['teacher_id'] ?? StudentTeachers::defaultFor((string) $package->student_id);
 
         if ($teacherId === null) {
             throw ValidationException::withMessages([

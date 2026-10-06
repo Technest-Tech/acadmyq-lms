@@ -210,11 +210,17 @@ export function EnrollmentWizard({
     setBusy(true);
     setError(null);
     try {
+      // Swapping the teacher picked at enrolment for another: name the one being replaced, since
+      // a student may have more than one teacher by now.
       if (teacherId && teacherId !== currentTeacherId) {
-        await reassignTeacher(studentId, { teacher_id: teacherId });
+        await reassignTeacher(studentId, {
+          teacher_id: teacherId,
+          ...(currentTeacherId ? { replaces_teacher_id: currentTeacherId } : {}),
+        });
       }
       if (slots.length > 0) {
         await putStudentSchedule(studentId, {
+          ...(teacherId ? { teacher_id: teacherId } : {}),
           timezone: timezone || undefined,
           start_date: scheduleStart || undefined,
           slots: slots.map((s) => ({

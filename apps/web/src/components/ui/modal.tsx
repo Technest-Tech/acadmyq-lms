@@ -60,6 +60,19 @@ export function Modal({
 }: ModalProps) {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  /**
+   * Latest onClose, read by the key handler below.
+   *
+   * Callers pass inline arrows (`onClose={() => setOpen(false)}`), so onClose is a new function on
+   * every render of the parent. Had the focus effect depended on it, each keystroke in a form whose
+   * state lives beside the Modal would tear the effect down and run it again — and running it
+   * focuses the first focusable, which is the X in the header. Teachers typing a report saw the
+   * cursor jump to the X after every letter.
+   */
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   /**
    * Escape closes, and Tab stays inside.
@@ -82,7 +95,7 @@ export function Modal({
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab" || node === null) return;
@@ -109,7 +122,7 @@ export function Modal({
       document.removeEventListener("keydown", handleKey);
       previous?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   useEffect(() => {
     if (open) document.body.style.overflow = "hidden";

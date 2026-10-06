@@ -324,6 +324,7 @@
         "noEvents": "No alerts selected",
         "eventShortMinutes": "{event} ({n} min)",
         "eventShortHours": "{event} ({n} h)",
+        "eventShortDays": "{event} (every {n} d)",
         "last24h": "Last 24h: {delivered} sent · {failed} failed · {waiting} waiting",
         "recent": "Recent alerts",
         "noAlerts": "Nothing sent to this group yet.",
@@ -352,6 +353,7 @@
         "usePreset": "{preset} preset",
         "minutes": "min",
         "hours": "hours",
+        "days": "days",
         "presets": {
           "SUPERVISION": "Supervision",
           "ACCOUNTING": "Accounting"
@@ -384,6 +386,10 @@
           "PAYMENT_RECEIVED": {
             "label": "Payment received",
             "desc": "Every payment recorded — cash, transfer or online."
+          },
+          "PAYMENT_OVERDUE": {
+            "label": "Unpaid invoice reminder",
+            "desc": "A repeating reminder for every invoice still unpaid (from the day it fell due or its pay link was sent) until payment is recorded — every:"
           },
           "TEST": "Test message"
         },
@@ -1568,7 +1574,8 @@
       "billingPackageHint": "Sell a block of hours up front; lessons burn the balance.",
       "billingPackageIntro": "The package opens as you save — it's on the Packages page straight away, billed and ready for the first lesson.",
       "packageTermsRequired": "Enter the package hours, a total price, a currency and a name.",
-      "savedWithPackage": "Student added, and their package is open on the Packages page."
+      "savedWithPackage": "Student added, and their package is open on the Packages page.",
+      "teachers": "Teachers"
     },
     "subscription": {
       "title": "Subscription",
@@ -1626,7 +1633,30 @@
       "changeHint": "Reassign this student to another teacher. Upcoming sessions move to the new teacher.",
       "current_badge": "Current",
       "from": "From",
-      "to": "To"
+      "to": "To",
+      "teachers": "Teachers & courses",
+      "teachersDesc": "Everyone who teaches this student, and what they teach",
+      "course": "Course",
+      "coursePlaceholder": "e.g. Qur'an, Arabic",
+      "pickTeacher": "Choose a teacher",
+      "addTeacher": "Add a teacher",
+      "addAnother": "Add another teacher",
+      "removeTeacher": "Remove teacher",
+      "saveTeachers": "Save teachers",
+      "saved": "Teachers updated.",
+      "savedRemoved": "Teachers updated — {lessons, plural, one {# upcoming lesson} other {# upcoming lessons}} removed with the timetable.",
+      "removeConfirmTitle": "Remove {names}?",
+      "removeConfirmBody": "Their weekly timetable with this student ends and their upcoming unmarked lessons are removed. Lessons already taught stay in the history.",
+      "removeConfirm": "Remove and save",
+      "keep": "Keep",
+      "unsaved": "Unsaved changes",
+      "replace": "Replace a teacher",
+      "replaceHint": "Hand one teacher's course and timetable to another teacher from a date. Their upcoming lessons move to the new teacher.",
+      "replaceWho": "Teacher leaving",
+      "replaceWith": "New teacher",
+      "replaceAction": "Replace",
+      "formHint": "Optional. A student can study different courses with different teachers.",
+      "edit": "Edit teachers"
     },
     "detail": {
       "profile": "Profile",
@@ -1652,7 +1682,7 @@
       "notFound": "Student not found.",
       "tabProfile": "Profile",
       "tabSubscription": "Subscription",
-      "tabTeacher": "Teacher",
+      "tabTeacher": "Teachers",
       "tabSchedule": "Schedule",
       "tabSettings": "Settings",
       "memberSince": "Added",
@@ -1769,7 +1799,9 @@
       "slotsCount": "{count} slots",
       "emptyMonth": "No sessions this month",
       "regenHint": "Saving regenerates upcoming sessions to match. Past and attended sessions are kept.",
-      "searchTimezone": "Search timezone…"
+      "searchTimezone": "Search timezone…",
+      "withTeacher": "Weekly timetable — {name}",
+      "noTeachers": "Assign a teacher in the Teachers tab first, then build their weekly timetable here."
     },
     "timetables": {
       "title": "Student timetables",
@@ -1803,7 +1835,12 @@
         "weeklySessions": "Weekly sessions",
         "weeklyHours": "Weekly hours",
         "teachers": "Teachers"
-      }
+      },
+      "teacherLabel": "Teacher",
+      "selectTeacher": "Select a teacher",
+      "searchTeacher": "Search teacher…",
+      "errTeacher": "Please choose the teacher for this timetable.",
+      "teacherHint": "A student with several teachers has one timetable per teacher."
     },
     "weekday": {
       "0": "Sunday",
@@ -1922,13 +1959,15 @@
       "classes": "Classes",
       "reports": "Reports",
       "studentReports": "Student Reports",
-      "packages": "Packages"
+      "packages": "Packages",
+      "attended": "Attended classes"
     },
     "empty": {
       "classes": "No pending class requests.",
       "reports": "No report alerts. You're all caught up.",
       "studentReports": "No student reports to review.",
-      "packages": "No package alerts. Every balance is healthy and every finished package is settled."
+      "packages": "No package alerts. Every balance is healthy and every finished package is settled.",
+      "attended": "No attended lessons yet. Every lesson a teacher marks attended shows up here."
     },
     "status": {
       "PENDING": "Pending",
@@ -1974,6 +2013,11 @@
         "title": "{student} has no open package",
         "body": "A lesson was delivered with no package to take it. It has been billed the ordinary way — open the next block."
       }
+    },
+    "attended": {
+      "title": "{teacher} taught {student}",
+      "markedBy": "Marked by {name}",
+      "open": "Open lesson"
     }
   },
   "studentReports": {
@@ -2377,13 +2421,15 @@
     },
     "stats": {
       "attention": "Needs attention",
-      "attentionSub": "Running out, unpaid, or overdrawn",
+      "attentionSub": "Running out, unpaid, overdrawn, or out of hours",
       "low": "Running low",
       "lowSub": "An hour or less left",
       "unpaid": "Finished & unpaid",
       "unpaidSub": "The block is used up, the bill is not settled",
       "active": "Open packages",
       "activeSub": "Currently being consumed",
+      "outOfHours": "Out of hours",
+      "outOfHoursSub": "Still taking lessons with no package open",
       "filterHint": "Press a tile to narrow the list below it. Press it again to see everything."
     },
     "segments": {
@@ -2443,7 +2489,10 @@
       "paid": "Paid",
       "amountDue": "{amount} due",
       "invoiceOpen": "Invoice open",
-      "paymentReference": "Reference: {reference}"
+      "paymentReference": "Reference: {reference}",
+      "gapTitle": "Out of hours — still taking lessons",
+      "gapBody": "{count, plural, one {{n} lesson} other {{n} lessons}} ({hours}) since this package ended, billed by the hour on the student's monthly invoice: {amount}.",
+      "noPackageOpen": "No package open — their next lessons bill by the hour."
     },
     "actions": {
       "open": "Open a package",
@@ -2460,7 +2509,10 @@
       "syncLessons": "Sync lessons",
       "billOverdraft": "Bill the extra hours",
       "edit": "Edit",
-      "saveEdit": "Save changes"
+      "saveEdit": "Save changes",
+      "more": "More actions",
+      "renew": "Open next package",
+      "toMonthly": "Switch to monthly"
     },
     "form": {
       "title": "Open a package",
@@ -2523,9 +2575,7 @@
       "editHint": "The parent's invoice and the teacher's payout move with it.",
       "save": "Save",
       "cancel": "Cancel",
-      "removeHint": "The lesson still happened. Bill it the ordinary way, or drop it entirely if it was never this student's lesson.",
-      "removeAndBill": "Return hours & bill it",
-      "removeAndDrop": "Return hours & don't charge",
+      "removeHint": "The lesson still happened. Decide who pays for it now that it is off this package.",
       "modeExisting": "Existing lesson",
       "modeNew": "Record a lesson",
       "existingHint": "Attended lessons that are not on any package yet.",
@@ -2536,7 +2586,10 @@
       "fieldLength": "Minutes",
       "fieldTeacher": "Teacher",
       "teacherDefault": "The student's teacher",
-      "record": "Record & add"
+      "record": "Record & add",
+      "removeChargeStudent": "Charge the student for it?",
+      "removePayTeacher": "Pay the teacher for it?",
+      "removeConfirm": "Confirm removal"
     },
     "edit": {
       "title": "Edit this package",
@@ -2556,6 +2609,11 @@
       "returnToMonthly": "Return {name} to monthly billing",
       "returnToMonthlyHint": "Their next lessons bill on the monthly clock instead. Leave off if they are buying another block."
     },
+    "toMonthly": {
+      "title": "Switch to monthly billing",
+      "body": "{name}'s package has ended. Their next lessons go on the monthly invoice at their hourly rate, and this package stops asking for a renewal.",
+      "confirm": "Switch to monthly"
+    },
     "alerts": {
       "opened": "Package opened.",
       "openedAndBilled": "Package opened and the invoice was raised.",
@@ -2574,7 +2632,9 @@
       "overdraftFailed": "Could not bill the extra hours.",
       "edited": "Package updated.",
       "switchedToPackages": "{name} is now on package billing.",
-      "closedAndReturned": "Package closed, and the student is back on monthly billing."
+      "closedAndReturned": "Package closed, and the student is back on monthly billing.",
+      "returnedToMonthly": "{name} is back on monthly billing.",
+      "returnFailed": "Could not move the student to monthly billing."
     },
     "panel": {
       "title": "Lesson package",
@@ -2893,7 +2953,12 @@
     "repriceConfirmBody": "Every lesson on this statement is re-priced at the teacher’s current rate for its student, and the fixed salary is set to their current one. Rewards and deductions you added stay as they are.",
     "repriceDone": "Recalculated: {delta}",
     "repriceNoChange": "Already up to date — nothing changed.",
-    "rangeFixed": "Fixed salaries"
+    "rangeFixed": "Fixed salaries",
+    "rangeLessonsTitle": "{name}'s lessons",
+    "rangeLessonsWindow": "{from} → {to}",
+    "rangeLessonsLoading": "Loading lessons…",
+    "rangeLessonsEmpty": "No paid lessons in this period.",
+    "rangeTapHint": "Tap a teacher to see their lessons"
   },
   "audit": {
     "title": "Audit Log",

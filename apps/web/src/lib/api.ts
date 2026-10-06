@@ -1115,7 +1115,8 @@ export type WhatsAppGroupEvent =
   | "REPORT_OVERDUE"
   | "PACKAGE_LOW"
   | "PACKAGE_ENDED"
-  | "PAYMENT_RECEIVED";
+  | "PAYMENT_RECEIVED"
+  | "PAYMENT_OVERDUE";
 
 export type WhatsAppGroupAlertStatus =
   | "PENDING"
@@ -1130,6 +1131,7 @@ export type WhatsAppGroupAlertStatus =
 export interface WhatsAppGroupSettings {
   not_marked_after_minutes: number;
   report_overdue_hours: number;
+  payment_reminder_days: number;
 }
 
 export interface WhatsAppGroupAlert {
@@ -2033,7 +2035,9 @@ export interface GuardianChild {
   deleted_at: string | null;
   created_at: string;
   teacher_id: string | null;
+  /** Every teacher's name, joined. */
   teacher_name: string | null;
+  teachers?: StudentTeacherSummary[];
   subscription_id: string | null;
   plan_label: string | null;
   sessions_per_month: number | null;
@@ -2917,10 +2921,32 @@ export interface StudentRow {
   sessions_per_month: number | null;
   start_date: string | null;
   subscription_status: string | null;
+  /** The first of the student's teachers (oldest link); null when they have none. */
   teacher_id: string | null;
+  /** Every teacher's name, joined — for places that print one line. */
   teacher_name: string | null;
+  /** All of the student's current teachers, each with the course they teach. */
+  teachers?: StudentTeacherSummary[];
   deleted_at: string | null;
   created_at: string;
+}
+
+/** One of a student's teachers as list rows carry it. */
+export interface StudentTeacherSummary {
+  teacher_id: string;
+  teacher_name: string | null;
+  course: string | null;
+}
+
+/** One of a student's current teachers (GET /api/students/{id} → teachers). */
+export interface StudentTeacherLink extends StudentTeacherSummary {
+  started_at: string;
+}
+
+/** A teacher to link on create / PUT /students/{id}/teachers. Blank course = none. */
+export interface StudentTeacherInput {
+  teacher_id: string;
+  course?: string | null;
 }
 
 export interface SubscriptionInput {
@@ -2960,6 +2986,8 @@ export interface StudentInput {
   guardian_id?: string | null;
   currency?: string | null;
   teacher_id?: string | null;
+  /** Create only: every teacher the student starts with, one per course. */
+  teachers?: StudentTeacherInput[];
   subscription?: SubscriptionInput;
   /**
    * Put the new student straight onto a lesson package instead of monthly billing — the other
@@ -2998,11 +3026,10 @@ export interface StudentDetail {
         start_date: string;
       })
     | null;
-  currentTeacher: {
-    teacher_id: string;
-    teacher_name: string | null;
-    started_at: string;
-  } | null;
+  /** Every current teacher, oldest first. A student may have several — one per course. */
+  teachers: StudentTeacherLink[];
+  /** The first of `teachers` (kept for callers that want one default). */
+  currentTeacher: StudentTeacherLink | null;
   /** TRIAL_BOOKED students only: true once the trial session has been recorded (attended/
    *  cancelled/…), so the profile can advance its setup call-to-action to "activate". */
   trialResolved?: boolean;
@@ -3012,6 +3039,7 @@ export interface TeacherAssignmentHistoryItem {
   id: string;
   teacher_id: string;
   teacher_name: string | null;
+  course?: string | null;
   started_at: string;
   ended_at: string | null;
 }
@@ -3104,12 +3132,41 @@ export function changeSubscriptionPrice(
   });
 }
 
+/**
+ * Replace one of the student's teachers from a date. The newcomer takes over the leaving
+ * teacher's course and timetable. `replaces_teacher_id` is required once the student has more
+ * than one teacher.
+ */
 export function reassignTeacher(
   studentId: string,
-  input: { teacher_id: string; effective_date?: string },
+  input: {
+    teacher_id: string;
+    replaces_teacher_id?: string;
+    effective_date?: string;
+  },
 ): Promise<{ ok: boolean }> {
   return apiFetch(`/api/students/${studentId}/teacher`, {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * The student's whole set of teachers. Teachers left out are removed — their link closes and
+ * their timetable with this student ends (future unmarked lessons go; history stays).
+ */
+export function setStudentTeachers(
+  studentId: string,
+  input: { teachers: StudentTeacherInput[]; effective_date?: string },
+): Promise<{
+  ok: boolean;
+  added: string[];
+  removed: string[];
+  timetables_ended: number;
+  lessons_removed: number;
+}> {
+  return apiFetch(`/api/students/${studentId}/teachers`, {
+    method: "PUT",
     body: JSON.stringify(input),
   });
 }
@@ -3217,6 +3274,8 @@ export interface TimetableSummary {
   student_name: string | null;
   teacher_id: string;
   teacher_name: string | null;
+  /** The course this teacher teaches the student, if one was named. */
+  course?: string | null;
   timezone: string;
   /** Local `Y-m-d` the timetable starts producing lessons. */
   start_date: string | null;
@@ -3228,10 +3287,16 @@ export function listTimetables(): Promise<{ timetables: TimetableSummary[] }> {
   return apiFetch(`/api/timetables`);
 }
 
+/** Which teacher's timetable: needed once a student has more than one teacher. */
+function teacherQuery(teacherId?: string): string {
+  return teacherId ? `?teacher_id=${encodeURIComponent(teacherId)}` : "";
+}
+
 export function getStudentSchedule(
   studentId: string,
+  teacherId?: string,
 ): Promise<{ schedule: Schedule | null; slots: ScheduleSlot[] }> {
-  return apiFetch(`/api/students/${studentId}/schedule`);
+  return apiFetch(`/api/students/${studentId}/schedule${teacherQuery(teacherId)}`);
 }
 
 export function putStudentSchedule(
@@ -3246,8 +3311,11 @@ export function putStudentSchedule(
 
 export function deleteStudentSchedule(
   studentId: string,
+  teacherId?: string,
 ): Promise<{ ok: boolean; generated: GenerateCounts }> {
-  return apiFetch(`/api/students/${studentId}/schedule`, { method: "DELETE" });
+  return apiFetch(`/api/students/${studentId}/schedule${teacherQuery(teacherId)}`, {
+    method: "DELETE",
+  });
 }
 
 export interface CalendarQuery {
@@ -4360,6 +4428,33 @@ export function getPayrollRange(
   return apiFetch(`/api/payouts/range?from=${from}&to=${to}`);
 }
 
+/** One paid lesson behind a teacher's range figure (GET /api/payouts/range/lessons). */
+export interface PayrollRangeLesson {
+  id: string;
+  payout_id: string;
+  session_id: string | null;
+  session_date: string | null;
+  student_id: string | null;
+  student_name: string | null;
+  duration_minutes: number | null;
+  scheduled_at_utc: string | null;
+  amount_minor: number;
+  currency: string;
+  /** The monthly statement it sits on is finalized — the lesson can no longer move. */
+  finalized: boolean;
+}
+
+export function getPayrollRangeLessons(
+  teacherId: string,
+  from: string,
+  to: string,
+  currency?: string,
+): Promise<{ lessons: PayrollRangeLesson[] }> {
+  const q = new URLSearchParams({ teacher_id: teacherId, from, to });
+  if (currency) q.set("currency", currency);
+  return apiFetch(`/api/payouts/range/lessons?${q.toString()}`);
+}
+
 // ── Live FX rates (financial statistics) ─────────────────────────────────────
 
 /** One foreign currency and how many home-currency units one of its units buys. */
@@ -5013,13 +5108,15 @@ export type NotificationType =
   | "PACKAGE_LOW"
   | "PACKAGE_COMPLETED"
   | "PACKAGE_UNPAID"
-  | "NO_ACTIVE_PACKAGE";
+  | "NO_ACTIVE_PACKAGE"
+  // One per lesson marked attended — the "Attended classes" log, never counted on the bell.
+  | "LESSON_ATTENDED";
 
 /** One report-overdue alert (Notifications "Reports" tab). */
 export interface NotificationRow {
   id: string;
   type: NotificationType;
-  category: "REPORTS" | "PACKAGES";
+  category: "REPORTS" | "PACKAGES" | "ATTENDED";
   session_id: string | null;
   /** Anchor for non-session alerts — a lesson_packages.id for the PACKAGE_* types. */
   subject_id: string | null;
@@ -5041,15 +5138,22 @@ export interface NotificationRow {
     currency?: string;
     invoice_id?: string | null;
     reason?: string;
+    // LESSON_ATTENDED: who recorded it (a teacher, or staff marking on their behalf)
+    marked_by_name?: string | null;
+    marked_by_role?: string;
   };
   read_at: string | null;
   created_at: string;
 }
 
-export function listNotifications(): Promise<{
+/**
+ * The notification feed. Without a category: the alerts (reports, packages). `"ATTENDED"`: the
+ * attended-classes log, which is fetched on its own so it never crowds the alerts out.
+ */
+export function listNotifications(category?: "ATTENDED"): Promise<{
   notifications: NotificationRow[];
 }> {
-  return apiFetch("/api/notifications");
+  return apiFetch(`/api/notifications${category ? `?category=${category}` : ""}`);
 }
 
 /** Unread counts that drive the sidebar badge, split by the tabs. */
@@ -5060,6 +5164,8 @@ export interface NotificationSummary {
   packages: number;
   /** Pending student progress reports awaiting review (drives the tab badge, not the bell). */
   studentReports: number;
+  /** Unread attended-lesson entries — its own tab's count, never part of `total`. */
+  attended: number;
   total: number;
 }
 
@@ -5071,11 +5177,14 @@ export function markNotificationRead(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/notifications/${id}/read`, { method: "POST" });
 }
 
-export function markAllNotificationsRead(): Promise<{
+export function markAllNotificationsRead(category?: "ATTENDED"): Promise<{
   ok: boolean;
   marked: number;
 }> {
-  return apiFetch("/api/notifications/read-all", { method: "POST" });
+  return apiFetch("/api/notifications/read-all", {
+    method: "POST",
+    ...(category ? { body: JSON.stringify({ category }) } : {}),
+  });
 }
 
 // ── Student progress reports (teacher writes → owner reviews) ──────────────────
@@ -7322,13 +7431,27 @@ export interface LessonPackageRow {
   payment_reference: string | null;
   payment_proof_url: string | null;
   overdraft_billed: boolean;
+  /**
+   * The student's latest package, finished, and they are still on package billing — somebody
+   * owes a decision: open the next block or move them back to monthly.
+   */
+  awaiting_next_package: boolean;
+  /** What has been taught since it ran out, billed by the hour outside any package. */
+  gap: PackageGap | null;
   created_at: string;
+}
+
+/** Lessons billed by the hour after a package ran out. Money is per currency, never summed. */
+export interface PackageGap {
+  lessons: number;
+  minutes: number;
+  amounts: { currency: string; amount_minor: number }[];
 }
 
 /**
  * The attention counters behind the sidebar badge. These are things to DO, not things unread:
  * a closed package with no bill, an overdraft still travelling, a finished package nobody paid
- * for, and a balance about to run out.
+ * for, a balance about to run out, and a student still taking lessons with no package open.
  */
 export interface LessonPackageSummary {
   active: number;
@@ -7338,6 +7461,7 @@ export interface LessonPackageSummary {
   needsBilling: number;
   pendingOverdraft: number;
   unpaid: number;
+  outOfHours: number;
   total: number;
   financials: PackageFinancialSummary[];
 }
@@ -7619,10 +7743,11 @@ export function removePackageLesson(
   id: string,
   creditId: string,
   rebill: boolean,
-): Promise<{ ok: boolean; minutes_returned: number; rebilled: boolean }> {
+  payTeacher = true,
+): Promise<{ ok: boolean; minutes_returned: number; rebilled: boolean; teacher_paid: boolean }> {
   return apiFetch(`/api/packages/${id}/lessons/${creditId}`, {
     method: "DELETE",
-    body: JSON.stringify({ rebill }),
+    body: JSON.stringify({ rebill, pay_teacher: payTeacher }),
   });
 }
 

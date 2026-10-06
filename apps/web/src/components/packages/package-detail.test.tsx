@@ -26,8 +26,8 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   addPackageLesson: (id: string, input: unknown) => addPackageLesson(id, input),
   updatePackageLesson: (id: string, creditId: string, minutes: number) =>
     updatePackageLesson(id, creditId, minutes),
-  removePackageLesson: (id: string, creditId: string, rebill: boolean) =>
-    removePackageLesson(id, creditId, rebill),
+  removePackageLesson: (id: string, creditId: string, rebill: boolean, payTeacher: boolean) =>
+    removePackageLesson(id, creditId, rebill, payTeacher),
   listTeachers: () => Promise.resolve({ rows: [], total: 0, page: 1, pageSize: 20 }),
 }));
 
@@ -68,6 +68,8 @@ function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
     payment_reference: null,
     payment_proof_url: null,
     overdraft_billed: false,
+    awaiting_next_package: false,
+    gap: null,
     created_at: "2026-09-01T00:00:00Z",
     ...overrides,
   };
@@ -97,12 +99,13 @@ function renderDetail(
   credits: LessonPackageCredit[],
   canManage = true,
   onChanged = vi.fn(),
+  permissions: string[] = ["package.read", "package.manage"],
 ) {
   getLessonPackage.mockResolvedValue({ package: pkg(), credits });
 
   return render(
     withAuth(
-      makeSession("ACADEMY_OWNER", { permissions: ["package.read", "package.manage"] }),
+      makeSession("ACADEMY_OWNER", { permissions }),
       <PackageDetail
         row={pkg()}
         timezone="Africa/Cairo"
@@ -152,16 +155,44 @@ it("makes the caller choose what happens to the money when removing a lesson", a
     ok: true,
     minutes_returned: 60,
     rebilled: false,
+    teacher_paid: false,
   });
-  renderDetail([credit()], true, onChanged);
+  renderDetail([credit()], true, onChanged, ["package.read", "package.manage", "payout.adjust"]);
 
   await user.click(await screen.findByRole("button", { name: /إزالة من الباقة/ }));
 
-  // Both outcomes are offered; neither is the quiet default.
-  await user.click(screen.getByRole("button", { name: /إرجاع الساعات دون فوترة/ }));
+  // Neither question starts answered, so nothing can be confirmed yet.
+  const confirm = screen.getByRole("button", { name: /تأكيد الإزالة/ });
+  expect(confirm).toBeDisabled();
 
-  expect(removePackageLesson).toHaveBeenCalledWith("p1", "c1", false);
+  const [chargeNo, payNo] = screen.getAllByRole("button", { name: "لا" });
+  await user.click(chargeNo!);
+  expect(confirm).toBeDisabled();
+  await user.click(payNo!);
+  await user.click(confirm);
+
+  // An extra lesson: nobody charged, and it leaves the teacher's statement too.
+  expect(removePackageLesson).toHaveBeenCalledWith("p1", "c1", false, false);
   expect(onChanged).toHaveBeenCalled();
+});
+
+it("leaves the teacher's pay alone for someone who cannot adjust payroll", async () => {
+  const user = userEvent.setup();
+  removePackageLesson.mockResolvedValue({
+    ok: true,
+    minutes_returned: 60,
+    rebilled: true,
+    teacher_paid: true,
+  });
+  renderDetail([credit()]);
+
+  await user.click(await screen.findByRole("button", { name: /إزالة من الباقة/ }));
+  expect(screen.queryByText(/هل تُحسب للمعلم/)).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "نعم" }));
+  await user.click(screen.getByRole("button", { name: /تأكيد الإزالة/ }));
+
+  expect(removePackageLesson).toHaveBeenCalledWith("p1", "c1", true, true);
 });
 
 it("sends a corrected length for the lesson that was edited", async () => {

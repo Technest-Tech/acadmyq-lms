@@ -9,7 +9,9 @@ use App\Domain\SessionClassifier;
 use App\Enums\SessionStatus;
 use App\Payroll\PayoutHook;
 use App\Support\Audit;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -148,6 +150,8 @@ final class AttendanceService
             'updated_at' => now(),
         ]);
 
+        $this->syncAttendedNotification($session, $prev, $next, $recorded, $actorUserId, $actorRole);
+
         Audit::log(
             $recorded ? 'session.status_changed' : 'session.outcome_reverted',
             'session',
@@ -160,6 +164,53 @@ final class AttendanceService
         );
 
         return ['status' => $next->value, 'billed' => $billed, 'billingAction' => $billingAction, 'paidToTeacher' => $paidToTeacher, 'payrollAction' => $payrollAction];
+    }
+
+    /**
+     * Keep the Notifications page's "Attended classes" feed in step with the lesson.
+     *
+     * One LESSON_ATTENDED row per lesson, written the moment it is RECORDED as attended, so the
+     * owner sees each delivered lesson as it lands. It is an activity log rather than a to-do:
+     * its category (ATTENDED) is counted on its own tab and never on the sidebar bell, or a busy
+     * academy's fifty lessons a day would bury the alerts that need acting on. A lesson corrected
+     * away from ATTENDED (cancelled, freed, reverted) loses its row, because "attended" would now
+     * be false; the unique (session_id, type) index keeps a re-mark from duplicating it.
+     */
+    private function syncAttendedNotification(object $session, string $prev, SessionStatus $next, bool $recorded, string $actorUserId, string $actorRole): void
+    {
+        if ($recorded && $next === SessionStatus::Attended) {
+            if ($prev === SessionStatus::Attended->value) {
+                return;
+            }
+
+            DB::table('notifications')->insertOrIgnore([
+                'id' => (string) Str::uuid(),
+                'academy_id' => $session->academy_id,
+                'type' => 'LESSON_ATTENDED',
+                'category' => 'ATTENDED',
+                'audience_role' => 'ACADEMY_OWNER',
+                'recipient_user_id' => null,
+                'session_id' => $session->id,
+                'data' => json_encode([
+                    'student_name' => DB::table('students')->where('id', $session->student_id)->value('full_name'),
+                    'teacher_name' => DB::table('teachers')->where('id', $session->teacher_id)->value('full_name'),
+                    'teacher_id' => (string) $session->teacher_id,
+                    'scheduled_at_utc' => Carbon::parse($session->scheduled_at_utc)->utc()->toIso8601String(),
+                    'duration_minutes' => (int) $session->duration_minutes,
+                    'marked_by_name' => DB::table('users')->where('id', $actorUserId)->value('full_name'),
+                    'marked_by_role' => $actorRole,
+                ], JSON_UNESCAPED_UNICODE),
+            ]);
+
+            return;
+        }
+
+        if ($prev === SessionStatus::Attended->value) {
+            DB::table('notifications')
+                ->where('session_id', $session->id)
+                ->where('type', 'LESSON_ATTENDED')
+                ->delete();
+        }
     }
 
     /** The status of the invoice carrying this session's line item, or null if none exists yet. */

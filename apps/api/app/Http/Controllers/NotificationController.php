@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -28,14 +29,29 @@ final class NotificationController extends Controller
     private const HIDDEN_CATEGORIES = ['LMS_SALES'];
 
     /**
+     * The "Attended classes" activity log: one row per lesson marked attended. It has its own
+     * feed (`?category=ATTENDED`) and its own unread count, and is kept out of the default feed,
+     * the bell `total`, and an unscoped "mark all read". At fifty lessons a day it would
+     * otherwise push the alerts that need action out of the 200-row window.
+     */
+    private const ATTENDED = 'ATTENDED';
+
+    /**
      * GET /api/notifications — the report alerts visible to the caller, newest first.
      * notification.read.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
         Gate::authorize('notification.read');
 
+        $attended = $request->query('category') === self::ATTENDED;
+
         $rows = $this->visibleQuery()
+            ->when(
+                $attended,
+                fn ($q) => $q->where('n.category', self::ATTENDED),
+                fn ($q) => $q->where('n.category', '!=', self::ATTENDED),
+            )
             ->orderByDesc('n.created_at')
             ->limit(200)
             ->get(['n.id', 'n.type', 'n.category', 'n.session_id', 'n.subject_id', 'n.data', 'n.read_at', 'n.created_at'])
@@ -63,12 +79,18 @@ final class NotificationController extends Controller
         // it just because they share the notifications table. Each category counts for its own tab.
         $reports = (int) $this->visibleQuery()
             ->whereNull('n.read_at')
-            ->where('n.category', '!=', 'PACKAGES')
+            ->whereNotIn('n.category', ['PACKAGES', self::ATTENDED])
             ->count();
 
         $packages = (int) $this->visibleQuery()
             ->whereNull('n.read_at')
             ->where('n.category', 'PACKAGES')
+            ->count();
+
+        // Attended lessons: their own tab's count only, never the bell (see ATTENDED).
+        $attended = (int) $this->visibleQuery()
+            ->whereNull('n.read_at')
+            ->where('n.category', self::ATTENDED)
             ->count();
 
         $classes = (int) DB::table('session_cancellation_requests')->where('status', 'PENDING')->count();
@@ -82,6 +104,7 @@ final class NotificationController extends Controller
             'reports' => $reports,
             'packages' => $packages,
             'studentReports' => $studentReports,
+            'attended' => $attended,
             'total' => $classes + $reports + $packages,
         ]);
     }
@@ -101,12 +124,25 @@ final class NotificationController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    /** POST /api/notifications/read-all — mark every visible alert read. notification.read. */
-    public function markAllRead(): JsonResponse
+    /**
+     * POST /api/notifications/read-all — mark every visible alert read. notification.read.
+     * `category=ATTENDED` clears the attended-classes log instead; without it the log is left
+     * alone, so clearing the alerts never silently clears the log (or the reverse).
+     */
+    public function markAllRead(Request $request): JsonResponse
     {
         Gate::authorize('notification.read');
 
-        $marked = $this->visibleQuery()->whereNull('n.read_at')->update(['read_at' => now()]);
+        $attended = $request->input('category') === self::ATTENDED;
+
+        $marked = $this->visibleQuery()
+            ->whereNull('n.read_at')
+            ->when(
+                $attended,
+                fn ($q) => $q->where('n.category', self::ATTENDED),
+                fn ($q) => $q->where('n.category', '!=', self::ATTENDED),
+            )
+            ->update(['read_at' => now()]);
 
         return response()->json(['ok' => true, 'marked' => $marked]);
     }

@@ -15,6 +15,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { FinalizePeriodModal } from "@/components/payroll/finalize-period-modal";
 import { PayoutDetailModal } from "@/components/payroll/payout-detail-modal";
+import {
+  TeacherRangeLessonsModal,
+  type TeacherRangeTarget,
+} from "@/components/payroll/teacher-range-lessons-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/ui/page-hero";
@@ -31,6 +35,7 @@ import {
   type ListResult,
   type PayoutRow,
   type PayrollRange,
+  type PayrollRangeTeacher,
 } from "@/lib/api";
 import { type ExcelColumn } from "@/lib/export-excel";
 import { formatMoney } from "@/lib/money";
@@ -249,18 +254,37 @@ function SalaryByTeacher({
 }) {
   const t = useTranslations("payroll");
   const locale = useLocale();
+  const [opened, setOpened] = useState<TeacherRangeTarget | null>(null);
+  const closeLessons = useCallback(() => setOpened(null), []);
 
   if (loading || range === null || range.teachers.length === 0) return null;
 
   // The fixed-salary column only earns its width when somebody in the window is on a salary.
   const anyFixed = range.teachers.some((row) => row.base_minor > 0);
 
+  /** Every teacher row opens the lessons behind its figure — the summary used to be a dead end. */
+  const openProps = (row: PayrollRangeTeacher) => ({
+    role: "button" as const,
+    tabIndex: 0,
+    "aria-label": t("rangeLessonsTitle", { name: row.teacher_name ?? "—" }),
+    onClick: () =>
+      setOpened({ teacherId: row.teacher_id, teacherName: row.teacher_name, currency: row.currency }),
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        setOpened({ teacherId: row.teacher_id, teacherName: row.teacher_name, currency: row.currency });
+      }
+    },
+  });
+
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Users className="text-primary size-4" aria-hidden />
         <h2 className="text-sm font-semibold">{t("rangeByTeacher")}</h2>
-        <span className="text-muted-foreground text-xs">{t("rangeByTeacherHint")}</span>
+        <span className="text-muted-foreground text-xs">
+          {t("rangeByTeacherHint")} · {t("rangeTapHint")}
+        </span>
       </div>
 
       {/* A phone gets one card per teacher: six money columns side by side do not fit, and a
@@ -272,7 +296,8 @@ function SalaryByTeacher({
           return (
             <li
               key={`${row.teacher_id}-${row.currency}`}
-              className="bg-card overflow-hidden rounded-xl border text-sm shadow-sm"
+              {...openProps(row)}
+              className="bg-card focus-visible:ring-ring/60 active:bg-muted/30 cursor-pointer overflow-hidden rounded-xl border text-sm shadow-sm outline-none focus-visible:ring-2"
             >
               <div className="from-primary/[0.07] flex items-center gap-2.5 border-b bg-gradient-to-r to-transparent px-4 py-3">
                 <span className="bg-primary/10 text-primary flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">
@@ -342,7 +367,11 @@ function SalaryByTeacher({
               const fmt = (v: number) => formatMoney({ amount: v, currency: row.currency }, locale);
 
               return (
-                <tr key={`${row.teacher_id}-${row.currency}`} className="hover:bg-muted/30">
+                <tr
+                  key={`${row.teacher_id}-${row.currency}`}
+                  {...openProps(row)}
+                  className="hover:bg-muted/30 focus-visible:bg-muted/30 cursor-pointer outline-none"
+                >
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
                       <span className="bg-primary/10 text-primary flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">
@@ -381,6 +410,13 @@ function SalaryByTeacher({
           </tbody>
         </table>
       </div>
+
+      <TeacherRangeLessonsModal
+        target={opened}
+        from={range.from}
+        to={range.to}
+        onClose={closeLessons}
+      />
     </section>
   );
 }

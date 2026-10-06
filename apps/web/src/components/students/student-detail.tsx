@@ -28,11 +28,17 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { GuardianForm } from "@/components/guardians/guardian-form";
-import { ScheduleSection } from "@/components/scheduling/schedule-editor";
+import { TeacherTimetables } from "@/components/scheduling/schedule-editor";
 import { DetailRow, ProfileCard } from "@/components/ui/profile-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { StudentPackagePanel } from "@/components/packages/student-package-panel";
+import {
+  formatNameList,
+  TeacherLinksField,
+  toTeacherInputs,
+  type TeacherLinkDraft,
+} from "@/components/students/teacher-links-field";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -51,6 +57,7 @@ import {
   reactivateStudent,
   reassignTeacher,
   type RepricePreview,
+  setStudentTeachers,
   setSubscription,
   type StudentDetail as StudentDetailData,
   type TeacherAssignmentHistoryItem,
@@ -235,11 +242,14 @@ export function StudentDetail({
               </span>
             </div>
           )}
-          {data.currentTeacher && (
+          {(data.teachers ?? []).length > 0 && (
             <div className="mt-1 flex items-center gap-1.5">
               <GraduationCap className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="text-xs text-muted-foreground">
-                {data.currentTeacher.teacher_name}
+                {formatNameList(
+                  (data.teachers ?? []).map((l) => l.teacher_name),
+                  locale,
+                )}
               </span>
             </div>
           )}
@@ -305,8 +315,9 @@ export function StudentDetail({
           <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">
             {t("detail.schedule")}
           </p>
-          <ScheduleSection
+          <TeacherTimetables
             studentId={studentId}
+            teachers={data.teachers ?? []}
             canManage={can("schedule.manage")}
             onError={setError}
           />
@@ -1433,9 +1444,14 @@ function Figure({
 // ── TeacherSection ────────────────────────────────────────────────────────────
 
 /**
- * Who teaches this student, who to move them to, and who has taught them before — three cards,
- * because a reassignment is a decision you make while looking at the current assignment and the
- * history, not after scrolling past them.
+ * Who teaches this student — a list, because a student may study Qur'an with one teacher and
+ * Arabic with another — then how to hand one teacher's course to someone else, then everyone who
+ * has taught them before.
+ *
+ * Editing the list (add, remove, rename a course) is one save. Removing a teacher also ends their
+ * timetable with this student, so a save that removes anyone asks first. Replacing is its own
+ * card because it is a different act: the newcomer inherits the course and the timetable from a
+ * date, where removing ends them.
  */
 export function TeacherSection({
   data,
@@ -1451,93 +1467,240 @@ export function TeacherSection({
   teachers: TeacherRow[];
   canEdit: boolean;
   studentId: string;
-  onChanged: () => void;
+  onChanged: (message?: string) => void;
   onError: (msg: string) => void;
 }) {
   const t = useTranslations("students");
-  const [teacherId, setTeacherId] = useState("");
-  const [effective, setEffective] = useState("");
-  const [changing, setChanging] = useState(false);
+  const locale = useLocale();
+  const links = data.teachers ?? [];
 
-  async function change() {
-    if (!teacherId) return;
-    setChanging(true);
+  // ── Edit the list ──
+  const fromLinks = (): TeacherLinkDraft[] =>
+    links.map((l) => ({ teacher_id: l.teacher_id, course: l.course ?? "" }));
+  const [editing, setEditing] = useState(false);
+  const [drafts, setDrafts] = useState<TeacherLinkDraft[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<string[] | null>(null);
+
+  function startEditing(addRow = false) {
+    const rows = fromLinks();
+    setDrafts(addRow ? [...rows, { teacher_id: "", course: "" }] : rows);
+    setEditing(true);
+  }
+
+  const desired = toTeacherInputs(drafts);
+  const removedIds = links
+    .map((l) => l.teacher_id)
+    .filter((id) => !desired.some((d) => d.teacher_id === id));
+  const dirty =
+    JSON.stringify(desired) !==
+    JSON.stringify(toTeacherInputs(fromLinks()));
+
+  async function save(confirmed = false) {
+    if (removedIds.length > 0 && !confirmed) {
+      setConfirmRemove(removedIds);
+      return;
+    }
+    setConfirmRemove(null);
+    setSaving(true);
     try {
-      await reassignTeacher(studentId, {
-        teacher_id: teacherId,
-        effective_date: effective || undefined,
-      });
-      setTeacherId("");
-      setEffective("");
-      onChanged();
+      const res = await setStudentTeachers(studentId, { teachers: desired });
+      setEditing(false);
+      onChanged(
+        res.lessons_removed > 0
+          ? t("teacher.savedRemoved", { lessons: res.lessons_removed })
+          : t("teacher.saved"),
+      );
     } catch (err) {
       onError(err instanceof ApiError ? err.message : String(err));
     } finally {
-      setChanging(false);
+      setSaving(false);
     }
   }
 
-  const currentName = data.currentTeacher?.teacher_name ?? null;
-  const since = data.currentTeacher?.started_at?.slice(0, 10) ?? null;
+  // ── Replace one teacher ──
+  const [leavingId, setLeavingId] = useState("");
+  const [newId, setNewId] = useState("");
+  const [effective, setEffective] = useState("");
+  const [replacing, setReplacing] = useState(false);
+  // With one teacher there is nobody to choose between.
+  const leaving = links.length === 1 ? (links[0]?.teacher_id ?? "") : leavingId;
+
+  async function replace() {
+    if (!newId || !leaving) return;
+    setReplacing(true);
+    try {
+      await reassignTeacher(studentId, {
+        teacher_id: newId,
+        replaces_teacher_id: leaving,
+        effective_date: effective || undefined,
+      });
+      setLeavingId("");
+      setNewId("");
+      setEffective("");
+      onChanged(t("teacher.saved"));
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setReplacing(false);
+    }
+  }
+
+  const nameOf = (id: string) =>
+    links.find((l) => l.teacher_id === id)?.teacher_name ??
+    teachers.find((tch) => tch.id === id)?.full_name ??
+    "—";
 
   return (
     <div className="space-y-4" data-testid="student-teacher">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <ProfileCard
-          icon={GraduationCap}
-          title={t("teacher.current")}
-          description={t("profile.teacherDesc")}
-          tone="emerald"
-        >
-          <div className="flex items-center gap-4">
-            {currentName ? (
-              <Avatar name={currentName} size="lg" />
-            ) : (
-              <div className="bg-muted ring-border flex size-14 shrink-0 items-center justify-center rounded-2xl ring-1">
-                <GraduationCap
-                  className="text-muted-foreground size-6"
-                  aria-hidden
-                />
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <p
-                className={cn(
-                  "truncate text-lg font-bold leading-tight",
-                  !currentName &&
-                    "text-muted-foreground text-base font-medium italic",
-                )}
-                data-testid="current-teacher"
-              >
-                {currentName ?? t("teacher.none")}
-              </p>
-              {since && (
-                <p className="text-muted-foreground mt-1 inline-flex items-center gap-1.5 text-xs">
-                  <CalendarDays className="size-3" aria-hidden />
-                  {t("teacher.since", { date: since })}
-                </p>
+      <ProfileCard
+        icon={GraduationCap}
+        title={t("teacher.teachers")}
+        description={t("teacher.teachersDesc")}
+        tone="emerald"
+        action={
+          canEdit && !editing && links.length > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => startEditing()}
+              data-testid="edit-teachers"
+              className="gap-1.5"
+            >
+              <Pencil className="size-3.5" />
+              {t("teacher.edit")}
+            </Button>
+          ) : undefined
+        }
+      >
+        {editing ? (
+          <div className="space-y-4">
+            <TeacherLinksField
+              value={drafts}
+              onChange={setDrafts}
+              teachers={teachers}
+              disabled={saving}
+            />
+            <div className="flex items-center justify-end gap-2 border-t pt-4">
+              {dirty && (
+                <span className="text-muted-foreground me-auto text-xs">
+                  {t("teacher.unsaved")}
+                </span>
               )}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={saving}
+                onClick={() => setEditing(false)}
+              >
+                {t("teacher.keep")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={saving || !dirty}
+                onClick={() => void save()}
+                data-testid="save-teachers"
+                className="gap-1.5"
+              >
+                {saving ? (
+                  <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+                ) : (
+                  <Check className="size-3.5" />
+                )}
+                {t("teacher.saveTeachers")}
+              </Button>
             </div>
           </div>
-        </ProfileCard>
+        ) : links.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-4 text-center">
+            <p
+              className="text-muted-foreground text-sm italic"
+              data-testid="current-teacher"
+            >
+              {t("teacher.none")}
+            </p>
+            {canEdit && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => startEditing(true)}
+                data-testid="add-first-teacher"
+                className="gap-1.5"
+              >
+                <Plus className="size-3.5" />
+                {t("teacher.addTeacher")}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <ul className="divide-y" data-testid="current-teachers">
+            {links.map((l) => (
+              <li
+                key={l.teacher_id}
+                className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
+                data-teacher={l.teacher_id}
+              >
+                <Avatar name={l.teacher_name ?? "?"} />
+                <div className="min-w-0 flex-1">
+                  <p
+                    className="truncate text-sm font-semibold"
+                    data-testid="current-teacher"
+                  >
+                    {l.teacher_name}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5 inline-flex items-center gap-1.5 text-xs">
+                    <CalendarDays className="size-3" aria-hidden />
+                    {t("teacher.since", { date: l.started_at.slice(0, 10) })}
+                  </p>
+                </div>
+                {l.course && (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                    <BookOpen className="size-3" aria-hidden />
+                    {l.course}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </ProfileCard>
 
-        {canEdit && (
-          <ProfileCard
-            icon={UserRoundCog}
-            title={t("teacher.change")}
-            description={t("teacher.changeHint")}
-            tone="gold"
-          >
-            <div className="space-y-3">
-              <Field label={t("teacher.change")}>
+      {canEdit && links.length > 0 && !editing && (
+        <ProfileCard
+          icon={UserRoundCog}
+          title={t("teacher.replace")}
+          description={t("teacher.replaceHint")}
+          tone="gold"
+        >
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {links.length > 1 && (
+                <Field label={t("teacher.replaceWho")}>
+                  <Combobox
+                    options={links.map((l) => ({
+                      value: l.teacher_id,
+                      label: l.teacher_name ?? "—",
+                      sublabel: l.course ?? undefined,
+                    }))}
+                    value={leavingId}
+                    onChange={setLeavingId}
+                    placeholder={t("teacher.pickTeacher")}
+                    searchPlaceholder={t("teacher.searchTeacher")}
+                    data-testid="replace-leaving-select"
+                  />
+                </Field>
+              )}
+              <Field label={t("teacher.replaceWith")}>
                 <Combobox
-                  options={teachers.map((tch) => ({
-                    value: tch.id,
-                    label: tch.full_name,
-                  }))}
-                  value={teacherId}
-                  onChange={setTeacherId}
-                  placeholder={t("form.none")}
+                  options={teachers
+                    .filter((tch) => !links.some((l) => l.teacher_id === tch.id))
+                    .map((tch) => ({ value: tch.id, label: tch.full_name }))}
+                  value={newId}
+                  onChange={setNewId}
+                  placeholder={t("teacher.pickTeacher")}
                   searchPlaceholder={t("teacher.searchTeacher")}
                   data-testid="change-teacher-select"
                 />
@@ -1554,27 +1717,27 @@ export function TeacherSection({
                   />
                 </div>
               </Field>
-              <div className="flex justify-end border-t pt-4">
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={changing || !teacherId}
-                  onClick={() => void change()}
-                  data-testid="assign-teacher"
-                  className="gap-1.5"
-                >
-                  {changing ? (
-                    <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
-                  ) : (
-                    <Check className="size-3.5" />
-                  )}
-                  {t("teacher.assign")}
-                </Button>
-              </div>
             </div>
-          </ProfileCard>
-        )}
-      </div>
+            <div className="flex justify-end border-t pt-4">
+              <Button
+                type="button"
+                size="sm"
+                disabled={replacing || !newId || !leaving}
+                onClick={() => void replace()}
+                data-testid="assign-teacher"
+                className="gap-1.5"
+              >
+                {replacing ? (
+                  <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+                ) : (
+                  <Check className="size-3.5" />
+                )}
+                {t("teacher.replaceAction")}
+              </Button>
+            </div>
+          </div>
+        </ProfileCard>
+      )}
 
       {/* Assignment history — the close+open trail, kept because a reassignment is never a
           silent overwrite: payroll and session history both hang off these dates. */}
@@ -1612,6 +1775,11 @@ export function TeacherSection({
                       <span className="truncate text-sm font-semibold">
                         {h.teacher_name}
                       </span>
+                      {h.course && (
+                        <span className="text-muted-foreground text-xs">
+                          · {h.course}
+                        </span>
+                      )}
                       {ongoing && (
                         <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                           {t("teacher.current_badge")}
@@ -1631,6 +1799,41 @@ export function TeacherSection({
           </ol>
         </ProfileCard>
       )}
+
+      {/* Removing a teacher ends their timetable with this student — said before it happens. */}
+      <Modal
+        open={confirmRemove !== null}
+        onClose={() => setConfirmRemove(null)}
+        title={t("teacher.removeConfirmTitle", {
+          names: formatNameList((confirmRemove ?? []).map(nameOf), locale),
+        })}
+        size="sm"
+        footer={
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmRemove(null)}
+            >
+              {t("teacher.keep")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void save(true)}
+              data-testid="confirm-remove-teachers"
+              className="border-transparent bg-destructive text-white hover:bg-destructive/90"
+            >
+              {t("teacher.removeConfirm")}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-muted-foreground text-sm leading-relaxed">
+          {t("teacher.removeConfirmBody")}
+        </p>
+      </Modal>
     </div>
   );
 }

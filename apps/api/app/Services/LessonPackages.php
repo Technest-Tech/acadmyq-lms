@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Payroll\PayoutHook;
 use App\Support\Audit;
 use App\Support\PublicInvoiceToken;
 use Illuminate\Support\Carbon;
@@ -77,6 +78,31 @@ final class LessonPackages
             - (int) $package->minutes_consumed;
 
         return max(0, $balance);
+    }
+
+    /**
+     * The hourly rate a package student's lesson is billed at when no package carries it: the
+     * student's most recent package's own snapshotted rate, in that currency.
+     *
+     * A student whose block ran out keeps coming, and those lessons are still bought on the terms
+     * of the deal they were on. `subscriptions.price_minor` is NOT that deal — {@see
+     * ensurePackageBilling()} deliberately never rewrites it once a student is on packages, so it
+     * stays whatever the FIRST block implied. Pricing the gap from it billed lessons after a
+     * re-priced second block at the first block's rate.
+     *
+     * Null when the student has no package in this currency (never sold one, or only in another
+     * currency — §3.6, nothing is converted); the caller then falls back to the subscription rate.
+     */
+    public function lastPackageRate(string $studentId, string $currency): ?int
+    {
+        $rate = DB::table('lesson_packages')
+            ->where('student_id', $studentId)
+            ->whereIn('status', ['ACTIVE', 'COMPLETED'])
+            ->where('currency', strtoupper($currency))
+            ->orderByDesc('sequence_no')
+            ->value('hourly_rate_minor');
+
+        return $rate !== null ? (int) $rate : null;
     }
 
     // =========================================================================
@@ -225,8 +251,9 @@ final class LessonPackages
      * Returns TRUE when the package engine has taken responsibility for this lesson, FALSE when
      * it has not and the caller must fall back to normal invoicing. The false case is deliberate
      * and important: a package student with no open package still had a lesson delivered, and
-     * silently swallowing it would be lost revenue. The lesson bills the ordinary way and the
-     * owner gets a NO_ACTIVE_PACKAGE alert telling them to open the next block.
+     * silently swallowing it would be lost revenue. The lesson bills by the hour on the student's
+     * own monthly invoice, at {@see lastPackageRate()}, and the owner gets a NO_ACTIVE_PACKAGE
+     * alert telling them to open the next block.
      */
     public function consume(object $session): bool
     {
@@ -239,14 +266,21 @@ final class LessonPackages
         $package = $this->activeFor($studentId);
 
         if ($package === null) {
+            // Anchored to the block that ran out, not to the student. The dedupe index allows one
+            // alert per (subject, type), so a student-anchored alert fired once in the student's
+            // life: the second time they ran out of hours, nobody was told.
+            $finished = $this->latestPackageFor($studentId);
+
             $this->notify(
                 (string) $session->academy_id,
                 'NO_ACTIVE_PACKAGE',
-                $studentId,
+                $finished !== null ? (string) $finished->id : $studentId,
                 [
                     'student_id' => $studentId,
                     'student_name' => $this->studentName($studentId),
                     'session_id' => (string) $session->id,
+                    'package_id' => $finished !== null ? (string) $finished->id : null,
+                    'label' => $finished !== null ? (string) $finished->label : null,
                 ],
             );
 
@@ -536,11 +570,18 @@ final class LessonPackages
      * uses — so a package re-opens if it had closed only because it ran out, and refuses if its
      * bill has already been settled.
      *
-     * @return array{minutes_returned:int, rebilled:bool}
+     * The teacher's pay is a separate, equally explicit choice. Taking a lesson off the package
+     * only ever touched the student's side, so an owner dropping an extra lesson the teacher
+     * should not have given saw the hours come back while the salary kept it. $payTeacher FALSE
+     * reverses the payout line (refused once the statement is finalized, like any attendance
+     * correction) and records the decision as `teacher_override = false`, so the classifier
+     * agrees with the payout instead of contradicting it.
+     *
+     * @return array{minutes_returned:int, rebilled:bool, teacher_paid:bool}
      */
-    public function detachCredit(string $packageId, string $creditId, bool $rebill, ?string $actorUserId, ?string $actorRole): array
+    public function detachCredit(string $packageId, string $creditId, bool $rebill, ?string $actorUserId, ?string $actorRole, bool $payTeacher = true): array
     {
-        return DB::transaction(function () use ($packageId, $creditId, $rebill, $actorUserId, $actorRole): array {
+        return DB::transaction(function () use ($packageId, $creditId, $rebill, $actorUserId, $actorRole, $payTeacher): array {
             $credit = DB::table('lesson_package_credits')
                 ->where('id', $creditId)
                 ->where('package_id', $packageId)
@@ -571,6 +612,16 @@ final class LessonPackages
                 app(Invoicing::class)->onSessionBillable($session, allowPackage: false);
             }
 
+            $wasPaid = (bool) $session->paid_to_teacher;
+            if (! $payTeacher && $wasPaid) {
+                app(PayoutHook::class)->onSessionUnattended($session);
+                DB::table('sessions')->where('id', $session->id)->update([
+                    'paid_to_teacher' => false,
+                    'teacher_override' => false,
+                    'updated_at' => now(),
+                ]);
+            }
+
             Audit::log(
                 'lesson_package.lesson_detached',
                 'lesson_package',
@@ -579,10 +630,10 @@ final class LessonPackages
                 $actorUserId,
                 $actorRole,
                 before: ['session_id' => (string) $session->id, 'minutes' => $minutes],
-                after: ['rebilled' => $rebill],
+                after: ['rebilled' => $rebill, 'teacher_paid' => $payTeacher && $wasPaid],
             );
 
-            return ['minutes_returned' => $minutes, 'rebilled' => $rebill];
+            return ['minutes_returned' => $minutes, 'rebilled' => $rebill, 'teacher_paid' => $payTeacher && $wasPaid];
         });
     }
 
@@ -1347,6 +1398,15 @@ final class LessonPackages
         return DB::table('lesson_packages')
             ->where('student_id', $studentId)
             ->where('status', 'COMPLETED')
+            ->orderByDesc('sequence_no')
+            ->first();
+    }
+
+    /** The student's most recent package, whatever its state. */
+    private function latestPackageFor(string $studentId): ?object
+    {
+        return DB::table('lesson_packages')
+            ->where('student_id', $studentId)
             ->orderByDesc('sequence_no')
             ->first();
     }

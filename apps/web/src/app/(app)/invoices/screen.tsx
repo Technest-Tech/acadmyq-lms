@@ -1,15 +1,12 @@
 "use client";
 
 import {
-  Clock,
   FilePlus2,
   ListChecks,
   Lock,
   Plus,
   Receipt,
   Sparkles,
-  TrendingUp,
-  Wallet,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -32,7 +29,6 @@ import {
   getInvoiceSummary,
   toQueryString,
   type DataTableQuery,
-  type InvoiceMoneyBucket,
   type InvoiceSummary,
   type ListResult,
 } from "@/lib/api";
@@ -95,208 +91,25 @@ function InvoiceStatusBadge({ status }: { status: InvoiceRow["status"] }) {
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 const YEARS = Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - i);
 
-// ── Summary stat cards ─────────────────────────────────────────────────────────
+// ── Summary strip ─────────────────────────────────────────────────────────────
 
-type Tone = "primary" | "amber" | "emerald" | "blue";
-
-const TONE_ICON: Record<Tone, string> = {
-  primary: "bg-primary/10 text-primary",
-  amber: "bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300",
-  emerald:
-    "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300",
-  blue: "bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300",
-};
-
-/** The faint tint that ties a money card to its tone — the same wash the segment tiles use. */
-const TONE_WASH: Record<Tone, string> = {
-  primary: "from-primary/[0.07]",
-  amber: "from-amber-500/[0.08]",
-  emerald: "from-emerald-500/[0.07]",
-  blue: "from-blue-500/[0.07]",
-};
-
-const TONE_BAR: Record<Tone, string> = {
-  primary: "bg-primary",
-  amber: "bg-amber-500",
-  emerald: "bg-emerald-500",
-  blue: "bg-blue-500",
-};
-
-function StatCard({
-  icon: Icon,
-  tone,
-  label,
-  value,
-  sub,
-  progress,
-}: {
-  icon: typeof Wallet;
-  tone: Tone;
-  label: string;
-  value: string;
-  sub?: string;
-  /** 0–100; when set, renders a thin progress bar instead of the sub line. */
-  progress?: number;
-}) {
+/** One "label value" pair inside the strip. */
+function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
-    <div
-      className={cn(
-        "group bg-card relative overflow-hidden rounded-2xl border p-4 shadow-sm transition-shadow hover:shadow-md sm:p-5",
-        "bg-gradient-to-br to-transparent",
-        TONE_WASH[tone],
-      )}
-    >
-      {/* On a phone the icon sits above the label so the amount gets the card's full width — two
-          tiles abreast left it about 70px, and a truncated amount is a wrong amount. */}
-      <div className="flex flex-col-reverse items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
-        <div className="min-w-0 max-w-full">
-          <p className="text-muted-foreground text-[0.7rem] font-semibold uppercase tracking-wider">
-            {label}
-          </p>
-          <p className="mt-1.5 text-xl font-bold tracking-tight break-words tabular-nums sm:mt-2 sm:truncate sm:text-2xl">
-            {value}
-          </p>
-        </div>
-        <div
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-current/15 sm:size-10",
-            TONE_ICON[tone],
-          )}
-        >
-          <Icon className="size-4 sm:size-5" aria-hidden />
-        </div>
-      </div>
-      {progress !== undefined ? (
-        <div className="mt-3.5">
-          <div className="bg-muted h-1.5 overflow-hidden rounded-full">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all",
-                TONE_BAR[tone],
-              )}
-              style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
-            />
-          </div>
-        </div>
-      ) : sub ? (
-        <p className="text-muted-foreground mt-3 truncate text-xs">{sub}</p>
-      ) : (
-        <div className="mt-3 h-4" aria-hidden />
-      )}
-    </div>
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="text-muted-foreground text-xs">{label}</span>
+      <span className={cn("text-sm font-semibold tabular-nums", tone)}>{value}</span>
+    </span>
   );
 }
+
+const Divider = () => <span className="bg-border h-5 w-px shrink-0" aria-hidden />;
 
 /**
- * One card per currency the academy actually bills in — its own billed / collected / still-owed
- * totals. Money is NEVER summed across currencies (500 EGP + 20 USD is not 520 of anything), so
- * each currency gets its own card rather than a single blended figure.
+ * Every invoice figure in a single line: the counts, then one segment per currency the academy
+ * bills in (money is NEVER summed across currencies — 500 EGP + 20 USD is not 520 of anything).
+ * The line never wraps; on a narrow screen it scrolls sideways, so no amount is ever truncated.
  */
-function CurrencyTotals({
-  money,
-  locale,
-}: {
-  money: InvoiceMoneyBucket[];
-  locale: string;
-}) {
-  const t = useTranslations("invoices");
-
-  if (money.length === 0) return null;
-
-  return (
-    <div className="space-y-2.5">
-      <p className="text-muted-foreground/60 text-[0.7rem] font-semibold uppercase tracking-wider">
-        {t("totalsByCurrency")}
-      </p>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {money.map((bucket, i) => (
-          <CurrencyCard
-            key={bucket.currency}
-            bucket={bucket}
-            locale={locale}
-            tone={CURRENCY_TONES[i % CURRENCY_TONES.length] ?? "primary"}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const CURRENCY_TONES: Tone[] = ["primary", "emerald", "blue", "amber"];
-
-function CurrencyCard({
-  bucket,
-  locale,
-  tone,
-}: {
-  bucket: InvoiceMoneyBucket;
-  locale: string;
-  tone: Tone;
-}) {
-  const t = useTranslations("invoices");
-
-  const fmt = (minor: number) =>
-    formatMoney({ amount: minor, currency: bucket.currency }, locale);
-
-  const rate =
-    bucket.billed_minor > 0
-      ? Math.round((bucket.collected_minor / bucket.billed_minor) * 100)
-      : 0;
-
-  return (
-    <div
-      className="bg-card relative overflow-hidden rounded-2xl border p-4 shadow-sm ring-1 ring-foreground/[0.03] transition-shadow hover:shadow-md sm:p-5"
-      data-testid={`currency-total-${bucket.currency}`}
-    >
-      <div className="flex items-center gap-2.5">
-        <div
-          className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-xl text-[0.65rem] font-bold tracking-wide",
-            TONE_ICON[tone],
-          )}
-        >
-          {bucket.currency}
-        </div>
-        <p className="text-muted-foreground truncate text-[0.7rem] font-semibold uppercase tracking-wider">
-          {t("summaryBilled")}
-        </p>
-      </div>
-
-      <p className="mt-2 text-2xl font-bold tracking-tight break-words tabular-nums sm:truncate">
-        {fmt(bucket.billed_minor)}
-      </p>
-
-      <div className="mt-3.5">
-        <div className="bg-muted h-1.5 overflow-hidden rounded-full">
-          <div
-            className={cn("h-full rounded-full transition-all", TONE_BAR[tone])}
-            style={{ width: `${Math.max(0, Math.min(100, rate))}%` }}
-          />
-        </div>
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <div className="min-w-0">
-          <p className="text-muted-foreground text-[0.65rem] font-medium uppercase tracking-wider">
-            {t("summaryCollected")}
-          </p>
-          <p className="mt-0.5 text-sm font-semibold break-words tabular-nums text-emerald-600 sm:truncate dark:text-emerald-400">
-            {fmt(bucket.collected_minor)}
-          </p>
-        </div>
-        <div className="min-w-0">
-          <p className="text-muted-foreground text-[0.65rem] font-medium uppercase tracking-wider">
-            {t("balanceDue")}
-          </p>
-          <p className="mt-0.5 text-sm font-semibold break-words tabular-nums text-amber-600 sm:truncate dark:text-amber-400">
-            {fmt(bucket.due_minor)}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function SummaryCards({
   summary,
   locale,
@@ -308,78 +121,69 @@ function SummaryCards({
 
   if (!summary) {
     return (
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="bg-card h-[116px] animate-pulse rounded-2xl border shadow-sm"
-            aria-hidden
-          />
-        ))}
-      </div>
+      <div className="bg-card h-11 animate-pulse rounded-xl border shadow-sm" aria-hidden />
     );
   }
 
-  const primary = summary.money[0] ?? null;
-  const moreCurrencies = Math.max(0, summary.money.length - 1);
-  const moreNote =
-    moreCurrencies > 0
-      ? t("moreCurrencies", { count: moreCurrencies })
-      : undefined;
-
-  const fmt = (minor: number) =>
-    primary
-      ? formatMoney({ amount: minor, currency: primary.currency }, locale)
-      : "—";
-
-  const awaiting = summary.counts.CLOSED + summary.counts.PARTIALLY_PAID;
   const numFmt = new Intl.NumberFormat(locale);
   const pctFmt = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
-
-  const billed = primary?.billed_minor ?? 0;
-  const collected = primary?.collected_minor ?? 0;
-  const rate = billed > 0 ? Math.round((collected / billed) * 100) : 0;
+  const awaiting = summary.counts.CLOSED + summary.counts.PARTIALLY_PAID;
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
-          icon={Receipt}
-          tone="primary"
-          label={t("summaryBilled")}
-          value={primary ? fmt(billed) : "—"}
-          sub={
-            moreNote ??
-            `${numFmt.format(summary.counts.all)} · ${t("summaryTotal")}`
-          }
-        />
-        <StatCard
-          icon={Wallet}
-          tone="emerald"
-          label={t("summaryCollected")}
-          value={primary ? fmt(collected) : "—"}
-          sub={
-            moreNote ??
-            `${numFmt.format(summary.counts.PAID)} · ${t("summaryPaid")}`
-          }
-        />
-        <StatCard
-          icon={Clock}
-          tone="amber"
-          label={t("summaryOutstanding")}
-          value={primary ? fmt(primary.outstanding_minor) : "—"}
-          sub={`${numFmt.format(awaiting)} · ${t("summaryAwaiting")}`}
-        />
-        <StatCard
-          icon={TrendingUp}
-          tone="blue"
-          label={t("summaryCollectionRate")}
-          value={`${pctFmt.format(rate)}%`}
-          progress={rate}
-        />
-      </div>
+    <div
+      className="bg-card no-scrollbar flex items-center gap-x-4 overflow-x-auto whitespace-nowrap rounded-xl border px-4 py-2.5 shadow-sm"
+      data-testid="invoice-summary"
+    >
+      <span className="inline-flex shrink-0 items-center gap-1.5">
+        <Receipt className="text-muted-foreground size-4" aria-hidden />
+        <Stat label={t("summaryTotal")} value={numFmt.format(summary.counts.all)} />
+      </span>
+      <Stat label={t("summaryPaid")} value={numFmt.format(summary.counts.PAID)} />
+      <Stat label={t("summaryAwaiting")} value={numFmt.format(awaiting)} />
 
-      <CurrencyTotals money={summary.money} locale={locale} />
+      {summary.money.map((bucket) => {
+        const fmt = (minor: number) =>
+          formatMoney({ amount: minor, currency: bucket.currency }, locale);
+        const rate =
+          bucket.billed_minor > 0
+            ? Math.round((bucket.collected_minor / bucket.billed_minor) * 100)
+            : 0;
+
+        return (
+          <span
+            key={bucket.currency}
+            className="inline-flex shrink-0 items-center gap-x-4"
+            data-testid={`currency-total-${bucket.currency}`}
+          >
+            <Divider />
+            <span className="bg-primary/10 text-primary rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide">
+              {bucket.currency}
+            </span>
+            <Stat label={t("summaryBilled")} value={fmt(bucket.billed_minor)} />
+            <Stat
+              label={t("summaryCollected")}
+              value={fmt(bucket.collected_minor)}
+              tone="text-emerald-600 dark:text-emerald-400"
+            />
+            <Stat
+              label={t("summaryOutstanding")}
+              value={fmt(bucket.outstanding_minor)}
+              tone="text-amber-600 dark:text-amber-400"
+            />
+            <span className="inline-flex items-center gap-1.5" title={t("summaryCollectionRate")}>
+              <span className="bg-muted h-1.5 w-14 overflow-hidden rounded-full">
+                <span
+                  className="block h-full rounded-full bg-emerald-500"
+                  style={{ width: `${Math.max(0, Math.min(100, rate))}%` }}
+                />
+              </span>
+              <span className="text-muted-foreground text-xs tabular-nums">
+                {pctFmt.format(rate)}%
+              </span>
+            </span>
+          </span>
+        );
+      })}
     </div>
   );
 }

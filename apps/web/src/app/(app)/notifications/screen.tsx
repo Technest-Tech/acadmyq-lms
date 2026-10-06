@@ -3,6 +3,7 @@
 import {
   Ban,
   BellRing,
+  CalendarCheck,
   CalendarClock,
   Check,
   CheckCheck,
@@ -42,7 +43,7 @@ import { formatMoney } from "@/lib/money";
 import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-type TabKey = "classes" | "reports" | "packages";
+type TabKey = "classes" | "attended" | "reports" | "packages";
 
 const STATUS_CHIP: Record<CancellationStatus, string> = {
   PENDING:
@@ -61,7 +62,8 @@ export function NotificationsScreen() {
   const [tab, setTab] = useState<TabKey>("classes");
   const [requests, setRequests] = useState<CancellationRequestRow[]>([]);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
-  const [counts, setCounts] = useState({ classes: 0, reports: 0, packages: 0 });
+  const [attended, setAttended] = useState<NotificationRow[]>([]);
+  const [counts, setCounts] = useState({ classes: 0, attended: 0, reports: 0, packages: 0 });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -77,16 +79,19 @@ export function NotificationsScreen() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [{ requests: reqs }, { notifications: notifs }, summary] =
+      const [{ requests: reqs }, { notifications: notifs }, { notifications: log }, summary] =
         await Promise.all([
           listCancellationRequests(),
           listNotifications(),
+          listNotifications("ATTENDED"),
           getNotificationsSummary(),
         ]);
       setRequests(reqs);
       setNotifications(notifs);
+      setAttended(log);
       setCounts({
         classes: summary.classes,
+        attended: summary.attended ?? 0,
         reports: summary.reports,
         packages: summary.packages,
       });
@@ -109,6 +114,7 @@ export function NotificationsScreen() {
 
   const TABS: { key: TabKey; icon: ComponentType<{ className?: string }>; count: number }[] = [
     { key: "classes", icon: Ban, count: counts.classes },
+    { key: "attended", icon: CalendarCheck, count: counts.attended },
     { key: "reports", icon: ClipboardX, count: counts.reports },
     { key: "packages", icon: Layers, count: counts.packages },
   ];
@@ -185,6 +191,12 @@ export function NotificationsScreen() {
         <ClassesTab
           requests={requests}
           fmt={fmt}
+          onChanged={load}
+          onError={setError}
+        />
+      ) : tab === "attended" ? (
+        <AttendedTab
+          notifications={attended}
           onChanged={load}
           onError={setError}
         />
@@ -538,6 +550,156 @@ function ReportsTab({
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+// ── Attended classes (activity log) ──────────────────────────────────────────
+
+/**
+ * Every lesson marked attended, newest first, grouped by the day it was taught.
+ *
+ * A log, not a to-do: nothing here needs a decision, so it carries no warning colour and its
+ * unread count stays on this tab instead of the sidebar bell. "Mark all read" here clears only
+ * this log — the alerts in the other tabs are never cleared as a side effect.
+ */
+function AttendedTab({
+  notifications,
+  onChanged,
+  onError,
+}: {
+  notifications: NotificationRow[];
+  onChanged: () => Promise<void>;
+  onError: (msg: string) => void;
+}) {
+  const t = useTranslations("notifications");
+  const locale = useLocale();
+  const [busy, setBusy] = useState(false);
+  const hasUnread = notifications.some((n) => n.read_at === null);
+
+  const dayFmt = new Intl.DateTimeFormat(locale === "ar" ? "ar" : "en", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  const timeFmt = new Intl.DateTimeFormat(locale === "ar" ? "ar" : "en", {
+    timeStyle: "short",
+  });
+
+  // Group on the lesson's own day (viewer-local), keeping the feed's newest-first order.
+  const groups: { day: string; rows: NotificationRow[] }[] = [];
+  for (const n of notifications) {
+    const when = n.data.scheduled_at_utc ?? n.created_at;
+    const day = dayFmt.format(new Date(when));
+    const last = groups[groups.length - 1];
+    if (last && last.day === day) last.rows.push(n);
+    else groups.push({ day, rows: [n] });
+  }
+
+  async function markRead(id: string) {
+    try {
+      await markNotificationRead(id);
+      await onChanged();
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+
+  async function markAll() {
+    setBusy(true);
+    try {
+      await markAllNotificationsRead("ATTENDED");
+      await onChanged();
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (notifications.length === 0) {
+    return <EmptyState message={t("empty.attended")} />;
+  }
+
+  return (
+    <div className="space-y-4">
+      {hasUnread && (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={() => void markAll()}
+            data-testid="mark-all-attended-read"
+            className="gap-1.5"
+          >
+            <CheckCheck className="size-3.5" />
+            {t("actions.markAllRead")}
+          </Button>
+        </div>
+      )}
+      {groups.map((g) => (
+        <section key={g.day} className="space-y-2">
+          <h3 className="text-muted-foreground px-1 text-xs font-semibold">{g.day}</h3>
+          <ul className="bg-card divide-y rounded-2xl border" data-testid="attended-list">
+            {g.rows.map((n) => {
+              const unread = n.read_at === null;
+              const byStaff = n.data.marked_by_role !== undefined && n.data.marked_by_role !== "TEACHER";
+              return (
+                <li
+                  key={n.id}
+                  data-testid="attended-row"
+                  data-unread={unread}
+                  className={cn(
+                    "flex items-center gap-3 px-4 py-3",
+                    unread && "bg-primary/[0.03]",
+                  )}
+                >
+                  <div className="bg-emerald-100 ring-emerald-200/60 dark:bg-emerald-950/40 flex size-9 shrink-0 items-center justify-center rounded-xl ring-1">
+                    <CalendarCheck className="size-4 text-emerald-700 dark:text-emerald-400" aria-hidden />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm leading-tight font-semibold">
+                      {t("attended.title", {
+                        teacher: n.data.teacher_name ?? "—",
+                        student: n.data.student_name ?? "—",
+                      })}
+                    </p>
+                    <p className="text-muted-foreground mt-0.5 text-xs tabular-nums">
+                      {n.data.scheduled_at_utc ? timeFmt.format(new Date(n.data.scheduled_at_utc)) : "—"}
+                      {n.data.duration_minutes ? ` · ${formatHours(n.data.duration_minutes, locale)}` : ""}
+                      {byStaff && n.data.marked_by_name
+                        ? ` · ${t("attended.markedBy", { name: n.data.marked_by_name })}`
+                        : ""}
+                    </p>
+                    {n.session_id && (
+                      <Link
+                        href={`/sessions/${n.session_id}`}
+                        className="text-primary mt-1 inline-block text-xs font-semibold hover:underline"
+                      >
+                        {t("attended.open")}
+                      </Link>
+                    )}
+                  </div>
+                  {unread && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => void markRead(n.id)}
+                      aria-label={t("actions.markRead")}
+                      className="shrink-0"
+                    >
+                      <Check className="size-3.5" />
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }

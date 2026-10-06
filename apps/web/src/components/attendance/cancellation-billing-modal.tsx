@@ -13,13 +13,13 @@ export interface CancellationBillingValues {
   reason: string;
 }
 
-/** A two-option Yes/No segmented control. */
-function YesNo({
+/** A two-option Yes/No segmented control. `null` = not answered yet (neither side lit). */
+export function YesNo({
   value,
   onChange,
   disabled,
 }: {
-  value: boolean;
+  value: boolean | null;
   onChange: (v: boolean) => void;
   disabled?: boolean;
 }) {

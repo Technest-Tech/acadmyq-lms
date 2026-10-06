@@ -26,10 +26,10 @@ import * as api from "@/lib/api";
 const catalog: api.WhatsAppGroupCatalog = {
   categories: {
     SUPERVISION: ["SESSION_STARTED", "SESSION_NOT_MARKED", "REPORT_OVERDUE"],
-    ACCOUNTING: ["PACKAGE_LOW", "PACKAGE_ENDED", "PAYMENT_RECEIVED"],
+    ACCOUNTING: ["PACKAGE_LOW", "PACKAGE_ENDED", "PAYMENT_RECEIVED", "PAYMENT_OVERDUE"],
   },
-  default_settings: { not_marked_after_minutes: 15, report_overdue_hours: 2 },
-  setting_bounds: { not_marked_after_minutes: [1, 240], report_overdue_hours: [1, 72] },
+  default_settings: { not_marked_after_minutes: 15, report_overdue_hours: 2, payment_reminder_days: 2 },
+  setting_bounds: { not_marked_after_minutes: [1, 240], report_overdue_hours: [1, 72], payment_reminder_days: [1, 30] },
   max_attempts: 5,
 };
 
@@ -57,7 +57,7 @@ const supervision: api.WhatsAppGroup = {
   label: "Supervision",
   language: "ar",
   events: ["SESSION_STARTED", "SESSION_NOT_MARKED"],
-  settings: { not_marked_after_minutes: 10, report_overdue_hours: 2 },
+  settings: { not_marked_after_minutes: 10, report_overdue_hours: 2, payment_reminder_days: 2 },
   is_active: true,
   created_at: "2026-09-01T10:00:00+00:00",
   last_24h: { DELIVERED: 4, FAILED: 1 },
@@ -127,7 +127,7 @@ describe("ClientWhatsappGroupsCard", () => {
         label: "Supervision",
         language: "ar",
         events: ["SESSION_STARTED", "SESSION_NOT_MARKED", "REPORT_OVERDUE"],
-        settings: { not_marked_after_minutes: 15, report_overdue_hours: 3 },
+        settings: { not_marked_after_minutes: 15, report_overdue_hours: 3, payment_reminder_days: 2 },
       }),
     );
   });

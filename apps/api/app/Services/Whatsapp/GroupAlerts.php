@@ -66,6 +66,9 @@ final class GroupAlerts
 
     private const DETECT_LIMIT = 500;
 
+    /** Local hour an unpaid-invoice reminder goes out on its day — office hours, not the midnight close. */
+    private const PAYMENT_REMINDER_HOUR = 10;
+
     public function __construct(
         private readonly WasenderClient $client,
         private readonly WhatsAppSender $sender,
@@ -250,6 +253,7 @@ final class GroupAlerts
                     GroupAlertCatalog::PACKAGE_LOW => $this->packageNotifications($academyId, 'PACKAGE_LOW', GroupAlertCatalog::PACKAGE_LOW, $floor, $now),
                     GroupAlertCatalog::PACKAGE_ENDED => $this->packageNotifications($academyId, 'PACKAGE_COMPLETED', GroupAlertCatalog::PACKAGE_ENDED, $floor, $now),
                     GroupAlertCatalog::PAYMENT_RECEIVED => $this->payments($academyId, $floor, $now),
+                    GroupAlertCatalog::PAYMENT_OVERDUE => $this->paymentsOverdue($academyId, $floor, $group->settings['payment_reminder_days'], $now),
                     default => [],
                 };
 
@@ -455,6 +459,78 @@ final class GroupAlerts
                 'period' => $e->period_month !== null ? $e->period_month.'/'.$e->period_year : null,
             ],
         ])->all();
+    }
+
+    /**
+     * Invoices still owed money, one reminder per invoice per cycle. An invoice falls due when it is
+     * closed (the month-end close is the "pay on the 1st") or when its pay link is sent, whichever
+     * came first; from that local date, a reminder is due every `$everyDays` days at
+     * PAYMENT_REMINDER_HOUR. The cycle number is part of the subject, so each cycle is its own alert
+     * while the unique index still makes re-detection free — and the moment the invoice is paid it
+     * stops being a candidate, so an unsent reminder is SKIPPED and no further cycle is raised.
+     *
+     * @return list<array{subject: string, due_at: CarbonImmutable, payload: array<string,mixed>}>
+     */
+    private function paymentsOverdue(string $academyId, CarbonImmutable $floor, int $everyDays, CarbonImmutable $now): array
+    {
+        $lower = $this->later($floor, $now->subMinutes(GroupAlertCatalog::MAX_AGE_MINUTES[GroupAlertCatalog::PAYMENT_OVERDUE]));
+        $timezone = $this->timezone($academyId);
+        $today = $now->setTimezone($timezone)->startOfDay();
+        $frontend = AcademyUrl::origin($academyId);
+
+        // least() skips nulls: whichever of "closed" / "sent" happened first.
+        $dueFrom = 'least(i.closed_at, i.sent_at)';
+
+        $rows = DB::table('invoices as i')
+            ->leftJoin('guardians as g', 'g.id', '=', 'i.guardian_id')
+            ->leftJoin('students as s', 's.id', '=', 'i.student_id')
+            ->where('i.academy_id', $academyId)
+            ->whereIn('i.status', ['OPEN', 'CLOSED', 'PARTIALLY_PAID'])
+            ->whereColumn('i.total_minor', '>', 'i.amount_paid_minor')
+            ->whereRaw("{$dueFrom} <= ?::timestamptz", [$now->format(self::TS)])
+            ->orderByRaw($dueFrom)
+            ->limit(self::DETECT_LIMIT)
+            ->get([
+                'i.id', 'i.total_minor', 'i.amount_paid_minor', 'i.currency', 'i.public_token',
+                'i.period_month', 'i.period_year',
+                DB::raw("{$dueFrom} as due_from"),
+                DB::raw('coalesce(g.full_name, s.full_name, i.payer_name) as payer'),
+                DB::raw('coalesce(g.whatsapp_phone, s.whatsapp_phone) as payer_phone'),
+            ]);
+
+        $found = [];
+        foreach ($rows as $i) {
+            $dueDay = CarbonImmutable::parse($i->due_from)->setTimezone($timezone)->startOfDay();
+            $cycle = intdiv((int) $dueDay->diff($today)->days, $everyDays);
+
+            // The latest cycle whose reminder time has arrived; cycle 0 is the due day itself.
+            $dueAt = $dueDay->addDays($cycle * $everyDays)->setTime(self::PAYMENT_REMINDER_HOUR, 0);
+            if ($dueAt->greaterThan($now)) {
+                $cycle--;
+                $dueAt = $dueDay->addDays($cycle * $everyDays)->setTime(self::PAYMENT_REMINDER_HOUR, 0);
+            }
+            if ($cycle < 1 || $dueAt->lessThan($lower)) {
+                continue;
+            }
+
+            $found[] = [
+                'subject' => $i->id.':'.$cycle,
+                'due_at' => $dueAt,
+                'payload' => [
+                    'payer' => $i->payer,
+                    'payer_phone' => $i->payer_phone,
+                    'remaining_minor' => (int) $i->total_minor - (int) $i->amount_paid_minor,
+                    'paid_minor' => (int) $i->amount_paid_minor,
+                    'total_minor' => (int) $i->total_minor,
+                    'currency' => trim((string) $i->currency),
+                    'period' => $i->period_month !== null ? $i->period_month.'/'.$i->period_year : null,
+                    'days_late' => $cycle * $everyDays,
+                    'invoice_url' => $frontend.'/i/'.$i->public_token,
+                ],
+            ];
+        }
+
+        return $found;
     }
 
     private function sessionQuery(string $academyId): Builder

@@ -44,7 +44,8 @@ export function TimetablesView({
   timetables: TimetableSummary[];
   loading: boolean;
   canManage: boolean;
-  onUpdate: (studentId: string, studentName: string) => void;
+  /** A student with several teachers has one card per teacher — `teacherId` says which. */
+  onUpdate: (studentId: string, studentName: string, teacherId: string) => void;
   onLog: (studentId: string, studentName: string) => void;
   onAddNew: () => void;
 }) {
@@ -110,6 +111,9 @@ export function TimetablesView({
                       <p className="text-muted-foreground flex items-center gap-1 truncate text-xs">
                         <GraduationCap className="size-3 shrink-0" aria-hidden />
                         {tt.teacher_name}
+                        {tt.course && (
+                          <span className="text-muted-foreground/80">· {tt.course}</span>
+                        )}
                       </p>
                     )}
                   </div>
@@ -170,7 +174,7 @@ export function TimetablesView({
                       <button
                         type="button"
                         data-testid={`update-timetable-${tt.student_id}`}
-                        onClick={() => onUpdate(tt.student_id, name)}
+                        onClick={() => onUpdate(tt.student_id, name, tt.teacher_id)}
                         className="group/btn flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-primary/25 bg-primary/[0.06] px-3 py-2.5 text-xs font-semibold text-primary shadow-sm transition-all hover:border-primary/40 hover:bg-primary/10 hover:shadow active:translate-y-px"
                       >
                         <Pencil className="size-3.5 transition-transform group-hover/btn:-rotate-12" aria-hidden />

@@ -14,6 +14,7 @@ use App\Support\DataTable;
 use App\Support\Entitlement;
 use App\Support\Phone;
 use App\Support\StudentStatus;
+use App\Support\StudentTeachers;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,8 +27,9 @@ use Illuminate\Validation\ValidationException;
 /**
  * Students — the learner (R-STU). Each belongs to exactly one guardian (the adult-solo case
  * still gets a real guardian row, R-STU-2). Price lives on the per-student subscription, never
- * the student (R-STU-4); the active teacher is a close+open assignment with full history
- * (R-STU-3). All money is integer minor units; currencies may differ per student (AC-4.6).
+ * the student (R-STU-4). A student may have several teachers at once, one per course; each
+ * teacher is a close+open assignment with full history (R-STU-3), and each has their own
+ * timetable. All money is integer minor units; currencies may differ per student (AC-4.6).
  *
  * A TEACHER may read ONLY their currently-assigned students (Sprint 2 §3.6): the list is
  * row-scoped and detail/history endpoints reject a student they do not teach (AC-4.10).
@@ -66,7 +68,13 @@ final class StudentController extends Controller
                 'created_at' => 's.created_at',
             ],
             'filters' => [
-                'teacher_id' => fn (Builder $q, $value) => $q->where('sta.teacher_id', (string) $value),
+                // ANY of the student's teachers — not just the first one the row happens to show.
+                'teacher_id' => fn (Builder $q, $value) => $q->whereExists(function ($e) use ($value): void {
+                    $e->select(DB::raw(1))->from('student_teacher_assignments as fa')
+                        ->whereColumn('fa.student_id', 's.id')
+                        ->whereNull('fa.ended_at')
+                        ->where('fa.teacher_id', (string) $value);
+                }),
                 'subscription_status' => fn (Builder $q, $value) => $q->where('sub.status', (string) $value),
                 'student_status' => fn (Builder $q, $value) => $q->where('s.status', (string) $value),
                 'trial_any' => fn (Builder $q, $value) => $value === '1' ? $q->whereIn('s.status', [StudentStatus::TRIAL, StudentStatus::TRIAL_BOOKED]) : null,
@@ -74,6 +82,7 @@ final class StudentController extends Controller
             'defaultSort' => 'name',
         ]);
 
+        $result['rows'] = $result['rows']->map(StudentTeachers::decodeRow(...));
         if (! $seesPricing) {
             $result['rows'] = $result['rows']->map($this->redactPricing(...));
         }
@@ -81,7 +90,7 @@ final class StudentController extends Controller
         return response()->json($result);
     }
 
-    /** POST /api/students — create student (+ optional inline subscription + teacher assignment). */
+    /** POST /api/students — create student (+ optional inline subscription + their teachers). */
     public function store(Request $request): JsonResponse
     {
         Gate::authorize('student.create');
@@ -181,13 +190,14 @@ final class StudentController extends Controller
             ], $this->ctx()->userId, $this->ctx()->role);
         }
 
-        // Optional inline first teacher assignment (R-STU-3).
-        if (! empty($data['teacher_id'])) {
-            $this->openAssignment($academyId, $studentId, $data['teacher_id'], now());
-            Audit::log('student.teacher_reassigned', 'student', $studentId, $academyId, $this->ctx()->userId, $this->ctx()->role,
-                after: ['teacher_id' => $data['teacher_id'], 'effective_date' => now()->toDateString()],
-                before: ['teacher_id' => null]);
-            $this->regenerateStudentSessions($studentId);
+        // Optional inline teachers (R-STU-3) — one per course. `teacher_id` is the older
+        // single-teacher shape, still accepted.
+        $links = $this->normaliseLinks($data);
+        foreach ($links as $link) {
+            $this->assertActiveTeacher($link['teacher_id']);
+            $this->openLink($academyId, $studentId, $link['teacher_id'], $link['course'], now());
+            Audit::log('student.teacher_added', 'student', $studentId, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['teacher_id' => $link['teacher_id'], 'course' => $link['course'], 'effective_date' => now()->toDateString()]);
         }
 
         return response()->json([
@@ -198,7 +208,7 @@ final class StudentController extends Controller
         ], 201);
     }
 
-    /** GET /api/students/{id} — detail: subscription, current teacher, guardian. */
+    /** GET /api/students/{id} — detail: subscription, teachers, guardian. */
     public function show(string $id): JsonResponse
     {
         Gate::authorize('student.read');
@@ -211,11 +221,7 @@ final class StudentController extends Controller
 
         $guardian = DB::table('guardians')->where('id', $student->guardian_id)->first();
         $subscription = $this->activeSubscription($id);
-        $current = DB::table('student_teacher_assignments as a')
-            ->leftJoin('teachers as t', 't.id', '=', 'a.teacher_id')
-            ->where('a.student_id', $id)
-            ->whereNull('a.ended_at')
-            ->first(['a.teacher_id', 't.full_name as teacher_name', 'a.started_at']);
+        $teachers = StudentTeachers::active($id);
 
         // For a booked trial, has the trial session already been recorded (attended/cancelled/…)?
         // Drives the profile's "next step" call-to-action: once the trial is done the only path
@@ -232,7 +238,9 @@ final class StudentController extends Controller
             'subscription' => $subscription !== null && ! $this->seesPricing()
                 ? $this->redactPricing($subscription)
                 : $subscription,
-            'currentTeacher' => $current,
+            'teachers' => $teachers->values(),
+            // The first teacher, for callers that only ever wanted one (trial booking defaults).
+            'currentTeacher' => $teachers->first(),
             'trialResolved' => $trialResolved,
         ]);
     }
@@ -337,7 +345,7 @@ final class StudentController extends Controller
 
         $now = now();
         DB::transaction(function () use ($id, $academyId, $reason, $now, $student): void {
-            ['subscription' => $endedSubscription, 'assignment' => $closedAssignment] = $this->endActiveBilling($id, $now);
+            $wound = $this->endActiveBilling($id, $now);
 
             DB::table('students')->where('id', $id)->update([
                 'status' => $reason,
@@ -349,8 +357,12 @@ final class StudentController extends Controller
                 after: [
                     'status' => $reason,
                     'deleted_at' => $now->toIso8601String(),
-                    'ended_subscription' => $endedSubscription,
-                    'closed_teacher_assignment' => $closedAssignment,
+                    'ended_subscription' => $wound['subscription'],
+                    'closed_teacher_assignment' => $wound['assignment'],
+                    'closed_package' => $wound['package'],
+                    'ended_schedules' => $wound['schedules'],
+                    'removed_future_sessions' => $wound['sessions_removed'],
+                    'cancelled_unmarked_sessions' => $wound['sessions_cancelled'],
                 ],
                 before: ['status' => $student->status]);
         });
@@ -363,8 +375,9 @@ final class StudentController extends Controller
      * this is a RECOVERABLE soft-delete: physical deletion stays prohibited (design §3.7), so the
      * student row and every related record (subscriptions, sessions, invoices, …) remain in the
      * database and can be brought back via reactivate(). It hides the student from the roster and,
-     * like deactivate, ends the active subscription and closes the open teacher assignment so
-     * nothing dangles. The response tells the caller the removal is reversible.
+     * like deactivate, winds down everything still running (subscription, teacher assignment,
+     * lesson package, timetable, unmarked lessons — see endActiveBilling) so nothing dangles.
+     * The response tells the caller the removal is reversible.
      */
     public function destroy(string $id): JsonResponse
     {
@@ -378,7 +391,7 @@ final class StudentController extends Controller
 
         $now = now();
         DB::transaction(function () use ($id, $academyId, $now, $student): void {
-            ['subscription' => $endedSubscription, 'assignment' => $closedAssignment] = $this->endActiveBilling($id, $now);
+            $wound = $this->endActiveBilling($id, $now);
 
             DB::table('students')->where('id', $id)->update([
                 'deleted_at' => $now,
@@ -389,8 +402,12 @@ final class StudentController extends Controller
                 after: [
                     'deleted_at' => $now->toIso8601String(),
                     'recoverable' => true,
-                    'ended_subscription' => $endedSubscription,
-                    'closed_teacher_assignment' => $closedAssignment,
+                    'ended_subscription' => $wound['subscription'],
+                    'closed_teacher_assignment' => $wound['assignment'],
+                    'closed_package' => $wound['package'],
+                    'ended_schedules' => $wound['schedules'],
+                    'removed_future_sessions' => $wound['sessions_removed'],
+                    'cancelled_unmarked_sessions' => $wound['sessions_cancelled'],
                 ],
                 before: ['status' => $student->status]);
         });
@@ -528,7 +545,15 @@ final class StudentController extends Controller
         return $result;
     }
 
-    /** POST /api/students/{id}/teacher — reassign teacher (close current + open new, audited). */
+    /**
+     * POST /api/students/{id}/teacher — REPLACE one teacher with another from a date (close +
+     * open, audited). The new teacher takes over the old one's course and timetable, so their
+     * future lessons move across and nothing else about the student changes.
+     *
+     * `replaces_teacher_id` says which teacher is leaving. It may be omitted while the student has
+     * at most one teacher (the original single-teacher call); with several it is required, because
+     * guessing would hand the wrong course's lessons to the new teacher.
+     */
     public function reassignTeacher(Request $request, string $id): JsonResponse
     {
         Gate::authorize('student.update');
@@ -540,23 +565,148 @@ final class StudentController extends Controller
 
         $data = $request->validate([
             'teacher_id' => ['required', 'uuid'],
+            'replaces_teacher_id' => ['sometimes', 'nullable', 'uuid'],
             'effective_date' => ['sometimes', 'nullable', 'date'],
         ]);
         $this->assertActiveTeacher($data['teacher_id']);
 
+        $current = StudentTeachers::active($id)->keyBy(fn ($l) => (string) $l->teacher_id);
+        $from = $data['replaces_teacher_id'] ?? null;
+        if ($from === null) {
+            if ($current->count() > 1) {
+                throw ValidationException::withMessages([
+                    'replaces_teacher_id' => ['This student has more than one teacher — choose which one to replace. / لهذا الطالب أكثر من معلّم، اختر المعلّم الذي تريد استبداله.'],
+                ]);
+            }
+            $from = $current->keys()->first();
+        } elseif (! $current->has($from)) {
+            throw ValidationException::withMessages(['replaces_teacher_id' => ['That teacher does not teach this student. / هذا المعلّم لا يدرّس هذا الطالب.']]);
+        }
+
+        $to = (string) $data['teacher_id'];
+        if ($from === $to) {
+            return response()->json(['ok' => true]);
+        }
+        if ($current->has($to)) {
+            throw ValidationException::withMessages(['teacher_id' => ['This teacher already teaches this student. / هذا المعلّم يدرّس هذا الطالب بالفعل.']]);
+        }
+
         $effective = ! empty($data['effective_date']) ? $data['effective_date'] : now();
-        $previous = $this->openAssignment($academyId, $id, $data['teacher_id'], $effective);
+        $course = $from !== null ? $current->get($from)->course : null;
+        if ($from !== null) {
+            $this->closeLink($id, $from, $effective);
+            // The leaving teacher's timetable becomes the new teacher's — same days, same times.
+            DB::table('schedules')
+                ->where('student_id', $id)->where('teacher_id', $from)
+                ->where('is_active', true)->whereNull('deleted_at')
+                ->update(['teacher_id' => $to, 'updated_at' => now()]);
+        }
+        $this->openLink($academyId, $id, $to, $course, $effective);
 
         Audit::log('student.teacher_reassigned', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
-            after: ['teacher_id' => $data['teacher_id'], 'effective_date' => (string) $effective],
-            before: ['teacher_id' => $previous]);
+            after: ['teacher_id' => $to, 'course' => $course, 'effective_date' => (string) $effective],
+            before: ['teacher_id' => $from]);
 
         // Re-point this student's FUTURE untouched sessions to the newly assigned teacher, so the
         // teacher sees them immediately instead of waiting for the next schedule edit / monthly
-        // roll (the generator reads the student's now-current assignment, TC-5.25).
+        // roll (the generator reads each timetable's teacher, TC-5.25).
         $this->regenerateStudentSessions($id);
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * PUT /api/students/{id}/teachers — the student's full set of teachers, each with the course
+     * they teach: `{teachers: [{teacher_id, course?}], effective_date?}`. The server diffs it
+     * against the open links:
+     *   - a new teacher opens a link (they get a timetable from the Schedule tab, as any teacher);
+     *   - a kept teacher keeps their link and history; only a changed course is written;
+     *   - a dropped teacher's link closes AND their timetable for this student ends, removing
+     *     their future untouched lessons (past and marked ones are history and stay). Ending a
+     *     timetable is a scheduling act, so that part needs `schedule.manage` as well.
+     */
+    public function setTeachers(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('student.update');
+
+        $academyId = $this->currentAcademyId();
+        if (DB::table('students')->where('id', $id)->whereNull('deleted_at')->doesntExist()) {
+            abort(404, 'Student not found.');
+        }
+
+        $data = $request->validate([
+            'teachers' => ['present', 'array', 'max:20'],
+            'teachers.*.teacher_id' => ['required', 'uuid', 'distinct'],
+            'teachers.*.course' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'effective_date' => ['sometimes', 'nullable', 'date'],
+        ]);
+        $effective = ! empty($data['effective_date']) ? $data['effective_date'] : now();
+
+        $desired = collect($this->normaliseLinks($data))->keyBy('teacher_id');
+        $current = StudentTeachers::active($id)->keyBy(fn ($l) => (string) $l->teacher_id);
+
+        $removed = $current->keys()->diff($desired->keys())->values();
+        $added = $desired->keys()->diff($current->keys())->values();
+
+        foreach ($added as $teacherId) {
+            $this->assertActiveTeacher((string) $teacherId);
+        }
+
+        $endingSchedules = $removed->isEmpty() ? collect() : DB::table('schedules')
+            ->where('student_id', $id)->whereIn('teacher_id', $removed->all())
+            ->where('is_active', true)->whereNull('deleted_at')
+            ->pluck('id');
+        if ($endingSchedules->isNotEmpty()) {
+            Gate::authorize('schedule.manage');
+        }
+
+        foreach ($removed as $teacherId) {
+            $this->closeLink($id, (string) $teacherId, $effective);
+            Audit::log('student.teacher_removed', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['effective_date' => (string) $effective],
+                before: ['teacher_id' => (string) $teacherId, 'course' => $current->get($teacherId)->course]);
+        }
+
+        $lessonsRemoved = 0;
+        if ($endingSchedules->isNotEmpty()) {
+            DB::table('schedules')->whereIn('id', $endingSchedules->all())
+                ->update(['is_active' => false, 'deleted_at' => now(), 'updated_at' => now()]);
+            // Inactive timetable → empty intended set → only future untouched lessons are deleted.
+            [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
+            foreach ($endingSchedules as $scheduleId) {
+                $lessonsRemoved += $this->generator->generateForSchedule((string) $scheduleId, $windowStart, $windowEnd)['removed'];
+                Audit::log('schedule.deleted', 'schedule', (string) $scheduleId, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                    before: ['student_id' => $id, 'is_active' => true]);
+            }
+        }
+
+        foreach ($added as $teacherId) {
+            $course = $desired->get($teacherId)['course'];
+            $this->openLink($academyId, $id, (string) $teacherId, $course, $effective);
+            Audit::log('student.teacher_added', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['teacher_id' => (string) $teacherId, 'course' => $course, 'effective_date' => (string) $effective]);
+        }
+
+        foreach ($desired as $teacherId => $link) {
+            $before = $current->get($teacherId);
+            if ($before === null || (string) $before->course === (string) $link['course']) {
+                continue;
+            }
+            DB::table('student_teacher_assignments')
+                ->where('student_id', $id)->where('teacher_id', $teacherId)->whereNull('ended_at')
+                ->update(['course' => $link['course'], 'updated_at' => now()]);
+            Audit::log('student.teacher_course_changed', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['teacher_id' => (string) $teacherId, 'course' => $link['course']],
+                before: ['teacher_id' => (string) $teacherId, 'course' => $before->course]);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'added' => $added->all(),
+            'removed' => $removed->all(),
+            'timetables_ended' => $endingSchedules->count(),
+            'lessons_removed' => $lessonsRemoved,
+        ]);
     }
 
     /** GET /api/students/{id}/teacher-history — every assignment, current + historical. */
@@ -573,7 +723,7 @@ final class StudentController extends Controller
             ->leftJoin('teachers as t', 't.id', '=', 'a.teacher_id')
             ->where('a.student_id', $id)
             ->orderByDesc('a.started_at')
-            ->get(['a.id', 'a.teacher_id', 't.full_name as teacher_name', 'a.started_at', 'a.ended_at']);
+            ->get(['a.id', 'a.teacher_id', 't.full_name as teacher_name', 'a.course', 'a.started_at', 'a.ended_at']);
 
         return response()->json(['history' => $history]);
     }
@@ -606,7 +756,11 @@ final class StudentController extends Controller
         return $row;
     }
 
-    /** The DataTable base query: student + guardian + the one active sub + the active teacher. */
+    /**
+     * The DataTable base query: student + guardian + the one active sub + their teachers. The
+     * teachers come pre-aggregated (StudentTeachers::summary) — joining the assignments directly
+     * would print a student once per teacher.
+     */
     private function baseListQuery(): Builder
     {
         return DB::table('students as s')
@@ -616,10 +770,7 @@ final class StudentController extends Controller
                     ->whereNull('sub.deleted_at')
                     ->where('sub.status', '=', 'ACTIVE');
             })
-            ->leftJoin('student_teacher_assignments as sta', function ($j): void {
-                $j->on('sta.student_id', '=', 's.id')->whereNull('sta.ended_at');
-            })
-            ->leftJoin('teachers as t', 't.id', '=', 'sta.teacher_id')
+            ->leftJoinSub(StudentTeachers::summary(), 'sta', 'sta.student_id', '=', 's.id')
             ->select([
                 's.id', 's.full_name', 's.whatsapp_phone', 's.country', 's.status', 's.is_self_guardian',
                 's.guardian_id', 's.deleted_at', 's.created_at',
@@ -627,7 +778,7 @@ final class StudentController extends Controller
                 'sub.id as subscription_id', 'sub.price_minor', 'sub.currency as price_currency',
                 'sub.price_basis', 'sub.plan_label', 'sub.sessions_per_month',
                 'sub.start_date', 'sub.status as subscription_status',
-                'sta.teacher_id', 't.full_name as teacher_name',
+                'sta.teacher_id', 'sta.teacher_name', 'sta.teachers',
             ]);
     }
 
@@ -727,34 +878,50 @@ final class StudentController extends Controller
         return $subId;
     }
 
-    /**
-     * Close the current active assignment and open a new one, in this order so the partial
-     * unique index (one active per student) is never violated mid-flight. Returns the previous
-     * teacher id, or null when this is the first assignment.
-     */
-    private function openAssignment(string $academyId, string $studentId, string $teacherId, $effective): ?string
+    /** Open a link between a student and one of their teachers. */
+    private function openLink(string $academyId, string $studentId, string $teacherId, ?string $course, $effective): void
     {
-        $current = DB::table('student_teacher_assignments')
-            ->where('student_id', $studentId)
-            ->whereNull('ended_at')
-            ->first();
-
-        $previous = $current?->teacher_id;
-        if ($current !== null) {
-            DB::table('student_teacher_assignments')->where('id', $current->id)
-                ->update(['ended_at' => $effective, 'updated_at' => now()]);
-        }
-
         DB::table('student_teacher_assignments')->insert([
             'id' => (string) Str::uuid(),
             'academy_id' => $academyId,
             'student_id' => $studentId,
             'teacher_id' => $teacherId,
+            'course' => $course,
             'started_at' => $effective,
             'ended_at' => null,
         ]);
+    }
 
-        return $previous;
+    /** Close the open link for this pair; the row stays as history. */
+    private function closeLink(string $studentId, string $teacherId, $effective): void
+    {
+        DB::table('student_teacher_assignments')
+            ->where('student_id', $studentId)->where('teacher_id', $teacherId)->whereNull('ended_at')
+            ->update(['ended_at' => $effective, 'updated_at' => now()]);
+    }
+
+    /**
+     * The teacher links a request asked for, as `[{teacher_id, course}]` with blank courses null
+     * and each teacher once. Accepts `teachers` and the older single `teacher_id`.
+     *
+     * @param  array<string,mixed>  $data
+     * @return list<array{teacher_id: string, course: ?string}>
+     */
+    private function normaliseLinks(array $data): array
+    {
+        $rows = $data['teachers'] ?? [];
+        if ($rows === [] && ! empty($data['teacher_id'])) {
+            $rows = [['teacher_id' => $data['teacher_id']]];
+        }
+
+        $links = [];
+        foreach ($rows as $row) {
+            $teacherId = (string) $row['teacher_id'];
+            $course = trim((string) ($row['course'] ?? ''));
+            $links[$teacherId] = ['teacher_id' => $teacherId, 'course' => $course === '' ? null : $course];
+        }
+
+        return array_values($links);
     }
 
     /**
@@ -782,15 +949,19 @@ final class StudentController extends Controller
     }
 
     /**
-     * End the student's single ACTIVE subscription and close their open teacher assignment so
-     * neither dangles past an off-board (shared by deactivate and the recoverable delete). Rows
-     * are updated, never removed, so the action is fully reversible. Returns whether each side
-     * was affected.
+     * Wind down everything still running for a student who is leaving (shared by deactivate and
+     * the recoverable delete): the ACTIVE subscription, the open teacher assignment, the open
+     * lesson package, the timetable, and every lesson still waiting to be marked. Without the last
+     * three a removed student kept a live package, kept generating lessons, and their unmarked
+     * lessons sat in الحصص المعلقة, fired "not marked" group alerts and docked the teacher forever.
      *
-     * @return array{subscription: bool, assignment: bool}
+     * @return array{subscription: bool, assignment: bool, package: ?string, schedules: int, sessions_removed: int, sessions_cancelled: int}
      */
     private function endActiveBilling(string $studentId, $now): array
     {
+        // The package first, while the subscription that describes it is still ACTIVE.
+        $package = $this->closeOpenPackage($studentId);
+
         $endedSubscription = DB::table('subscriptions')
             ->where('student_id', $studentId)->where('status', 'ACTIVE')->whereNull('deleted_at')
             ->update(['status' => 'ENDED', 'updated_at' => $now]);
@@ -799,7 +970,98 @@ final class StudentController extends Controller
             ->where('student_id', $studentId)->whereNull('ended_at')
             ->update(['ended_at' => $now, 'updated_at' => $now]);
 
-        return ['subscription' => $endedSubscription > 0, 'assignment' => $closedAssignment > 0];
+        return [
+            'subscription' => $endedSubscription > 0,
+            'assignment' => $closedAssignment > 0,
+            'package' => $package,
+        ] + $this->windDownLessons($studentId, $now);
+    }
+
+    /**
+     * Close the student's open lesson package. An untouched one is voided; one with hours already
+     * used is closed the way an owner closes one early, so ON_COMPLETION still bills what was
+     * actually consumed. Returns what happened (CANCELLED / COMPLETED) or null when none was open.
+     */
+    private function closeOpenPackage(string $studentId): ?string
+    {
+        $packages = app(LessonPackages::class);
+        $package = $packages->activeFor($studentId);
+        if ($package === null) {
+            return null;
+        }
+
+        $ctx = $this->ctx();
+        if ((int) $package->minutes_consumed === 0) {
+            $packages->cancel((string) $package->id, 'STUDENT_REMOVED', $ctx->userId, $ctx->role);
+
+            return 'CANCELLED';
+        }
+
+        $packages->complete((string) $package->id, 'STUDENT_REMOVED', $ctx->userId, $ctx->role);
+
+        return 'COMPLETED';
+    }
+
+    /**
+     * Stop the timetable and clear every lesson still sitting in SCHEDULED. The schedule is ended
+     * exactly as DELETE /students/{id}/schedule ends it (future untouched rows are removed by the
+     * generator). Whatever is left — past lessons nobody marked, ad-hoc lessons, reschedule
+     * successors — is closed as cancelled-by-student, which neither bills nor pays, and any
+     * request still waiting on those lessons is rejected so it leaves the approvals queue.
+     *
+     * @return array{schedules: int, sessions_removed: int, sessions_cancelled: int}
+     */
+    private function windDownLessons(string $studentId, $now): array
+    {
+        $scheduleIds = DB::table('schedules')
+            ->where('student_id', $studentId)
+            ->where('is_active', true)
+            ->whereNull('deleted_at')
+            ->pluck('id');
+
+        $removed = 0;
+        if ($scheduleIds->isNotEmpty()) {
+            DB::table('schedules')->whereIn('id', $scheduleIds)->update([
+                'is_active' => false,
+                'deleted_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
+            foreach ($scheduleIds as $scheduleId) {
+                $removed += $this->generator->generateForSchedule((string) $scheduleId, $windowStart, $windowEnd)['removed'];
+            }
+        }
+
+        $leftover = DB::table('sessions')
+            ->where('student_id', $studentId)
+            ->where('status', 'SCHEDULED')
+            ->pluck('id');
+
+        if ($leftover->isNotEmpty()) {
+            DB::table('session_cancellation_requests')
+                ->whereIn('session_id', $leftover)
+                ->where('status', 'PENDING')
+                ->update([
+                    'status' => 'REJECTED',
+                    'decided_by_user_id' => $this->ctx()->userId,
+                    'decided_at' => $now,
+                    'decision_note' => 'Student removed from the academy',
+                    'updated_at' => $now,
+                ]);
+
+            DB::table('sessions')->whereIn('id', $leftover)->update([
+                'status' => 'CANCELLED_BY_STUDENT',
+                'status_reason' => 'Student removed from the academy',
+                'updated_at' => $now,
+            ]);
+        }
+
+        return [
+            'schedules' => $scheduleIds->count(),
+            'sessions_removed' => $removed,
+            'sessions_cancelled' => $leftover->count(),
+        ];
     }
 
     private function activeSubscription(string $studentId): ?object
@@ -845,6 +1107,9 @@ final class StudentController extends Controller
             $rules['is_self_guardian'] = ['sometimes', 'boolean'];
             $rules['currency'] = ['sometimes', 'nullable', 'string', 'size:3'];
             $rules['teacher_id'] = ['sometimes', 'nullable', 'uuid'];
+            $rules['teachers'] = ['sometimes', 'array', 'max:20'];
+            $rules['teachers.*.teacher_id'] = ['required', 'uuid', 'distinct'];
+            $rules['teachers.*.course'] = ['sometimes', 'nullable', 'string', 'max:120'];
             $rules['subscription'] = ['sometimes', 'array'];
             $rules += $this->subscriptionRules('subscription.');
             // Inline lesson package — the same fields and limits as POST /api/packages.

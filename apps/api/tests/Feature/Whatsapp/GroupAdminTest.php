@@ -50,7 +50,7 @@ function linkSupervision(array $body = []): TestResponse
         'label' => 'Supervision',
         'language' => 'ar',
         'events' => ['SESSION_STARTED', 'SESSION_NOT_MARKED', 'REPORT_OVERDUE'],
-        'settings' => ['not_marked_after_minutes' => 20, 'report_overdue_hours' => 3],
+        'settings' => ['not_marked_after_minutes' => 20, 'report_overdue_hours' => 3, 'payment_reminder_days' => 2],
     ], $body));
 }
 
@@ -78,7 +78,7 @@ it('links a group with its alerts, timings and a start instant per alert', funct
         'label' => 'Supervision',
         'language' => 'ar',
         'events' => ['SESSION_STARTED', 'SESSION_NOT_MARKED', 'REPORT_OVERDUE'],
-        'settings' => ['not_marked_after_minutes' => 20, 'report_overdue_hours' => 3],
+        'settings' => ['not_marked_after_minutes' => 20, 'report_overdue_hours' => 3, 'payment_reminder_days' => 2],
         'is_active' => true,
     ]);
 

@@ -1,6 +1,14 @@
 "use client";
 
-import { CalendarPlus, Clock, Globe, Plus, Trash2, User } from "lucide-react";
+import {
+  CalendarPlus,
+  Clock,
+  Globe,
+  GraduationCap,
+  Plus,
+  Trash2,
+  User,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 import { AlertBanner } from "@/components/ui/alert";
@@ -17,6 +25,7 @@ import {
   putStudentSchedule,
   type ScheduleSlot,
   type StudentRow,
+  type TeacherRow,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -37,24 +46,31 @@ const TZ_CURATED = [
 ];
 
 /**
- * The "new student timetable" form (§5.1) as a focused modal: pick a student, build their
- * recurring weekly slots, choose a timezone, and PUT the schedule — the backend generates the
- * concrete sessions and returns the created/removed counts. Reuses the same slot model as the
- * inline editor so a timetable created here is identical to one edited from a student card.
+ * The "new student timetable" form (§5.1) as a focused modal: pick a student and the teacher the
+ * timetable is with, build their recurring weekly slots, choose a timezone, and PUT the schedule
+ * — the backend generates the concrete sessions and returns the created/removed counts. Reuses
+ * the same slot model as the inline editor so a timetable created here is identical to one edited
+ * from a student card.
+ *
+ * The teacher is always asked: a student may have several (one timetable each), and picking a
+ * teacher the student does not have yet makes them one of the student's teachers.
  */
 export function AddTimetableModal({
   students,
+  teachers,
   defaultTimezone,
   onClose,
   onCreated,
 }: {
   students: StudentRow[];
+  teachers: TeacherRow[];
   defaultTimezone: string;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const t = useTranslations("scheduling");
   const [studentId, setStudentId] = useState("");
+  const [teacherId, setTeacherId] = useState("");
   const [timezone, setTimezone] = useState(defaultTimezone);
   const [slots, setSlots] = useState<ScheduleSlot[]>([
     { weekday: 1, start_time_local: "17:00", duration_minutes: 30 },
@@ -92,7 +108,28 @@ export function AddTimetableModal({
     setSlots((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   }
 
-  const studentName = students.find((s) => s.id === studentId)?.full_name ?? "";
+  const student = students.find((s) => s.id === studentId);
+  const studentName = student?.full_name ?? "";
+
+  // The student's own teachers first, each with the course they teach them.
+  const teacherOptions = useMemo(() => {
+    const own = new Map(
+      (student?.teachers ?? []).map((l) => [l.teacher_id, l.course]),
+    );
+    return [...teachers]
+      .sort((a, b) => Number(own.has(b.id)) - Number(own.has(a.id)))
+      .map((tch) => ({
+        value: tch.id,
+        label: tch.full_name,
+        sublabel: own.get(tch.id) ?? undefined,
+      }));
+  }, [teachers, student]);
+
+  function pickStudent(id: string) {
+    setStudentId(id);
+    // Default to the student's first teacher; with several the user still chooses.
+    setTeacherId(students.find((s) => s.id === id)?.teacher_id ?? "");
+  }
 
   const pastLessons = countPastLessons(slots, startDate);
 
@@ -107,6 +144,10 @@ export function AddTimetableModal({
   async function submit() {
     if (!studentId) {
       setError(t("timetables.errStudent"));
+      return;
+    }
+    if (!teacherId) {
+      setError(t("timetables.errTeacher"));
       return;
     }
     if (slots.length === 0) {
@@ -125,6 +166,7 @@ export function AddTimetableModal({
     setError(null);
     try {
       await putStudentSchedule(studentId, {
+        teacher_id: teacherId,
         timezone: timezone || undefined,
         start_date: startDate || undefined,
         slots: slots.map((s) => ({
@@ -164,10 +206,30 @@ export function AddTimetableModal({
           <Combobox
             options={studentOptions}
             value={studentId}
-            onChange={setStudentId}
+            onChange={pickStudent}
             placeholder={t("timetables.selectStudent")}
             searchPlaceholder={t("timetables.searchStudent")}
           />
+        </div>
+
+        {/* Teacher picker — a student with several teachers has one timetable per teacher */}
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-1.5 text-sm font-medium">
+            <GraduationCap className="size-3.5 text-muted-foreground" />
+            {t("timetables.teacherLabel")}
+            <span className="text-destructive">*</span>
+          </label>
+          <Combobox
+            options={teacherOptions}
+            value={teacherId}
+            onChange={setTeacherId}
+            placeholder={t("timetables.selectTeacher")}
+            searchPlaceholder={t("timetables.searchTeacher")}
+            data-testid="timetable-teacher"
+          />
+          {(student?.teachers?.length ?? 0) > 1 && (
+            <p className="text-muted-foreground text-xs">{t("timetables.teacherHint")}</p>
+          )}
         </div>
 
         {/* Slot rows */}
@@ -299,7 +361,9 @@ export function AddTimetableModal({
             size="sm"
             data-testid="create-timetable"
             onClick={() => void submit()}
-            disabled={busy || !studentId || slots.length === 0 || !durationsValid}
+            disabled={
+              busy || !studentId || !teacherId || slots.length === 0 || !durationsValid
+            }
             className="gap-1.5"
           >
             {busy ? (

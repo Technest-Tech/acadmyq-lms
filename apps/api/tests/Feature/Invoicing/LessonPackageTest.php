@@ -277,6 +277,131 @@ it('bills a package student by the hour and alerts the owner when no package is 
     expect(DB::table('notifications')->where('type', 'NO_ACTIVE_PACKAGE')->count())->toBe(1);
 });
 
+it('bills lessons after a package ran out on the student\'s own invoice, at that package\'s rate', function () {
+    // 1 hour for 300 EGP — 300/hour, NOT the 200/hour the subscription has said since day one.
+    $package = ($this->openPackage)(1, 30000);
+    $last = ($this->lesson)(60, '2026-06-02 10:00:00+00');
+    $after = ($this->lesson)(90, '2026-06-03 10:00:00+00');
+    Sanctum::actingAs($this->owner);
+
+    $this->postJson("/api/sessions/{$last}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $this->postJson("/api/sessions/{$after}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(($this->packageRow)($package['package_id'])->status)->toBe('COMPLETED');
+
+    $line = DB::table('invoice_line_items')->where('session_id', $after)->first();
+    $invoice = DB::table('invoices')->where('id', $line->invoice_id)->first();
+
+    // 1.5h at the package's 300/hour — the deal the student is actually on.
+    expect((int) $line->amount_minor)->toBe(45000)
+        // On the student's own monthly bill: not folded into the guardian's shared one…
+        ->and($invoice->kind)->toBe('AUTO')
+        ->and($invoice->guardian_id)->toBeNull()
+        ->and((string) $invoice->student_id)->toBe($this->student)
+        // …and not onto the package's own MANUAL bill for the same month, which already went out.
+        ->and((string) $invoice->id)->not->toBe($package['invoice_id'])
+        ->and((int) DB::table('invoices')->where('id', $package['invoice_id'])->value('total_minor'))->toBe(30000);
+});
+
+it('alerts the owner every time a package runs out with nothing open, not only the first', function () {
+    Sanctum::actingAs($this->owner);
+    $mark = function (string $at): void {
+        $session = ($this->lesson)(60, $at);
+        Sanctum::actingAs($this->owner);
+        $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    };
+
+    $first = ($this->openPackage)(1, 20000);
+    $mark('2026-06-02 10:00:00+00'); // empties the first block
+    $mark('2026-06-03 10:00:00+00'); // taught with nothing open
+
+    $second = ($this->openPackage)(1, 20000);
+    $mark('2026-06-09 10:00:00+00');
+    $mark('2026-06-10 10:00:00+00');
+
+    $this->asAcademy($this->academy);
+    $alerts = DB::table('notifications')->where('type', 'NO_ACTIVE_PACKAGE')->orderBy('created_at')->get();
+
+    // One per block that ran out — the second used to be swallowed by a per-student dedupe.
+    expect($alerts)->toHaveCount(2)
+        ->and($alerts->pluck('subject_id')->map(fn ($id) => (string) $id)->sort()->values()->all())
+        ->toBe(collect([$first['package_id'], $second['package_id']])->sort()->values()->all());
+});
+
+it('shows what was taught after a package ran out, and counts it until the next one opens', function () {
+    $package = ($this->openPackage)(1, 20000);
+    $last = ($this->lesson)(60, '2026-06-02 10:00:00+00');
+    $after = ($this->lesson)(90, '2026-06-03 10:00:00+00');
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$last}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $this->postJson("/api/sessions/{$after}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $row = collect($this->getJson('/api/packages')->assertOk()->json('packages'))
+        ->firstWhere('id', $package['package_id']);
+
+    expect($row['awaiting_next_package'])->toBeTrue()
+        ->and($row['gap']['lessons'])->toBe(1)
+        ->and($row['gap']['minutes'])->toBe(90)
+        ->and($row['gap']['amounts'])->toBe([['currency' => 'EGP', 'amount_minor' => 30000]]);
+
+    $this->getJson('/api/packages/summary')
+        ->assertOk()
+        ->assertJsonPath('outOfHours', 1)
+        // Paid or not, the student keeps showing up until somebody decides what comes next.
+        ->assertJsonPath('total', 2);
+
+    // Opening the next block is that decision: the finished one stops asking for it.
+    $this->asAcademy($this->academy);
+    app(LessonPackages::class)->open([
+        'student_id' => $this->student,
+        'label' => 'Next',
+        'minutes_total' => 600,
+        'price_minor' => 200000,
+        'currency' => 'EGP',
+        'starts_on' => '2026-06-11',
+    ], (string) $this->owner->id, 'ACADEMY_OWNER');
+
+    Sanctum::actingAs($this->owner);
+    $row = collect($this->getJson('/api/packages')->assertOk()->json('packages'))
+        ->firstWhere('id', $package['package_id']);
+
+    expect($row['awaiting_next_package'])->toBeFalse()
+        ->and($row['gap'])->toBeNull();
+    $this->getJson('/api/packages/summary')->assertOk()->assertJsonPath('outOfHours', 0);
+});
+
+it('quotes a package student\'s next block at their last block\'s rate', function () {
+    ($this->openPackage)(1, 30000);
+    $session = ($this->lesson)(60);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $student = collect($this->getJson('/api/packages/students')->assertOk()->json('students'))
+        ->firstWhere('id', $this->student);
+
+    expect($student['default_hourly_rate_minor'])->toBe(30000);
+});
+
+it('moves a student whose package already ran out back to monthly billing', function () {
+    $package = ($this->openPackage)(1, 20000);
+    $session = ($this->lesson)(60);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->postJson("/api/packages/{$package['package_id']}/close", ['return_to_monthly' => true])
+        ->assertOk()
+        ->assertJsonPath('returned_to_monthly', true);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('subscriptions')->where('student_id', $this->student)->value('price_basis'))->toBe('PER_HOUR')
+        // Closing a block that had already closed itself leaves its record exactly as it was.
+        ->and(($this->packageRow)($package['package_id'])->closed_reason)->toBe('EXHAUSTED');
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson('/api/packages/summary')->assertOk()->assertJsonPath('outOfHours', 0);
+});
+
 it('imports already billed lessons from the package start date when the package opens', function () {
     $session = ($this->lesson)(60, '2026-06-02 10:00:00+00');
     Sanctum::actingAs($this->owner);

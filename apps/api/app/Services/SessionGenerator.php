@@ -112,10 +112,11 @@ final class SessionGenerator
             );
         }
 
-        // Teacher for newly generated / realigned future rows: the student's CURRENTLY active
-        // assignment (so a Sprint-4 reassignment + regenerate moves future sessions to the new
-        // teacher, TC-5.25), falling back to the schedule's own teacher when none is open.
-        $teacherId = $this->currentTeacherFor((string) $schedule->student_id) ?? (string) $schedule->teacher_id;
+        // Teacher for newly generated / realigned future rows: the timetable's OWN teacher. A
+        // student may have several teachers, each with their own timetable, so the student's
+        // assignment can no longer stand in for it. Replacing a teacher re-points their timetable
+        // and regenerates, which is what still moves the future lessons across (TC-5.25).
+        $teacherId = (string) $schedule->teacher_id;
 
         $nowUtc = $now->copy()->utc();
         $floorUtc = $floor->copy()->utc();
@@ -268,16 +269,5 @@ final class SessionGenerator
         }
 
         return DB::table('session_reports')->where('session_id', $row->id)->doesntExist();
-    }
-
-    /** The student's currently active teacher assignment (Sprint 4), or null. */
-    private function currentTeacherFor(string $studentId): ?string
-    {
-        $id = DB::table('student_teacher_assignments')
-            ->where('student_id', $studentId)
-            ->whereNull('ended_at')
-            ->value('teacher_id');
-
-        return $id !== null ? (string) $id : null;
     }
 }

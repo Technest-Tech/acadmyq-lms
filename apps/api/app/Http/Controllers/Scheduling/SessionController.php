@@ -14,6 +14,7 @@ use App\Services\LessonPackages;
 use App\Services\SessionDurationCorrection;
 use App\Support\Audit;
 use App\Support\ReportFields;
+use App\Support\StudentTeachers;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -133,20 +134,20 @@ final class SessionController extends Controller
             throw ValidationException::withMessages(['student_id' => ['Unknown or inactive student.']]);
         }
 
-        $teacherId = $data['teacher_id'] ?? $this->currentTeacherFor($data['student_id']);
-
         // A TEACHER may only ever create a class for themselves, and only for a student currently
-        // assigned to them. Any teacher_id they send is ignored rather than rejected — the caller's
-        // own identity is the only one that can hold here.
+        // assigned to them (one of the student's teachers). Any teacher_id they send is ignored
+        // rather than rejected — the caller's own identity is the only one that can hold here.
         if ($this->ctx()->role === 'TEACHER') {
             $ownTeacherId = $this->callerTeacherId();
             if ($ownTeacherId === null) {
                 abort(403, 'No teacher record for this user.');
             }
-            if ($this->currentTeacherFor($data['student_id']) !== $ownTeacherId) {
+            if (! StudentTeachers::teaches($data['student_id'], $ownTeacherId)) {
                 abort(403, 'Not your student.');
             }
             $teacherId = $ownTeacherId;
+        } else {
+            $teacherId = $data['teacher_id'] ?? StudentTeachers::defaultFor($data['student_id']);
         }
 
         if ($teacherId === null) {
@@ -741,14 +742,6 @@ final class SessionController extends Controller
     }
 
     // ── internals ────────────────────────────────────────────────────────────
-
-    private function currentTeacherFor(string $studentId): ?string
-    {
-        $id = DB::table('student_teacher_assignments')
-            ->where('student_id', $studentId)->whereNull('ended_at')->value('teacher_id');
-
-        return $id !== null ? (string) $id : null;
-    }
 
     private function assertActiveTeacher(string $teacherId): void
     {

@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   Banknote,
+  CalendarX,
   CircleDollarSign,
   History,
   Hourglass,
@@ -55,10 +56,10 @@ type SegmentKey = "attention" | "active" | "history" | "all";
  * The Packages screen: every block of hours the academy has sold, how much of each is left, and
  * what is still owed on it.
  *
- * The screen leads with work rather than with totals. An owner opens this page for one of three
- * reasons — someone is about to run out, someone finished and hasn't paid, or someone's last
- * lesson ran past the end of their block — so those are the three counters, and each one filters
- * the list beneath it.
+ * The screen leads with work rather than with totals. An owner opens this page because someone
+ * is about to run out, someone finished and hasn't paid, someone's last lesson ran past the end
+ * of their block, or someone ran out and is still being taught with nothing open — so those are
+ * the counters, and each one filters the list beneath it.
  */
 export function PackagesManager() {
   const t = useTranslations("packages");
@@ -82,6 +83,7 @@ export function PackagesManager() {
     | { kind: "detail"; row: LessonPackageRow }
     | { kind: "edit"; row: LessonPackageRow }
     | { kind: "close"; row: LessonPackageRow }
+    | { kind: "toMonthly"; row: LessonPackageRow }
     | { kind: "markPaid"; row: LessonPackageRow }
   >({ kind: "closed" });
   const [busy, setBusy] = useState(false);
@@ -159,7 +161,10 @@ export function PackagesManager() {
       (row.status === "COMPLETED" &&
         row.invoice_id === null &&
         row.minutes_consumed > 0) ||
-      (row.minutes_overdrawn > 0 && !row.overdraft_billed),
+      (row.minutes_overdrawn > 0 && !row.overdraft_billed) ||
+      // Out of hours and still being taught — stays here even once the old bill is paid, until
+      // the next block is opened or the student goes back to monthly.
+      row.gap !== null,
     [],
   );
 
@@ -203,6 +208,28 @@ export function PackagesManager() {
       );
     } catch {
       showAlert("error", t("alerts.closeFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * A student whose block ran out, moved back to the monthly clock. The same close endpoint as
+   * closing early with "return to monthly" ticked — on a package that already closed itself it
+   * changes nothing about the package and only flips the billing mode.
+   */
+  async function confirmReturnToMonthly(row: LessonPackageRow) {
+    setBusy(true);
+    try {
+      await closeLessonPackage(row.id, undefined, true);
+      setModal({ kind: "closed" });
+      refresh();
+      showAlert(
+        "success",
+        t("alerts.returnedToMonthly", { name: row.student_name }),
+      );
+    } catch {
+      showAlert("error", t("alerts.returnFailed"));
     } finally {
       setBusy(false);
     }
@@ -300,9 +327,9 @@ export function PackagesManager() {
         }
       />
 
-      {/* ── The three reasons to be here ──────────────────────────────── */}
+      {/* ── The reasons to be here ────────────────────────────────────── */}
       <div>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <SegmentTile
             testKey="attention"
             icon={AlertTriangle}
@@ -333,6 +360,17 @@ export function PackagesManager() {
             value={summary?.unpaid ?? null}
             share={null}
             tone="slate"
+            selected={false}
+            onSelect={() => selectSegment("attention")}
+          />
+          <SegmentTile
+            testKey="outOfHours"
+            icon={CalendarX}
+            label={t("stats.outOfHours")}
+            hint={t("stats.outOfHoursSub")}
+            value={summary?.outOfHours ?? null}
+            share={null}
+            tone="gold"
             selected={false}
             onSelect={() => selectSegment("attention")}
           />
@@ -471,6 +509,10 @@ export function PackagesManager() {
               onSyncLessons={() => void syncLessons(row)}
               onSendPayment={() => void sendPayment(row)}
               onMarkPaid={() => setModal({ kind: "markPaid", row })}
+              onRenew={() =>
+                setModal({ kind: "open", studentId: row.student_id })
+              }
+              onReturnToMonthly={() => setModal({ kind: "toMonthly", row })}
             />
           ))}
         </div>
@@ -607,6 +649,40 @@ export function PackagesManager() {
                 disabled={busy}
               >
                 {t("close.confirm")}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── Out of hours → back to monthly ───────────────────────────── */}
+      <Modal
+        open={modal.kind === "toMonthly"}
+        onClose={() => setModal({ kind: "closed" })}
+        title={t("toMonthly.title")}
+        size="sm"
+      >
+        {modal.kind === "toMonthly" && (
+          <div className="space-y-4">
+            <p className="text-muted-foreground text-sm">
+              {t("toMonthly.body", { name: modal.row.student_name })}
+            </p>
+            <div className="flex items-center justify-end gap-2 border-t pt-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setModal({ kind: "closed" })}
+                disabled={busy}
+              >
+                {t("actions.cancel")}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void confirmReturnToMonthly(modal.row)}
+                disabled={busy}
+                data-testid="confirm-to-monthly"
+              >
+                {t("toMonthly.confirm")}
               </Button>
             </div>
           </div>

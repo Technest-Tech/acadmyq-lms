@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { KhatamLattice } from "@/components/ornaments";
 import { StudentTimetable } from "@/components/scheduling/student-timetable";
+import { formatNameList } from "@/components/students/teacher-links-field";
 import { EnrollmentWizard } from "@/components/students/enrollment-wizard";
 import { FactCard } from "@/components/ui/profile-card";
 import { ScheduleTrialModal } from "@/components/students/schedule-trial-modal";
@@ -137,6 +138,10 @@ export function StudentProfile({ studentId }: { studentId: string }) {
   if (data === null) return <StudentProfileSkeleton />;
 
   const sub = data.subscription;
+  const teacherLinks = data.teachers ?? [];
+  const courses = teacherLinks
+    .map((l) => l.course)
+    .filter((c): c is string => Boolean(c));
   const createdAt = data.student.created_at as string | undefined;
   const status = data.student.status;
 
@@ -209,16 +214,25 @@ export function StudentProfile({ studentId }: { studentId: string }) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <FactCard
           icon={GraduationCap}
-          label={t("teacher.current")}
+          label={t("profile.tabTeacher")}
           tone="emerald"
-          muted={!data.currentTeacher}
-          value={data.currentTeacher?.teacher_name ?? t("teacher.none")}
+          muted={teacherLinks.length === 0}
+          value={
+            teacherLinks.length > 0
+              ? formatNameList(
+                  teacherLinks.map((l) => l.teacher_name),
+                  locale,
+                )
+              : t("teacher.none")
+          }
           sub={
-            data.currentTeacher?.started_at
-              ? t("teacher.since", {
-                  date: data.currentTeacher.started_at.slice(0, 10),
-                })
-              : undefined
+            courses.length > 0
+              ? courses.join(" · ")
+              : teacherLinks.length === 1 && teacherLinks[0]?.started_at
+                ? t("teacher.since", {
+                    date: teacherLinks[0].started_at.slice(0, 10),
+                  })
+                : undefined
           }
         />
         <FactCard
@@ -389,7 +403,10 @@ export function StudentProfile({ studentId }: { studentId: string }) {
           teachers={teachers}
           canEdit={canEdit && isActive}
           studentId={studentId}
-          onChanged={() => void refresh()}
+          onChanged={(message) => {
+            if (message) setNotice(message);
+            void refresh();
+          }}
           onError={setError}
         />
       )}
@@ -399,6 +416,7 @@ export function StudentProfile({ studentId }: { studentId: string }) {
           studentId={studentId}
           studentName={data.student.full_name}
           studentStatus={status}
+          teachers={data.teachers ?? []}
           canManage={can("schedule.manage")}
           onError={setError}
         />

@@ -464,6 +464,8 @@ final class TeacherController extends Controller
                 DB::table('invoice_line_items')->whereIn('session_id', $sessionIds)->update(['session_id' => null]);
                 DB::table('session_reports')->whereIn('session_id', $sessionIds)->delete();
                 DB::table('payout_line_items')->whereIn('session_id', $sessionIds)->delete();
+                // Report-overdue and attended-lesson alerts point at these sessions (no cascade).
+                DB::table('notifications')->whereIn('session_id', $sessionIds)->delete();
                 // Break the self-reference from any reschedule that points at these sessions.
                 DB::table('sessions')->whereIn('original_session_id', $sessionIds)->update(['original_session_id' => null]);
             }

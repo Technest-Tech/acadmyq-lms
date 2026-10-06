@@ -156,6 +156,51 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     );
   });
 
+  // A student may study different courses with different teachers, so the form takes a list.
+  it("creates a student with two teachers, each with their course", async () => {
+    const base = (await api.listTeachers()).rows[0]!;
+    vi.mocked(api.listTeachers).mockResolvedValue({
+      rows: [
+        { ...base, id: "t1", full_name: "Teacher One", specialization: "Quran" },
+        { ...base, id: "t2", full_name: "Teacher Two", specialization: null },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 50,
+    });
+    const user = userEvent.setup();
+    renderForm();
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+
+    await user.type(screen.getByLabelText("Full name"), "Yusuf");
+    await user.click(screen.getByTestId("guardian-select"));
+    await user.click(await screen.findByRole("option", { name: "Guardian One" }));
+
+    await user.click(await screen.findByTestId("add-teacher-link"));
+    await user.click(screen.getByTestId("teacher-link-select-0"));
+    await user.click(await screen.findByRole("option", { name: /Teacher One/ }));
+    // The course is pre-filled from the teacher's specialization.
+    expect(screen.getByTestId("teacher-link-course-0")).toHaveValue("Quran");
+
+    await user.click(screen.getByTestId("add-teacher-link"));
+    await user.click(screen.getByTestId("teacher-link-select-1"));
+    await user.click(await screen.findByRole("option", { name: /Teacher Two/ }));
+    await user.type(screen.getByTestId("teacher-link-course-1"), "Arabic");
+
+    await user.click(screen.getByRole("button", { name: "Create student" }));
+
+    await waitFor(() =>
+      expect(api.createStudent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          teachers: [
+            { teacher_id: "t1", course: "Quran" },
+            { teacher_id: "t2", course: "Arabic" },
+          ],
+        }),
+      ),
+    );
+  });
+
   // The intake form is no longer trial-only: the two cards decide the lifecycle, and the
   // package fields exist only behind the "active student" one.
   it("keeps the package hidden until the active card is picked", async () => {

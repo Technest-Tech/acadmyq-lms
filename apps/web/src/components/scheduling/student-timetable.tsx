@@ -17,17 +17,21 @@ import {
   startOfMonth,
   todayInTz,
 } from "@/components/scheduling/calendar/utils";
-import { ScheduleSection } from "@/components/scheduling/schedule-editor";
+import { TeacherTimetables } from "@/components/scheduling/schedule-editor";
 import { SessionActions } from "@/components/scheduling/session-actions";
 import { AttendanceReportModal } from "@/components/attendance/attendance-report-modal";
 import { ScheduleTrialModal } from "@/components/students/schedule-trial-modal";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { getCalendar, type CalendarSession } from "@/lib/api";
+import {
+  getCalendar,
+  type CalendarSession,
+  type StudentTeacherLink,
+} from "@/lib/api";
 
 /**
- * The premium per-student timetable: the recurring weekly schedule editor on top, then a
- * month-scoped feed of this student's concrete sessions. Selecting a session opens the
+ * The premium per-student timetable: a recurring weekly schedule editor per teacher on top, then
+ * a month-scoped feed of this student's concrete sessions (every teacher's, together). Selecting a session opens the
  * reschedule / cancel / attendance panel; the toolbar can also book a one-off trial. Every
  * mutation re-fetches the month so the feed never drifts from the server.
  */
@@ -35,12 +39,15 @@ export function StudentTimetable({
   studentId,
   studentName,
   studentStatus,
+  teachers,
   canManage,
   onError,
 }: {
   studentId: string;
   studentName: string;
   studentStatus?: string | null;
+  /** The student's teachers — one weekly timetable each. */
+  teachers: StudentTeacherLink[];
   canManage: boolean;
   onError: (msg: string) => void;
 }) {
@@ -72,9 +79,10 @@ export function StudentTimetable({
 
   return (
     <div className="space-y-6">
-      {/* Recurring weekly schedule editor */}
-      <ScheduleSection
+      {/* Recurring weekly schedule editors — one per teacher */}
+      <TeacherTimetables
         studentId={studentId}
+        teachers={teachers}
         canManage={canManage}
         onError={onError}
         onChanged={() => void loadSessions()}
