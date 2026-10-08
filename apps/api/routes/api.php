@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Http\Controllers\AcademyProfileController;
 use App\Http\Controllers\AcademyRoleController;
 use App\Http\Controllers\AcademySettingsController;
+use App\Http\Controllers\AcademyWhatsAppController;
 use App\Http\Controllers\Admin\AcademyAutomationController;
 use App\Http\Controllers\Admin\AcademyController;
 use App\Http\Controllers\Admin\AcademyLogoController;
@@ -738,6 +739,14 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // lessons read-only for teachers. specialization.manage for both read and write.
     Route::get('/academy/settings', [AcademySettingsController::class, 'show']);
     Route::put('/academy/settings', [AcademySettingsController::class, 'update']);
+
+    // Settings → WhatsApp — the academy pairs its own number by QR (no Super Admin link needed).
+    // specialization.manage like the rest of Settings; only for clients holding the WhatsApp module.
+    Route::middleware('entitled:whatsapp.automation')->group(function () {
+        Route::get('/academy/whatsapp', [AcademyWhatsAppController::class, 'show']);
+        Route::post('/academy/whatsapp/connect', [AcademyWhatsAppController::class, 'connect']);
+        Route::post('/academy/whatsapp/logout', [AcademyWhatsAppController::class, 'logout']);
+    });
 
     // Per-academy teacher specializations (Settings). Read for the teacher-form dropdown;
     // create/edit/delete require specialization.manage.

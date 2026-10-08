@@ -42,7 +42,7 @@ final class WhatsAppWebhookController extends Controller
 
         try {
             match ($event) {
-                'connection.update' => $this->onConnectionUpdate($academyId, $data),
+                'connection.update' => $this->onConnectionUpdate($academyId, (string) $request->json('sessionId', ''), $data),
                 'message.status' => $this->onMessageStatus($academyId, $data),
                 default => null, // qr.generated / message.inbound: not consumed server-side (panel polls QR)
             };
@@ -55,18 +55,25 @@ final class WhatsAppWebhookController extends Controller
     }
 
     /** @param array<string,mixed> $data */
-    private function onConnectionUpdate(string $academyId, array $data): void
+    private function onConnectionUpdate(string $academyId, string $sessionId, array $data): void
     {
         $state = strtoupper((string) ($data['state'] ?? ''));
 
-        $this->inAcademyContext($academyId, function () use ($academyId, $state) {
-            DB::table('academy_automation_settings')->where('academy_id', $academyId)->update([
+        // Only the academy's CURRENT session speaks for it. A replaced session's late "logged out"
+        // used to land after the new one connected and paint a working number as disconnected.
+        $current = $this->inAcademyContext($academyId, function () use ($academyId, $sessionId, $state): bool {
+            $row = DB::table('academy_automation_settings')->where('academy_id', $academyId);
+            if ($sessionId !== '') {
+                $row->where('wa_session_id', $sessionId);
+            }
+
+            return $row->update([
                 'wasender_session_status' => $state !== '' ? $state : null,
                 'updated_at' => now(),
-            ]);
+            ]) > 0;
         });
 
-        if ($state === 'LOGGED_OUT') {
+        if ($current && $state === 'LOGGED_OUT') {
             $this->alertLoggedOut($academyId, $data);
         }
     }

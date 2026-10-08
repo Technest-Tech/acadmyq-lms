@@ -1,20 +1,22 @@
 "use client";
 
-import { BookOpen, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { BookOpen, MessageCircle, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { AcademyNameCard } from "@/components/settings/academy-name-card";
 import { ControlsManager } from "@/components/settings/controls-manager";
 import { ReportCardManager } from "@/components/settings/report-card-manager";
 import { SpecializationsManager } from "@/components/settings/specializations-manager";
+import { WhatsAppManager } from "@/components/settings/whatsapp-manager";
 import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
-type TabKey = "courses" | "reportCard" | "controls";
+type TabKey = "courses" | "reportCard" | "whatsapp" | "controls";
 
 const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon }> = [
   { key: "courses", icon: BookOpen },
   { key: "reportCard", icon: ScrollText },
+  { key: "whatsapp", icon: MessageCircle },
   { key: "controls", icon: SlidersHorizontal },
 ];
 
@@ -24,7 +26,11 @@ export function SettingsManager() {
   const [chosen, setChosen] = useState<TabKey>("courses");
   // The report card is a per-client feature; without it the tab (and its template) do not exist.
   const hasReportCard = useCapability("report_card");
-  const tabs = hasReportCard ? TABS : TABS.filter((tab) => tab.key !== "reportCard");
+  // Only clients with the WhatsApp module have a number to link.
+  const hasWhatsApp = useCapability("whatsapp.automation");
+  const tabs = TABS.filter(
+    (tab) => (tab.key !== "reportCard" || hasReportCard) && (tab.key !== "whatsapp" || hasWhatsApp),
+  );
   const active: TabKey = tabs.some((tab) => tab.key === chosen) ? chosen : "courses";
   const setActive = setChosen;
 
@@ -78,6 +84,7 @@ export function SettingsManager() {
       <div role="tabpanel" aria-label={t(`tabs.${active}`)}>
         {active === "courses" && <SpecializationsManager />}
         {active === "reportCard" && <ReportCardManager />}
+        {active === "whatsapp" && <WhatsAppManager />}
         {active === "controls" && <ControlsManager />}
       </div>
     </div>

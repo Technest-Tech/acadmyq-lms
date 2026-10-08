@@ -69,7 +69,9 @@ final class GatewayAdminClient
     }
 
     /**
-     * Live session status view. Returns ['ok' => false] when the gateway is unreachable.
+     * Live session status view. Returns ['ok' => false] when the gateway is unreachable, and adds
+     * `missing => true` when it answered but holds no such session (dropped, or logged out before a
+     * gateway restart) — the one case where pairing a fresh session cannot hurt a live one.
      *
      * @return array<string,mixed>
      */
@@ -78,7 +80,7 @@ final class GatewayAdminClient
         try {
             $res = $this->http()->get('/sessions/'.rawurlencode($sessionId).'/status');
             if (! $res->successful()) {
-                return ['ok' => false];
+                return ['ok' => false, 'missing' => $res->status() === 404];
             }
 
             return ['ok' => true] + (array) $res->json();

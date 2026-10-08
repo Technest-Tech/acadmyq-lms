@@ -92,3 +92,24 @@ it('404s an expired token', function () {
 
     $this->postJson("/api/wa/connect/{$token}/start")->assertNotFound();
 });
+
+it('leaves a connected number alone when the link is opened again', function () {
+    // 2026-10-03: the client re-opened this link on their phone; the page's /start created a new
+    // gateway session, which logged the working one out.
+    Http::fake([
+        '*/sessions/*/status' => Http::response(['state' => 'connected', 'phoneJid' => '201090091143:3@s.whatsapp.net'], 200),
+        '*/sessions' => Http::response(['sessionId' => 'sess-new', 'token' => 'gw-new'], 200),
+    ]);
+    giveWhatsAppToken($this->academy);
+    $token = makeConnectToken($this->academy);
+
+    $this->postJson("/api/wa/connect/{$token}/start")
+        ->assertOk()
+        ->assertJsonPath('state', 'connected')
+        ->assertJsonPath('qr', null);
+
+    Http::assertNotSent(fn ($request) => $request->method() === 'POST' && str_ends_with($request->url(), '/sessions'));
+    $this->enterAcademyAsSuperAdmin($this->academy);
+    expect(DB::table('academy_automation_settings')->where('academy_id', $this->academy)->value('wa_session_id'))
+        ->toBe('sess-'.substr($this->academy, 0, 8));
+});

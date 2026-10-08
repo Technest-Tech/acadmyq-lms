@@ -1323,6 +1323,7 @@
     "tabs": {
       "courses": "Courses",
       "reportCard": "Report card",
+      "whatsapp": "WhatsApp",
       "controls": "Controls"
     },
     "specializations": {
@@ -1389,6 +1390,30 @@
           "desc": "Teachers still see their schedule and lessons, but can't add a class, mark attendance, write a report, reschedule, or request a cancellation or free lesson. You and your admins record lessons instead. Auto-deductions for unmarked lessons pause while this is on."
         }
       }
+    },
+    "whatsapp": {
+      "cardTitle": "WhatsApp number",
+      "cardDesc": "The number your academy's messages and alerts are sent from.",
+      "connected": "Connected",
+      "connectedHint": "Messages and alerts go out from this number. Keep the phone on and connected to the internet.",
+      "disconnectedTitle": "Your WhatsApp number isn't connected",
+      "disconnectedBody": "Messages and alerts are paused until you link a number. Press Connect, then scan the code from WhatsApp on your phone.",
+      "connect": "Connect",
+      "step1": "1. Open WhatsApp on the phone you want to send from.",
+      "step2": "2. Go to Settings → Linked devices → Link a device.",
+      "step3": "3. Scan this code.",
+      "qrAlt": "WhatsApp pairing code",
+      "generating": "Generating the code…",
+      "linking": "Linking your number…",
+      "waiting": "Waiting for you to scan… the code refreshes by itself.",
+      "unreachableTitle": "Couldn't reach the WhatsApp service",
+      "unreachableBody": "This is on our side and usually clears within a minute.",
+      "retry": "Try again",
+      "unlink": "Unlink number",
+      "unlinkTitle": "Unlink this number?",
+      "unlinkBody": "Messages and alerts stop until you link a number again.",
+      "unlinkWarn": "Do this only to switch to another number. You can link a number again right after.",
+      "cancel": "Cancel"
     }
   },
   "students": {

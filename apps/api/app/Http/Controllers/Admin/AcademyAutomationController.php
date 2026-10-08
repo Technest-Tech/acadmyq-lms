@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\Whatsapp\GatewayAdminClient;
 use App\Services\Whatsapp\WasenderClient;
+use App\Services\Whatsapp\WhatsAppConnection;
 use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -31,6 +33,7 @@ final class AcademyAutomationController extends Controller
         private readonly WasenderClient $wasender,
         private readonly GatewayAdminClient $gateway,
         private readonly WhatsAppSender $sender,
+        private readonly WhatsAppConnection $connection,
     ) {}
 
     /** GET /admin/automation — cross-academy WhatsApp automation overview (status + send counts). */
@@ -234,37 +237,32 @@ final class AcademyAutomationController extends Controller
 
     // ── self-hosted gateway: WhatsApp session lifecycle (replaces the Wasender dashboard) ──────
 
-    /** POST /admin/academies/{id}/whatsapp/connect — start a gateway session; returns the first QR. */
+    /**
+     * POST /admin/academies/{id}/whatsapp/connect — pair the academy's number and return the QR. A
+     * live session is reported as it stands, never replaced (see WhatsAppConnection); to move the
+     * academy to another number, log out first.
+     */
     public function whatsappConnect(string $id): JsonResponse
     {
         Gate::authorize('automation.manage');
         $this->assertAcademy($id);
         $ctx = app(AuthContext::class);
 
-        $created = $this->gateway->createSession($id);
-        if (! $created['ok'] || ($created['token'] ?? null) === null || ($created['session_id'] ?? null) === null) {
-            abort(502, 'WhatsApp gateway unavailable'.(($created['error'] ?? null) !== null ? ': '.$created['error'] : '.'));
+        $before = $this->connection->sessionId($this->academyContext($id));
+        try {
+            $result = $this->connection->start($this->academyContext($id));
+        } catch (RuntimeException $e) {
+            abort(502, 'WhatsApp gateway unavailable: '.$e->getMessage());
         }
 
-        $this->inAcademyContext($id, function () use ($id, $created, $ctx) {
-            $this->ensureRow($id);
-            DB::table('academy_automation_settings')->where('academy_id', $id)->update([
-                // The gateway-minted bearer token is stored encrypted in the existing column; the
-                // WhatsAppSender seam will read it to deliver via our gateway.
-                'wasender_token' => Crypt::encryptString((string) $created['token']),
-                'wa_session_id' => (string) $created['session_id'],
-                'wasender_session_status' => 'QR',
-                'updated_at' => now(),
-            ]);
-            Audit::log('whatsapp.session_connect', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: ['session_started' => true]);
-        });
-
-        $qr = $this->gateway->getQr((string) $created['session_id']);
+        if ($result['session_id'] !== $before) {
+            $this->inAcademyContext($id, fn () => Audit::log('whatsapp.session_connect', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: ['session_started' => true]));
+        }
 
         return response()->json([
-            'session_id' => $created['session_id'],
-            'state' => $qr['state'] ?? 'qr',
-            'qr' => $qr['qr'] ?? null,
+            'session_id' => $result['session_id'],
+            'state' => $result['state'],
+            'qr' => $result['qr'],
         ]);
     }
 
@@ -305,28 +303,14 @@ final class AcademyAutomationController extends Controller
         $this->assertAcademy($id);
         $ctx = app(AuthContext::class);
 
-        // Only clear the local token once the gateway has actually dropped the session. Clearing it
-        // regardless leaves the worst possible split: the gateway keeps a live, reconnecting socket for
-        // a session nothing points at any more, while the academy loses the token it sends with — so
-        // every send silently falls back to a deep link and the panel reports "not connected".
-        $sessionId = $this->waSessionId($id);
-        if ($sessionId !== null && ! $this->gateway->deleteSession($sessionId)) {
+        if (! $this->connection->logout($this->academyContext($id))) {
             return response()->json([
                 'error' => 'gateway_unavailable',
                 'message' => 'Could not log the session out on the WhatsApp service; nothing was changed. Please retry.',
             ], 502);
         }
 
-        $this->inAcademyContext($id, function () use ($id, $ctx) {
-            $this->ensureRow($id);
-            DB::table('academy_automation_settings')->where('academy_id', $id)->update([
-                'wasender_token' => null,
-                'wa_session_id' => null,
-                'wasender_session_status' => null,
-                'updated_at' => now(),
-            ]);
-            Audit::log('whatsapp.session_logout', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: ['logged_out' => true]);
-        });
+        $this->inAcademyContext($id, fn () => Audit::log('whatsapp.session_logout', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: ['logged_out' => true]));
 
         return response()->json(['ok' => true]);
     }
@@ -575,14 +559,19 @@ final class AcademyAutomationController extends Controller
      */
     private function inAcademyContext(string $academyId, callable $fn): mixed
     {
+        return Tenancy::withContext($this->academyContext($academyId), $fn);
+    }
+
+    /** The Super Admin, acting inside the target academy. */
+    private function academyContext(string $academyId): AuthContext
+    {
         $ctx = app(AuthContext::class);
-        $target = new AuthContext(
+
+        return new AuthContext(
             userId: $ctx->userId,
             academyId: $academyId,
             role: 'SUPER_ADMIN',
             permissions: $ctx->permissions,
         );
-
-        return Tenancy::withContext($target, $fn);
     }
 }

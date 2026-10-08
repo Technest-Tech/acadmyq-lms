@@ -6,11 +6,12 @@ namespace App\Http\Controllers\Public;
 
 use App\Http\Controllers\Controller;
 use App\Services\Whatsapp\GatewayAdminClient;
+use App\Services\Whatsapp\WhatsAppConnection;
+use App\Support\AuthContext;
 use App\Support\TenantContext;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * The public, no-login "connect your WhatsApp" flow (docs/whatsapp-api). A Super Admin mints a
@@ -24,34 +25,27 @@ use Illuminate\Support\Str;
  */
 final class WhatsAppConnectController extends Controller
 {
-    public function __construct(private readonly GatewayAdminClient $gateway) {}
+    public function __construct(
+        private readonly GatewayAdminClient $gateway,
+        private readonly WhatsAppConnection $connection,
+    ) {}
 
-    /** POST /wa/connect/{token}/start — start a gateway session and return the first QR. */
+    /**
+     * POST /wa/connect/{token}/start — pair the number and return the QR. The page calls this on
+     * every load, so it must not hurt a working connection: a live session is reported as it stands
+     * (re-opening this link on 2026-10-03 used to log the client out).
+     */
     public function start(string $token): JsonResponse
     {
         $academyId = $this->resolveAcademy($token);
 
-        $created = $this->gateway->createSession($academyId);
-        if (! $created['ok'] || ($created['token'] ?? null) === null || ($created['session_id'] ?? null) === null) {
+        try {
+            $result = $this->connection->start($this->linkContext($academyId));
+        } catch (RuntimeException) {
             return response()->json(['error' => 'gateway_unavailable', 'message' => 'The WhatsApp service is temporarily unavailable.'], 502);
         }
 
-        $this->inAcademyContext($academyId, function () use ($academyId, $created) {
-            $this->ensureRow($academyId);
-            DB::table('academy_automation_settings')->where('academy_id', $academyId)->update([
-                'wasender_token' => Crypt::encryptString((string) $created['token']),
-                'wa_session_id' => (string) $created['session_id'],
-                'wasender_session_status' => 'QR',
-                'updated_at' => now(),
-            ]);
-        });
-
-        $qr = $this->gateway->getQr((string) $created['session_id']);
-
-        return response()->json([
-            'state' => $qr['state'] ?? 'qr',
-            'qr' => $qr['qr'] ?? null,
-        ]);
+        return response()->json(['state' => $result['state'], 'qr' => $result['qr']]);
     }
 
     /** GET /wa/connect/{token}/qr — poll the pairing QR + state. */
@@ -104,19 +98,6 @@ final class WhatsAppConnectController extends Controller
         });
     }
 
-    private function ensureRow(string $academyId): void
-    {
-        if (DB::table('academy_automation_settings')->where('academy_id', $academyId)->exists()) {
-            return;
-        }
-        DB::table('academy_automation_settings')->insert([
-            'id' => (string) Str::uuid(),
-            'academy_id' => $academyId,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
-
     /**
      * Run $fn inside the academy's tenant context (transaction-local GUCs). No user behind the request
      * — userId is null; RLS on academy_automation_settings only checks app.current_academy_id().
@@ -133,5 +114,11 @@ final class WhatsAppConnectController extends Controller
 
             return $fn();
         });
+    }
+
+    /** The anonymous link holder, acting inside the link's academy (no user behind the request). */
+    private function linkContext(string $academyId): AuthContext
+    {
+        return new AuthContext(userId: '', academyId: $academyId, role: 'API_CLIENT', permissions: []);
     }
 }

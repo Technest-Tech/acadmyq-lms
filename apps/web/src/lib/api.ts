@@ -2680,6 +2680,33 @@ export function updateAcademyControls(settings: AcademyControls): Promise<{ sett
   });
 }
 
+// ── WhatsApp number (Settings → WhatsApp) ────────────────────────────────────
+
+/**
+ * The academy's own WhatsApp pairing. `state` is the gateway's: connected | qr | connecting |
+ * disconnected | logged_out, or `unknown` when the service could not be reached. `qr` is set only
+ * while a pairing code is showing.
+ */
+export interface AcademyWhatsApp {
+  state: string;
+  qr: string | null;
+  phone: string | null;
+  last_connected_at: string | null;
+}
+
+export function getAcademyWhatsApp(): Promise<AcademyWhatsApp> {
+  return apiFetch("/api/academy/whatsapp");
+}
+
+/** Start pairing. Safe to repeat: a live connection comes back as it is, never replaced. */
+export function connectAcademyWhatsApp(): Promise<AcademyWhatsApp> {
+  return apiFetch("/api/academy/whatsapp/connect", { method: "POST" });
+}
+
+export function logoutAcademyWhatsApp(): Promise<AcademyWhatsApp> {
+  return apiFetch("/api/academy/whatsapp/logout", { method: "POST" });
+}
+
 // ── Payment Settings (Settings → Payment) ────────────────────────────────────
 
 export function listPaymentSettings(): Promise<{

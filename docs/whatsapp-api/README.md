@@ -14,9 +14,10 @@ This document is the reference for the people integrating against the API.
 - **Client = academy.** An API key belongs to one academy. Everything the key does is scoped to that
   academy's WhatsApp connection; a key can never act for another academy.
 - **Connecting a phone.** Before messages can be delivered, the academy must link a WhatsApp number.
-  Either the Super Admin does this from the admin panel, or they share a **public connect link**
-  (`/wa-connect/{token}`) that the academy opens and scans from their phone — no login required. The
-  link expires and can be regenerated.
+  The academy can do it itself from **Settings → WhatsApp** (scan a QR; owners/admins with the
+  WhatsApp module). Or the Super Admin does it from the admin panel, or shares a **public connect
+  link** (`/wa-connect/{token}`) that the academy opens and scans from their phone — no login
+  required. The link expires and can be regenerated.
 - **Two independent secrets.** The **API key** authenticates API calls (this document). The gateway
   session token is internal and never exposed to clients.
 
@@ -128,6 +129,12 @@ The Super Admin generates a link like `https://app.acadmyq.com/wa-connect/{token
 the academy. Opening it starts a session and shows a QR the academy scans from **WhatsApp → Linked
 devices → Link a device**. The page polls until the phone links. The link expires (48h) and
 regenerating it invalidates the previous one.
+
+Re-opening the link is harmless: every connect path (link, Super Admin panel, Settings → WhatsApp)
+goes through `WhatsAppConnection::start()`, which reports a live session (connected, showing a QR, or
+reconnecting) instead of replacing it. A new gateway session is created only when the old one is
+logged out or gone — creating one logs the previous device out, which is how re-opening this link
+used to unlink a working number (2026-10-03).
 
 ---
 
