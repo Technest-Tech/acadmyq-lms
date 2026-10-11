@@ -63,8 +63,12 @@ final class LmsSiteProfile
         'users', 'shield', 'book', 'headphones', 'download', 'check',
     ];
 
-    /** Which button the hero's primary CTA is. */
-    private const CTAS = ['browse', 'redeem', 'contact'];
+    /**
+     * Which button the hero's primary CTA is. `booking` = the site's first booking form
+     * (docs/lms/13); the web template falls back to browse when the client has none, exactly as
+     * `redeem` does on a site without codes.
+     */
+    private const CTAS = ['browse', 'redeem', 'contact', 'booking'];
 
     /** How the hero renders: brand gradient, a full-bleed image, or a plain surface. */
     private const HERO_STYLES = ['gradient', 'image', 'plain'];

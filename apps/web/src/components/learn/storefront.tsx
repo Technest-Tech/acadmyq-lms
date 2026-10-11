@@ -100,6 +100,7 @@ export function useHeroCta(): {
   secondary:
     | { kind: "free"; label: string; href: string }
     | { kind: "contact"; label: string; href: string }
+    | { kind: "booking"; label: string; href: string }
     | null;
   /** Offer the code as a small link under the buttons rather than as a button. */
   codeLink: boolean;
@@ -119,6 +120,21 @@ export function useHeroCta(): {
       primaryAction: "redeem",
       secondary: { kind: "free", label: t("hero.browse"), href: `${base}/courses` },
       codeLink: false,
+    };
+  }
+  // The client's booking form (docs/lms/13), labelled with its own name ("احجز استشارة"), not a
+  // translated generic. Promoted unasked only when the client put it on the home page or in the
+  // menu — a form kept off both is a link they hand out themselves, not one to advertise.
+  const bookings = commerce.bookings ?? [];
+  const booking = bookings.find((b) => b.home) ?? bookings.find((b) => b.nav);
+  const chosenBooking = booking ?? bookings[0];
+  if (choice === "booking" && chosenBooking) {
+    return {
+      primaryLabel: label || chosenBooking.title,
+      primaryHref: `${base}/book/${chosenBooking.slug}`,
+      primaryAction: null,
+      secondary: { kind: "free", label: t("hero.browse"), href: `${base}/courses` },
+      codeLink: commerce.codes,
     };
   }
   if (choice === "contact" && site.pages.contact) {
@@ -141,7 +157,11 @@ export function useHeroCta(): {
           label: t("hero.startFree"),
           href: `${base}/c/${commerce.free_course.slug}`,
         }
-      : site.pages.contact && commerce.codes === false
+      : // No free taster: a booking form is the next-best second door — a real person on the
+        // other end beats a generic contact page.
+        booking
+        ? { kind: "booking", label: booking.title, href: `${base}/book/${booking.slug}` }
+        : site.pages.contact && commerce.codes === false
         ? { kind: "contact", label: t("nav.contact"), href: `${base}/contact` }
         : null,
     codeLink: commerce.codes,

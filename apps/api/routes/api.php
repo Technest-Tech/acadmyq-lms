@@ -41,6 +41,8 @@ use App\Http\Controllers\Learner\CheckoutController as LearnerCheckoutController
 use App\Http\Controllers\Learner\NotificationController as LearnerNotificationController;
 use App\Http\Controllers\Learner\PasswordResetController as LearnerPasswordResetController;
 use App\Http\Controllers\Learner\PlayerController as LearnerPlayerController;
+use App\Http\Controllers\Learner\BlogController as LearnerBlogController;
+use App\Http\Controllers\Learner\BookingController as LearnerBookingController;
 use App\Http\Controllers\Learner\ProductController as LearnerProductController;
 use App\Http\Controllers\Learner\QuizController as LearnerQuizController;
 use App\Http\Controllers\Learner\RedemptionController as LearnerRedemptionController;
@@ -55,6 +57,9 @@ use App\Http\Controllers\Lms\MediaController;
 use App\Http\Controllers\Lms\MediaDeliveryController;
 use App\Http\Controllers\Lms\OrderController as LmsOrderController;
 use App\Http\Controllers\Lms\PaymentMethodController as LmsPaymentMethodController;
+use App\Http\Controllers\Lms\BlogPostController as LmsBlogPostController;
+use App\Http\Controllers\Lms\BookingFormController as LmsBookingFormController;
+use App\Http\Controllers\Lms\BookingRequestController as LmsBookingRequestController;
 use App\Http\Controllers\Lms\ProductController as LmsProductController;
 use App\Http\Controllers\Lms\QuizController;
 use App\Http\Controllers\Lms\SectionController;
@@ -342,6 +347,17 @@ Route::middleware(['throttle:learn-read', 'resolve.academy', 'site.open'])->pref
     Route::get('/products/{slug}', [LearnerProductController::class, 'show'])->where('slug', '[a-z0-9-]+');
     Route::get('/products/{slug}/preview/{fileId}', [LearnerProductController::class, 'preview'])
         ->where('slug', '[a-z0-9-]+')->whereUuid('fileId');
+    // The blog (docs/lms/12). Public and read-only — an article behind a sign-up wall is not
+    // marketing. Drafts don't exist here: an unpublished slug 404s like one never written.
+    Route::get('/posts', [LearnerBlogController::class, 'index']);
+    Route::get('/posts/{slug}', [LearnerBlogController::class, 'show'])->where('slug', '[a-z0-9-]+');
+    // Booking forms (docs/lms/13) — "book a consultation", "book a course", named by the client.
+    // Anonymous on purpose (a sign-up wall in front of "call me back" loses the lead); a signed-in
+    // learner's token is honoured when present. The submit has its own, much tighter, throttle:
+    // it is the one public write that lands in a human's inbox.
+    Route::get('/bookings/{slug}', [LearnerBookingController::class, 'show'])->where('slug', '[a-z0-9-]+');
+    Route::post('/bookings/{slug}', [LearnerBookingController::class, 'store'])
+        ->middleware('throttle:learn-booking')->where('slug', '[a-z0-9-]+');
 
     Route::middleware('learner.auth')->group(function () {
         Route::get('/me', [LearnerAuthController::class, 'me']);
@@ -883,6 +899,28 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/courses/products/{product}/files/reorder', [LmsProductController::class, 'reorderFiles'])->whereUuid('product');
         Route::patch('/courses/products/{product}/files/{id}', [LmsProductController::class, 'updateFile'])->whereUuid(['product', 'id']);
         Route::delete('/courses/products/{product}/files/{id}', [LmsProductController::class, 'destroyFile'])->whereUuid(['product', 'id']);
+        // The course site's blog (docs/lms/12). Literal `posts` segments, so they precede the
+        // whereUuid'd `/courses/{id}` below. Same capabilities as the catalogue it markets.
+        Route::get('/courses/posts', [LmsBlogPostController::class, 'index']);
+        Route::get('/courses/posts/summary', [LmsBlogPostController::class, 'summary']);
+        Route::post('/courses/posts', [LmsBlogPostController::class, 'store']);
+        Route::get('/courses/posts/{id}', [LmsBlogPostController::class, 'show'])->whereUuid('id');
+        Route::patch('/courses/posts/{id}', [LmsBlogPostController::class, 'update'])->whereUuid('id');
+        Route::post('/courses/posts/{id}/publish', [LmsBlogPostController::class, 'setStatus'])->whereUuid('id');
+        Route::delete('/courses/posts/{id}', [LmsBlogPostController::class, 'destroy'])->whereUuid('id');
+        // Booking requests (docs/lms/13) — the inbox every course-site booking form feeds, and the
+        // forms themselves. Their own capability pair (booking.read / booking.manage): the person
+        // answering "call me back" is not necessarily the one building courses. Literal segments,
+        // so they precede the whereUuid'd `/courses/{id}` below.
+        Route::get('/courses/bookings', [LmsBookingRequestController::class, 'index']);
+        Route::get('/courses/bookings/summary', [LmsBookingRequestController::class, 'summary']);
+        Route::get('/courses/bookings/{id}', [LmsBookingRequestController::class, 'show'])->whereUuid('id');
+        Route::patch('/courses/bookings/{id}', [LmsBookingRequestController::class, 'update'])->whereUuid('id');
+        Route::delete('/courses/bookings/{id}', [LmsBookingRequestController::class, 'destroy'])->whereUuid('id');
+        Route::get('/courses/booking-forms', [LmsBookingFormController::class, 'index']);
+        Route::post('/courses/booking-forms', [LmsBookingFormController::class, 'store']);
+        Route::patch('/courses/booking-forms/{id}', [LmsBookingFormController::class, 'update'])->whereUuid('id');
+        Route::delete('/courses/booking-forms/{id}', [LmsBookingFormController::class, 'destroy'])->whereUuid('id');
 
         Route::post('/courses', [CourseController::class, 'store']);
         Route::get('/courses/{id}', [CourseController::class, 'show'])->whereUuid('id');
@@ -898,6 +936,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/courses/{course}/lessons', [LessonController::class, 'store']);
         Route::post('/courses/{course}/lessons/reorder', [LessonController::class, 'reorder']);
         Route::patch('/courses/{course}/lessons/{id}', [LessonController::class, 'update']);
+        // Optional questions under any lesson (a QUIZ lesson's quiz is minted on create instead).
+        Route::post('/courses/{course}/lessons/{id}/questions', [LessonController::class, 'questions']);
         Route::delete('/courses/{course}/lessons/{id}', [LessonController::class, 'destroy']);
 
         // Uploaded lesson media (VOD, docs/lms/04): reserve → PUT the file (presigned/​signed) →

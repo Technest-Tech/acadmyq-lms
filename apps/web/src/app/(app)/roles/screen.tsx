@@ -49,6 +49,7 @@ const GROUP_OF: Record<string, string> = {
   learner: "course",
   course_order: "course",
   payment_method: "course",
+  booking: "course",
   recording: "room",
 };
 

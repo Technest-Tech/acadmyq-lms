@@ -35,9 +35,17 @@ trait BuildsCourseOutline
             ? []
             : DB::table('media_assets')->whereIn('id', $mediaIds)->pluck('status', 'id')->all();
 
+        // How many questions hang off each lesson (a QUIZ lesson's, or another lesson's optional
+        // ones) — so the player knows to render them without a request per lesson.
+        $quizIds = $lessons->pluck('quiz_id')->filter()->map('strval')->unique()->all();
+        $questionCounts = $quizIds === []
+            ? []
+            : DB::table('quiz_questions')->whereIn('quiz_id', $quizIds)
+                ->groupBy('quiz_id')->selectRaw('quiz_id, count(*) as n')->pluck('n', 'quiz_id')->all();
+
         $bySection = [];
         foreach ($lessons as $l) {
-            $bySection[(string) $l->section_id][] = $this->presentLesson($l, $includeContent, $mediaStatus);
+            $bySection[(string) $l->section_id][] = $this->presentLesson($l, $includeContent, $mediaStatus, $questionCounts);
         }
 
         return $sections->map(fn (object $s): array => [
@@ -49,9 +57,10 @@ trait BuildsCourseOutline
 
     /**
      * @param  array<string,string>  $mediaStatus  media_asset_id → status
+     * @param  array<string,int|string>  $questionCounts  quiz_id → question count
      * @return array<string,mixed>
      */
-    protected function presentLesson(object $l, bool $includeContent, array $mediaStatus = []): array
+    protected function presentLesson(object $l, bool $includeContent, array $mediaStatus = [], array $questionCounts = []): array
     {
         $out = [
             'id' => (string) $l->id,
@@ -59,6 +68,8 @@ trait BuildsCourseOutline
             'type' => (string) $l->type,
             'is_preview' => (bool) $l->is_preview,
             'duration_seconds' => $l->duration_seconds !== null ? (int) $l->duration_seconds : null,
+            // A count, never the questions: those come from /lessons/{id}/quiz, enrollment-gated.
+            'question_count' => $l->quiz_id !== null ? (int) ($questionCounts[(string) $l->quiz_id] ?? 0) : 0,
         ];
 
         // Content is served for enrolled viewers, or for a free-preview lesson to anyone.

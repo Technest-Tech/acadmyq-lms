@@ -97,6 +97,14 @@ The largest sub-system, isolated to its own phase.
   pass. Re-attempts allowed until `max_attempts`.
 - **Grading** is server-side only; correct-answer flags (`quiz_options.is_correct`) are never sent to
   the learner client.
+- **Optional questions under any lesson** (2026-10-08): a video / text / PDF / audio lesson can carry
+  its own questions through the same `lessons.quiz_id` — no new table. `quiz_id` is therefore NOT a
+  type payload column: changing a lesson's type keeps its questions. Staff attach them with
+  `POST /api/courses/{course}/lessons/{id}/questions` (idempotent; the builder calls it on the first
+  save so a cancelled builder leaves no empty quiz) and remove them by deleting the quiz (FK sets
+  `quiz_id` null). Both outlines expose `question_count`; the player renders them under the content.
+  Answering is never required to move on or to mark the lesson done; a pass ticks it off, like a QUIZ
+  lesson. They show up in `/lms/quizzes` with their results like any other quiz.
 
 ## Certificates (phase 4)
 

@@ -4,6 +4,7 @@ import {
   Award,
   BadgeCheck,
   BarChart3,
+  CalendarCheck2,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -674,7 +675,12 @@ function EnrolCard({
   const t = useTranslations("learn");
   const price = useCoursePrice();
   const requestCodeHref = useRequestCodeHref(course.title);
+  const { commerce } = useLearn();
   const [copied, setCopied] = useState(false);
+  // "Book this course" (docs/lms/13): the client's first form that asks which course, with this one
+  // already picked. Under the client's own name for it, and never for someone already enrolled.
+  const bookingForm =
+    action === "continue" ? undefined : commerce.bookings?.find((b) => b.ask_course);
 
   const codeEnabled = course.code_enabled !== false;
 
@@ -764,7 +770,17 @@ function EnrolCard({
             {t("course.requestCode")}
           </CtaButton>
         )}
-        {action === "unavailable" && (
+        {bookingForm && (
+          <CtaButton
+            variant={action === "unavailable" ? "solid" : "outline"}
+            href={`/learn/${academy}/book/${bookingForm.slug}?course=${encodeURIComponent(course.slug)}`}
+            className="w-full"
+          >
+            <CalendarCheck2 className="size-4" aria-hidden />
+            <span dir="auto">{bookingForm.title}</span>
+          </CtaButton>
+        )}
+        {action === "unavailable" && !bookingForm && (
           <p className="text-muted-foreground rounded-xl border border-dashed p-4 text-center text-sm">
             {t("course.notForSale")}
           </p>

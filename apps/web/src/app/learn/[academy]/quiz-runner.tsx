@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
  * The learner quiz runner (docs/lms/04). Fetches the quiz (no correct-answer flags), collects the
  * learner's choices, and submits for server-side grading. On a pass it calls `onPassed` so the player
  * refreshes progress (the lesson flips to COMPLETED, and the course may issue a certificate).
+ * Runs both a QUIZ lesson and the optional questions under any other lesson.
  */
 export function QuizRunner({
   academy,
@@ -23,7 +24,7 @@ export function QuizRunner({
 }: {
   academy: string;
   lessonId: string;
-  onPassed?: () => void;
+  onPassed?: (result: LearnQuizResult) => void;
 }) {
   const t = useTranslations("learn.quiz");
   const [data, setData] = useState<LearnQuizPayload | null>(null);
@@ -70,7 +71,7 @@ export function QuizRunner({
       }));
       const res = await learnSubmitQuiz(academy, lessonId, answers);
       setResult(res);
-      if (res.passed) onPassed?.();
+      if (res.passed) onPassed?.(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("error"));
     } finally {

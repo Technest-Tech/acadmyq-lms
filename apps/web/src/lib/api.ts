@@ -5736,7 +5736,9 @@ export interface Lesson {
   youtube_video_id: string | null;
   attachment_path: string | null;
   body: string | null;
+  /** A QUIZ lesson's quiz, or the optional questions under any other lesson. */
   quiz_id: string | null;
+  question_count?: number;
 }
 
 export interface CourseSection {
@@ -6165,6 +6167,14 @@ export function createQuiz(
   });
 }
 
+/** Gives a lesson its optional questions — returns the existing quiz, or attaches a new empty one. */
+export function ensureLessonQuestions(
+  courseId: string,
+  lessonId: string,
+): Promise<{ quizId: string }> {
+  return apiFetch(`/api/courses/${courseId}/lessons/${lessonId}/questions`, { method: "POST" });
+}
+
 export function getQuiz(courseId: string, quizId: string): Promise<QuizDetail> {
   return apiFetch(`/api/courses/${courseId}/quizzes/${quizId}`);
 }
@@ -6384,6 +6394,266 @@ export function setEnrollmentStatus(
     method: "POST",
     body: JSON.stringify({ course_id: courseId, status }),
   });
+}
+
+// ── LMS / Blog (docs/lms/12) ─────────────────────────────────────────────────
+// Articles on the client's public course site. Same gates as the catalogue (entitled:lms → 402,
+// course.read / course.manage → 403). The body is HTML the API sanitizes on write and re-renders on
+// read (uploaded images re-signed, YouTube embeds rebuilt), so what comes back is always loadable.
+
+export type BlogPostStatus = "DRAFT" | "PUBLISHED";
+
+export interface BlogPostRow {
+  id: string;
+  title: string;
+  slug: string;
+  status: BlogPostStatus;
+  cover_image_path: string | null;
+  /** The author's summary, else the opening of the body. */
+  summary: string | null;
+  author_name: string | null;
+  reading_minutes: number;
+  published_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** The editor payload: a row plus the body (rendered) and the author's raw excerpt. */
+export interface BlogPostDetail extends BlogPostRow {
+  content_html: string;
+  excerpt: string | null;
+}
+
+export interface BlogSummary {
+  draft: number;
+  published: number;
+  total: number;
+  /** The public site's base URL — append `/blog/<slug>` for a post. Null until a handle is set. */
+  site_url: string | null;
+}
+
+export interface BlogPostInput {
+  title?: string;
+  slug?: string;
+  excerpt?: string | null;
+  author_name?: string | null;
+  content_html?: string;
+  /** An uploaded IMAGE asset wins over a pasted url; either key present (even null) is an edit. */
+  cover_media_asset_id?: string | null;
+  cover_image_path?: string | null;
+}
+
+export function listBlogPosts(
+  q: DataTableQuery = {},
+): Promise<ListResult<BlogPostRow>> {
+  return apiFetch(`/api/courses/posts${toQueryString(q)}`);
+}
+
+export function getBlogSummary(): Promise<BlogSummary> {
+  return apiFetch("/api/courses/posts/summary");
+}
+
+export function createBlogPost(title: string): Promise<{ postId: string }> {
+  return apiFetch("/api/courses/posts", {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export function getBlogPost(
+  id: string,
+): Promise<{ post: BlogPostDetail; site_url: string | null }> {
+  return apiFetch(`/api/courses/posts/${id}`);
+}
+
+export function updateBlogPost(
+  id: string,
+  input: BlogPostInput,
+): Promise<{ ok: boolean; changed: string[]; post: BlogPostRow }> {
+  return apiFetch(`/api/courses/posts/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function setBlogPostStatus(
+  id: string,
+  status: BlogPostStatus,
+): Promise<{ ok: boolean; status: BlogPostStatus; post: BlogPostRow }> {
+  return apiFetch(`/api/courses/posts/${id}/publish`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export function deleteBlogPost(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/posts/${id}`, { method: "DELETE" });
+}
+
+// ── LMS / Booking requests (docs/lms/13) ─────────────────────────────────────
+// "احجز استشارة", "احجز كورس" — any number of client-named forms on the course site, feeding one
+// inbox. Gated by entitled:lms (402) and booking.read / booking.manage (403).
+
+export type BookingStatus = "NEW" | "CONTACTED" | "CONFIRMED" | "COMPLETED" | "CANCELLED";
+
+/** Pipeline order — the order the status menu and the tabs list them in. */
+export const BOOKING_STATUSES: readonly BookingStatus[] = [
+  "NEW",
+  "CONTACTED",
+  "CONFIRMED",
+  "COMPLETED",
+  "CANCELLED",
+];
+
+export interface BookingForm {
+  id: string;
+  slug: string;
+  /** The client's own name for it — page title, nav link and default button label at once. */
+  title: string;
+  description: string | null;
+  /** Blank = the template's translated default. */
+  submit_label: string | null;
+  success_message: string | null;
+  ask_email: boolean;
+  ask_course: boolean;
+  ask_date: boolean;
+  ask_message: boolean;
+  choice_label: string | null;
+  /** Non-empty ⇒ the visitor must pick one. */
+  choices: string[];
+  show_in_nav: boolean;
+  show_on_home: boolean;
+  status: "ACTIVE" | "HIDDEN";
+  created_at: string | null;
+  updated_at: string | null;
+  requests_total: number;
+  requests_new: number;
+  /** The public page, or null while the client has no site address yet. */
+  url: string | null;
+}
+
+export type BookingFormInput = Partial<
+  Pick<
+    BookingForm,
+    | "title"
+    | "slug"
+    | "description"
+    | "submit_label"
+    | "success_message"
+    | "ask_email"
+    | "ask_course"
+    | "ask_date"
+    | "ask_message"
+    | "choice_label"
+    | "choices"
+    | "show_in_nav"
+    | "show_on_home"
+    | "status"
+  >
+>;
+
+export interface BookingRequestRow {
+  id: string;
+  status: BookingStatus;
+  form_id: string | null;
+  /** The form's live title, or the one it was submitted under if the form is gone. */
+  form_title: string;
+  form_slug: string | null;
+  full_name: string;
+  phone: string;
+  email: string | null;
+  course_id: string | null;
+  course_title: string | null;
+  choice: string | null;
+  /** The visitor's wish, in the academy's wall-clock: "YYYY-MM-DD" and "HH:MM", never converted. */
+  preferred_date: string | null;
+  preferred_time: string | null;
+  message: string | null;
+  staff_note: string | null;
+  learner_id: string | null;
+  status_changed_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface BookingRequestDetail extends BookingRequestRow {
+  handled_by_name: string | null;
+  learner: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    phone: string | null;
+    status: string;
+    since: string | null;
+  } | null;
+}
+
+export interface BookingSummary {
+  stats: {
+    total: number;
+    new: number;
+    contacted: number;
+    confirmed: number;
+    completed: number;
+    cancelled: number;
+    /** NEW + CONTACTED + CONFIRMED — everything still owed something. */
+    open: number;
+    this_month: number;
+  };
+  forms: number;
+}
+
+export function listBookingRequests(
+  q: DataTableQuery = {},
+): Promise<ListResult<BookingRequestRow>> {
+  return apiFetch(`/api/courses/bookings${toQueryString(q)}`);
+}
+
+export function getBookingSummary(): Promise<BookingSummary> {
+  return apiFetch("/api/courses/bookings/summary");
+}
+
+export function getBookingRequest(id: string): Promise<{ request: BookingRequestDetail }> {
+  return apiFetch(`/api/courses/bookings/${id}`);
+}
+
+export function updateBookingRequest(
+  id: string,
+  input: { status?: BookingStatus; staff_note?: string | null },
+): Promise<{ ok: boolean; request: BookingRequestRow }> {
+  return apiFetch(`/api/courses/bookings/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteBookingRequest(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/bookings/${id}`, { method: "DELETE" });
+}
+
+export function listBookingForms(): Promise<{ forms: BookingForm[]; site_url: string | null }> {
+  return apiFetch("/api/courses/booking-forms");
+}
+
+export function createBookingForm(input: BookingFormInput): Promise<{ form: BookingForm }> {
+  return apiFetch("/api/courses/booking-forms", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateBookingForm(
+  id: string,
+  input: BookingFormInput,
+): Promise<{ form: BookingForm }> {
+  return apiFetch(`/api/courses/booking-forms/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteBookingForm(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/courses/booking-forms/${id}`, { method: "DELETE" });
 }
 
 // ── LMS / Digital products (books & PDFs, docs/lms/11) ───────────────────────

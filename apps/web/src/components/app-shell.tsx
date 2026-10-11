@@ -7,6 +7,7 @@ import {
   BellRing,
   Briefcase,
   Building2,
+  CalendarCheck2,
   CalendarClock,
   CalendarDays,
   ChevronDown,
@@ -30,6 +31,7 @@ import {
   Menu,
   MessageCircle,
   MonitorPlay,
+  Newspaper,
   NotebookPen,
   Package,
   PanelLeftClose,
@@ -68,6 +70,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import {
+  getBookingSummary,
   getCourseSalesSummary,
   getDaySessionCount,
   getLessonPackageSummary,
@@ -106,6 +109,8 @@ type NavKey =
   | "lmsHome"
   | "courses"
   | "lmsBooks"
+  | "lmsBlog"
+  | "lmsBookings"
   | "lmsQuizzes"
   | "lmsLearners"
   | "lmsCodes"
@@ -281,6 +286,25 @@ const NAV: ReadonlyArray<{
     icon: Library,
     permission: "course.read",
     href: "/lms/books",
+    group: "lms",
+  },
+  // The course site's blog (docs/lms/12) — articles that bring search traffic to the catalogue.
+  // Same capability as Courses and Books: it is the same public site, written by the same people.
+  {
+    key: "lmsBlog",
+    icon: Newspaper,
+    permission: "course.read",
+    href: "/lms/blog",
+    group: "lms",
+  },
+  // Booking requests (docs/lms/13) — "book a consultation", "book a course": the inbox every
+  // course-site booking form feeds, and the forms themselves. Its own capability: the person who
+  // returns "call me back" requests is not necessarily the one building courses.
+  {
+    key: "lmsBookings",
+    icon: CalendarCheck2,
+    permission: "booking.read",
+    href: "/lms/bookings",
     group: "lms",
   },
   // Quizzes live inside a course (a QUIZ lesson points at one), so this is purely the cross-course
@@ -574,6 +598,8 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   crm: "crm",
   courses: "lms",
   lmsBooks: "lms",
+  lmsBlog: "lms",
+  lmsBookings: "lms",
   lmsSales: "lms",
   lmsPayments: "lms",
   certificates: "certificates",
@@ -605,6 +631,8 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
 const LMS_EXTRA_KEYS = new Set<NavKey>([
   "lmsHome",
   "lmsBooks",
+  "lmsBlog",
+  "lmsBookings",
   "lmsQuizzes",
   "lmsLearners",
   "lmsCodes",
@@ -616,6 +644,8 @@ const LMS_ONLY_KEYS = new Set<NavKey>([
   "lmsHome",
   "courses",
   "lmsBooks",
+  "lmsBlog",
+  "lmsBookings",
   "lmsQuizzes",
   "lmsLearners",
   "lmsCodes",
@@ -654,6 +684,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [attnCount, setAttnCount] = useState(0);
   const [pkgCount, setPkgCount] = useState(0);
   const [salesCount, setSalesCount] = useState(0);
+  const [bookingCount, setBookingCount] = useState(0);
   // The academy's resolved plan capabilities, used to lock nav items the plan doesn't include.
   // They arrive with the session itself, so by the time we have a session we have these too — there
   // is no separate loading state to guard, and no window in which a video-only ("Meet Plan") academy
@@ -779,6 +810,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       clearInterval(id);
     };
   }, [session, can, pathname]);
+
+  // Bookings badge (docs/lms/13): requests nobody has picked up yet. Derived, like the sales badge —
+  // it clears when someone moves the request to "contacted", not when they glance at the inbox.
+  useEffect(() => {
+    if (session === null || !can("booking.read") || !(capabilities?.includes("lms") ?? true)) {
+      setBookingCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () =>
+      getBookingSummary()
+        .then((s) => alive && setBookingCount(s.stats.new))
+        .catch(() => {});
+    void refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [session, can, capabilities, pathname]);
 
   useEffect(() => {
     applyBranding(loadBranding());
@@ -918,6 +969,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return {
         count: salesCount,
         label: `${salesCount} payment receipts awaiting review`,
+      };
+    }
+    if (key === "lmsBookings" && bookingCount > 0) {
+      return {
+        count: bookingCount,
+        label: `${bookingCount} new booking requests`,
       };
     }
     if (key === "studentReportReviews" && srCount > 0) {

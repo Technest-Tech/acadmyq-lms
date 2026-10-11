@@ -4,6 +4,8 @@ import { ArrowRight, Ticket } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
+import { PostGrid } from "@/components/learn/blog-bits";
+import { BookingBand } from "@/components/learn/booking-band";
 import { useLearn } from "@/components/learn/context";
 import { CourseGrid, CourseGridSkeleton } from "@/components/learn/course-card";
 import {
@@ -22,7 +24,7 @@ import {
   TestimonialGrid,
 } from "@/components/learn/sections";
 import { useHeroCta } from "@/components/learn/storefront";
-import { learnCatalog, type LearnCourseCard } from "@/lib/learn-api";
+import { learnCatalog, type LearnCourseCard, type LearnPostCard } from "@/lib/learn-api";
 
 /**
  * The academy's landing page (docs/lms/09) — the same section order for every LMS client: what they
@@ -42,8 +44,11 @@ import { learnCatalog, type LearnCourseCard } from "@/lib/learn-api";
 export function SiteHome({
   /** What the server already loaded; null only when that fetch failed. */
   initialCourses,
+  /** The newest three blog posts (docs/lms/12) — the strip hides itself when there are none. */
+  latestPosts = [],
 }: {
   initialCourses: LearnCourseCard[] | null;
+  latestPosts?: LearnPostCard[];
 }) {
   const t = useTranslations("learn");
   const { academy, site, commerce, openRedeem } = useLearn();
@@ -179,6 +184,10 @@ export function SiteHome({
         </Section>
       )}
 
+      {/* The client's booking forms (docs/lms/13) right after what they sell: "book a consultation"
+          is the next thing a visitor who has just seen the catalogue is ready to do. */}
+      <BookingBand tone="tint" divider />
+
       {/* Each section carries its own background tone so the page has a visual rhythm rather than
           one flat surface, and a divider badge straddles each boundary. Sections that render
           nothing (no instructors, no reviews) take their divider with them — no orphan splitters. */}
@@ -187,6 +196,23 @@ export function SiteHome({
       {site.pages.about && <AboutSplit tone="pattern" divider />}
       <InstructorGrid tone="muted" divider />
       <TestimonialGrid tone="tint" divider />
+
+      {latestPosts.length > 0 && (
+        <Section tone="muted" divider>
+          <SectionHeading
+            eyebrow={t("blog.eyebrow")}
+            title={t("blog.homeTitle")}
+            subtitle={t("blog.homeSubtitle")}
+          />
+          <PostGrid posts={latestPosts} />
+          <div className="mt-10 text-center">
+            <CtaButton variant="outline" href={`/learn/${academy}/blog`}>
+              {t("blog.viewAll")}
+              <ArrowRight className="size-4 rtl:rotate-180" aria-hidden />
+            </CtaButton>
+          </div>
+        </Section>
+      )}
       <FaqAccordion limit={5} tone="plain" divider />
 
       {site.pages.faq && site.faq.show && (

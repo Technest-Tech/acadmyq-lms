@@ -89,6 +89,21 @@ export function formatMonthYear(iso: string | null | undefined, locale: string):
   return new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" }).format(date);
 }
 
+/**
+ * "12 March 2026" in the visitor's language, Arabic with Arabic-Indic digits — a blog post's date
+ * (docs/lms/12). Here rather than beside the blog components because the article page is a server
+ * component, and a function exported from a "use client" module cannot be called on the server.
+ */
+export function formatPostDate(iso: string | null | undefined, locale: string): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const tag = locale.startsWith("ar") ? `${locale}-u-nu-arab` : locale;
+  return new Intl.DateTimeFormat(tag, { day: "numeric", month: "long", year: "numeric" }).format(
+    date,
+  );
+}
+
 /** Published within the last 45 days — earns the catalogue's "New" ribbon. */
 export function isRecent(iso: string | null | undefined, days = 45): boolean {
   if (!iso) return false;

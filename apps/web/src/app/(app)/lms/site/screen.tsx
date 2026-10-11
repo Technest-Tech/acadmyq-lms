@@ -890,6 +890,7 @@ function BlockFields({
                 <option value="browse">{t("f.ctaBrowse")}</option>
                 <option value="redeem">{t("f.ctaRedeem")}</option>
                 <option value="contact">{t("f.ctaContact")}</option>
+                <option value="booking">{t("f.ctaBooking")}</option>
               </select>
             </Field>
             <Field label={t("f.ctaLabel")} hint={fallbackHint} optional={t("optional")}>

@@ -165,6 +165,12 @@ final class CourseController extends Controller
                 'attachment_path', 'body', 'quiz_id',
             ]);
 
+        $quizIds = $lessons->pluck('quiz_id')->filter()->map('strval')->unique()->all();
+        $questionCounts = $quizIds === []
+            ? []
+            : DB::table('quiz_questions')->whereIn('quiz_id', $quizIds)
+                ->groupBy('quiz_id')->selectRaw('quiz_id, count(*) as n')->pluck('n', 'quiz_id')->all();
+
         $bySection = [];
         foreach ($lessons as $lesson) {
             $bySection[(string) $lesson->section_id][] = [
@@ -179,6 +185,7 @@ final class CourseController extends Controller
                 'attachment_path' => $lesson->attachment_path,
                 'body' => $lesson->body,
                 'quiz_id' => $lesson->quiz_id,
+                'question_count' => $lesson->quiz_id !== null ? (int) ($questionCounts[(string) $lesson->quiz_id] ?? 0) : 0,
             ];
         }
 

@@ -69,6 +69,9 @@ final class PermissionCatalog
         // The sales half of the LMS (docs/lms/10): the order queue and the buyers, then the money
         // decisions (approve a transfer receipt, refund, pull access) and the receiving accounts.
         'course_order.read', 'course_order.manage', 'payment_method.manage',
+        // Booking requests from the course site (docs/lms/13) — "book a consultation", "book a
+        // course": open the inbox vs. work it (status, notes, delete) and configure the forms.
+        'booking.read', 'booking.manage',
         'notification.read',
         'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
         'payout.read', 'payout.read_own', 'payout.finalize', 'payout.adjust',
@@ -127,7 +130,7 @@ final class PermissionCatalog
     private const FEATURE_BY_DOMAIN = [
         'room' => 'video.conferencing', 'recording' => 'video.conferencing',
         'course' => 'lms', 'access_code' => 'lms', 'learner' => 'lms',
-        'course_order' => 'lms', 'payment_method' => 'lms',
+        'course_order' => 'lms', 'payment_method' => 'lms', 'booking' => 'lms',
         'crm' => 'crm',
         'invoice' => 'invoicing',
         'payout' => 'payroll',
@@ -220,6 +223,7 @@ final class PermissionCatalog
             'crm.read', 'crm.manage',
             'course.read', 'course.manage', 'access_code.manage', 'learner.read',
             'course_order.read', 'course_order.manage', 'payment_method.manage',
+            'booking.read', 'booking.manage',
             'notification.read',
             'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
             'payout.read', 'payout.finalize', 'payout.adjust',

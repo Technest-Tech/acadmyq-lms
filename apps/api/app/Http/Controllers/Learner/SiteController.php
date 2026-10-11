@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Learner;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Learner\Concerns\InteractsWithLearner;
+use App\Support\Lms\BookingForms;
 use App\Support\LmsSite;
 use App\Support\LmsSiteProfile;
 use Illuminate\Http\JsonResponse;
@@ -101,6 +102,10 @@ final class SiteController extends Controller
             'codes' => $published()->where('code_enabled', true)->exists(),
             'paid' => $published()->where('price_minor', '>', 0)->exists(),
             'books' => $this->books($acceptsPayments),
+            // Booking forms (docs/lms/13) — "book a consultation", "book a course". The header's
+            // nav links, the home page's booking band and the course page's "book" button all
+            // render before any other fetch, so the list rides the site document.
+            'bookings' => BookingForms::forSite(),
         ];
     }
 
@@ -171,6 +176,10 @@ final class SiteController extends Controller
             'learners' => (int) DB::table('learners')->where('status', 'ACTIVE')->count(),
             'certificates' => (int) DB::table('course_certificates')->count(),
             'books' => (int) DB::table('digital_products')
+                ->where('status', 'PUBLISHED')->whereNull('deleted_at')->count(),
+            // Published articles (docs/lms/12) — the header's Blog link turns on this, so it is right
+            // on the first frame rather than appearing after a fetch of the blog itself.
+            'posts' => (int) DB::table('blog_posts')
                 ->where('status', 'PUBLISHED')->whereNull('deleted_at')->count(),
         ];
     }

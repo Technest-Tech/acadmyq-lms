@@ -138,4 +138,21 @@ describe("SiteFooter", () => {
     renderInSite(<SiteFooter />);
     expect(screen.queryByText(/Payments are confirmed/)).toBeNull();
   });
+
+  // The Blog link (docs/lms/12) turns on the published-post count that rides the site document, so
+  // a client who never wrote an article never shows a link to an empty page.
+  it("links the blog only once a post is published", () => {
+    renderInSite(<SiteFooter />, {
+      value: { stats: { courses: 0, lessons: 0, learners: 0, certificates: 0, posts: 2 } },
+    });
+    expect(screen.getByRole("link", { name: enMessages.learn.nav.blog })).toHaveAttribute(
+      "href",
+      "/learn/noor/blog",
+    );
+  });
+
+  it("hides the blog link from a client with no published posts", () => {
+    renderInSite(<SiteFooter />);
+    expect(screen.queryByRole("link", { name: enMessages.learn.nav.blog })).toBeNull();
+  });
 });

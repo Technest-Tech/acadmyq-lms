@@ -1,4 +1,4 @@
-import { fetchLearnCatalog } from "@/lib/learn-server";
+import { fetchLearnCatalog, fetchLearnPosts } from "@/lib/learn-server";
 import { SiteHome } from "./home-screen";
 
 /**
@@ -17,7 +17,11 @@ export default async function SiteHomePage({
   params: Promise<{ academy: string }>;
 }) {
   const { academy } = await params;
-  const courses = await fetchLearnCatalog(academy);
+  // In parallel: the blog strip is a bonus, and must never make the catalogue wait.
+  const [courses, posts] = await Promise.all([
+    fetchLearnCatalog(academy),
+    fetchLearnPosts(academy),
+  ]);
 
-  return <SiteHome initialCourses={courses} />;
+  return <SiteHome initialCourses={courses} latestPosts={posts?.posts.slice(0, 3) ?? []} />;
 }

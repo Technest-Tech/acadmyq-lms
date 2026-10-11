@@ -34,6 +34,8 @@ identity + on-demand video delivery are the genuinely new pieces this module add
 | [09-PUBLIC-SITE.md](09-PUBLIC-SITE.md) | The shared learner-site template + the per-client content profile the client edits at `/lms/site` |
 | [10-ORDERS-CHECKOUT-AND-PAYMENTS.md](10-ORDERS-CHECKOUT-AND-PAYMENTS.md) | The shop: orders, the InstaPay / wallet / bank checkout, transfer receipts, and the client's sales desk |
 | [11-DIGITAL-PRODUCTS.md](11-DIGITAL-PRODUCTS.md) | Selling books & PDFs alongside the courses — the file bundle, the free sample, and the shared order queue |
+| [12-BLOG.md](12-BLOG.md) | The course site's blog — rich-text articles written in the dashboard, sanitized on write, server-rendered for search |
+| [13-BOOKINGS.md](13-BOOKINGS.md) | Booking forms ("احجز استشارة", "احجز كورس" — any name, any number) on the course site, and the requests inbox they feed |
 
 ## Status
 

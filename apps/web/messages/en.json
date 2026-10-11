@@ -181,7 +181,9 @@
     "lmsSite": "My website",
     "lmsSales": "Sales",
     "lmsPayments": "Payment methods",
-    "lmsBooks": "Books & PDFs"
+    "lmsBooks": "Books & PDFs",
+    "lmsBlog": "Blog",
+    "lmsBookings": "Bookings"
   },
   "navGroup": {
     "general": "General",
@@ -4797,7 +4799,13 @@
       },
       "summary": "{questions} questions · {points} points",
       "noQuestions": "No questions yet",
-      "noQuestionsHint": "Add your first question — each one needs at least two options and a correct answer."
+      "noQuestionsHint": "Add your first question — each one needs at least two options and a correct answer.",
+      "lessonTitle": "Questions · {lesson}",
+      "lessonHint": "Optional. Add a few questions learners answer right under this lesson — leave it empty and the lesson has none.",
+      "removeAll": "Remove questions",
+      "addQuestions": "Add questions",
+      "editQuestions": "Questions",
+      "questionCount": "{n, plural, one {# question} other {# questions}}"
     },
     "confirm": {
       "deleteCourse": "Delete this course? This can't be undone.",
@@ -5315,7 +5323,9 @@
       "noOverview": "No description for this lesson.",
       "notesPlaceholder": "Write your notes for this lesson…",
       "notesHint": "Notes are saved in this browser only.",
-      "certificateEarned": "Congratulations — your certificate is ready!"
+      "certificateEarned": "Congratulations — your certificate is ready!",
+      "questionsTitle": "Check your understanding",
+      "questionsHint": "Optional · {n, plural, one {# question} other {# questions}}"
     },
     "quiz": {
       "passMark": "Pass mark: {mark}%",
@@ -5397,7 +5407,8 @@
       "myLearning": "My learning",
       "menu": "Menu",
       "myOrders": "My orders",
-      "books": "Books"
+      "books": "Books",
+      "blog": "Blog"
     },
     "hero": {
       "eyebrow": "Learn online",
@@ -5801,6 +5812,86 @@
       "claimFailed": "We couldn't add it to your library. Please try again.",
       "myLibrary": "My library",
       "about": "About this book"
+    },
+    "blog": {
+      "title": "Blog",
+      "subtitle": "Articles, tips and news from our team.",
+      "metaTitle": "Blog",
+      "metaDescription": "Articles, tips and news from {name}.",
+      "empty": "No articles yet",
+      "emptyHint": "Check back soon — new articles are on the way.",
+      "unavailable": "The blog couldn't load",
+      "unavailableHint": "Please refresh the page in a moment.",
+      "latest": "Latest article",
+      "readArticle": "Read the article",
+      "minutes": "{count, plural, one {1 min read} other {# min read}}",
+      "pagination": "Blog pages",
+      "newer": "Newer",
+      "older": "Older",
+      "pageOf": "Page {page} of {total}",
+      "backToBlog": "Back to the blog",
+      "share": "Share",
+      "shareOn": {
+        "whatsapp": "Share on WhatsApp",
+        "facebook": "Share on Facebook",
+        "x": "Share on X",
+        "linkedin": "Share on LinkedIn"
+      },
+      "copyLink": "Copy link",
+      "copied": "Link copied",
+      "browseCourses": "Browse our courses",
+      "moreTitle": "Keep reading",
+      "viewAll": "View all articles",
+      "eyebrow": "From the blog",
+      "homeTitle": "Latest articles",
+      "homeSubtitle": "Tips, lessons and news — free to read."
+    },
+    "booking": {
+      "defaultIntro": "Leave your details and we'll get back to you shortly.",
+      "name": "Full name",
+      "phone": "Phone (WhatsApp)",
+      "phoneHint": "We'll use this number to contact you.",
+      "phonePlaceholder": "+20 100 123 4567",
+      "email": "Email",
+      "course": "Which course?",
+      "courseUnsure": "Not sure yet — help me choose",
+      "choice": "Choose one",
+      "date": "Preferred date",
+      "time": "Preferred time",
+      "message": "Anything we should know?",
+      "optional": "(optional)",
+      "submit": "Send request",
+      "sending": "Sending…",
+      "privacy": "We only use your details to contact you about this request.",
+      "successTitle": "Request sent",
+      "successBody": "Thank you! We'll contact you soon to confirm the details.",
+      "backHome": "Back to home",
+      "another": "Send another request",
+      "next": {
+        "title": "What happens next",
+        "one": "We receive your request straight away.",
+        "two": "Our team contacts you, usually within a day.",
+        "three": "We confirm all the details with you."
+      },
+      "whatsappTitle": "Prefer WhatsApp?",
+      "whatsappHint": "Message us directly",
+      "whatsappPrefill": "Hello {name}, I'd like to ask about “{form}”.",
+      "homeEyebrow": "Book now",
+      "homeTitle": "How can we help?",
+      "homeSubtitle": "Choose what you need and leave your details — we'll take it from there.",
+      "errors": {
+        "name": "Please enter your name.",
+        "phone": "Please enter a phone number we can reach you on.",
+        "email": "Please enter a valid email address.",
+        "course": "Please choose a course from the list.",
+        "choice": "Please choose an option.",
+        "date": "Please pick a date from today onwards.",
+        "time": "Please pick a valid time.",
+        "message": "Your message is too long.",
+        "rate": "Too many attempts — please wait a minute and try again.",
+        "gone": "This form is no longer available.",
+        "generic": "Something went wrong. Please try again."
+      }
     }
   },
   "crm": {
@@ -6197,7 +6288,8 @@
       "course_order": "Course orders",
       "payment_method": "Receiving accounts",
       "room": "Video classroom",
-      "recording": "Recordings"
+      "recording": "Recordings",
+      "booking": "Booking requests"
     },
     "items": {
       "crm_read": {
@@ -6543,6 +6635,14 @@
       "room_monitor": {
         "label": "Monitor classes silently",
         "desc": "Enter a live class unseen to observe it for quality and safety"
+      },
+      "booking_read": {
+        "label": "View booking requests",
+        "desc": "See requests from the site's booking forms and who sent them"
+      },
+      "booking_manage": {
+        "label": "Manage bookings",
+        "desc": "Update requests, write notes and set up the booking forms"
       }
     }
   },
@@ -7141,7 +7241,8 @@
         "approach": "How we teach",
         "expertise": "Areas of expertise",
         "personLink": "Profile link",
-        "hours": "When you reply"
+        "hours": "When you reply",
+        "ctaBooking": "A booking form"
       },
       "add": {
         "badge": "Add a badge",
@@ -7825,6 +7926,275 @@
       "atStart": "right at the start",
       "afterEnd": "{v} after the lesson",
       "beforeEnd": "before the lesson ended"
+    }
+  },
+  "blog": {
+    "title": "Blog",
+    "subtitle": "Articles on your course site — they bring visitors from search and build trust in your courses.",
+    "noAccess": "You don't have access to the blog.",
+    "new": "New post",
+    "viewBlog": "View blog",
+    "delete": "Delete",
+    "search": "Search posts…",
+    "empty": "No posts yet",
+    "emptyHint": "Write your first article — tips, lessons, news. Published posts appear on your site under Blog.",
+    "noResults": "Nothing matches that",
+    "noResultsHint": "Try a different search or clear the filters.",
+    "clearFilters": "Clear filters",
+    "filter": {
+      "all": "All",
+      "PUBLISHED": "Published",
+      "DRAFT": "Drafts"
+    },
+    "row": {
+      "published": "Published {when}",
+      "edited": "Edited {when}",
+      "minutes": "{count, plural, one {1 min read} other {# min read}}",
+      "edit": "Edit",
+      "more": "More actions",
+      "view": "View on site",
+      "publish": "Publish",
+      "unpublish": "Unpublish"
+    },
+    "form": {
+      "newTitle": "New post",
+      "newHint": "Give it a working title — you can change it any time.",
+      "title": "Title",
+      "titlePlaceholder": "e.g. 5 habits that make memorising easier",
+      "create": "Create & start writing",
+      "cancel": "Cancel",
+      "cover": "Cover image",
+      "coverHint": "Shown on the blog and when the link is shared. Landscape works best.",
+      "optional": "Optional",
+      "excerpt": "Summary",
+      "excerptHint": "Shown on the blog and in search results. Leave it empty to use the post's first lines.",
+      "author": "Author",
+      "slug": "Web address",
+      "slugHint": "The end of the post's link — lowercase letters, numbers and dashes."
+    },
+    "confirm": {
+      "deleteTitle": "Delete this post?",
+      "deleteBody": "It will be removed from your site:"
+    },
+    "alerts": {
+      "failed": "Something went wrong. Please try again.",
+      "deleted": "Post deleted.",
+      "published": "Published — the post is live on your site.",
+      "unpublished": "Moved back to drafts.",
+      "saved": "Saved."
+    },
+    "editor": {
+      "back": "All posts",
+      "notFound": "We couldn't find that post.",
+      "saving": "Saving…",
+      "unsaved": "Unsaved changes",
+      "saved": "Saved",
+      "savedAt": "Saved {when}",
+      "viewLive": "View on site",
+      "save": "Save",
+      "details": "Post details",
+      "delete": "Delete post",
+      "bodyPlaceholder": "Start writing… Use the toolbar for headings, lists, images and videos.",
+      "undo": "Undo",
+      "redo": "Redo",
+      "heading2": "Heading",
+      "heading3": "Subheading",
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "strike": "Strikethrough",
+      "bulletList": "Bulleted list",
+      "orderedList": "Numbered list",
+      "quote": "Quote",
+      "codeBlock": "Code block",
+      "divider": "Divider",
+      "link": "Link",
+      "unlink": "Remove link",
+      "image": "Insert image",
+      "youtube": "Embed a YouTube video",
+      "uploadFailed": "The image didn't upload. Please try again.",
+      "linkTitle": "Add a link",
+      "linkUrl": "Link address",
+      "youtubeTitle": "Embed a YouTube video",
+      "youtubeUrl": "YouTube link",
+      "youtubeInvalid": "That doesn't look like a YouTube link.",
+      "cancel": "Cancel",
+      "apply": "Apply"
+    }
+  },
+  "bookings": {
+    "title": "Booking requests",
+    "subtitle": "Requests from your site's booking forms — consultations, course bookings, whatever you named them.",
+    "noAccess": "You don't have access to booking requests.",
+    "view": {
+      "requests": "Requests",
+      "forms": "Forms"
+    },
+    "stat": {
+      "new": "New",
+      "newHint": "Waiting for someone to reach out",
+      "open": "Open",
+      "openHint": "New, contacted or confirmed",
+      "confirmed": "Confirmed",
+      "completedHint": "{count} completed",
+      "thisMonth": "This month",
+      "totalHint": "{count} all time"
+    },
+    "filter": {
+      "open": "Open",
+      "all": "All",
+      "form": "Form",
+      "allForms": "All forms"
+    },
+    "status": {
+      "NEW": "New",
+      "CONTACTED": "Contacted",
+      "CONFIRMED": "Confirmed",
+      "COMPLETED": "Completed",
+      "CANCELLED": "Cancelled"
+    },
+    "search": "Search name, phone or message",
+    "col": {
+      "name": "Name",
+      "form": "Form",
+      "details": "Details",
+      "status": "Status",
+      "received": "Received",
+      "actions": "Actions"
+    },
+    "open": "Open",
+    "empty": "No requests here",
+    "emptyOpen": "You're all caught up",
+    "emptyHint": "When a visitor fills in one of your booking forms, the request lands here.",
+    "emptyNoForms": "No booking forms yet",
+    "emptyNoFormsHint": "Create a form — “Book a consultation”, “Book a course”, or a name of your own — and it appears on your site.",
+    "emptySearch": "No requests match these filters",
+    "clearFilters": "Clear filters",
+    "pageOf": "Page {page} of {pages} · {total} requests",
+    "prev": "Previous",
+    "next": "Next",
+    "close": "Close",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "detail": {
+      "title": "Booking request",
+      "whatsapp": "WhatsApp",
+      "whatsappText": "Hello {name}, we received your request “{form}”.",
+      "form": "Form",
+      "received": "Received",
+      "course": "Course",
+      "choice": "Choice",
+      "preferred": "Preferred time",
+      "account": "Site account",
+      "message": "Message",
+      "status": "Status",
+      "handledBy": "Last updated by {name}",
+      "note": "Staff note",
+      "noteHint": "Only your team sees this.",
+      "notePlaceholder": "e.g. Confirmed for Tuesday at 7pm",
+      "saveNote": "Save note"
+    },
+    "forms": {
+      "new": "New form",
+      "emptyTitle": "Create your first booking form",
+      "emptyHint": "Pick a starting point — you can rename it and choose its questions before saving.",
+      "addAnother": "Add another form",
+      "noSiteYet": "Your course site has no address yet, so these forms can't be reached. Ask support to set up your site address.",
+      "live": "Live",
+      "hidden": "Hidden",
+      "more": "More actions",
+      "edit": "Edit",
+      "copyLink": "Copy link",
+      "hide": "Hide from site",
+      "show": "Show on site",
+      "view": "Open page",
+      "requests": "{count, plural, =0 {No requests} one {# request} other {# requests}}",
+      "inNav": "In the site menu",
+      "notInNav": "Not in the menu",
+      "onHome": "On the home page",
+      "notOnHome": "Not on the home page",
+      "asks": {
+        "contact": "Name & phone",
+        "email": "Email",
+        "course": "Course",
+        "date": "Date & time",
+        "choice": "Choice",
+        "message": "Message"
+      }
+    },
+    "presets": {
+      "consultation": {
+        "title": "Book a consultation",
+        "description": "Tell us a little about what you need and pick a time that suits you — we'll confirm by phone or WhatsApp.",
+        "hint": "Asks for a preferred date and time"
+      },
+      "course": {
+        "title": "Book a course",
+        "description": "Choose the course you're interested in and we'll get in touch to complete your booking.",
+        "hint": "Lets visitors pick one of your courses"
+      },
+      "blank": {
+        "title": "Blank form",
+        "hint": "Start from scratch with a name of your own"
+      }
+    },
+    "editor": {
+      "newTitle": "New booking form",
+      "editTitle": "Edit booking form",
+      "hint": "Name it whatever fits your business — the name is what visitors see.",
+      "title": "Name",
+      "titleHint": "Shown as the menu link, the page title and the button.",
+      "slug": "Page address",
+      "slugHint": "Lowercase letters, numbers and dashes.",
+      "slugInvalid": "Use lowercase letters, numbers and dashes only.",
+      "description": "Intro",
+      "descriptionHint": "A sentence or two under the title.",
+      "questions": "Questions",
+      "alwaysAsked": "Name and phone number are always asked.",
+      "askCourse": "Which course?",
+      "askCourseHint": "A list of your published courses",
+      "askDate": "Preferred date & time",
+      "askDateHint": "The visitor suggests when suits them",
+      "askEmail": "Email",
+      "askEmailHint": "Optional for the visitor",
+      "askMessage": "Message",
+      "askMessageHint": "A free note from the visitor",
+      "choiceLabel": "Your own question",
+      "choiceLabelHint": "Visitors must pick one of the options. Leave the options empty to skip it.",
+      "choiceLabelPlaceholder": "e.g. Consultation type",
+      "addChoice": "Add option",
+      "choicePlaceholder": "e.g. Individual",
+      "maxChoices": "That's the maximum number of options.",
+      "placement": "Where it appears",
+      "inNav": "Show in the site menu",
+      "onHome": "Show on the home page",
+      "live": "Live on the site",
+      "liveHint": "A hidden form disappears from the site but keeps its requests.",
+      "submitLabel": "Button label",
+      "submitLabelHint": "Blank = “Send request”",
+      "success": "Thank-you message",
+      "successHint": "Shown after sending. Blank = a standard message.",
+      "optional": "(optional)",
+      "save": "Save changes",
+      "create": "Create form"
+    },
+    "confirm": {
+      "deleteFormTitle": "Delete this form?",
+      "deleteFormBody": "It disappears from your site. The requests it already received stay in the inbox.",
+      "deleteRequestTitle": "Delete this request?",
+      "deleteRequestBody": "Use this for spam or tests. For a real request, mark it Cancelled instead so you keep the record."
+    },
+    "alerts": {
+      "failed": "Something went wrong. Please try again.",
+      "created": "Form created — it's live on your site.",
+      "saved": "Changes saved.",
+      "hidden": "Form hidden from your site.",
+      "shown": "Form is live on your site.",
+      "formDeleted": "Form deleted.",
+      "requestDeleted": "Request deleted.",
+      "statusSaved": "Status updated.",
+      "noteSaved": "Note saved.",
+      "copied": "Link copied."
     }
   }
 }

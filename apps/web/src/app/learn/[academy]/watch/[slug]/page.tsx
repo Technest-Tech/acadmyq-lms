@@ -36,11 +36,13 @@ import {
   LearnApiError,
   type LearnLesson,
   type LearnProgress,
+  type LearnQuizResult,
   type LearnSection,
 } from "@/lib/learn-api";
 import { completedCount, lessonsOf, resumeLesson, sumDuration } from "@/lib/learn-format";
 import { cn } from "@/lib/utils";
 import { LessonContent } from "../../lesson-content";
+import { QuizRunner } from "../../quiz-runner";
 
 /**
  * The lesson player (docs/lms/09). Runs WITHOUT the marketing chrome — the provider strips the
@@ -384,6 +386,26 @@ export default function WatchPage() {
 
                 {!isMedia && <div className="mt-6">{stage}</div>}
 
+                {current.type !== "QUIZ" && (current.question_count ?? 0) > 0 && (
+                  <LessonQuestions
+                    key={current.id}
+                    academy={academy}
+                    lesson={current}
+                    onPassed={(res) => {
+                      // The server already ticked the lesson off on the pass — mirror it, no save.
+                      setProgress((p) => ({
+                        ...p,
+                        [current.id]: {
+                          status: "COMPLETED",
+                          position_seconds: p[current.id]?.position_seconds ?? 0,
+                          completed_at: p[current.id]?.completed_at ?? new Date().toISOString(),
+                        },
+                      }));
+                      if (res.certificate) setCertificate(res.certificate.serial);
+                    }}
+                  />
+                )}
+
                 <LessonTabs
                   tab={tab}
                   setTab={setTab}
@@ -509,6 +531,38 @@ function LessonHeader({
         </Button>
       )}
     </div>
+  );
+}
+
+/**
+ * The optional questions a client attached under a (non-quiz) lesson. Answering is never required
+ * to move on; a pass ticks the lesson off like a QUIZ lesson's would.
+ */
+function LessonQuestions({
+  academy,
+  lesson,
+  onPassed,
+}: {
+  academy: string;
+  lesson: LearnLesson;
+  onPassed: (result: LearnQuizResult) => void;
+}) {
+  const t = useTranslations("learn");
+  return (
+    <section className="mt-8 rounded-2xl border p-4 sm:p-6">
+      <header className="mb-4 flex items-start gap-3">
+        <span className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl">
+          <ListChecks className="size-5" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-semibold">{t("player.questionsTitle")}</h2>
+          <p className="text-muted-foreground text-sm">
+            {t("player.questionsHint", { n: lesson.question_count ?? 0 })}
+          </p>
+        </div>
+      </header>
+      <QuizRunner academy={academy} lessonId={lesson.id} onPassed={onPassed} />
+    </section>
   );
 }
 

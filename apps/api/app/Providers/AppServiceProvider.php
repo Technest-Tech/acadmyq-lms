@@ -109,6 +109,13 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(10)->by($perTenant($request)),
             Limit::perHour(60)->by($perTenant($request)),
         ]);
+
+        // Booking-form submissions (docs/lms/13): anonymous writes that land in a person's inbox, so
+        // the ceiling is what a real visitor could need (a couple of forms, a correction) and no more.
+        RateLimiter::for('learn-booking', fn (Request $request) => [
+            Limit::perMinute(5)->by('booking|'.$perTenant($request)),
+            Limit::perHour(20)->by('booking|'.$perTenant($request)),
+        ]);
     }
 
     /**

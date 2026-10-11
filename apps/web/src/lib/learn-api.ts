@@ -121,7 +121,8 @@ export interface LearnSiteContent {
     title: string;
     subtitle: string;
     image_url: string;
-    primary_cta: "browse" | "redeem" | "contact";
+    /** `booking` = the site's first booking form (docs/lms/13); browse when there is none. */
+    primary_cta: "browse" | "redeem" | "contact" | "booking";
     /** Overrides the primary button's label; blank ⇒ the template's translated one. */
     cta_label?: string;
     badges: string[];
@@ -218,6 +219,8 @@ export interface LearnSiteStats {
   certificates: number;
   /** Published books. Optional: an older API build does not send it. */
   books?: number;
+  /** Published blog posts (docs/lms/12) — the header's Blog link turns on this. */
+  posts?: number;
 }
 
 /**
@@ -243,6 +246,26 @@ export interface LearnSiteCommerce {
    * instead of flickering in after a catalogue fetch.
    */
   books?: LearnSiteBooks;
+  /**
+   * Booking forms (docs/lms/13) — "book a consultation", "book a course", named by the client.
+   * Oldest first; the first is the site's "main" one wherever the template needs just one. Absent
+   * from an older API build, which means "no forms".
+   */
+  bookings?: LearnSiteBooking[];
+}
+
+/** One ACTIVE booking form, as the site document advertises it. */
+export interface LearnSiteBooking {
+  slug: string;
+  /** The client's own name for it — the nav label and the button text. */
+  title: string;
+  description: string | null;
+  /** Asks "which course?" — the course page offers it as a way in. */
+  ask_course: boolean;
+  /** Listed in the header nav. */
+  nav: boolean;
+  /** Gets a card in the home page's booking band. */
+  home: boolean;
 }
 
 /** Whether this client sells digital products at all, and on what terms. */
@@ -327,6 +350,8 @@ export interface LearnLesson {
   /** VIDEO_UPLOAD / uploaded AUDIO: an upload is attached, and whether it's finished transcoding. */
   has_media?: boolean;
   media_status?: LearnMediaStatus;
+  /** Questions attached to the lesson (a QUIZ lesson's, or the optional ones under any other). */
+  question_count?: number;
 }
 
 export interface LearnSection {
@@ -703,6 +728,42 @@ export function learnCancelOrder(academy: string, number: string): Promise<{ ok:
   return learnFetch(academy, `/orders/${number}/cancel`, { method: "POST" });
 }
 
+// ── the blog (docs/lms/12) ───────────────────────────────────────────────────
+// Public and read-only. The pages fetch it on the SERVER (lib/learn-server.ts) so every article has
+// a real title, description and OG image; these browser twins exist for client-side paging.
+
+export interface LearnPostCard {
+  id: string;
+  title: string;
+  slug: string;
+  cover_image_path: string | null;
+  /** The author's summary, else the opening of the body. */
+  summary: string | null;
+  author_name: string | null;
+  reading_minutes: number;
+  published_at: string | null;
+  updated_at: string | null;
+}
+
+export interface LearnPostPage {
+  posts: LearnPostCard[];
+  meta: { page: number; per_page: number; total: number; last_page: number };
+}
+
+export interface LearnPostDetail {
+  /** `content_html` is sanitized by the API and safe to render as-is. */
+  post: LearnPostCard & { content_html: string };
+  more: LearnPostCard[];
+}
+
+export function learnPosts(academy: string, page = 1): Promise<LearnPostPage> {
+  return learnFetch(academy, `/posts?page=${page}`);
+}
+
+export function learnPost(academy: string, slug: string): Promise<LearnPostDetail> {
+  return learnFetch(academy, `/posts/${slug}`);
+}
+
 // ── the bookshop (docs/lms/11) ───────────────────────────────────────────────
 // Books and PDFs sold alongside the courses. The catalogue and the sales page are PUBLIC — and so
 // is the free sample, deliberately: asking someone to register before they can read a sample
@@ -875,6 +936,57 @@ export function learnResetPassword(
   input: { token: string; password: string; password_confirmation: string },
 ): Promise<{ ok: boolean }> {
   return learnFetch(academy, "/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+// ── booking forms (docs/lms/13) ──────────────────────────────────────────────
+// Public and anonymous — a sign-up wall in front of "call me back" loses the lead. A signed-in
+// learner's token rides along anyway (learnFetch adds it) so staff can see who asked.
+
+export interface LearnBookingForm {
+  slug: string;
+  title: string;
+  description: string | null;
+  submit_label: string | null;
+  success_message: string | null;
+  ask_email: boolean;
+  ask_course: boolean;
+  ask_date: boolean;
+  ask_message: boolean;
+  choice_label: string | null;
+  /** Non-empty ⇒ the visitor must pick one. */
+  choices: string[];
+}
+
+export interface LearnBookingInput {
+  full_name: string;
+  phone: string;
+  email?: string | null;
+  course_id?: string | null;
+  choice?: string | null;
+  /** "YYYY-MM-DD" / "HH:MM", the visitor's wall-clock wish. */
+  preferred_date?: string | null;
+  preferred_time?: string | null;
+  message?: string | null;
+  /** The honeypot — always sent empty by a real browser. */
+  website?: string;
+}
+
+export function learnBookingForm(
+  academy: string,
+  slug: string,
+): Promise<{ form: LearnBookingForm; courses: { id: string; title: string; slug: string }[] }> {
+  return learnFetch(academy, `/bookings/${encodeURIComponent(slug)}`);
+}
+
+export function learnSubmitBooking(
+  academy: string,
+  slug: string,
+  input: LearnBookingInput,
+): Promise<{ ok: boolean }> {
+  return learnFetch(academy, `/bookings/${encodeURIComponent(slug)}`, {
     method: "POST",
     body: JSON.stringify(input),
   });

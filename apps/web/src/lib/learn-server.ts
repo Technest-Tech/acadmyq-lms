@@ -1,5 +1,12 @@
 import { apiBase } from "@/lib/api-base";
-import type { LearnCourseCard, LearnSite, LearnSiteContent } from "@/lib/learn-api";
+import type {
+  LearnBookingForm,
+  LearnCourseCard,
+  LearnPostDetail,
+  LearnPostPage,
+  LearnSite,
+  LearnSiteContent,
+} from "@/lib/learn-api";
 
 /**
  * Server-side loader for an academy's public-site content (docs/lms/09). The learner-site layout
@@ -64,6 +71,69 @@ export async function fetchLearnCatalog(
   } catch {
     return null;
   }
+}
+
+/**
+ * One page of the blog (docs/lms/12), on the server — an article list a search engine can read is
+ * the whole point of a blog, so it is never left to the browser. Cached for a minute like the site.
+ *
+ * Null when the API is unreachable, so the page can say "try again" instead of "no articles".
+ */
+export async function fetchLearnPosts(
+  academy: string,
+  page = 1,
+): Promise<LearnPostPage | null> {
+  try {
+    const res = await fetch(`${apiBase()}/api/learn/posts?page=${page}`, {
+      headers: { Accept: "application/json", "X-Academy": academy },
+      next: { revalidate: 60, tags: [`learn-blog:${academy}`] },
+    });
+    if (!res.ok) return null;
+
+    return (await res.json()) as LearnPostPage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One article. `null` = it does not exist (or is not published) ⇒ the page 404s; a thrown error =
+ * the API blinked, which must not be reported to a search engine as a missing page.
+ */
+export async function fetchLearnPost(
+  academy: string,
+  slug: string,
+): Promise<LearnPostDetail | null> {
+  const res = await fetch(`${apiBase()}/api/learn/posts/${encodeURIComponent(slug)}`, {
+    headers: { Accept: "application/json", "X-Academy": academy },
+    next: { revalidate: 60, tags: [`learn-blog:${academy}`] },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Blog post request failed (${res.status})`);
+
+  return (await res.json()) as LearnPostDetail;
+}
+
+/**
+ * One booking form (docs/lms/13), on the server — so its page has a real title and description when
+ * the link is shared on WhatsApp, which is exactly where a "book a consultation" link travels.
+ * `null` = no such ACTIVE form ⇒ 404; a thrown error = the API blinked.
+ */
+export async function fetchLearnBookingForm(
+  academy: string,
+  slug: string,
+): Promise<{ form: LearnBookingForm; courses: { id: string; title: string; slug: string }[] } | null> {
+  const res = await fetch(`${apiBase()}/api/learn/bookings/${encodeURIComponent(slug)}`, {
+    headers: { Accept: "application/json", "X-Academy": academy },
+    next: { revalidate: 30, tags: [`learn-booking:${academy}`] },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Booking form request failed (${res.status})`);
+
+  return (await res.json()) as {
+    form: LearnBookingForm;
+    courses: { id: string; title: string; slug: string }[];
+  };
 }
 
 /**

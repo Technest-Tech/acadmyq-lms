@@ -53,6 +53,7 @@ import {
   deleteCourse,
   deleteLesson,
   deleteSection,
+  ensureLessonQuestions,
   getCourse,
   setCourseStatus,
   updateCourse,
@@ -109,7 +110,10 @@ export function CourseEditor({ courseId }: { courseId: string }) {
   const [lessonModal, setLessonModal] = useState<{ sectionId: string; lesson?: Lesson } | null>(
     null,
   );
-  const [quizBuilder, setQuizBuilder] = useState<string | null>(null);
+  // A QUIZ lesson's quiz, or a lesson's optional questions (`lesson` set; quizId null = none yet).
+  const [quizBuilder, setQuizBuilder] = useState<{ quizId: string | null; lesson?: Lesson } | null>(
+    null,
+  );
   // A newly uploaded cover, held until the details form is saved (null = leave the current one).
   const [coverAssetId, setCoverAssetId] = useState<string | null>(null);
   const [coverUploading, setCoverUploading] = useState(false);
@@ -370,9 +374,11 @@ export function CourseEditor({ courseId }: { courseId: string }) {
                           canManage={canManage}
                           onEdit={() => setLessonModal({ sectionId: section.id, lesson })}
                           onBuildQuiz={
-                            lesson.type === "QUIZ" && lesson.quiz_id
-                              ? () => setQuizBuilder(lesson.quiz_id)
-                              : undefined
+                            lesson.type === "QUIZ"
+                              ? lesson.quiz_id
+                                ? () => setQuizBuilder({ quizId: lesson.quiz_id })
+                                : undefined
+                              : () => setQuizBuilder({ quizId: lesson.quiz_id, lesson })
                           }
                           onDelete={() =>
                             setConfirm({
@@ -728,10 +734,18 @@ export function CourseEditor({ courseId }: { courseId: string }) {
       {quizBuilder && (
         <QuizBuilder
           courseId={courseId}
-          quizId={quizBuilder}
+          quizId={quizBuilder.quizId}
+          lessonTitle={quizBuilder.lesson?.title}
+          ensureQuizId={
+            quizBuilder.lesson
+              ? async () => (await ensureLessonQuestions(courseId, quizBuilder.lesson!.id)).quizId
+              : undefined
+          }
           onClose={() => setQuizBuilder(null)}
           onSaved={() => {
             setQuizBuilder(null);
+            // The outline shows each lesson's question count, so it has to re-read.
+            if (quizBuilder.lesson) refresh();
             showAlert("success", t("alerts.saved"));
           }}
         />
@@ -877,7 +891,10 @@ function BannerStat({ Icon, label, value }: { Icon: LucideIcon; label: string; v
   );
 }
 
-/** One lesson in the outline — position, kind chip, title, and (for managers) its row actions. */
+/**
+ * One lesson in the outline — position, kind chip, title, and (for managers) its row actions. A QUIZ
+ * lesson's action builds its quiz; every other lesson's adds or edits its optional questions.
+ */
 function LessonRow({
   lesson,
   index,
@@ -899,6 +916,13 @@ function LessonRow({
   const style = LESSON_STYLE[lesson.type] ?? LESSON_STYLE.TEXT;
   const c = lmsColor(style.color);
   const Icon = style.Icon;
+  const isQuiz = lesson.type === "QUIZ";
+  const questionCount = lesson.question_count ?? 0;
+  const quizLabel = isQuiz
+    ? t("quiz.build")
+    : questionCount > 0
+      ? t("quiz.editQuestions")
+      : t("quiz.addQuestions");
 
   return (
     <li className="hover:bg-muted/30 group flex items-center gap-3 px-4 py-2.5 transition-colors">
@@ -917,6 +941,12 @@ function LessonRow({
         <p className="truncate text-sm font-medium">{lesson.title}</p>
         <p className="text-muted-foreground text-xs">{t(`lesson.types.${lesson.type}`)}</p>
       </div>
+      {!isQuiz && questionCount > 0 && (
+        <StatusPill tone="emerald" dot={false} className="hidden sm:inline-flex">
+          <ListChecks className="size-3" />
+          {t("quiz.questionCount", { n: questionCount })}
+        </StatusPill>
+      )}
       {lesson.is_preview && (
         <StatusPill tone="blue" dot={false} className="hidden sm:inline-flex">
           <Eye className="size-3" />
@@ -926,8 +956,8 @@ function LessonRow({
       {canManage && (
         <div className="flex shrink-0 items-center gap-0.5">
           {onBuildQuiz && (
-            <Button variant="ghost" size="sm" onClick={onBuildQuiz}>
-              <ListChecks /> <span className="hidden sm:inline">{t("quiz.build")}</span>
+            <Button variant="ghost" size="sm" onClick={onBuildQuiz} aria-label={quizLabel}>
+              <ListChecks /> <span className="hidden sm:inline">{quizLabel}</span>
             </Button>
           )}
           <Button variant="ghost" size="icon-sm" aria-label={t("lesson.save")} onClick={onEdit}>

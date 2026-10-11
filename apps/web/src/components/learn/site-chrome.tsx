@@ -97,7 +97,7 @@ interface NavItem {
 
 function useNavItems(): NavItem[] {
   const t = useTranslations("learn.nav");
-  const { academy, site, commerce } = useLearn();
+  const { academy, site, commerce, stats } = useLearn();
   const base = `/learn/${academy}`;
 
   return [
@@ -106,6 +106,13 @@ function useNavItems(): NavItem[] {
     // Books only appear for a client who actually sells one (docs/lms/11). The answer travels with
     // the site document, so the link is right on the first frame instead of appearing a beat late.
     ...(commerce?.books?.any === true ? [{ href: `${base}/books`, label: t("books") }] : []),
+    // The blog (docs/lms/12), on the same first-frame rule: the count rides the site document.
+    ...((stats.posts ?? 0) > 0 ? [{ href: `${base}/blog`, label: t("blog") }] : []),
+    // Booking forms (docs/lms/13), under the CLIENT's own name for each — "احجز استشارة" is the
+    // label, not a translated "Bookings". Same first-frame rule: the list rides the site document.
+    ...(commerce?.bookings ?? [])
+      .filter((b) => b.nav)
+      .map((b) => ({ href: `${base}/book/${b.slug}`, label: b.title })),
     ...(site.pages.about ? [{ href: `${base}/about`, label: t("about") }] : []),
     ...(site.pages.faq ? [{ href: `${base}/faq`, label: t("faq") }] : []),
     ...(site.pages.contact

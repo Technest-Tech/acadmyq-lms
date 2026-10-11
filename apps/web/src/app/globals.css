@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -389,4 +390,41 @@
 /* Cursor tells the truth: links are inert while previewing, the picker changes the page. */
 [data-site-preview="on"] a {
   cursor: default;
+}
+
+/*
+ * Blog article body (docs/lms/12) — shared by the dashboard editor and the public article page, so
+ * what the writer sees is what the reader gets. The `prose` utilities do the typography; these are
+ * the pieces they don't know about: Tiptap's YouTube embed, uploaded images, the empty-editor
+ * placeholder and the selected-image ring.
+ */
+.blog-prose div[data-youtube-video] {
+  margin-block: 1.75em;
+}
+.blog-prose div[data-youtube-video] iframe {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 0.875rem;
+}
+.blog-prose img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+  border-radius: 0.875rem;
+}
+.blog-prose .is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: inline-start;
+  height: 0;
+  pointer-events: none;
+  color: var(--muted-foreground);
+}
+.blog-prose img.ProseMirror-selectednode,
+.blog-prose div[data-youtube-video].ProseMirror-selectednode iframe {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
 }

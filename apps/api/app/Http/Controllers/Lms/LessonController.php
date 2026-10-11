@@ -26,6 +26,11 @@ use Illuminate\Validation\ValidationException;
  *   - QUIZ          → quiz_id (docs/lms/04 §quizzes) — an existing quiz, else one is auto-created for
  *                     the course so "add a quiz lesson" always yields something to build.
  *
+ * Every OTHER type may carry optional questions too — the same `quiz_id`, attached through
+ * questions() — answered under the lesson's content. So `quiz_id` is not a type payload column:
+ * changing a lesson's type keeps its questions (a QUIZ lesson turned into a video keeps its quiz as
+ * the video's questions, and back).
+ *
  * `course.manage` gates everything; RLS scopes to the academy. An uploaded media_asset must be READY
  * and of the matching kind (VIDEO/AUDIO) and academy — a not-ready or cross-tenant id is a 422; a
  * quiz_id must belong to this course.
@@ -132,6 +137,48 @@ final class LessonController extends Controller
             before: ['title' => $lesson->title, 'type' => $lesson->type]);
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * POST /api/courses/{course}/lessons/{id}/questions — give a lesson its (optional) questions.
+     * Idempotent: returns the lesson's quiz if it has one, else creates an empty one and attaches it.
+     * The builder calls this on the first save, so opening and cancelling leaves nothing behind.
+     * Questions are removed by deleting the quiz (the FK sets lessons.quiz_id back to null).
+     */
+    public function questions(string $courseId, string $id): JsonResponse
+    {
+        Gate::authorize('course.manage');
+
+        $academyId = $this->currentAcademyId();
+
+        $quizId = DB::transaction(function () use ($courseId, $id, $academyId): string {
+            $this->findCourse($courseId);
+            $lesson = DB::table('lessons')->where('id', $id)->where('course_id', $courseId)
+                ->lockForUpdate()->first(['id', 'title', 'quiz_id']);
+            if ($lesson === null) {
+                abort(404, 'Lesson not found.');
+            }
+            if ($lesson->quiz_id !== null) {
+                return (string) $lesson->quiz_id;
+            }
+
+            $quizId = (string) Str::uuid();
+            DB::table('quizzes')->insert([
+                'id' => $quizId,
+                'academy_id' => $academyId,
+                'course_id' => $courseId,
+                'title' => (string) $lesson->title,
+                'pass_mark' => 60,
+            ]);
+            DB::table('lessons')->where('id', $id)->update(['quiz_id' => $quizId, 'updated_at' => now()]);
+
+            Audit::log('lesson.questions_add', 'lesson', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['quiz_id' => $quizId]);
+
+            return $quizId;
+        });
+
+        return response()->json(['quizId' => $quizId]);
     }
 
     /** POST /api/courses/{course}/lessons/reorder — persist a new order within a section. */
@@ -241,12 +288,12 @@ final class LessonController extends Controller
      */
     private function buildTypePayload(string $type, array $data, string $courseId, string $academyId, ?object $existing = null): array
     {
+        // quiz_id is deliberately absent: any lesson may carry questions (see the class doc).
         $blank = [
             'youtube_video_id' => null,
             'body' => null,
             'attachment_path' => null,
             'media_asset_id' => null,
-            'quiz_id' => null,
         ];
 
         switch ($type) {
@@ -312,7 +359,8 @@ final class LessonController extends Controller
                 return ['attachment_path' => (string) $url] + $blank;
 
             case 'QUIZ':
-                $quizId = $data['quiz_id'] ?? ($existing?->type === 'QUIZ' ? $existing->quiz_id : null);
+                // A lesson that already had questions keeps them as its quiz.
+                $quizId = $data['quiz_id'] ?? $existing?->quiz_id;
                 if ($quizId !== null) {
                     $this->assertQuizInCourse($courseId, (string) $quizId);
 

@@ -9,6 +9,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
+  deleteQuiz,
   getQuiz,
   QUESTION_TYPES,
   saveQuiz,
@@ -41,20 +42,29 @@ const blankOptions = (type: QuestionType) =>
  * questions/options, and saves the whole thing (the API replaces questions atomically). Correct
  * answers are marked with a radio (SINGLE / TRUE_FALSE) or checkboxes (MULTIPLE), and the marked
  * option is tinted green so a long quiz can be proof-read at a glance.
+ *
+ * `lessonTitle` switches it to a lesson's optional questions: `quizId` may then be null (the lesson
+ * has none yet) and `ensureQuizId` attaches a quiz on the first save — so opening and cancelling
+ * leaves nothing behind — and a saved set can be removed outright.
  */
 export function QuizBuilder({
   courseId,
   quizId,
+  ensureQuizId,
+  lessonTitle,
   onClose,
   onSaved,
 }: {
   courseId: string;
-  quizId: string;
+  quizId: string | null;
+  ensureQuizId?: () => Promise<string>;
+  lessonTitle?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const t = useTranslations("courses.quiz");
-  const [loading, setLoading] = useState(true);
+  const forLesson = lessonTitle !== undefined;
+  const [loading, setLoading] = useState(quizId !== null);
   const [passMark, setPassMark] = useState(60);
   const [maxAttempts, setMaxAttempts] = useState<number | "">("");
   const [questions, setQuestions] = useState<Draft[]>([]);
@@ -62,6 +72,7 @@ export function QuizBuilder({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (quizId === null) return;
     void getQuiz(courseId, quizId)
       .then((d) => {
         setPassMark(d.quiz.pass_mark);
@@ -125,11 +136,27 @@ export function QuizBuilder({
         points: q.points,
         options: q.options.map((o) => ({ text: o.text.trim(), is_correct: o.is_correct })),
       }));
-      await saveQuiz(courseId, quizId, {
+      const id = quizId ?? (await ensureQuizId?.());
+      if (!id) throw new Error(t("saveFailed"));
+      await saveQuiz(courseId, id, {
         pass_mark: passMark,
         max_attempts: maxAttempts === "" ? null : Number(maxAttempts),
         questions: payload,
       });
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("saveFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (quizId === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteQuiz(courseId, quizId);
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("saveFailed"));
@@ -149,7 +176,7 @@ export function QuizBuilder({
     <Modal
       open
       onClose={onClose}
-      title={t("title")}
+      title={forLesson ? t("lessonTitle", { lesson: lessonTitle }) : t("title")}
       description={
         loading
           ? undefined
@@ -158,6 +185,17 @@ export function QuizBuilder({
       size="lg"
       footer={
         <>
+          {forLesson && quizId !== null && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive me-auto"
+              onClick={remove}
+              disabled={busy || loading}
+            >
+              <Trash2 /> {t("removeAll")}
+            </Button>
+          )}
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             {t("cancel")}
           </Button>
@@ -208,7 +246,7 @@ export function QuizBuilder({
                 Icon={ListChecks}
                 color="emerald"
                 title={t("noQuestions")}
-                description={t("noQuestionsHint")}
+                description={forLesson ? t("lessonHint") : t("noQuestionsHint")}
                 action={
                   <Button type="button" onClick={addQuestion}>
                     <Plus /> {t("addQuestion")}

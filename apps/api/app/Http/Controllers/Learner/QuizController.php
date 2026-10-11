@@ -13,7 +13,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * The learner quiz runner (docs/lms/04 §quizzes). Taking a quiz needs an ACTIVE enrollment. The quiz
+ * The learner quiz runner (docs/lms/04 §quizzes). Serves both a QUIZ lesson and the optional
+ * questions under any other lesson (same `lessons.quiz_id`). Taking a quiz needs an ACTIVE enrollment. The quiz
  * is served WITHOUT the correct-answer flags; grading is server-side ONLY. On submit the attempt is
  * recorded, and on a pass the QUIZ lesson is marked COMPLETED — which may complete the course and
  * issue a certificate. Re-attempts are allowed until the quiz's `max_attempts`.
@@ -191,14 +192,14 @@ final class QuizController extends Controller
     }
 
     /**
-     * The QUIZ lesson + its quiz, enrollment-checked. 404 if the lesson isn't a QUIZ or has no quiz;
+     * The lesson + its quiz, enrollment-checked. 404 if the lesson has no quiz;
      * 403 if the learner isn't enrolled in its course.
      *
      * @return array{0:object,1:object}
      */
     private function resolveQuiz(string $lessonId): array
     {
-        $lesson = DB::table('lessons')->where('id', $lessonId)->where('type', 'QUIZ')
+        $lesson = DB::table('lessons')->where('id', $lessonId)
             ->first(['id', 'course_id', 'quiz_id']);
         if ($lesson === null || $lesson->quiz_id === null) {
             abort(404, 'Quiz not found.');
