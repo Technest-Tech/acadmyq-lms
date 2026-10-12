@@ -19,6 +19,17 @@ final class AcademySettings
 {
     public const DEFAULTS = [
         'teacher_lessons_read_only' => false,
+        'teacher_can_reschedule'    => true,
+        'teacher_can_add_lessons'   => true,
+    ];
+
+    /**
+     * The finer-grained switches: each one, when OFF, takes exactly one capability from a
+     * TEACHER. "Read-only lessons" above already covers both, so they only matter while it is off.
+     */
+    public const TEACHER_SWITCH_CAPS = [
+        'teacher_can_reschedule'  => 'session.reschedule',
+        'teacher_can_add_lessons' => 'session.create',
     ];
 
     /**
@@ -38,7 +49,7 @@ final class AcademySettings
      * The academy's settings merged over the defaults. Reads through the BYPASSRLS function, so it
      * works both before the tenant context exists (the auth middleware) and inside it.
      *
-     * @return array{teacher_lessons_read_only: bool}
+     * @return array{teacher_lessons_read_only: bool, teacher_can_reschedule: bool, teacher_can_add_lessons: bool}
      */
     public static function forAcademy(?string $academyId): array
     {
@@ -49,9 +60,12 @@ final class AcademySettings
         $json = DB::selectOne('select app.auth_academy_settings(?::uuid) as s', [$academyId])?->s;
         $row = $json === null ? [] : (array) json_decode((string) $json, true);
 
-        return [
-            'teacher_lessons_read_only' => (bool) ($row['teacher_lessons_read_only'] ?? false),
-        ];
+        $settings = [];
+        foreach (self::DEFAULTS as $key => $default) {
+            $settings[$key] = (bool) ($row[$key] ?? $default);
+        }
+
+        return $settings;
     }
 
     /**
@@ -67,10 +81,15 @@ final class AcademySettings
             return $permissions;
         }
 
-        if (! self::forAcademy($academyId)['teacher_lessons_read_only']) {
-            return $permissions;
+        $settings = self::forAcademy($academyId);
+
+        $removed = $settings['teacher_lessons_read_only'] ? self::TEACHER_LESSON_WRITE_CAPS : [];
+        foreach (self::TEACHER_SWITCH_CAPS as $key => $cap) {
+            if (! $settings[$key]) {
+                $removed[] = $cap;
+            }
         }
 
-        return array_values(array_diff($permissions, self::TEACHER_LESSON_WRITE_CAPS));
+        return $removed === [] ? $permissions : array_values(array_diff($permissions, $removed));
     }
 }

@@ -33,16 +33,19 @@ final class AcademySettingsController extends Controller
     {
         Gate::authorize('specialization.manage');
 
-        $data = $request->validate([
-            'teacher_lessons_read_only' => ['required', 'boolean'],
-        ]);
+        // Each switch is optional, so a client may send just the one it flipped; anything left out
+        // keeps its stored value.
+        $data = $request->validate(array_map(
+            fn () => ['sometimes', 'boolean'],
+            AcademySettings::DEFAULTS,
+        ));
 
         $academyId = $this->academyId();
         $before = AcademySettings::forAcademy($academyId);
 
         DB::table('academy_settings')->updateOrInsert(
             ['academy_id' => $academyId],
-            ['teacher_lessons_read_only' => $data['teacher_lessons_read_only'], 'updated_at' => now()],
+            [...$before, ...$data, 'updated_at' => now()],
         );
 
         $ctx = app(AuthContext::class);

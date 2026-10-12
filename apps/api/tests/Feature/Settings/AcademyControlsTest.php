@@ -139,3 +139,76 @@ it('never docks a locked teacher for a lesson they were not allowed to mark', fu
 
     expect($docked[$this->academy])->toBe(0);
 });
+
+// ── Finer switches: Reschedule and "Add class" on the teacher's attendance page ──────────────
+
+it('lets teachers reschedule and add a class by default', function () {
+    Sanctum::actingAs($this->owner);
+    $this->getJson('/api/academy/settings')
+        ->assertOk()
+        ->assertJsonPath('settings.teacher_can_reschedule', true)
+        ->assertJsonPath('settings.teacher_can_add_lessons', true);
+
+    Sanctum::actingAs($this->teacherUser);
+    $perms = $this->getJson('/api/auth/me')->assertOk()->json('permissions');
+
+    expect($perms)->toContain('session.reschedule')->and($perms)->toContain('session.create');
+});
+
+it('saves one switch without touching the others', function () {
+    Sanctum::actingAs($this->owner);
+    $this->putJson('/api/academy/settings', ['teacher_lessons_read_only' => true])->assertOk();
+
+    $this->putJson('/api/academy/settings', ['teacher_can_reschedule' => false])
+        ->assertOk()
+        ->assertJsonPath('settings.teacher_lessons_read_only', true)
+        ->assertJsonPath('settings.teacher_can_reschedule', false)
+        ->assertJsonPath('settings.teacher_can_add_lessons', true);
+});
+
+it('takes only Reschedule from a teacher when that switch is off', function () {
+    Sanctum::actingAs($this->owner);
+    $this->putJson('/api/academy/settings', ['teacher_can_reschedule' => false])->assertOk();
+
+    Sanctum::actingAs($this->teacherUser);
+    $perms = $this->getJson('/api/auth/me')->assertOk()->json('permissions');
+    expect($perms)->not->toContain('session.reschedule')
+        ->and($perms)->toContain('session.create')
+        ->and($perms)->toContain('session.mark_attendance');
+
+    $this->postJson("/api/sessions/{$this->sessionId}/reschedule", [
+        'local_datetime' => '2026-05-16 10:00',
+        'timezone'       => 'Africa/Cairo',
+    ])->assertForbidden();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('sessions')->where('id', $this->sessionId)->value('status'))->toBe('SCHEDULED');
+    $this->clearTenantContext();
+
+    // The owner still moves lessons.
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$this->sessionId}/reschedule", [
+        'local_datetime' => '2026-05-16 10:00',
+        'timezone'       => 'Africa/Cairo',
+    ])->assertSuccessful();
+});
+
+it('takes only "Add class" from a teacher when that switch is off', function () {
+    Sanctum::actingAs($this->owner);
+    $this->putJson('/api/academy/settings', ['teacher_can_add_lessons' => false])->assertOk();
+
+    Sanctum::actingAs($this->teacherUser);
+    $perms = $this->getJson('/api/auth/me')->assertOk()->json('permissions');
+    expect($perms)->not->toContain('session.create')
+        ->and($perms)->toContain('session.reschedule');
+
+    $this->postJson('/api/sessions', [
+        'student_id'       => $this->student,
+        'local_datetime'   => '2026-05-15 08:00',
+        'timezone'         => 'Africa/Cairo',
+        'duration_minutes' => 45,
+    ])->assertForbidden();
+
+    // Marking their existing lessons is untouched.
+    $this->postJson("/api/sessions/{$this->sessionId}/attendance", ['status' => 'ATTENDED'])->assertOk();
+});

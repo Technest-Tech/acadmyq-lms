@@ -1383,6 +1383,7 @@
       "cardTitle": "Academy controls",
       "cardDesc": "Turn features on or off for your academy. Changes apply right away.",
       "saved": "Saved",
+      "coveredByReadOnly": "Off while \"Teachers can only view lessons\" is on.",
       "groups": {
         "lessons": "Lessons"
       },
@@ -1390,6 +1391,14 @@
         "teacher_lessons_read_only": {
           "title": "Teachers can only view lessons",
           "desc": "Teachers still see their schedule and lessons, but can't add a class, mark attendance, write a report, reschedule, or request a cancellation or free lesson. You and your admins record lessons instead. Auto-deductions for unmarked lessons pause while this is on."
+        },
+        "teacher_can_reschedule": {
+          "title": "Teachers can reschedule lessons",
+          "desc": "Shows the Reschedule option on lessons in the teacher's attendance page. Turn it off so only you and your admins move lessons."
+        },
+        "teacher_can_add_lessons": {
+          "title": "Teachers can add a class",
+          "desc": "Shows the \"Add class\" button in the teacher's attendance page, for a one-off lesson outside the timetable. Turn it off so only you and your admins add lessons."
         }
       }
     },

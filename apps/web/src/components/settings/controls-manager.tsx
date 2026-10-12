@@ -1,6 +1,6 @@
 "use client";
 
-import { Lock, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { CalendarClock, CalendarPlus, Lock, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { SectionCard } from "@/components/settings/section-card";
@@ -10,9 +10,15 @@ import { cn } from "@/lib/utils";
 
 type ControlKey = keyof AcademyControls;
 
-/** Every switch on the page, in display order. A new control is one entry here + its copy. */
-const CONTROLS: ReadonlyArray<{ key: ControlKey; icon: LucideIcon }> = [
+/**
+ * Every switch on the page, in display order. A new control is one entry here + its copy.
+ * `coveredBy` names a broader switch that, while ON, already takes this away — the finer switch is
+ * then shown disabled rather than suggesting it still does something.
+ */
+const CONTROLS: ReadonlyArray<{ key: ControlKey; icon: LucideIcon; coveredBy?: ControlKey }> = [
   { key: "teacher_lessons_read_only", icon: Lock },
+  { key: "teacher_can_reschedule", icon: CalendarClock, coveredBy: "teacher_lessons_read_only" },
+  { key: "teacher_can_add_lessons", icon: CalendarPlus, coveredBy: "teacher_lessons_read_only" },
 ];
 
 /**
@@ -82,10 +88,11 @@ export function ControlsManager() {
             {t("groups.lessons")}
           </p>
           <ul className="divide-y rounded-xl border">
-            {CONTROLS.map(({ key, icon: Icon }) => {
-              const on = settings[key];
+            {CONTROLS.map(({ key, icon: Icon, coveredBy }) => {
+              const covered = coveredBy !== undefined && settings[coveredBy];
+              const on = settings[key] && !covered;
               return (
-                <li key={key} className="flex items-start gap-3 p-4">
+                <li key={key} className={cn("flex items-start gap-3 p-4", covered && "opacity-60")}>
                   <div
                     className={cn(
                       "flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",
@@ -99,6 +106,9 @@ export function ControlsManager() {
                     <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
                       {t(`items.${key}.desc`)}
                     </p>
+                    {covered && (
+                      <p className="text-muted-foreground mt-1 text-xs font-medium">{t("coveredByReadOnly")}</p>
+                    )}
                     {savedKey === key && (
                       <p className="mt-1 text-xs font-medium text-emerald-600">{t("saved")}</p>
                     )}
@@ -108,7 +118,7 @@ export function ControlsManager() {
                     role="switch"
                     aria-checked={on}
                     aria-label={t(`items.${key}.title`)}
-                    disabled={saving !== null}
+                    disabled={saving !== null || covered}
                     onClick={() => void toggle(key)}
                     data-testid={`control-${key}`}
                     className={cn(

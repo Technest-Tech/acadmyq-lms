@@ -2667,6 +2667,10 @@ export function updateAcademyProfile(patch: {
 export interface AcademyControls {
   /** Teachers see their lessons but cannot add, mark, report on, reschedule or request changes. */
   teacher_lessons_read_only: boolean;
+  /** Teachers see the Reschedule action on their lessons (on by default). */
+  teacher_can_reschedule: boolean;
+  /** Teachers see the "Add class" button for a one-off lesson (on by default). */
+  teacher_can_add_lessons: boolean;
 }
 
 export function getAcademyControls(): Promise<{ settings: AcademyControls }> {
