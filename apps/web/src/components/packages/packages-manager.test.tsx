@@ -9,9 +9,10 @@ import type { LessonPackageRow, LessonPackageSummary } from "@/lib/api";
 import { PackagesManager } from "./packages-manager";
 
 /**
- * The screen is a read of the engine, so these tests pin the two things the UI is actually
- * responsible for: showing a balance that matches what the server sent, and putting the right
- * rows behind the "needs attention" cut — the same set the sidebar badge counts.
+ * The screen is a read of the engine, so these tests pin what the UI is actually responsible
+ * for: showing a balance that matches what the server sent, putting each package on the right
+ * page (Open / Finished), leading Finished with the rows the sidebar badge counts, and saying
+ * out loud when a new block was opened over an unpaid one.
  */
 
 const listLessonPackages = vi.fn();
@@ -20,6 +21,7 @@ const syncLessonPackage = vi.fn();
 const updateLessonPackage = vi.fn();
 const sendInvoicePaymentLink = vi.fn();
 const closeLessonPackage = vi.fn();
+const remindLessonPackage = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
@@ -34,6 +36,8 @@ vi.mock("@/lib/api", async (importOriginal) => ({
     reason?: string,
     returnToMonthly?: boolean,
   ) => closeLessonPackage(id, reason, returnToMonthly),
+  remindLessonPackage: (id: string, locale: string) =>
+    remindLessonPackage(id, locale),
   listPackageStudents: () => Promise.resolve({ students: [] }),
 }));
 
@@ -76,6 +80,10 @@ function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
     overdraft_billed: false,
     awaiting_next_package: false,
     gap: null,
+    follow_up: false,
+    previous_unpaid: null,
+    reminders_sent: 0,
+    last_reminded_at: null,
     created_at: "2026-09-01T00:00:00Z",
     ...overrides,
   };
@@ -90,6 +98,7 @@ const summary: LessonPackageSummary = {
   pendingOverdraft: 0,
   unpaid: 1,
   outOfHours: 0,
+  finishedAttention: 1,
   total: 1,
   financials: [
     {
@@ -103,13 +112,16 @@ const summary: LessonPackageSummary = {
   ],
 };
 
-function renderManager(extraPermissions: string[] = []) {
+function renderManager(
+  extraPermissions: string[] = [],
+  view: "open" | "finished" = "open",
+) {
   return render(
     withAuth(
       makeSession("ACADEMY_OWNER", {
         permissions: ["package.read", "package.manage", ...extraPermissions],
       }),
-      <PackagesManager />,
+      <PackagesManager view={view} />,
     ),
   );
 }
@@ -144,6 +156,15 @@ beforeEach(() => {
     transport: "WASENDER",
     sent: true,
   });
+  remindLessonPackage.mockResolvedValue({
+    kind: "PAYMENT",
+    phone: "+201001112222",
+    message: "Reminder",
+    transport: "WASENDER",
+    sent: true,
+    reminders_sent: 3,
+    last_reminded_at: "2026-10-12T09:30:00Z",
+  });
 });
 
 describe("PackagesManager", () => {
@@ -154,14 +175,6 @@ describe("PackagesManager", () => {
 
     renderManager();
 
-    // The screen opens on the work queue, and a half-used healthy package is not work — so the
-    // whole record has to be asked for before this row exists at all.
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: arMessages.packages.segments.all,
-      }),
-    );
-
     const card = await screen.findByTestId("package-card");
     // 570 minutes reads as 9h 30m — never "9.5h", and never a raw minute count. The harness
     // renders in Arabic, so this also pins the Arabic-Indic digits (R-LOC).
@@ -169,12 +182,13 @@ describe("PackagesManager", () => {
     expect(card.textContent).not.toContain("570");
   });
 
-  it("puts an overdrawn package in the attention cut and reports how far past it went", async () => {
+  it("puts an overdrawn package on the finished follow-up list and reports how far past it went", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg({
           id: "p2",
           status: "COMPLETED",
+          follow_up: true,
           minutes_consumed: 1260,
           minutes_remaining: 0,
           minutes_overdrawn: 60,
@@ -185,7 +199,7 @@ describe("PackagesManager", () => {
       ],
     });
 
-    renderManager();
+    renderManager([], "finished");
 
     const card = await screen.findByTestId("package-card");
     expect(card.textContent).toContain(formatHours(60, "ar"));
@@ -195,31 +209,33 @@ describe("PackagesManager", () => {
     ).toBeInTheDocument();
   });
 
-  it("hides a healthy package from the attention cut but shows it under All", async () => {
-    listLessonPackages.mockResolvedValue({ packages: [pkg()] });
+  it("leads Finished with the packages to follow up, and keeps the settled ones under All", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg(),
+        pkg({ id: "p2", status: "COMPLETED", student_name: "Mona", follow_up: true }),
+        pkg({ id: "p3", status: "CANCELLED", student_name: "Laila" }),
+      ],
+    });
 
-    renderManager();
+    renderManager([], "finished");
 
-    // Default cut is "needs attention", and a half-used, paid package is not that.
+    // The open package is never here, and the settled one waits behind "All".
+    const cards = await screen.findAllByTestId("package-card");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toHaveTextContent("Mona");
+
+    await userEvent.click(screen.getByTestId("finished-filter-all"));
+    expect(await screen.findAllByTestId("package-card")).toHaveLength(2);
     expect(
-      await screen.findByText(arMessages.packages.emptyAttention),
+      screen.getByText(arMessages.packages.status.CANCELLED),
     ).toBeInTheDocument();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: arMessages.packages.segments.all }),
-    );
-    expect(await screen.findByTestId("package-card")).toBeInTheDocument();
   });
 
   it("shows lesson, date, package total and payment actions on the richer card", async () => {
     listLessonPackages.mockResolvedValue({ packages: [pkg()] });
     renderManager(["invoice.send_link"]);
 
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: arMessages.packages.segments.all,
-      }),
-    );
     const card = await screen.findByTestId("package-card");
 
     expect(card).toHaveTextContent(arMessages.packages.card.totalHours);
@@ -241,35 +257,76 @@ describe("PackagesManager", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows per-currency package finances and keeps finished and cancelled packages in history", async () => {
+  it("shows only open packages on the open page", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg(),
-        pkg({ id: "p2", status: "COMPLETED", student_name: "Mona" }),
-        pkg({ id: "p3", status: "CANCELLED", student_name: "Laila" }),
+        pkg({ id: "p2", status: "COMPLETED", student_name: "Mona", follow_up: true }),
       ],
     });
     renderManager();
 
-    expect(
-      await screen.findByText(arMessages.packages.finance.completedValue),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(arMessages.packages.finance.collected),
-    ).toBeInTheDocument();
+    const cards = await screen.findAllByTestId("package-card");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toHaveTextContent("Sara");
+    expect(screen.queryByText("Mona")).toBeNull();
+  });
 
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: arMessages.packages.segments.history,
-      }),
+  it("marks a new package opened over an unpaid one in its own colour and says what is owed", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          sequence_no: 2,
+          previous_unpaid: {
+            packages: 1,
+            sequence_nos: [1],
+            amounts: [{ currency: "EGP", amount_minor: 20000 }],
+          },
+        }),
+      ],
+    });
+    renderManager();
+
+    const card = await screen.findByTestId("package-card");
+    expect(card).toHaveAttribute("data-previous-unpaid", "true");
+    const banner = within(card).getByTestId("previous-unpaid");
+    expect(banner).toHaveTextContent("الباقة السابقة غير مدفوعة");
+    // Raw textContent: the matcher's whitespace folding would eat the currency's no-break space.
+    expect(banner.textContent).toContain(
+      formatMoney({ amount: 20000, currency: "EGP" }, "ar"),
     );
-    expect(await screen.findAllByTestId("package-card")).toHaveLength(2);
+    expect(banner.textContent).toContain("#1");
+  });
+
+  it("sends a reminder from a finished package and shows how many and when", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          status: "COMPLETED",
+          follow_up: true,
+          minutes_remaining: 0,
+          outstanding_minor: 400000,
+          invoice_paid_minor: 0,
+          invoice_status: "CLOSED",
+        }),
+      ],
+    });
+    renderManager(["invoice.send_link"], "finished");
+
+    const card = await screen.findByTestId("package-card");
+    expect(within(card).getByTestId("package-reminders")).toHaveTextContent(
+      arMessages.packages.card.noReminders,
+    );
+
+    await userEvent.click(within(card).getByTestId("remind-package"));
+
+    expect(remindLessonPackage).toHaveBeenCalledWith("p1", "ar");
     expect(
-      screen.getByText(arMessages.packages.status.COMPLETED),
-    ).toBeInTheDocument();
+      (await within(card).findByTestId("package-reminders")).textContent,
+    ).toContain(formatNumber(3, "ar"));
     expect(
-      screen.getByText(arMessages.packages.status.CANCELLED),
-    ).toBeInTheDocument();
+      within(card).getByTestId("package-reminders"),
+    ).not.toHaveTextContent(arMessages.packages.card.noReminders);
   });
 
   it("opens invoice-style payment evidence fields from an unpaid package", async () => {
@@ -284,11 +341,6 @@ describe("PackagesManager", () => {
     });
     renderManager(["invoice.mark_paid"]);
 
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: arMessages.packages.segments.all,
-      }),
-    );
     await userEvent.click(
       within(await screen.findByTestId("package-card")).getByText(
         arMessages.packages.actions.markPaid,
@@ -305,11 +357,6 @@ describe("PackagesManager", () => {
     listLessonPackages.mockResolvedValue({ packages: [pkg()] });
     renderManager();
 
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: arMessages.packages.segments.all,
-      }),
-    );
     await openCardMenu();
     await userEvent.click(
       await screen.findByRole("menuitem", {
@@ -327,11 +374,6 @@ describe("PackagesManager", () => {
     listLessonPackages.mockResolvedValue({ packages: [pkg()] });
     renderManager();
 
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: arMessages.packages.segments.all,
-      }),
-    );
     await openCardMenu();
     await userEvent.click(await screen.findByTestId("edit-package"));
 
@@ -357,11 +399,6 @@ describe("PackagesManager", () => {
     listLessonPackages.mockResolvedValue({ packages: [pkg()] });
     renderManager();
 
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: arMessages.packages.segments.all,
-      }),
-    );
     await openCardMenu();
     await userEvent.click(await screen.findByTestId("edit-package"));
 
@@ -385,11 +422,6 @@ describe("PackagesManager", () => {
 
     renderManager();
 
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: arMessages.packages.segments.all,
-      }),
-    );
     await openCardMenu();
     await userEvent.click(await screen.findByTestId("close-package"));
 
@@ -413,6 +445,7 @@ describe("PackagesManager", () => {
   it("shows a student still taught after their package ran out, and leads with the next package", async () => {
     const outOfHours = pkg({
       status: "COMPLETED",
+      follow_up: true,
       minutes_consumed: 1200,
       minutes_remaining: 0,
       percent_used: 100,
@@ -433,9 +466,9 @@ describe("PackagesManager", () => {
       total: 1,
     });
 
-    renderManager();
+    renderManager([], "finished");
 
-    // Paid, not overdrawn — the gap alone is what keeps it in the work queue.
+    // Paid, not overdrawn — the gap alone is what keeps it on the follow-up list.
     const card = await screen.findByTestId("package-card");
     const gap = within(card).getByTestId("package-gap");
     // Raw textContent: the matcher's whitespace folding would eat the currency's no-break space.
@@ -444,7 +477,6 @@ describe("PackagesManager", () => {
     expect(gap.textContent).toContain(
       formatMoney({ amount: 90000, currency: "EGP" }, "ar"),
     );
-    expect(screen.getByTestId("segment-outOfHours")).toBeInTheDocument();
 
     await userEvent.click(within(card).getByTestId("renew-package"));
     expect(await screen.findByTestId("package-student")).toBeInTheDocument();
@@ -461,13 +493,9 @@ describe("PackagesManager", () => {
         }),
       ],
     });
-    renderManager();
+    renderManager([], "finished");
 
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: arMessages.packages.segments.all,
-      }),
-    );
+    await userEvent.click(await screen.findByTestId("finished-filter-all"));
     await openCardMenu();
     await userEvent.click(await screen.findByTestId("package-to-monthly"));
     await userEvent.click(await screen.findByTestId("confirm-to-monthly"));
@@ -486,16 +514,11 @@ describe("PackagesManager", () => {
     });
     renderManager(["invoice.send_link", "invoice.mark_paid"]);
 
-    await userEvent.click(
-      await screen.findByRole("button", {
-        name: arMessages.packages.segments.all,
-      }),
-    );
     const card = await screen.findByTestId("package-card");
 
-    // Money is owed, so collecting it is what the card offers first…
+    // Money is owed, so chasing and recording it is what the card offers first…
     expect(
-      within(card).getByText(arMessages.packages.actions.sendPayment),
+      within(card).getByText(arMessages.packages.actions.remind),
     ).toBeInTheDocument();
     expect(
       within(card).getByText(arMessages.packages.actions.markPaid),

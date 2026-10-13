@@ -807,16 +807,18 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
 
     Route::get('/calendar', [CalendarController::class, 'index']);
 
-    // Free Trials (Free-Trials module) — the trials OVERVIEW: every trial the academy has run,
-    // its outcome, and the statistics over them. Booking a trial is the CRM's job (a trial exists
-    // because a lead reached the TRIAL stage), so what lives here is read, outcome, cancel and
-    // convert; POST /trials remains for a trial with no lead behind it. Owner-only: `trial.read`
-    // (list/stats) and `trial.manage` (book/update/cancel/convert). Plan-gated
-    // (entitled:trials — a FREE-trial & PRO feature, not BASIC). The literal `summary` is
-    // declared before `{id}` so it isn't captured as an id.
+    // Free Trials (Free-Trials module) — the trials board: every trial the academy has run, the
+    // day's agenda, the ones still waiting on a decision, and the statistics over them. A CRM lead
+    // books its trial from the CRM (POST /crm/leads/{id}/trial); POST /trials is the trials page's
+    // own "add a trial" for a walk-in prospect or an existing student. Owner-only: `trial.read`
+    // (list/agenda/stats) and `trial.manage` (book/update/cancel/convert). Plan-gated
+    // (entitled:trials — a FREE-trial & PRO feature, not BASIC). The literal `summary`, `agenda`
+    // and `teachers` are GET-only segments, so they never collide with the `{id}` writes.
     Route::middleware('entitled:trials')->group(function () {
         Route::get('/trials', [TrialController::class, 'index']);
         Route::get('/trials/summary', [TrialController::class, 'summary']);
+        Route::get('/trials/agenda', [TrialController::class, 'agenda']);
+        Route::get('/trials/teachers', [TrialController::class, 'teachers']);
         Route::post('/trials', [TrialController::class, 'store']);
         Route::patch('/trials/{id}', [TrialController::class, 'update']);
         Route::post('/trials/{id}/convert', [TrialController::class, 'convert']);
@@ -1074,6 +1076,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/packages/{id}/close', [LessonPackageController::class, 'close']);
         Route::post('/packages/{id}/cancel', [LessonPackageController::class, 'cancel']);
         Route::post('/packages/{id}/bill-overdraft', [LessonPackageController::class, 'billOverdraft']);
+        Route::post('/packages/{id}/remind', [LessonPackageController::class, 'remind']);
 
         // The ledger by hand: the owner adding, correcting and removing individual lessons on a
         // package. `lessons` here means the credit rows — the lessons that ate this block — and

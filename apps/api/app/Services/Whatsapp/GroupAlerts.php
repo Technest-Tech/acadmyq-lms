@@ -250,6 +250,8 @@ final class GroupAlerts
                     GroupAlertCatalog::SESSION_STARTED => $this->sessionsStarted($academyId, $floor, $now),
                     GroupAlertCatalog::SESSION_NOT_MARKED => $this->sessionsNotMarked($academyId, $floor, $group->settings['not_marked_after_minutes'], $now),
                     GroupAlertCatalog::REPORT_OVERDUE => $this->reportsOverdue($academyId, $floor, $group->settings['report_overdue_hours'], $now),
+                    GroupAlertCatalog::TRIAL_STARTED => $this->trialsStarted($academyId, $floor, $now),
+                    GroupAlertCatalog::TRIAL_NOT_MARKED => $this->trialsNotMarked($academyId, $floor, $group->settings['not_marked_after_minutes'], $now),
                     GroupAlertCatalog::PACKAGE_LOW => $this->packageNotifications($academyId, 'PACKAGE_LOW', GroupAlertCatalog::PACKAGE_LOW, $floor, $now),
                     GroupAlertCatalog::PACKAGE_ENDED => $this->packageNotifications($academyId, 'PACKAGE_COMPLETED', GroupAlertCatalog::PACKAGE_ENDED, $floor, $now),
                     GroupAlertCatalog::PAYMENT_RECEIVED => $this->payments($academyId, $floor, $now),
@@ -372,6 +374,56 @@ final class GroupAlerts
             'subject' => (string) $s->id,
             'due_at' => CarbonImmutable::parse($s->scheduled_at_utc)->addMinutes((int) $s->duration_minutes + $graceMinutes),
             'payload' => $this->sessionPayload($s),
+        ])->all();
+    }
+
+    /**
+     * Free trials whose slot has arrived and that are still just "scheduled". A trial is not a
+     * `sessions` row (a lead has no student_id), so it is read from its own table.
+     *
+     * @return list<array{subject: string, due_at: CarbonImmutable, payload: array<string,mixed>}>
+     */
+    private function trialsStarted(string $academyId, CarbonImmutable $floor, CarbonImmutable $now): array
+    {
+        $lower = $this->later($floor, $now->subMinutes(GroupAlertCatalog::MAX_AGE_MINUTES[GroupAlertCatalog::TRIAL_STARTED]));
+
+        $rows = $this->trialQuery($academyId)
+            ->where('tr.scheduled_at_utc', '>=', $lower->format(self::TS))
+            ->where('tr.scheduled_at_utc', '<=', $now->format(self::TS))
+            ->get();
+        $link = AcademyUrl::origin($academyId).'/trials';
+
+        return $rows->map(fn (object $t): array => [
+            'subject' => (string) $t->id,
+            'due_at' => CarbonImmutable::parse($t->scheduled_at_utc),
+            'payload' => $this->trialPayload($t, $link),
+        ])->all();
+    }
+
+    /**
+     * Free trials that ENDED N minutes ago with no decision recorded — neither attended nor
+     * no-show, nor cancelled or rescheduled (a reschedule moves the slot, which drops it out of the
+     * window, and the retire step then skips the waiting alert).
+     *
+     * @return list<array{subject: string, due_at: CarbonImmutable, payload: array<string,mixed>}>
+     */
+    private function trialsNotMarked(string $academyId, CarbonImmutable $floor, int $afterMinutes, CarbonImmutable $now): array
+    {
+        $lowerDue = $this->later($floor, $now->subMinutes(GroupAlertCatalog::MAX_AGE_MINUTES[GroupAlertCatalog::TRIAL_NOT_MARKED]));
+
+        $rows = $this->trialQuery($academyId)
+            // Coarse bound on the raw column first (a trial is at most 600 minutes), exact window below.
+            ->where('tr.scheduled_at_utc', '>=', $lowerDue->subMinutes($afterMinutes + 600)->format(self::TS))
+            ->where('tr.scheduled_at_utc', '<=', $now->format(self::TS))
+            ->whereRaw('tr.scheduled_at_utc + make_interval(mins => tr.duration_minutes + ?) <= ?::timestamptz', [$afterMinutes, $now->format(self::TS)])
+            ->whereRaw('tr.scheduled_at_utc + make_interval(mins => tr.duration_minutes + ?) >= ?::timestamptz', [$afterMinutes, $lowerDue->format(self::TS)])
+            ->get();
+        $link = AcademyUrl::origin($academyId).'/trials';
+
+        return $rows->map(fn (object $t): array => [
+            'subject' => (string) $t->id,
+            'due_at' => CarbonImmutable::parse($t->scheduled_at_utc)->addMinutes((int) $t->duration_minutes + $afterMinutes),
+            'payload' => $this->trialPayload($t, $link),
         ])->all();
     }
 
@@ -543,6 +595,31 @@ final class GroupAlerts
             ->orderBy('se.scheduled_at_utc')
             ->limit(self::DETECT_LIMIT)
             ->select(['se.id', 'se.scheduled_at_utc', 'se.duration_minutes', 'st.full_name as student', 'te.full_name as teacher']);
+    }
+
+    /** Still-SCHEDULED, live trials joined to whoever they are for (student, CRM lead or inline prospect). */
+    private function trialQuery(string $academyId): Builder
+    {
+        return DB::table('trials as tr')
+            ->leftJoin('teachers as te', 'te.id', '=', 'tr.teacher_id')
+            ->leftJoin('students as st', 'st.id', '=', 'tr.student_id')
+            ->leftJoin('crm_leads as cl', 'cl.id', '=', 'tr.lead_id')
+            ->where('tr.academy_id', $academyId)
+            ->where('tr.status', 'SCHEDULED')
+            ->whereNull('tr.deleted_at')
+            ->orderBy('tr.scheduled_at_utc')
+            ->limit(self::DETECT_LIMIT)
+            ->select([
+                'tr.id', 'tr.scheduled_at_utc', 'tr.duration_minutes', 'te.full_name as teacher',
+                DB::raw('coalesce(st.full_name, cl.full_name, tr.lead_name) as student'),
+                DB::raw('coalesce(st.whatsapp_phone, cl.whatsapp_phone, tr.lead_whatsapp) as phone'),
+            ]);
+    }
+
+    /** @return array<string,mixed> */
+    private function trialPayload(object $t, string $link): array
+    {
+        return $this->sessionPayload($t) + ['phone' => $t->phone, 'link' => $link];
     }
 
     /** @return array<string,mixed> */

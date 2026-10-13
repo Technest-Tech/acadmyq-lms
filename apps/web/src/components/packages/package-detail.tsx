@@ -130,6 +130,43 @@ export function PackageDetail({
 
   return (
     <div className="space-y-4">
+      {/* ── Opened over an unpaid block ───────────────────────────────── */}
+      {pkg.previous_unpaid !== null && (
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 rounded-xl border border-fuchsia-300/70 bg-fuchsia-500/[0.09] px-3.5 py-3 text-sm dark:border-fuchsia-800/60"
+          data-testid="detail-previous-unpaid"
+        >
+          <AlertTriangle
+            className="mt-0.5 size-4 shrink-0 text-fuchsia-600 dark:text-fuchsia-300"
+            aria-hidden
+          />
+          <div className="min-w-0">
+            <p className="font-bold text-fuchsia-700 dark:text-fuchsia-300">
+              {t("card.previousUnpaidTitle", {
+                count: pkg.previous_unpaid.packages,
+              })}
+            </p>
+            <p className="mt-0.5 text-xs leading-5 text-fuchsia-900/80 dark:text-fuchsia-200/85">
+              {t("card.previousUnpaidBody", {
+                count: pkg.previous_unpaid.packages,
+                packages: pkg.previous_unpaid.sequence_nos
+                  .map((n) => `#${n}`)
+                  .join(locale.startsWith("ar") ? "، " : ", "),
+                amount: pkg.previous_unpaid.amounts
+                  .map((a) =>
+                    formatMoney(
+                      { amount: a.amount_minor, currency: a.currency },
+                      locale,
+                    ),
+                  )
+                  .join(" + "),
+              })}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── The balance, at a glance ──────────────────────────────────── */}
       <div className="space-y-2.5">
         <dl className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">

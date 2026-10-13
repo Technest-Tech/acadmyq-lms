@@ -1113,6 +1113,8 @@ export type WhatsAppGroupEvent =
   | "SESSION_STARTED"
   | "SESSION_NOT_MARKED"
   | "REPORT_OVERDUE"
+  | "TRIAL_STARTED"
+  | "TRIAL_NOT_MARKED"
   | "PACKAGE_LOW"
   | "PACKAGE_ENDED"
   | "PAYMENT_RECEIVED"
@@ -5330,6 +5332,12 @@ export interface TrialRow {
   outcome_notes: string | null;
   converted_student_id: string | null;
   created_at: string;
+  /** scheduled_at_utc + duration — the moment a decision becomes due. */
+  ends_at_utc: string;
+  /** Still SCHEDULED after its slot ended: nobody recorded attended / no-show. Painted red. */
+  needs_decision: boolean;
+  /** The number to call — the student's, the CRM lead's, or the inline prospect's. */
+  contact_whatsapp: string | null;
 }
 
 export interface TrialSummary {
@@ -5338,8 +5346,10 @@ export interface TrialSummary {
   upcoming: number;
   /** Trials sitting on the academy's own calendar day (scheduled, or already resolved). */
   today: number;
-  /** Scheduled trials whose slot has passed with no outcome recorded — the work queue. */
+  /** Scheduled trials whose slot has STARTED with no outcome recorded. */
   awaiting_outcome: number;
+  /** Scheduled trials whose slot has ENDED with no outcome — the red queue (sidebar badge). */
+  needs_decision: number;
   completed: number;
   no_show: number;
   cancelled: number;
@@ -5380,6 +5390,52 @@ export function getTrialSummary(): Promise<TrialSummary> {
   return apiFetch("/api/trials/summary");
 }
 
+export interface TrialAgendaDay {
+  /** Academy-local calendar day, YYYY-MM-DD. */
+  date: string;
+  /** Trials on that day, cancelled ones left out. */
+  total: number;
+  needs_decision: number;
+}
+
+export interface TrialAgenda {
+  /** The academy's timezone — every time on the board is drawn in it. */
+  timezone: string;
+  /** The academy's own today, YYYY-MM-DD. */
+  today: string;
+  /** The day `trials` is for. */
+  date: string;
+  /** The picked day's trials, earliest first, every status. */
+  trials: TrialRow[];
+  /** One entry per day in [from, to] — the week strip. */
+  days: TrialAgendaDay[];
+  /** Every undecided trial on ANY day, oldest first (capped; the true count is beside it). */
+  needs_decision: TrialRow[];
+  needs_decision_count: number;
+}
+
+/** GET /api/trials/agenda — the board: one day's trials, the week strip, and the red queue. */
+export function getTrialAgenda(params: {
+  date?: string;
+  from?: string;
+  to?: string;
+  teacher_id?: string;
+}): Promise<TrialAgenda> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+  const query = qs.toString();
+  return apiFetch(`/api/trials/agenda${query ? `?${query}` : ""}`);
+}
+
+/** GET /api/trials/teachers — roster, durations and the academy timezone for "add a trial". */
+export function listTrialTeachers(): Promise<{
+  teachers: { id: string; full_name: string; specialization: string | null }[];
+  durations: number[];
+  timezone: string;
+}> {
+  return apiFetch("/api/trials/teachers");
+}
+
 export function createTrial(
   input: TrialInput,
 ): Promise<{ trialId: string; warnings: TrialWarning[] }> {
@@ -5392,7 +5448,7 @@ export function createTrial(
 export function updateTrial(
   id: string,
   patch: Partial<TrialInput> & { status?: TrialStatus },
-): Promise<{ ok: boolean; changed: string[] }> {
+): Promise<{ ok: boolean; changed: string[]; warnings?: TrialWarning[] }> {
   return apiFetch(`/api/trials/${id}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
@@ -7739,7 +7795,24 @@ export interface LessonPackageRow {
   awaiting_next_package: boolean;
   /** What has been taught since it ran out, billed by the hour outside any package. */
   gap: PackageGap | null;
+  /**
+   * A finished package someone still has to follow up on (unpaid, unbilled, overdraft, or out of
+   * hours) — the rows behind the red badge on "Finished packages". Always false while open.
+   */
+  follow_up: boolean;
+  /** On an open package: what the student still owes on earlier ones. Null when nothing is owed. */
+  previous_unpaid: PreviousUnpaid | null;
+  /** WhatsApp reminders sent to the payer about this package, and when the last one went. */
+  reminders_sent: number;
+  last_reminded_at: string | null;
   created_at: string;
+}
+
+/** Debt left on a student's earlier packages. Money is per currency, never summed. */
+export interface PreviousUnpaid {
+  packages: number;
+  sequence_nos: number[];
+  amounts: { currency: string; amount_minor: number }[];
 }
 
 /** Lessons billed by the hour after a package ran out. Money is per currency, never summed. */
@@ -7763,6 +7836,8 @@ export interface LessonPackageSummary {
   pendingOverdraft: number;
   unpaid: number;
   outOfHours: number;
+  /** Finished packages that still need following up — the red badge on "Finished packages". */
+  finishedAttention: number;
   total: number;
   financials: PackageFinancialSummary[];
 }
@@ -7833,9 +7908,15 @@ export interface PackageAttachableLesson {
 }
 
 export function listLessonPackages(
-  filters: { status?: PackageStatus; student_id?: string; q?: string } = {},
+  filters: {
+    scope?: "open" | "finished";
+    status?: PackageStatus;
+    student_id?: string;
+    q?: string;
+  } = {},
 ): Promise<{ packages: LessonPackageRow[] }> {
   const params = new URLSearchParams();
+  if (filters.scope) params.set("scope", filters.scope);
   if (filters.status) params.set("status", filters.status);
   if (filters.student_id) params.set("student_id", filters.student_id);
   if (filters.q) params.set("q", filters.q);
@@ -7968,6 +8049,31 @@ export function cancelLessonPackage(
 }
 
 /** Put a stranded overdraft on its own invoice (when no next package was ever opened). */
+export interface PackageReminderResult {
+  kind: "PAYMENT" | "RENEWAL";
+  phone: string;
+  message: string;
+  transport: string;
+  /** True when it went out through the academy's own number; false = open the wa.me link. */
+  sent: boolean;
+  reminders_sent: number;
+  last_reminded_at: string;
+}
+
+/**
+ * Send the payer a short WhatsApp reminder about a package — pay what is due, or renew a block
+ * that ran out — written in `locale`, and count it on the package.
+ */
+export function remindLessonPackage(
+  id: string,
+  locale: string,
+): Promise<PackageReminderResult> {
+  return apiFetch(`/api/packages/${id}/remind`, {
+    method: "POST",
+    body: JSON.stringify({ locale: locale.startsWith("en") ? "en" : "ar" }),
+  });
+}
+
 export function billPackageOverdraft(
   id: string,
 ): Promise<{ ok: boolean; invoice_id: string }> {

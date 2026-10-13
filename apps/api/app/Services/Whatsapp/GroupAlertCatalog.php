@@ -21,6 +21,16 @@ final class GroupAlertCatalog
     /** A lesson was marked as held, and N hours after it ended there is still no report. */
     public const REPORT_OVERDUE = 'REPORT_OVERDUE';
 
+    /** A free trial's start time has arrived. */
+    public const TRIAL_STARTED = 'TRIAL_STARTED';
+
+    /**
+     * A free trial ended N minutes ago (the same `not_marked_after_minutes` knob lessons use) and
+     * nobody has recorded what happened — attended or no-show. Counted from the END, not the start:
+     * whether a trial worked is only knowable once it is over.
+     */
+    public const TRIAL_NOT_MARKED = 'TRIAL_NOT_MARKED';
+
     /** A lesson package's balance dropped to where the next lesson will overdraw it. */
     public const PACKAGE_LOW = 'PACKAGE_LOW';
 
@@ -40,12 +50,12 @@ final class GroupAlertCatalog
     public const TEST = 'TEST';
 
     public const CATEGORIES = [
-        'SUPERVISION' => [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE],
+        'SUPERVISION' => [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE, self::TRIAL_STARTED, self::TRIAL_NOT_MARKED],
         'ACCOUNTING' => [self::PACKAGE_LOW, self::PACKAGE_ENDED, self::PAYMENT_RECEIVED, self::PAYMENT_OVERDUE],
     ];
 
     /** The alerts whose truth can lapse before they go out, so they are re-checked at send time. */
-    public const CONDITIONAL = [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE, self::PAYMENT_OVERDUE];
+    public const CONDITIONAL = [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE, self::TRIAL_STARTED, self::TRIAL_NOT_MARKED, self::PAYMENT_OVERDUE];
 
     /**
      * How long an alert may wait for a connected number before it stops being worth sending. A
@@ -55,6 +65,8 @@ final class GroupAlertCatalog
         self::SESSION_STARTED => 20,
         self::SESSION_NOT_MARKED => 6 * 60,
         self::REPORT_OVERDUE => 24 * 60,
+        self::TRIAL_STARTED => 20,
+        self::TRIAL_NOT_MARKED => 6 * 60,
         self::PACKAGE_LOW => 48 * 60,
         self::PACKAGE_ENDED => 48 * 60,
         self::PAYMENT_RECEIVED => 48 * 60,

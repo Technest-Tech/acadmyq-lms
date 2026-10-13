@@ -2,13 +2,16 @@
 
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/components/auth-provider";
-import { PackagesManager } from "@/components/packages/packages-manager";
+import {
+  PackagesManager,
+  type PackagesView,
+} from "@/components/packages/packages-manager";
 
 /**
  * Client gate for the Packages screen: rendered only when the session grants `package.read`.
  * UX gate only — the server Gate::authorize on every endpoint is the real control.
  */
-export function PackagesScreen() {
+export function PackagesScreen({ view = "open" }: { view?: PackagesView }) {
   const t = useTranslations("packages");
   const { can } = useAuth();
 
@@ -16,5 +19,5 @@ export function PackagesScreen() {
     return <p className="text-muted-foreground text-sm">{t("forbidden")}</p>;
   }
 
-  return <PackagesManager />;
+  return <PackagesManager view={view} />;
 }

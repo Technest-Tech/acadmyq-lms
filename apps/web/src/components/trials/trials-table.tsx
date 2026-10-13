@@ -1,6 +1,6 @@
 "use client";
 
-import { Ban, CheckCircle2, Sparkles, Trash2, UserPlus, UserRoundSearch } from "lucide-react";
+import { Ban, CalendarClock, CheckCircle2, Sparkles, Trash2, UserPlus, UserRoundSearch } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { Octagram } from "@/components/ornaments";
 import { Button } from "@/components/ui/button";
@@ -20,15 +20,16 @@ const STATUS_TONE: Record<TrialStatus, string> = {
 };
 
 /**
- * Every trial, newest slot first. Row actions are status-aware: a SCHEDULED trial can have its
- * outcome recorded or be cancelled; a prospect who completed one can be converted into a real
- * student (which also subscribes their CRM lead). A trial whose slot has passed with no outcome
- * is called out, because that row is someone's unanswered question.
+ * Every trial, newest slot first — the "All trials" tab. Row actions are status-aware: a SCHEDULED
+ * trial can have its outcome recorded, be moved or be cancelled; a prospect who completed one can
+ * be converted into a real student (which also subscribes their CRM lead). A trial whose slot
+ * ENDED with no outcome is called out in red, because that row is someone's unanswered question.
  */
 export function TrialsTable({
   refreshToken,
   filterPreset,
   onOutcome,
+  onReschedule,
   onConvert,
   onCancel,
   onDelete,
@@ -37,6 +38,7 @@ export function TrialsTable({
   /** Set by the segment tiles above the table — see `trials-manager`. */
   filterPreset?: { values: Record<string, string>; token: number };
   onOutcome: (trial: TrialRow) => void;
+  onReschedule: (trial: TrialRow) => void;
   onConvert: (trial: TrialRow) => void;
   onCancel: (trial: TrialRow) => void;
   onDelete: (trial: TrialRow) => void;
@@ -101,6 +103,11 @@ export function TrialsTable({
           label: t("filters.when"),
           options: [{ value: "1", label: t("filters.upcomingOnly") }],
         },
+        {
+          key: "decision",
+          label: t("filters.decision"),
+          options: [{ value: "needed", label: t("filters.needsDecision") }],
+        },
       ]}
       emptyMessage={t("table.empty")}
       columns={[
@@ -135,22 +142,18 @@ export function TrialsTable({
           key: "when",
           header: t("table.when"),
           sortKey: "scheduled",
-          render: (row) => {
-            const awaiting =
-              row.status === "SCHEDULED" && new Date(row.scheduled_at_utc) < new Date();
-            return (
-              <div className="flex flex-col">
-                <span className="tabular-nums">
-                  {formatLocalDateTime(row.scheduled_at_utc, locale)}
+          render: (row) => (
+            <div className="flex flex-col">
+              <span className="tabular-nums">
+                {formatLocalDateTime(row.scheduled_at_utc, locale)}
+              </span>
+              {row.needs_decision && (
+                <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+                  {t("table.needsDecision")}
                 </span>
-                {awaiting && (
-                  <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                    {t("table.awaitingOutcome")}
-                  </span>
-                )}
-              </div>
-            );
-          },
+              )}
+            </div>
+          ),
         },
         {
           key: "duration",
@@ -186,6 +189,19 @@ export function TrialsTable({
             >
               <CheckCircle2 className="size-3" aria-hidden />
               {t("table.recordOutcome")}
+            </Button>
+          )}
+          {row.status !== "CONVERTED" && row.status !== "COMPLETED" && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => onReschedule(row)}
+              aria-label={t("board.actions.reschedule")}
+              title={t("board.actions.reschedule")}
+              data-testid="trial-row-reschedule"
+            >
+              <CalendarClock className="text-muted-foreground size-3.5" aria-hidden />
             </Button>
           )}
           {row.is_lead &&

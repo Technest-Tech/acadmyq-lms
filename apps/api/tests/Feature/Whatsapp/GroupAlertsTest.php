@@ -172,6 +172,85 @@ it('reminds the group about a lesson nobody marked N minutes after it started', 
         ->toContain('10 min after the start');
 });
 
+/** A trial straight into the table — booking has its own tests. */
+function insertTrial(string $academyId, string $teacherId, string $startUtc, int $minutes = 30, string $status = 'SCHEDULED', string $name = 'Sara Lead'): string
+{
+    $id = (string) Str::uuid();
+    test()->enterAcademyAsSuperAdmin($academyId);
+    DB::table('trials')->insert([
+        'id' => $id,
+        'academy_id' => $academyId,
+        'teacher_id' => $teacherId,
+        'lead_name' => $name,
+        'lead_whatsapp' => '+201112223334',
+        'timezone' => 'Africa/Cairo',
+        'scheduled_at_utc' => $startUtc,
+        'duration_minutes' => $minutes,
+        'status' => $status,
+    ]);
+    test()->clearTenantContext();
+
+    return $id;
+}
+
+it('announces a free trial at its start time, with the prospect\'s number', function () {
+    linkTestGroup($this->academy, ['TRIAL_STARTED']);
+
+    $starting = insertTrial($this->academy, $this->teacher, '2026-09-14 12:58:00+00');
+    // Not yet, and already cancelled: neither is "starting now".
+    insertTrial($this->academy, $this->teacher, '2026-09-14 13:30:00+00');
+    insertTrial($this->academy, $this->teacher, '2026-09-14 12:59:00+00', status: 'CANCELLED');
+
+    sweepGroups($this->academy);
+    sweepGroups($this->academy);
+
+    $sent = sentMessages();
+    expect($sent)->toHaveCount(1);
+    expect($sent[0]->data()['text'])
+        ->toContain('Trial lesson starting now')
+        ->toContain('Mona Teacher with Sara Lead')
+        ->toContain('+201112223334')
+        ->toContain('/trials');
+    expect(groupAlerts($this->academy, 'TRIAL_STARTED')->pluck('subject_key')->all())->toBe([$starting]);
+});
+
+it('chases a trial that ended N minutes ago with no decision', function () {
+    linkTestGroup($this->academy, ['TRIAL_NOT_MARKED'], ['not_marked_after_minutes' => 10]);
+
+    // Ended 12:45; 10 minutes on is 12:55 — due.
+    $undecided = insertTrial($this->academy, $this->teacher, '2026-09-14 12:00:00+00', 45);
+    // Ends 12:55 — its 10 minutes are not up until 13:05.
+    insertTrial($this->academy, $this->teacher, '2026-09-14 12:25:00+00', 30);
+    // Already decided.
+    insertTrial($this->academy, $this->teacher, '2026-09-14 12:00:00+00', 30, 'COMPLETED');
+
+    sweepGroups($this->academy);
+
+    expect(groupAlerts($this->academy, 'TRIAL_NOT_MARKED')->pluck('subject_key')->all())->toBe([$undecided]);
+    expect(sentMessages()[0]->data()['text'])
+        ->toContain('Trial with no decision')
+        ->toContain('Ended 10 min ago');
+});
+
+it('drops a waiting trial reminder once someone records the decision', function () {
+    $this->gateway['status'] = 'DISCONNECTED';
+    linkTestGroup($this->academy, ['TRIAL_NOT_MARKED'], ['not_marked_after_minutes' => 10]);
+    $trial = insertTrial($this->academy, $this->teacher, '2026-09-14 12:00:00+00', 45);
+
+    sweepGroups($this->academy);
+    expect(groupAlerts($this->academy)->first()->status)->toBe('PENDING');
+
+    $this->asAcademy($this->academy);
+    DB::table('trials')->where('id', $trial)->update(['status' => 'NO_SHOW']);
+    $this->clearTenantContext();
+    $this->gateway['status'] = 'CONNECTED';
+
+    sweepGroups($this->academy);
+
+    expect(groupAlerts($this->academy)->first()->status)->toBe('SKIPPED');
+    expect(sentMessages())->toBeEmpty();
+});
+
 it('stays quiet about a lesson a supervisor is already following', function () {
     linkTestGroup($this->academy, ['SESSION_NOT_MARKED'], ['not_marked_after_minutes' => 10]);
     $followed = $this->createSession($this->academy, $this->omar, $this->teacher, ['scheduled_at_utc' => '2026-09-14 12:45:00+00', 'status' => 'SCHEDULED']);

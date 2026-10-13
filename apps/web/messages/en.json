@@ -148,7 +148,8 @@
     "schedule": "Schedule",
     "videoClassroom": "Video Classroom",
     "invoices": "Invoices",
-    "packages": "Lesson Packages",
+    "packages": "Open packages",
+    "packagesFinished": "Finished packages",
     "payroll": "Payroll",
     "settings": "Settings",
     "attendance": "Attendance",
@@ -376,6 +377,14 @@
           "REPORT_OVERDUE": {
             "label": "Report not written",
             "desc": "If a lesson marked as held has no report this long after it ends:"
+          },
+          "TRIAL_STARTED": {
+            "label": "Trial starting now",
+            "desc": "At each free trial's start time, with the prospect's number."
+          },
+          "TRIAL_NOT_MARKED": {
+            "label": "Trial with no decision",
+            "desc": "If nobody records attended or no-show this long after a trial ENDS (same minutes as attendance):"
           },
           "PACKAGE_LOW": {
             "label": "Package running low",
@@ -2448,44 +2457,13 @@
     "subtitle": "Blocks of hours sold up front. Every lesson burns its own length; when a block runs out it closes itself and the bill goes out.",
     "loading": "Loading packages…",
     "empty": "No packages yet.",
-    "emptyAttention": "Nothing needs your attention. Every open package has hours left and every finished one is paid.",
     "forbidden": "You do not have access to lesson packages.",
     "searchPlaceholder": "Search by student…",
     "hero": {
-      "attention": "{count} need attention",
-      "active": "{count} open"
-    },
-    "stats": {
-      "attention": "Needs attention",
-      "attentionSub": "Running out, unpaid, overdrawn, or out of hours",
-      "low": "Running low",
-      "lowSub": "An hour or less left",
-      "unpaid": "Finished & unpaid",
-      "unpaidSub": "The block is used up, the bill is not settled",
-      "active": "Open packages",
-      "activeSub": "Currently being consumed",
-      "outOfHours": "Out of hours",
-      "outOfHoursSub": "Still taking lessons with no package open",
-      "filterHint": "Press a tile to narrow the list below it. Press it again to see everything."
-    },
-    "segments": {
-      "attention": "Needs attention",
-      "active": "Open",
-      "completed": "Finished",
-      "history": "History",
-      "all": "All"
-    },
-    "finance": {
-      "title": "Package finances",
-      "currencyNote": "Each currency is kept separate",
-      "activeValue": "Open package value",
-      "activeValueHint": "Full contracted value of packages currently running",
-      "completedValue": "Finished package value",
-      "completedValueHint": "{count} finished packages in history",
-      "collected": "Collected",
-      "collectedHint": "Payments recorded against package invoices",
-      "outstanding": "Outstanding",
-      "outstandingHint": "Still due across open and finished package invoices"
+      "active": "{count} open",
+      "previousUnpaid": "{count, plural, one {# opened over an unpaid package} other {# opened over unpaid packages}}",
+      "followUp": "{count, plural, =0 {Nothing to follow up} one {# needs follow-up} other {# need follow-up}}",
+      "outstanding": "{amount} still due"
     },
     "status": {
       "ACTIVE": "Open",
@@ -2528,7 +2506,11 @@
       "paymentReference": "Reference: {reference}",
       "gapTitle": "Out of hours — still taking lessons",
       "gapBody": "{count, plural, one {{n} lesson} other {{n} lessons}} ({hours}) since this package ended, billed by the hour on the student's monthly invoice: {amount}.",
-      "noPackageOpen": "No package open — their next lessons bill by the hour."
+      "noPackageOpen": "No package open — their next lessons bill by the hour.",
+      "previousUnpaidTitle": "{count, plural, one {Previous package not paid} other {Previous packages not paid}}",
+      "previousUnpaidBody": "This student still owes {amount} on package {packages}. This new package was opened before that was paid.",
+      "reminders": "{count, plural, one {Reminded once} other {Reminded {n} times}} · last {date}",
+      "noReminders": "No reminder sent yet"
     },
     "actions": {
       "open": "Open a package",
@@ -2548,7 +2530,8 @@
       "saveEdit": "Save changes",
       "more": "More actions",
       "renew": "Open next package",
-      "toMonthly": "Switch to monthly"
+      "toMonthly": "Switch to monthly",
+      "remind": "Send reminder"
     },
     "form": {
       "title": "Open a package",
@@ -2670,7 +2653,10 @@
       "switchedToPackages": "{name} is now on package billing.",
       "closedAndReturned": "Package closed, and the student is back on monthly billing.",
       "returnedToMonthly": "{name} is back on monthly billing.",
-      "returnFailed": "Could not move the student to monthly billing."
+      "returnFailed": "Could not move the student to monthly billing.",
+      "reminderSent": "Reminder sent to {name} by WhatsApp.",
+      "reminderReady": "Reminder opened in WhatsApp — press send there.",
+      "reminderFailed": "Could not send the reminder."
     },
     "panel": {
       "title": "Lesson package",
@@ -2680,7 +2666,24 @@
       "owed": "{amount} still outstanding on finished packages.",
       "settled": "Settled",
       "openOne": "Open a package"
-    }
+    },
+    "pages": {
+      "open": {
+        "title": "Open packages",
+        "subtitle": "Blocks of hours being used right now. Every lesson burns its own length; when a block runs out it moves to Finished packages."
+      },
+      "finished": {
+        "title": "Finished packages",
+        "subtitle": "Blocks that ran out or were closed. Follow up on what is still unpaid or waiting for renewal, and send a reminder from the card."
+      }
+    },
+    "finishedFilter": {
+      "followUp": "Needs follow-up ({count})",
+      "all": "All finished ({count})"
+    },
+    "emptyOpen": "No open packages right now.",
+    "emptyFollowUp": "Nothing to follow up. Every finished package is paid and renewed.",
+    "emptyFinished": "No finished packages yet."
   },
   "attendance": {
     "title": "Attendance & report",
@@ -6097,7 +6100,7 @@
   },
   "trials": {
     "title": "Free Trials",
-    "subtitle": "Every trial and how it went — booking happens in the CRM.",
+    "subtitle": "Today's trials, the ones waiting for a decision, and every trial on record.",
     "back": "Back",
     "empty": "You don't have access to free trials.",
     "stats": {
@@ -6115,7 +6118,7 @@
       "filterHint": "Pick a tile to narrow the list below — pick it again to see everyone."
     },
     "table": {
-      "empty": "No trials yet — move a lead into the Trial stage in the CRM to book the first one.",
+      "empty": "No trials yet — add one with “Add trial”, or move a CRM lead into the Trial stage.",
       "name": "Name",
       "leadTag": "Lead",
       "teacher": "Teacher",
@@ -6130,7 +6133,8 @@
       "awaitingOutcome": "Result missing",
       "minutes": "{count} min",
       "title": "Trial record",
-      "hint": "Every trial booked, with what came of it — click a row for its details"
+      "hint": "Every trial booked, with what came of it — click a row for its details",
+      "needsDecision": "Needs a decision"
     },
     "filters": {
       "status": "Status",
@@ -6138,7 +6142,9 @@
       "originCrm": "From the CRM",
       "originDirect": "Booked directly",
       "when": "When",
-      "upcomingOnly": "Upcoming only"
+      "upcomingOnly": "Upcoming only",
+      "decision": "Decision",
+      "needsDecision": "Needs a decision"
     },
     "status": {
       "SCHEDULED": "Scheduled",
@@ -6148,7 +6154,7 @@
       "CONVERTED": "Converted"
     },
     "outcome": {
-      "title": "Record trial outcome",
+      "title": "Notes & outcome",
       "notes": "Notes",
       "notesPlaceholder": "How did the trial go? (optional)",
       "save": "Save outcome"
@@ -6178,7 +6184,10 @@
       "cancelled": "Trial cancelled.",
       "cancelFailed": "Couldn't cancel the trial. Please try again.",
       "deleted": "Trial deleted.",
-      "deleteFailed": "Couldn't delete the trial. Please try again."
+      "deleteFailed": "Couldn't delete the trial. Please try again.",
+      "rescheduled": "Trial moved.",
+      "reopened": "Decision cleared — the trial is waiting again.",
+      "decisionFailed": "Couldn't save the decision. Please try again."
     },
     "bookInCrm": "Book in the CRM",
     "breakdown": {
@@ -6192,7 +6201,99 @@
       "cancelled": "Cancelled"
     },
     "hero": {
-      "awaiting": "{count} awaiting outcome"
+      "awaiting": "{count} awaiting outcome",
+      "needsDecision": "{count, plural, one {# needs a decision} other {# need a decision}}"
+    },
+    "tabs": {
+      "agenda": "Agenda",
+      "all": "All trials"
+    },
+    "board": {
+      "prevWeek": "Previous week",
+      "nextWeek": "Next week",
+      "today": "Today",
+      "pickDate": "Go to date",
+      "todayHeading": "Today",
+      "now": "Now",
+      "emptyToday": "No trials today.",
+      "emptyDay": "No trials on this day.",
+      "filteredEmpty": "Nothing here with this filter.",
+      "allTeachers": "All teachers",
+      "studentTag": "Student",
+      "dayNeedsDecision": "{count} waiting for a decision",
+      "filter": {
+        "all": "All",
+        "open": "Waiting",
+        "decided": "Decided"
+      },
+      "phase": {
+        "upcoming": "Upcoming",
+        "live": "In progress",
+        "overdue": "Needs a decision"
+      },
+      "actions": {
+        "attended": "Attended",
+        "noShow": "No-show",
+        "reschedule": "Reschedule",
+        "rebook": "Book again",
+        "reopen": "Change decision",
+        "convert": "Convert to student",
+        "notes": "Notes",
+        "more": "More actions",
+        "message": "Message on WhatsApp"
+      }
+    },
+    "needs": {
+      "title": "Trials waiting for a decision",
+      "subtitle": "These trials are over and nobody recorded whether the student came. Decide each one — the staff WhatsApp group is reminded until you do.",
+      "showAll": "Show {count} more",
+      "showLess": "Show less",
+      "truncated": "Showing the oldest {shown} of {total}."
+    },
+    "decided": {
+      "COMPLETED": "{name} — marked as attended.",
+      "NO_SHOW": "{name} — marked as no-show.",
+      "undo": "Undo",
+      "convertNow": "Convert to student now"
+    },
+    "add": {
+      "button": "Add trial",
+      "title": "Add a trial",
+      "description": "For a walk-in or a phone call — someone new, or a current student trying another teacher.",
+      "who": "Who is the trial for?",
+      "newPerson": "New person",
+      "existingStudent": "Existing student",
+      "name": "Name",
+      "namePlaceholder": "Full name",
+      "phone": "WhatsApp number",
+      "email": "Email (optional)",
+      "student": "Student",
+      "selectStudent": "Choose a student",
+      "searchStudent": "Search students…",
+      "loading": "Loading…",
+      "teacher": "Teacher",
+      "selectTeacher": "Choose a teacher",
+      "searchTeacher": "Search teachers…",
+      "date": "Date",
+      "time": "Time",
+      "duration": "Duration",
+      "notes": "Notes",
+      "notesPlaceholder": "Anything the teacher should know (optional)",
+      "preview": "Will be booked",
+      "submit": "Book trial",
+      "cancel": "Cancel",
+      "nameRequired": "Enter the person's name.",
+      "phoneRequired": "Enter a WhatsApp number.",
+      "studentRequired": "Choose the student.",
+      "teacherRequired": "Choose a teacher.",
+      "slotRequired": "Pick a date and a time."
+    },
+    "reschedule": {
+      "title": "Reschedule trial",
+      "rebookTitle": "Book the trial again",
+      "intro": "<b>{name}</b> with {teacher}",
+      "submit": "Save new time",
+      "rebookSubmit": "Book again"
     }
   },
   "academyRoles": {

@@ -37,6 +37,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Layers,
+  PackageCheck,
   ReceiptText,
   Scale,
   Settings,
@@ -75,6 +76,7 @@ import {
   getDaySessionCount,
   getLessonPackageSummary,
   getNotificationsSummary,
+  getTrialSummary,
 } from "@/lib/api";
 import {
   KhatamLattice,
@@ -125,6 +127,7 @@ type NavKey =
   | "billing"
   | "invoices"
   | "packages"
+  | "packagesFinished"
   | "payroll"
   | "teacherQuality"
   | "discountsAwards"
@@ -406,6 +409,15 @@ const NAV: ReadonlyArray<{
     href: "/packages",
     group: "financial",
   },
+  // The finished half of the same screen, its own item so its red badge (packages someone still
+  // has to follow up on) sits on the page that holds them.
+  {
+    key: "packagesFinished",
+    icon: PackageCheck,
+    permission: "package.read",
+    href: "/packages/finished",
+    group: "financial",
+  },
   {
     key: "payroll",
     icon: Wallet,
@@ -610,6 +622,7 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   // that gate — but they carry their own switch on top, so an academy that bills monthly is never
   // offered the second clock.
   packages: "packages",
+  packagesFinished: "packages",
   payroll: "payroll",
   // Teacher performance and Discounts & Awards share one switch of their own, so an academy can
   // pay teachers without measuring them.
@@ -685,6 +698,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [pkgCount, setPkgCount] = useState(0);
   const [salesCount, setSalesCount] = useState(0);
   const [bookingCount, setBookingCount] = useState(0);
+  const [trialCount, setTrialCount] = useState(0);
   // The academy's resolved plan capabilities, used to lock nav items the plan doesn't include.
   // They arrive with the session itself, so by the time we have a session we have these too — there
   // is no separate loading state to guard, and no window in which a video-only ("Meet Plan") academy
@@ -770,9 +784,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [session, can, pathname]);
 
-  // Packages badge: how many blocks of hours need the owner to DO something — running out,
-  // finished and unpaid, or an overdraft still to bill. Deliberately not "unread": the count is
-  // derived from package state, so it clears when the work is done rather than when it is seen.
+  // Finished-packages badge: how many finished blocks still need following up — unpaid, unbilled,
+  // an overdraft still to bill, or still being taught with nothing open. Deliberately not
+  // "unread": the count is derived from package state, so it clears when the work is done rather
+  // than when it is seen.
   useEffect(() => {
     if (session === null || !can("package.read")) {
       setPkgCount(0);
@@ -781,7 +796,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     let alive = true;
     const refresh = () =>
       getLessonPackageSummary()
-        .then((s) => alive && setPkgCount(s.total))
+        .then((s) => alive && setPkgCount(s.finishedAttention))
         .catch(() => {});
     void refresh();
     const id = setInterval(refresh, 60_000);
@@ -822,6 +837,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const refresh = () =>
       getBookingSummary()
         .then((s) => alive && setBookingCount(s.stats.new))
+        .catch(() => {});
+    void refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [session, can, capabilities, pathname]);
+
+  // Trials badge: trials whose slot ENDED with no decision (attended / no-show). Derived like the
+  // packages badge — it clears when someone decides, not when someone looks.
+  useEffect(() => {
+    if (session === null || !can("trial.read") || !(capabilities?.includes("trials") ?? true)) {
+      setTrialCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () =>
+      getTrialSummary()
+        .then((s) => alive && setTrialCount(s.needs_decision ?? 0))
         .catch(() => {});
     void refresh();
     const id = setInterval(refresh, 60_000);
@@ -943,7 +978,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // claim the `/admin/plans` and `/admin/staff-departments` routes via startsWith, and the LMS
   // home would claim every `/lms/*` workspace page.
   const isExactOnly = (href: string) =>
-    href === "/dashboard" || href === "/admin" || href === "/lms";
+    href === "/dashboard" ||
+    href === "/admin" ||
+    href === "/lms" ||
+    // Open packages must not also light up on its sibling, /packages/finished.
+    href === "/packages";
   const matches = (href: string) =>
     pathname === href || (!isExactOnly(href) && pathname.startsWith(href));
   const activeItem = items.find((item) => matches(item.href));
@@ -959,16 +998,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         label: `${attnCount} sessions awaiting attendance today`,
       };
     }
-    if (key === "packages" && pkgCount > 0) {
+    if (key === "packagesFinished" && pkgCount > 0) {
       return {
         count: pkgCount,
-        label: `${pkgCount} lesson packages need attention`,
+        label: `${pkgCount} finished packages need follow-up`,
       };
     }
     if (key === "lmsSales" && salesCount > 0) {
       return {
         count: salesCount,
         label: `${salesCount} payment receipts awaiting review`,
+      };
+    }
+    if (key === "trials" && trialCount > 0) {
+      return {
+        count: trialCount,
+        label: `${trialCount} trials waiting for a decision`,
       };
     }
     if (key === "lmsBookings" && bookingCount > 0) {

@@ -9,6 +9,9 @@ use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
 use App\Services\LessonPackages;
 use App\Services\SessionDurationCorrection;
+use App\Services\Whatsapp\PackageReminderMessage;
+use App\Services\Whatsapp\WhatsAppSender;
+use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\StudentTeachers;
@@ -38,21 +41,33 @@ final class LessonPackageController extends Controller
 {
     use InteractsWithScheduling;
 
+    /** An invoice in one of these states, with money still on it, is a debt someone has to chase. */
+    private const UNPAID_INVOICE_STATUSES = ['OPEN', 'CLOSED', 'PARTIALLY_PAID'];
+
     /**
      * GET /api/packages — every package, newest first, with its live balance.
-     * Filters: status (ACTIVE|COMPLETED|CANCELLED), student_id, q (student name).
+     * Filters: scope (open = ACTIVE | finished = everything else), status (ACTIVE|COMPLETED|CANCELLED),
+     * student_id, q (student name).
      */
     public function index(Request $request): JsonResponse
     {
         Gate::authorize('package.read');
 
         $validated = $request->validate([
+            'scope' => ['sometimes', 'nullable', Rule::in(['open', 'finished'])],
             'status' => ['sometimes', 'nullable', Rule::in(['ACTIVE', 'COMPLETED', 'CANCELLED'])],
             'student_id' => ['sometimes', 'nullable', 'string'],
             'q' => ['sometimes', 'nullable', 'string', 'max:120'],
         ]);
 
         $query = $this->baseQuery();
+
+        // The two pages of the screen: Open packages and Finished packages.
+        match ($validated['scope'] ?? null) {
+            'open' => $query->where('p.status', 'ACTIVE'),
+            'finished' => $query->where('p.status', '!=', 'ACTIVE'),
+            default => null,
+        };
 
         if (($validated['status'] ?? null) !== null) {
             $query->where('p.status', $validated['status']);
@@ -75,9 +90,12 @@ final class LessonPackageController extends Controller
             ->get();
 
         $gaps = $this->gapsFor($rows->pluck('id')->all());
+        $previous = $this->previousUnpaidFor(
+            $rows->where('status', 'ACTIVE')->pluck('student_id')->map(fn ($id) => (string) $id)->all(),
+        );
 
         return response()->json([
-            'packages' => $rows->map(fn ($row) => $this->present($row, $gaps)),
+            'packages' => $rows->map(fn ($row) => $this->present($row, $gaps, $previous)),
         ]);
     }
 
@@ -110,7 +128,7 @@ final class LessonPackageController extends Controller
         $unpaid = (int) DB::table('lesson_packages as p')
             ->join('invoices as i', 'i.id', '=', 'p.invoice_id')
             ->where('p.status', 'COMPLETED')
-            ->whereIn('i.status', ['OPEN', 'CLOSED', 'PARTIALLY_PAID'])
+            ->whereIn('i.status', self::UNPAID_INVOICE_STATUSES)
             ->whereRaw('i.total_minor > i.amount_paid_minor')
             ->count();
 
@@ -121,10 +139,36 @@ final class LessonPackageController extends Controller
 
         // Students still being taught after their block ran out, with nobody having decided what
         // comes next — the case every other counter missed once the old bill was paid.
-        $outOfHours = count(array_filter(
+        $gapIds = array_keys(array_filter(
             $this->gapsFor(null),
             fn (array $gap): bool => $gap['lessons'] > 0,
         ));
+        $outOfHours = count($gapIds);
+
+        // The red badge on "Finished packages": how many finished packages still need someone to
+        // follow up — counted per PACKAGE, so one that is both unpaid and out of hours is one, not
+        // two. The same rule as each row's `follow_up` flag ({@see present()}).
+        $finishedAttention = count(array_unique([
+            ...DB::table('lesson_packages as p')
+                ->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')
+                ->where('p.status', '!=', 'ACTIVE')
+                ->where(fn ($q) => $q
+                    ->where(fn ($unpaid) => $unpaid
+                        ->whereIn('i.status', self::UNPAID_INVOICE_STATUSES)
+                        ->whereRaw('i.total_minor > i.amount_paid_minor'))
+                    ->orWhere(fn ($unbilled) => $unbilled
+                        ->where('p.status', 'COMPLETED')
+                        ->whereNull('p.invoice_id')
+                        ->where('p.minutes_consumed', '>', 0))
+                    ->orWhere(fn ($overdraft) => $overdraft
+                        ->where('p.status', 'COMPLETED')
+                        ->where('p.minutes_overdrawn', '>', 0)
+                        ->whereNull('p.overdraft_invoice_id')))
+                ->pluck('p.id')
+                ->map(fn ($id) => (string) $id)
+                ->all(),
+            ...$gapIds,
+        ]));
 
         $active = (int) DB::table('lesson_packages')->where('status', 'ACTIVE')->count();
         $completed = (int) DB::table('lesson_packages')->where('status', 'COMPLETED')->count();
@@ -161,6 +205,7 @@ final class LessonPackageController extends Controller
             'pendingOverdraft' => $pendingOverdraft,
             'unpaid' => $unpaid,
             'outOfHours' => $outOfHours,
+            'finishedAttention' => $finishedAttention,
             'total' => $lowBalance + $needsBilling + $pendingOverdraft + $unpaid + $outOfHours,
             'financials' => $financials,
         ]);
@@ -258,7 +303,11 @@ final class LessonPackageController extends Controller
         }
 
         return response()->json([
-            'package' => $this->present($row, $this->gapsFor([$id])),
+            'package' => $this->present(
+                $row,
+                $this->gapsFor([$id]),
+                $row->status === 'ACTIVE' ? $this->previousUnpaidFor([(string) $row->student_id]) : [],
+            ),
             'credits' => $this->creditsFor($id),
         ]);
     }
@@ -663,6 +712,128 @@ final class LessonPackageController extends Controller
         return response()->json(['ok' => true] + $result);
     }
 
+    /**
+     * POST /api/packages/{id}/remind — send the payer a short WhatsApp reminder about this package,
+     * and count it.
+     *
+     * What it says follows the package: money still due on its bill → a payment reminder with the
+     * invoice link; a finished block that is paid and has no next block → a renewal reminder.
+     * Anything else has nothing to remind about and is refused.
+     *
+     * Every press counts, whichever way it leaves: sent through the academy's own WhatsApp number,
+     * or handed back as a wa.me link the staff member opens (the same seam as the invoice's
+     * send-link). The counter and the last date are what tell the next person on the case that
+     * the family has already been chased — and how often.
+     */
+    public function remind(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('package.read');
+        Gate::authorize('invoice.send_link');
+
+        $validated = $request->validate([
+            'locale' => ['sometimes', 'nullable', Rule::in(['ar', 'en'])],
+        ]);
+
+        $row = $this->baseQuery()->where('p.id', $id)->first();
+        if ($row === null) {
+            abort(404, 'Package not found.');
+        }
+
+        $presented = $this->present($row, $this->gapsFor([$id]));
+        $kind = match (true) {
+            $presented['outstanding_minor'] > 0 => PackageReminderMessage::PAYMENT,
+            $presented['awaiting_next_package'] => PackageReminderMessage::RENEWAL,
+            default => null,
+        };
+
+        if ($kind === null) {
+            throw ValidationException::withMessages([
+                'package' => ['Nothing to remind about: this package is paid and not waiting on a renewal. / لا يوجد ما يُذكَّر به: الباقة مدفوعة ولا تنتظر تجديدًا.'],
+            ]);
+        }
+
+        // Who gets it: the guardian the bill is addressed to, else the student's guardian, else the
+        // student. A package bill is addressed to the child (it never folds into the guardian's
+        // invoice), so stopping at the invoice would message a child instead of the parent who pays.
+        $payer = DB::table('lesson_packages as p')
+            ->join('students as s', 's.id', '=', 'p.student_id')
+            ->join('academies as a', 'a.id', '=', 'p.academy_id')
+            ->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')
+            ->leftJoin('guardians as gi', 'gi.id', '=', 'i.guardian_id')
+            ->leftJoin('guardians as gs', 'gs.id', '=', 's.guardian_id')
+            ->where('p.id', $id)
+            ->first([
+                'p.academy_id', 'p.student_id', 'a.name as academy_name',
+                'gi.id as invoice_guardian_id', 'gi.whatsapp_phone as invoice_guardian_phone',
+                'gs.id as student_guardian_id', 'gs.whatsapp_phone as student_guardian_phone',
+                's.whatsapp_phone as student_phone',
+            ]);
+
+        [$phone, $recipientKind, $recipientId] = match (true) {
+            trim((string) $payer->invoice_guardian_phone) !== '' => [$payer->invoice_guardian_phone, 'GUARDIAN', $payer->invoice_guardian_id],
+            trim((string) $payer->student_guardian_phone) !== '' => [$payer->student_guardian_phone, 'GUARDIAN', $payer->student_guardian_id],
+            default => [$payer->student_phone, 'STUDENT', $payer->student_id],
+        };
+        $phone = trim((string) $phone);
+        if ($phone === '') {
+            throw ValidationException::withMessages([
+                'phone' => ['No WhatsApp number on file for this student or their guardian. / لا يوجد رقم واتساب مسجّل للطالب أو ولي الأمر.'],
+            ]);
+        }
+
+        $academyId = (string) $payer->academy_id;
+        $url = $kind === PackageReminderMessage::PAYMENT && $row->invoice_token !== null
+            ? AcademyUrl::invoice($academyId, (string) $row->invoice_token)
+            : null;
+
+        $message = PackageReminderMessage::build($kind, (string) ($validated['locale'] ?? 'ar'), [
+            'academy' => (string) $payer->academy_name,
+            'student' => (string) $row->student_name,
+            'label' => (string) $row->label,
+            'finished' => $row->status !== 'ACTIVE',
+            'balance_minor' => $presented['outstanding_minor'],
+            'currency' => (string) $row->currency,
+            'url' => $url,
+        ]);
+
+        $send = app(WhatsAppSender::class)->sendOrLink($academyId, $phone, $message, [
+            'automation_type' => 'MANUAL',
+            'recipient_kind' => $recipientKind,
+            'recipient_id' => (string) $recipientId,
+            'ref_type' => 'lesson_package',
+            'ref_id' => $id,
+        ]);
+
+        // Bound WITH its offset: a bare Carbon lands in timestamptz as a naive local time, read in
+        // the database's own zone (Africa/Cairo), and the date shown on the card comes out hours off.
+        $now = now();
+        DB::table('lesson_packages')->where('id', $id)->update([
+            'reminders_sent' => DB::raw('reminders_sent + 1'),
+            'last_reminded_at' => $now->toIso8601String(),
+            'updated_at' => $now->toIso8601String(),
+        ]);
+        $count = (int) DB::table('lesson_packages')->where('id', $id)->value('reminders_sent');
+
+        $ctx = app(AuthContext::class);
+        Audit::log('lesson_package.reminder_sent', 'lesson_package', $id, $academyId, $ctx->userId, $ctx->role, after: [
+            'kind' => $kind,
+            'phone' => $phone,
+            'transport' => $send['transport'],
+            'sent' => $send['sent'],
+            'reminders_sent' => $count,
+        ]);
+
+        return response()->json([
+            'kind' => $kind,
+            'phone' => $phone,
+            'message' => $message,
+            'transport' => $send['transport'],
+            'sent' => $send['sent'],
+            'reminders_sent' => $count,
+            'last_reminded_at' => $now->utc()->toIso8601String(),
+        ]);
+    }
+
     // ── internals ────────────────────────────────────────────────────────────
 
     private function baseQuery()
@@ -676,6 +847,7 @@ final class LessonPackageController extends Controller
                 'p.hourly_rate_minor', 'p.bill_timing', 'p.status', 'p.sequence_no',
                 'p.starts_on', 'p.expires_on', 'p.invoice_id', 'p.overdraft_invoice_id',
                 'p.closed_at', 'p.closed_reason', 'p.created_at',
+                'p.reminders_sent', 'p.last_reminded_at',
                 's.full_name as student_name',
                 'i.status as invoice_status', 'i.total_minor as invoice_total_minor',
                 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
@@ -788,22 +960,78 @@ final class LessonPackageController extends Controller
     }
 
     /**
+     * What each student still owes on their EARLIER packages — the case where a new block was
+     * opened before the last one was paid. Keyed by student; money per currency, never summed.
+     *
+     * Only the packages' own bills count, the same debt each finished card shows as "amount due",
+     * so the open card and the finished card it points at can never disagree.
+     *
+     * @param  list<string>  $studentIds
+     * @return array<string, array{packages:int, sequence_nos:list<int>, amounts:list<array{currency:string, amount_minor:int}>}>
+     */
+    private function previousUnpaidFor(array $studentIds): array
+    {
+        if ($studentIds === []) {
+            return [];
+        }
+
+        $rows = DB::table('lesson_packages as p')
+            ->join('invoices as i', 'i.id', '=', 'p.invoice_id')
+            ->whereIn('p.student_id', array_values(array_unique($studentIds)))
+            ->where('p.status', '!=', 'ACTIVE')
+            ->whereIn('i.status', self::UNPAID_INVOICE_STATUSES)
+            ->whereRaw('i.total_minor > i.amount_paid_minor')
+            ->groupBy('p.student_id', 'i.currency')
+            ->orderBy('i.currency')
+            ->selectRaw('p.student_id, i.currency, sum(i.total_minor - i.amount_paid_minor) as due_minor')
+            ->selectRaw('json_agg(p.sequence_no order by p.sequence_no) as sequence_nos')
+            ->get();
+
+        $out = [];
+        foreach ($rows as $row) {
+            $student = (string) $row->student_id;
+            $out[$student] ??= ['packages' => 0, 'sequence_nos' => [], 'amounts' => []];
+            $numbers = array_map('intval', (array) json_decode((string) $row->sequence_nos, true));
+            $out[$student]['sequence_nos'] = array_values(array_unique([...$out[$student]['sequence_nos'], ...$numbers]));
+            sort($out[$student]['sequence_nos']);
+            $out[$student]['packages'] = count($out[$student]['sequence_nos']);
+            $out[$student]['amounts'][] = [
+                'currency' => trim((string) $row->currency),
+                'amount_minor' => (int) $row->due_minor,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * Shape one row for the client. `minutes_remaining` is clamped at zero and the overdraw is
      * reported separately — "how much is left" and "how far past the end we went" are two
      * different questions and collapsing them into one signed number reads wrong on a progress bar.
      *
      * @param  array<string, array{lessons:int, minutes:int, amounts:list<array{currency:string, amount_minor:int}>}>  $gaps  {@see gapsFor()}
+     * @param  array<string, array{packages:int, sequence_nos:list<int>, amounts:list<array{currency:string, amount_minor:int}>}>  $previous  {@see previousUnpaidFor()}
      * @return array<string,mixed>
      */
-    private function present(object $row, array $gaps = []): array
+    private function present(object $row, array $gaps = [], array $previous = []): array
     {
         $gap = $gaps[(string) $row->id] ?? null;
+        $isActive = (string) $row->status === 'ACTIVE';
         $sold = (int) $row->minutes_total + (int) $row->carried_over_minutes;
         $consumed = (int) $row->minutes_consumed;
         $remaining = max(0, $sold - $consumed);
         $outstanding = $row->invoice_status !== null
             ? max(0, (int) $row->invoice_total_minor - (int) $row->invoice_paid_minor)
             : 0;
+
+        // A finished package someone still has to follow up on — the rows behind the red badge on
+        // "Finished packages" ({@see summary()} counts the same four conditions).
+        $followUp = ! $isActive && (
+            (in_array((string) $row->invoice_status, self::UNPAID_INVOICE_STATUSES, true) && $outstanding > 0)
+            || ($row->status === 'COMPLETED' && $row->invoice_id === null && $consumed > 0)
+            || ($row->status === 'COMPLETED' && (int) $row->minutes_overdrawn > 0 && $row->overdraft_invoice_id === null)
+            || ($gap !== null && $gap['lessons'] > 0)
+        );
 
         return [
             'id' => (string) $row->id,
@@ -848,6 +1076,12 @@ final class LessonPackageController extends Controller
             'awaiting_next_package' => $gap !== null,
             // What has been taught since it ran out, billed by the hour outside any package.
             'gap' => $gap !== null && $gap['lessons'] > 0 ? $gap : null,
+            'follow_up' => $followUp,
+            // An open block whose student still owes on an earlier one: it was opened before the
+            // last one was paid. Null when nothing earlier is owed.
+            'previous_unpaid' => $isActive ? ($previous[(string) $row->student_id] ?? null) : null,
+            'reminders_sent' => (int) ($row->reminders_sent ?? 0),
+            'last_reminded_at' => $row->last_reminded_at !== null ? Carbon::parse($row->last_reminded_at)->utc()->toIso8601String() : null,
             'created_at' => Carbon::parse($row->created_at)->utc()->toIso8601String(),
         ];
     }

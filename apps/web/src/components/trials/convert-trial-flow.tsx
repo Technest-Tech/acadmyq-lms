@@ -51,7 +51,7 @@ export function ConvertTrialFlow({
       <StudentForm
         intent="enrolled"
         initialFullName={trial.display_name ?? trial.lead_name ?? undefined}
-        initialPhone={trial.lead_whatsapp}
+        initialPhone={trial.contact_whatsapp ?? trial.lead_whatsapp}
         onCreated={handleCreated}
         onCancel={onCancel}
       />

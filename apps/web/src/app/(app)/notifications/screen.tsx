@@ -821,7 +821,9 @@ function PackagesTab({
                     })}
                   </p>
                   <Link
-                    href="/packages"
+                    // Running low is about an open block; every other package alert (ran out,
+                    // unpaid, out of hours) is chased from the finished page.
+                    href={n.type === "PACKAGE_LOW" ? "/packages" : "/packages/finished"}
                     className="text-primary mt-1.5 inline-block text-xs font-semibold hover:underline"
                   >
                     {t("package.open")}

@@ -2,15 +2,10 @@
 
 import {
   AlertTriangle,
-  Banknote,
-  CalendarX,
   CircleDollarSign,
-  History,
-  Hourglass,
   Layers,
   PackageCheck,
   Plus,
-  ReceiptText,
   Timer,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -26,42 +21,45 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
-import { SegmentTile } from "@/components/ui/segment-tile";
 import {
+  ApiError,
   billPackageOverdraft,
   closeLessonPackage,
   getLessonPackageSummary,
   listLessonPackages,
+  remindLessonPackage,
   sendInvoicePaymentLink,
   syncLessonPackage,
   type LessonPackageRow,
   type LessonPackageSummary,
-  type PackageFinancialSummary,
 } from "@/lib/api";
-import { formatMoney } from "@/lib/money";
+import { formatMoney, formatNumber } from "@/lib/money";
 import { formatHours } from "@/lib/time";
+import { cn } from "@/lib/utils";
+
+/** The two pages of the packages screen, each its own sidebar item. */
+export type PackagesView = "open" | "finished";
 
 /**
- * Which cut of the record you are looking at.
- *
- * "Attention" is the one that matters: it is the same set the sidebar badge counts, so the
- * number on the nav item and the rows you land on can never disagree. It is filtered on the
- * client because it spans three different server conditions (running low, finished and unpaid,
- * overdraft still stranded) that no single query parameter expresses — and the list is capped at
- * 500 rows, which is one academy's entire package history.
+ * On Finished packages: just the ones somebody still has to chase (the red badge's rows), or the
+ * whole history. Follow-up first, because that is why anyone opens the page.
  */
-type SegmentKey = "attention" | "active" | "history" | "all";
+type FinishedFilter = "followUp" | "all";
 
 /**
- * The Packages screen: every block of hours the academy has sold, how much of each is left, and
- * what is still owed on it.
+ * The Packages screen, split in two pages:
  *
- * The screen leads with work rather than with totals. An owner opens this page because someone
- * is about to run out, someone finished and hasn't paid, someone's last lesson ran past the end
- * of their block, or someone ran out and is still being taught with nothing open — so those are
- * the counters, and each one filters the list beneath it.
+ *   • Open packages — blocks being consumed right now. A block opened while the student still
+ *     owes on an earlier one wears its own colour and says so, because that debt is otherwise on
+ *     a different page.
+ *   • Finished packages — blocks that ran out or were closed. Each one that still needs following
+ *     up (unpaid, unbilled, overdraft, or still being taught with nothing open) carries a
+ *     reminder button and how many reminders the family has had, and when the last one went.
+ *
+ * Both pages read the same list; it is split on the client because the open-package form needs
+ * the finished history either way (to offer carrying hours over).
  */
-export function PackagesManager() {
+export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   const t = useTranslations("packages");
   const locale = useLocale();
   const { can } = useAuth();
@@ -75,7 +73,7 @@ export function PackagesManager() {
 
   const [rows, setRows] = useState<LessonPackageRow[] | null>(null);
   const [summary, setSummary] = useState<LessonPackageSummary | null>(null);
-  const [segment, setSegment] = useState<SegmentKey>("attention");
+  const [filter, setFilter] = useState<FinishedFilter>("followUp");
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState<
     | { kind: "closed" }
@@ -89,6 +87,7 @@ export function PackagesManager() {
   const [busy, setBusy] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [remindingId, setRemindingId] = useState<string | null>(null);
   const [closeReason, setCloseReason] = useState("");
   /**
    * Also put this student back on the monthly clock as the package closes. The only way out of
@@ -149,44 +148,44 @@ export function PackagesManager() {
     if (variant === "success") setTimeout(() => setAlert(null), 4500);
   }
 
-  /** Pressing the active tile returns to the whole record — a toggle, not a one-way trip. */
-  function selectSegment(key: SegmentKey) {
-    setSegment((prev) => (prev === key ? "all" : key));
-  }
-
-  const needsAttention = useCallback(
-    (row: LessonPackageRow) =>
-      (row.status === "ACTIVE" && row.minutes_remaining <= 60) ||
-      (row.status === "COMPLETED" && row.outstanding_minor > 0) ||
-      (row.status === "COMPLETED" &&
-        row.invoice_id === null &&
-        row.minutes_consumed > 0) ||
-      (row.minutes_overdrawn > 0 && !row.overdraft_billed) ||
-      // Out of hours and still being taught — stays here even once the old bill is paid, until
-      // the next block is opened or the student goes back to monthly.
-      row.gap !== null,
-    [],
+  /** This page's packages, before search and filter. */
+  const pageRows = useMemo(
+    () =>
+      (rows ?? []).filter((r) =>
+        view === "open" ? r.status === "ACTIVE" : r.status !== "ACTIVE",
+      ),
+    [rows, view],
   );
+  const followUpCount = pageRows.filter((r) => r.follow_up).length;
+  const previousUnpaidCount = pageRows.filter(
+    (r) => r.previous_unpaid !== null,
+  ).length;
 
   const visible = useMemo(() => {
-    const all = rows ?? [];
     const needle = query.trim().toLowerCase();
-    const matched =
-      needle === ""
-        ? all
-        : all.filter((r) => r.student_name.toLowerCase().includes(needle));
+    const matched = pageRows.filter(
+      (r) =>
+        (needle === "" || r.student_name.toLowerCase().includes(needle)) &&
+        (view === "open" || filter === "all" || r.follow_up),
+    );
 
-    switch (segment) {
-      case "attention":
-        return matched.filter(needsAttention);
-      case "active":
-        return matched.filter((r) => r.status === "ACTIVE");
-      case "history":
-        return matched.filter((r) => r.status !== "ACTIVE");
-      default:
-        return matched;
-    }
-  }, [rows, query, segment, needsAttention]);
+    // What needs a hand first: on Open, a block opened over an unpaid one, then a block about to
+    // run out; on Finished, the ones still to follow up. Otherwise the server's newest-first order.
+    const rank = (r: LessonPackageRow) =>
+      view === "open"
+        ? r.previous_unpaid !== null
+          ? 0
+          : r.minutes_remaining <= 60
+            ? 1
+            : 2
+        : r.follow_up
+          ? 0
+          : 1;
+    return matched
+      .map((row, i) => ({ row, i }))
+      .sort((a, b) => rank(a.row) - rank(b.row) || a.i - b.i)
+      .map(({ row }) => row);
+  }, [pageRows, query, view, filter]);
 
   async function confirmClose(row: LessonPackageRow) {
     setBusy(true);
@@ -290,28 +289,96 @@ export function PackagesManager() {
     }
   }
 
+  /**
+   * Remind the payer — pay what is due, or renew a block that ran out (the server picks which).
+   * Counted on the package either way, so the next person on the case can see the family has
+   * already been chased, how often, and when.
+   */
+  async function remind(row: LessonPackageRow) {
+    setRemindingId(row.id);
+    try {
+      const result = await remindLessonPackage(row.id, locale);
+      if (!result.sent) {
+        const digits = result.phone.replace(/\D+/g, "");
+        window.open(
+          `https://wa.me/${digits}?text=${encodeURIComponent(result.message)}`,
+          "_blank",
+          "noopener,noreferrer",
+        );
+      }
+      setRows((prev) =>
+        (prev ?? []).map((r) =>
+          r.id === row.id
+            ? {
+                ...r,
+                reminders_sent: result.reminders_sent,
+                last_reminded_at: result.last_reminded_at,
+              }
+            : r,
+        ),
+      );
+      showAlert(
+        "success",
+        result.sent
+          ? t("alerts.reminderSent", { name: row.student_name })
+          : t("alerts.reminderReady"),
+      );
+    } catch (err) {
+      showAlert(
+        "error",
+        err instanceof ApiError && err.message
+          ? err.message
+          : t("alerts.reminderFailed"),
+      );
+    } finally {
+      setRemindingId(null);
+    }
+  }
+
   return (
     <div className="space-y-5">
       <PageHero
         latticeId="packages-hero-lattice"
-        icon={Layers}
-        title={t("title")}
-        subtitle={t("subtitle")}
+        icon={view === "open" ? Layers : PackageCheck}
+        title={t(`pages.${view}.title`)}
+        subtitle={t(`pages.${view}.subtitle`)}
         actions={
           <>
-            {summary !== null && summary.total > 0 && (
-              <span className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm">
-                <AlertTriangle className="size-3.5" aria-hidden />
-                {t("hero.attention", { count: summary.total })}
-              </span>
-            )}
-            {summary !== null && (
+            {view === "open" && rows !== null && (
               <HeroPill>
                 <Timer className="size-3.5" aria-hidden />
-                {t("hero.active", { count: summary.active })}
+                {t("hero.active", { count: pageRows.length })}
               </HeroPill>
             )}
-            {canManage && (
+            {view === "open" && previousUnpaidCount > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-fuchsia-300/60 bg-fuchsia-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm">
+                <AlertTriangle className="size-3.5" aria-hidden />
+                {t("hero.previousUnpaid", { count: previousUnpaidCount })}
+              </span>
+            )}
+            {view === "finished" && rows !== null && (
+              <span className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm">
+                <AlertTriangle className="size-3.5" aria-hidden />
+                {t("hero.followUp", { count: followUpCount })}
+              </span>
+            )}
+            {/* What finished packages still owe — the one number the old stat tiles carried that
+                this page still needs, per currency and never summed across them. */}
+            {view === "finished" &&
+              (summary?.financials ?? [])
+                .filter((f) => f.completed_outstanding_minor > 0)
+                .map((f) => (
+                  <HeroPill key={f.currency}>
+                    <CircleDollarSign className="size-3.5" aria-hidden />
+                    {t("hero.outstanding", {
+                      amount: formatMoney(
+                        { amount: f.completed_outstanding_minor, currency: f.currency },
+                        locale,
+                      ),
+                    })}
+                  </HeroPill>
+                ))}
+            {canManage && view === "open" && (
               <Button
                 size="lg"
                 variant="outline"
@@ -326,120 +393,6 @@ export function PackagesManager() {
           </>
         }
       />
-
-      {/* ── The reasons to be here ────────────────────────────────────── */}
-      <div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <SegmentTile
-            testKey="attention"
-            icon={AlertTriangle}
-            label={t("stats.attention")}
-            hint={t("stats.attentionSub")}
-            value={summary?.total ?? null}
-            share={null}
-            tone="gold"
-            selected={segment === "attention"}
-            onSelect={() => selectSegment("attention")}
-          />
-          <SegmentTile
-            testKey="low"
-            icon={Hourglass}
-            label={t("stats.low")}
-            hint={t("stats.lowSub")}
-            value={summary?.lowBalance ?? null}
-            share={null}
-            tone="violet"
-            selected={false}
-            onSelect={() => selectSegment("attention")}
-          />
-          <SegmentTile
-            testKey="unpaid"
-            icon={CircleDollarSign}
-            label={t("stats.unpaid")}
-            hint={t("stats.unpaidSub")}
-            value={summary?.unpaid ?? null}
-            share={null}
-            tone="slate"
-            selected={false}
-            onSelect={() => selectSegment("attention")}
-          />
-          <SegmentTile
-            testKey="outOfHours"
-            icon={CalendarX}
-            label={t("stats.outOfHours")}
-            hint={t("stats.outOfHoursSub")}
-            value={summary?.outOfHours ?? null}
-            share={null}
-            tone="gold"
-            selected={false}
-            onSelect={() => selectSegment("attention")}
-          />
-          <SegmentTile
-            testKey="active"
-            icon={Timer}
-            label={t("stats.active")}
-            hint={t("stats.activeSub")}
-            value={summary?.active ?? null}
-            share={null}
-            tone="emerald"
-            selected={segment === "active"}
-            onSelect={() => selectSegment("active")}
-          />
-        </div>
-        <p className="text-muted-foreground/80 mt-2 text-[11px]">
-          {t("stats.filterHint")}
-        </p>
-      </div>
-
-      <section aria-label={t("finance.title")} className="space-y-2">
-        <div className="flex items-center gap-2">
-          <ReceiptText className="text-primary size-4" aria-hidden />
-          <h2 className="text-sm font-bold">{t("finance.title")}</h2>
-          <span className="text-muted-foreground text-xs">
-            {t("finance.currencyNote")}
-          </span>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <FinanceTile
-            icon={Timer}
-            label={t("finance.activeValue")}
-            hint={t("finance.activeValueHint")}
-            rows={summary?.financials ?? null}
-            field="active_value_minor"
-            tone="violet"
-            locale={locale}
-          />
-          <FinanceTile
-            icon={PackageCheck}
-            label={t("finance.completedValue")}
-            hint={t("finance.completedValueHint", {
-              count: summary?.completed ?? 0,
-            })}
-            rows={summary?.financials ?? null}
-            field="completed_value_minor"
-            tone="blue"
-            locale={locale}
-          />
-          <FinanceTile
-            icon={Banknote}
-            label={t("finance.collected")}
-            hint={t("finance.collectedHint")}
-            rows={summary?.financials ?? null}
-            field="collected_minor"
-            tone="emerald"
-            locale={locale}
-          />
-          <FinanceTile
-            icon={CircleDollarSign}
-            label={t("finance.outstanding")}
-            hint={t("finance.outstandingHint")}
-            rows={summary?.financials ?? null}
-            field="outstanding_minor"
-            tone="rose"
-            locale={locale}
-          />
-        </div>
-      </section>
 
       {alert && (
         <AlertBanner
@@ -459,22 +412,32 @@ export function PackagesManager() {
             aria-label={t("searchPlaceholder")}
             className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full max-w-xs rounded-xl border px-3 py-2 text-sm outline-none transition-colors focus:ring-3"
           />
-          <div className="flex gap-1.5">
-            {(["attention", "active", "history", "all"] as const).map((key) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setSegment(key)}
-                className={
-                  segment === key
-                    ? "bg-primary/10 text-primary rounded-lg px-2.5 py-1 text-xs font-semibold"
-                    : "text-muted-foreground hover:bg-muted/50 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors"
-                }
-              >
-                {t(`segments.${key}`)}
-              </button>
-            ))}
-          </div>
+          {view === "finished" && (
+            <div className="flex gap-1.5">
+              {(["followUp", "all"] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFilter(key)}
+                  aria-pressed={filter === key}
+                  data-testid={`finished-filter-${key}`}
+                  className={cn(
+                    "rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors",
+                    filter === key
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-muted/50",
+                  )}
+                >
+                  {t(`finishedFilter.${key}`, {
+                    count: formatNumber(
+                      key === "followUp" ? followUpCount : pageRows.length,
+                      locale,
+                    ),
+                  })}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {rows === null && (
@@ -483,7 +446,11 @@ export function PackagesManager() {
 
         {rows !== null && visible.length === 0 && (
           <p className="text-muted-foreground rounded-2xl border border-dashed p-8 text-center text-sm">
-            {segment === "attention" ? t("emptyAttention") : t("empty")}
+            {view === "open"
+              ? t("emptyOpen")
+              : filter === "followUp"
+                ? t("emptyFollowUp")
+                : t("emptyFinished")}
           </p>
         )}
 
@@ -498,6 +465,8 @@ export function PackagesManager() {
               canMarkPaid={canMarkPaid}
               syncing={syncingId === row.id}
               sendingPayment={sendingId === row.id}
+              reminding={remindingId === row.id}
+              onRemind={() => void remind(row)}
               onOpenDetail={() => setModal({ kind: "detail", row })}
               onEdit={() => setModal({ kind: "edit", row })}
               onClose={() => {
@@ -704,74 +673,5 @@ export function PackagesManager() {
         />
       )}
     </div>
-  );
-}
-
-type FinanceField =
-  | "active_value_minor"
-  | "completed_value_minor"
-  | "collected_minor"
-  | "outstanding_minor";
-
-function FinanceTile({
-  icon: Icon,
-  label,
-  hint,
-  rows,
-  field,
-  tone,
-  locale,
-}: {
-  icon: typeof History;
-  label: string;
-  hint: string;
-  rows: PackageFinancialSummary[] | null;
-  field: FinanceField;
-  tone: "violet" | "blue" | "emerald" | "rose";
-  locale: string;
-}) {
-  const tones = {
-    violet: "bg-violet-500/10 text-violet-600 ring-violet-500/20",
-    blue: "bg-blue-500/10 text-blue-600 ring-blue-500/20",
-    emerald: "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20",
-    rose: "bg-rose-500/10 text-rose-600 ring-rose-500/20",
-  } as const;
-  const visible = rows?.filter((row) => row[field] !== 0) ?? [];
-
-  return (
-    <article className="bg-card rounded-2xl border p-4 shadow-sm">
-      <div className="flex items-start gap-3">
-        <span
-          className={`flex size-10 shrink-0 items-center justify-center rounded-xl ring-1 ${tones[tone]}`}
-        >
-          <Icon className="size-5" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-muted-foreground text-xs font-semibold">{label}</p>
-          {rows === null ? (
-            <p className="mt-1 text-lg font-bold">—</p>
-          ) : visible.length === 0 ? (
-            <p className="mt-1 text-lg font-bold">0</p>
-          ) : (
-            <div className="mt-1 space-y-0.5">
-              {visible.map((row) => (
-                <p
-                  key={row.currency}
-                  className="text-base font-bold tabular-nums"
-                >
-                  {formatMoney(
-                    { amount: row[field], currency: row.currency },
-                    locale,
-                  )}
-                </p>
-              ))}
-            </div>
-          )}
-          <p className="text-muted-foreground mt-1 text-[11px] leading-4">
-            {hint}
-          </p>
-        </div>
-      </div>
-    </article>
   );
 }

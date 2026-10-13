@@ -59,6 +59,20 @@ final class GroupAlertMessage
                     : $settings['report_overdue_hours'].' h after the lesson ended, there is still no report.',
                 ...$this->sessionLines($payloads, $ar, $timezone, $now),
             ],
+            GroupAlertCatalog::TRIAL_STARTED => [
+                $ar ? ($many ? '🎯 *حصص تجريبية تبدأ الآن*' : '🎯 *حصة تجريبية تبدأ الآن*') : ($many ? '🎯 *Trial lessons starting now*' : '🎯 *Trial lesson starting now*'),
+                ...$this->trialLines($payloads, $ar, $timezone, $now),
+                $ar ? 'بعد انتهائها سجّلوا القرار (حضر / لم يحضر) من صفحة الحصص التجريبية.' : 'Once it ends, record the decision (attended / no-show) on the Trials page.',
+                ...$this->trialLink($payloads),
+            ],
+            GroupAlertCatalog::TRIAL_NOT_MARKED => [
+                $ar ? ($many ? '🚨 *حصص تجريبية بدون قرار*' : '🚨 *حصة تجريبية بدون قرار*') : ($many ? '🚨 *Trials with no decision*' : '🚨 *Trial with no decision*'),
+                $ar
+                    ? 'انتهت منذ '.$this->arMinutes($settings['not_marked_after_minutes']).' ولم يُسجِّل أحد هل حضر الطالب أم لم يحضر.'
+                    : 'Ended '.$settings['not_marked_after_minutes'].' min ago and nobody has recorded attended or no-show.',
+                ...$this->trialLines($payloads, $ar, $timezone, $now),
+                ...$this->trialLink($payloads),
+            ],
             GroupAlertCatalog::PACKAGE_LOW => [
                 $ar ? '⏳ *باقة أوشكت على الانتهاء*' : '⏳ *Package running low*',
                 ...array_map(fn (array $p): string => $this->packageLowLine($p, $ar), $payloads),
@@ -100,6 +114,38 @@ final class GroupAlertMessage
                 ? "• {$time} — المعلم {$teacher} مع {$student}"
                 : "• {$time} — {$teacher} with {$student}";
         }, $payloads);
+    }
+
+    /**
+     * A lesson line plus the prospect's number — a trial is the one lesson whose student the
+     * supervisor may need to call on the spot ("are you joining?").
+     *
+     * @param  list<array<string,mixed>>  $payloads
+     * @return list<string>
+     */
+    private function trialLines(array $payloads, bool $ar, string $timezone, CarbonImmutable $now): array
+    {
+        $lines = $this->sessionLines($payloads, $ar, $timezone, $now);
+
+        foreach ($payloads as $i => $p) {
+            $phone = trim((string) ($p['phone'] ?? ''));
+            if ($phone !== '') {
+                $lines[$i] .= " — {$phone}";
+            }
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param  list<array<string,mixed>>  $payloads
+     * @return list<string>
+     */
+    private function trialLink(array $payloads): array
+    {
+        $link = trim((string) ($payloads[0]['link'] ?? ''));
+
+        return $link !== '' ? [$link] : [];
     }
 
     /** @param array<string,mixed> $p */

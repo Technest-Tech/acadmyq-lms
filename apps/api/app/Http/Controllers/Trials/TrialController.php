@@ -10,6 +10,7 @@ use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\LeadTimeline;
 use App\Support\TrialBooking;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -19,13 +20,13 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Free Trials (Free-Trials module) — the READ side of the taster lesson: every trial the academy
- * has run, what came of it, and the numbers that say whether trials are working.
+ * Free Trials (Free-Trials module) — the taster lesson's own desk: the day's trials, the ones whose
+ * slot ended with no decision (attended / no-show), every trial the academy has run, and the
+ * numbers that say whether trials are working.
  *
- * Booking now belongs to the CRM: a trial exists because a lead reached the TRIAL stage, so the
- * teacher-and-slot form lives next to the person it is for (POST /crm/leads/{id}/trial), and this
- * surface is where you watch the pipeline, record outcomes, cancel, and convert. POST /api/trials
- * remains as the module's own booking endpoint for a trial that has no lead behind it.
+ * A CRM lead books its trial from the CRM (POST /crm/leads/{id}/trial), next to the person it is
+ * for. POST /api/trials is this page's "add a trial" — a walk-in prospect or an existing student —
+ * and writes through the same {@see TrialBooking}, so both produce identical rows.
  *
  * Two capabilities gate it: `trial.read` (list, stats) and `trial.manage` (book, record outcome,
  * cancel, convert). Both are OWNER-only; RLS scopes every query to the current academy.
@@ -41,30 +42,20 @@ final class TrialController extends Controller
     /** Outcomes an owner may set directly; CONVERTED is reached only through convert(). */
     private const EDITABLE_STATUSES = ['SCHEDULED', 'COMPLETED', 'NO_SHOW', 'CANCELLED'];
 
+    /** Durations the booking form offers — the same set the CRM's trial form uses. */
+    private const DURATIONS = [15, 30, 45, 60, 90, 120];
+
+    /** Cap on the "needs a decision" list the agenda carries; the true count travels beside it. */
+    private const NEEDS_DECISION_LIMIT = 200;
+
     /** GET /api/trials — server-driven pipeline of trials joined to teacher, student and lead. */
     public function index(Request $request): JsonResponse
     {
         Gate::authorize('trial.read');
 
-        $query = DB::table('trials as tr')
-            ->leftJoin('teachers as t', 't.id', '=', 'tr.teacher_id')
-            ->leftJoin('students as s', 's.id', '=', 'tr.student_id')
-            ->leftJoin('crm_leads as cl', 'cl.id', '=', 'tr.lead_id')
-            ->whereNull('tr.deleted_at')
-            ->select([
-                'tr.id', 'tr.teacher_id', 'tr.student_id', 'tr.lead_id', 'tr.lead_name',
-                'tr.lead_whatsapp', 'tr.lead_email', 'tr.timezone', 'tr.scheduled_at_utc',
-                'tr.duration_minutes', 'tr.status', 'tr.outcome_notes',
-                'tr.converted_student_id', 'tr.created_at',
-                't.full_name as teacher_name',
-                's.full_name as student_name',
-                'cl.full_name as crm_lead_name',
-                'cl.source as crm_source',
-            ]);
-
-        $result = DataTable::paginate($query, $request, [
+        $result = DataTable::paginate($this->baseQuery(), $request, [
             'idColumn' => 'tr.id',
-            'searchable' => ['tr.lead_name', 's.full_name', 'tr.lead_whatsapp', 'tr.lead_email'],
+            'searchable' => ['tr.lead_name', 's.full_name', 'cl.full_name', 'tr.lead_whatsapp', 'tr.lead_email'],
             'sortable' => [
                 'scheduled' => 'tr.scheduled_at_utc',
                 'created_at' => 'tr.created_at',
@@ -80,22 +71,126 @@ final class TrialController extends Controller
                 'upcoming' => fn ($q, $value) => (string) $value === '1'
                     ? $q->where('tr.status', 'SCHEDULED')->where('tr.scheduled_at_utc', '>=', now()->format('Y-m-d H:i:sP'))
                     : null,
+                'decision' => fn ($q, $value) => (string) $value === 'needed' ? $this->needsDecision($q) : null,
             ],
             'defaultSort' => '-scheduled',
         ]);
 
-        $result['rows'] = $result['rows']->map(function (object $r): object {
-            $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
-            $r->created_at = Carbon::parse($r->created_at)->utc()->toIso8601String();
-            $r->duration_minutes = (int) $r->duration_minutes;
-            $r->display_name = $r->student_name ?? $r->crm_lead_name ?? $r->lead_name;
-            $r->is_lead = $r->student_id === null;
-            $r->from_crm = $r->lead_id !== null;
-
-            return $r;
-        });
+        $result['rows'] = $result['rows']->map(fn (object $r): object => $this->present($r));
 
         return response()->json($result);
+    }
+
+    /**
+     * GET /api/trials/agenda?date=YYYY-MM-DD&from=YYYY-MM-DD&to=YYYY-MM-DD[&teacher_id=]
+     *
+     * Everything the agenda board draws, in one read:
+     *   • `trials` — the picked day's trials (academy-local day), earliest first, every status;
+     *   • `days` — per local day in [from, to], how many live trials sit on it and how many of
+     *     those still need a decision (the week strip's numbers and red dots);
+     *   • `needs_decision` — every trial, ANY day, whose slot has ended with no outcome recorded,
+     *     oldest first. Deliberately outside the picked window: a trial nobody resolved last week
+     *     is exactly what a day view loses the moment it moves on.
+     *
+     * Days are the ACADEMY's days: an owner reading this from another timezone still sees the
+     * academy's Tuesday. Defaults: date = academy today, from/to = date.
+     */
+    public function agenda(Request $request): JsonResponse
+    {
+        Gate::authorize('trial.read');
+
+        $data = $request->validate([
+            'date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
+            'from' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
+            'to' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
+            'teacher_id' => ['sometimes', 'nullable', 'uuid'],
+        ]);
+
+        $timezone = $this->academyTimezone($this->currentAcademyId());
+        $today = Carbon::now($timezone)->toDateString();
+        $date = $data['date'] ?? $today;
+        $from = $data['from'] ?? $date;
+        $to = $data['to'] ?? $date;
+        if (Carbon::parse($from)->diffInDays(Carbon::parse($to)) > 62) {
+            throw ValidationException::withMessages(['to' => ['Pick a range of at most two months.']]);
+        }
+        $teacherId = $data['teacher_id'] ?? null;
+        $forTeacher = fn ($q) => $teacherId !== null ? $q->where('tr.teacher_id', $teacherId) : $q;
+
+        $dayStart = Carbon::parse($date, $timezone)->startOfDay();
+        $trials = $forTeacher($this->baseQuery())
+            ->where('tr.scheduled_at_utc', '>=', $dayStart->copy()->utc()->format('Y-m-d H:i:sP'))
+            ->where('tr.scheduled_at_utc', '<', $dayStart->copy()->addDay()->utc()->format('Y-m-d H:i:sP'))
+            ->orderBy('tr.scheduled_at_utc')
+            ->get()
+            ->map(fn (object $r): object => $this->present($r))
+            ->values();
+
+        // One grouped read for the strip. `at time zone` turns the instant into the academy's wall
+        // clock, so ::date is the academy's calendar day.
+        $rangeStart = Carbon::parse($from, $timezone)->startOfDay();
+        $rangeEnd = Carbon::parse($to, $timezone)->startOfDay()->addDay();
+        $nowSql = now()->format('Y-m-d H:i:sP');
+        $buckets = $forTeacher(DB::table('trials as tr'))
+            ->whereNull('tr.deleted_at')
+            ->where('tr.status', '<>', 'CANCELLED')
+            ->where('tr.scheduled_at_utc', '>=', $rangeStart->copy()->utc()->format('Y-m-d H:i:sP'))
+            ->where('tr.scheduled_at_utc', '<', $rangeEnd->copy()->utc()->format('Y-m-d H:i:sP'))
+            ->selectRaw('(tr.scheduled_at_utc at time zone ?)::date as day', [$timezone])
+            ->selectRaw('count(*) as total')
+            ->selectRaw("count(*) filter (where tr.status = 'SCHEDULED' and tr.scheduled_at_utc + make_interval(mins => tr.duration_minutes) <= ?::timestamptz) as needs_decision", [$nowSql])
+            ->groupBy('day')
+            ->get()
+            ->keyBy(fn (object $b): string => Carbon::parse($b->day)->toDateString());
+
+        $days = [];
+        for ($d = $rangeStart->copy(); $d->lt($rangeEnd); $d->addDay()) {
+            $key = $d->toDateString();
+            $days[] = [
+                'date' => $key,
+                'total' => (int) ($buckets[$key]->total ?? 0),
+                'needs_decision' => (int) ($buckets[$key]->needs_decision ?? 0),
+            ];
+        }
+
+        $overdue = $this->needsDecision($forTeacher($this->baseQuery()));
+        $overdueCount = (clone $overdue)->count();
+        $overdueRows = $overdue
+            ->orderBy('tr.scheduled_at_utc')
+            ->limit(self::NEEDS_DECISION_LIMIT)
+            ->get()
+            ->map(fn (object $r): object => $this->present($r))
+            ->values();
+
+        return response()->json([
+            'timezone' => $timezone,
+            'today' => $today,
+            'date' => $date,
+            'trials' => $trials,
+            'days' => $days,
+            'needs_decision' => $overdueRows,
+            'needs_decision_count' => $overdueCount,
+        ]);
+    }
+
+    /**
+     * GET /api/trials/teachers — what the "add a trial" form needs: the roster, the duration set
+     * and the academy's timezone (the frame a typed date and time are read in). The CRM has its own
+     * copy behind `entitled:crm`; this one is behind the trials gate, so an academy without the CRM
+     * can still book from the trials page.
+     */
+    public function teachers(): JsonResponse
+    {
+        Gate::authorize('trial.manage');
+
+        return response()->json([
+            'teachers' => DB::table('teachers')
+                ->whereNull('deleted_at')
+                ->orderBy('full_name')
+                ->get(['id', 'full_name', 'specialization']),
+            'durations' => self::DURATIONS,
+            'timezone' => $this->academyTimezone($this->currentAcademyId()),
+        ]);
     }
 
     /** GET /api/trials/summary — headline stats for the page (counts + conversion rate). */
@@ -145,6 +240,13 @@ final class TrialController extends Controller
             ->where('scheduled_at_utc', '<', now()->format('Y-m-d H:i:sP'))
             ->count();
 
+        // The red queue: a trial whose slot has ENDED with no outcome. Narrower than
+        // awaiting-outcome (which counts from the start) — a trial in progress is not late.
+        $needsDecision = (int) $base()
+            ->where('status', 'SCHEDULED')
+            ->whereRaw('scheduled_at_utc + make_interval(mins => duration_minutes) <= ?::timestamptz', [now()->format('Y-m-d H:i:sP')])
+            ->count();
+
         $fromCrm = (int) $base()->whereNotNull('lead_id')->count();
 
         return response()->json([
@@ -153,6 +255,7 @@ final class TrialController extends Controller
             'upcoming' => $upcoming,
             'today' => $today,
             'awaiting_outcome' => $awaitingOutcome,
+            'needs_decision' => $needsDecision,
             'completed' => $completed,
             'no_show' => $noShow,
             'cancelled' => $cancelled,
@@ -277,7 +380,18 @@ final class TrialController extends Controller
             ]);
         }
 
-        return response()->json(['ok' => true, 'changed' => array_keys($after)]);
+        // A moved slot is checked like a new booking: told about a clash, never stopped by it.
+        $warnings = isset($after['scheduled_at_utc']) || isset($after['duration_minutes'])
+            ? $this->schedulingWarnings(
+                (string) $trial->teacher_id,
+                Carbon::parse($after['scheduled_at_utc'] ?? $trial->scheduled_at_utc)->utc(),
+                (int) ($after['duration_minutes'] ?? $trial->duration_minutes),
+                (string) ($after['timezone'] ?? $trial->timezone),
+                excludeTrialId: $id,
+            )
+            : [];
+
+        return response()->json(['ok' => true, 'changed' => array_keys($after), 'warnings' => $warnings]);
     }
 
     /**
@@ -405,6 +519,57 @@ final class TrialController extends Controller
     }
 
     // ── internals ────────────────────────────────────────────────────────────
+
+    /** Every live trial joined to its teacher, student and CRM lead — the one shape every read returns. */
+    private function baseQuery(): Builder
+    {
+        return DB::table('trials as tr')
+            ->leftJoin('teachers as t', 't.id', '=', 'tr.teacher_id')
+            ->leftJoin('students as s', 's.id', '=', 'tr.student_id')
+            ->leftJoin('crm_leads as cl', 'cl.id', '=', 'tr.lead_id')
+            ->whereNull('tr.deleted_at')
+            ->select([
+                'tr.id', 'tr.teacher_id', 'tr.student_id', 'tr.lead_id', 'tr.lead_name',
+                'tr.lead_whatsapp', 'tr.lead_email', 'tr.timezone', 'tr.scheduled_at_utc',
+                'tr.duration_minutes', 'tr.status', 'tr.outcome_notes',
+                'tr.converted_student_id', 'tr.created_at',
+                't.full_name as teacher_name',
+                's.full_name as student_name',
+                's.whatsapp_phone as student_whatsapp',
+                'cl.full_name as crm_lead_name',
+                'cl.whatsapp_phone as crm_lead_whatsapp',
+                'cl.source as crm_source',
+            ]);
+    }
+
+    /**
+     * Still SCHEDULED after its slot ENDED — nobody said whether the prospect came. The trials
+     * page paints these red and the group alert TRIAL_NOT_MARKED chases them.
+     */
+    private function needsDecision(Builder $query): Builder
+    {
+        return $query
+            ->where('tr.status', 'SCHEDULED')
+            ->whereRaw('tr.scheduled_at_utc + make_interval(mins => tr.duration_minutes) <= ?::timestamptz', [now()->format('Y-m-d H:i:sP')]);
+    }
+
+    private function present(object $r): object
+    {
+        $start = Carbon::parse($r->scheduled_at_utc)->utc();
+        $r->scheduled_at_utc = $start->toIso8601String();
+        $r->ends_at_utc = $start->copy()->addMinutes((int) $r->duration_minutes)->toIso8601String();
+        $r->created_at = Carbon::parse($r->created_at)->utc()->toIso8601String();
+        $r->duration_minutes = (int) $r->duration_minutes;
+        $r->display_name = $r->student_name ?? $r->crm_lead_name ?? $r->lead_name;
+        // The number to call — whoever the trial is for.
+        $r->contact_whatsapp = $r->student_whatsapp ?? $r->crm_lead_whatsapp ?? $r->lead_whatsapp;
+        unset($r->student_whatsapp, $r->crm_lead_whatsapp);
+        $r->is_lead = $r->student_id === null;
+        $r->from_crm = $r->lead_id !== null;
+        $r->needs_decision = $r->status === 'SCHEDULED' && $start->copy()->addMinutes($r->duration_minutes)->lte(now());
+
+        return $r;
+    }
 
     /**
      * Mirror something that happened to a trial onto the CRM lead it belongs to. A no-op for a

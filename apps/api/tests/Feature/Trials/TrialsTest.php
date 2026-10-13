@@ -202,5 +202,91 @@ it('forbids a teacher from reaching the trials surface', function () {
 
     $this->getJson('/api/trials')->assertForbidden();
     $this->getJson('/api/trials/summary')->assertForbidden();
+    $this->getJson('/api/trials/agenda')->assertForbidden();
+    $this->getJson('/api/trials/teachers')->assertForbidden();
     $this->deleteJson('/api/trials/'.Str::uuid().'/permanent')->assertForbidden();
+});
+
+it('draws the agenda: the academy day, the week strip, and every trial still waiting on a decision', function () {
+    Sanctum::actingAs($this->owner);
+
+    // "Now" is 2026-05-15 06:00 UTC = 09:00 in Cairo (UTC+3 in May).
+    $book = fn (string $name, string $phone, string $local, int $minutes = 30) => $this->postJson('/api/trials', [
+        'teacher_id' => $this->teacher,
+        'lead_name' => $name,
+        'lead_whatsapp' => $phone,
+        'local_datetime' => $local,
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => $minutes,
+    ])->assertCreated()->json('trialId');
+
+    $lastWeek = $book('Forgotten', '+201000000011', '2026-05-12 17:00');
+    $endedToday = $book('Ended Today', '+201000000012', '2026-05-15 08:00');      // ended 08:30
+    $inProgress = $book('In Progress', '+201000000013', '2026-05-15 08:45');      // ends 09:15
+    $tomorrow = $book('Tomorrow', '+201000000014', '2026-05-16 17:00');
+
+    $agenda = $this->getJson('/api/trials/agenda?from=2026-05-12&to=2026-05-18')->assertOk()->json();
+
+    expect($agenda['timezone'])->toBe('Africa/Cairo');
+    expect($agenda['today'])->toBe('2026-05-15');
+    // The picked day defaults to the academy's today, earliest first.
+    expect(collect($agenda['trials'])->pluck('id')->all())->toBe([$endedToday, $inProgress]);
+    expect($agenda['trials'][0]['needs_decision'])->toBeTrue();
+    // A trial still in its slot is not late.
+    expect($agenda['trials'][1]['needs_decision'])->toBeFalse();
+    expect($agenda['trials'][0]['contact_whatsapp'])->toBe('+201000000012');
+
+    // Any day, oldest first — the forgotten one from Tuesday included.
+    expect(collect($agenda['needs_decision'])->pluck('id')->all())->toBe([$lastWeek, $endedToday]);
+    expect($agenda['needs_decision_count'])->toBe(2);
+
+    $days = collect($agenda['days'])->keyBy('date');
+    expect($days)->toHaveCount(7);
+    expect($days['2026-05-12'])->toMatchArray(['total' => 1, 'needs_decision' => 1]);
+    expect($days['2026-05-15'])->toMatchArray(['total' => 2, 'needs_decision' => 1]);
+    expect($days['2026-05-16'])->toMatchArray(['total' => 1, 'needs_decision' => 0]);
+    expect($days['2026-05-17'])->toMatchArray(['total' => 0, 'needs_decision' => 0]);
+
+    expect($this->getJson('/api/trials/summary')->json('needs_decision'))->toBe(2);
+
+    // A decision takes it off the red list; another day can be picked.
+    $this->patchJson("/api/trials/{$lastWeek}", ['status' => 'NO_SHOW'])->assertOk();
+    $after = $this->getJson('/api/trials/agenda?date=2026-05-16')->assertOk()->json();
+    expect(collect($after['trials'])->pluck('id')->all())->toBe([$tomorrow]);
+    expect($after['needs_decision_count'])->toBe(1);
+    expect($this->getJson('/api/trials?filter[decision]=needed')->json('rows'))->toHaveCount(1);
+});
+
+it('gives the add-a-trial form its roster without the CRM', function () {
+    Sanctum::actingAs($this->owner);
+
+    $res = $this->getJson('/api/trials/teachers')->assertOk()->json();
+
+    expect(collect($res['teachers'])->pluck('id'))->toContain($this->teacher);
+    expect($res['timezone'])->toBe('Africa/Cairo');
+    expect($res['durations'])->toContain(30);
+});
+
+it('warns about a clash when a trial is rescheduled onto another one', function () {
+    Sanctum::actingAs($this->owner);
+
+    $book = fn (string $name, string $phone, string $local) => $this->postJson('/api/trials', [
+        'teacher_id' => $this->teacher,
+        'lead_name' => $name,
+        'lead_whatsapp' => $phone,
+        'local_datetime' => $local,
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 30,
+    ])->assertCreated()->json('trialId');
+
+    $book('Holder', '+201000000021', '2026-06-16 17:00');
+    $mover = $book('Mover', '+201000000022', '2026-06-16 18:00');
+
+    $res = $this->patchJson("/api/trials/{$mover}", [
+        'local_datetime' => '2026-06-16 17:15',
+        'timezone' => 'Africa/Cairo',
+    ])->assertOk()->json();
+
+    expect($res['changed'])->toContain('scheduled_at_utc');
+    expect(collect($res['warnings'])->pluck('type'))->toContain('conflict');
 });

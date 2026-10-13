@@ -4,12 +4,19 @@ import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { ApiError, updateTrial, type TrialRow, type TrialStatus } from "@/lib/api";
+import { ApiError, updateTrial, type TrialRow } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const OUTCOMES: TrialStatus[] = ["COMPLETED", "NO_SHOW"];
+type Outcome = "COMPLETED" | "NO_SHOW";
 
-/** Records the result of a scheduled trial (completed / no-show) with optional notes. */
+const OUTCOMES: Outcome[] = ["COMPLETED", "NO_SHOW"];
+
+/**
+ * Notes on a trial, with its outcome alongside. The one-tap buttons on the board cover the plain
+ * decision; this is where the "how it went" goes. Picking an outcome is optional — a note on a
+ * trial that has not happened yet ("asked for a female teacher") must not decide it — and pressing
+ * the picked outcome again clears the pick.
+ */
 export function TrialOutcomeForm({
   trial,
   onSaved,
@@ -20,7 +27,9 @@ export function TrialOutcomeForm({
   onCancel: () => void;
 }) {
   const t = useTranslations("trials");
-  const [status, setStatus] = useState<TrialStatus>("COMPLETED");
+  const initial: Outcome | null =
+    trial.status === "COMPLETED" || trial.status === "NO_SHOW" ? trial.status : null;
+  const [status, setStatus] = useState<Outcome | null>(initial);
   const [notes, setNotes] = useState(trial.outcome_notes ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +38,10 @@ export function TrialOutcomeForm({
     setBusy(true);
     setError(null);
     try {
-      await updateTrial(trial.id, { status, outcome_notes: notes.trim() || null });
+      await updateTrial(trial.id, {
+        outcome_notes: notes.trim() || null,
+        ...(status !== null && status !== trial.status ? { status } : {}),
+      });
       onSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -47,7 +59,10 @@ export function TrialOutcomeForm({
           <button
             key={o}
             type="button"
-            onClick={() => setStatus(o)}
+            aria-pressed={status === o}
+            // Un-picking only applies to a trial with no decision yet; clearing a recorded one is
+            // the card's "Change decision".
+            onClick={() => setStatus((prev) => (prev === o && initial === null ? null : o))}
             className={cn(
               "rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors",
               status === o
@@ -66,6 +81,7 @@ export function TrialOutcomeForm({
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={3}
+          maxLength={2000}
           placeholder={t("outcome.notesPlaceholder")}
           className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
         />

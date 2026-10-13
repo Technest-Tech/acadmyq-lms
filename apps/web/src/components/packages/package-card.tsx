@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   BadgeCheck,
+  BellRing,
   BookOpenCheck,
   CalendarDays,
   CalendarClock,
@@ -68,11 +69,13 @@ export function PackageCard({
   onMarkPaid,
   onRenew,
   onReturnToMonthly,
+  onRemind,
   canManage,
   canSendInvoice,
   canMarkPaid,
   syncing,
   sendingPayment,
+  reminding,
 }: {
   row: LessonPackageRow;
   timezone: string;
@@ -87,11 +90,14 @@ export function PackageCard({
   onRenew: () => void;
   /** Take a student whose block ran out off package billing altogether. */
   onReturnToMonthly: () => void;
+  /** WhatsApp the payer a reminder: pay what is due, or renew a block that ran out. */
+  onRemind: () => void;
   canManage: boolean;
   canSendInvoice: boolean;
   canMarkPaid: boolean;
   syncing: boolean;
   sendingPayment: boolean;
+  reminding: boolean;
 }) {
   const t = useTranslations("packages");
   const locale = useLocale();
@@ -103,6 +109,12 @@ export function PackageCard({
   // Still being taught with no package open — money is accruing somewhere this card can't hold.
   const outOfHours = row.gap !== null;
   const alarm = owes || outOfHours;
+  // Opened while the student still owes on an earlier block. Its own colour (fuchsia), ahead of
+  // every other state, because the debt it carries lives on the Finished page, out of sight.
+  const previousUnpaid = row.previous_unpaid;
+  // Something to remind the payer about: money due on this block, or a finished block with no
+  // next one. The reminder history shows whenever there is one, even once it is settled.
+  const remindable = owes || row.awaiting_next_package;
   const strandedOverdraft = row.minutes_overdrawn > 0 && !row.overdraft_billed;
   const invoiceUrl = useInvoiceUrl();
   const paymentUrl = row.invoice_token !== null ? invoiceUrl(row.invoice_token) : null;
@@ -126,13 +138,6 @@ export function PackageCard({
   };
   const hasInvoice = row.invoice_id !== null;
 
-  add(canManage && row.awaiting_next_package, {
-    key: "renew",
-    icon: Plus,
-    label: t("actions.renew"),
-    onClick: onRenew,
-    testId: "renew-package",
-  });
   add(canManage && !isActive && strandedOverdraft, {
     key: "billOverdraft",
     icon: AlertTriangle,
@@ -140,19 +145,27 @@ export function PackageCard({
     onClick: onBillOverdraft,
     danger: true,
   });
-  add(canSendInvoice && hasInvoice && owes, {
-    key: "sendPayment",
-    icon: sendingPayment ? Loader2 : MessageCircle,
-    label: t("actions.sendPayment"),
-    onClick: onSendPayment,
-    disabled: sendingPayment,
-    spin: sendingPayment,
+  add(canSendInvoice && remindable, {
+    key: "remind",
+    icon: reminding ? Loader2 : BellRing,
+    label: t("actions.remind"),
+    onClick: onRemind,
+    disabled: reminding,
+    spin: reminding,
+    testId: "remind-package",
   });
   add(canMarkPaid && hasInvoice && owes, {
     key: "markPaid",
     icon: BadgeCheck,
     label: t("actions.markPaid"),
     onClick: onMarkPaid,
+  });
+  add(canManage && row.awaiting_next_package, {
+    key: "renew",
+    icon: Plus,
+    label: t("actions.renew"),
+    onClick: onRenew,
+    testId: "renew-package",
   });
   add(true, {
     key: "viewLessons",
@@ -238,29 +251,36 @@ export function PackageCard({
       data-testid="package-card"
       className={cn(
         "bg-card group flex min-w-0 flex-col overflow-hidden rounded-2xl border shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg",
-        alarm && "border-rose-300/70 dark:border-rose-800/60",
-        !alarm && low && "border-amber-300/70 dark:border-amber-800/60",
+        previousUnpaid !== null &&
+          "border-2 border-fuchsia-400/80 dark:border-fuchsia-600/70",
+        previousUnpaid === null && alarm && "border-rose-300/70 dark:border-rose-800/60",
+        previousUnpaid === null && !alarm && low && "border-amber-300/70 dark:border-amber-800/60",
       )}
+      data-previous-unpaid={previousUnpaid !== null || undefined}
     >
       <div
         className={cn(
           "relative border-b px-4 py-3.5",
-          alarm
-            ? "bg-gradient-to-br from-rose-500/[0.12] via-rose-500/[0.05] to-transparent"
-            : low
-              ? "bg-gradient-to-br from-amber-500/[0.13] via-amber-500/[0.05] to-transparent"
-              : "bg-gradient-to-br from-primary/[0.12] via-primary/[0.04] to-transparent",
+          previousUnpaid !== null
+            ? "bg-gradient-to-br from-fuchsia-500/[0.16] via-fuchsia-500/[0.06] to-transparent"
+            : alarm
+              ? "bg-gradient-to-br from-rose-500/[0.12] via-rose-500/[0.05] to-transparent"
+              : low
+                ? "bg-gradient-to-br from-amber-500/[0.13] via-amber-500/[0.05] to-transparent"
+                : "bg-gradient-to-br from-primary/[0.12] via-primary/[0.04] to-transparent",
         )}
       >
         <div className="flex items-start gap-3">
           <div
             className={cn(
               "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1",
-              alarm
-                ? "bg-rose-500/10 text-rose-600 ring-rose-500/20"
-                : low
-                  ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
-                  : "bg-primary/10 text-primary ring-primary/20",
+              previousUnpaid !== null
+                ? "bg-fuchsia-500/12 text-fuchsia-600 ring-fuchsia-500/25 dark:text-fuchsia-300"
+                : alarm
+                  ? "bg-rose-500/10 text-rose-600 ring-rose-500/20"
+                  : low
+                    ? "bg-amber-500/10 text-amber-600 ring-amber-500/20"
+                    : "bg-primary/10 text-primary ring-primary/20",
             )}
           >
             <WalletCards className="size-5" aria-hidden />
@@ -282,6 +302,33 @@ export function PackageCard({
       </div>
 
       <div className="flex flex-1 flex-col p-4">
+        {/* Said in words, not only in colour: this block was opened while an earlier one is still
+            unpaid — the debt is on the Finished page, so without this nobody looking here sees it. */}
+        {previousUnpaid !== null && (
+          <div
+            className="mb-3 rounded-xl border border-fuchsia-300/70 bg-fuchsia-500/[0.09] px-3 py-2.5 text-[11px] dark:border-fuchsia-800/60"
+            data-testid="previous-unpaid"
+          >
+            <p className="flex items-center gap-1.5 font-bold text-fuchsia-700 dark:text-fuchsia-300">
+              <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+              {t("card.previousUnpaidTitle", { count: previousUnpaid.packages })}
+            </p>
+            <p className="mt-0.5 leading-4 text-fuchsia-900/80 dark:text-fuchsia-200/85">
+              {t("card.previousUnpaidBody", {
+                count: previousUnpaid.packages,
+                packages: previousUnpaid.sequence_nos
+                  .map((n) => `#${n}`)
+                  .join(locale.startsWith("ar") ? "، " : ", "),
+                amount: previousUnpaid.amounts
+                  .map((a) =>
+                    formatMoney({ amount: a.amount_minor, currency: a.currency }, locale),
+                  )
+                  .join(" + "),
+              })}
+            </p>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-2">
           <Metric
             icon={Clock3}
@@ -452,6 +499,31 @@ export function PackageCard({
               {t("card.noPackageOpen")}
             </p>
           )}
+
+        {/* How many times the family has been reminded, and when last — so whoever picks this up
+            next knows it has already been chased before they chase it again. */}
+        {(row.reminders_sent > 0 || remindable) && (
+          <p
+            className={cn(
+              "mt-3 flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-semibold",
+              row.reminders_sent > 0
+                ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                : "bg-muted/50 text-muted-foreground",
+            )}
+            data-testid="package-reminders"
+          >
+            <BellRing className="size-3.5 shrink-0" aria-hidden />
+            <span className="min-w-0 truncate">
+              {row.reminders_sent > 0 && row.last_reminded_at !== null
+                ? t("card.reminders", {
+                    count: row.reminders_sent,
+                    n: formatNumber(row.reminders_sent, locale),
+                    date: formatDateTime(row.last_reminded_at, timezone, locale),
+                  })
+                : t("card.noReminders")}
+            </span>
+          </p>
+        )}
 
         <div className="mt-auto flex items-stretch gap-1.5 border-t pt-3">
           {featured.map((action, i) => (

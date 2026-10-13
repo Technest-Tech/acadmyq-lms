@@ -977,3 +977,125 @@ it('refuses an inline package when invoicing is switched off for this client', f
     $this->asAcademy($this->academy);
     expect(DB::table('students')->where('full_name', 'Free Plan Fady')->exists())->toBeFalse();
 });
+
+// ─── Open / Finished pages and payer reminders ──────────────────────────────
+
+it('splits open and finished packages, and flags a new block opened before the last one was paid', function () {
+    $first = ($this->openPackage)(1, 20000);
+    $session = ($this->lesson)(60);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $second = ($this->openPackage)(4, 80000);
+
+    Sanctum::actingAs($this->owner);
+    $open = $this->getJson('/api/packages?scope=open')->assertOk()->json('packages');
+    $finished = $this->getJson('/api/packages?scope=finished')->assertOk()->json('packages');
+
+    expect(array_column($open, 'id'))->toBe([$second['package_id']])
+        ->and(array_column($finished, 'id'))->toBe([$first['package_id']])
+        ->and($open[0]['previous_unpaid'])->toBe([
+            'packages' => 1,
+            'sequence_nos' => [1],
+            'amounts' => [['currency' => 'EGP', 'amount_minor' => 20000]],
+        ])
+        ->and($finished[0]['follow_up'])->toBeTrue()
+        ->and($finished[0]['previous_unpaid'])->toBeNull();
+
+    $this->getJson('/api/packages/summary')->assertOk()->assertJsonPath('finishedAttention', 1);
+    $this->getJson("/api/packages/{$second['package_id']}")
+        ->assertOk()
+        ->assertJsonPath('package.previous_unpaid.sequence_nos', [1]);
+
+    // Paying the old bill clears the flag on the new block and the badge on the finished page.
+    $this->postJson("/api/invoices/{$first['invoice_id']}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+
+    $open = $this->getJson('/api/packages?scope=open')->assertOk()->json('packages');
+    $finished = $this->getJson('/api/packages?scope=finished')->assertOk()->json('packages');
+    expect($open[0]['previous_unpaid'])->toBeNull()
+        ->and($finished[0]['follow_up'])->toBeFalse();
+    $this->getJson('/api/packages/summary')->assertOk()->assertJsonPath('finishedAttention', 0);
+});
+
+it('counts a finished package once on the badge, however many reasons it has', function () {
+    // Ran out, never paid, AND still being taught — unpaid and out of hours at the same time.
+    ($this->openPackage)(1, 20000);
+    $last = ($this->lesson)(60, '2026-06-02 10:00:00+00');
+    $after = ($this->lesson)(60, '2026-06-03 10:00:00+00');
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$last}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $this->postJson("/api/sessions/{$after}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->getJson('/api/packages/summary')
+        ->assertOk()
+        ->assertJsonPath('unpaid', 1)
+        ->assertJsonPath('outOfHours', 1)
+        ->assertJsonPath('finishedAttention', 1);
+});
+
+it('sends the parent a short payment reminder for an unpaid finished package and counts it', function () {
+    $package = ($this->openPackage)(1, 20000);
+    $session = ($this->lesson)(60);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $first = $this->postJson("/api/packages/{$package['package_id']}/remind", ['locale' => 'ar'])
+        ->assertOk()
+        ->assertJsonPath('kind', 'PAYMENT')
+        // The package bill is addressed to the child; the reminder still reaches the parent.
+        ->assertJsonPath('phone', '+201009998887')
+        ->assertJsonPath('reminders_sent', 1)
+        ->json();
+
+    expect($first['message'])->toContain('200 EGP')
+        ->and($first['message'])->toContain('رابط الدفع:')
+        ->and($first['message'])->toContain('1 hours')
+        ->and(substr_count($first['message'], "\n"))->toBeLessThanOrEqual(6);
+
+    Carbon::setTestNow('2026-06-12 09:30:00');
+    $this->postJson("/api/packages/{$package['package_id']}/remind", ['locale' => 'en'])
+        ->assertOk()
+        ->assertJsonPath('reminders_sent', 2)
+        ->assertJsonPath('message', fn (string $m) => str_contains($m, 'with 200 EGP still due') && str_contains($m, 'Pay here:'));
+
+    $row = collect($this->getJson('/api/packages?scope=finished')->json('packages'))->firstWhere('id', $package['package_id']);
+    expect($row['reminders_sent'])->toBe(2)
+        ->and($row['last_reminded_at'])->toBe('2026-06-12T09:30:00+00:00');
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('audit_log')->where('action', 'lesson_package.reminder_sent')->count())->toBe(2);
+});
+
+it('sends a renewal reminder, without a pay link, for a paid package that ran out with nothing next', function () {
+    $package = ($this->openPackage)(1, 20000);
+    $session = ($this->lesson)(60);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $this->postJson("/api/invoices/{$package['invoice_id']}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+
+    $res = $this->postJson("/api/packages/{$package['package_id']}/remind", ['locale' => 'en'])
+        ->assertOk()
+        ->assertJsonPath('kind', 'RENEWAL')
+        ->json();
+
+    expect($res['message'])->toContain('please renew the package')
+        ->and($res['message'])->not->toContain('http');
+});
+
+it('refuses a reminder when there is nothing to remind about, and keeps it from roles that cannot message payers', function () {
+    $first = ($this->openPackage)(1, 20000);
+    $session = ($this->lesson)(60);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $this->postJson("/api/invoices/{$first['invoice_id']}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+    ($this->openPackage)(4, 80000);
+
+    // Paid, and the next block is open: nothing left to chase.
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/{$first['package_id']}/remind")->assertStatus(422);
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson("/api/packages/{$first['package_id']}/remind")->assertForbidden();
+
+    $this->asAcademy($this->academy);
+    expect((int) DB::table('lesson_packages')->where('id', $first['package_id'])->value('reminders_sent'))->toBe(0);
+});

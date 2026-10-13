@@ -70,6 +70,10 @@ function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
     overdraft_billed: false,
     awaiting_next_package: false,
     gap: null,
+    follow_up: false,
+    previous_unpaid: null,
+    reminders_sent: 0,
+    last_reminded_at: null,
     created_at: "2026-09-01T00:00:00Z",
     ...overrides,
   };
