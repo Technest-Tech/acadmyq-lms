@@ -1,5 +1,5 @@
 import type { Pool } from 'pg'
-import { areJidsSameUser, isJidGroup, proto, type BaileysEventMap, type WASocket } from 'baileys'
+import { areJidsSameUser, DisconnectReason, isJidGroup, proto, type BaileysEventMap, type WASocket } from 'baileys'
 import { usePostgresAuthState, clearAuthState } from '../auth-store/postgres-auth-state.js'
 import { createSocket } from './socket-factory.js'
 import { decideReconnect, backoffDelay } from './reconnect.js'
@@ -76,6 +76,8 @@ export class ManagedSession {
   private sock: WASocket | null = null
   private saveCreds: (() => Promise<void>) | null = null
   private reconnectAttempts = 0
+  // 500s since the last successful open; only a streak of them wipes the creds (see reconnect.ts).
+  private badSessionStreak = 0
   private reconnectTimer: NodeJS.Timeout | null = null
   private starting = false
   private stopped = false
@@ -262,10 +264,16 @@ export class ManagedSession {
     }
   }
 
-  /** Watchdog probe: a "connected" session with no events for too long is half-open → force reconnect. */
+  /**
+   * Watchdog probe: a socket with no frames for too long is dead → force reconnect. A "connected" one
+   * is half-open; a "connecting" one never finished dialling — on 2026-10-16 a session froze there for
+   * hours (no QR, no close) while the panel kept serving its last, expired QR.
+   */
   checkHealth(staleMs: number): void {
-    if (this.state === 'connected' && this.lastSeenAt && Date.now() - this.lastSeenAt > staleMs) {
-      this.logger.warn({ sessionId: this.sessionId }, 'session appears stale; forcing reconnect')
+    if (this.starting || !this.sock) return
+    if (this.state !== 'connected' && this.state !== 'connecting') return
+    if (this.lastSeenAt && Date.now() - this.lastSeenAt > staleMs) {
+      this.logger.warn({ sessionId: this.sessionId, state: this.state }, 'session appears stale; forcing reconnect')
       try {
         this.sock?.end(new Error('watchdog: stale connection'))
       } catch {
@@ -340,6 +348,7 @@ export class ManagedSession {
 
     if (connection === 'open') {
       this.reconnectAttempts = 0
+      this.badSessionStreak = 0
       this.qrDataUrl = null
       this.lastConnectedAt = Date.now()
       this.phoneJid = this.sock?.user?.id ?? this.phoneJid
@@ -357,12 +366,15 @@ export class ManagedSession {
     if (connection === 'close') {
       const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output
         ?.statusCode
-      const decision = decideReconnect(statusCode)
+      const decision = decideReconnect(statusCode, this.badSessionStreak)
+      if (statusCode === DisconnectReason.badSession) this.badSessionStreak += 1
       this.logger.warn(
         { sessionId: this.sessionId, statusCode, action: decision.action, reason: decision.reason },
         'connection closed',
       )
       this.sock = null
+      // A QR dies with its socket; serving it afterwards only gets "can't link device" on the phone.
+      this.qrDataUrl = null
 
       switch (decision.action) {
         case 'reconnect-now':
@@ -377,7 +389,18 @@ export class ManagedSession {
           this.scheduleReconnect(this.config.RECONNECT_CAP_MS)
           break
         case 'fresh-qr':
+          this.badSessionStreak = 0
           await clearAuthState(this.pool, this.sessionId)
+          this.phoneJid = null
+          await this.persist({ phone_jid: null })
+          // The login is gone and only a re-scan brings it back. Without this the app kept showing
+          // CONNECTED for days and no operator alert fired.
+          void this.webhook.send({
+            event: 'connection.update',
+            sessionId: this.sessionId,
+            academyId: this.academyId,
+            data: { state: 'logged_out', reasonCode: statusCode, probableBan: false },
+          })
           this.setState('connecting')
           void this.start()
           break

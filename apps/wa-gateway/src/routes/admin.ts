@@ -57,7 +57,8 @@ export function registerAdminRoutes(
     const s = manager.getById((req.params as { id: string }).id)
     if (!s) return reply.code(404).send({ error: 'not_found' })
     if (s.state === 'connected') return reply.send({ state: 'connected' })
-    return reply.send({ state: s.state, qr: s.qrDataUrl })
+    // Only a QR that is on screen right now can be scanned; an older one makes the phone refuse.
+    return reply.send({ state: s.state, qr: s.state === 'qr' ? s.qrDataUrl : null })
   })
 
   // GET /sessions/:id/status -> SessionStatusView
