@@ -117,7 +117,7 @@ export function TeacherRangeLessonsModal({
           {lessons.map((l) => (
             <li key={l.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{l.student_name ?? "—"}</p>
+                <p className="truncate font-medium">{l.student_name ?? l.group_name ?? "—"}</p>
                 <p className="text-muted-foreground text-xs tabular-nums">
                   {l.session_date ? dateFmt.format(new Date(`${l.session_date}T00:00:00Z`)) : "—"}
                   {l.duration_minutes !== null && <> · {formatHours(l.duration_minutes, locale)}</>}

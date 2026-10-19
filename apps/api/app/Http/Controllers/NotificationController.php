@@ -156,11 +156,18 @@ final class NotificationController extends Controller
      */
     private function visibleQuery()
     {
+        $hidden = self::HIDDEN_CATEGORIES;
+        // Package alerts are billing — hours running out, a payer to chase. A notifications reader
+        // without the packages capability (a supervisor) does not get the money inbox with them.
+        if (! Gate::allows('package.read')) {
+            $hidden[] = 'PACKAGES';
+        }
+
         return DB::table('notifications as n')
             ->where('n.audience_role', 'ACADEMY_OWNER')
             // Course-sale alerts (docs/lms/10 §5) share this table but not this page: they are
             // worked from the sales desk, which shows the receipt itself and the approve button.
             // Surfacing them here too would mean two inboxes for one decision.
-            ->whereNotIn('n.category', self::HIDDEN_CATEGORIES);
+            ->whereNotIn('n.category', $hidden);
     }
 }

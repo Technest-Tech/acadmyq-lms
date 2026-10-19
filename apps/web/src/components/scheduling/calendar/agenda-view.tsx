@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarX2, ChevronRight, Clock, GraduationCap, Sparkles } from "lucide-react";
+import { CalendarX2, ChevronRight, Clock, GraduationCap, Sparkles, UsersRound } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
 import type { CalendarSession } from "@/lib/api";
@@ -180,7 +180,12 @@ export function AgendaView({
                         )}
                       >
                         {s.trial && <Sparkles className="size-3" aria-hidden />}
-                        {s.trial ? t("calendar.trialEvent") : t(`status.${s.status}`)}
+                        {s.group && <UsersRound className="size-3" aria-hidden />}
+                        {s.trial
+                          ? t("calendar.trialEvent")
+                          : s.group
+                            ? t("calendar.groupEvent")
+                            : t(`status.${s.status}`)}
                       </span>
 
                       <ChevronRight

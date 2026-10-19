@@ -1012,7 +1012,10 @@ it('splits open and finished packages, and flags a new block opened before the l
     $open = $this->getJson('/api/packages?scope=open')->assertOk()->json('packages');
     $finished = $this->getJson('/api/packages?scope=finished')->assertOk()->json('packages');
     expect($open[0]['previous_unpaid'])->toBeNull()
-        ->and($finished[0]['follow_up'])->toBeFalse();
+        ->and($finished[0]['follow_up'])->toBeFalse()
+        // Still on the finished page, now as paid — with the day it was paid.
+        ->and($finished[0]['invoice_status'])->toBe('PAID')
+        ->and($finished[0]['paid_at'])->not->toBeNull();
     $this->getJson('/api/packages/summary')->assertOk()->assertJsonPath('finishedAttention', 0);
 });
 

@@ -44,8 +44,10 @@ use Illuminate\Validation\ValidationException;
  */
 final class AcademyRoleController extends Controller
 {
-    /** System roles an academy may VIEW/assign (never SUPER_ADMIN, never editable here). */
-    private const ASSIGNABLE_SYSTEM_ROLES = ['ACADEMY_OWNER', 'SUPERVISOR', 'TEACHER', 'STAFF'];
+    /** System roles an academy may VIEW (never SUPER_ADMIN, never editable here), strongest first. */
+    private const VISIBLE_SYSTEM_ROLES = [
+        'ACADEMY_OWNER', 'MANAGER', 'SUPERVISOR', 'ACCOUNTANT', 'CUSTOMER_SERVICE', 'TEACHER', 'STAFF',
+    ];
 
     private function ctx(): AuthContext
     {
@@ -154,7 +156,7 @@ final class AcademyRoleController extends Controller
         $features = $this->features();
 
         $system = [];
-        foreach (self::ASSIGNABLE_SYSTEM_ROLES as $code) {
+        foreach (self::VISIBLE_SYSTEM_ROLES as $code) {
             $system[] = [
                 'code'          => $code,
                 'name'          => $code,
@@ -189,28 +191,39 @@ final class AcademyRoleController extends Controller
 
         $grantable = $this->grantable($features);
 
+        // The builder's sections, narrowed to what this user may grant here: a section whose every
+        // capability belongs to a module the academy lacks (or that the user does not hold) is
+        // not offered at all.
+        $areas = [];
+        foreach (PermissionCatalog::AREAS as $area) {
+            $view = array_values(array_intersect($area['view'], $grantable));
+            $manage = array_values(array_intersect($area['manage'], $grantable));
+            if ($view === [] && $manage === []) {
+                continue;
+            }
+            $areas[] = ['key' => $area['key'], 'kind' => $area['kind'], 'view' => $view, 'manage' => $manage];
+        }
+
+        $roleMap = PermissionCatalog::roleMap();
+
         return response()->json([
             'system'    => $system,
             'custom'    => $custom,
             'grantable' => $grantable,
-            // Which of the grantable capabilities move or reveal money. The builder marks these
-            // so an academy can SEE what it is handing over, rather than having to know that
-            // `payout.adjust` is how an award gets paid.
-            'financial' => array_values(array_intersect($grantable, PermissionCatalog::FINANCIAL)),
-            // Starting points for a new role. `supervisor` is the built-in SUPERVISOR's own set,
-            // clamped to what the acting user may actually delegate — so building a narrowed
-            // supervisor ("attendance and students only") starts from the full preset and unticks,
-            // instead of hunting forty-six checkboxes for the ones that are not money.
-            'presets'   => [
-                [
-                    'key'         => 'supervisor',
-                    'role'        => 'SUPERVISOR',
-                    'permissions' => array_values(array_intersect(
-                        $grantable,
-                        PermissionCatalog::roleMap()['SUPERVISOR'],
-                    )),
-                ],
-            ],
+            'areas'     => $areas,
+            // Which of the grantable capabilities move or reveal money, and which open a statistics
+            // page. The builder marks both so an academy can SEE what it is handing over, rather
+            // than having to know that `payout.adjust` is how an award gets paid.
+            'financial'  => array_values(array_intersect($grantable, PermissionCatalog::FINANCIAL)),
+            'statistics' => array_values(array_intersect($grantable, PermissionCatalog::STATISTICS)),
+            // Starting points for a new role: each shared built-in role's own set, clamped to what
+            // the acting user may actually delegate — so "a supervisor who only takes attendance"
+            // starts from the whole supervisor and unticks, instead of from eighty empty boxes.
+            'presets'   => array_map(fn (string $role): array => [
+                'key'         => strtolower($role),
+                'role'        => $role,
+                'permissions' => array_values(array_intersect($grantable, $roleMap[$role])),
+            ], ['MANAGER', 'SUPERVISOR', 'ACCOUNTANT', 'CUSTOMER_SERVICE']),
         ]);
     }
 

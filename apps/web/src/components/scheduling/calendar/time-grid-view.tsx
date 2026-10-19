@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarX2, ChevronsDownUp, ChevronsUpDown, Sparkles } from "lucide-react";
+import { CalendarX2, ChevronsDownUp, ChevronsUpDown, Sparkles, UsersRound } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AvailabilityWindow, CalendarSession } from "@/lib/api";
@@ -45,7 +45,8 @@ const clamp = (n: number, lo: number, hi: number) =>
 function isDraggable(s: CalendarSession): boolean {
   // A trial rides in the same feed but is not a session: its id is a trial id, and moving it is
   // the Trials page's job — so it is painted, never dragged.
-  return s.status === "SCHEDULED" && s.trial === undefined;
+  // A group-class lesson is the same: one block for a whole class, run from the group page.
+  return s.status === "SCHEDULED" && s.trial === undefined && s.group === undefined;
 }
 
 type DragState = {
@@ -667,7 +668,7 @@ function EventBlock({
       }}
       title={`${startLabel} – ${endLabel} · ${name}${
         s.teacher_name ? ` · ${s.teacher_name}` : ""
-      } · ${s.trial ? t("calendar.trialEvent") : t(`status.${s.status}`)}`}
+      } · ${s.trial ? t("calendar.trialEvent") : s.group ? t("calendar.groupEvent") : t(`status.${s.status}`)}`}
       className={cn(
         "group/ev absolute z-10 flex flex-col overflow-hidden rounded-lg border text-start shadow-sm transition-[box-shadow,transform] hover:z-30 hover:shadow-md focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none",
         STATUS_CHIP[s.status],
@@ -697,6 +698,7 @@ function EventBlock({
           // One line only: the name leads (it's what you scan for), the start time trails.
           <span className="flex items-baseline gap-1.5 overflow-hidden">
             {s.trial && <Sparkles className="size-2.5 shrink-0 self-center" aria-hidden />}
+            {s.group && <UsersRound className="size-2.5 shrink-0 self-center" aria-hidden />}
             <span
               className={cn(
                 "truncate text-[0.7rem] leading-tight font-semibold",
@@ -713,6 +715,7 @@ function EventBlock({
           <>
             <span className="flex items-center gap-1 truncate text-[0.68rem] leading-tight font-bold tabular-nums opacity-90">
               {s.trial && <Sparkles className="size-2.5 shrink-0" aria-hidden />}
+              {s.group && <UsersRound className="size-2.5 shrink-0" aria-hidden />}
               {tier === "full" ? `${startLabel} – ${endLabel}` : startLabel}
             </span>
             <span

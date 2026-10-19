@@ -14,15 +14,15 @@ import {
   type StaffLogin,
   updateStaffLogin,
 } from "@/lib/api";
-import { roleLabel } from "@/lib/roles";
+import { roleLabel, STAFF_ROLES } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
 const inputClass =
   "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-colors focus:ring-3 disabled:cursor-not-allowed disabled:opacity-50";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Built-in roles the staff form may assign, weakest first. Mirrors StaffController. */
-const BUILT_IN = ["STAFF", "SUPERVISOR"] as const;
+/** Built-in roles the team page may assign, weakest first. Mirrors PermissionCatalog::STAFF_ROLES. */
+const BUILT_IN = STAFF_ROLES;
 
 /**
  * The employee's sign-in login on their detail page — the half of the staff module that was
@@ -72,8 +72,9 @@ export function StaffLoginSection({
     setPassword("");
   }, [login.email, login.role, login.is_active]);
 
-  // The assignable roles: the two built-ins plus the academy's own active custom roles. Listing
-  // needs role.manage; without it the built-ins (and whatever the person already holds) remain.
+  // The assignable roles: the shared built-ins plus the academy's own active custom roles — only
+  // those this user could hand out (the API refuses a role bigger than its giver). Listing needs
+  // role.manage; without it the built-ins (and whatever the person already holds) remain.
   useEffect(() => {
     if (!canRole) return;
     listAcademyRoles()
@@ -81,10 +82,14 @@ export function StaffLoginSection({
         const builtIn = BUILT_IN.map((code) => res.system.find((r) => r.code === code)).filter(
           (r): r is AcademyRoleSummary => r !== undefined,
         );
-        setRoles([...builtIn, ...res.custom.filter((r) => r.isActive !== false)]);
+        setRoles(
+          [...builtIn, ...res.custom.filter((r) => r.isActive !== false)].filter((r) =>
+            r.permissions.every((code) => can(code)),
+          ),
+        );
       })
       .catch(() => {});
-  }, [canRole]);
+  }, [canRole, can]);
 
   const roleOptions: Array<{ code: string; label: string }> = (() => {
     const base =

@@ -32,10 +32,10 @@ final class UserController extends Controller
     private const MAX_PAGE_SIZE = 100;
 
     /** System roles the directory can filter by. Custom codes (`CR_…`) pass through as-is. */
-    private const ROLES = ['SUPER_ADMIN', 'ACADEMY_OWNER', 'SUPERVISOR', 'TEACHER', 'STAFF'];
+    private const ROLES = ['SUPER_ADMIN', 'ACADEMY_OWNER', 'MANAGER', 'SUPERVISOR', 'ACCOUNTANT', 'CUSTOMER_SERVICE', 'TEACHER', 'STAFF'];
 
     /** Roles a Super Admin may hand out inside an academy — never the platform role from here. */
-    private const ASSIGNABLE = ['ACADEMY_OWNER', 'SUPERVISOR', 'TEACHER', 'STAFF'];
+    private const ASSIGNABLE = ['ACADEMY_OWNER', 'MANAGER', 'SUPERVISOR', 'ACCOUNTANT', 'CUSTOMER_SERVICE', 'TEACHER', 'STAFF'];
 
     /** GET /api/admin/users — platform-wide, filterable user list. */
     public function index(Request $request): JsonResponse

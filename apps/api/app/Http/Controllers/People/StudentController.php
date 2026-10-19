@@ -6,6 +6,7 @@ namespace App\Http\Controllers\People;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
+use App\Services\ClassGroups;
 use App\Services\Invoicing;
 use App\Services\LessonPackages;
 use App\Services\SessionGenerator;
@@ -278,8 +279,11 @@ final class StudentController extends Controller
             if (StudentStatus::isTerminal($target)) {
                 throw ValidationException::withMessages(['status' => ['Graduate or withdraw a student via deactivate, which preserves their history.']]);
             }
-            if ($target === StudentStatus::REGULAR && $this->activeSubscription($id) === null) {
-                throw ValidationException::withMessages(['status' => ['Set an active subscription before making this student REGULAR.']]);
+            // A group class bills its members itself (docs/groups §Money), so an open membership is
+            // an enrolment as good as a subscription.
+            if ($target === StudentStatus::REGULAR && $this->activeSubscription($id) === null
+                && DB::table('class_group_members')->where('student_id', $id)->where('status', 'ACTIVE')->doesntExist()) {
+                throw ValidationException::withMessages(['status' => ['Set an active subscription (or add them to a group) before making this student REGULAR.']]);
             }
         }
 
@@ -364,6 +368,7 @@ final class StudentController extends Controller
                     'removed_future_sessions' => $wound['sessions_removed'],
                     'cancelled_unmarked_sessions' => $wound['sessions_cancelled'],
                     'hidden_sessions' => $wound['sessions_hidden'],
+                    'left_groups' => $wound['groups_left'],
                 ],
                 before: ['status' => $student->status]);
         });
@@ -410,6 +415,7 @@ final class StudentController extends Controller
                     'removed_future_sessions' => $wound['sessions_removed'],
                     'cancelled_unmarked_sessions' => $wound['sessions_cancelled'],
                     'hidden_sessions' => $wound['sessions_hidden'],
+                    'left_groups' => $wound['groups_left'],
                 ],
                 before: ['status' => $student->status]);
         });
@@ -958,7 +964,7 @@ final class StudentController extends Controller
      * three a removed student kept a live package, kept generating lessons, and their unmarked
      * lessons sat in الحصص المعلقة, fired "not marked" group alerts and docked the teacher forever.
      *
-     * @return array{subscription: bool, assignment: bool, package: ?string, schedules: int, sessions_removed: int, sessions_cancelled: int, sessions_hidden: int}
+     * @return array{subscription: bool, assignment: bool, package: ?string, groups_left: int, schedules: int, sessions_removed: int, sessions_cancelled: int, sessions_hidden: int}
      */
     private function endActiveBilling(string $studentId, $now): array
     {
@@ -977,6 +983,8 @@ final class StudentController extends Controller
             'subscription' => $endedSubscription > 0,
             'assignment' => $closedAssignment > 0,
             'package' => $package,
+            // Group classes: they stop being expected on any sheet from today (docs/groups).
+            'groups_left' => app(ClassGroups::class)->leaveAllFor($studentId, 'Student removed from the academy'),
         ] + $this->windDownLessons($studentId, $now);
     }
 

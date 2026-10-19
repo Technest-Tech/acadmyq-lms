@@ -134,6 +134,8 @@ export function TeachersList({
   const t = useTranslations("teachers");
   const paySummary = usePaySummary();
   const { can } = useAuth();
+  // Pay is teacher.set_pay's to see (the API redacts it for a supervisor) — no column without it.
+  const canPay = can("teacher.set_pay");
 
   const columns = useMemo<ColumnDef<TeacherRow>[]>(
     () => [
@@ -162,22 +164,26 @@ export function TeachersList({
           </div>
         ),
       },
-      {
-        key: "rate",
-        header: t("colRate"),
-        sortKey: "rate",
-        className: "text-end",
-        headerClassName: "min-w-28",
-        render: (r) => {
-          const pay = paySummary(r);
-          return (
-            <div className="text-end">
-              <div className="font-medium tabular-nums">{pay.value}</div>
-              <div className="text-muted-foreground text-[11px]">{pay.sub}</div>
-            </div>
-          );
-        },
-      },
+      ...(canPay
+        ? [
+            {
+              key: "rate",
+              header: t("colRate"),
+              sortKey: "rate",
+              className: "text-end",
+              headerClassName: "min-w-28",
+              render: (r: TeacherRow) => {
+                const pay = paySummary(r);
+                return (
+                  <div className="text-end">
+                    <div className="font-medium tabular-nums">{pay.value}</div>
+                    <div className="text-muted-foreground text-[11px]">{pay.sub}</div>
+                  </div>
+                );
+              },
+            },
+          ]
+        : []),
       {
         key: "phone",
         header: t("colWhatsapp"),
@@ -227,7 +233,7 @@ export function TeachersList({
         },
       },
     ],
-    [t, paySummary],
+    [t, paySummary, canPay],
   );
 
   const filters = useMemo<FilterDef[]>(
@@ -249,20 +255,24 @@ export function TeachersList({
     () => [
       { header: t("colName"), value: (r) => r.full_name, width: 26 },
       { header: t("colSpecialization"), value: (r) => r.specialization },
-      {
-        header: t("colRate"),
-        value: (r) => {
-          const pay = paySummary(r);
-          return `${pay.value} · ${pay.sub}`;
-        },
-      },
+      ...(canPay
+        ? [
+            {
+              header: t("colRate"),
+              value: (r: TeacherRow) => {
+                const pay = paySummary(r);
+                return `${pay.value} · ${pay.sub}`;
+              },
+            },
+          ]
+        : []),
       { header: t("colWhatsapp"), value: (r) => r.phone },
       {
         header: t("colStatus"),
         value: (r) => (r.deleted_at == null ? t("stat.active") : t("stat.inactive")),
       },
     ],
-    [t, paySummary],
+    [t, paySummary, canPay],
   );
 
   const newButton = can("teacher.create") ? (

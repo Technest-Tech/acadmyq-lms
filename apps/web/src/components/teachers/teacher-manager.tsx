@@ -135,8 +135,12 @@ export function TeacherManager() {
     ])
       .then(([all, inactive, active]) => {
         const rows = active.rows;
-        // An hourly average: a salaried teacher has no hourly rate to average in.
-        const hourly = rows.filter((r) => r.pay_type !== "FIXED");
+        // An hourly average: a salaried teacher has no hourly rate to average in. Without
+        // teacher.set_pay the rates arrive redacted (null), so there is nothing to average.
+        const hourly = rows.filter(
+          (r): r is typeof r & { session_rate_minor: number } =>
+            r.pay_type !== null && r.pay_type !== "FIXED" && r.session_rate_minor !== null,
+        );
         const avg =
           hourly.length > 0
             ? Math.round(

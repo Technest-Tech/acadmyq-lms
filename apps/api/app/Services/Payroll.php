@@ -435,6 +435,126 @@ final class Payroll implements PayoutHook
     }
 
     // -------------------------------------------------------------------------
+    // Group classes (docs/groups) — lesson-less lines on the same statements
+    // -------------------------------------------------------------------------
+
+    /**
+     * Make the teacher's statement for `$year-$month` carry exactly one group line under `$anchor`
+     * — `['class_group_lesson_id' => …]` for a held lesson, or `['class_group_id' => …,
+     * 'group_period' => …]` for a month's revenue share — worth `$amountMinor`. Creates it, moves it
+     * by the delta, or leaves it; the partial unique indexes make a second line impossible.
+     *
+     * A FINALIZED statement is money already paid: a needed change there is refused (the throw rolls
+     * the caller back) unless `$quietWhenFinalized`, which the revenue-share sync uses so billing a
+     * late member never fails because last month's salaries are sealed.
+     *
+     * @param  array<string, string>  $anchor
+     */
+    public function upsertGroupLine(string $academyId, string $teacherId, int $year, int $month, array $anchor, int $amountMinor, string $description, string $sessionDate, bool $quietWhenFinalized = false): void
+    {
+        $existing = DB::table('payout_line_items')->where($anchor)->first();
+        $payoutId = $this->ensureOpenPayoutFor($academyId, $teacherId, $year, $month);
+        if ($payoutId === null) {
+            return;
+        }
+
+        // The line lives on another statement (the lesson changed hands, or months) — move it.
+        if ($existing !== null && (string) $existing->payout_id !== $payoutId) {
+            if (! $this->removeGroupLine($existing, $quietWhenFinalized)) {
+                return;
+            }
+            $existing = null;
+        }
+
+        $finalized = DB::table('payouts')->where('id', $payoutId)->value('finalized_at') !== null;
+        $delta = $amountMinor - (int) ($existing->amount_minor ?? 0);
+
+        if ($existing !== null && $delta === 0) {
+            if ((string) $existing->description !== $description && ! $finalized) {
+                DB::table('payout_line_items')->where('id', $existing->id)->update(['description' => $description]);
+            }
+
+            return;
+        }
+
+        if ($finalized) {
+            // Nothing owed and nothing recorded: a sealed statement has nothing to say about it.
+            if ($quietWhenFinalized || ($existing === null && $amountMinor === 0)) {
+                return;
+            }
+            throw ValidationException::withMessages([
+                'payout' => ['This teacher\'s statement for that month is already finalized. / كشف راتب المدرس لهذا الشهر نهائي بالفعل.'],
+            ]);
+        }
+
+        $currency = (string) DB::table('payouts')->where('id', $payoutId)->value('currency');
+
+        if ($existing === null) {
+            DB::table('payout_line_items')->insert($anchor + [
+                'id' => (string) Str::uuid(),
+                'academy_id' => $academyId,
+                'payout_id' => $payoutId,
+                'session_id' => null,
+                'amount_minor' => $amountMinor,
+                'currency' => $currency,
+                'session_date' => $sessionDate,
+                'description' => $description,
+                'created_at' => now(),
+            ]);
+        } else {
+            DB::table('payout_line_items')->where('id', $existing->id)->update([
+                'amount_minor' => $amountMinor,
+                'description' => $description,
+            ]);
+        }
+
+        DB::table('payouts')->where('id', $payoutId)->update([
+            'total_minor' => DB::raw("total_minor + {$delta}"),
+            'updated_at' => now(),
+        ]);
+
+        Audit::log($existing === null ? 'payout.line_accrued' : 'payout.line_repriced', 'payout', $payoutId, $academyId, null, 'SUPER_ADMIN', after: $anchor + [
+            'teacher_id' => $teacherId,
+            'amount_minor' => $amountMinor,
+        ], before: $existing !== null ? ['amount_minor' => (int) $existing->amount_minor] : null);
+
+        $this->quality()->syncPayout($payoutId);
+    }
+
+    /**
+     * Take a group line off its statement. Refused on a finalized statement (or, when `$quiet`,
+     * skipped) — returns whether it was removed.
+     */
+    public function removeGroupLine(object $line, bool $quiet = false): bool
+    {
+        if (DB::table('payouts')->where('id', $line->payout_id)->value('finalized_at') !== null) {
+            if ($quiet) {
+                return false;
+            }
+            throw ValidationException::withMessages([
+                'payout' => ['Cannot reverse: this teacher\'s payout is already finalized. / لا يمكن التراجع: كشف راتب هذا المدرس نهائي بالفعل.'],
+            ]);
+        }
+
+        $amountMinor = (int) $line->amount_minor;
+        DB::table('payout_line_items')->where('id', $line->id)->delete();
+        DB::table('payouts')->where('id', $line->payout_id)->update([
+            'total_minor' => DB::raw("total_minor - {$amountMinor}"),
+            'updated_at' => now(),
+        ]);
+
+        Audit::log('payout.line_reversed', 'payout', (string) $line->payout_id, (string) $line->academy_id, null, 'SUPER_ADMIN', before: [
+            'class_group_lesson_id' => $line->class_group_lesson_id,
+            'class_group_id' => $line->class_group_id,
+            'amount_minor' => $amountMinor,
+        ]);
+
+        $this->quality()->syncPayout((string) $line->payout_id);
+
+        return true;
+    }
+
+    // -------------------------------------------------------------------------
     // Pay types — HOURLY, PER_STUDENT, FIXED
     // -------------------------------------------------------------------------
 

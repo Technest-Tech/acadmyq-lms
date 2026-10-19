@@ -95,7 +95,7 @@ it('blocks the roles module for a client whose custom_roles we switched off (402
         'permissions' => ['student.read'],
     ])->assertStatus(402);
     // LISTING stays free — the staff form needs the built-in STAFF/SUPERVISOR roles either way.
-    $this->getJson('/api/roles')->assertOk()->assertJsonPath('system.1.code', 'SUPERVISOR');
+    expect(collect($this->getJson('/api/roles')->assertOk()->json('system'))->pluck('code')->all())->toContain('SUPERVISOR')->toContain('STAFF');
 });
 
 // ── Update ───────────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Services\GroupLessonGenerator;
 use App\Services\SessionGenerator;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -51,8 +52,10 @@ final class RollSessionWindowJob implements ShouldQueue
      *
      * @return array<string, array{created:int, removed:int}>
      */
-    public function handle(SessionGenerator $generator): array
+    public function handle(SessionGenerator $generator, ?GroupLessonGenerator $groups = null): array
     {
+        $groups ??= app(GroupLessonGenerator::class);
+
         [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
         if ($this->from !== null) {
             $windowStart = Carbon::parse($this->from);
@@ -73,8 +76,18 @@ final class RollSessionWindowJob implements ShouldQueue
                 permissions: [],
             );
 
-            $results[$academyId] = Tenancy::withContext($ctx, function () use ($generator, $academyId, $windowStart, $windowEnd, $floor) {
+            $results[$academyId] = Tenancy::withContext($ctx, function () use ($generator, $groups, $academyId, $windowStart, $windowEnd, $floor) {
                 $counts = $generator->generateForAcademy($academyId, $windowStart, $windowEnd, null, $floor);
+
+                // Group classes (docs/groups) roll on the same night, only where the feature is on —
+                // a client that switched it off keeps its groups, but they stop producing lessons.
+                if (GroupLessonGenerator::enabledFor($academyId)) {
+                    $g = $groups->generateForAcademy($academyId, $windowStart, $windowEnd);
+                    $counts = [
+                        'created' => $counts['created'] + $g['created'],
+                        'removed' => $counts['removed'] + $g['removed'],
+                    ];
+                }
 
                 Audit::log('generator.run', 'academy', $academyId, $academyId, self::SYSTEM_USER_ID, 'SUPER_ADMIN', after: [
                     'created' => $counts['created'],

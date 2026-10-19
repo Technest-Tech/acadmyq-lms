@@ -43,7 +43,7 @@ final class SupervisionStatsController extends Controller
     /** Lessons listed per response; the counts are computed over the same capped set. */
     private const SESSION_LIMIT = 1500;
 
-    private const ROLE_ORDER = ['ACADEMY_OWNER' => 0, 'SUPERVISOR' => 1, 'TEACHER' => 2, 'STAFF' => 3];
+    private const ROLE_ORDER = ['ACADEMY_OWNER' => 0, 'MANAGER' => 1, 'SUPERVISOR' => 2, 'CUSTOMER_SERVICE' => 3, 'ACCOUNTANT' => 4, 'TEACHER' => 5, 'STAFF' => 6];
 
     /** GET /api/supervision/stats?from=Y-m-d&to=Y-m-d[&follow_minutes=&mark_minutes=] */
     public function index(Request $request): JsonResponse

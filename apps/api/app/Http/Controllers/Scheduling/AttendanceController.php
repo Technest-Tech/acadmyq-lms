@@ -99,9 +99,12 @@ final class AttendanceController extends Controller
         // Charge-student / pay-teacher overrides apply to a cancellation OR a free lesson (both let
         // the academy decide the billing per occurrence); a plain ATTENDED outcome keeps the
         // status-derived verdict (null overrides).
+        // The override itself is a money decision (session.bill_override): without it the outcome
+        // is still recorded, with the standard verdict — neither charged nor paid.
         $overridable = $isCancel || $isFree;
-        $billOverride = $overridable ? (bool) ($data['charge_student'] ?? false) : null;
-        $teacherOverride = $overridable ? (bool) ($data['pay_teacher'] ?? false) : null;
+        $mayBill = Gate::allows('session.bill_override');
+        $billOverride = $overridable ? ($mayBill && (bool) ($data['charge_student'] ?? false)) : null;
+        $teacherOverride = $overridable ? ($mayBill && (bool) ($data['pay_teacher'] ?? false)) : null;
 
         $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride);
 

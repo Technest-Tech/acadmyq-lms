@@ -56,6 +56,19 @@ type CardAction = {
   testId?: string;
 };
 
+/**
+ * A finished package with nothing left to collect: its bill is settled, nothing it used went
+ * unbilled, and no overdraft is waiting to be billed. The one rule behind the Paid / Not paid tabs
+ * of Finished packages and the card turning green, so the two can never disagree.
+ */
+export function isPackagePaid(row: LessonPackageRow): boolean {
+  return (
+    row.outstanding_minor === 0 &&
+    !(row.invoice_id === null && row.minutes_consumed > 0) &&
+    !(row.minutes_overdrawn > 0 && !row.overdraft_billed)
+  );
+}
+
 /** A compact operational card: balance, lesson count, dates and collection actions. */
 export function PackageCard({
   row,
@@ -112,6 +125,9 @@ export function PackageCard({
   // Opened while the student still owes on an earlier block. Its own colour (fuchsia), ahead of
   // every other state, because the debt it carries lives on the Finished page, out of sight.
   const previousUnpaid = row.previous_unpaid;
+  // A finished package that has been paid stays on the Finished page, in green and marked paid —
+  // ahead of every other colour, because "settled" is the answer the page is asked for.
+  const paidUp = !isActive && isPackagePaid(row);
   // Something to remind the payer about: money due on this block, or a finished block with no
   // next one. The reminder history shows whenever there is one, even once it is settled.
   const remindable = owes || row.awaiting_next_package;
@@ -251,17 +267,22 @@ export function PackageCard({
       data-testid="package-card"
       className={cn(
         "bg-card group flex min-w-0 flex-col overflow-hidden rounded-2xl border shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg",
+        paidUp &&
+          "border-emerald-300/80 bg-emerald-50/60 dark:border-emerald-800/60 dark:bg-emerald-950/20",
         previousUnpaid !== null &&
           "border-2 border-fuchsia-400/80 dark:border-fuchsia-600/70",
-        previousUnpaid === null && alarm && "border-rose-300/70 dark:border-rose-800/60",
-        previousUnpaid === null && !alarm && low && "border-amber-300/70 dark:border-amber-800/60",
+        !paidUp && previousUnpaid === null && alarm && "border-rose-300/70 dark:border-rose-800/60",
+        !paidUp && previousUnpaid === null && !alarm && low && "border-amber-300/70 dark:border-amber-800/60",
       )}
       data-previous-unpaid={previousUnpaid !== null || undefined}
+      data-paid={paidUp || undefined}
     >
       <div
         className={cn(
           "relative border-b px-4 py-3.5",
-          previousUnpaid !== null
+          paidUp
+            ? "bg-gradient-to-br from-emerald-500/[0.18] via-emerald-500/[0.07] to-transparent"
+            : previousUnpaid !== null
             ? "bg-gradient-to-br from-fuchsia-500/[0.16] via-fuchsia-500/[0.06] to-transparent"
             : alarm
               ? "bg-gradient-to-br from-rose-500/[0.12] via-rose-500/[0.05] to-transparent"
@@ -274,7 +295,9 @@ export function PackageCard({
           <div
             className={cn(
               "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1",
-              previousUnpaid !== null
+              paidUp
+                ? "bg-emerald-500/12 text-emerald-600 ring-emerald-500/25 dark:text-emerald-300"
+                : previousUnpaid !== null
                 ? "bg-fuchsia-500/12 text-fuchsia-600 ring-fuchsia-500/25 dark:text-fuchsia-300"
                 : alarm
                   ? "bg-rose-500/10 text-rose-600 ring-rose-500/20"
@@ -297,7 +320,17 @@ export function PackageCard({
               #{row.sequence_no} · {row.label}
             </p>
           </div>
-          <StatusPill status={row.status} label={t(`status.${row.status}`)} />
+          {paidUp ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm"
+              data-testid="package-paid"
+            >
+              <BadgeCheck className="size-3" aria-hidden />
+              {row.invoice_id !== null ? t("card.paidBadge") : t("card.nothingDue")}
+            </span>
+          ) : (
+            <StatusPill status={row.status} label={t(`status.${row.status}`)} />
+          )}
         </div>
       </div>
 
@@ -428,7 +461,9 @@ export function PackageCard({
               row.invoice_id === null
                 ? t("card.notBilledYet")
                 : row.invoice_status === "PAID"
-                  ? t("card.paid")
+                  ? row.paid_at !== null
+                    ? t("card.paidOn", { date: formatDateTime(row.paid_at, timezone, locale) })
+                    : t("card.paid")
                   : owes
                     ? t("card.amountDue", {
                         amount: formatMoney(

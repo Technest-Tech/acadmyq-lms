@@ -58,7 +58,7 @@ final class TeacherInsightsController extends Controller
     /** GET /api/teacher-insights?from=Y-m-d&to=Y-m-d[&late_minutes=&report_minutes=] */
     public function index(Request $request): JsonResponse
     {
-        Gate::authorize('teacher_quality.read');
+        Gate::authorize('teacher_quality.insights');
         [$params, $window] = $this->window($request);
         $academyId = $this->currentAcademyId();
 
@@ -130,7 +130,7 @@ final class TeacherInsightsController extends Controller
     /** GET /api/teacher-insights/teachers/{id}?from=&to=[&late_minutes=&report_minutes=] — the lessons behind one row. */
     public function show(Request $request, string $teacherId): JsonResponse
     {
-        Gate::authorize('teacher_quality.read');
+        Gate::authorize('teacher_quality.insights');
         [$params, $window] = $this->window($request);
         $academyId = $this->currentAcademyId();
 

@@ -35,7 +35,7 @@ const TEACHER: api.TeacherRow = {
   created_at: "",
 };
 
-function renderCard(role: "ACADEMY_OWNER" | "STAFF" = "ACADEMY_OWNER") {
+function renderCard(role: "ACADEMY_OWNER" | "ACCOUNTANT" | "STAFF" | "SUPERVISOR" = "ACADEMY_OWNER") {
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
       <AuthContext.Provider value={authValue(makeSession(role))}>
@@ -115,10 +115,17 @@ describe("TeacherPayCard", () => {
     );
   });
 
-  it("is read-only without teacher.update", async () => {
-    renderCard("STAFF");
+  // Pay is teacher.set_pay's: without it the API redacts the rates, so there is no card at all —
+  // a supervisor edits the teacher, never what they earn.
+  it("is not there without teacher.set_pay", async () => {
+    renderCard("SUPERVISOR");
+    await waitFor(() => expect(screen.queryByTestId("teacher-pay")).not.toBeInTheDocument());
+    expect(api.getTeacher).not.toHaveBeenCalled();
+  });
+
+  it("lets the accountant set pay without teacher.update", async () => {
+    renderCard("ACCOUNTANT");
     await screen.findByTestId("teacher-pay-editor");
-    expect(screen.queryByTestId("save-teacher-pay")).not.toBeInTheDocument();
-    expect(screen.getByTestId("pay-type-HOURLY")).toBeDisabled();
+    expect(screen.getByTestId("save-teacher-pay")).toBeInTheDocument();
   });
 });

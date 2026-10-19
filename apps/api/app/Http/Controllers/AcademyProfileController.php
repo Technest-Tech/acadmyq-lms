@@ -27,7 +27,7 @@ final class AcademyProfileController extends Controller
         // page itself. A SUPERVISOR manages settings but is denied every money capability, so gating
         // the read on invoice.read alone broke the academy-name card for exactly the role the
         // Settings tab is shown to.
-        if (! Gate::any(['invoice.read', 'specialization.manage'])) {
+        if (! Gate::any(['invoice.read', 'specialization.manage', 'settings.manage'])) {
             abort(403, 'This action is unauthorized.');
         }
 
@@ -45,7 +45,7 @@ final class AcademyProfileController extends Controller
     /** PATCH /api/academy — update name and/or timezone. */
     public function update(Request $request): JsonResponse
     {
-        Gate::authorize('specialization.manage');
+        Gate::authorize('settings.manage');
 
         $data = $request->validate([
             'name' => ['required', 'string', 'min:2', 'max:120'],

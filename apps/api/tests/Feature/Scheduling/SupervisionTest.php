@@ -223,9 +223,11 @@ it('bounds the window by the academy\'s own days and leaves out lessons yet to s
     expect($ids14->all())->toEqualCanonicalizing([$lateNight, $this->live]);
 });
 
-it('is Super Admin, owner and supervisor reading; a teacher is refused', function () {
+it('is the owner reading; a supervisor and a teacher are refused', function () {
+    // Statistics are withheld from the SUPERVISOR role (PermissionCatalog::STATISTICS) — the page
+    // measures the supervisors themselves. They still press Following (session.follow).
     Sanctum::actingAs($this->supervisor);
-    $this->getJson('/api/supervision/stats?from=2026-09-14&to=2026-09-14')->assertOk();
+    $this->getJson('/api/supervision/stats?from=2026-09-14&to=2026-09-14')->assertForbidden();
 
     Sanctum::actingAs($this->teacherUser);
     $this->getJson('/api/supervision/stats?from=2026-09-14&to=2026-09-14')->assertForbidden();

@@ -166,7 +166,7 @@ export function CreateClassModal({
       if (status !== "SCHEDULED") {
         await markAttendance(sessionId, {
           status,
-          ...(isCancel ? { charge_student: chargeStudent, pay_teacher: payTeacher } : {}),
+          ...(isCancel && can("session.bill_override") ? { charge_student: chargeStudent, pay_teacher: payTeacher } : {}),
           ...(overrideTiming ? { override_timing: true } : {}),
         });
       }
@@ -322,8 +322,9 @@ export function CreateClassModal({
           </select>
         </label>
 
-        {/* Cancellation billing — the same two decisions the cancellation popup asks for. */}
-        {isCancel && (
+        {/* Cancellation billing — the same two decisions the cancellation popup asks for, and like
+            there only for whoever may make them (session.bill_override). */}
+        {isCancel && can("session.bill_override") && (
           <div className="border-destructive/20 bg-destructive/5 space-y-2 rounded-xl border p-3">
             <p className="text-muted-foreground text-xs">{t("createClassCancelBilling")}</p>
             <label className="flex items-center gap-2 text-sm">

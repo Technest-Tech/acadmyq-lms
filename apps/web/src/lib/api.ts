@@ -149,7 +149,10 @@ export function getHealth(): Promise<HealthResponse> {
 export type SystemRole =
   | "SUPER_ADMIN"
   | "ACADEMY_OWNER"
+  | "MANAGER"
   | "SUPERVISOR"
+  | "ACCOUNTANT"
+  | "CUSTOMER_SERVICE"
   | "TEACHER"
   | "STAFF";
 
@@ -2129,12 +2132,16 @@ export interface TeacherRow {
   full_name: string;
   phone: string | null;
   specialization: string | null;
-  /** Hourly rate — for PER_STUDENT, the default for students without a rate of their own. */
-  session_rate_minor: number;
-  pay_type: TeacherPayType;
+  /**
+   * Hourly rate — for PER_STUDENT, the default for students without a rate of their own.
+   * The four pay fields are null for a caller without `teacher.set_pay` (a supervisor): the API
+   * redacts them rather than leaving them out, so "no rate" and "not yours to see" never blur.
+   */
+  session_rate_minor: number | null;
+  pay_type: TeacherPayType | null;
   /** The monthly salary when `pay_type` is FIXED; 0 otherwise. */
-  fixed_salary_minor: number;
-  currency: string;
+  fixed_salary_minor: number | null;
+  currency: string | null;
   timezone: string | null;
   availability: AvailabilityWindow[];
   /** Always both set or both null — the API refuses a half-filled pair. */
@@ -2300,8 +2307,9 @@ export interface StaffRow {
   full_name: string;
   department: string;
   phone: string | null;
-  salary_minor: number;
-  currency: string;
+  /** Null for a caller without `staff.set_salary` — the API redacts the pay, amount and currency. */
+  salary_minor: number | null;
+  currency: string | null;
   notes: string | null;
   is_active: boolean;
   deleted_at: string | null;
@@ -2318,7 +2326,7 @@ export interface StaffInput {
   create_login?: boolean;
   email?: string | null;
   password?: string | null;
-  /** Login role code: "STAFF" (default) or a custom academy role code. Create-only. */
+  /** Login role code: a shared built-in (STAFF … MANAGER) or a custom academy role code. Create-only. */
   role?: string | null;
 }
 
@@ -2402,7 +2410,7 @@ export interface AcademyRoleSummary {
   name: string;
   description?: string | null;
   isActive?: boolean;
-  /** True for the built-in, non-editable system roles (OWNER/SUPERVISOR/TEACHER/STAFF). */
+  /** True for the built-in, non-editable system roles (OWNER, MANAGER, SUPERVISOR…). */
   system: boolean;
   permissions: string[];
   assignedCount: number;
@@ -2410,7 +2418,7 @@ export interface AcademyRoleSummary {
 
 /** A starting point for a new custom role — a named set of boxes already ticked. */
 export interface AcademyRolePreset {
-  /** Stable handle (`supervisor`); the UI keys its label and copy off this. */
+  /** Stable handle (`manager`, `supervisor`, `accountant`, `customer_service`); the UI keys its copy off it. */
   key: string;
   /** The system role this preset mirrors, when it mirrors one. */
   role?: string;
@@ -2424,7 +2432,21 @@ export interface AcademyRolesResponse {
   grantable: string[];
   /** Those grantable codes that move or reveal money — marked in the builder. */
   financial?: string[];
+  /** Those grantable codes that open a statistics / performance page. */
+  statistics?: string[];
+  /** The builder's sections (None / View / Manage rows), already narrowed to `grantable`. */
+  areas?: AcademyRoleArea[];
   presets?: AcademyRolePreset[];
+}
+
+/** One row of the role builder: what an owner thinks in, mapped onto capability codes. */
+export interface AcademyRoleArea {
+  key: string;
+  kind: "operations" | "financial" | "statistics";
+  /** Codes "View" grants. Empty when the section has only an on/off (Manage) level. */
+  view: string[];
+  /** Codes "Manage" adds on top of `view`. Empty for a read-only section. */
+  manage: string[];
 }
 
 export interface AcademyRoleInput {
@@ -3276,6 +3298,30 @@ export interface CalendarSession {
    * page. A real session never carries it.
    */
   trial?: CalendarTrial;
+  /**
+   * Set ONLY on a group-class lesson folded into the feed (docs/groups). Like a trial it is not a
+   * session: one block for the whole class, never dragged, and its sheet lives on the group page.
+   */
+  group?: CalendarGroupLesson;
+}
+
+/** A group-class lesson as the calendar feed returns it — ONE event however many students sit in it. */
+export interface CalendarGroupLesson {
+  id: string;
+  group_id: string;
+  group_name: string;
+  level: string | null;
+  mode: "ONLINE" | "OFFLINE";
+  location: string | null;
+  teacher_id: string;
+  teacher_name: string | null;
+  scheduled_at_utc: string;
+  duration_minutes: number;
+  status: "SCHEDULED" | "HELD" | "CANCELLED";
+  cancel_reason: string | null;
+  is_extra: boolean;
+  /** Students the lesson expects (members covering its date). */
+  member_count: number;
 }
 
 /**
@@ -3361,6 +3407,8 @@ export interface CalendarQuery {
 export function getCalendar(q: CalendarQuery): Promise<{
   sessions: CalendarSession[];
   trials: CalendarTrial[];
+  /** Absent/empty unless the academy holds the `groups` feature. */
+  group_lessons?: CalendarGroupLesson[];
   from: string;
   to: string;
 }> {
@@ -4270,6 +4318,11 @@ export interface PayoutLineItem {
   student_id: string | null;
   duration_minutes: number | null;
   student_name: string | null;
+  /** A group-class line (docs/groups): the group it belongs to, instead of a student. */
+  group_id?: string | null;
+  group_name?: string | null;
+  class_group_lesson_id?: string | null;
+  description?: string | null;
   amount_minor: number;
   currency: string;
   report_status: PayoutReportStatus;
@@ -4469,6 +4522,9 @@ export interface PayrollRangeLesson {
   session_date: string | null;
   student_id: string | null;
   student_name: string | null;
+  /** A group-class line (docs/groups): the group's name, instead of a student's. */
+  group_name?: string | null;
+  description?: string | null;
   duration_minutes: number | null;
   scheduled_at_utc: string | null;
   amount_minor: number;
@@ -7783,6 +7839,8 @@ export interface LessonPackageRow {
   invoice_total_minor: number;
   invoice_paid_minor: number;
   outstanding_minor: number;
+  /** When the package's bill was settled in full; null while anything is still owed. */
+  paid_at: string | null;
   payment_method: string | null;
   payment_reason: string | null;
   payment_reference: string | null;

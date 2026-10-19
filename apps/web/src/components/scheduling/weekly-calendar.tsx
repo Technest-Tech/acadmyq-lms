@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, GraduationCap, Sparkles, Users } from "lucide-react";
+import { CalendarDays, GraduationCap, Sparkles, Users, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import {
@@ -46,6 +46,7 @@ import { Modal } from "@/components/ui/modal";
 import {
   ApiError,
   type AvailabilityWindow,
+  type CalendarGroupLesson,
   type CalendarSession,
   type CalendarTrial,
   getCalendar,
@@ -116,6 +117,7 @@ export function WeeklyCalendar({
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [sessions, setSessions] = useState<CalendarSession[]>([]);
   const [trials, setTrials] = useState<CalendarTrial[]>([]);
+  const [groupLessons, setGroupLessons] = useState<CalendarGroupLesson[]>([]);
   const [selected, setSelected] = useState<CalendarSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Non-blocking info banner (e.g. conflict/availability warnings after a drag-reschedule).
@@ -201,10 +203,12 @@ export function WeeklyCalendar({
       });
       setSessions(res.sessions);
       setTrials(res.trials ?? []);
+      setGroupLessons(res.group_lessons ?? []);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
       setSessions([]);
       setTrials([]);
+      setGroupLessons([]);
     } finally {
       setLoading(false);
     }
@@ -323,9 +327,37 @@ export function WeeklyCalendar({
     [trials],
   );
 
+  /**
+   * A group-class lesson (docs/groups), shaped the same way: ONE block for the whole class, named
+   * after the group with its head-count, and coloured by the nearest session status (held reads as
+   * attended, cancelled as cancelled). `s.group` is what tells the views it is not a session.
+   */
+  const groupEvents = useMemo<CalendarSession[]>(
+    () =>
+      groupLessons.map((gl) => ({
+        id: gl.id,
+        student_id: "",
+        teacher_id: gl.teacher_id,
+        schedule_id: null,
+        scheduled_at_utc: gl.scheduled_at_utc,
+        duration_minutes: gl.duration_minutes,
+        status: (gl.status === "HELD"
+          ? "ATTENDED"
+          : gl.status === "CANCELLED"
+            ? "CANCELLED_BY_TEACHER"
+            : "SCHEDULED") as SessionStatus,
+        status_reason: gl.cancel_reason,
+        original_session_id: null,
+        student_name: `${gl.group_name} (${gl.member_count})`,
+        teacher_name: gl.teacher_name,
+        group: gl,
+      })),
+    [groupLessons],
+  );
+
   const events = useMemo(
-    () => [...sessions, ...trialEvents],
-    [sessions, trialEvents],
+    () => [...sessions, ...trialEvents, ...groupEvents],
+    [sessions, trialEvents, groupEvents],
   );
 
   // Apply the search + status filters to the fetched feed (everything downstream — views and
@@ -356,7 +388,7 @@ export function WeeklyCalendar({
     async (s: CalendarSession, day: string, startMin: number) => {
       // Trials are painted here, not managed — moving one is the Trials page's job (its id is a
       // trial id, which the session endpoint would rightly refuse).
-      if (s.trial) return;
+      if (s.trial || s.group) return;
       const hh = String(Math.floor(startMin / 60)).padStart(2, "0");
       const mm = String(startMin % 60).padStart(2, "0");
       try {
@@ -643,7 +675,9 @@ export function WeeklyCalendar({
           title={
             selected.trial
               ? t("trialEvent.title")
-              : t("actions.title", {
+              : selected.group
+                ? t("groupEvent.title")
+                : t("actions.title", {
                   name: selected.student_name ?? t("calendar.unnamedStudent"),
                 })
           }
@@ -652,6 +686,14 @@ export function WeeklyCalendar({
           {selected.trial ? (
             <TrialEventCard
               trial={selected.trial}
+              tz={tz}
+              locale={locale}
+              t={t}
+              onClose={() => setSelected(null)}
+            />
+          ) : selected.group ? (
+            <GroupEventCard
+              lesson={selected.group}
               tz={tz}
               locale={locale}
               t={t}
@@ -832,6 +874,94 @@ function TrialEventCard({
           className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
         >
           {t("trialEvent.openTrials")}
+        </Link>
+        <button
+          type="button"
+          onClick={onClose}
+          className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+        >
+          {t("trialEvent.close")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Group lesson card ─────────────────────────────────────────────────────────
+
+/**
+ * What a group-class lesson is, read-only: the group, how many students it expects, who takes it,
+ * when — and the way to the group page, where its attendance sheet is. The calendar paints group
+ * lessons; it does not run them.
+ */
+function GroupEventCard({
+  lesson,
+  tz,
+  locale,
+  t,
+  onClose,
+}: {
+  lesson: CalendarGroupLesson;
+  tz: string;
+  locale: string;
+  t: ReturnType<typeof useTranslations<"scheduling">>;
+  onClose: () => void;
+}) {
+  const start = new Date(lesson.scheduled_at_utc);
+  const end = new Date(start.getTime() + lesson.duration_minutes * 60_000);
+  const fmt = (d: Date) =>
+    new Intl.DateTimeFormat(locale, { timeStyle: "short", timeZone: tz }).format(d);
+  const dayLabel = new Intl.DateTimeFormat(locale, {
+    dateStyle: "full",
+    timeZone: tz,
+  }).format(start);
+
+  return (
+    <div className="space-y-4" data-testid="calendar-group-card">
+      <div className="flex items-start gap-3 rounded-xl border border-violet-500/20 bg-violet-500/5 px-4 py-3">
+        <UsersRound className="mt-0.5 size-4 shrink-0 text-violet-600 dark:text-violet-400" aria-hidden />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">{lesson.group_name}</p>
+          <p className="text-muted-foreground text-xs">
+            {t("groupEvent.students", { count: lesson.member_count })}
+            {lesson.level ? ` · ${lesson.level}` : ""}
+            {` · ${t(`groupEvent.status.${lesson.status}`)}`}
+          </p>
+        </div>
+      </div>
+
+      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <dt className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
+            {t("trialEvent.when")}
+          </dt>
+          <dd className="text-sm font-medium">
+            {dayLabel}
+            <span className="text-muted-foreground ms-1 tabular-nums" dir="ltr">
+              {fmt(start)} – {fmt(end)}
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
+            {t("trialEvent.teacher")}
+          </dt>
+          <dd className="flex items-center gap-1.5 text-sm font-medium">
+            <GraduationCap className="text-muted-foreground size-3.5" aria-hidden />
+            {lesson.teacher_name ?? "—"}
+          </dd>
+        </div>
+      </dl>
+      {lesson.status === "CANCELLED" && lesson.cancel_reason && (
+        <p className="text-muted-foreground text-sm">{lesson.cancel_reason}</p>
+      )}
+
+      <div className="flex flex-wrap items-center justify-end gap-2 border-t pt-4">
+        <Link
+          href={`/groups/${lesson.group_id}`}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+        >
+          {t("groupEvent.open")}
         </Link>
         <button
           type="button"

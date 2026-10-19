@@ -3,21 +3,25 @@
 import {
   AtSign,
   Banknote,
+  ChevronDown,
   Eye,
   EyeOff,
   FileText,
   KeyRound,
   ShieldCheck,
   User,
-  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { type ComponentType, useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
+import { withLeftovers } from "@/components/team/role-areas";
+import { RolePicker } from "@/components/team/role-picker";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption, DialCodePicker } from "@/components/ui/combobox";
 import {
+  type AcademyRoleArea,
   type AcademyRoleSummary,
   ApiError,
   createStaff,
@@ -29,6 +33,7 @@ import {
   type StaffRow,
 } from "@/lib/api";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
+import { STAFF_ROLES } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -52,9 +57,6 @@ const currencyOptions: ComboboxOption[] = CURRENCIES.map((c) => ({
 function toMinor(major: string): number {
   return Math.round(parseFloat(major || "0") * 100);
 }
-
-/** Built-in roles the staff form may assign, weakest first. Mirrors StaffController. */
-const ASSIGNABLE_SYSTEM_ROLES = ["STAFF", "SUPERVISOR"] as const;
 
 // ── Section card ───────────────────────────────────────────────────────────────
 
@@ -114,6 +116,15 @@ function Field({
 
 // ── StaffForm ────────────────────────────────────────────────────────────────
 
+/**
+ * Adding a team member is ONE step: who they are, how they sign in, and which role they get — the
+ * shared built-ins (view only, customer service, supervisor, accountant, manager) or the academy's
+ * own. Everything an owner rarely needs on day one — department, notes, salary — waits in an
+ * optional section, and the salary is only there for someone allowed to set it (staff.set_salary).
+ *
+ * Editing an existing member covers the record only; their login and role are managed on their
+ * page (StaffLoginSection).
+ */
 export function StaffForm({
   initial,
   onDone,
@@ -124,17 +135,12 @@ export function StaffForm({
   onCancel: () => void;
 }) {
   const t = useTranslations("staff");
-  const tp = useTranslations("permissions");
-  // Built-in role names live with the Roles page, so the two screens never drift apart on what
-  // "Supervisor" is called.
-  const tRoles = useTranslations("academyRoles");
-  // Friendly, localized label for a raw capability code (falls back to the code).
-  const permLabel = (code: string) => {
-    const k = `items.${code.replace(/\./g, "_")}.label`;
-    return tp.has(k) ? tp(k) : code;
-  };
+  const { can } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const isEditing = !!initial;
+  const canSalary = can("staff.set_salary");
 
   const [fullName, setFullName]       = useState(initial?.full_name ?? "");
   const [dialCountry, setDialCountry] = useState("EG");
@@ -146,19 +152,18 @@ export function StaffForm({
   const [notes, setNotes]             = useState(initial?.notes ?? "");
   const [department, setDepartment]   = useState(initial?.department ?? "");
   const [departments, setDepartments] = useState<StaffDepartment[]>([]);
-  // An employee gets a login + role by default (uncheck to record a login-less staff member).
+  // The optional details start open when editing (that is what an edit is for) and closed on add.
+  const [detailsOpen, setDetailsOpen] = useState(isEditing);
+  // A new member gets a login + role by default (untick to record someone who never signs in).
   const [createLogin, setCreateLogin] = useState(!initial);
   const [email, setEmail]             = useState("");
   const [password, setPassword]       = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole]               = useState("STAFF");
+  const [role, setRole]               = useState<string>("STAFF");
   const [roles, setRoles]             = useState<AcademyRoleSummary[]>([]);
+  const [areas, setAreas]             = useState<AcademyRoleArea[]>([]);
 
-  const isEditing = !!initial;
-
-  // The department catalog is a platform list (Admin → Staff departments), not a fixed enum —
-  // so the picker is fetched. Until this existed in the form, every staff member was written as
-  // "OTHER" no matter what, which is why the roster column had nothing to show.
+  // The department catalog is a platform list (Admin → Staff departments), not a fixed enum.
   useEffect(() => {
     listStaffDepartments()
       .then((res) => setDepartments(res.departments.filter((d) => d.is_active)))
@@ -175,31 +180,29 @@ export function StaffForm({
     return opts;
   }, [departments, department]);
 
-  // The roles an employee can be given: the two assignable BUILT-IN roles — the minimal STAFF
-  // baseline and SUPERVISOR, who runs the academy but never its money — plus the academy's OWN
-  // active custom roles (built on the Roles page). Fetched on mount in create mode; listing needs
-  // role.manage, which the owner holds — a failure just leaves the STAFF baseline.
-  //
-  // The order is deliberate: least access first, so picking a stronger role is a decision rather
-  // than the top of a dropdown.
+  // The roles on offer: the shared built-ins weakest first, then the academy's own active roles —
+  // only those this user could actually hand out (the API refuses a role bigger than its giver).
+  // Listing needs role.manage; without it the built-ins remain, unsummarised.
   useEffect(() => {
     if (isEditing) return;
     listAcademyRoles()
       .then((res) => {
-        const builtIn = ASSIGNABLE_SYSTEM_ROLES.map((code) =>
-          res.system.find((r) => r.code === code),
-        ).filter((r): r is AcademyRoleSummary => r !== undefined);
+        const builtIn = STAFF_ROLES.map((code) => res.system.find((r) => r.code === code)).filter(
+          (r): r is AcademyRoleSummary => r !== undefined,
+        );
         setRoles([...builtIn, ...res.custom.filter((r) => r.isActive !== false)]);
+        setAreas(withLeftovers(res.areas ?? [], res.grantable));
       })
       .catch(() => {});
   }, [isEditing]);
 
-  // Always offer at least the STAFF baseline (until the fetch resolves / if it fails).
-  const roleList: AcademyRoleSummary[] = roles.length > 0
-    ? roles
-    : [{ code: "STAFF", name: "STAFF", system: true, permissions: [], assignedCount: 0 }];
-
-  const selectedRole = roleList.find((r) => r.code === role) ?? null;
+  const roleList: AcademyRoleSummary[] = useMemo(() => {
+    const listed =
+      roles.length > 0
+        ? roles.filter((r) => r.permissions.every((code) => can(code)))
+        : STAFF_ROLES.map((code) => ({ code, name: code, system: true, permissions: [], assignedCount: 0 }));
+    return listed.length > 0 ? listed : [{ code: "STAFF", name: "STAFF", system: true, permissions: [], assignedCount: 0 }];
+  }, [roles, can]);
 
   function buildPhone(): string | null {
     if (!localNumber) return null;
@@ -213,12 +216,15 @@ export function StaffForm({
     setBusy(true);
     try {
       const input: StaffInput = {
-        full_name:    fullName,
-        department:   department || undefined,
-        phone:        buildPhone(),
-        salary_minor: toMinor(salary),
-        currency:     currency || undefined,
-        notes:        notes || null,
+        full_name:  fullName,
+        department: department || undefined,
+        phone:      buildPhone(),
+        notes:      notes || null,
+        // Pay is sent only by someone who may set it — the API refuses it otherwise.
+        ...(canSalary && {
+          salary_minor: toMinor(salary),
+          currency:     currency || undefined,
+        }),
         ...(!isEditing && {
           create_login: createLogin,
           email:        createLogin ? email : null,
@@ -245,10 +251,9 @@ export function StaffForm({
     <form className="space-y-5" onSubmit={submit} data-testid="staff-form">
       {error && <AlertBanner variant="error" message={error} />}
 
-      {/* ── Profile ───────────────────────────────────────────────────────── */}
+      {/* ── Who ───────────────────────────────────────────────────────────── */}
       <Section icon={User} title={t("form.sectionProfile")} description={t("form.sectionProfileDesc")}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {/* Full name */}
           <Field label={t("form.fullName")} required>
             <div className="relative">
               <User className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
@@ -262,7 +267,6 @@ export function StaffForm({
             </div>
           </Field>
 
-          {/* Phone */}
           <Field label={t("form.phone")}>
             <div
               dir="ltr"
@@ -290,79 +294,11 @@ export function StaffForm({
             </div>
           </Field>
         </div>
-
-        {/* Department — organizational only; access is decided by the role below. */}
-        <Field label={t("form.department")}>
-          <Combobox
-            options={departmentOptions}
-            value={department}
-            onChange={setDepartment}
-            placeholder={t("form.departmentPlaceholder")}
-            searchPlaceholder={t("form.searchDepartment")}
-            data-testid="department-select"
-          />
-          <p className="text-muted-foreground/80 mt-1 text-[11px]">
-            {t("form.departmentHint")}
-          </p>
-        </Field>
-
-        {/* Notes */}
-        <Field label={t("form.notes")}>
-          <div className="relative">
-            <FileText className="text-muted-foreground pointer-events-none absolute start-3.5 top-3.5 size-4" />
-            <textarea
-              aria-label={t("form.notes")}
-              rows={2}
-              placeholder={t("form.notesPlaceholder")}
-              className={cn(inputBase, "resize-none py-2.5 ps-10 pe-3.5")}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </div>
-        </Field>
       </Section>
 
-      {/* ── Compensation ──────────────────────────────────────────────────── */}
-      <Section icon={Wallet} title={t("form.sectionPay")} description={t("form.sectionPayDesc")}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {/* Monthly salary */}
-          <Field label={t("form.salary")}>
-            <div className="relative">
-              <Banknote className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                aria-label={t("form.salary")}
-                className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
-                value={salary}
-                onChange={(e) => setSalary(e.target.value)}
-              />
-            </div>
-          </Field>
-
-          {/* Currency */}
-          <Field label={t("form.currency")}>
-            <Combobox
-              options={currencyOptions}
-              value={currency}
-              onChange={setCurrency}
-              placeholder={t("form.currency")}
-              searchPlaceholder={t("form.searchCurrency")}
-              data-testid="currency-select"
-            />
-          </Field>
-        </div>
-      </Section>
-
-      {/* ── Account & access (create only) ────────────────────────────────── */}
+      {/* ── Sign-in and role (add only) ───────────────────────────────────── */}
       {!isEditing && (
-        <Section
-          icon={ShieldCheck}
-          title={t("form.sectionAccount")}
-          description={t("form.sectionAccountDesc")}
-        >
-          {/* Toggle: create a login */}
+        <Section icon={ShieldCheck} title={t("form.sectionAccount")} description={t("form.sectionAccountDesc")}>
           <label className="hover:bg-muted/30 flex cursor-pointer items-center justify-between gap-4 rounded-xl border bg-background p-3.5 transition-colors">
             <div className="flex items-center gap-3">
               <div className="bg-primary/10 text-primary flex size-8 shrink-0 items-center justify-center rounded-lg">
@@ -424,63 +360,111 @@ export function StaffForm({
                 </Field>
               </div>
 
-              {/* Login role — the STAFF baseline + the academy's OWN custom roles. */}
               <Field label={t("form.role")} hint={t("form.roleHint")}>
-                <Combobox
-                  options={roleList.map<ComboboxOption>((r) => ({
-                    value: r.code,
-                    label: r.system ? tRoles(`role.${r.code}`) : r.name,
-                    sublabel: r.system
-                      ? tRoles(`systemRoleHint.${r.code}`)
-                      : (r.description ?? undefined),
-                  }))}
-                  value={role}
-                  onChange={setRole}
-                  placeholder={t("form.roleStaff")}
-                  searchPlaceholder={t("form.searchRole")}
-                  data-testid="role-select"
-                />
+                <RolePicker roles={roleList} areas={areas} value={role} onChange={setRole} />
               </Field>
 
-              {/* What the chosen role lets this employee do. */}
-              {selectedRole && (
-                <div className="bg-background rounded-xl border p-3">
-                  <p className="mb-2 text-xs font-semibold">{t("form.roleCan")}</p>
-                  {selectedRole.permissions.length === 0 ? (
-                    <p className="text-muted-foreground text-xs">{t("form.roleNoPerms")}</p>
-                  ) : (
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedRole.permissions.map((code) => (
-                        <span
-                          key={code}
-                          className="bg-primary/8 text-primary rounded-md px-2 py-0.5 text-xs font-medium"
-                          title={code}
-                        >
-                          {permLabel(code)}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              {can("role.manage") && (
+                <p className="text-muted-foreground text-xs">
+                  {t("form.manageRolesHint")}{" "}
+                  <Link href="/staff?tab=roles" className="text-primary font-medium underline">
+                    {t("form.manageRolesLink")}
+                  </Link>
+                </p>
               )}
-
-              <p className="text-muted-foreground text-xs">
-                {t("form.manageRolesHint")}{" "}
-                <Link href="/roles" className="text-primary font-medium underline">
-                  {t("form.manageRolesLink")}
-                </Link>
-              </p>
             </>
           )}
         </Section>
       )}
+
+      {/* ── Optional details ──────────────────────────────────────────────── */}
+      <section className="rounded-2xl border bg-card/40">
+        <button
+          type="button"
+          onClick={() => setDetailsOpen((v) => !v)}
+          aria-expanded={detailsOpen}
+          className="flex w-full items-center justify-between gap-3 p-4 text-start sm:px-5"
+          data-testid="staff-details-toggle"
+        >
+          <span className="flex items-center gap-3">
+            <span className="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-xl">
+              <FileText className="size-4.5" aria-hidden />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold leading-tight">{t("form.sectionDetails")}</span>
+              <span className="text-muted-foreground mt-0.5 block text-xs leading-snug">
+                {canSalary ? t("form.sectionDetailsDesc") : t("form.sectionDetailsDescNoPay")}
+              </span>
+            </span>
+          </span>
+          <ChevronDown
+            className={cn("text-muted-foreground size-4 shrink-0 transition-transform", detailsOpen && "rotate-180")}
+            aria-hidden
+          />
+        </button>
+
+        {detailsOpen && (
+          <div className="space-y-4 border-t p-4 sm:p-5">
+            <Field label={t("form.department")} hint={t("form.departmentHint")}>
+              <Combobox
+                options={departmentOptions}
+                value={department}
+                onChange={setDepartment}
+                placeholder={t("form.departmentPlaceholder")}
+                searchPlaceholder={t("form.searchDepartment")}
+                data-testid="department-select"
+              />
+            </Field>
+
+            <Field label={t("form.notes")}>
+              <textarea
+                aria-label={t("form.notes")}
+                rows={2}
+                placeholder={t("form.notesPlaceholder")}
+                className={cn(inputBase, "resize-none px-3.5 py-2.5")}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </Field>
+
+            {canSalary && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" data-testid="staff-salary-fields">
+                <Field label={t("form.salary")}>
+                  <div className="relative">
+                    <Banknote className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      aria-label={t("form.salary")}
+                      className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
+                      value={salary}
+                      onChange={(e) => setSalary(e.target.value)}
+                    />
+                  </div>
+                </Field>
+                <Field label={t("form.currency")}>
+                  <Combobox
+                    options={currencyOptions}
+                    value={currency}
+                    onChange={setCurrency}
+                    placeholder={t("form.currency")}
+                    searchPlaceholder={t("form.searchCurrency")}
+                    data-testid="currency-select"
+                  />
+                </Field>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* ── Footer ────────────────────────────────────────────────────────── */}
       <div className="bg-card sticky bottom-0 -mx-1 flex justify-end gap-2 border-t px-1 pt-4">
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>
           {t("back")}
         </Button>
-        <Button type="submit" size="sm" disabled={busy} className="gap-1.5">
+        <Button type="submit" size="sm" disabled={busy} className="gap-1.5" data-testid="staff-submit">
           {busy ? (
             <>
               <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />

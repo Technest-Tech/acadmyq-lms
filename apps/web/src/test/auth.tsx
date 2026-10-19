@@ -35,7 +35,36 @@ const PERMISSIONS_BY_ROLE: Record<SystemRole, string[]> = {
     // Handing out logins and roles (the teacher/staff login editors key on these).
     "user.invite",
     "role.assign",
+    // The money halves split off everyday capabilities (team & permissions rework).
+    "teacher.set_pay",
+    "staff.set_salary",
+    "session.bill_override",
+    "settings.manage",
   ],
+  // The whole academy, like the owner — an employee the owner can switch off.
+  MANAGER: [
+    "student.read",
+    "student.update",
+    "teacher.read",
+    "teacher.update",
+    "teacher.set_pay",
+    "invoice.read",
+    "payout.read",
+    "staff.set_salary",
+    "session.bill_override",
+    "settings.manage",
+  ],
+  // The money desk, read-only on the operation.
+  ACCOUNTANT: [
+    "student.read",
+    "teacher.read",
+    "invoice.read",
+    "payout.read",
+    "teacher.set_pay",
+    "staff.set_salary",
+  ],
+  // The front desk: students, families, trials, timetables — no money.
+  CUSTOMER_SERVICE: ["student.read", "student.create", "guardian.read", "schedule.read", "session.read"],
   // The academy minus the money and minus delegation (PermissionCatalog::roleMap).
   SUPERVISOR: [
     "guardian.read",
@@ -104,6 +133,7 @@ export function makeSession(
             "teacher_quality",
             "financial_statistics",
             "report_card",
+            "groups",
             "video.conferencing",
           ];
   }

@@ -14,8 +14,9 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * Academy controls (Settings → Controls): the switches an academy flips to turn features on or
- * off for its own users. Read and write both sit on `specialization.manage` — the "settings"
- * capability the rest of the Settings page uses. What each switch DOES is enforced elsewhere
+ * off for its own users. Read and write both sit on `settings.manage` — split off
+ * `specialization.manage` (the course list) so the switches stay with the owner while a supervisor
+ * keeps the courses. What each switch DOES is enforced elsewhere
  * (see {@see AcademySettings}); this only stores it.
  */
 final class AcademySettingsController extends Controller
@@ -23,7 +24,7 @@ final class AcademySettingsController extends Controller
     /** GET /api/academy/settings */
     public function show(): JsonResponse
     {
-        Gate::authorize('specialization.manage');
+        Gate::authorize('settings.manage');
 
         return response()->json(['settings' => AcademySettings::forAcademy($this->academyId())]);
     }
@@ -31,7 +32,7 @@ final class AcademySettingsController extends Controller
     /** PUT /api/academy/settings */
     public function update(Request $request): JsonResponse
     {
-        Gate::authorize('specialization.manage');
+        Gate::authorize('settings.manage');
 
         // Each switch is optional, so a client may send just the one it flipped; anything left out
         // keeps its stored value.

@@ -3,6 +3,7 @@
 import { AtSign, Check, Eye, EyeOff, KeyRound, User, Video, Wallet } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
 import { AvailabilityEditor } from "@/components/teachers/availability-editor";
 import {
   EMPTY_PAY_DRAFT,
@@ -67,6 +68,10 @@ export function TeacherForm({
   onCancel: () => void;
 }) {
   const t = useTranslations("teachers");
+  const { can } = useAuth();
+  // Setting pay is teacher.set_pay's. Without it the teacher is added at the "nothing chosen" pay
+  // (hourly, zero) and the owner or accountant sets it on the Salary tab.
+  const canPay = can("teacher.set_pay");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -112,7 +117,7 @@ export function TeacherForm({
         full_name: fullName,
         phone: buildPhone(),
         specialization: specialization || null,
-        ...payDraftToInput(pay),
+        ...(canPay ? payDraftToInput(pay) : { pay_type: "HOURLY", session_rate_minor: 0 }),
         meeting_url: meetingUrl.trim() || null,
         availability,
         create_login: createLogin,
@@ -190,13 +195,15 @@ export function TeacherForm({
 
       {/* How this teacher is paid — the whole pay decision in one bordered block, because the
           pay type decides which amounts the rest of it even asks for. */}
-      <div className="rounded-xl border p-3 sm:p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <Wallet className="text-primary size-4" aria-hidden />
-          <span className="text-sm font-semibold">{t("pay.title")}</span>
+      {canPay && (
+        <div className="rounded-xl border p-3 sm:p-4" data-testid="teacher-form-pay">
+          <div className="mb-3 flex items-center gap-2">
+            <Wallet className="text-primary size-4" aria-hidden />
+            <span className="text-sm font-semibold">{t("pay.title")}</span>
+          </div>
+          <TeacherPayEditor value={pay} onChange={setPay} required />
         </div>
-        <TeacherPayEditor value={pay} onChange={setPay} required />
-      </div>
+      )}
 
       <Field label={t("form.meetingUrl")}>
         <div className="relative">

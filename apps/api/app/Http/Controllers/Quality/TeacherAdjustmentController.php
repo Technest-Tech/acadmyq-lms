@@ -307,12 +307,15 @@ final class TeacherAdjustmentController extends Controller
     /**
      * PUT /api/quality/settings — set the auto-deduction policy.
      *
-     * Gated on `teacher_quality.manage`, not `payout.adjust`: this is not one adjustment, it is
-     * standing permission for the system to dock every teacher without a human in the loop.
+     * Gated on `teacher_quality.manage` AND `payout.adjust`: this is not one adjustment, it is
+     * standing permission for the system to dock every teacher without a human in the loop — a
+     * quality policy and a pay decision at once, so it needs both. (Reading it already needed
+     * payout.read; a supervisor could write the amount without being allowed to see it.)
      */
     public function updateSettings(Request $request): JsonResponse
     {
         Gate::authorize('teacher_quality.manage');
+        Gate::authorize('payout.adjust');
 
         $data = $request->validate([
             'auto_deduct_enabled'      => ['required', 'boolean'],

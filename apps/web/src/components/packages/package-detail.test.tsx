@@ -67,6 +67,7 @@ function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
     payment_reason: null,
     payment_reference: null,
     payment_proof_url: null,
+    paid_at: null,
     overdraft_billed: false,
     awaiting_next_package: false,
     gap: null,

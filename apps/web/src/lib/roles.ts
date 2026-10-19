@@ -4,10 +4,25 @@ import type { SystemRole } from "@/lib/api";
 export const SYSTEM_ROLES: readonly SystemRole[] = [
   "SUPER_ADMIN",
   "ACADEMY_OWNER",
+  "MANAGER",
   "SUPERVISOR",
+  "ACCOUNTANT",
+  "CUSTOMER_SERVICE",
   "TEACHER",
   "STAFF",
 ];
+
+/**
+ * The shared built-in roles an academy hands to an employee from the team page, weakest first.
+ * Mirrors PermissionCatalog::STAFF_ROLES — the API refuses anything else that is not a custom role.
+ */
+export const STAFF_ROLES = [
+  "STAFF",
+  "CUSTOMER_SERVICE",
+  "SUPERVISOR",
+  "ACCOUNTANT",
+  "MANAGER",
+] as const satisfies readonly SystemRole[];
 
 export function isSystemRole(code: string): code is SystemRole {
   return (SYSTEM_ROLES as readonly string[]).includes(code);

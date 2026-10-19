@@ -44,6 +44,7 @@ import {
   ShieldCheck,
   ToggleLeft,
   Users,
+  UsersRound,
   UserCheck,
   UserCog,
   UserPlus,
@@ -102,6 +103,7 @@ type NavKey =
   | "adminFinance"
   | "guardians"
   | "students"
+  | "groups"
   | "teachers"
   | "staff"
   | "schedule"
@@ -204,6 +206,16 @@ const NAV: ReadonlyArray<{
     href: "/students",
     group: "people",
   },
+  // Group classes (docs/groups) — one teacher, several students, a weekly timetable and an
+  // attendance sheet of their own. Next to the students because that is where a language centre
+  // looks for its classes; hidden for a client the feature is switched off for.
+  {
+    key: "groups",
+    icon: UsersRound,
+    permission: "group.read",
+    href: "/groups",
+    group: "people",
+  },
   {
     key: "attendance",
     icon: ClipboardCheck,
@@ -225,7 +237,8 @@ const NAV: ReadonlyArray<{
   {
     key: "teacherQuality",
     icon: Gauge,
-    permission: "teacher_quality.read",
+    // A statistics page (PermissionCatalog::STATISTICS) — not the quality reports themselves.
+    permission: "teacher_quality.insights",
     href: "/teacher-quality",
     group: "people",
   },
@@ -543,18 +556,14 @@ const NAV: ReadonlyArray<{
     href: "/audit",
     group: "system",
   },
+  // Team & permissions: the people who sign in AND the roles they sign in as, one page with two
+  // tabs (/staff, /staff?tab=roles). /roles redirects there. Shown to whoever holds either half —
+  // see the filter below.
   {
     key: "staff",
     icon: Users,
-    permission: "staff.read",
+    permission: null,
     href: "/staff",
-    group: "system",
-  },
-  {
-    key: "academyRoles",
-    icon: ShieldCheck,
-    permission: "role.manage",
-    href: "/roles",
     group: "system",
   },
   {
@@ -608,6 +617,7 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   academyRoles: "custom_roles",
   trials: "trials",
   crm: "crm",
+  groups: "groups",
   courses: "lms",
   lmsBooks: "lms",
   lmsBlog: "lms",
@@ -940,6 +950,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const items = NAV.filter((item) => {
     if (item.permission !== null && !can(item.permission)) return false;
+    if (item.key === "staff" && !can("staff.read") && !can("role.manage")) return false;
     if (item.key === "dashboard" && isPlatformAdmin) return false;
     // The Audit Log link is Super-Admin-only in the sidebar. Academy owners retain
     // audit.read (the page and API stay reachable) — this just keeps it out of the

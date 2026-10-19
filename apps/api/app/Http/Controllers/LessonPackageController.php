@@ -851,6 +851,7 @@ final class LessonPackageController extends Controller
                 's.full_name as student_name',
                 'i.status as invoice_status', 'i.total_minor as invoice_total_minor',
                 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
+                'i.paid_at as invoice_paid_at',
                 'i.payment_method', 'i.payment_reason', 'i.payment_reference', 'i.payment_proof_path',
             ])
             ->selectSub(
@@ -1064,6 +1065,8 @@ final class LessonPackageController extends Controller
             'invoice_total_minor' => $row->invoice_total_minor !== null ? (int) $row->invoice_total_minor : 0,
             'invoice_paid_minor' => $row->invoice_paid_minor !== null ? (int) $row->invoice_paid_minor : 0,
             'outstanding_minor' => $outstanding,
+            // When the bill was settled in full — the date the Paid tab of Finished packages filters on.
+            'paid_at' => $row->invoice_paid_at !== null ? Carbon::parse($row->invoice_paid_at)->utc()->toIso8601String() : null,
             'payment_method' => $row->payment_method !== null ? (string) $row->payment_method : null,
             'payment_reason' => $row->payment_reason !== null ? (string) $row->payment_reason : null,
             'payment_reference' => $row->payment_reference !== null ? (string) $row->payment_reference : null,

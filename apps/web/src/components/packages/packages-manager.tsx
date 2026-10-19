@@ -15,7 +15,10 @@ import { useAuth } from "@/components/auth-provider";
 import { EditPackageForm } from "@/components/packages/edit-package-form";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { OpenPackageForm } from "@/components/packages/open-package-form";
-import { PackageCard } from "@/components/packages/package-card";
+import {
+  isPackagePaid,
+  PackageCard,
+} from "@/components/packages/package-card";
 import { PackageDetail } from "@/components/packages/package-detail";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -41,10 +44,18 @@ import { cn } from "@/lib/utils";
 export type PackagesView = "open" | "finished";
 
 /**
- * On Finished packages: just the ones somebody still has to chase (the red badge's rows), or the
- * whole history. Follow-up first, because that is why anyone opens the page.
+ * The two halves of Finished packages. A package moves from "unpaid" to "paid" the moment its
+ * bill is settled and stays there, green — it never drops off the page.
  */
-type FinishedFilter = "followUp" | "all";
+type FinishedTab = "unpaid" | "paid";
+
+/** A timestamp as the calendar day it fell on here — what a from/to date input compares against. */
+function localDay(iso: string, timezone: string): string {
+  // en-CA formats as YYYY-MM-DD, the same shape <input type="date"> produces.
+  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(
+    new Date(iso),
+  );
+}
 
 /**
  * The Packages screen, split in two pages:
@@ -73,7 +84,11 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
 
   const [rows, setRows] = useState<LessonPackageRow[] | null>(null);
   const [summary, setSummary] = useState<LessonPackageSummary | null>(null);
-  const [filter, setFilter] = useState<FinishedFilter>("followUp");
+  const [tab, setTab] = useState<FinishedTab>("unpaid");
+  // Inclusive day range. On "Not paid" it is the day the package finished; on "Paid", the day the
+  // bill was paid — the question an accountant asks of each tab.
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState<
     | { kind: "closed" }
@@ -156,36 +171,47 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       ),
     [rows, view],
   );
-  const followUpCount = pageRows.filter((r) => r.follow_up).length;
+  const paidCount = pageRows.filter(isPackagePaid).length;
+  const unpaidCount = pageRows.length - paidCount;
   const previousUnpaidCount = pageRows.filter(
     (r) => r.previous_unpaid !== null,
   ).length;
 
+  /** The date a finished row is filtered and sorted on, for the tab it sits in. */
+  const finishedDate = useCallback(
+    (r: LessonPackageRow) =>
+      (tab === "paid" ? r.paid_at : null) ?? r.closed_at ?? r.created_at,
+    [tab],
+  );
+
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const matched = pageRows.filter(
-      (r) =>
-        (needle === "" || r.student_name.toLowerCase().includes(needle)) &&
-        (view === "open" || filter === "all" || r.follow_up),
-    );
+    const matched = pageRows.filter((r) => {
+      if (needle !== "" && !r.student_name.toLowerCase().includes(needle)) {
+        return false;
+      }
+      if (view === "open") return true;
+      if (isPackagePaid(r) !== (tab === "paid")) return false;
+      const day = localDay(finishedDate(r), timezone);
+      return (from === "" || day >= from) && (to === "" || day <= to);
+    });
 
-    // What needs a hand first: on Open, a block opened over an unpaid one, then a block about to
-    // run out; on Finished, the ones still to follow up. Otherwise the server's newest-first order.
+    if (view === "finished") {
+      // Most recent first: the latest to finish, or the latest to be paid.
+      return [...matched].sort((a, b) =>
+        finishedDate(b).localeCompare(finishedDate(a)),
+      );
+    }
+
+    // On Open, what needs a hand first: a block opened over an unpaid one, then a block about to
+    // run out. Otherwise the server's newest-first order.
     const rank = (r: LessonPackageRow) =>
-      view === "open"
-        ? r.previous_unpaid !== null
-          ? 0
-          : r.minutes_remaining <= 60
-            ? 1
-            : 2
-        : r.follow_up
-          ? 0
-          : 1;
+      r.previous_unpaid !== null ? 0 : r.minutes_remaining <= 60 ? 1 : 2;
     return matched
       .map((row, i) => ({ row, i }))
       .sort((a, b) => rank(a.row) - rank(b.row) || a.i - b.i)
       .map(({ row }) => row);
-  }, [pageRows, query, view, filter]);
+  }, [pageRows, query, view, tab, from, to, timezone, finishedDate]);
 
   async function confirmClose(row: LessonPackageRow) {
     setBusy(true);
@@ -359,7 +385,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
             {view === "finished" && rows !== null && (
               <span className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm">
                 <AlertTriangle className="size-3.5" aria-hidden />
-                {t("hero.followUp", { count: followUpCount })}
+                {t("hero.followUp", { count: unpaidCount })}
               </span>
             )}
             {/* What finished packages still owe — the one number the old stat tiles carried that
@@ -413,24 +439,26 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
             className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full max-w-xs rounded-xl border px-3 py-2 text-sm outline-none transition-colors focus:ring-3"
           />
           {view === "finished" && (
-            <div className="flex gap-1.5">
-              {(["followUp", "all"] as const).map((key) => (
+            <div className="bg-muted/50 flex gap-1 rounded-xl p-1">
+              {(["unpaid", "paid"] as const).map((key) => (
                 <button
                   key={key}
                   type="button"
-                  onClick={() => setFilter(key)}
-                  aria-pressed={filter === key}
-                  data-testid={`finished-filter-${key}`}
+                  onClick={() => setTab(key)}
+                  aria-pressed={tab === key}
+                  data-testid={`finished-tab-${key}`}
                   className={cn(
-                    "rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors",
-                    filter === key
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-muted/50",
+                    "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                    tab === key
+                      ? key === "paid"
+                        ? "bg-emerald-600 text-white shadow-sm"
+                        : "bg-rose-600 text-white shadow-sm"
+                      : "text-muted-foreground hover:bg-background",
                   )}
                 >
-                  {t(`finishedFilter.${key}`, {
+                  {t(`finishedTab.${key}`, {
                     count: formatNumber(
-                      key === "followUp" ? followUpCount : pageRows.length,
+                      key === "paid" ? paidCount : unpaidCount,
                       locale,
                     ),
                   })}
@@ -440,6 +468,49 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           )}
         </div>
 
+        {view === "finished" && (
+          <div className="flex flex-wrap items-end gap-2" data-testid="finished-dates">
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground block font-medium">
+                {t(tab === "paid" ? "dates.paidFrom" : "dates.finishedFrom")}
+              </span>
+              <input
+                type="date"
+                value={from}
+                max={to || undefined}
+                onChange={(e) => setFrom(e.target.value)}
+                data-testid="finished-from"
+                className="border-input bg-background focus:border-primary rounded-xl border px-3 py-1.5 text-sm outline-none"
+              />
+            </label>
+            <label className="space-y-1 text-xs">
+              <span className="text-muted-foreground block font-medium">
+                {t("dates.to")}
+              </span>
+              <input
+                type="date"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => setTo(e.target.value)}
+                data-testid="finished-to"
+                className="border-input bg-background focus:border-primary rounded-xl border px-3 py-1.5 text-sm outline-none"
+              />
+            </label>
+            {(from !== "" || to !== "") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setFrom("");
+                  setTo("");
+                }}
+              >
+                {t("dates.clear")}
+              </Button>
+            )}
+          </div>
+        )}
+
         {rows === null && (
           <p className="text-muted-foreground text-sm">{t("loading")}</p>
         )}
@@ -448,9 +519,11 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           <p className="text-muted-foreground rounded-2xl border border-dashed p-8 text-center text-sm">
             {view === "open"
               ? t("emptyOpen")
-              : filter === "followUp"
-                ? t("emptyFollowUp")
-                : t("emptyFinished")}
+              : from !== "" || to !== ""
+                ? t("emptyRange")
+                : tab === "unpaid"
+                  ? t("emptyUnpaid")
+                  : t("emptyPaid")}
           </p>
         )}
 

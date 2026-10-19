@@ -17,8 +17,10 @@ import { ApiError, getTeacher, updateTeacher } from "@/lib/api";
 
 /**
  * How this teacher is paid, edited where their statements are read. It lives on the Salary tab
- * (payout.read) rather than the profile, because pay is money: whoever sets it is whoever reads
- * what it adds up to.
+ * (payout.read) rather than the profile, because pay is money. Seeing and setting it is
+ * teacher.set_pay — the accountant's, without the power to edit the rest of the teacher (a
+ * pay-only save is all the API asks set_pay for). Without it the API sends no pay, so there is
+ * no card.
  */
 export function TeacherPayCard({
   teacherId,
@@ -30,7 +32,7 @@ export function TeacherPayCard({
 }) {
   const t = useTranslations("teachers");
   const { can } = useAuth();
-  const canEdit = can("teacher.update");
+  const canEdit = can("teacher.set_pay");
 
   const [draft, setDraft] = useState<PayDraft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -47,8 +49,8 @@ export function TeacherPayCard({
   }, [teacherId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (canEdit) void load();
+  }, [load, canEdit]);
 
   async function save() {
     if (draft === null) return;
@@ -67,6 +69,8 @@ export function TeacherPayCard({
       setSaving(false);
     }
   }
+
+  if (!canEdit) return null;
 
   return (
     <ProfileCard

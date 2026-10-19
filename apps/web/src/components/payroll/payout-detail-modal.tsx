@@ -174,15 +174,17 @@ export function PayoutDetailModal({
       { key: string; name: string; lessons: number; minutes: number; amount: number }
     >();
     for (const li of lineItems) {
-      const key = li.student_id ?? li.student_name ?? "—";
+      // A group-class line has no student: it is grouped (and named) by its group instead.
+      const key = li.student_id ?? (li.group_id ? `group:${li.group_id}` : null) ?? li.student_name ?? "—";
       const g = groups.get(key) ?? {
         key,
-        name: li.student_name ?? "—",
+        name: li.student_name ?? li.group_name ?? "—",
         lessons: 0,
         minutes: 0,
         amount: 0,
       };
-      g.lessons += 1;
+      // A month's revenue-share line is pay, not a lesson taught.
+      g.lessons += li.session_id || li.class_group_lesson_id ? 1 : 0;
       g.minutes += li.duration_minutes ?? 0;
       g.amount += li.amount_minor;
       groups.set(key, g);
@@ -410,7 +412,12 @@ export function PayoutDetailModal({
                             ? dateFmt.format(new Date(li.session_date))
                             : "—"}
                         </td>
-                        <td className="px-4 py-2.5">{li.student_name ?? "—"}</td>
+                        <td className="px-4 py-2.5">
+                          {li.student_name ?? li.group_name ?? "—"}
+                          {li.group_name && li.description && (
+                            <span className="text-muted-foreground block text-xs">{li.description}</span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5">
                           <ReportStatusBadge status={li.report_status} />
                         </td>

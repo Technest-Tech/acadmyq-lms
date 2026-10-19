@@ -174,7 +174,8 @@ final class QualityReportController extends Controller
             'teachers_flagged' => $teachersFlagged,
             // A display statistic, not money — a float average is fine here.
             'avg_score' => round(100 - ($avgBp / 100), 1),
-            'docked'    => $docked,
+            // What the reports cost is payroll's to read, not the reviewer's.
+            'docked'    => Gate::allows('payout.read') ? $docked : [],
         ]);
     }
 
@@ -301,11 +302,25 @@ final class QualityReportController extends Controller
         $r->amount_minor = $r->amount_minor !== null ? (int) $r->amount_minor : null;
         $r->created_at   = Carbon::parse($r->created_at)->utc()->toIso8601String();
 
+        // The percent is the quality judgement; the amount it docked is pay. Whoever writes the
+        // reports (a supervisor) sees the first, only payroll readers — or the teacher, on their
+        // own reports — see the second.
+        if (! $this->seesMoney()) {
+            $r->amount_minor = null;
+            $r->currency     = null;
+        }
+
         if ($r->scheduled_at_utc !== null) {
             $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
         }
 
         return $r;
+    }
+
+    /** Payroll readers, or a teacher reading their own reports (the `mine` endpoints). */
+    private function seesMoney(): bool
+    {
+        return Gate::allows('payout.read') || Gate::allows('payout.read_own');
     }
 
     /** @return array{report: object, items: list<array<string, mixed>>} */

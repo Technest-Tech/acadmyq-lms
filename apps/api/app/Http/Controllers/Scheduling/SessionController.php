@@ -288,8 +288,11 @@ final class SessionController extends Controller
         ]);
 
         $next = SessionStatus::from(self::NON_BILLABLE_CANCELS[$data['cancelled_by']]);
-        $billOverride = (bool) ($data['charge_student'] ?? false);
-        $teacherOverride = (bool) ($data['pay_teacher'] ?? false);
+        // Charging the student / paying the teacher anyway is the money half of a cancellation
+        // (session.bill_override). Without it the cancellation stands with the standard verdict.
+        $mayBill = Gate::allows('session.bill_override');
+        $billOverride = $mayBill && (bool) ($data['charge_student'] ?? false);
+        $teacherOverride = $mayBill && (bool) ($data['pay_teacher'] ?? false);
         $prevStatus = (string) $session->status;
 
         $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride);

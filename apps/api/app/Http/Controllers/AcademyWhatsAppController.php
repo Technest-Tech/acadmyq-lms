@@ -13,8 +13,9 @@ use RuntimeException;
 
 /**
  * Settings → WhatsApp: the academy pairs (and unlinks) its own number, so a disconnect no longer
- * waits on a Super Admin sending a fresh QR link. Same `specialization.manage` gate as the rest of
- * Settings; the route is plan-gated on `whatsapp.automation`. Pairing itself is
+ * waits on a Super Admin sending a fresh QR link. Gated on `settings.manage` (the academy's own
+ * switches — not the course list's `specialization.manage`, so a supervisor cannot unpair the
+ * number); the route is plan-gated on `whatsapp.automation`. Pairing itself is
  * {@see WhatsAppConnection}, shared with the Super Admin panel and the public connect link.
  */
 final class AcademyWhatsAppController extends Controller
@@ -24,7 +25,7 @@ final class AcademyWhatsAppController extends Controller
     /** GET /api/academy/whatsapp — live state, the linked phone, and the QR while pairing. */
     public function show(): JsonResponse
     {
-        Gate::authorize('specialization.manage');
+        Gate::authorize('settings.manage');
 
         return response()->json($this->present($this->connection->status($this->context())));
     }
@@ -32,7 +33,7 @@ final class AcademyWhatsAppController extends Controller
     /** POST /api/academy/whatsapp/connect — start pairing; a live session is returned untouched. */
     public function connect(): JsonResponse
     {
-        Gate::authorize('specialization.manage');
+        Gate::authorize('settings.manage');
         $ctx = $this->context();
 
         $before = $this->connection->sessionId($ctx);
@@ -52,7 +53,7 @@ final class AcademyWhatsAppController extends Controller
     /** POST /api/academy/whatsapp/logout — unlink the number (to switch to another one). */
     public function logout(): JsonResponse
     {
-        Gate::authorize('specialization.manage');
+        Gate::authorize('settings.manage');
         $ctx = $this->context();
 
         if (! $this->connection->logout($ctx)) {

@@ -206,13 +206,17 @@ final class CancellationRequestController extends Controller
             'pay_teacher' => ['sometimes', 'boolean'],
         ]);
 
+        // Approving is operational; choosing to charge / pay anyway is money (session.bill_override)
+        // — without it the approval applies the standard verdict.
+        $mayBill = Gate::allows('session.bill_override');
+
         return $this->decide(
             $requestId,
             approve: true,
             note: $data['note'] ?? null,
             service: $service,
-            billOverride: (bool) ($data['charge_student'] ?? false),
-            teacherOverride: (bool) ($data['pay_teacher'] ?? false),
+            billOverride: $mayBill && (bool) ($data['charge_student'] ?? false),
+            teacherOverride: $mayBill && (bool) ($data['pay_teacher'] ?? false),
             reasonOverride: $data['reason'] ?? null,
         );
     }

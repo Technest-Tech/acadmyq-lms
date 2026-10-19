@@ -37,10 +37,55 @@ final class TeacherController extends Controller
     /** How a teacher is paid. Kept short on purpose — a bank transfer is not a thing anyone here does. */
     private const PAYOUT_METHODS = ['INSTAPAY', 'WALLET'];
 
+    /**
+     * The columns that say what a teacher is paid. teacher.read is everyday (a supervisor runs the
+     * teachers); these are money, so they ride teacher.set_pay — redacted on the way out, refused
+     * on the way in. (`student_rates` is the per-student override table, handled alongside.)
+     */
+    private const PAY_COLUMNS = ['session_rate_minor', 'pay_type', 'fixed_salary_minor', 'currency'];
+
+    /** Whether the caller may see and set teacher pay. */
+    private function seesPay(): bool
+    {
+        return Gate::allows('teacher.set_pay');
+    }
+
+    private function redactPay(object $row): object
+    {
+        foreach (self::PAY_COLUMNS as $col) {
+            $row->{$col} = null;
+        }
+
+        return $row;
+    }
+
+    /**
+     * Refuse a write that sets pay without teacher.set_pay. On create, the "nothing chosen" shape
+     * (hourly, zero, no per-student rates, no currency) is not a pay decision, so a supervisor can
+     * add a teacher and leave the pay to the owner; on update, naming any pay field at all is one.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function authorizePayWrite(array $data, bool $creating): void
+    {
+        $touches = $creating
+            ? ((int) ($data['session_rate_minor'] ?? 0) !== 0
+                || (int) ($data['fixed_salary_minor'] ?? 0) !== 0
+                || ($data['student_rates'] ?? []) !== []
+                || ($data['pay_type'] ?? Payroll::PAY_HOURLY) !== Payroll::PAY_HOURLY
+                || ($data['currency'] ?? null) !== null)
+            : array_intersect(array_keys($data), [...self::PAY_COLUMNS, 'student_rates']) !== [];
+
+        if ($touches) {
+            Gate::authorize('teacher.set_pay');
+        }
+    }
+
     /** GET /api/teachers — server-driven DataTable. */
     public function index(Request $request): JsonResponse
     {
         Gate::authorize('teacher.read');
+        $seesPay = $this->seesPay();
 
         $query = DB::table('teachers')->select([
             'id', 'user_id', 'full_name', 'phone', 'specialization',
@@ -52,11 +97,12 @@ final class TeacherController extends Controller
 
         $result = DataTable::paginate($query, $request, [
             'searchable' => ['full_name', 'phone', 'specialization'],
-            'sortable' => [
+            // Sorting by rate would rank the teachers by pay even with the column redacted.
+            'sortable' => array_filter([
                 'name' => 'full_name',
-                'rate' => 'session_rate_minor',
+                'rate' => $seesPay ? 'session_rate_minor' : null,
                 'created_at' => 'created_at',
-            ],
+            ]),
             'filters' => [
                 'currency' => fn ($q, $value) => $q->where('currency', strtoupper((string) $value)),
                 'specialization' => fn ($q, $value) => $q->where('specialization', (string) $value),
@@ -69,12 +115,12 @@ final class TeacherController extends Controller
         // as AvailabilityWindow[]. show() has always decoded it; index() never did, so list
         // consumers silently iterated a string's characters — and threw outright the moment one
         // called an array method on it. Decode here so a single shape leaves this controller.
-        $result['rows'] = $result['rows']->map(function (object $r): object {
+        $result['rows'] = $result['rows']->map(function (object $r) use ($seesPay): object {
             $r->availability = is_string($r->availability)
                 ? (json_decode($r->availability, true) ?: [])
                 : ($r->availability ?? []);
 
-            return $r;
+            return $seesPay ? $r : $this->redactPay($r);
         });
 
         return response()->json($result);
@@ -91,6 +137,7 @@ final class TeacherController extends Controller
         $this->enforceLimit($academyId, 'teachers', 'maxTeachers', 'teachers');
 
         $data = $this->validatePayload($request, creating: true);
+        $this->authorizePayWrite($data, creating: true);
         $payout = $this->resolvePayout($data, null) ?? ['payout_method' => null, 'payout_handle' => null];
         $meetingUrl = $this->cleanMeetingUrl($data['meeting_url'] ?? null);
 
@@ -206,6 +253,17 @@ final class TeacherController extends Controller
             }
         }
 
+        // A teacher always sees their own pay; anyone else needs teacher.set_pay.
+        if (! $ownsRecord && ! $this->seesPay()) {
+            $teacher = $this->redactPay($teacher);
+            $students = $students->map(function (object $s): object {
+                $s->rate_minor = null;
+
+                return $s;
+            });
+            $studentRates = collect();
+        }
+
         return response()->json([
             'teacher' => $teacher,
             'students' => $students,
@@ -299,7 +357,12 @@ final class TeacherController extends Controller
     /** PATCH /api/teachers/{id} — edit; a rate change is captured in the before/after audit. */
     public function update(Request $request, string $id): JsonResponse
     {
-        Gate::authorize('teacher.update');
+        // A pay-only edit (the Salary tab) is teacher.set_pay's alone — the accountant sets rates
+        // without holding the power to rename or reschedule a teacher. Anything else on the
+        // payload is the ordinary teacher.update; pay on top of it still needs set_pay below.
+        $payKeys = [...self::PAY_COLUMNS, 'student_rates'];
+        $payOnly = $request->keys() !== [] && array_diff($request->keys(), $payKeys) === [];
+        Gate::authorize($payOnly ? 'teacher.set_pay' : 'teacher.update');
 
         $existing = DB::table('teachers')->where('id', $id)->first();
         if ($existing === null) {
@@ -307,6 +370,7 @@ final class TeacherController extends Controller
         }
 
         $data = $this->validatePayload($request, creating: false);
+        $this->authorizePayWrite($data, creating: false);
         if (array_key_exists('phone', $data)) {
             $data['phone'] = Phone::normalize($data['phone'], 'phone');
         }

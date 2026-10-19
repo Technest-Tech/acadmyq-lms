@@ -211,6 +211,7 @@ export function TeacherDetail({
   }
 
   const canEdit = can("teacher.update");
+  const canPay = can("teacher.set_pay");
   const isActive = teacher.deleted_at == null;
 
   async function save() {
@@ -246,7 +247,7 @@ export function TeacherDetail({
           Only when this component stands alone (the modal path). Inside the workspace the page
           already carries a hero and a fact strip, so it renders straight into the cards. */}
       {showHero && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className={cn("grid grid-cols-1 gap-3", canPay ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
           <FactCard
             icon={isActive ? BadgeCheck : ShieldAlert}
             label={t("filter.status")}
@@ -254,13 +255,16 @@ export function TeacherDetail({
             value={isActive ? t("stat.active") : t("stat.inactive")}
             sub={teacher.specialization ?? undefined}
           />
-          <FactCard
-            icon={Banknote}
-            label={t("colRate")}
-            tone="violet"
-            value={<span data-testid="teacher-rate">{paySummary(teacher).value}</span>}
-            sub={paySummary(teacher).sub}
-          />
+          {/* Pay is teacher.set_pay's (the API redacts it for a supervisor). */}
+          {canPay && (
+            <FactCard
+              icon={Banknote}
+              label={t("colRate")}
+              tone="violet"
+              value={<span data-testid="teacher-rate">{paySummary(teacher).value}</span>}
+              sub={paySummary(teacher).sub}
+            />
+          )}
           <FactCard
             icon={MessageCircle}
             label={t("colWhatsapp")}

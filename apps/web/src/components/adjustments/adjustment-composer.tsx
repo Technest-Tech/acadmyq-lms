@@ -110,7 +110,7 @@ export function AdjustmentComposer({
       size="md"
       footer={
         <div className="flex w-full items-center justify-between gap-3">
-          {amountMinor > 0 && teacher ? (
+          {amountMinor > 0 && teacher?.currency ? (
             <p
               className={cn(
                 "text-sm font-semibold tabular-nums",

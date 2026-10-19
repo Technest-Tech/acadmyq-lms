@@ -3,6 +3,7 @@
 import { BookOpen, MessageCircle, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { useAuth } from "@/components/auth-provider";
 import { AcademyNameCard } from "@/components/settings/academy-name-card";
 import { ControlsManager } from "@/components/settings/controls-manager";
 import { ReportCardManager } from "@/components/settings/report-card-manager";
@@ -13,25 +14,34 @@ import { cn } from "@/lib/utils";
 
 type TabKey = "courses" | "reportCard" | "whatsapp" | "controls";
 
-const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon }> = [
-  { key: "courses", icon: BookOpen },
-  { key: "reportCard", icon: ScrollText },
-  { key: "whatsapp", icon: MessageCircle },
-  { key: "controls", icon: SlidersHorizontal },
+/**
+ * Each tab names the capability it needs: the course list and the report card are day-to-day
+ * (a supervisor keeps them), the WhatsApp pairing and the Controls switches are the academy's own
+ * settings (settings.manage, the owner's).
+ */
+const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon; permission: string }> = [
+  { key: "courses", icon: BookOpen, permission: "specialization.manage" },
+  { key: "reportCard", icon: ScrollText, permission: "report_field.manage" },
+  { key: "whatsapp", icon: MessageCircle, permission: "settings.manage" },
+  { key: "controls", icon: SlidersHorizontal, permission: "settings.manage" },
 ];
 
 /** The Settings container: academy configuration, organized into top tabs. */
 export function SettingsManager() {
   const t = useTranslations("settings");
+  const { can } = useAuth();
   const [chosen, setChosen] = useState<TabKey>("courses");
   // The report card is a per-client feature; without it the tab (and its template) do not exist.
   const hasReportCard = useCapability("report_card");
   // Only clients with the WhatsApp module have a number to link.
   const hasWhatsApp = useCapability("whatsapp.automation");
   const tabs = TABS.filter(
-    (tab) => (tab.key !== "reportCard" || hasReportCard) && (tab.key !== "whatsapp" || hasWhatsApp),
+    (tab) =>
+      can(tab.permission) &&
+      (tab.key !== "reportCard" || hasReportCard) &&
+      (tab.key !== "whatsapp" || hasWhatsApp),
   );
-  const active: TabKey = tabs.some((tab) => tab.key === chosen) ? chosen : "courses";
+  const active: TabKey = tabs.some((tab) => tab.key === chosen) ? chosen : (tabs[0]?.key ?? "courses");
   const setActive = setChosen;
 
   return (
@@ -47,8 +57,8 @@ export function SettingsManager() {
         </div>
       </div>
 
-      {/* ── Academy name (always visible, above tabs) ────────────────────── */}
-      <AcademyNameCard />
+      {/* ── Academy name (above tabs) — renaming the academy is settings.manage ── */}
+      {can("settings.manage") && <AcademyNameCard />}
 
       {/* ── Segmented top tabs ────────────────────────────────────────────── */}
       <div

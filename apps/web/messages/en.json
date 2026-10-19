@@ -162,7 +162,7 @@
     "financialStats": "Financial Statistics",
     "audit": "Audit Log",
     "certificates": "Certificates",
-    "staff": "Staff",
+    "staff": "Team & permissions",
     "staffDepartments": "Staff Departments",
     "adminSubscriptions": "Subscriptions",
     "adminAutomation": "WhatsApp Ops",
@@ -184,7 +184,8 @@
     "lmsPayments": "Payment methods",
     "lmsBooks": "Books & PDFs",
     "lmsBlog": "Blog",
-    "lmsBookings": "Bookings"
+    "lmsBookings": "Bookings",
+    "groups": "Groups"
   },
   "navGroup": {
     "general": "General",
@@ -756,8 +757,11 @@
     "ACADEMY_OWNER": "Academy Owner",
     "SUPERVISOR": "Supervisor",
     "TEACHER": "Teacher",
-    "STAFF": "Staff",
-    "other": "Custom role"
+    "STAFF": "View only",
+    "other": "Custom role",
+    "MANAGER": "Manager",
+    "ACCOUNTANT": "Accountant",
+    "CUSTOMER_SERVICE": "Customer service"
   },
   "locale": {
     "ar": "العربية",
@@ -1932,7 +1936,8 @@
       "unnamedStudent": "Unnamed student",
       "sessionCount": "{count, plural, =0 {no sessions} one {# session} other {# sessions}}",
       "showingCount": "Showing {shown} of {total}",
-      "trialEvent": "Trial"
+      "trialEvent": "Trial",
+      "groupEvent": "Group lesson"
     },
     "quickCreate": {
       "title": "New session",
@@ -1993,6 +1998,16 @@
       "openCrm": "Open the CRM",
       "openTrials": "Open Trials",
       "close": "Close"
+    },
+    "groupEvent": {
+      "title": "Group lesson",
+      "students": "{count, plural, =0 {No students} one {# student} other {# students}}",
+      "open": "Open the group",
+      "status": {
+        "SCHEDULED": "Upcoming",
+        "HELD": "Held",
+        "CANCELLED": "Cancelled"
+      }
     }
   },
   "notifications": {
@@ -2462,7 +2477,7 @@
     "hero": {
       "active": "{count} open",
       "previousUnpaid": "{count, plural, one {# opened over an unpaid package} other {# opened over unpaid packages}}",
-      "followUp": "{count, plural, =0 {Nothing to follow up} one {# needs follow-up} other {# need follow-up}}",
+      "followUp": "{count, plural, =0 {All paid} one {# not paid} other {# not paid}}",
       "outstanding": "{amount} still due"
     },
     "status": {
@@ -2510,7 +2525,10 @@
       "previousUnpaidTitle": "{count, plural, one {Previous package not paid} other {Previous packages not paid}}",
       "previousUnpaidBody": "This student still owes {amount} on package {packages}. This new package was opened before that was paid.",
       "reminders": "{count, plural, one {Reminded once} other {Reminded {n} times}} · last {date}",
-      "noReminders": "No reminder sent yet"
+      "noReminders": "No reminder sent yet",
+      "paidBadge": "Paid",
+      "nothingDue": "Nothing due",
+      "paidOn": "Paid · {date}"
     },
     "actions": {
       "open": "Open a package",
@@ -2677,13 +2695,20 @@
         "subtitle": "Blocks that ran out or were closed. Follow up on what is still unpaid or waiting for renewal, and send a reminder from the card."
       }
     },
-    "finishedFilter": {
-      "followUp": "Needs follow-up ({count})",
-      "all": "All finished ({count})"
-    },
     "emptyOpen": "No open packages right now.",
-    "emptyFollowUp": "Nothing to follow up. Every finished package is paid and renewed.",
-    "emptyFinished": "No finished packages yet."
+    "finishedTab": {
+      "unpaid": "Not paid ({count})",
+      "paid": "Paid ({count})"
+    },
+    "dates": {
+      "finishedFrom": "Finished from",
+      "paidFrom": "Paid from",
+      "to": "To",
+      "clear": "Clear dates"
+    },
+    "emptyUnpaid": "Nothing unpaid. Every finished package is settled.",
+    "emptyPaid": "No paid packages yet.",
+    "emptyRange": "No packages between these dates."
   },
   "attendance": {
     "title": "Attendance & report",
@@ -2811,7 +2836,8 @@
       "yes": "Yes",
       "no": "No",
       "confirm": "Apply",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "defaultVerdict": "The lesson is recorded with the standard verdict: the student is not charged and the teacher is not paid. Charging is decided by whoever holds cancelled-lesson billing."
     },
     "markedSent": "Marked as sent on WhatsApp.",
     "history": "Report history",
@@ -3029,7 +3055,10 @@
       "SUPERVISOR": "Supervisor",
       "TEACHER": "Teacher",
       "STAFF": "Staff",
-      "other": "Custom role"
+      "other": "Custom role",
+      "MANAGER": "Manager",
+      "ACCOUNTANT": "Accountant",
+      "CUSTOMER_SERVICE": "Customer service"
     },
     "panelTitle": "Activity trail",
     "panelHint": "Click any entry to see exactly what changed"
@@ -3091,7 +3120,8 @@
       "lms": "Online courses — course builder & learner site",
       "video": {
         "conferencing": "Video classroom — rooms & recordings"
-      }
+      },
+      "groups": "Group classes — groups, members, timetable & attendance"
     }
   },
   "adminDashboard": {
@@ -3278,7 +3308,10 @@
       "SUPERVISOR": "Supervisor",
       "TEACHER": "Teacher",
       "STAFF": "Staff",
-      "other": "Custom role"
+      "other": "Custom role",
+      "MANAGER": "Manager",
+      "ACCOUNTANT": "Accountant",
+      "CUSTOMER_SERVICE": "Customer service"
     }
   },
   "planAdmin": {
@@ -3355,9 +3388,9 @@
     "saved": "Saved"
   },
   "staff": {
-    "title": "Staff",
-    "subtitle": "Manage your non-teaching academy staff — support, accounting, reception, HR, and more",
-    "new": "New staff member",
+    "title": "Team & permissions",
+    "subtitle": "Everyone who signs in and what they can do — add a member and choose their role in one step",
+    "new": "Add member",
     "empty": "No staff members yet — add your first.",
     "back": "Back",
     "manage": "Open",
@@ -3411,33 +3444,36 @@
       "searchCurrency": "Search currency…",
       "notes": "Notes",
       "notesPlaceholder": "Internal notes about this staff member…",
-      "createLogin": "Create a system login for this staff member",
+      "createLogin": "Signs in to the system",
       "email": "Login email",
       "password": "Login password",
       "passwordHint": "Min. 8 characters",
       "showPassword": "Show password",
       "hidePassword": "Hide password",
-      "create": "Add staff member",
+      "create": "Add member",
       "creating": "Creating…",
       "save": "Save changes",
       "saving": "Saving…",
       "saved": "Saved.",
-      "role": "Login role",
+      "role": "Role",
       "roleStaff": "Staff (default)",
       "searchRole": "Search role…",
       "roleCan": "This role can:",
       "roleNoPerms": "No capabilities — this login can sign in but do nothing yet.",
       "manageRolesHint": "Need a different role?",
-      "manageRolesLink": "Manage roles",
+      "manageRolesLink": "Build one in the Roles tab",
       "departmentHint": "Which team this person is in — for organizing your staff. It does NOT affect what they can access.",
-      "roleHint": "What this employee can do — pick one of your academy's roles. This controls their access.",
-      "sectionProfile": "Profile",
-      "sectionProfileDesc": "Basic details of the staff member.",
+      "roleHint": "Pick a ready-made role or one of your academy's own.",
+      "sectionProfile": "Member",
+      "sectionProfileDesc": "Name and a contact number.",
       "sectionPay": "Compensation",
       "sectionPayDesc": "Optional monthly salary, kept for your records.",
-      "sectionAccount": "Account & access",
-      "sectionAccountDesc": "Give this employee a login and choose what they can do.",
-      "createLoginDesc": "Create a dashboard login for this employee."
+      "sectionAccount": "Sign-in and role",
+      "sectionAccountDesc": "An email and password; the role decides what they see.",
+      "createLoginDesc": "Untick to record someone who doesn't need a login.",
+      "sectionDetails": "More details (optional)",
+      "sectionDetailsDesc": "Department, notes and salary.",
+      "sectionDetailsDescNoPay": "Department and notes."
     },
     "detail": {
       "profile": "Profile",
@@ -3469,7 +3505,7 @@
       "noPhone": "Not set",
       "perMonth": "Per month"
     },
-    "backToList": "All staff",
+    "backToList": "Team",
     "colAdded": "Added",
     "account": {
       "title": "Account & login",
@@ -3494,6 +3530,10 @@
     },
     "hero": {
       "onRoster": "{count} on the roster"
+    },
+    "tabs": {
+      "members": "Members",
+      "roles": "Roles"
     }
   },
   "errors": {
@@ -3694,7 +3734,10 @@
       "SUPERVISOR": "Supervisor",
       "TEACHER": "Teacher",
       "STAFF": "Staff",
-      "other": "Custom role"
+      "other": "Custom role",
+      "MANAGER": "Manager",
+      "ACCOUNTANT": "Accountant",
+      "CUSTOMER_SERVICE": "Customer service"
     },
     "sessions": {
       "title": "Lessons",
@@ -6296,9 +6339,337 @@
       "rebookSubmit": "Book again"
     }
   },
+  "groups": {
+    "title": "Groups",
+    "subtitle": "Group classes — one teacher, several students, their own timetable and attendance.",
+    "noAccess": "You don't have access to group classes.",
+    "loading": "Loading…",
+    "loadFailed": "Could not load the groups.",
+    "new": "New group",
+    "activeCount": "{count, plural, one {# group} other {# groups}}",
+    "search": "Search groups, levels, teachers",
+    "allTeachers": "All teachers",
+    "noLevel": "No level set",
+    "seats": "Seats",
+    "seatsOf": "{count} / {capacity}",
+    "students": "{count, plural, =0 {No students} one {# student} other {# students}}",
+    "minutes": "{count} min",
+    "nextLesson": "Next: {when}",
+    "noNextLesson": "No upcoming lesson",
+    "overdue": "{count, plural, one {# sheet overdue} other {# sheets overdue}}",
+    "tabs": {
+      "ACTIVE": "All",
+      "RUNNING": "Running",
+      "UPCOMING": "Upcoming",
+      "FINISHED": "Finished",
+      "ARCHIVED": "Archived"
+    },
+    "state": {
+      "RUNNING": "Running",
+      "UPCOMING": "Upcoming",
+      "FINISHED": "Finished",
+      "ARCHIVED": "Archived"
+    },
+    "mode": {
+      "ONLINE": "Online",
+      "OFFLINE": "In person"
+    },
+    "lessonStatus": {
+      "SCHEDULED": "Upcoming",
+      "OVERDUE": "Not marked",
+      "HELD": "Held",
+      "CANCELLED": "Cancelled"
+    },
+    "attendance": {
+      "PRESENT": "Present",
+      "LATE": "Late",
+      "ABSENT": "Absent",
+      "EXCUSED": "Excused"
+    },
+    "empty": {
+      "title": "No groups here yet",
+      "manage": "Create a group, give it a teacher and its weekly times, then add the students.",
+      "read": "Groups you teach will appear here."
+    },
+    "form": {
+      "subtitle": "Its lessons are created from the weekly times — from the start date, up to the end of next month.",
+      "name": "Group name",
+      "namePlaceholder": "e.g. English A1 — evening",
+      "teacher": "Teacher",
+      "teacherPlaceholder": "Choose a teacher",
+      "search": "Search…",
+      "subject": "Subject",
+      "noSubject": "No subject",
+      "level": "Level",
+      "levelPlaceholder": "e.g. A1, Level 3, Grade 9",
+      "capacity": "Seats",
+      "capacityPlaceholder": "No limit",
+      "capacityHint": "Leave empty for no limit.",
+      "mode": "Where the class happens",
+      "meetingUrl": "Meeting link",
+      "meetingUrlHint": "Empty = the teacher's own link.",
+      "location": "Room / branch",
+      "locationPlaceholder": "e.g. Room 3 — Nasr City branch",
+      "startDate": "Start date",
+      "startDateHint": "A date in the past adds the lessons since then, so you can mark them.",
+      "endDate": "End date",
+      "endDateHint": "Optional — leave empty for an open-ended group.",
+      "slots": "Weekly times",
+      "slotsHint": "One lesson is created for every weekly time.",
+      "slotsEditHint": "Changing the times moves the upcoming lessons only. Held and past lessons never move.",
+      "minutes": "min",
+      "notes": "Notes",
+      "cancel": "Cancel",
+      "create": "Create group",
+      "saveChanges": "Save changes",
+      "saving": "Saving…",
+      "errors": {
+        "name": "Give the group a name.",
+        "teacher": "Choose the teacher.",
+        "startDate": "Choose the start date.",
+        "endDate": "The end date must be on or after the start date.",
+        "slots": "Add at least one weekly time.",
+        "duplicateSlot": "The same day and time is listed twice.",
+        "slotInvalid": "Each weekly time needs a time and a length between 1 and 600 minutes.",
+        "capacity": "Seats must be a whole number, 1 or more.",
+        "save": "Could not save the group.",
+        "price": "The price must be a positive number.",
+        "payAmount": "Enter what the teacher earns.",
+        "share": "The share must be between 0 and 100."
+      }
+    },
+    "detail": {
+      "back": "All groups",
+      "edit": "Edit",
+      "editTitle": "Edit group",
+      "saved": "Group saved.",
+      "archive": "Archive",
+      "restore": "Restore",
+      "delete": "Delete",
+      "archived": "Group archived. Its upcoming lessons were removed; its history stays.",
+      "restored": "Group restored. Its lessons resume from today.",
+      "archivedBanner": "This group is archived: no new lessons are created and nobody can be added.",
+      "actionFailed": "That did not work.",
+      "archiveTitle": "Archive this group?",
+      "archiveHint": "Upcoming lessons are removed. Held lessons, attendance and members stay, and you can restore it later.",
+      "archiveConfirm": "Archive",
+      "deleteTitle": "Delete this group?",
+      "deleteHint": "Only possible while no lesson has been held. The group, its timetable and members are removed for good.",
+      "deleteConfirm": "Delete",
+      "tabs": {
+        "lessons": "Lessons",
+        "members": "Members",
+        "overview": "Overview",
+        "money": "Money"
+      }
+    },
+    "lessons": {
+      "loadFailed": "Could not load the lessons.",
+      "actionFailed": "That did not work.",
+      "owed": "{count, plural, one {# lesson waiting for its sheet} other {# lessons waiting for their sheet}}",
+      "upcoming": "Upcoming",
+      "past": "Past",
+      "noUpcoming": "No upcoming lessons.",
+      "showAll": "Show all {count}",
+      "showLess": "Show less",
+      "takeAttendance": "Take attendance",
+      "editSheet": "Edit sheet",
+      "more": "More",
+      "move": "Move",
+      "moveTitle": "Move this lesson",
+      "moveConfirm": "Move lesson",
+      "moved": "Moved",
+      "movedNotice": "Lesson moved.",
+      "cancel": "Cancel lesson",
+      "cancelTitle": "Cancel this lesson?",
+      "cancelHint": "It is cancelled for the whole group.",
+      "cancelConfirm": "Cancel lesson",
+      "cancelled": "Lesson cancelled.",
+      "revert": "Undo",
+      "revertTitle": "Undo this lesson's outcome?",
+      "revertHint": "It goes back to pending and its attendance sheet is cleared.",
+      "revertConfirm": "Undo",
+      "reverted": "Lesson is pending again.",
+      "addExtra": "Extra lesson",
+      "addExtraConfirm": "Add lesson",
+      "extraHint": "A one-off lesson outside the weekly times, e.g. a make-up class.",
+      "extraAdded": "Extra lesson added.",
+      "extra": "Extra",
+      "substitute": "taught by {name}",
+      "countsTitle": "Came / expected",
+      "date": "Date",
+      "time": "Time",
+      "duration": "Minutes",
+      "timezoneHint": "Times are in the group's timezone ({tz}).",
+      "reason": "Reason",
+      "reasonPlaceholder": "Optional"
+    },
+    "sheet": {
+      "title": "Attendance",
+      "loading": "Loading the sheet…",
+      "loadFailed": "Could not load the sheet.",
+      "saveFailed": "Could not save the sheet.",
+      "saved": "Attendance saved.",
+      "join": "Join",
+      "cancelled": "This lesson was cancelled. Undo the cancellation to mark it.",
+      "empty": "Nobody is in the group on this date.",
+      "allPresent": "All present",
+      "formerMember": "left the group",
+      "addNote": "Add a note",
+      "notePlaceholder": "Note about this student",
+      "topic": "What was taught",
+      "topicPlaceholder": "e.g. Present simple, unit 3",
+      "homework": "Homework",
+      "homeworkPlaceholder": "e.g. Workbook page 12",
+      "notStarted": "This lesson hasn't started yet, so it can't be marked.",
+      "recordAnyway": "Record it anyway",
+      "save": "Save attendance",
+      "update": "Update sheet"
+    },
+    "members": {
+      "ofSeats": "of {capacity} seats",
+      "noLimit": "students (no seat limit)",
+      "full": "Full",
+      "seatsLeft": "{count, plural, one {# seat left} other {# seats left}}",
+      "add": "Add students",
+      "addTitle": "Add students",
+      "addHint": "They are expected at every lesson from the date they join.",
+      "searchStudents": "Search students",
+      "noStudents": "No students to add.",
+      "joinedOn": "Joins on",
+      "joinedOnHint": "Earlier lessons won't count them as absent.",
+      "overCapacity": "Only {count} seats are left.",
+      "allowOver": "Add them anyway (over the limit)",
+      "picked": "{count} selected",
+      "addConfirm": "{count, plural, =0 {Add} one {Add # student} other {Add # students}}",
+      "added": "{count, plural, one {# student added.} other {# students added.}}",
+      "addFailed": "Could not add the students.",
+      "empty": "No students in this group yet.",
+      "since": "Since {date}",
+      "between": "{from} → {to}",
+      "rateTitle": "Attendance rate",
+      "absences": "{count, plural, one {# absence} other {# absences}}",
+      "former": "{count, plural, one {# former member} other {# former members}}",
+      "remove": "Remove from group",
+      "removeTitle": "Remove from the group",
+      "removeHint": "They stop being expected from this date. Sheets already saved keep them.",
+      "leftOn": "Leaves on",
+      "reasonPlaceholder": "Optional, e.g. moved to evening classes",
+      "removeConfirm": "Remove",
+      "removed": "{name} removed from the group.",
+      "removeFailed": "Could not remove the student.",
+      "move": "Move to another group",
+      "moveTitle": "Move {name}",
+      "moveTo": "Move to",
+      "pickGroup": "Choose a group",
+      "moveOn": "On",
+      "moveConfirm": "Move",
+      "moved": "{name} moved to {group}.",
+      "moveFailed": "Could not move the student.",
+      "ownPrice": "pays {price}",
+      "setPrice": "Set this student's price",
+      "priceTitle": "{name}'s price",
+      "priceHint": "For a sibling discount or a scholarship. It applies from now on — charges already made keep theirs.",
+      "price": "Price ({currency})",
+      "useGroupPrice": "Use the group's price",
+      "savePrice": "Save price",
+      "priceSaved": "{name}'s price saved.",
+      "priceFailed": "Could not save the price."
+    },
+    "overview": {
+      "attendance": "Attendance",
+      "held": "Lessons held",
+      "upcoming": "Upcoming",
+      "overdue": "Not marked",
+      "dates": "Dates",
+      "from": "From {from}",
+      "fromTo": "{from} → {to}",
+      "timezone": "Timezone: {tz}",
+      "noLink": "No link — add one, or set the teacher's own."
+    },
+    "money": {
+      "studentPays": "What each student pays",
+      "billingMode": "How students pay",
+      "mode": {
+        "MONTHLY": "Monthly",
+        "PER_LESSON": "Per lesson",
+        "COURSE": "Course fee"
+      },
+      "modeHint": {
+        "MONTHLY": "Up front, every month",
+        "PER_LESSON": "For each lesson they come to",
+        "COURSE": "Once, on joining"
+      },
+      "priceLabel": {
+        "MONTHLY": "Price per month",
+        "PER_LESSON": "Price per lesson",
+        "COURSE": "Course fee"
+      },
+      "priceHint": "Empty = the group bills nothing.",
+      "pricePlaceholder": "e.g. 450",
+      "currency": "Currency",
+      "currencyHint": "Empty = the academy's currency.",
+      "academyCurrency": "Academy currency",
+      "prorateJoin": "A student who joins mid-month pays only for the lessons left",
+      "chargeAbsent": "Charge an unexcused absence too (an excused one is never charged)",
+      "forwardOnly": "A new price applies from now on; charges already made keep theirs.",
+      "teacherEarns": "What the teacher earns",
+      "payMode": {
+        "DEFAULT": "The teacher's usual rate",
+        "PER_LESSON": "A fixed amount per lesson",
+        "PER_HOUR": "An hourly rate",
+        "PER_STUDENT": "An amount per student who came",
+        "REVENUE_SHARE": "A share of what the group bills"
+      },
+      "payAmount": {
+        "PER_LESSON": "Amount per lesson",
+        "PER_HOUR": "Rate per hour",
+        "PER_STUDENT": "Amount per student"
+      },
+      "payCurrencyHint": "In the teacher's pay currency.",
+      "sharePct": "Teacher's share (%)",
+      "shareHint": "Of everything the group bills in the month. The group must bill in the teacher's currency.",
+      "payModeHint": {
+        "DEFAULT": "As a private lesson of the same length: their hourly rate (nothing per lesson on a fixed salary).",
+        "PER_LESSON": "One line per held lesson, whatever the number of students.",
+        "PER_HOUR": "One line per held lesson: the rate × the lesson's length.",
+        "PER_STUDENT": "One line per held lesson: the amount × the students who came.",
+        "REVENUE_SHARE": "One line a month, kept in step with the group's bills."
+      }
+    },
+    "moneyTab": {
+      "loadFailed": "Could not load the group's money.",
+      "rule": {
+        "MONTHLY": "{price} a month, up front",
+        "PER_LESSON": "{price} per lesson attended",
+        "COURSE": "{price} course fee"
+      },
+      "noPrice": "No price set — this group bills nothing.",
+      "month": "Month",
+      "empty": "Nothing billed or paid out for this group this month.",
+      "billed": "Billed",
+      "paid": "Paid",
+      "outstanding": "Not paid yet",
+      "teacherCost": "{count, plural, =0 {Teacher pay} one {Teacher pay (# lesson)} other {Teacher pay (# lessons)}}",
+      "margin": "What's left",
+      "invoice": {
+        "OPEN": "Open",
+        "CLOSED": "Unpaid",
+        "PAID": "Paid",
+        "PARTIALLY_PAID": "Part paid",
+        "VOID": "Void"
+      },
+      "payRule": {
+        "PER_LESSON": "{amount} per lesson",
+        "PER_HOUR": "{amount} an hour",
+        "PER_STUDENT": "{amount} per student who came",
+        "REVENUE_SHARE": "{pct}% of what the group bills"
+      }
+    }
+  },
   "academyRoles": {
     "title": "Roles & Permissions",
-    "subtitle": "Define custom roles for your team and choose exactly what each can do.",
+    "subtitle": "Ready-made roles are the same in every academy — pick one, or build a role of your own.",
     "noPermission": "You don't have permission to manage roles.",
     "loadError": "Couldn't load roles.",
     "newRole": "New role",
@@ -6307,13 +6678,25 @@
     "presets": {
       "supervisor": {
         "name": "Supervisor",
-        "description": "Runs the academy day to day. No invoices, salaries, profit or student rates.",
+        "description": "Runs the academy day to day. No money, no statistics.",
         "hint": "Starts a role holding everything a supervisor gets — untick anything they should not manage."
+      },
+      "manager": {
+        "name": "Manager",
+        "description": "The whole academy, money and statistics included."
+      },
+      "accountant": {
+        "name": "Accountant",
+        "description": "The money desk, read-only on the operation."
+      },
+      "customer_service": {
+        "name": "Customer service",
+        "description": "Enrolment, timetables, trials and leads. No money."
       }
     },
-    "customRoles": "Custom roles",
-    "systemRoles": "Built-in roles",
-    "noCustomRoles": "No custom roles yet. Create one to tailor access for your team.",
+    "customRoles": "Your academy's roles",
+    "systemRoles": "Ready-made roles",
+    "noCustomRoles": "No roles of your own yet. The ready-made ones usually do — or copy one and adjust it.",
     "capabilities": "{count} capabilities",
     "assigned": "{count} assigned",
     "inactive": "Inactive",
@@ -6341,24 +6724,189 @@
       "ACADEMY_OWNER": "Academy Owner",
       "SUPERVISOR": "Supervisor",
       "TEACHER": "Teacher",
-      "STAFF": "Staff"
+      "STAFF": "View only",
+      "MANAGER": "Manager",
+      "ACCOUNTANT": "Accountant",
+      "CUSTOMER_SERVICE": "Customer service"
     },
     "systemRoleHint": {
-      "STAFF": "Reception desk — sees students and the schedule, changes nothing",
-      "SUPERVISOR": "Runs the academy. No invoices, salaries, profit or student rates"
+      "STAFF": "Sees students and the schedule, changes nothing",
+      "SUPERVISOR": "Runs the day: students, teachers, lessons and attendance — no money, no statistics",
+      "ACADEMY_OWNER": "The academy's owner — everything",
+      "MANAGER": "The whole academy like the owner: operations, money and statistics",
+      "ACCOUNTANT": "Invoices, packages, payroll and prices; sees students and lessons read-only",
+      "CUSTOMER_SERVICE": "Enrols students and families, books timetables, runs trials and leads — no money",
+      "TEACHER": "Their own lessons, students, reports and pay"
     },
     "close": "Close",
     "customBadge": "Custom",
-    "featuresLabel": "What this role can do",
+    "featuresLabel": "What this role reaches",
     "noFeatures": "No capabilities granted.",
     "selectAll": "Select all",
     "clearAll": "Clear",
-    "customRolesSub": "Built by your academy — editable",
-    "systemRolesSub": "Built in — the same at every academy",
+    "customRolesSub": "Built by you — edit or delete them",
+    "systemRolesSub": "The same in every academy — fixed, but you can copy one",
     "assignedTotal": "People assigned",
     "assignedTotalSub": "Across every role",
     "hero": {
       "capabilities": "{count} capabilities"
+    },
+    "copyAsCustom": "Copy as a custom role",
+    "copyName": "{name} (copy)",
+    "seesMoney": "Sees money",
+    "noMoney": "No money",
+    "seesStats": "Sees statistics",
+    "pickRole": "Choose a role",
+    "whatTheyGet": "What «{role}» can reach",
+    "builder": {
+      "startFrom": "Start from:",
+      "clear": "Clear all",
+      "partial": "Partial",
+      "levels": {
+        "none": "None",
+        "view": "View",
+        "manage": "Manage",
+        "allowed": "Allowed"
+      },
+      "kinds": {
+        "operations": {
+          "title": "Day-to-day work",
+          "hint": "What the team needs to run the academy"
+        },
+        "financial": {
+          "title": "Money",
+          "hint": "Anything that shows or moves an amount — hand it over deliberately"
+        },
+        "statistics": {
+          "title": "Statistics",
+          "hint": "Performance dashboards and the academy's aggregated numbers"
+        }
+      }
+    },
+    "areas": {
+      "students": {
+        "label": "Students",
+        "hint": "View students; manage: add, edit, deactivate"
+      },
+      "guardians": {
+        "label": "Guardians",
+        "hint": "View families; manage: add and edit"
+      },
+      "teachers": {
+        "label": "Teachers",
+        "hint": "View teachers; manage: add, edit, deactivate — not their pay"
+      },
+      "schedules": {
+        "label": "Timetables",
+        "hint": "Each student's weekly timetable; manage: create and change it"
+      },
+      "lessons": {
+        "label": "Lessons & attendance",
+        "hint": "View lessons; manage: attendance, reports, add, move, cancel, free"
+      },
+      "groups": {
+        "label": "Groups",
+        "hint": "Group classes and their members"
+      },
+      "supervision": {
+        "label": "Lesson following",
+        "hint": "The \"Following\" button on a live lesson"
+      },
+      "trials": {
+        "label": "Trial lessons",
+        "hint": "View trials; manage: book and decide them"
+      },
+      "crm": {
+        "label": "Leads",
+        "hint": "The sales pipeline; manage: add, move, convert"
+      },
+      "notifications": {
+        "label": "Notifications",
+        "hint": "Cancellation requests and overdue-report alerts"
+      },
+      "quality": {
+        "label": "Quality reports",
+        "hint": "View reports; manage: judge teachers against the academy's rubric"
+      },
+      "student_reports": {
+        "label": "Student report review",
+        "hint": "Approve the monthly reports teachers write"
+      },
+      "teacher_notes": {
+        "label": "Private teacher notes",
+        "hint": "A private log of notes about each teacher"
+      },
+      "certificates": {
+        "label": "Certificates",
+        "hint": "View certificates; manage: issue them"
+      },
+      "classroom": {
+        "label": "Virtual classroom",
+        "hint": "Join lessons and recordings; manage: create rooms and monitor"
+      },
+      "courses": {
+        "label": "Online courses",
+        "hint": "Courses, learners and booking requests; manage: build them, access codes"
+      },
+      "settings": {
+        "label": "Settings",
+        "hint": "Course list, report fields, controls and WhatsApp pairing"
+      },
+      "staff": {
+        "label": "Team",
+        "hint": "View team members; manage: add, edit, deactivate"
+      },
+      "access": {
+        "label": "Logins & roles",
+        "hint": "Hand out sign-ins, assign roles, build roles"
+      },
+      "audit": {
+        "label": "Activity log",
+        "hint": "Everything that happened and who did it — amounts included"
+      },
+      "invoices": {
+        "label": "Invoices",
+        "hint": "View invoices; manage: create, collect, send pay links"
+      },
+      "packages": {
+        "label": "Hour packages",
+        "hint": "View packages; manage: sell and close them"
+      },
+      "payroll": {
+        "label": "Teacher payroll",
+        "hint": "Pay statements; manage: finalize, awards and discounts"
+      },
+      "student_prices": {
+        "label": "Student prices",
+        "hint": "See and set what each student pays"
+      },
+      "teacher_pay": {
+        "label": "Teacher pay",
+        "hint": "See and set each teacher's rate or salary"
+      },
+      "staff_salaries": {
+        "label": "Team salaries",
+        "hint": "See and set each team member's salary"
+      },
+      "lesson_billing": {
+        "label": "Cancelled-lesson billing",
+        "hint": "\"Charge the student? Pay the teacher?\" on a cancelled or free lesson"
+      },
+      "course_sales": {
+        "label": "Course sales",
+        "hint": "Purchase orders; manage: approve them, receiving accounts"
+      },
+      "payment_settings": {
+        "label": "Payment gateway",
+        "hint": "The online payment keys"
+      },
+      "statistics": {
+        "label": "Statistics",
+        "hint": "Supervision statistics and the teacher performance dashboard"
+      },
+      "other": {
+        "label": "Other"
+      }
     }
   },
   "permissions": {
@@ -6399,7 +6947,9 @@
       "payment_method": "Receiving accounts",
       "room": "Video classroom",
       "recording": "Recordings",
-      "booking": "Booking requests"
+      "booking": "Booking requests",
+      "group": "Group classes",
+      "settings": "Settings"
     },
     "items": {
       "crm_read": {
@@ -6655,12 +7205,12 @@
         "label": "Manage staff departments"
       },
       "teacher_quality_read": {
-        "label": "View teacher performance",
-        "desc": "See each teacher's punctuality, reports and attendance"
+        "label": "View quality reports",
+        "desc": "Read the quality reports written about teachers"
       },
       "teacher_quality_manage": {
-        "label": "Manage the automatic discount",
-        "desc": "Set the discount applied when a teacher leaves a lesson unmarked"
+        "label": "Write quality reports",
+        "desc": "Judge teachers against the academy's rubric and edit the rubric"
       },
       "teacher_quality_read_own": {
         "label": "View own quality reports",
@@ -6753,6 +7303,34 @@
       "booking_manage": {
         "label": "Manage bookings",
         "desc": "Update requests, write notes and set up the booking forms"
+      },
+      "group_read": {
+        "label": "View groups",
+        "desc": "See the group classes, their members and lessons (a teacher sees only their own)"
+      },
+      "group_manage": {
+        "label": "Manage groups",
+        "desc": "Create and edit groups, add and remove students, change times, cancel or move lessons"
+      },
+      "teacher_set_pay": {
+        "label": "Set teacher pay",
+        "desc": "See and set what each teacher is paid — rate, per-student rates or salary"
+      },
+      "staff_set_salary": {
+        "label": "Set team salaries",
+        "desc": "See and set each team member's monthly salary"
+      },
+      "session_bill_override": {
+        "label": "Decide cancelled-lesson billing",
+        "desc": "Choose whether a cancelled or free lesson is still charged to the student or paid to the teacher"
+      },
+      "teacher_quality_insights": {
+        "label": "Teacher performance dashboard",
+        "desc": "On-time entry, report speed and attendance rates per teacher"
+      },
+      "settings_manage": {
+        "label": "Manage academy settings",
+        "desc": "The academy's name, Controls switches and WhatsApp pairing"
       }
     }
   },

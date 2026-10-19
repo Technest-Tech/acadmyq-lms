@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Sparkles } from "lucide-react";
+import { Plus, Sparkles, UsersRound } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
 import type { CalendarSession } from "@/lib/api";
@@ -140,7 +140,7 @@ export function MonthView({
                       onClick={() => onSelect(s)}
                       title={`${timeInTz(s.scheduled_at_utc, tz, locale)} · ${
                         s.student_name ?? ""
-                      } · ${s.trial ? t("calendar.trialEvent") : t(`status.${s.status}`)}`}
+                      } · ${s.trial ? t("calendar.trialEvent") : s.group ? t("calendar.groupEvent") : t(`status.${s.status}`)}`}
                       className={cn(
                         "relative flex w-full items-center gap-1 overflow-hidden rounded-md border py-0.5 pe-1 ps-2 text-start text-[0.7rem] transition-shadow hover:shadow-sm",
                         STATUS_CHIP[s.status],
@@ -161,6 +161,7 @@ export function MonthView({
                       {/* A trial shares the feed with the lessons — the icon is what tells them
                           apart at chip size, where a label would not fit. */}
                       {s.trial && <Sparkles className="size-2.5 shrink-0" aria-hidden />}
+                      {s.group && <UsersRound className="size-2.5 shrink-0" aria-hidden />}
                       <span
                         className={cn(
                           "truncate font-semibold",

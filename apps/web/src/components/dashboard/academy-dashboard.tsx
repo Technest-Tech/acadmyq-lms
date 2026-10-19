@@ -1253,7 +1253,7 @@ export function AcademyDashboard() {
               locale={locale}
             />
           )}
-          {(can("schedule.read") || can("attendance.read")) && (
+          {(can("schedule.read") || can("session.read")) && (
             <StatCard
               Icon={Timer}
               color="green"
@@ -1284,7 +1284,7 @@ export function AcademyDashboard() {
       </section>
 
       {/* ── Financial overview ── */}
-      {(can("invoice.view") || can("payout.read")) && (
+      {(can("invoice.read") || can("payout.read")) && (
         <section className="space-y-3">
           <SectionTitle
             Icon={Wallet}
@@ -1364,7 +1364,7 @@ export function AcademyDashboard() {
                 href={canInvoice ? "/financial-statistics" : undefined}
                 locale={locale}
               />
-              {can("invoice.view") && !ldInv && dueByCurrency.map((m) => (
+              {can("invoice.read") && !ldInv && dueByCurrency.map((m) => (
                 <StatCard
                   key={`due-${m.currency}`}
                   Icon={ReceiptText}
@@ -1492,7 +1492,7 @@ export function AcademyDashboard() {
       )}
 
       {/* ── Operations ── */}
-      {(can("schedule.read") || can("attendance.read") || can("attendance.record")) && (
+      {(can("schedule.read") || can("session.read") || can("session.mark_attendance")) && (
         <section className="space-y-3">
           <SectionTitle
             Icon={CalendarDays}
@@ -1501,7 +1501,7 @@ export function AcademyDashboard() {
             desc={t("sections.operationsDesc")}
           />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-            {(can("schedule.read") || can("attendance.read")) && (
+            {(can("schedule.read") || can("session.read")) && (
               <div className="rounded-xl border bg-card p-5 lg:col-span-2">
                 <SectionHeader
                   icon={<CalendarDays className="h-4 w-4" />}
@@ -1534,8 +1534,8 @@ export function AcademyDashboard() {
               </div>
             )}
 
-            {(can("attendance.record") || can("attendance.read")) && (
-              <div className={cn("rounded-xl border bg-card p-5", can("schedule.read") || can("attendance.read") ? "lg:col-span-3" : "lg:col-span-5")}>
+            {(can("session.mark_attendance") || can("session.read")) && (
+              <div className={cn("rounded-xl border bg-card p-5", can("schedule.read") || can("session.read") ? "lg:col-span-3" : "lg:col-span-5")}>
                 <SectionHeader
                   icon={<Clock className="h-4 w-4" />}
                   title={t("pending.title")}
@@ -1597,7 +1597,7 @@ export function AcademyDashboard() {
       )}
 
       {/* ── This week's trials ── */}
-      {can("student.read") && (can("schedule.read") || can("attendance.read")) && (
+      {can("student.read") && (can("schedule.read") || can("session.read")) && (
         <div className="rounded-xl border bg-card p-5">
           <SectionHeader
             icon={<FlaskConical className="h-4 w-4" />}
@@ -1687,10 +1687,10 @@ export function AcademyDashboard() {
           {can("student.create") && (
             <ActionCard href="/students" Icon={GraduationCap} color="emerald" label={t("actions.addStudent")} desc={t("actions.addStudentDesc")} />
           )}
-          {(can("attendance.record") || can("attendance.read")) && (
+          {(can("session.mark_attendance") || can("session.read")) && (
             <ActionCard href="/attendance" Icon={ClipboardCheck} color="amber" label={t("actions.markAttendance")} desc={t("actions.markAttendanceDesc")} badge={pendingCount} />
           )}
-          {can("invoice.view") && (
+          {can("invoice.read") && (
             <ActionCard href="/invoices" Icon={ReceiptText} color="teal" label={t("actions.viewInvoices")} desc={t("actions.viewInvoicesDesc")} badge={openInvoices} />
           )}
           {can("schedule.read") && (
@@ -1702,7 +1702,7 @@ export function AcademyDashboard() {
           {can("payout.read_own") && !can("payout.read") && (
             <ActionCard href="/payroll" Icon={Wallet} color="gold" label={t("actions.myPayroll")} desc={t("actions.myPayrollDesc")} />
           )}
-          {can("invoice.view") && (
+          {can("invoice.read") && (
             <ActionCard href="/financial-statistics" Icon={BarChart3} color="green" label={t("actions.financialStats")} desc={t("actions.financialStatsDesc")} />
           )}
           {can("student.read") && (

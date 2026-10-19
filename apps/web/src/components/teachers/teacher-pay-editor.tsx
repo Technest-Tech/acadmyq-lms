@@ -95,9 +95,9 @@ export function payDraftFromTeacher(
 
   return {
     payType: teacher.pay_type ?? "HOURLY",
-    rate: toMajor(teacher.session_rate_minor),
+    rate: toMajor(teacher.session_rate_minor ?? 0),
     fixedSalary: teacher.fixed_salary_minor ? toMajor(teacher.fixed_salary_minor) : "",
-    currency: teacher.currency,
+    currency: teacher.currency ?? "",
     studentRates: rows,
   };
 }
@@ -133,7 +133,13 @@ export function usePaySummary() {
 
   return useCallback(
     (teacher: Pick<TeacherRow, "pay_type" | "session_rate_minor" | "fixed_salary_minor" | "currency">) => {
-      const money = (amount: number) => formatMoney({ amount, currency: teacher.currency }, locale);
+      // Redacted by the API for a caller without teacher.set_pay — callers hide the slot, this is
+      // the belt to that brace.
+      if (teacher.pay_type === null || teacher.currency === null) {
+        return { value: "—", sub: "" };
+      }
+      const currency = teacher.currency;
+      const money = (amount: number | null) => formatMoney({ amount: amount ?? 0, currency }, locale);
       switch (teacher.pay_type) {
         case "FIXED":
           return { value: money(teacher.fixed_salary_minor), sub: t("pay.summaryFixed") };

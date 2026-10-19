@@ -12,7 +12,7 @@ export function TeacherQualityScreen() {
   const t = useTranslations("teacherInsights");
   const { can } = useAuth();
 
-  if (!can("teacher_quality.read")) {
+  if (!can("teacher_quality.insights")) {
     return (
       <p className="text-muted-foreground py-16 text-center text-sm">{t("noAccess")}</p>
     );

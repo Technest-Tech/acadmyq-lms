@@ -3,6 +3,7 @@
 import { GraduationCap, Loader2, UserRound } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
@@ -76,6 +77,10 @@ export function CancellationBillingModal({
 }) {
   const t = useTranslations("attendance.cancelBilling");
   const isFree = variant === "free";
+  // "Still charge the student? Still pay the teacher?" is a money decision (session.bill_override).
+  // Without it the two questions are not asked — the API would ignore the answers anyway — and the
+  // lesson is recorded with the standard verdict: neither charged nor paid.
+  const canBill = useAuth().can("session.bill_override");
   const [chargeStudent, setChargeStudent] = useState(false);
   const [payTeacher, setPayTeacher] = useState(false);
   const [reason, setReason] = useState(defaultReason);
@@ -107,8 +112,8 @@ export function CancellationBillingModal({
             disabled={busy}
             onClick={() =>
               void onConfirm({
-                charge_student: chargeStudent,
-                pay_teacher: payTeacher,
+                charge_student: canBill && chargeStudent,
+                pay_teacher: canBill && payTeacher,
                 reason: reason.trim(),
               })
             }
@@ -121,33 +126,42 @@ export function CancellationBillingModal({
       }
     >
       <div className="space-y-4">
-        {/* Charge the student */}
-        <div className="flex items-center justify-between gap-3 rounded-xl border p-3.5">
-          <div className="flex min-w-0 items-start gap-2.5">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-              <UserRound className="size-4" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold">{t("chargeStudent")}</p>
-              <p className="text-muted-foreground text-xs">{t("chargeStudentHint")}</p>
+        {!canBill && (
+          <p className="bg-muted/50 text-muted-foreground rounded-xl px-3.5 py-2.5 text-xs" data-testid="cancel-billing-default">
+            {t("defaultVerdict")}
+          </p>
+        )}
+        {canBill && (
+          <>
+            {/* Charge the student */}
+            <div className="flex items-center justify-between gap-3 rounded-xl border p-3.5">
+              <div className="flex min-w-0 items-start gap-2.5">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                  <UserRound className="size-4" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{t("chargeStudent")}</p>
+                  <p className="text-muted-foreground text-xs">{t("chargeStudentHint")}</p>
+                </div>
+              </div>
+              <YesNo value={chargeStudent} onChange={setChargeStudent} disabled={busy} />
             </div>
-          </div>
-          <YesNo value={chargeStudent} onChange={setChargeStudent} disabled={busy} />
-        </div>
 
-        {/* Pay the teacher */}
-        <div className="flex items-center justify-between gap-3 rounded-xl border p-3.5">
-          <div className="flex min-w-0 items-start gap-2.5">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-              <GraduationCap className="size-4" aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold">{t("payTeacher")}</p>
-              <p className="text-muted-foreground text-xs">{t("payTeacherHint")}</p>
+            {/* Pay the teacher */}
+            <div className="flex items-center justify-between gap-3 rounded-xl border p-3.5">
+              <div className="flex min-w-0 items-start gap-2.5">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                  <GraduationCap className="size-4" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{t("payTeacher")}</p>
+                  <p className="text-muted-foreground text-xs">{t("payTeacherHint")}</p>
+                </div>
+              </div>
+              <YesNo value={payTeacher} onChange={setPayTeacher} disabled={busy} />
             </div>
-          </div>
-          <YesNo value={payTeacher} onChange={setPayTeacher} disabled={busy} />
-        </div>
+          </>
+        )}
 
         {/* Reason (shown to the parent when charged) */}
         <div className="space-y-1.5">

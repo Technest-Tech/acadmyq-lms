@@ -218,7 +218,8 @@ it('offers the supervisor as a starting point and marks what costs money', funct
 
     // The preset an academy narrows down to build "supervisor, attendance only".
     $preset = collect($res->json('presets'))->firstWhere('key', 'supervisor');
-    expect($preset['permissions'])->toContain('session.mark_attendance')->not->toContain('invoice.read');
+    expect($preset['permissions'])->toContain('session.mark_attendance')->not->toContain('invoice.read')
+        ->not->toContain('supervision.stats')->not->toContain('settings.manage');
 
     // The builder can show the owner which boxes hand over money.
     expect($res->json('financial'))
@@ -232,9 +233,13 @@ it('leaves the owner able to price, since they always could', function () {
     expect(PermissionResolver::forRole('ACADEMY_OWNER'))->toContain('student.set_price');
 });
 
-it('opens the Settings page for a supervisor: the academy profile reads without invoice.read', function () {
+it('opens Settings for a supervisor to the course list, not the academy switches', function () {
     Sanctum::actingAs($this->supervisor);
 
+    // The profile still reads without invoice.read (the courses tab shows the academy name)…
     $this->getJson('/api/academy')->assertOk()->assertJsonPath('academy.id', $this->academy);
-    $this->getJson('/api/academy/settings')->assertOk();
+    // …but the Controls, WhatsApp pairing and renaming the academy are settings.manage, the owner's.
+    $this->getJson('/api/academy/settings')->assertForbidden();
+    $this->putJson('/api/academy/settings', ['teacher_can_reschedule' => false])->assertForbidden();
+    $this->patchJson('/api/academy', ['name' => 'Renamed'])->assertForbidden();
 });

@@ -75,6 +75,7 @@ function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
     outstanding_minor: 0,
     payment_method: null,
     payment_reason: null,
+    paid_at: null,
     payment_reference: null,
     payment_proof_url: null,
     overdraft_billed: false,
@@ -209,26 +210,82 @@ describe("PackagesManager", () => {
     ).toBeInTheDocument();
   });
 
-  it("leads Finished with the packages to follow up, and keeps the settled ones under All", async () => {
+  it("splits Finished into not paid and paid, and keeps a paid package on the page in green", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg(),
-        pkg({ id: "p2", status: "COMPLETED", student_name: "Mona", follow_up: true }),
-        pkg({ id: "p3", status: "CANCELLED", student_name: "Laila" }),
+        pkg({
+          id: "p2",
+          status: "COMPLETED",
+          student_name: "Mona",
+          follow_up: true,
+          invoice_status: "CLOSED",
+          invoice_paid_minor: 0,
+          outstanding_minor: 400000,
+        }),
+        pkg({
+          id: "p3",
+          status: "COMPLETED",
+          student_name: "Laila",
+          invoice_status: "PAID",
+          paid_at: "2026-09-20T10:00:00Z",
+        }),
       ],
     });
 
     renderManager([], "finished");
 
-    // The open package is never here, and the settled one waits behind "All".
+    // Not paid first; the open package is never on this page.
+    const unpaid = await screen.findAllByTestId("package-card");
+    expect(unpaid).toHaveLength(1);
+    expect(unpaid[0]).toHaveTextContent("Mona");
+    expect(unpaid[0]).not.toHaveAttribute("data-paid");
+
+    await userEvent.click(screen.getByTestId("finished-tab-paid"));
+    const paid = await screen.findAllByTestId("package-card");
+    expect(paid).toHaveLength(1);
+    expect(paid[0]).toHaveTextContent("Laila");
+    expect(paid[0]).toHaveAttribute("data-paid", "true");
+    expect(within(paid[0]!).getByTestId("package-paid")).toHaveTextContent(
+      arMessages.packages.card.paidBadge,
+    );
+  });
+
+  it("narrows the paid tab to the days the bills were paid", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          id: "p2",
+          status: "COMPLETED",
+          student_name: "Mona",
+          invoice_status: "PAID",
+          closed_at: "2026-09-01T10:00:00Z",
+          paid_at: "2026-09-05T10:00:00Z",
+        }),
+        pkg({
+          id: "p3",
+          status: "COMPLETED",
+          student_name: "Laila",
+          invoice_status: "PAID",
+          closed_at: "2026-09-01T10:00:00Z",
+          paid_at: "2026-10-02T10:00:00Z",
+        }),
+      ],
+    });
+
+    renderManager([], "finished");
+    await userEvent.click(await screen.findByTestId("finished-tab-paid"));
+    expect(await screen.findAllByTestId("package-card")).toHaveLength(2);
+
+    // Same finish day, different payment days — the paid tab filters on when it was paid.
+    await userEvent.type(screen.getByTestId("finished-from"), "2026-10-01");
     const cards = await screen.findAllByTestId("package-card");
     expect(cards).toHaveLength(1);
-    expect(cards[0]).toHaveTextContent("Mona");
+    expect(cards[0]).toHaveTextContent("Laila");
 
-    await userEvent.click(screen.getByTestId("finished-filter-all"));
-    expect(await screen.findAllByTestId("package-card")).toHaveLength(2);
+    await userEvent.type(screen.getByTestId("finished-to"), "2026-10-01");
     expect(
-      screen.getByText(arMessages.packages.status.CANCELLED),
+      await screen.findByText(arMessages.packages.emptyRange),
     ).toBeInTheDocument();
   });
 
@@ -468,7 +525,8 @@ describe("PackagesManager", () => {
 
     renderManager([], "finished");
 
-    // Paid, not overdrawn — the gap alone is what keeps it on the follow-up list.
+    // Paid, so it sits under "Paid" — the gap banner still says lessons are running on.
+    await userEvent.click(await screen.findByTestId("finished-tab-paid"));
     const card = await screen.findByTestId("package-card");
     const gap = within(card).getByTestId("package-gap");
     // Raw textContent: the matcher's whitespace folding would eat the currency's no-break space.
@@ -495,7 +553,7 @@ describe("PackagesManager", () => {
     });
     renderManager([], "finished");
 
-    await userEvent.click(await screen.findByTestId("finished-filter-all"));
+    await userEvent.click(await screen.findByTestId("finished-tab-paid"));
     await openCardMenu();
     await userEvent.click(await screen.findByTestId("package-to-monthly"));
     await userEvent.click(await screen.findByTestId("confirm-to-monthly"));

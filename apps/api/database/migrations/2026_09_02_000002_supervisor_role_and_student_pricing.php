@@ -49,7 +49,19 @@ return new class extends Migration
             : DB::table('role_permissions')->where('permission_id', $updateId)->pluck('role')->all();
 
         // --- system-role grants: SUPERVISOR in full, plus the catalog's own drift ---
+        // roleMap() is read at RUN time, so on a fresh database it already lists roles added after
+        // this migration (MANAGER, ACCOUNTANT, CUSTOMER_SERVICE) whose enum values do not exist
+        // yet. Grant only what the schema of this moment can hold; each later role grants its own.
+        $knownRoles = DB::table('pg_enum as e')
+            ->join('pg_type as t', 't.oid', '=', 'e.enumtypid')
+            ->where('t.typname', 'app_role')
+            ->pluck('e.enumlabel')
+            ->all();
+
         foreach (PermissionCatalog::roleMap() as $role => $codes) {
+            if (! in_array($role, $knownRoles, true)) {
+                continue;
+            }
             foreach ($codes as $code) {
                 if (! isset($permIds[$code])) {
                     continue;

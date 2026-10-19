@@ -126,6 +126,8 @@ export function StaffDetail({ id }: { id: string }) {
   }
 
   const isActive = member.deleted_at == null;
+  const canSalary = can("staff.set_salary");
+  const hasSalary = member.salary_minor !== null && member.salary_minor > 0;
   const memberSince = new Date(member.created_at).toLocaleDateString(locale, {
     year: "numeric",
     month: "long",
@@ -224,7 +226,12 @@ export function StaffDetail({ id }: { id: string }) {
       {/* ── Fact strip ───────────────────────────────────────────────────
           Department, pay, phone and tenure — the four things anyone opening a staff file wants,
           previously a single stacked list of rows below a decorative header band. */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-3 sm:grid-cols-2",
+          canSalary ? "lg:grid-cols-4" : "lg:grid-cols-3",
+        )}
+      >
         <FactCard
           icon={Building2}
           label={t("detail.department")}
@@ -235,21 +242,24 @@ export function StaffDetail({ id }: { id: string }) {
               : member.department
           }
         />
-        <FactCard
-          icon={Banknote}
-          label={t("detail.salary")}
-          tone="violet"
-          muted={member.salary_minor <= 0}
-          value={
-            member.salary_minor > 0
-              ? formatMoney(
-                  { amount: member.salary_minor, currency: member.currency },
-                  locale,
-                )
-              : t("detail.noSalary")
-          }
-          sub={member.salary_minor > 0 ? t("detail.perMonth") : undefined}
-        />
+        {/* Pay only for staff.set_salary — the API redacts it for everyone else. */}
+        {canSalary && (
+          <FactCard
+            icon={Banknote}
+            label={t("detail.salary")}
+            tone="violet"
+            muted={!hasSalary}
+            value={
+              hasSalary && member.currency
+                ? formatMoney(
+                    { amount: member.salary_minor ?? 0, currency: member.currency },
+                    locale,
+                  )
+                : t("detail.noSalary")
+            }
+            sub={hasSalary ? t("detail.perMonth") : undefined}
+          />
+        )}
         <FactCard
           icon={Phone}
           label={t("detail.phone")}

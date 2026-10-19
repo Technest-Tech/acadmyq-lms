@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Support\Audit;
 use App\Support\DataTable;
+use App\Support\PermissionCatalog;
 use App\Support\PermissionResolver;
 use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
@@ -64,6 +65,10 @@ final class StaffController extends Controller
             'defaultSort' => 'name',
         ]);
 
+        if (! $this->seesSalary()) {
+            $result['rows'] = $result['rows']->map(fn ($row) => $this->redactSalary($row));
+        }
+
         return response()->json($result);
     }
 
@@ -74,6 +79,7 @@ final class StaffController extends Controller
 
         $academyId = $this->currentAcademyId();
         $data = $this->validatePayload($request, creating: true);
+        $this->authorizeSalaryWrite($data);
 
         $staffId = (string) Str::uuid();
         $userId = null;
@@ -125,7 +131,10 @@ final class StaffController extends Controller
             abort(404, 'Staff member not found.');
         }
 
-        return response()->json(['staff' => $member, 'login' => $this->loginFor($member)]);
+        return response()->json([
+            'staff' => $this->seesSalary() ? $member : $this->redactSalary($member),
+            'login' => $this->loginFor($member),
+        ]);
     }
 
     /**
@@ -288,6 +297,7 @@ final class StaffController extends Controller
         }
 
         $data = $this->validatePayload($request, creating: false);
+        $this->authorizeSalaryWrite($data);
 
         if (array_key_exists('phone', $data)) {
             $data['phone'] = Phone::normalize($data['phone'], 'phone');
@@ -383,19 +393,52 @@ final class StaffController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    /** System roles the staff form may assign: the minimal baseline and the supervisor. */
-    private const ASSIGNABLE_SYSTEM_ROLES = ['STAFF', 'SUPERVISOR'];
+    /**
+     * Whether the caller may see what employees are paid. staff.read is a supervisor's — they see
+     * who works here — while the salary is money (staff.set_salary).
+     */
+    private function seesSalary(): bool
+    {
+        return Gate::allows('staff.set_salary');
+    }
+
+    /** The row without its pay: the amount and the currency it is paid in. */
+    private function redactSalary(object|array $row): object
+    {
+        $row = (object) $row;
+        $row->salary_minor = null;
+        $row->currency = null;
+
+        return $row;
+    }
 
     /**
-     * Resolve the login role for a new staff member. Either an assignable SYSTEM role (the STAFF
-     * baseline or SUPERVISOR — the whole academy minus the money) or one of the academy's own
-     * active CUSTOM roles (academy_roles, tenant-scoped by RLS). Any other value — including the
-     * privileged ACADEMY_OWNER/TEACHER/SUPER_ADMIN codes — is rejected, so the staff form can
-     * never escalate a hire into an owner or a teacher.
+     * Setting a salary needs staff.set_salary — on create too. A payload that leaves pay out (or
+     * sends the form's empty zero) is untouched by this, so the team page can add a member
+     * without it.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function authorizeSalaryWrite(array $data): void
+    {
+        $touches = (int) ($data['salary_minor'] ?? 0) !== 0
+            || ($data['currency'] ?? null) !== null;
+
+        if ($touches) {
+            Gate::authorize('staff.set_salary');
+        }
+    }
+
+    /**
+     * Resolve the login role for a staff member. Either one of the shared built-in roles an
+     * academy hands to employees ({@see PermissionCatalog::STAFF_ROLES}: view-only, customer
+     * service, supervisor, accountant, manager) or one of the academy's own active CUSTOM roles
+     * (academy_roles, tenant-scoped by RLS). Any other value — ACADEMY_OWNER / TEACHER /
+     * SUPER_ADMIN — is rejected, so the team page can never turn a hire into an owner or a teacher.
      */
     private function resolveStaffRole(string $role): string
     {
-        if (! in_array($role, self::ASSIGNABLE_SYSTEM_ROLES, true)) {
+        if (! in_array($role, PermissionCatalog::STAFF_ROLES, true)) {
             $exists = DB::table('academy_roles')
                 ->where('code', $role)
                 ->where('is_active', true)

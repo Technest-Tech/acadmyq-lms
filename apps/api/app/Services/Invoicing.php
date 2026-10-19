@@ -208,6 +208,131 @@ final class Invoicing implements BillingHook
     }
 
     // -------------------------------------------------------------------------
+    // Group classes (docs/groups) — session-less lines on the same AUTO invoices
+    // -------------------------------------------------------------------------
+
+    /**
+     * Put one group-class charge on the student's payer's AUTO invoice for `$year-$month`, in the
+     * group's currency — the same monthly bill their private lessons land on, so a parent gets ONE
+     * invoice. `$fields` carries the line's group links (class_group_id, group_charge, group_period
+     * and, for a lesson charge, class_group_lesson_id) plus description / amount / session_date.
+     *
+     * Idempotent by the partial unique indexes on those links (insertOrIgnore): a second call for the
+     * same member + month / lesson / enrolment adds nothing and returns null. When that month's
+     * invoice is no longer OPEN (closed on the 2nd, or paid) the charge goes on the CURRENT month's
+     * invoice instead — a closed bill is never reopened, and a late charge is still collected.
+     *
+     * @param  array{class_group_id: string, group_charge: string, group_period: string, class_group_lesson_id?: ?string, description: string, amount_minor: int, session_date: string}  $fields
+     * @return ?string the new line's id, or null when nothing was added
+     */
+    public function addGroupLine(string $academyId, string $studentId, string $currency, int $year, int $month, array $fields): ?string
+    {
+        $academy = DB::table('academies')->where('id', $academyId)->first();
+        if ($academy === null) {
+            return null;
+        }
+
+        [$guardianId, $payerStudentId] = $this->payerOf($academy, $studentId);
+
+        $invoiceId = $this->ensureOpenInvoice($academy, $guardianId, $payerStudentId, $year, $month, $currency);
+        if (DB::table('invoices')->where('id', $invoiceId)->value('status') !== 'OPEN') {
+            $now = now()->setTimezone($academy->timezone ?: 'UTC');
+            $invoiceId = $this->ensureOpenInvoice($academy, $guardianId, $payerStudentId, (int) $now->year, (int) $now->month, $currency);
+            if (DB::table('invoices')->where('id', $invoiceId)->value('status') !== 'OPEN') {
+                return null; // nowhere open to put it — the caller reports it, nothing is lost silently
+            }
+        }
+
+        $lineId = (string) Str::uuid();
+        $amountMinor = (int) $fields['amount_minor'];
+        $inserted = DB::table('invoice_line_items')->insertOrIgnore([
+            'id' => $lineId,
+            'academy_id' => $academyId,
+            'invoice_id' => $invoiceId,
+            'session_id' => null,
+            'student_id' => $studentId,
+            'description' => $fields['description'],
+            'amount_minor' => $amountMinor,
+            'currency' => $currency,
+            'session_date' => $fields['session_date'],
+            'class_group_id' => $fields['class_group_id'],
+            'class_group_lesson_id' => $fields['class_group_lesson_id'] ?? null,
+            'group_charge' => $fields['group_charge'],
+            'group_period' => $fields['group_period'],
+            'created_at' => now(),
+        ]);
+
+        if (! $inserted) {
+            return null;
+        }
+
+        DB::table('invoices')->where('id', $invoiceId)->update([
+            'subtotal_minor' => DB::raw("subtotal_minor + {$amountMinor}"),
+            'total_minor' => DB::raw("subtotal_minor + {$amountMinor}"),
+            'updated_at' => now(),
+        ]);
+
+        Audit::log('invoice.line_added', 'invoice', $invoiceId, $academyId, null, 'SUPER_ADMIN', after: [
+            'class_group_id' => $fields['class_group_id'],
+            'class_group_lesson_id' => $fields['class_group_lesson_id'] ?? null,
+            'group_charge' => $fields['group_charge'],
+            'student_id' => $studentId,
+            'amount_minor' => $amountMinor,
+            'currency' => $currency,
+        ]);
+
+        return $lineId;
+    }
+
+    /**
+     * Take a group-class charge back off its invoice. Refused once that invoice has left OPEN — the
+     * same immutability as un-billing a private lesson — and the throw rolls the caller back.
+     */
+    public function removeGroupLine(object $line): void
+    {
+        $status = DB::table('invoices')->where('id', $line->invoice_id)->value('status');
+        if ($status !== null && $status !== 'OPEN') {
+            throw ValidationException::withMessages([
+                'invoice' => ['Cannot un-bill: invoice is already closed. / لا يمكن إلغاء الفوترة: الفاتورة مُقفلة بالفعل.'],
+            ]);
+        }
+
+        $amountMinor = (int) $line->amount_minor;
+        DB::table('invoice_line_items')->where('id', $line->id)->delete();
+        DB::table('invoices')->where('id', $line->invoice_id)->update([
+            'subtotal_minor' => DB::raw("subtotal_minor - {$amountMinor}"),
+            'total_minor' => DB::raw("subtotal_minor - {$amountMinor}"),
+            'updated_at' => now(),
+        ]);
+
+        Audit::log('invoice.line_removed', 'invoice', (string) $line->invoice_id, (string) $line->academy_id, null, 'SUPER_ADMIN', before: [
+            'class_group_id' => $line->class_group_id,
+            'class_group_lesson_id' => $line->class_group_lesson_id,
+            'group_charge' => $line->group_charge,
+            'student_id' => $line->student_id,
+            'amount_minor' => $amountMinor,
+        ]);
+    }
+
+    /**
+     * Who pays for `$studentId` under the academy's invoice grouping: their guardian (PER_GUARDIAN),
+     * else the student themselves. A group charge follows the academy's grouping even for a package
+     * student — packages are a private-lesson clock and do not move group money.
+     *
+     * @return array{0: ?string, 1: ?string} [guardianId, studentId]
+     */
+    private function payerOf(object $academy, string $studentId): array
+    {
+        if (($academy->invoice_grouping ?? 'PER_GUARDIAN') === 'PER_STUDENT') {
+            return [null, $studentId];
+        }
+
+        $guardianId = DB::table('students')->where('id', $studentId)->value('guardian_id');
+
+        return $guardianId !== null ? [(string) $guardianId, null] : [null, $studentId];
+    }
+
+    // -------------------------------------------------------------------------
     // Public management operations
     // -------------------------------------------------------------------------
 

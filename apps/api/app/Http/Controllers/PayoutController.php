@@ -197,6 +197,10 @@ final class PayoutController extends Controller
             ->leftJoin('sessions as se', 'se.id', '=', 'li.session_id')
             ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
             ->leftJoin('session_reports as sr', 'sr.session_id', '=', 'li.session_id')
+            // A group-class line (docs/groups) belongs to a group lesson or a month's revenue share,
+            // not to a session: it carries the group's name instead of a student's.
+            ->leftJoin('class_group_lessons as cgl', 'cgl.id', '=', 'li.class_group_lesson_id')
+            ->leftJoin('class_groups as cg', 'cg.id', '=', DB::raw('coalesce(cgl.group_id, li.class_group_id)'))
             ->where('li.payout_id', $id)
             ->orderBy('li.session_date')
             ->orderBy('li.created_at')
@@ -207,9 +211,14 @@ final class PayoutController extends Controller
                 'li.currency',
                 'li.session_date',
                 'se.student_id',
-                'se.duration_minutes',
+                DB::raw('coalesce(se.duration_minutes, cgl.duration_minutes) as duration_minutes'),
                 DB::raw('st.full_name as student_name'),
-                DB::raw("case when sr.whatsapp_sent_at is not null then 'SENT' when sr.filled_at is not null then 'FILLED' else 'MISSING' end as report_status"),
+                'li.class_group_lesson_id',
+                DB::raw('coalesce(cgl.group_id, li.class_group_id) as group_id'),
+                DB::raw('cg.name as group_name'),
+                'li.description',
+                // A group lesson's sheet is its report; a revenue-share line has none to miss.
+                DB::raw("case when li.session_id is null then 'FILLED' when sr.whatsapp_sent_at is not null then 'SENT' when sr.filled_at is not null then 'FILLED' else 'MISSING' end as report_status"),
             ])
             ->get();
 
@@ -440,6 +449,8 @@ final class PayoutController extends Controller
             ->join('payouts as p', 'p.id', '=', 'li.payout_id')
             ->leftJoin('sessions as se', 'se.id', '=', 'li.session_id')
             ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
+            ->leftJoin('class_group_lessons as cgl', 'cgl.id', '=', 'li.class_group_lesson_id')
+            ->leftJoin('class_groups as cg', 'cg.id', '=', DB::raw('coalesce(cgl.group_id, li.class_group_id)'))
             ->where('p.teacher_id', $validated['teacher_id'])
             ->whereBetween('li.session_date', [(string) $validated['from'], (string) $validated['to']])
             ->when($validated['currency'] ?? null, fn ($q, $currency) => $q->where('li.currency', $currency))
@@ -453,9 +464,11 @@ final class PayoutController extends Controller
                 'li.currency',
                 'li.session_date',
                 'se.student_id',
-                'se.duration_minutes',
-                'se.scheduled_at_utc',
+                DB::raw('coalesce(se.duration_minutes, cgl.duration_minutes) as duration_minutes'),
+                DB::raw('coalesce(se.scheduled_at_utc, cgl.scheduled_at_utc) as scheduled_at_utc'),
                 DB::raw('st.full_name as student_name'),
+                DB::raw('cg.name as group_name'),
+                'li.description',
                 DB::raw('(p.finalized_at is not null) as finalized'),
             ])
             ->get()
@@ -520,14 +533,16 @@ final class PayoutController extends Controller
             ->join('payouts as p', 'p.id', '=', 'li.payout_id')
             ->leftJoin('teachers as t', 't.id', '=', 'p.teacher_id')
             ->leftJoin('sessions as se', 'se.id', '=', 'li.session_id')
+            ->leftJoin('class_group_lessons as cgl', 'cgl.id', '=', 'li.class_group_lesson_id')
             ->whereBetween('li.session_date', [$from, $to])
             ->groupBy('p.teacher_id', 't.full_name', 'li.currency')
             ->select([
                 'p.teacher_id',
                 'li.currency',
                 DB::raw('t.full_name as teacher_name'),
-                DB::raw('count(*) as sessions'),
-                DB::raw('coalesce(sum(se.duration_minutes), 0) as minutes'),
+                // Lessons taught: a session or a group lesson — a month's revenue-share line is neither.
+                DB::raw('count(coalesce(li.session_id, li.class_group_lesson_id)) as sessions'),
+                DB::raw('coalesce(sum(coalesce(se.duration_minutes, cgl.duration_minutes)), 0) as minutes'),
                 DB::raw('coalesce(sum(li.amount_minor), 0) as lessons_minor'),
                 DB::raw('bool_or(p.finalized_at is null) as has_open'),
             ])

@@ -113,6 +113,7 @@ export function StaffList({
   const tRoles = useTranslations("roles");
   const locale = useLocale();
   const { can } = useAuth();
+  const canSalary = can("staff.set_salary");
   const [departments, setDepartments] = useState<StaffDepartment[]>([]);
 
   // The department filter's options come from the platform catalog, not a fixed enum, so an
@@ -190,20 +191,26 @@ export function StaffList({
             <span className="text-muted-foreground/40">—</span>
           ),
       },
-      {
-        key: "salary",
-        header: t("colSalary"),
-        className: "text-end",
-        headerClassName: "min-w-32",
-        render: (r) =>
-          r.salary_minor > 0 ? (
-            <span className="font-medium tabular-nums">
-              {formatMoney({ amount: r.salary_minor, currency: r.currency }, locale)}
-            </span>
-          ) : (
-            <span className="text-muted-foreground/40">—</span>
-          ),
-      },
+      // Pay is staff.set_salary's to see — the API sends null to everyone else, so the column is
+      // simply not there for them rather than a column of dashes.
+      ...(canSalary
+        ? [
+            {
+              key: "salary",
+              header: t("colSalary"),
+              className: "text-end",
+              headerClassName: "min-w-32",
+              render: (r: StaffRow) =>
+                r.salary_minor !== null && r.salary_minor > 0 && r.currency ? (
+                  <span className="font-medium tabular-nums">
+                    {formatMoney({ amount: r.salary_minor, currency: r.currency }, locale)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground/40">—</span>
+                ),
+            },
+          ]
+        : []),
       {
         key: "status",
         header: t("colStatus"),
@@ -224,7 +231,7 @@ export function StaffList({
         ),
       },
     ],
-    [t, locale, tRoles],
+    [t, locale, tRoles, canSalary],
   );
 
   const filters = useMemo<FilterDef[]>(
@@ -258,20 +265,24 @@ export function StaffList({
             : r.department,
       },
       { header: t("colPhone"), value: (r) => r.phone },
-      {
-        header: t("colSalary"),
-        value: (r) =>
-          r.salary_minor > 0
-            ? formatMoney({ amount: r.salary_minor, currency: r.currency }, locale)
-            : "",
-      },
+      ...(canSalary
+        ? [
+            {
+              header: t("colSalary"),
+              value: (r: StaffRow) =>
+                r.salary_minor !== null && r.salary_minor > 0 && r.currency
+                  ? formatMoney({ amount: r.salary_minor, currency: r.currency }, locale)
+                  : "",
+            },
+          ]
+        : []),
       {
         header: t("colStatus"),
         value: (r) => (r.deleted_at == null ? t("stat.active") : t("stat.inactive")),
       },
       { header: t("colAdded"), value: (r) => r.created_at?.slice(0, 10) ?? "" },
     ],
-    [t, locale],
+    [t, locale, canSalary],
   );
 
   const newButton = can("staff.create") ? (

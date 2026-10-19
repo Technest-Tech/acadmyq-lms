@@ -27,6 +27,11 @@ final class PermissionCatalog
         'role.manage',
         'platform.manage',
         'teacher.read', 'teacher.read_own', 'teacher.create', 'teacher.update', 'teacher.deactivate',
+        // See and set what a teacher is PAID (hourly / per-student / fixed salary, per-student
+        // rates). Split off teacher.read/update the same way student.set_price was split off
+        // student.update: running the teachers is day-to-day work, their pay is money. Without it
+        // the rates are redacted from the teacher list and file and every pay field is refused.
+        'teacher.set_pay',
         'guardian.read', 'guardian.create', 'guardian.update',
         'student.read', 'student.create', 'student.update', 'student.deactivate',
         // Set or change what a student PAYS. Split off `student.update` deliberately: editing a
@@ -52,6 +57,10 @@ final class PermissionCatalog
         // student? pay the teacher?) is made in a popup, and a TEACHER cannot apply it directly —
         // they raise a request (session.free_request) the OWNER approves (session.free_approve).
         'session.free', 'session.free_request', 'session.free_approve',
+        // The money half of cancelling / freeing a lesson: "still charge the student?" and "still
+        // pay the teacher?". Whoever cancels without it gets the standard verdict (neither) — the
+        // override fields are ignored server-side, so recording the outcome stays operational.
+        'session.bill_override',
         // Supervision. `session.follow` is the "Following" button on a lesson — a supervisor saying
         // "I am on this one", which also silences the WhatsApp not-marked reminder for it.
         // `supervision.stats` reads the page that measures how promptly each supervisor followed
@@ -79,8 +88,16 @@ final class PermissionCatalog
         // straight into `role_permissions` when the module shipped; listed here so the role
         // builder can see them and the SUPERVISOR preset can deliberately leave them out.
         'package.read', 'package.manage',
+        // Group classes (docs/groups): see groups, members and their lessons vs. run them (create,
+        // edit, archive, members, weekly times, cancel / move / add a lesson). Marking the sheet
+        // rides session.mark_attendance. `group.read` is row-scoped for a TEACHER to their groups.
+        'group.read', 'group.manage',
         'report_field.manage',
         'specialization.manage',
+        // The academy's own switches: Settings → Controls, WhatsApp pairing, the academy's name.
+        // Split off specialization.manage, which used to open the whole Settings page — so whoever
+        // could edit the course list could also unpair the academy's WhatsApp.
+        'settings.manage',
         'payment_settings.manage',
         'teacher_report.manage',
         // Teacher quality: the academy's delivery rubric and the reports written against it, which
@@ -89,10 +106,15 @@ final class PermissionCatalog
         // (same reasoning as payout.read_own). Distinct from `teacher_report.manage`, which is the
         // owner-private free-text log.
         'teacher_quality.read', 'teacher_quality.manage', 'teacher_quality.read_own',
+        // The teacher performance dashboard (/teacher-quality): on-time entry, on-time reports and
+        // attendance rates per teacher. A statistic, not a quality report — see STATISTICS.
+        'teacher_quality.insights',
         'student_report.submit', 'student_report.review',
         'certificate.read', 'certificate.manage',
         'audit.read',
         'staff.read', 'staff.create', 'staff.update', 'staff.deactivate',
+        // See and set an employee's salary. Without it the staff list and file never carry one.
+        'staff.set_salary',
         'staff_department.manage',
         // Video classroom (docs/video-platform). The academy OWNS the room (V-CTL-1): owners
         // create/manage rooms and recordings; teachers join. Gated by the `video.conferencing`
@@ -116,8 +138,74 @@ final class PermissionCatalog
         'payment_settings.manage',
         'package.read', 'package.manage',
         'student.set_price',
+        // What a teacher earns, what an employee earns, and the charge/pay call on a cancellation.
+        'teacher.set_pay', 'staff.set_salary', 'session.bill_override',
         // Course sales: the queue prints what every buyer paid, and deciding an order moves money.
         'course_order.read', 'course_order.manage', 'payment_method.manage',
+    ];
+
+    /**
+     * Capabilities that open a statistics / performance surface: aggregated rates and scores about
+     * how the academy and its people are doing, as opposed to the records the work is done on.
+     * Withheld from SUPERVISOR alongside {@see FINANCIAL} — the role runs the day, it does not read
+     * the academy's scorecard (including its own: supervision.stats measures the supervisors).
+     *
+     * The financial statistics page needs no entry here: it is gated by invoice.read, already money.
+     */
+    public const STATISTICS = [
+        'supervision.stats',
+        'teacher_quality.insights',
+    ];
+
+    /**
+     * The role builder's sections: what an academy owner thinks in ("can they see Students? edit
+     * them?") mapped onto the capability codes underneath. Each area has a VIEW set and a MANAGE
+     * set (manage implies view); the builder offers None / View / Manage per row and can expand a
+     * row to its individual codes. `kind` groups the rows into the operational block, the money
+     * block and the statistics block.
+     *
+     * Every academy-scoped capability belongs to exactly one area — tests/Feature/People/
+     * TeamRolesTest asserts it, so a new capability that is not filed here fails the build instead
+     * of silently vanishing from the builder.
+     *
+     * @var list<array{key: string, kind: string, view: list<string>, manage: list<string>}>
+     */
+    public const AREAS = [
+        ['key' => 'students', 'kind' => 'operations', 'view' => ['student.read'], 'manage' => ['student.create', 'student.update', 'student.deactivate']],
+        ['key' => 'guardians', 'kind' => 'operations', 'view' => ['guardian.read'], 'manage' => ['guardian.create', 'guardian.update']],
+        ['key' => 'teachers', 'kind' => 'operations', 'view' => ['teacher.read'], 'manage' => ['teacher.create', 'teacher.update', 'teacher.deactivate']],
+        ['key' => 'schedules', 'kind' => 'operations', 'view' => ['schedule.read'], 'manage' => ['schedule.manage']],
+        ['key' => 'lessons', 'kind' => 'operations', 'view' => ['session.read'], 'manage' => [
+            'session.mark_attendance', 'session.write_report', 'session.create', 'session.reschedule',
+            'session.cancel', 'session.cancel_approve', 'session.revert_attendance', 'session.free', 'session.free_approve',
+        ]],
+        ['key' => 'groups', 'kind' => 'operations', 'view' => ['group.read'], 'manage' => ['group.manage']],
+        ['key' => 'supervision', 'kind' => 'operations', 'view' => [], 'manage' => ['session.follow']],
+        ['key' => 'trials', 'kind' => 'operations', 'view' => ['trial.read'], 'manage' => ['trial.manage']],
+        ['key' => 'crm', 'kind' => 'operations', 'view' => ['crm.read'], 'manage' => ['crm.manage']],
+        ['key' => 'notifications', 'kind' => 'operations', 'view' => ['notification.read'], 'manage' => []],
+        ['key' => 'quality', 'kind' => 'operations', 'view' => ['teacher_quality.read'], 'manage' => ['teacher_quality.manage']],
+        ['key' => 'student_reports', 'kind' => 'operations', 'view' => [], 'manage' => ['student_report.review']],
+        ['key' => 'teacher_notes', 'kind' => 'operations', 'view' => [], 'manage' => ['teacher_report.manage']],
+        ['key' => 'certificates', 'kind' => 'operations', 'view' => ['certificate.read'], 'manage' => ['certificate.manage']],
+        ['key' => 'classroom', 'kind' => 'operations', 'view' => ['room.read', 'room.join', 'recording.view'], 'manage' => ['room.create', 'room.manage', 'room.monitor']],
+        ['key' => 'courses', 'kind' => 'operations', 'view' => ['course.read', 'learner.read', 'booking.read'], 'manage' => ['course.manage', 'access_code.manage', 'booking.manage']],
+        ['key' => 'settings', 'kind' => 'operations', 'view' => [], 'manage' => ['specialization.manage', 'report_field.manage', 'settings.manage']],
+        ['key' => 'staff', 'kind' => 'operations', 'view' => ['staff.read'], 'manage' => ['staff.create', 'staff.update', 'staff.deactivate']],
+        ['key' => 'access', 'kind' => 'operations', 'view' => [], 'manage' => ['user.invite', 'role.assign', 'role.manage']],
+        ['key' => 'audit', 'kind' => 'operations', 'view' => ['audit.read'], 'manage' => []],
+
+        ['key' => 'invoices', 'kind' => 'financial', 'view' => ['invoice.read'], 'manage' => ['invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link']],
+        ['key' => 'packages', 'kind' => 'financial', 'view' => ['package.read'], 'manage' => ['package.manage']],
+        ['key' => 'payroll', 'kind' => 'financial', 'view' => ['payout.read'], 'manage' => ['payout.finalize', 'payout.adjust']],
+        ['key' => 'student_prices', 'kind' => 'financial', 'view' => [], 'manage' => ['student.set_price']],
+        ['key' => 'teacher_pay', 'kind' => 'financial', 'view' => [], 'manage' => ['teacher.set_pay']],
+        ['key' => 'staff_salaries', 'kind' => 'financial', 'view' => [], 'manage' => ['staff.set_salary']],
+        ['key' => 'lesson_billing', 'kind' => 'financial', 'view' => [], 'manage' => ['session.bill_override']],
+        ['key' => 'course_sales', 'kind' => 'financial', 'view' => ['course_order.read'], 'manage' => ['course_order.manage', 'payment_method.manage']],
+        ['key' => 'payment_settings', 'kind' => 'financial', 'view' => [], 'manage' => ['payment_settings.manage']],
+
+        ['key' => 'statistics', 'kind' => 'statistics', 'view' => ['supervision.stats', 'teacher_quality.insights'], 'manage' => []],
     ];
 
     /**
@@ -135,6 +223,7 @@ final class PermissionCatalog
         'invoice' => 'invoicing',
         'payout' => 'payroll',
         'package' => 'packages',
+        'group' => 'groups',
         'trial' => 'trials',
         'teacher_quality' => 'teacher_quality',
         'certificate' => 'certificates',
@@ -193,7 +282,17 @@ final class PermissionCatalog
         'user.invite', 'role.assign', 'role.manage',
         'staff.create', 'staff.update', 'staff.deactivate',
         'audit.read',
+        // The academy's own switches and its WhatsApp pairing: owner decisions, not supervision.
+        'settings.manage',
     ];
+
+    /**
+     * Built-in roles every academy can hand to an employee from the team page, weakest first —
+     * the shared starting points (the owner narrows one into a custom role when none fits).
+     * ACADEMY_OWNER and TEACHER are not on it: an owner is the client, a teacher is made on the
+     * Teachers page with a teacher record behind the login.
+     */
+    public const STAFF_ROLES = ['STAFF', 'CUSTOMER_SERVICE', 'SUPERVISOR', 'ACCOUNTANT', 'MANAGER'];
 
     /**
      * Default role → capability mapping (§5.4).
@@ -205,6 +304,7 @@ final class PermissionCatalog
         $academyScoped = [
             'user.invite', 'role.assign', 'role.manage',
             'teacher.read', 'teacher.create', 'teacher.update', 'teacher.deactivate',
+            'teacher.set_pay',
             'guardian.read', 'guardian.create', 'guardian.update',
             'student.read', 'student.create', 'student.update', 'student.deactivate',
             'student.set_price',
@@ -218,6 +318,7 @@ final class PermissionCatalog
             'session.revert_attendance',
             // Mark free directly (with the billing popup) + approve teachers' free requests.
             'session.free', 'session.free_approve',
+            'session.bill_override',
             'session.follow', 'supervision.stats',
             'trial.read', 'trial.manage',
             'crm.read', 'crm.manage',
@@ -228,15 +329,18 @@ final class PermissionCatalog
             'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
             'payout.read', 'payout.finalize', 'payout.adjust',
             'package.read', 'package.manage',
+            'group.read', 'group.manage',
             'report_field.manage',
             'specialization.manage',
+            'settings.manage',
             'payment_settings.manage',
             'teacher_report.manage',
-            'teacher_quality.read', 'teacher_quality.manage',
+            'teacher_quality.read', 'teacher_quality.manage', 'teacher_quality.insights',
             'student_report.review',
             'certificate.read', 'certificate.manage',
             'audit.read',
             'staff.read', 'staff.create', 'staff.update', 'staff.deactivate',
+            'staff.set_salary',
             // Video classroom — the owner provisions/manages rooms and views recordings (V-CTL-1),
             // and may enter supervisor (monitor) mode. Composable into a custom management role.
             'room.read', 'room.create', 'room.join', 'room.manage', 'recording.view', 'room.monitor',
@@ -252,11 +356,48 @@ final class PermissionCatalog
             // MONEY capability has to be named in FINANCIAL to be withheld. Getting that wrong
             // fails safe in the direction of "the supervisor sees it", so FINANCIAL is the list to
             // update when a money surface ships.
+            //
+            // Statistics are withheld too ({@see STATISTICS}): the performance dashboards are the
+            // owner's scorecard of the academy, the supervisors included.
             'SUPERVISOR' => array_values(array_diff(
                 $academyScoped,
                 self::FINANCIAL,
+                self::STATISTICS,
                 self::SUPERVISOR_EXCLUDES,
             )),
+            // The owner's right hand: the whole academy, money and statistics included. A second
+            // ACADEMY_OWNER would be the client itself; a manager is an employee the owner can
+            // switch off from the team page. Only someone holding all of it can hand it out (the
+            // assignment clamp), which in practice means the owner.
+            'MANAGER' => $academyScoped,
+            // The money desk, the mirror image of SUPERVISOR: invoices, packages, payroll and every
+            // price, with read-only sight of the people and lessons those numbers are about. Not
+            // the gateway keys or the LMS receiving accounts (payment_settings / payment_method
+            // are academy configuration, the owner's), and not the cancel-billing call
+            // (session.bill_override means nothing without the power to cancel a lesson).
+            'ACCOUNTANT' => [
+                'student.read', 'guardian.read', 'teacher.read', 'staff.read',
+                'schedule.read', 'session.read', 'group.read',
+                'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
+                'payout.read', 'payout.finalize', 'payout.adjust',
+                'package.read', 'package.manage',
+                'student.set_price', 'teacher.set_pay', 'staff.set_salary',
+                'course_order.read', 'course_order.manage',
+            ],
+            // The front desk: enrol students and families, book their timetable, move a lesson,
+            // run trials, leads and course-site bookings. No attendance, no cancellations (those
+            // carry a billing decision), no money.
+            'CUSTOMER_SERVICE' => [
+                'student.read', 'student.create', 'student.update',
+                'guardian.read', 'guardian.create', 'guardian.update',
+                'teacher.read',
+                'schedule.read', 'schedule.manage',
+                'session.read', 'session.create', 'session.reschedule',
+                'group.read',
+                'trial.read', 'trial.manage',
+                'crm.read', 'crm.manage',
+                'booking.read', 'booking.manage',
+            ],
             // Platform capabilities + the ability to act within an entered academy.
             // Onboarding (Sprint 3) is Super-Admin-only: provisioning the first owner login
             // (user.invite) and seeding/editing an academy's report fields
@@ -265,7 +406,7 @@ final class PermissionCatalog
             'SUPER_ADMIN' => [
                 'academy.create', 'academy.suspend', 'academy.configure', 'academy.enter', 'academy.read', 'academy.delete',
                 'plan.manage', 'academy_billing.manage', 'automation.manage',
-                'user.invite', 'role.assign', 'role.manage', 'user.read_platform', 'platform.manage', 'report_field.manage', 'specialization.manage', 'teacher_report.manage', 'audit.read',
+                'user.invite', 'role.assign', 'role.manage', 'user.read_platform', 'platform.manage', 'report_field.manage', 'specialization.manage', 'settings.manage', 'teacher_report.manage', 'audit.read',
                 'staff_department.manage',
             ],
             // All academy-scoped capabilities, never the platform ones.
@@ -289,6 +430,8 @@ final class PermissionCatalog
                 // logic differs) — they raise a request the Owner approves (like a cancellation).
                 'session.free_request',
                 'student.read',
+                // Their own groups only (row-scoped in ClassGroupController), to mark the sheet.
+                'group.read',
                 'teacher.read_own',
                 'payout.read_own',
                 // Read the quality reports written about themselves. Self-scoped in the controller:

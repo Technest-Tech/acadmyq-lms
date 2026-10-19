@@ -1159,7 +1159,7 @@ export function FinancialStatisticsScreen() {
         // Aggregate staff salaries by currency
         const salaryByCurrency: Record<string, number> = {};
         for (const member of staffData.rows) {
-          if (member.salary_minor > 0 && member.currency) {
+          if (member.salary_minor !== null && member.salary_minor > 0 && member.currency) {
             salaryByCurrency[member.currency] =
               (salaryByCurrency[member.currency] ?? 0) + member.salary_minor;
           }

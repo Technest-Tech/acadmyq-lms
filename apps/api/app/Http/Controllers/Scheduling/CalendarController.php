@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Scheduling;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Services\GroupLessonGenerator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -101,9 +102,77 @@ final class CalendarController extends Controller
         return response()->json([
             'sessions' => $rows,
             'trials' => $this->trialsInWindow($fromUtc, $toUtc, $data),
+            'group_lessons' => $this->groupLessonsInWindow($fromUtc, $toUtc, $data),
             'from' => $fromUtc->toIso8601String(),
             'to' => $toUtc->toIso8601String(),
         ]);
+    }
+
+    /**
+     * The group-class lessons inside the same window (docs/groups) — the third feed. A group lesson
+     * is one hour of one teacher however many students sit in it, so it travels as ONE event with
+     * its member count, never one per student. Scoped like the sessions: a TEACHER sees the ones
+     * they take, an Owner may narrow to one teacher, and a student filter keeps the lessons of the
+     * groups that student belonged to on that date. Empty unless the academy holds `groups`.
+     *
+     * @param  array<string,mixed>  $data  the validated query (teacherId / studentId)
+     */
+    private function groupLessonsInWindow(Carbon $fromUtc, Carbon $toUtc, array $data): Collection
+    {
+        $academyId = $this->ctx()->academyId;
+        if ($academyId === null || ! GroupLessonGenerator::enabledFor($academyId)) {
+            return collect();
+        }
+
+        $query = DB::table('class_group_lessons as l')
+            ->join('class_groups as g', 'g.id', '=', 'l.group_id')
+            ->leftJoin('teachers as te', 'te.id', '=', 'l.teacher_id')
+            ->whereBetween('l.scheduled_at_utc', [
+                $fromUtc->format('Y-m-d H:i:sP'),
+                $toUtc->format('Y-m-d H:i:sP'),
+            ])
+            ->select([
+                'l.id', 'l.group_id', 'l.teacher_id', 'l.scheduled_at_utc', 'l.duration_minutes',
+                'l.status', 'l.cancel_reason', 'l.is_extra',
+                'g.name as group_name', 'g.level', 'g.mode', 'g.location',
+                'te.full_name as teacher_name',
+            ])
+            ->selectRaw(<<<'SQL'
+                (select count(*) from class_group_members m
+                   join students st on st.id = m.student_id
+                  where m.group_id = l.group_id
+                    and m.joined_on <= l.occurrence_local_date
+                    and (m.left_on is null or m.left_on > l.occurrence_local_date)
+                    and st.deleted_at is null) as member_count
+            SQL)
+            ->orderBy('l.scheduled_at_utc')->orderBy('l.id');
+
+        if ($this->ctx()->role === 'TEACHER') {
+            $query->where('l.teacher_id', (string) $this->callerTeacherId());
+        } elseif (! empty($data['teacherId'])) {
+            $query->where('l.teacher_id', $data['teacherId']);
+        }
+
+        if (! empty($data['studentId'])) {
+            $studentId = $data['studentId'];
+            $query->whereExists(function ($q) use ($studentId): void {
+                $q->select(DB::raw(1))
+                    ->from('class_group_members as m')
+                    ->whereColumn('m.group_id', 'l.group_id')
+                    ->where('m.student_id', $studentId)
+                    ->whereColumn('m.joined_on', '<=', 'l.occurrence_local_date')
+                    ->where(fn ($w) => $w->whereNull('m.left_on')->orWhereColumn('m.left_on', '>', 'l.occurrence_local_date'));
+            });
+        }
+
+        return $query->get()->map(function ($r) {
+            $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
+            $r->duration_minutes = (int) $r->duration_minutes;
+            $r->member_count = (int) $r->member_count;
+            $r->is_extra = (bool) $r->is_extra;
+
+            return $r;
+        });
     }
 
     /**

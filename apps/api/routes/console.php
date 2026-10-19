@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Jobs\AutoDeductUnreportedSessionsJob;
+use App\Jobs\BillGroupMonthsJob;
 use App\Jobs\CloseMonthlyInvoicesJob;
 use App\Jobs\CloseMonthlyPayoutsJob;
 use App\Jobs\ExpireAcademyTrialsJob;
@@ -69,6 +70,13 @@ Schedule::job(new CloseMonthlyPayoutsJob)->monthlyOn(3, '01:30')->name('close-mo
 | Daily, not on the 1st, so a missed run heals itself the next morning. Idempotent per academy.
 */
 Schedule::job(new OpenFixedSalaryPayoutsJob)->dailyAt('00:40')->name('open-fixed-salary-payouts')->withoutOverlapping();
+
+/*
+| Daily group-class billing (docs/groups §Money). Raises the month's up-front charge for every member
+| of every MONTHLY group — after the roll, so the month's lessons (the pro-rating unit) exist. Daily
+| so a missed run heals itself; a no-op once the month is billed.
+*/
+Schedule::job(new BillGroupMonthsJob)->dailyAt('00:45')->name('bill-group-months')->withoutOverlapping();
 
 /*
 | Hourly overdue-report sweep (Notifications "Reports" tab). For every active academy, flag

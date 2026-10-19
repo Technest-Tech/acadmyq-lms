@@ -1,7 +1,9 @@
-import { AcademyRolesScreen } from "./screen";
+import { redirect } from "next/navigation";
 
-export const metadata = { title: "Roles & Permissions" };
-
+/**
+ * Roles moved into Team & permissions (/staff, second tab) — one page for the people who sign in
+ * and the roles they sign in as. Redirect keeps old links and bookmarks working.
+ */
 export default function AcademyRolesPage() {
-  return <AcademyRolesScreen />;
+  redirect("/staff?tab=roles");
 }

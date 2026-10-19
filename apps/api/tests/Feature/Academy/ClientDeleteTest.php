@@ -61,6 +61,16 @@ function cdHistory(object $test, string $aid): object
 
         DB::table('trials')->insert(['id' => (string) Str::uuid(), 'academy_id' => $aid, 'teacher_id' => $teacher, 'student_id' => $student, 'timezone' => 'Africa/Cairo', 'scheduled_at_utc' => $now, 'duration_minutes' => 30, 'status' => 'SCHEDULED', 'created_at' => $now, 'updated_at' => $now]);
 
+        // A group class with its whole tree (docs/groups): slot, member, a held lesson and its sheet.
+        $groupId = (string) Str::uuid();
+        DB::table('class_groups')->insert(['id' => $groupId, 'academy_id' => $aid, 'name' => 'English A1', 'teacher_id' => $teacher, 'timezone' => 'Africa/Cairo', 'start_date' => '2026-06-01']);
+        $groupSlot = (string) Str::uuid();
+        DB::table('class_group_slots')->insert(['id' => $groupSlot, 'academy_id' => $aid, 'group_id' => $groupId, 'weekday' => 1, 'start_time_local' => '18:00', 'duration_minutes' => 60]);
+        DB::table('class_group_members')->insert(['id' => (string) Str::uuid(), 'academy_id' => $aid, 'group_id' => $groupId, 'student_id' => $student, 'joined_on' => '2026-06-01']);
+        $groupLesson = (string) Str::uuid();
+        DB::table('class_group_lessons')->insert(['id' => $groupLesson, 'academy_id' => $aid, 'group_id' => $groupId, 'teacher_id' => $teacher, 'slot_id' => $groupSlot, 'occurrence_local_date' => '2026-06-01', 'scheduled_at_utc' => $now, 'duration_minutes' => 60, 'status' => 'HELD', 'outcome_set_by' => $owner->id]);
+        DB::table('class_group_attendance')->insert(['id' => (string) Str::uuid(), 'academy_id' => $aid, 'lesson_id' => $groupLesson, 'group_id' => $groupId, 'student_id' => $student, 'status' => 'PRESENT', 'marked_by' => $owner->id]);
+
         Audit::log('student.create', 'student', $student, $aid, $owner->id, 'ACADEMY_OWNER');
         $this->clearTenantContext();
 

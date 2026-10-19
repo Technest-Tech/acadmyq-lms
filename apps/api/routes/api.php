@@ -34,6 +34,8 @@ use App\Http\Controllers\CertificateTemplateController;
 use App\Http\Controllers\Crm\LeadController;
 use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
+use App\Http\Controllers\Groups\ClassGroupController;
+use App\Http\Controllers\Groups\ClassGroupLessonController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
 use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
@@ -745,19 +747,19 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/teachers/{id}/punctuality', [TeacherPunctualityController::class, 'show']);
 
     // Academy profile settings — name and timezone. Read: invoice.read (all owners).
-    // Write: specialization.manage (the "settings" capability). The UPDATE uses a
+    // Write: settings.manage (the academy's own switches). The UPDATE uses a
     // SECURITY DEFINER function because the academies table restricts direct writes
     // to Super Admin only (§10).
     Route::get('/academy', [AcademyProfileController::class, 'show']);
     Route::patch('/academy', [AcademyProfileController::class, 'update']);
 
     // Academy controls (Settings → Controls) — per-academy feature switches, e.g. making
-    // lessons read-only for teachers. specialization.manage for both read and write.
+    // lessons read-only for teachers. settings.manage for both read and write.
     Route::get('/academy/settings', [AcademySettingsController::class, 'show']);
     Route::put('/academy/settings', [AcademySettingsController::class, 'update']);
 
     // Settings → WhatsApp — the academy pairs its own number by QR (no Super Admin link needed).
-    // specialization.manage like the rest of Settings; only for clients holding the WhatsApp module.
+    // settings.manage like the Controls tab; only for clients holding the WhatsApp module.
     Route::middleware('entitled:whatsapp.automation')->group(function () {
         Route::get('/academy/whatsapp', [AcademyWhatsAppController::class, 'show']);
         Route::post('/academy/whatsapp/connect', [AcademyWhatsAppController::class, 'connect']);
@@ -824,6 +826,34 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/trials/{id}/convert', [TrialController::class, 'convert']);
         Route::delete('/trials/{id}', [TrialController::class, 'destroy']); // cancel — row stays as CANCELLED
         Route::delete('/trials/{id}/permanent', [TrialController::class, 'remove']); // delete — gone from the record
+    });
+
+    // Group classes (docs/groups) — one teacher, several students, a weekly timetable, its own
+    // lessons and attendance sheet. A group lesson is NOT a `sessions` row; it lives in
+    // class_group_lessons and reaches the calendar as its own feed. `group.read` opens the pages
+    // (row-scoped for a TEACHER to their own groups), `group.manage` changes them; the sheet rides
+    // session.mark_attendance / session.revert_attendance. Switchable per client (entitled:groups).
+    Route::middleware('entitled:groups')->group(function () {
+        Route::get('/groups', [ClassGroupController::class, 'index']);
+        Route::post('/groups', [ClassGroupController::class, 'store']);
+        Route::get('/groups/{id}', [ClassGroupController::class, 'show']);
+        Route::patch('/groups/{id}', [ClassGroupController::class, 'update']);
+        Route::delete('/groups/{id}', [ClassGroupController::class, 'destroy']);
+        Route::post('/groups/{id}/archive', [ClassGroupController::class, 'archive']);
+        Route::post('/groups/{id}/restore', [ClassGroupController::class, 'restore']);
+        Route::post('/groups/{id}/members', [ClassGroupController::class, 'addMembers']);
+        Route::delete('/groups/{id}/members/{studentId}', [ClassGroupController::class, 'removeMember']);
+        Route::patch('/groups/{id}/members/{studentId}', [ClassGroupController::class, 'updateMember']);
+        Route::post('/groups/{id}/members/{studentId}/move', [ClassGroupController::class, 'moveMember']);
+        // The group's month in money (docs/groups §Money): charges, paid/outstanding, teacher cost.
+        Route::get('/groups/{id}/money', [ClassGroupController::class, 'money']);
+        Route::get('/groups/{id}/lessons', [ClassGroupController::class, 'lessons']);
+        Route::post('/groups/{id}/lessons', [ClassGroupController::class, 'addLesson']);
+        Route::get('/group-lessons/{id}', [ClassGroupLessonController::class, 'show']);
+        Route::post('/group-lessons/{id}/attendance', [ClassGroupLessonController::class, 'attendance']);
+        Route::post('/group-lessons/{id}/attendance/revert', [ClassGroupLessonController::class, 'revert']);
+        Route::post('/group-lessons/{id}/cancel', [ClassGroupLessonController::class, 'cancel']);
+        Route::post('/group-lessons/{id}/reschedule', [ClassGroupLessonController::class, 'reschedule']);
     });
 
     // CRM / Leads (CRM module). Sales/support staff capture prospective students as leads and

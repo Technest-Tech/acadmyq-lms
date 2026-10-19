@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Scheduling\Concerns;
 
+use App\Services\GroupLessonGenerator;
 use App\Support\AuthContext;
 use App\Support\TimeHelper;
 use Illuminate\Support\Carbon;
@@ -172,6 +173,50 @@ trait InteractsWithScheduling
     }
 
     /**
+     * Group lessons (docs/groups) the same teacher takes inside the candidate window. A group class
+     * holds a real hour of a real teacher, so it warns exactly like a session or a trial does, in
+     * both directions. Only an academy holding the `groups` feature has any to clash with — one that
+     * switched it off keeps its old rows, but they are off the planning surface and stay out of here.
+     *
+     * @return list<array{id:string, group_id:string, scheduled_at_utc:string, duration_minutes:int}>
+     */
+    protected function groupLessonConflicts(string $teacherId, Carbon $startUtc, int $durationMinutes, ?string $excludeGroupLessonId = null): array
+    {
+        $academyId = $this->ctx()->academyId;
+        if ($academyId === null || ! GroupLessonGenerator::enabledFor($academyId)) {
+            return [];
+        }
+
+        $endUtc = $startUtc->copy()->addMinutes($durationMinutes);
+
+        $candidates = DB::table('class_group_lessons')
+            ->where('teacher_id', $teacherId)
+            ->whereIn('status', ['SCHEDULED', 'HELD'])
+            ->when($excludeGroupLessonId !== null, fn ($q) => $q->where('id', '!=', $excludeGroupLessonId))
+            ->whereBetween('scheduled_at_utc', [
+                $startUtc->copy()->subDay()->format('Y-m-d H:i:sP'),
+                $endUtc->copy()->addDay()->format('Y-m-d H:i:sP'),
+            ])
+            ->get(['id', 'group_id', 'scheduled_at_utc', 'duration_minutes']);
+
+        $conflicts = [];
+        foreach ($candidates as $row) {
+            $rowStart = Carbon::parse($row->scheduled_at_utc)->utc();
+            $rowEnd = $rowStart->copy()->addMinutes((int) $row->duration_minutes);
+            if ($startUtc->lessThan($rowEnd) && $rowStart->lessThan($endUtc)) {
+                $conflicts[] = [
+                    'id' => (string) $row->id,
+                    'group_id' => (string) $row->group_id,
+                    'scheduled_at_utc' => $rowStart->toIso8601String(),
+                    'duration_minutes' => (int) $row->duration_minutes,
+                ];
+            }
+        }
+
+        return $conflicts;
+    }
+
+    /**
      * True when the instant falls OUTSIDE every availability window the teacher declared
      * (Sprint 4 `teachers.availability`). Availability is interpreted in $timezone (the schedule
      * / academy local time). Returns false (no warning) when the teacher declares no windows —
@@ -229,13 +274,14 @@ trait InteractsWithScheduling
      *
      * @return list<array{type:string, message:string, detail?:mixed}>
      */
-    protected function schedulingWarnings(string $teacherId, Carbon $startUtc, int $durationMinutes, string $timezone, ?string $excludeSessionId = null, ?string $excludeTrialId = null): array
+    protected function schedulingWarnings(string $teacherId, Carbon $startUtc, int $durationMinutes, string $timezone, ?string $excludeSessionId = null, ?string $excludeTrialId = null, ?string $excludeGroupLessonId = null): array
     {
         $warnings = [];
 
         $conflicts = [
             ...$this->teacherConflicts($teacherId, $startUtc, $durationMinutes, $excludeSessionId),
             ...$this->trialConflicts($teacherId, $startUtc, $durationMinutes, $excludeTrialId),
+            ...$this->groupLessonConflicts($teacherId, $startUtc, $durationMinutes, $excludeGroupLessonId),
         ];
         if ($conflicts !== []) {
             $warnings[] = [
