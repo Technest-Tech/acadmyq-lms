@@ -318,24 +318,33 @@ describe("AppShell — the Groups dropdown (docs/groups)", () => {
     expect(parent).toHaveAttribute("aria-expanded", "true");
     expect(navKeys()).toEqual(expect.arrayContaining(["groupsAll", "groupsLessons", "groupsStudents", "groupsPayments", "groupsReports"]));
     expect(document.querySelector('[data-nav="groupsLessons"]')).toHaveAttribute("href", "/groups/lessons");
-    // …and remembers being open.
-    expect(JSON.parse(localStorage.getItem("nav.openParents") ?? "[]")).toEqual(["groups"]);
+
+    // …and a second click closes it.
+    await user.click(parent);
+    expect(parent).toHaveAttribute("aria-expanded", "false");
+    expect(navKeys()).not.toContain("groupsLessons");
   });
 
-  it("opens by itself on one of its pages and lights that page, not All groups", async () => {
+  it("stays closed even on one of its pages, and lights that page once opened", async () => {
+    const user = userEvent.setup();
     pathname = "/groups/lessons";
     renderShell("ACADEMY_OWNER", groupsSession);
     await ready();
 
-    expect(document.querySelector('[data-nav="groups"]')).toHaveAttribute("aria-expanded", "true");
+    const parent = document.querySelector('[data-nav="groups"]') as HTMLElement;
+    expect(parent).toHaveAttribute("aria-expanded", "false");
+    await user.click(parent);
+    expect(parent).toHaveAttribute("aria-expanded", "true");
     expect(document.querySelector('[data-nav="groupsLessons"]')).toHaveAttribute("data-active", "true");
     expect(document.querySelector('[data-nav="groupsAll"]')).not.toHaveAttribute("data-active");
   });
 
   it("counts a group's own page as All groups", async () => {
+    const user = userEvent.setup();
     pathname = "/groups/0b9f4e2a-1c3d-4e5f-8a9b-0c1d2e3f4a5b";
     renderShell("ACADEMY_OWNER", groupsSession);
     await ready();
+    await user.click(document.querySelector('[data-nav="groups"]') as HTMLElement);
 
     expect(document.querySelector('[data-nav="groupsAll"]')).toHaveAttribute("data-active", "true");
   });

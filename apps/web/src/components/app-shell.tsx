@@ -730,15 +730,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [bookingCount, setBookingCount] = useState(0);
   const [trialCount, setTrialCount] = useState(0);
   const [groupOwedCount, setGroupOwedCount] = useState(0);
-  // Which sidebar dropdowns the user left open (a dropdown is also open whenever it holds the page).
-  const [openParents, setOpenParents] = useState<Set<NavKey>>(() => {
-    try {
-      const raw = typeof window !== "undefined" ? window.localStorage.getItem("nav.openParents") : null;
-      return new Set(raw ? (JSON.parse(raw) as NavKey[]) : []);
-    } catch {
-      return new Set();
-    }
-  });
+  // Which sidebar dropdowns are open. Closed by default — only a click opens or closes one.
+  const [openParents, setOpenParents] = useState<Set<NavKey>>(() => new Set());
   // The academy's resolved plan capabilities, used to lock nav items the plan doesn't include.
   // They arrive with the session itself, so by the time we have a session we have these too — there
   // is no separate loading state to guard, and no window in which a video-only ("Meet Plan") academy
@@ -1194,9 +1187,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   /**
    * A nav item with sub-pages (Groups): a disclosure that opens to its own links, indented under it.
-   * It is open while it holds the current page, and otherwise stays the way the user left it. On the
-   * collapsed rail there is no room for a list, so it is just the icon, linking to its first page.
-   * While closed it carries its sub-pages' badges, so "something is waiting" is never hidden.
+   * Closed by default and opened / closed only by a click (it is highlighted while it holds the
+   * current page). On the collapsed rail there is no room for a list, so it is just the icon,
+   * linking to its first page. While closed it carries its sub-pages' badges, so "something is
+   * waiting" is never hidden.
    */
   const renderNavParent = (item: (typeof NAV)[number], children: (typeof NAV)[number][]) => {
     if (collapsed) {
@@ -1205,7 +1199,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     const Icon = item.icon;
     const holdsPage = children.some((c) => matches(c.href));
-    const isOpen = holdsPage || openParents.has(item.key);
+    const isOpen = openParents.has(item.key);
     const label = t(`nav.${item.key}`);
     const waiting = children.reduce((sum, c) => sum + (badgeFor(c.key)?.count ?? 0), 0);
     const toggle = () =>
@@ -1213,11 +1207,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         const next = new Set(prev);
         if (next.has(item.key)) next.delete(item.key);
         else next.add(item.key);
-        try {
-          window.localStorage.setItem("nav.openParents", JSON.stringify([...next]));
-        } catch {
-          // a private window keeps the dropdown open for this visit only
-        }
         return next;
       });
 
