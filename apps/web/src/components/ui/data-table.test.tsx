@@ -53,6 +53,21 @@ describe("DataTable (Sprint 4 §6)", () => {
   beforeEach(() => vi.useRealTimers());
   afterEach(() => vi.clearAllMocks());
 
+  it("applies rowClassName to the matching row only", async () => {
+    const fetcher = vi.fn(async () =>
+      page([
+        { id: "gone", name: "Left", price: 1 },
+        { id: "here", name: "Stays", price: 2 },
+      ]),
+    );
+    const { container } = renderTable(fetcher, "en", {
+      rowClassName: (r) => (r.id === "gone" ? "bg-red-50" : undefined),
+    });
+    await waitFor(() => expect(container.querySelector('tr[data-row="gone"]')).not.toBeNull());
+    expect(container.querySelector('tr[data-row="gone"]')!.className).toContain("bg-red-50");
+    expect(container.querySelector('tr[data-row="here"]')!.className).not.toContain("bg-red-50");
+  });
+
   it("renders server rows", async () => {
     const fetcher = vi.fn(async () =>
       page([{ id: "a", name: "محمد", price: 100 }]),

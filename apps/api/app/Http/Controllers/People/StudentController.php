@@ -363,6 +363,7 @@ final class StudentController extends Controller
                     'ended_schedules' => $wound['schedules'],
                     'removed_future_sessions' => $wound['sessions_removed'],
                     'cancelled_unmarked_sessions' => $wound['sessions_cancelled'],
+                    'hidden_sessions' => $wound['sessions_hidden'],
                 ],
                 before: ['status' => $student->status]);
         });
@@ -408,6 +409,7 @@ final class StudentController extends Controller
                     'ended_schedules' => $wound['schedules'],
                     'removed_future_sessions' => $wound['sessions_removed'],
                     'cancelled_unmarked_sessions' => $wound['sessions_cancelled'],
+                    'hidden_sessions' => $wound['sessions_hidden'],
                 ],
                 before: ['status' => $student->status]);
         });
@@ -423,7 +425,8 @@ final class StudentController extends Controller
      * POST /api/students/{id}/reactivate — undo a soft-delete, returning the learner to active
      * rosters as a plain REGULAR student. The subscription and teacher assignment ended at
      * deactivation are NOT auto-restored (their prices/teacher may have moved on) — re-add them
-     * explicitly via the subscription/teacher endpoints.
+     * explicitly via the subscription/teacher endpoints. Their old lessons stay hidden from the
+     * calendar and attendance (`sessions.hidden_at`): the student starts over with a clean slate.
      */
     public function reactivate(string $id): JsonResponse
     {
@@ -955,7 +958,7 @@ final class StudentController extends Controller
      * three a removed student kept a live package, kept generating lessons, and their unmarked
      * lessons sat in الحصص المعلقة, fired "not marked" group alerts and docked the teacher forever.
      *
-     * @return array{subscription: bool, assignment: bool, package: ?string, schedules: int, sessions_removed: int, sessions_cancelled: int}
+     * @return array{subscription: bool, assignment: bool, package: ?string, schedules: int, sessions_removed: int, sessions_cancelled: int, sessions_hidden: int}
      */
     private function endActiveBilling(string $studentId, $now): array
     {
@@ -1009,7 +1012,7 @@ final class StudentController extends Controller
      * successors — is closed as cancelled-by-student, which neither bills nor pays, and any
      * request still waiting on those lessons is rejected so it leaves the approvals queue.
      *
-     * @return array{schedules: int, sessions_removed: int, sessions_cancelled: int}
+     * @return array{schedules: int, sessions_removed: int, sessions_cancelled: int, sessions_hidden: int}
      */
     private function windDownLessons(string $studentId, $now): array
     {
@@ -1057,10 +1060,19 @@ final class StudentController extends Controller
             ]);
         }
 
+        // Every lesson they ever had — attended, cancelled, the ones just closed above — leaves the
+        // calendar and the attendance page. Display only: billing and payroll still read the rows.
+        // Reactivation does NOT bring them back, so a returning student starts over.
+        $hidden = DB::table('sessions')
+            ->where('student_id', $studentId)
+            ->whereNull('hidden_at')
+            ->update(['hidden_at' => $now->toIso8601String()]);
+
         return [
             'schedules' => $scheduleIds->count(),
             'sessions_removed' => $removed,
             'sessions_cancelled' => $leftover->count(),
+            'sessions_hidden' => $hidden,
         ];
     }
 

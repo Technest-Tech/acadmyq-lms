@@ -63,6 +63,8 @@ final class CalendarController extends Controller
             // reschedule look like a duplicate, so hide the marker — the calendar shows only the
             // moved (successor) occurrence, i.e. a clean in-place move.
             ->where('se.status', '!=', 'RESCHEDULED')
+            // A deactivated student's lessons leave the calendar for good (see sessions.hidden_at).
+            ->whereNull('se.hidden_at')
             ->select([
                 'se.id', 'se.student_id', 'se.teacher_id', 'se.schedule_id',
                 'se.scheduled_at_utc', 'se.duration_minutes', 'se.status', 'se.status_reason',

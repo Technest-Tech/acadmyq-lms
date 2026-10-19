@@ -582,6 +582,12 @@ export function StudentsList({
           }}
           refreshToken={refreshToken}
           pendingRowId={pendingRowId}
+          // A deactivated (or removed) student reads as red at a glance in the "all" / "inactive" views.
+          rowClassName={(r) =>
+            r.deleted_at
+              ? "bg-red-50 hover:bg-red-100/80 dark:bg-red-950/30 dark:hover:bg-red-950/45"
+              : undefined
+          }
           onRowHover={(r) => onPrefetch?.(r.id)}
           onRowClick={(r) => onOpen(r.id, r.full_name)}
           rowActions={(r) => {

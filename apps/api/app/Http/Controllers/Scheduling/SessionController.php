@@ -520,6 +520,7 @@ final class SessionController extends Controller
             ->leftJoin('teachers as te', 'te.id', '=', 'se.teacher_id')
             ->where('se.status', 'SCHEDULED')
             ->where('se.scheduled_at_utc', '<=', now()->format('Y-m-d H:i:sP'))
+            ->whereNull('se.hidden_at')
             ->select([
                 'se.id', 'se.student_id', 'se.teacher_id', 'se.scheduled_at_utc',
                 'se.duration_minutes', 'se.status',
@@ -569,6 +570,7 @@ final class SessionController extends Controller
 
         $base = DB::table('sessions as se')
             ->where('se.status', 'SCHEDULED')
+            ->whereNull('se.hidden_at')
             ->whereRaw('se.scheduled_at_utc + make_interval(mins => se.duration_minutes) <= ?', [$cutoff]);
 
         if ($this->ctx()->role === 'TEACHER') {
@@ -660,6 +662,8 @@ final class SessionController extends Controller
             })
             ->where('se.scheduled_at_utc', '>=', $from)
             ->where('se.scheduled_at_utc', '<', $to)
+            // A deactivated student's lessons, past and pending, are off this page for good.
+            ->whereNull('se.hidden_at')
             ->select([
                 'se.id', 'se.student_id', 'se.teacher_id', 'se.scheduled_at_utc',
                 'se.duration_minutes', 'se.status',
@@ -727,6 +731,7 @@ final class SessionController extends Controller
 
         $query = DB::table('sessions as se')
             ->where('se.status', 'SCHEDULED')
+            ->whereNull('se.hidden_at')
             ->where('se.scheduled_at_utc', '>=', $from)
             ->where('se.scheduled_at_utc', '<', $to);
 

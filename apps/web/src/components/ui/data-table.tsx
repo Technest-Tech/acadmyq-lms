@@ -96,6 +96,8 @@ export interface DataTableProps<T> {
    * user clicks three more rows believing nothing registered.
    */
   pendingRowId?: string | null;
+  /** Extra classes for one row (and its mobile card), e.g. a red wash on a deactivated record. */
+  rowClassName?: (row: T) => string | undefined;
   rowActions?: (row: T) => React.ReactNode;
   emptyMessage?: string;
   emptyAction?: React.ReactNode;
@@ -146,6 +148,7 @@ export function DataTable<T>({
   onRowClick,
   onRowHover,
   pendingRowId = null,
+  rowClassName,
   rowActions,
   emptyMessage,
   emptyAction,
@@ -638,6 +641,7 @@ export function DataTable<T>({
                       className={cn(
                         "group relative transition-colors",
                         onRowClick && "hover:bg-primary/[0.045] cursor-pointer",
+                        rowClassName?.(row),
                         pending && "bg-primary/[0.07]",
                       )}
                     >
@@ -697,6 +701,7 @@ export function DataTable<T>({
                 aria-busy={pendingRowId === getRowId(row) || undefined}
                 className={cn(
                   "bg-card overflow-hidden rounded-xl border text-sm shadow-sm",
+                  rowClassName?.(row),
                   pendingRowId === getRowId(row) && "ring-primary/30 ring-2",
                 )}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
