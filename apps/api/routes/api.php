@@ -36,6 +36,7 @@ use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
 use App\Http\Controllers\Groups\ClassGroupController;
 use App\Http\Controllers\Groups\ClassGroupLessonController;
+use App\Http\Controllers\Groups\GroupBoardController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
 use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
@@ -834,26 +835,33 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // (row-scoped for a TEACHER to their own groups), `group.manage` changes them; the sheet rides
     // session.mark_attendance / session.revert_attendance. Switchable per client (entitled:groups).
     Route::middleware('entitled:groups')->group(function () {
+        // The section's cross-group pages (GroupBoardController): every lesson, every member, the
+        // month's money, the reports — across all the caller's groups.
+        Route::get('/group-lessons', [GroupBoardController::class, 'lessons']);
+        Route::get('/group-lessons/summary', [GroupBoardController::class, 'lessonsSummary']);
+        Route::get('/group-members', [GroupBoardController::class, 'members']);
+        Route::get('/group-payments', [GroupBoardController::class, 'payments']);
+        Route::get('/group-reports', [GroupBoardController::class, 'reports']);
         Route::get('/groups', [ClassGroupController::class, 'index']);
         Route::post('/groups', [ClassGroupController::class, 'store']);
-        Route::get('/groups/{id}', [ClassGroupController::class, 'show']);
-        Route::patch('/groups/{id}', [ClassGroupController::class, 'update']);
-        Route::delete('/groups/{id}', [ClassGroupController::class, 'destroy']);
-        Route::post('/groups/{id}/archive', [ClassGroupController::class, 'archive']);
-        Route::post('/groups/{id}/restore', [ClassGroupController::class, 'restore']);
-        Route::post('/groups/{id}/members', [ClassGroupController::class, 'addMembers']);
-        Route::delete('/groups/{id}/members/{studentId}', [ClassGroupController::class, 'removeMember']);
-        Route::patch('/groups/{id}/members/{studentId}', [ClassGroupController::class, 'updateMember']);
-        Route::post('/groups/{id}/members/{studentId}/move', [ClassGroupController::class, 'moveMember']);
+        Route::get('/groups/{id}', [ClassGroupController::class, 'show'])->whereUuid(['id']);
+        Route::patch('/groups/{id}', [ClassGroupController::class, 'update'])->whereUuid(['id']);
+        Route::delete('/groups/{id}', [ClassGroupController::class, 'destroy'])->whereUuid(['id']);
+        Route::post('/groups/{id}/archive', [ClassGroupController::class, 'archive'])->whereUuid(['id']);
+        Route::post('/groups/{id}/restore', [ClassGroupController::class, 'restore'])->whereUuid(['id']);
+        Route::post('/groups/{id}/members', [ClassGroupController::class, 'addMembers'])->whereUuid(['id']);
+        Route::delete('/groups/{id}/members/{studentId}', [ClassGroupController::class, 'removeMember'])->whereUuid(['id', 'studentId']);
+        Route::patch('/groups/{id}/members/{studentId}', [ClassGroupController::class, 'updateMember'])->whereUuid(['id', 'studentId']);
+        Route::post('/groups/{id}/members/{studentId}/move', [ClassGroupController::class, 'moveMember'])->whereUuid(['id', 'studentId']);
         // The group's month in money (docs/groups §Money): charges, paid/outstanding, teacher cost.
-        Route::get('/groups/{id}/money', [ClassGroupController::class, 'money']);
-        Route::get('/groups/{id}/lessons', [ClassGroupController::class, 'lessons']);
-        Route::post('/groups/{id}/lessons', [ClassGroupController::class, 'addLesson']);
-        Route::get('/group-lessons/{id}', [ClassGroupLessonController::class, 'show']);
-        Route::post('/group-lessons/{id}/attendance', [ClassGroupLessonController::class, 'attendance']);
-        Route::post('/group-lessons/{id}/attendance/revert', [ClassGroupLessonController::class, 'revert']);
-        Route::post('/group-lessons/{id}/cancel', [ClassGroupLessonController::class, 'cancel']);
-        Route::post('/group-lessons/{id}/reschedule', [ClassGroupLessonController::class, 'reschedule']);
+        Route::get('/groups/{id}/money', [ClassGroupController::class, 'money'])->whereUuid(['id']);
+        Route::get('/groups/{id}/lessons', [ClassGroupController::class, 'lessons'])->whereUuid(['id']);
+        Route::post('/groups/{id}/lessons', [ClassGroupController::class, 'addLesson'])->whereUuid(['id']);
+        Route::get('/group-lessons/{id}', [ClassGroupLessonController::class, 'show'])->whereUuid(['id']);
+        Route::post('/group-lessons/{id}/attendance', [ClassGroupLessonController::class, 'attendance'])->whereUuid(['id']);
+        Route::post('/group-lessons/{id}/attendance/revert', [ClassGroupLessonController::class, 'revert'])->whereUuid(['id']);
+        Route::post('/group-lessons/{id}/cancel', [ClassGroupLessonController::class, 'cancel'])->whereUuid(['id']);
+        Route::post('/group-lessons/{id}/reschedule', [ClassGroupLessonController::class, 'reschedule'])->whereUuid(['id']);
     });
 
     // CRM / Leads (CRM module). Sales/support staff capture prospective students as leads and

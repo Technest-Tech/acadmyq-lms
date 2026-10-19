@@ -186,7 +186,26 @@ the teacher is just as busy.
 
 ---
 
-## Screens (Phase 1)
+## Screens
+
+**The sidebar holds a section, not a link (2026-10-20).** "المجموعات" is a dropdown (a NAV item
+with `parent: "groups"` children, rendered by `renderNavParent` in `app-shell.tsx`). It opens by
+itself on any of its pages, otherwise remembers being open (`localStorage nav.openParents`), and
+carries its pages' badges while closed:
+
+| Page | Path | Gate | What it is for |
+|---|---|---|---|
+| كل المجموعات | `/groups` (+ each `/groups/{id}`) | `group.read` | the groups, and each group's own page |
+| الحصص والحضور | `/groups/lessons` | `group.read` | every group lesson by day / week, plus every sheet still owed (badge = owed) |
+| طلاب المجموعات | `/groups/students` | `group.read` | every membership: attendance, last marks, absence streak, this month's payment (money roles) |
+| المدفوعات | `/groups/payments` | `invoice.read` | the month per group: billed / paid / outstanding / teacher cost / margin, and every unpaid charge |
+| التقارير | `/groups/reports` | `group.read` | seats, held / cancelled / owed lessons and attendance, per group and per teacher |
+
+They read `GroupBoardController` (`/group-lessons`, `/group-lessons/summary`, `/group-members`,
+`/group-payments`, `/group-reports`). Every `{id}` route is `whereUuid`, so a stray word is a 404
+and never a database error.
+
+### The original single page (Phase 1)
 
 - **Sidebar → المجموعات** (`/groups`, `group.read`, gated by `groups`). Cards per group: name,
   subject/level, teacher, *12 / 15* seats, the weekly times, the next lesson, and the derived state.

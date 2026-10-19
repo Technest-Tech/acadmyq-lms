@@ -298,3 +298,62 @@ describe("AppShell header", () => {
     expect(keys).not.toContain("financialStatistics");
   });
 });
+
+describe("AppShell — the Groups dropdown (docs/groups)", () => {
+  const groupsSession = {
+    permissions: ["group.read", "group.manage", "invoice.read", "session.mark_attendance", "student.read"],
+  };
+
+  it("is ONE dropdown in the sidebar that opens to the section's pages", async () => {
+    const user = userEvent.setup();
+    renderShell("ACADEMY_OWNER", groupsSession);
+    await ready();
+
+    const parent = document.querySelector('[data-nav="groups"]') as HTMLElement;
+    expect(parent.tagName).toBe("BUTTON");
+    expect(parent).toHaveAttribute("aria-expanded", "false");
+    expect(navKeys()).not.toContain("groupsLessons");
+
+    await user.click(parent);
+    expect(parent).toHaveAttribute("aria-expanded", "true");
+    expect(navKeys()).toEqual(expect.arrayContaining(["groupsAll", "groupsLessons", "groupsStudents", "groupsPayments", "groupsReports"]));
+    expect(document.querySelector('[data-nav="groupsLessons"]')).toHaveAttribute("href", "/groups/lessons");
+    // …and remembers being open.
+    expect(JSON.parse(localStorage.getItem("nav.openParents") ?? "[]")).toEqual(["groups"]);
+  });
+
+  it("opens by itself on one of its pages and lights that page, not All groups", async () => {
+    pathname = "/groups/lessons";
+    renderShell("ACADEMY_OWNER", groupsSession);
+    await ready();
+
+    expect(document.querySelector('[data-nav="groups"]')).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelector('[data-nav="groupsLessons"]')).toHaveAttribute("data-active", "true");
+    expect(document.querySelector('[data-nav="groupsAll"]')).not.toHaveAttribute("data-active");
+  });
+
+  it("counts a group's own page as All groups", async () => {
+    pathname = "/groups/0b9f4e2a-1c3d-4e5f-8a9b-0c1d2e3f4a5b";
+    renderShell("ACADEMY_OWNER", groupsSession);
+    await ready();
+
+    expect(document.querySelector('[data-nav="groupsAll"]')).toHaveAttribute("data-active", "true");
+  });
+
+  it("leaves Payments out for someone who cannot see invoices", async () => {
+    const user = userEvent.setup();
+    renderShell("SUPERVISOR", { permissions: ["group.read", "group.manage"] });
+    await ready();
+
+    await user.click(document.querySelector('[data-nav="groups"]') as HTMLElement);
+    expect(navKeys()).toContain("groupsLessons");
+    expect(navKeys()).not.toContain("groupsPayments");
+  });
+
+  it("is gone entirely when the client does not have group classes", async () => {
+    renderShell("ACADEMY_OWNER", { ...groupsSession, capabilities: ["invoicing"] });
+    await ready();
+
+    expect(navKeys().filter((k) => k.startsWith("groups"))).toEqual([]);
+  });
+});

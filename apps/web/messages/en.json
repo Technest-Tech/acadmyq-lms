@@ -185,7 +185,12 @@
     "lmsBooks": "Books & PDFs",
     "lmsBlog": "Blog",
     "lmsBookings": "Bookings",
-    "groups": "Groups"
+    "groups": "Groups",
+    "groupsAll": "All groups",
+    "groupsLessons": "Lessons & attendance",
+    "groupsStudents": "Group students",
+    "groupsPayments": "Payments",
+    "groupsReports": "Reports"
   },
   "navGroup": {
     "general": "General",
@@ -6664,6 +6669,85 @@
         "PER_HOUR": "{amount} an hour",
         "PER_STUDENT": "{amount} per student who came",
         "REVENUE_SHARE": "{pct}% of what the group bills"
+      }
+    },
+    "board": {
+      "loadFailed": "Could not load this page.",
+      "filters": {
+        "group": "Group",
+        "allGroups": "All groups",
+        "teacher": "Teacher"
+      },
+      "lessons": {
+        "title": "Lessons & attendance",
+        "subtitle": "Every group lesson in one place — today, the week ahead, and every sheet still owed.",
+        "owedPill": "{count, plural, one {# sheet owed} other {# sheets owed}}",
+        "view": {
+          "day": "Day",
+          "week": "Week",
+          "owed": "Not marked"
+        },
+        "prev": "Previous",
+        "next": "Next",
+        "today": "Today",
+        "date": "Date",
+        "empty": {
+          "day": "No group lessons on this day.",
+          "week": "No group lessons this week.",
+          "owed": "Every group lesson that has happened has its attendance. Nothing owed."
+        }
+      },
+      "students": {
+        "title": "Group students",
+        "subtitle": "Every student in every group: how often they come, their last marks, and whether this month is paid.",
+        "count": "{count, plural, one {# student} other {# students}}",
+        "add": "Add to a group",
+        "addTitle": "Add students to a group",
+        "pickGroup": "Group",
+        "search": "Search by student, parent or group",
+        "status": "Status",
+        "statusOption": {
+          "ACTIVE": "In a group now",
+          "LEFT": "Left",
+          "ALL": "All"
+        },
+        "flag": {
+          "all": "All",
+          "absent_streak": "Absent {count} times in a row",
+          "low_attendance": "Attendance under 75%",
+          "unpaid": "Not paid this month"
+        },
+        "empty": "No students in groups yet.",
+        "emptyFlag": "Nobody matches — good news.",
+        "leftOn": "left {date}",
+        "recent": "Last marks",
+        "streak": "{count} absences in a row",
+        "owes": "owes {amount}",
+        "paid": "Paid",
+        "noCharge": "No charge this month"
+      },
+      "payments": {
+        "title": "Group payments",
+        "subtitle": "The month's group money: billed, collected, still owed, teacher cost and what's left.",
+        "empty": "Nothing was billed for groups this month.",
+        "byGroup": "By group",
+        "noPrice": "no price",
+        "nothing": "Nothing this month",
+        "teacherCost": "Teacher pay",
+        "unpaid": "{count, plural, one {# charge not paid yet} other {# charges not paid yet}}"
+      },
+      "reports": {
+        "title": "Group reports",
+        "subtitle": "How the groups are doing: seats used, lessons held, sheets owed and attendance — per group and per teacher.",
+        "groups": "Groups",
+        "students": "Students / seats",
+        "byGroup": "By group",
+        "byTeacher": "By teacher",
+        "cancelled": "Cancelled",
+        "absences": "Absences",
+        "taught": "Taught",
+        "hours": "{count} h",
+        "empty": "No groups to report on for this month."
       }
     }
   },

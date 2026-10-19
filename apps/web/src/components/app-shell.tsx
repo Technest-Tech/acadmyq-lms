@@ -85,6 +85,7 @@ import {
   OrnateRule,
 } from "@/components/ornaments";
 import { applyBranding, loadBranding } from "@/lib/branding";
+import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { roleLabel } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
@@ -104,6 +105,11 @@ type NavKey =
   | "guardians"
   | "students"
   | "groups"
+  | "groupsAll"
+  | "groupsLessons"
+  | "groupsStudents"
+  | "groupsPayments"
+  | "groupsReports"
   | "teachers"
   | "staff"
   | "schedule"
@@ -182,6 +188,8 @@ const NAV: ReadonlyArray<{
   permission: string | null;
   href: string;
   group: NavGroup;
+  /** A sub-page: rendered inside its parent's dropdown instead of on the group's own list. */
+  parent?: NavKey;
 }> = [
   {
     key: "dashboard",
@@ -216,6 +224,13 @@ const NAV: ReadonlyArray<{
     href: "/groups",
     group: "people",
   },
+  // …a section of its own, opened as a dropdown: the groups, their lessons and sheets, their
+  // students, their money (money roles only) and the reports.
+  { key: "groupsAll", icon: Layers, permission: "group.read", href: "/groups", group: "people", parent: "groups" },
+  { key: "groupsLessons", icon: ClipboardCheck, permission: "group.read", href: "/groups/lessons", group: "people", parent: "groups" },
+  { key: "groupsStudents", icon: GraduationCap, permission: "group.read", href: "/groups/students", group: "people", parent: "groups" },
+  { key: "groupsPayments", icon: Wallet, permission: "invoice.read", href: "/groups/payments", group: "people", parent: "groups" },
+  { key: "groupsReports", icon: BarChart3, permission: "group.read", href: "/groups/reports", group: "people", parent: "groups" },
   {
     key: "attendance",
     icon: ClipboardCheck,
@@ -618,6 +633,11 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   trials: "trials",
   crm: "crm",
   groups: "groups",
+  groupsAll: "groups",
+  groupsLessons: "groups",
+  groupsStudents: "groups",
+  groupsPayments: "groups",
+  groupsReports: "groups",
   courses: "lms",
   lmsBooks: "lms",
   lmsBlog: "lms",
@@ -709,6 +729,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [salesCount, setSalesCount] = useState(0);
   const [bookingCount, setBookingCount] = useState(0);
   const [trialCount, setTrialCount] = useState(0);
+  const [groupOwedCount, setGroupOwedCount] = useState(0);
+  // Which sidebar dropdowns the user left open (a dropdown is also open whenever it holds the page).
+  const [openParents, setOpenParents] = useState<Set<NavKey>>(() => {
+    try {
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem("nav.openParents") : null;
+      return new Set(raw ? (JSON.parse(raw) as NavKey[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
   // The academy's resolved plan capabilities, used to lock nav items the plan doesn't include.
   // They arrive with the session itself, so by the time we have a session we have these too — there
   // is no separate loading state to guard, and no window in which a video-only ("Meet Plan") academy
@@ -876,6 +906,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [session, can, capabilities, pathname]);
 
+  // Group sheets owed: group lessons whose time passed with no attendance recorded. Derived like the
+  // trials badge — it clears when the sheet is saved, not when someone looks.
+  useEffect(() => {
+    if (session === null || !can("group.read") || !(capabilities?.includes("groups") ?? true)) {
+      setGroupOwedCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () =>
+      getGroupLessonsSummary()
+        .then((s) => alive && setGroupOwedCount(s.owed ?? 0))
+        .catch(() => {});
+    void refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [session, can, capabilities, pathname]);
+
   useEffect(() => {
     applyBranding(loadBranding());
   }, []);
@@ -994,9 +1044,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     href === "/lms" ||
     // Open packages must not also light up on its sibling, /packages/finished.
     href === "/packages";
-  const matches = (href: string) =>
-    pathname === href || (!isExactOnly(href) && pathname.startsWith(href));
-  const activeItem = items.find((item) => matches(item.href));
+  const matches = (href: string) => {
+    // "All groups" is /groups and every group's own page (/groups/<uuid>) — never its sibling
+    // pages (/groups/lessons, …), which own their own link.
+    if (href === "/groups") {
+      return pathname === "/groups" || /^\/groups\/[0-9a-f]{8}-[0-9a-f-]{27}/i.test(pathname);
+    }
+    return pathname === href || (!isExactOnly(href) && pathname.startsWith(href));
+  };
+  /** A nav item that opens a dropdown: it has sub-pages among the visible items. */
+  const childrenOf = (key: NavKey) => items.filter((item) => item.parent === key);
+  const activeItem =
+    items.find((item) => item.parent !== undefined && matches(item.href)) ??
+    items.find((item) => matches(item.href));
 
   /** The unread count owned by a nav item, if any. */
   const badgeFor = (key: NavKey): { count: number; label: string } | null => {
@@ -1021,6 +1081,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         label: `${salesCount} payment receipts awaiting review`,
       };
     }
+    if (key === "groupsLessons" && groupOwedCount > 0) {
+      return {
+        count: groupOwedCount,
+        label: `${groupOwedCount} group lessons waiting for attendance`,
+      };
+    }
     if (key === "trials" && trialCount > 0) {
       return {
         count: trialCount,
@@ -1042,7 +1108,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return null;
   };
 
-  const commandItems: CommandItem[] = items.map((item) => ({
+  const commandItems: CommandItem[] = items.filter((item) => childrenOf(item.key).length === 0).map((item) => ({
     key: item.key,
     label: t(`nav.${item.key}`),
     href: item.href,
@@ -1123,6 +1189,71 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </Tooltip>
     ) : (
       link
+    );
+  };
+
+  /**
+   * A nav item with sub-pages (Groups): a disclosure that opens to its own links, indented under it.
+   * It is open while it holds the current page, and otherwise stays the way the user left it. On the
+   * collapsed rail there is no room for a list, so it is just the icon, linking to its first page.
+   * While closed it carries its sub-pages' badges, so "something is waiting" is never hidden.
+   */
+  const renderNavParent = (item: (typeof NAV)[number], children: (typeof NAV)[number][]) => {
+    if (collapsed) {
+      return renderNavItem({ ...item, href: children[0]?.href ?? item.href });
+    }
+
+    const Icon = item.icon;
+    const holdsPage = children.some((c) => matches(c.href));
+    const isOpen = holdsPage || openParents.has(item.key);
+    const label = t(`nav.${item.key}`);
+    const waiting = children.reduce((sum, c) => sum + (badgeFor(c.key)?.count ?? 0), 0);
+    const toggle = () =>
+      setOpenParents((prev) => {
+        const next = new Set(prev);
+        if (next.has(item.key)) next.delete(item.key);
+        else next.add(item.key);
+        try {
+          window.localStorage.setItem("nav.openParents", JSON.stringify([...next]));
+        } catch {
+          // a private window keeps the dropdown open for this visit only
+        }
+        return next;
+      });
+
+    return (
+      <div key={item.key} data-nav-parent={item.key}>
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={isOpen}
+          data-nav={item.key}
+          className={cn(
+            "group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-start text-sm font-medium transition-colors duration-150",
+            "focus-visible:ring-ring/50 outline-none focus-visible:ring-2",
+            holdsPage ? "text-primary font-semibold" : "text-sidebar-foreground hover:bg-sidebar-accent",
+          )}
+        >
+          <Icon
+            className={cn(
+              "size-4 shrink-0 transition-colors",
+              holdsPage ? "text-primary" : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
+            )}
+            aria-hidden
+          />
+          <span className="flex-1 truncate">{label}</span>
+          {!isOpen && waiting > 0 && <NavBadge count={waiting} label={`${waiting} waiting`} />}
+          <ChevronDown
+            className={cn("text-sidebar-foreground/50 size-3.5 shrink-0 transition-transform", isOpen && "rotate-180")}
+            aria-hidden
+          />
+        </button>
+        {isOpen && (
+          <div className="border-sidebar-border ms-5 mt-0.5 space-y-0.5 border-s ps-2" data-nav-children={item.key}>
+            {children.map(renderNavItem)}
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -1286,15 +1417,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               ) : (
                 // Tenant (or an admin acting inside an academy): the flat labelled groups.
                 NAV_GROUPS.map((group) => {
+                  // Sub-pages render inside their parent's dropdown, not on the group's own list.
                   const groupItems = items.filter(
-                    (item) => item.group === group,
+                    (item) => item.group === group && item.parent === undefined,
                   );
                   if (groupItems.length === 0) return null;
                   return (
                     <div key={group}>
                       {groupLabel(t(`navGroup.${group}`))}
                       <div className="space-y-0.5">
-                        {groupItems.map(renderNavItem)}
+                        {groupItems.map((item) => {
+                          const children = childrenOf(item.key);
+                          return children.length > 0 ? renderNavParent(item, children) : renderNavItem(item);
+                        })}
                       </div>
                     </div>
                   );

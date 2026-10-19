@@ -214,7 +214,7 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
   );
 }
 
-function AddMembersForm({
+export function AddMembersForm({
   group,
   onCancel,
   onSaved,

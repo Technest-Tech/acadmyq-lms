@@ -354,3 +354,148 @@ export function rescheduleGroupLesson(
 ): Promise<GroupLessonSheet & { warnings: SchedulingWarning[] }> {
   return apiFetch(`/api/group-lessons/${id}/reschedule`, { method: "POST", body: JSON.stringify(input) });
 }
+
+// ── The section's cross-group pages (GroupBoardController) ─────────────────────
+
+export interface BoardLesson extends GroupLesson {
+  group: { id: string; name: string; level: string | null; timezone: string; mode: GroupMode; location: string | null };
+}
+
+export function listBoardLessons(params: {
+  view: "day" | "week" | "owed";
+  date?: string;
+  group_id?: string;
+  teacher_id?: string;
+}): Promise<{ view: string; from: string; to: string; timezone: string; lessons: BoardLesson[] }> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+  return apiFetch(`/api/group-lessons?${qs.toString()}`);
+}
+
+/** The sidebar counter: group sheets owed, and today's group lessons. */
+export function getGroupLessonsSummary(): Promise<{ owed: number; today: number }> {
+  return apiFetch("/api/group-lessons/summary");
+}
+
+export interface BoardMember {
+  id: string;
+  group_id: string;
+  group_name: string;
+  group_level: string | null;
+  teacher_id: string;
+  teacher_name: string | null;
+  student_id: string;
+  full_name: string;
+  guardian_name: string | null;
+  student_removed: boolean;
+  joined_on: string;
+  left_on: string | null;
+  status: "ACTIVE" | "LEFT";
+  attendance: MemberAttendance;
+  /** Newest first, at most five. */
+  recent: GroupAttendanceStatus[];
+  absent_streak: number;
+  /** This month's group charge — null for whoever cannot see money, or when nothing was charged. */
+  charge: { currency: string; billed_minor: number; outstanding_minor: number } | null;
+}
+
+export type MemberFlag = "absent_streak" | "low_attendance" | "unpaid";
+
+export function listBoardMembers(params: {
+  status?: "ACTIVE" | "LEFT" | "ALL";
+  flag?: MemberFlag;
+  group_id?: string;
+  teacher_id?: string;
+  q?: string;
+} = {}): Promise<{ members: BoardMember[]; thresholds: { streak: number; low_rate: number }; sees_money: boolean }> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+  const query = qs.toString();
+  return apiFetch(`/api/group-members${query ? `?${query}` : ""}`);
+}
+
+export interface GroupPaymentsRow {
+  id: string;
+  name: string;
+  level: string | null;
+  teacher_name: string | null;
+  billing_mode: GroupBillingMode;
+  price_minor: number | null;
+  currency: string | null;
+  money: {
+    currency: string;
+    billed_minor: number;
+    paid_minor: number;
+    outstanding_minor: number;
+    charges: number;
+    /** null for whoever cannot read payroll. */
+    teacher_cost_minor: number | null;
+  }[];
+}
+
+export interface GroupPayments {
+  month: string;
+  groups: GroupPaymentsRow[];
+  totals: { currency: string; billed_minor: number; paid_minor: number; outstanding_minor: number; teacher_cost_minor: number }[];
+  unpaid: {
+    line_id: string;
+    group_id: string;
+    group_name: string;
+    student_id: string | null;
+    student_name: string | null;
+    description: string;
+    amount_minor: number;
+    currency: string;
+    invoice_status: string;
+  }[];
+  sees_teacher_cost: boolean;
+}
+
+export function getGroupPayments(month?: string): Promise<GroupPayments> {
+  return apiFetch(`/api/group-payments${month ? `?month=${month}` : ""}`);
+}
+
+export interface ReportLessons {
+  held: number;
+  cancelled: number;
+  owed: number;
+  upcoming: number;
+  minutes: number;
+}
+
+export interface ReportAttendance {
+  marked: number;
+  came: number;
+  absent: number;
+  excused: number;
+  rate: number | null;
+}
+
+export interface GroupReports {
+  from: string;
+  to: string;
+  totals: { groups: number; members: number; capacity: number | null; lessons: ReportLessons; attendance: ReportAttendance };
+  groups: {
+    id: string;
+    name: string;
+    level: string | null;
+    teacher_name: string | null;
+    status: "ACTIVE" | "ARCHIVED";
+    members: number;
+    capacity: number | null;
+    occupancy: number | null;
+    lessons: ReportLessons;
+    attendance: ReportAttendance;
+    /** null for whoever cannot see money. */
+    billed: { currency: string; amount_minor: number }[] | null;
+  }[];
+  teachers: { id: string; name: string | null; groups: number; lessons: ReportLessons; attendance: ReportAttendance }[];
+}
+
+export function getGroupReports(params: { from?: string; to?: string } = {}): Promise<GroupReports> {
+  const qs = new URLSearchParams();
+  if (params.from) qs.set("from", params.from);
+  if (params.to) qs.set("to", params.to);
+  const query = qs.toString();
+  return apiFetch(`/api/group-reports${query ? `?${query}` : ""}`);
+}
