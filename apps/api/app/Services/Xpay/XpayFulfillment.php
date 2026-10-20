@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Xpay;
 
+use App\Services\Ledger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -68,6 +69,11 @@ final class XpayFulfillment
             $invoiceId,
             $sessionId,
         ])?->ok;
+
+        // An academy kept by receipts records the card payment as a receipt (docs/groups/01-ACCOUNTING.md).
+        if ($marked) {
+            app(Ledger::class)->recordGatewayPayment($academyId, $invoiceId, 'XPay '.$sessionId);
+        }
 
         return (bool) $marked;
     }

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Groups;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Groups\Concerns\InteractsWithClassGroups;
+use App\Services\Ledger;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -229,12 +230,18 @@ final class GroupBoardController extends Controller
             ->keyBy(fn ($g) => (string) $g->id);
         $ids = $groups->keys()->all();
 
+        // A receipt-kept academy (Ledger) knows what each line has been paid, partial payments
+        // included; otherwise a line is paid when its whole invoice is.
+        $keeps = Ledger::keeps($this->currentAcademyId());
+        $allocated = DB::table('receipt_allocations')->selectRaw('invoice_line_id, sum(amount_minor) as paid')->groupBy('invoice_line_id');
         $lines = $ids === [] ? collect() : DB::table('invoice_line_items as li')
             ->join('invoices as inv', 'inv.id', '=', 'li.invoice_id')
             ->leftJoin('students as st', 'st.id', '=', 'li.student_id')
+            ->leftJoinSub($allocated, 'pa', 'pa.invoice_line_id', '=', 'li.id')
             ->whereIn('li.class_group_id', $ids)
             ->whereBetween('li.group_period', [$from, $to])
-            ->get(['li.id', 'li.class_group_id', 'li.student_id', 'st.full_name', 'li.description', 'li.amount_minor', 'li.currency', 'li.group_charge', 'inv.status as invoice_status']);
+            ->where('inv.status', '<>', 'VOID')
+            ->get(['li.id', 'li.class_group_id', 'li.student_id', 'st.full_name', 'li.description', 'li.amount_minor', 'li.currency', 'li.group_charge', 'inv.status as invoice_status', DB::raw('coalesce(pa.paid, 0) as paid')]);
 
         $cost = [];
         if (Gate::allows('payout.read') && $ids !== []) {
@@ -255,15 +262,18 @@ final class GroupBoardController extends Controller
             $gid = (string) $l->class_group_id;
             $cur = (string) $l->currency;
             $amount = (int) $l->amount_minor;
-            $paid = $l->invoice_status === 'PAID';
+            $paidPart = $keeps ? min((int) $l->paid, $amount) : ($l->invoice_status === 'PAID' ? $amount : 0);
+            $left = $amount - $paidPart;
             $per[$gid][$cur] ??= ['billed_minor' => 0, 'paid_minor' => 0, 'outstanding_minor' => 0, 'charges' => 0];
             $per[$gid][$cur]['billed_minor'] += $amount;
-            $per[$gid][$cur][$paid ? 'paid_minor' : 'outstanding_minor'] += $amount;
+            $per[$gid][$cur]['paid_minor'] += $paidPart;
+            $per[$gid][$cur]['outstanding_minor'] += $left;
             $per[$gid][$cur]['charges']++;
             $totals[$cur] ??= ['currency' => $cur, 'billed_minor' => 0, 'paid_minor' => 0, 'outstanding_minor' => 0, 'teacher_cost_minor' => 0];
             $totals[$cur]['billed_minor'] += $amount;
-            $totals[$cur][$paid ? 'paid_minor' : 'outstanding_minor'] += $amount;
-            if (! $paid && $amount > 0) {
+            $totals[$cur]['paid_minor'] += $paidPart;
+            $totals[$cur]['outstanding_minor'] += $left;
+            if ($left > 0) {
                 $unpaid[] = [
                     'line_id' => (string) $l->id,
                     'group_id' => $gid,
@@ -272,6 +282,8 @@ final class GroupBoardController extends Controller
                     'student_name' => $l->full_name,
                     'description' => (string) $l->description,
                     'amount_minor' => $amount,
+                    'paid_minor' => $paidPart,
+                    'remaining_minor' => $left,
                     'currency' => $cur,
                     'invoice_status' => (string) $l->invoice_status,
                 ];
@@ -319,6 +331,7 @@ final class GroupBoardController extends Controller
             'totals' => array_values($totals),
             'unpaid' => $unpaid,
             'sees_teacher_cost' => Gate::allows('payout.read'),
+            'accounting' => $keeps,
         ]);
     }
 

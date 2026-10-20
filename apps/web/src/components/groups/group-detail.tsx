@@ -21,6 +21,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { GroupAccountsPanel } from "@/components/groups/group-accounts-panel";
 import { GroupForm, apiErrorMessage } from "@/components/groups/group-form";
 import { percent, sortSlots, wallTime } from "@/components/groups/group-format";
 import { GroupLessonsPanel } from "@/components/groups/group-lessons-panel";
@@ -36,12 +37,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
 import { HeroBadge, PageHero } from "@/components/ui/page-hero";
+import { useCapability } from "@/lib/capabilities";
 import { archiveGroup, deleteGroup, getGroup, restoreGroup, type GroupDetail } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-type Tab = "lessons" | "members" | "money" | "overview";
-const TABS: Tab[] = ["lessons", "members", "money", "overview"];
+type Tab = "lessons" | "members" | "money" | "accounts" | "overview";
+const TABS: Tab[] = ["lessons", "members", "money", "accounts", "overview"];
 
 /**
  * One group's page (docs/groups): its lessons (the default — that is where the daily work is),
@@ -54,8 +56,14 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
   const router = useRouter();
   const search = useSearchParams();
   const canManage = can("group.manage");
-  // The money tab is the owner's view of the bills — never a supervisor's or a teacher's.
-  const tabs = TABS.filter((k) => k !== "money" || can("invoice.read"));
+  // The money tab is the owner's view of the bills — never a supervisor's or a teacher's. An academy
+  // on receipts (accounting) gets the collection sheet in its place.
+  const accounting = useCapability("accounting");
+  const tabs = TABS.filter((k) => {
+    if (k === "money") return can("invoice.read") && !accounting;
+    if (k === "accounts") return can("invoice.read") && accounting;
+    return true;
+  });
 
   const initialTab = search.get("tab");
   const [tab, setTab] = useState<Tab>(tabs.includes(initialTab as Tab) ? (initialTab as Tab) : "lessons");
@@ -205,6 +213,7 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
       {tab === "lessons" && <GroupLessonsPanel group={group} onChanged={() => void load()} />}
       {tab === "members" && <GroupMembersPanel group={group} onChanged={setGroup} />}
       {tab === "money" && <GroupMoneyPanel group={group} />}
+      {tab === "accounts" && <GroupAccountsPanel group={group} />}
       {tab === "overview" && <GroupOverview group={group} />}
 
       <Modal open={editing} onClose={() => setEditing(false)} title={t("detail.editTitle")} size="lg">

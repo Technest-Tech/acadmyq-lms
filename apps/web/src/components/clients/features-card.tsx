@@ -67,6 +67,7 @@ export function FeaturesCard({
             label={tm(sub.module)}
             capabilities={catalog.modules[sub.module]?.capabilities ?? {}}
             limitKeys={catalog.modules[sub.module]?.limits ?? {}}
+            optIn={catalog.modules[sub.module]?.opt_in ?? []}
             canManage={canManage}
             onChanged={onChanged}
           />
@@ -82,6 +83,7 @@ function ModuleFeatures({
   label,
   capabilities,
   limitKeys,
+  optIn,
   canManage,
   onChanged,
 }: {
@@ -90,13 +92,24 @@ function ModuleFeatures({
   label: string;
   capabilities: Record<string, string>;
   limitKeys: Record<string, string>;
+  /** Off until switched on — stored as `overrides.enabled`, not `overrides.disabled`. */
+  optIn: string[];
   canManage: boolean;
   onChanged: () => void;
 }) {
   const t = useTranslations("clients.features");
   const labels = useFeatureLabels();
   const toast = useToast();
-  const stored = useMemo(() => decodeOverrides(sub.overrides), [sub.overrides]);
+  const decoded = useMemo(() => decodeOverrides(sub.overrides), [sub.overrides]);
+  // One "off" list for the switches: what was switched off, plus the opt-in features nobody has
+  // switched on yet.
+  const stored = useMemo(
+    () => ({
+      ...decoded,
+      disabled: [...decoded.disabled, ...optIn.filter((k) => !decoded.enabled.includes(k) && !decoded.disabled.includes(k))],
+    }),
+    [decoded, optIn],
+  );
 
   const [disabled, setDisabled] = useState<string[]>(stored.disabled);
   const [limits, setLimits] = useState<Record<string, string>>(() =>
@@ -134,7 +147,8 @@ function ModuleFeatures({
     setBusy(true);
     try {
       await updateClientModuleFeatures(clientId, sub.module as ModuleCode, {
-        disabled,
+        disabled: disabled.filter((k) => !optIn.includes(k)),
+        ...(optIn.length > 0 ? { enabled: optIn.filter((k) => !disabled.includes(k)) } : {}),
         limits: cleanLimits(limits),
       });
       onChanged();
@@ -145,7 +159,8 @@ function ModuleFeatures({
     }
   };
 
-  const offCount = disabled.length;
+  // An opt-in feature that is off is the default, not a decision about this client.
+  const offCount = disabled.filter((k) => !optIn.includes(k)).length;
 
   return (
     <div className="px-5 py-4" data-testid={`features-${sub.module}`}>
@@ -213,6 +228,11 @@ function ModuleFeatures({
                   </span>
                   <code className="text-muted-foreground/60 block truncate font-mono text-[10px]">
                     {key}
+                    {optIn.includes(key) && (
+                      <span className="ms-1.5 rounded bg-sky-500/10 px-1 font-sans font-semibold text-sky-700 dark:text-sky-300">
+                        {t("optIn")}
+                      </span>
+                    )}
                   </code>
                 </span>
                 <Switch

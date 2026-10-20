@@ -40,6 +40,8 @@ use App\Http\Controllers\Groups\ClassGroupController;
 use App\Http\Controllers\Groups\ClassGroupLessonController;
 use App\Http\Controllers\Groups\GroupBoardController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\Accounting\ReceiptController;
+use App\Http\Controllers\Groups\GroupAccountsController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
 use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
 use App\Http\Controllers\Learner\CheckoutController as LearnerCheckoutController;
@@ -176,6 +178,8 @@ Route::middleware('throttle:10,1')->post('/auth/reset-password', [AuthController
 */
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::get('/i/{token}', [InvoiceController::class, 'publicShow']);
+    // The public payment receipt (docs/groups/01-ACCOUNTING.md) — `/rc/`, since `/r/` is a room link.
+    Route::get('/rc/{token}', [ReceiptController::class, 'publicShow']);
 
     // Public video join-by-link (archive/video-platform/docs/06 + 08-ROOM-ACCESS §2/§3). Role-separated
     // links: a guest/host/monitor token (/r/{token}) OR a readable per-academy slug
@@ -1109,6 +1113,19 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
         Route::get('/invoices/{id}/payment-proof', [InvoiceController::class, 'paymentProof']);
         Route::post('/invoices/{id}/send-link', [InvoiceController::class, 'sendLink']);
+
+        // Receipts (docs/groups/01-ACCOUNTING.md) — numbered money-in documents allocated to the
+        // invoice lines they pay. Opt-in per client (entitled:accounting) on top of invoicing.
+        Route::middleware('entitled:accounting')->group(function () {
+            Route::get('/receipts', [ReceiptController::class, 'index']);
+            Route::post('/receipts', [ReceiptController::class, 'store']);
+            Route::get('/receipts/{id}', [ReceiptController::class, 'show'])->whereUuid('id');
+            Route::post('/receipts/{id}/void', [ReceiptController::class, 'void'])->whereUuid('id');
+            Route::post('/receipts/{id}/send', [ReceiptController::class, 'send'])->whereUuid('id');
+            Route::get('/receipts/{id}/proof', [ReceiptController::class, 'proof'])->whereUuid('id');
+            Route::get('/payer-account', [ReceiptController::class, 'account']);
+            Route::get('/groups/{id}/accounts', [GroupAccountsController::class, 'show'])->whereUuid('id')->middleware('entitled:groups');
+        });
 
         // Lesson packages (docs/lesson-packages) — the hour-based billing mode that replaces the
         // monthly invoice for the students on it. It IS invoicing on a different clock, so it

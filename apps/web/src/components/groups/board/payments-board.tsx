@@ -4,6 +4,7 @@ import { Wallet } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { Fragment, useCallback, useEffect, useState } from "react";
+import { StateChip } from "@/components/accounting/accounting-ui";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass, todayIn } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
@@ -81,7 +82,7 @@ export function PaymentsBoard() {
                 {data.groups.map((g) => (
                   <li key={g.id} className="grid grid-cols-1 gap-2 p-3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,3fr)] md:items-center">
                     <div className="min-w-0">
-                      <Link href={`/groups/${g.id}?tab=money`} className="block truncate font-medium hover:underline">
+                      <Link href={`/groups/${g.id}?tab=${data.accounting ? "accounts" : "money"}`} className="block truncate font-medium hover:underline">
                         {g.name}
                       </Link>
                       <p className="text-muted-foreground truncate text-xs">
@@ -124,10 +125,21 @@ export function PaymentsBoard() {
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <span className="font-semibold tabular-nums">{fmt(u.amount_minor, u.currency)}</span>
-                      <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-700 dark:text-rose-300">
-                        {t(`moneyTab.invoice.${u.invoice_status}`)}
+                      <span className="text-end">
+                        <span className="block font-semibold tabular-nums">{fmt(u.remaining_minor ?? u.amount_minor, u.currency)}</span>
+                        {(u.paid_minor ?? 0) > 0 && (
+                          <span className="text-muted-foreground block text-xs tabular-nums">
+                            {t("board.payments.leftOf", { of: fmt(u.amount_minor, u.currency) })}
+                          </span>
+                        )}
                       </span>
+                      {data.accounting ? (
+                        <StateChip state={(u.paid_minor ?? 0) > 0 ? "PARTIAL" : "UNPAID"} />
+                      ) : (
+                        <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-700 dark:text-rose-300">
+                          {t(`moneyTab.invoice.${u.invoice_status}`)}
+                        </span>
+                      )}
                     </div>
                   </li>
                 ))}

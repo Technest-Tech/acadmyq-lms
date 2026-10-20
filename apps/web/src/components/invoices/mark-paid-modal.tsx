@@ -2,11 +2,13 @@
 
 import { Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { CollectModal } from "@/components/accounting/collect-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { ApiError, apiFetch } from "@/lib/api";
+import { useCapability } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -31,11 +33,44 @@ export interface MarkPaidModalProps {
 }
 
 /**
+ * "Mark paid" on an invoice. An academy on receipts (`accounting`, docs/groups/01-ACCOUNTING.md)
+ * collects through the Collect screen — a numbered receipt, this invoice's charges ticked — and
+ * every other academy keeps the classic form below, unchanged.
+ */
+export function MarkPaidModal(props: MarkPaidModalProps) {
+  const accounting = useCapability("accounting");
+  return accounting ? <CollectForInvoice {...props} /> : <ClassicMarkPaidModal {...props} />;
+}
+
+function CollectForInvoice({ open, invoiceId, onClose, onSuccess }: MarkPaidModalProps) {
+  // Stable while open: the Collect screen reloads the account whenever its target changes.
+  const target = useMemo(() => (open ? { invoice_id: invoiceId } : null), [open, invoiceId]);
+  const [recorded, setRecorded] = useState(false);
+
+  return (
+    <CollectModal
+      open={open}
+      target={target}
+      onRecorded={() => setRecorded(true)}
+      onClose={() => {
+        // The parent closes + refreshes on success; it waits until the receipt has been seen.
+        if (recorded) {
+          setRecorded(false);
+          onSuccess();
+        } else {
+          onClose();
+        }
+      }}
+    />
+  );
+}
+
+/**
  * Records an outside-system payment against a CLOSED invoice (Sprint 7).
  * Submits POST /api/invoices/{id}/mark-paid. When amount_paid_minor < total
  * the API transitions status → PARTIALLY_PAID; equal/greater → PAID.
  */
-export function MarkPaidModal({
+function ClassicMarkPaidModal({
   open,
   invoiceId,
   totalMinor,

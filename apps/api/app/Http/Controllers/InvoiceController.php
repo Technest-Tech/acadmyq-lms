@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Services\Invoicing;
+use App\Services\Ledger;
 use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -463,9 +465,43 @@ final class InvoiceController extends Controller
             ->sortBy('session_date')
             ->values();
 
+        // Receipt-kept academies: what each line has been paid, and the receipts that paid it.
+        $receipts = null;
+        if (Ledger::keeps((string) $invoice->academy_id)) {
+            $paidByLine = DB::table('receipt_allocations')->where('invoice_id', $id)
+                ->groupBy('invoice_line_id')
+                ->pluck(DB::raw('sum(amount_minor)'), 'invoice_line_id');
+            $lineItems = $lineItems->map(function ($l) use ($paidByLine) {
+                $l->paid_minor = (int) ($paidByLine[(string) $l->id] ?? 0);
+
+                return $l;
+            });
+            $receipts = DB::table('receipt_allocations as ra')
+                ->join('receipts as r', 'r.id', '=', 'ra.receipt_id')
+                ->where('ra.invoice_id', $id)
+                ->groupBy('r.id', 'r.number', 'r.received_on', 'r.method', 'r.reference', 'r.amount_minor', 'r.currency', 'r.created_at')
+                ->orderBy('r.received_on')->orderBy('r.created_at')
+                ->get([
+                    'r.id', 'r.number', 'r.received_on', 'r.method', 'r.reference', 'r.amount_minor', 'r.currency',
+                    DB::raw('sum(ra.amount_minor) as applied_minor'),
+                ])
+                ->map(fn ($r) => [
+                    'id' => (string) $r->id,
+                    'number' => (string) $r->number,
+                    'received_on' => (string) $r->received_on,
+                    'method' => (string) $r->method,
+                    'reference' => $r->reference,
+                    'amount_minor' => (int) $r->amount_minor,
+                    'applied_minor' => (int) $r->applied_minor,
+                    'currency' => (string) $r->currency,
+                ])
+                ->all();
+        }
+
         return response()->json([
             'invoice' => $invoice,
             'lineItems' => $lineItems,
+            'receipts' => $receipts,
         ]);
     }
 
@@ -667,6 +703,39 @@ final class InvoiceController extends Controller
                 : null,
             'payment_proof_path' => $proofPath,
         ];
+
+        // An academy kept by receipts (docs/groups/01-ACCOUNTING.md): "mark paid" records a receipt
+        // for this invoice instead of overwriting its paid amount. `amount_paid_minor` keeps its
+        // classic meaning — the invoice's paid total after this payment — so the receipt is the rise.
+        if (Ledger::enabledFor($academyId)) {
+            $already = (int) $invoice->amount_paid_minor;
+            $receiptAmount = $amountProvided ? (int) $amountPaid - $already : $totalMinor - $already;
+            if ($receiptAmount <= 0) {
+                throw ValidationException::withMessages(['amount_paid_minor' => [
+                    'Nothing more to record on this invoice. / لا يوجد مبلغ إضافي لتسجيله على هذه الفاتورة.',
+                ]]);
+            }
+
+            $receipt = app(Ledger::class)->record($academyId, [], $receiptAmount, (string) $invoice->currency, [
+                'invoice_id' => $id,
+                'method' => (string) $validated['payment_method'],
+                'reference' => $evidence['payment_reference'],
+                'proof_path' => $proofPath,
+                'note' => $validated['payment_reason'] ?? null,
+                'received_by' => $userId,
+                'actor_role' => $role,
+            ]);
+            $after = DB::table('invoices')->where('id', $id)->first();
+
+            return response()->json([
+                'ok' => true,
+                'status' => (string) $after->status,
+                'amount_paid_minor' => (int) $after->amount_paid_minor,
+                'payment_reference' => $evidence['payment_reference'],
+                'payment_proof_url' => null,
+                'receipt' => ['id' => (string) $receipt->id, 'number' => (string) $receipt->number],
+            ]);
+        }
 
         if ($amountProvided && $amountPaid !== null && $amountPaid < $totalMinor) {
             // Partial payment

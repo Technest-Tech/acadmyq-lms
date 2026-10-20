@@ -522,6 +522,7 @@ final class LessonPackages
                 $invoiceId = (string) $line->invoice_id;
                 DB::table('invoice_line_items')->where('id', $line->id)->delete();
                 $this->resettleInvoice($invoiceId);
+                app(Ledger::class)->afterLinesChanged($invoiceId);
             }
 
             $before = (int) $package->minutes_consumed;
@@ -914,6 +915,7 @@ final class LessonPackages
                 'total_minor' => $newTotal,
                 'updated_at' => now(),
             ]);
+            app(Ledger::class)->afterLinesChanged($invoiceId);
 
             $before = DB::table('lesson_package_credits')->where('session_id', $session->id)->exists();
             $this->consume($session);
@@ -1135,6 +1137,7 @@ final class LessonPackages
             'total_minor' => $total,
             'updated_at' => now(),
         ]);
+        app(Ledger::class)->afterLinesChanged($invoiceId);
 
         Audit::log(
             'invoice.updated',
@@ -1545,6 +1548,7 @@ final class LessonPackages
                 'created_at' => now(),
             ]);
         }
+        app(Ledger::class)->afterLinesChanged($invoiceId);
 
         Audit::log(
             'invoice.created',

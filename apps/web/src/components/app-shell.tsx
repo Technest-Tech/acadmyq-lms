@@ -38,6 +38,7 @@ import {
   PanelLeftOpen,
   Layers,
   PackageCheck,
+  Receipt,
   ReceiptText,
   Scale,
   Settings,
@@ -134,6 +135,7 @@ type NavKey =
   | "certificates"
   | "billing"
   | "invoices"
+  | "receipts"
   | "packages"
   | "packagesFinished"
   | "payroll"
@@ -428,6 +430,15 @@ const NAV: ReadonlyArray<{
     href: "/invoices",
     group: "financial",
   },
+  // Receipts (docs/groups/01-ACCOUNTING.md): every payment taken, numbered — next to the invoices
+  // they pay. Only for a client on receipts (`accounting`, opt-in).
+  {
+    key: "receipts",
+    icon: Receipt,
+    permission: "invoice.read",
+    href: "/receipts",
+    group: "financial",
+  },
   // Lesson packages sit directly under Invoices because they ARE invoicing — the same money on a
   // different clock (a block of hours instead of a calendar month), for the students on that mode.
   {
@@ -648,6 +659,7 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   studentReports: "student_reports",
   studentReportReviews: "student_reports",
   invoices: "invoicing",
+  receipts: "accounting",
   // Packages ARE invoicing (the same money on a different clock) and the server keeps them inside
   // that gate — but they carry their own switch on top, so an academy that bills monthly is never
   // offered the second clock.

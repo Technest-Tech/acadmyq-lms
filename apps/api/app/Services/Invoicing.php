@@ -143,6 +143,9 @@ final class Invoicing implements BillingHook
                     'currency' => $currency,
                 ],
             );
+
+            // Receipt-kept academies (Ledger): money the payer already holds covers the new line.
+            app(Ledger::class)->afterLinesChanged($invoiceId);
         }
     }
 
@@ -205,6 +208,9 @@ final class Invoicing implements BillingHook
                 'amount_minor' => $amountMinor,
             ],
         );
+
+        // Whatever a receipt had paid on the removed line is the payer's credit again.
+        app(Ledger::class)->afterLinesChanged($invoiceId);
     }
 
     // -------------------------------------------------------------------------
@@ -281,6 +287,8 @@ final class Invoicing implements BillingHook
             'currency' => $currency,
         ]);
 
+        app(Ledger::class)->afterLinesChanged($invoiceId);
+
         return $lineId;
     }
 
@@ -312,6 +320,8 @@ final class Invoicing implements BillingHook
             'student_id' => $line->student_id,
             'amount_minor' => $amountMinor,
         ]);
+
+        app(Ledger::class)->afterLinesChanged((string) $line->invoice_id);
     }
 
     /**
@@ -321,7 +331,7 @@ final class Invoicing implements BillingHook
      *
      * @return array{0: ?string, 1: ?string} [guardianId, studentId]
      */
-    private function payerOf(object $academy, string $studentId): array
+    public function payerOf(object $academy, string $studentId): array
     {
         if (($academy->invoice_grouping ?? 'PER_GUARDIAN') === 'PER_STUDENT') {
             return [null, $studentId];
@@ -357,8 +367,10 @@ final class Invoicing implements BillingHook
             return;
         }
 
-        // Idempotent — already closed or paid.
-        if (in_array($invoice->status, ['CLOSED', 'PAID'], true)) {
+        // Idempotent — only a running (OPEN) invoice closes. One already closed, paid or part-paid
+        // is left exactly as it is (the trigger now lets payment states move, so this guard is what
+        // keeps a part-paid invoice from being "closed" back to unpaid).
+        if ($invoice->status !== 'OPEN') {
             return;
         }
 
@@ -383,6 +395,10 @@ final class Invoicing implements BillingHook
                 'closed_at' => $closedAt,
                 'updated_at' => $closedAt,
             ]);
+
+        // A receipt-kept invoice closes onto what its receipts already cover — PAID or
+        // PARTIALLY_PAID straight away. A no-op for every other academy.
+        DB::select('select app.ledger_refresh_invoice(?)', [$invoiceId]);
 
         Audit::log(
             'invoice.closed',
@@ -506,6 +522,8 @@ final class Invoicing implements BillingHook
                 'lines' => count($lines),
             ],
         );
+
+        app(Ledger::class)->afterLinesChanged($invoiceId);
 
         return $invoiceId;
     }
@@ -667,6 +685,8 @@ final class Invoicing implements BillingHook
                 'sessions' => count($sessionIds),
             ],
         );
+
+        app(Ledger::class)->afterLinesChanged($invoiceId);
 
         return ['invoice_id' => $invoiceId, 'count' => count($sessionIds)];
     }

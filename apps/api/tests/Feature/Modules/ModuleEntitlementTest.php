@@ -46,8 +46,12 @@ it('grants every feature the module owns — no package decides anything', funct
 
     $resolved = meResolve($academyId);
 
-    foreach (FeatureCatalog::capabilitiesOfModule('MANAGEMENT') as $capability) {
+    foreach (array_diff(FeatureCatalog::capabilitiesOfModule('MANAGEMENT'), FeatureCatalog::OPT_IN_CAPABILITIES) as $capability) {
         expect($resolved['capabilities'])->toContain($capability);
+    }
+    // …except the opt-in ones, which wait for a Super Admin to switch them on.
+    foreach (FeatureCatalog::OPT_IN_CAPABILITIES as $capability) {
+        expect($resolved['capabilities'])->not->toContain($capability);
     }
     // CRM is a management feature now, not something a client subscribes to separately.
     expect($resolved['capabilities'])->toContain('crm');

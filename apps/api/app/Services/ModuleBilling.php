@@ -196,16 +196,20 @@ final class ModuleBilling
      * own capability set are rejected, so a typo can never silently disable nothing (or something
      * belonging to another module).
      *
-     * Passing an empty list restores the module's full feature set.
+     * Passing an empty list restores the module's full feature set — except the OPT-IN features
+     * (FeatureCatalog::OPT_IN_CAPABILITIES), which are only ever switched on by naming them in
+     * `$enabled`. `$enabled` null leaves them exactly as they are, so no caller can turn one on by
+     * accident; naming one in `$disabled` switches it off.
      *
      * @param  list<string>  $disabled
+     * @param  list<string>|null  $enabled
      */
-    public function setDisabledFeatures(string $academyId, string $module, array $disabled): ?object
+    public function setDisabledFeatures(string $academyId, string $module, array $disabled, ?array $enabled = null): ?object
     {
         $this->assertModule($module);
 
         $owned = FeatureCatalog::capabilitiesOfModule($module);
-        $unknown = array_values(array_diff($disabled, $owned));
+        $unknown = array_values(array_diff([...$disabled, ...($enabled ?? [])], $owned));
         if ($unknown !== []) {
             throw ValidationException::withMessages([
                 'features' => ['Not features of the '.$module.' module: '.implode(', ', $unknown).'.'],
@@ -218,17 +222,40 @@ final class ModuleBilling
         }
 
         $ov = $this->decodeOverrides($sub->overrides);
-        $disabled = array_values(array_unique(array_intersect($owned, $disabled))); // stable catalog order
+
+        // An opt-in feature is stored the other way round — ON only while it is listed in
+        // `overrides.enabled` — so a client nobody touched keeps it off.
+        $optIn = array_values(array_intersect($owned, FeatureCatalog::OPT_IN_CAPABILITIES));
+        $wasEnabled = array_values(array_intersect($optIn, (array) ($ov['enabled'] ?? [])));
+        $enabled = array_values(array_diff(
+            $enabled === null ? $wasEnabled : array_values(array_intersect($optIn, $enabled)),
+            $disabled,
+        ));
+        $disabled = array_values(array_unique(array_diff(array_intersect($owned, $disabled), $optIn))); // stable catalog order
         if ($disabled !== []) {
             $ov['disabled'] = $disabled;
         } else {
             unset($ov['disabled']);
+        }
+        if ($enabled !== []) {
+            $ov['enabled'] = $enabled;
+        } else {
+            unset($ov['enabled']);
         }
 
         DB::table('module_subscriptions')->where('id', $sub->id)->update([
             'overrides' => $ov === [] ? null : json_encode($ov),
             'updated_at' => now(),
         ]);
+
+        // Accounting switched on: the academy's existing payments become receipts so its invoices
+        // can be kept by them. Switched off: the invoices go back to the classic "mark paid".
+        if (in_array('accounting', $optIn, true)) {
+            $nowOn = in_array('accounting', $enabled, true);
+            if ($nowOn !== in_array('accounting', $wasEnabled, true)) {
+                $nowOn ? app(Ledger::class)->adopt($academyId) : app(Ledger::class)->release($academyId);
+            }
+        }
 
         return $this->current($academyId, $module);
     }

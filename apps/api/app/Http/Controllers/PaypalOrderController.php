@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Services\Ledger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -34,7 +35,12 @@ final class PaypalOrderController extends Controller
 
         $accessToken = $this->getAccessToken($cfg);
 
-        $amountDecimal = number_format($cfg['total_minor'] / 100, 2, '.', '');
+        // What is LEFT, never the total (see XpayCheckoutController::createSession).
+        $remaining = (int) $cfg['total_minor'] - (int) ($cfg['amount_paid_minor'] ?? 0);
+        if (! in_array($cfg['status'], ['OPEN', 'CLOSED'], true) || $remaining <= 0) {
+            abort(422, 'This invoice has nothing left to pay.');
+        }
+        $amountDecimal = number_format($remaining / 100, 2, '.', '');
 
         $response = Http::withToken($accessToken)
             ->post("{$cfg['base_url']}/v2/checkout/orders", [
@@ -105,6 +111,11 @@ final class PaypalOrderController extends Controller
 
         if (! $marked) {
             abort(409, 'Invoice could not be marked paid. It may already be in a terminal state.');
+        }
+
+        // An academy kept by receipts records the card payment as a receipt (docs/groups/01-ACCOUNTING.md).
+        if (! empty($cfg['academy_id'])) {
+            app(Ledger::class)->recordGatewayPayment((string) $cfg['academy_id'], (string) $invoiceId, 'PayPal '.$orderId);
         }
 
         return response()->json(['ok' => true, 'paypal_order_id' => $orderId]);

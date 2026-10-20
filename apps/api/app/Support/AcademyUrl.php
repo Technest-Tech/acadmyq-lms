@@ -56,4 +56,10 @@ final class AcademyUrl
     {
         return self::origin($academyId).'/i/'.$token;
     }
+
+    /** The public receipt page (docs/groups/01-ACCOUNTING.md) — `/rc/`, since `/r/` is a room link. */
+    public static function receipt(?string $academyId, string $token): string
+    {
+        return self::origin($academyId).'/rc/'.$token;
+    }
 }

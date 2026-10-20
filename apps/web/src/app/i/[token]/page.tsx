@@ -546,9 +546,15 @@ export default async function PublicInvoicePage({ params }: PageProps) {
   const invoice = await fetchInvoice(token);
   if (!invoice) notFound();
 
-  const isPaid = invoice.status === "PAID";
+  // On an academy kept by receipts a running month's invoice stays OPEN however much is paid on it
+  // (docs/groups/01-ACCOUNTING.md), so a fully covered bill is paid whatever its status says — and
+  // must never offer the pay button again. Everywhere else this is exactly status === PAID.
+  const isPaid =
+    invoice.status === "PAID" ||
+    (invoice.status !== "VOID" && invoice.total_minor > 0 && invoice.amount_paid_minor >= invoice.total_minor);
   const isVoid = invoice.status === "VOID";
-  const isPartial = invoice.status === "PARTIALLY_PAID";
+  const isPartial =
+    invoice.status === "PARTIALLY_PAID" || (!isPaid && !isVoid && invoice.amount_paid_minor > 0);
   const reference = invoiceReference(invoice.id);
   const currency = invoice.currency;
 

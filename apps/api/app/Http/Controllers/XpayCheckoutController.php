@@ -48,7 +48,10 @@ final class XpayCheckoutController extends Controller
             abort(409, 'Invoice is not in a payable state.');
         }
 
-        $amountMinor = (int) $cfg['total_minor'];
+        // What is LEFT, never the total: on an academy kept by receipts a running invoice stays OPEN
+        // with part of it already paid (docs/groups/01-ACCOUNTING.md). Elsewhere an OPEN or CLOSED
+        // invoice has nothing paid on it, so this is the total exactly as before.
+        $amountMinor = (int) $cfg['total_minor'] - (int) ($cfg['amount_paid_minor'] ?? 0);
         if ($amountMinor <= 0) {
             abort(422, 'This invoice has nothing left to pay.');
         }
@@ -134,11 +137,13 @@ final class XpayCheckoutController extends Controller
             abort(404, 'That payment does not belong to this invoice.');
         }
 
+        // Checked against what THIS session was opened for (what was left then), like the webhook.
+        $expected = DB::selectOne('select app.xpay_session_amount(?, ?) as amount', [$id, (string) $cfg['invoice_id']])?->amount;
         $marked = $this->fulfillment->settle(
             $session,
             (string) $cfg['academy_id'],
             (string) $cfg['invoice_id'],
-            (int) $cfg['total_minor'],
+            $expected !== null ? (int) $expected : (int) $cfg['total_minor'] - (int) ($cfg['amount_paid_minor'] ?? 0),
         );
 
         $status = DB::selectOne('select app.xpay_invoice_status(?) as s', [(string) $cfg['invoice_id']])?->s

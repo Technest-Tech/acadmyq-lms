@@ -419,11 +419,14 @@ final class Entitlement
             }
 
             // The module grants everything it owns, MINUS whatever a Super Admin switched off for
-            // this one client in its profile (05-MODULES-NOT-PACKAGES §4).
+            // this one client in its profile (05-MODULES-NOT-PACKAGES §4) — and minus the opt-in
+            // features nobody has switched ON for it (FeatureCatalog::OPT_IN_CAPABILITIES).
             $disabled = array_map('strval', (array) ($overrides['disabled'] ?? []));
+            $enabled = array_map('strval', (array) ($overrides['enabled'] ?? []));
+            $notOptedIn = array_diff(FeatureCatalog::OPT_IN_CAPABILITIES, $enabled);
             $capabilities = array_merge(
                 $capabilities,
-                array_values(array_diff(FeatureCatalog::capabilitiesOfModule($module), $disabled)),
+                array_values(array_diff(FeatureCatalog::capabilitiesOfModule($module), $disabled, $notOptedIn)),
             );
         }
 

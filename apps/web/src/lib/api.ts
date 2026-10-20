@@ -632,7 +632,12 @@ export interface ClientFeatureCatalog {
   modules: Partial<
     Record<
       ModuleCode,
-      { capabilities: Record<string, string>; limits: Record<string, string> }
+      {
+        capabilities: Record<string, string>;
+        limits: Record<string, string>;
+        /** Features that are OFF until switched on (opt-in), stored as `overrides.enabled`. */
+        opt_in?: string[];
+      }
     >
   >;
 }
@@ -755,7 +760,7 @@ export function updateClientModule(
 export function updateClientModuleFeatures(
   clientId: string,
   module: ModuleCode,
-  input: { disabled?: string[]; limits?: Record<string, number> | null },
+  input: { disabled?: string[]; enabled?: string[]; limits?: Record<string, number> | null },
 ): Promise<{ subscription: ModuleSubscription }> {
   return apiFetch(
     `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/features`,
@@ -1892,6 +1897,24 @@ export function setLmsLearnerStatus(
       body: JSON.stringify({ status, reason: reason ?? null }),
     },
   );
+}
+
+/**
+ * Fetch any private file the API streams (a receipt's transfer proof, …) as an object URL — works in
+ * cookie and token modes, where a plain link would only carry the cookie.
+ */
+export async function fetchPrivateFileUrl(path: string): Promise<string> {
+  const headers = new Headers({ Accept: "*/*" });
+  if (AUTH_MODE === "token") {
+    const token = getAuthToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
+  const res = await fetch(`${apiBase()}${path}`, {
+    headers,
+    credentials: AUTH_MODE === "cookie" ? "include" : "same-origin",
+  });
+  if (!res.ok) throw new ApiError(res.status, "File fetch failed");
+  return URL.createObjectURL(await res.blob());
 }
 
 /** Fetch a private payment-proof screenshot as an object URL (works in cookie + token modes). */

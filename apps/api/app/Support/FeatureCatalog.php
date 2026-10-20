@@ -40,6 +40,7 @@ final class FeatureCatalog
         'financial_statistics' => 'Financial statistics & exchange rates',
         'report_card' => 'Report card image (shareable lesson/trial report)',
         'groups' => 'Group classes — groups, members, timetable & attendance',
+        'accounting' => 'Accounting — numbered receipts, partial payments, balances & collection sheets',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
         'video.only' => 'Video-only workspace (the panel shows the video classroom only)',
         'lms' => 'LMS — online courses (course builder & learner site)',
@@ -177,10 +178,24 @@ final class FeatureCatalog
             'financial_statistics',
             'report_card',
             'groups',
+            'accounting',
         ],
         'VIDEO' => ['video.conferencing'],
         'WHATSAPP' => ['whatsapp.automation'],
         'LMS' => ['lms'],
+    ];
+
+    /**
+     * Module capabilities that are OPT-IN: the module grants them only once a Super Admin switches
+     * them ON for a client (`module_subscriptions.overrides.enabled`), where every other capability
+     * is granted until switched off. For a feature that changes how an existing workflow behaves —
+     * `accounting` turns "mark paid" into numbered receipts — so no client, new or existing, ever
+     * gets it by default.
+     *
+     * @var list<string>
+     */
+    public const OPT_IN_CAPABILITIES = [
+        'accounting',
     ];
 
     /**

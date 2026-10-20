@@ -190,7 +190,8 @@
     "groupsLessons": "Lessons & attendance",
     "groupsStudents": "Group students",
     "groupsPayments": "Payments",
-    "groupsReports": "Reports"
+    "groupsReports": "Reports",
+    "receipts": "Receipts"
   },
   "navGroup": {
     "general": "General",
@@ -688,7 +689,8 @@
         "maxCourses": "Max published courses",
         "maxLearners": "Max learners",
         "maxStorageGb": "Media storage (GB)"
-      }
+      },
+      "optIn": "opt-in"
     }
   },
   "header": {
@@ -3175,7 +3177,8 @@
       "video": {
         "conferencing": "Video classroom — rooms & recordings"
       },
-      "groups": "Group classes — groups, members, timetable & attendance"
+      "groups": "Group classes — groups, members, timetable & attendance",
+      "accounting": "Accounting — numbered receipts, partial payments & collection sheets"
     }
   },
   "adminDashboard": {
@@ -6514,7 +6517,8 @@
         "lessons": "Lessons",
         "members": "Members",
         "overview": "Overview",
-        "money": "Money"
+        "money": "Money",
+        "accounts": "Accounts"
       }
     },
     "lessons": {
@@ -6783,7 +6787,8 @@
         "noPrice": "no price",
         "nothing": "Nothing this month",
         "teacherCost": "Teacher pay",
-        "unpaid": "{count, plural, one {# charge not paid yet} other {# charges not paid yet}}"
+        "unpaid": "{count, plural, one {# charge not paid yet} other {# charges not paid yet}}",
+        "leftOf": "left of {of}"
       },
       "reports": {
         "title": "Group reports",
@@ -7039,6 +7044,10 @@
       },
       "other": {
         "label": "Other"
+      },
+      "receipts": {
+        "label": "Receipts",
+        "hint": "Void a recorded payment (collecting rides Invoices → manage)"
       }
     }
   },
@@ -7082,7 +7091,8 @@
       "recording": "Recordings",
       "booking": "Booking requests",
       "group": "Group classes",
-      "settings": "Settings"
+      "settings": "Settings",
+      "receipt": "Receipts"
     },
     "items": {
       "crm_read": {
@@ -7464,6 +7474,10 @@
       "settings_manage": {
         "label": "Manage academy settings",
         "desc": "The academy's name, Controls switches and WhatsApp pairing"
+      },
+      "receipt_void": {
+        "label": "Void receipts",
+        "desc": "Cancel a recorded payment, with a reason (its money goes back to unpaid)"
       }
     }
   },
@@ -9016,6 +9030,182 @@
       "statusSaved": "Status updated.",
       "noteSaved": "Note saved.",
       "copied": "Link copied."
+    }
+  },
+  "accounting": {
+    "noAccess": "You don't have access to the academy's receipts.",
+    "invoiceReceipts": "Receipts on this invoice",
+    "method": {
+      "CASH": "Cash",
+      "INSTAPAY": "InstaPay",
+      "WALLET": "Mobile wallet",
+      "BANK_TRANSFER": "Bank transfer",
+      "CARD": "Card",
+      "OTHER": "Other"
+    },
+    "state": {
+      "PAID": "Paid",
+      "PARTIAL": "Part-paid",
+      "UNPAID": "Unpaid",
+      "FREE": "Free",
+      "NO_CHARGE": "No charge"
+    },
+    "source": {
+      "MANUAL": "Recorded by staff",
+      "GATEWAY": "Online payment",
+      "MIGRATED": "Recorded before receipts"
+    },
+    "collect": {
+      "title": "Collect a payment",
+      "loading": "Loading the account…",
+      "loadFailed": "Couldn't load this payer's account.",
+      "failed": "The payment wasn't recorded.",
+      "cancel": "Cancel",
+      "submit": "Record payment",
+      "submitAmount": "Record {amount}",
+      "owes": "Owes {amount}",
+      "holds": "Credit {amount}",
+      "currency": "Currency",
+      "charges": "What is being paid",
+      "selectAll": "Select all",
+      "clear": "Clear",
+      "nothingOwed": "Nothing is owed — anything received is kept as credit.",
+      "partlyPaid": "{paid} of {of} paid",
+      "amount": "Amount received ({currency})",
+      "useSelected": "Use the ticked total: {amount}",
+      "receivedOn": "Received on",
+      "method": "Payment method",
+      "reference": "Transaction reference",
+      "referenceHint": "e.g. InstaPay or transfer no.",
+      "proof": "Proof (screenshot)",
+      "note": "Note",
+      "optional": "optional",
+      "willPay": "This payment will pay",
+      "allCredit": "Nothing to pay — the whole amount is kept as credit.",
+      "partOf": "part of {of}",
+      "becomesCredit": "{amount} is kept as credit for their next charges",
+      "keepCredit": "Keep what is left as credit instead of paying their other charges",
+      "doneTitle": "Payment recorded",
+      "receiptNo": "Receipt no.",
+      "stillOwed": "Still owed",
+      "creditHeld": "Credit held",
+      "sendWhatsApp": "Send on WhatsApp",
+      "openReceipt": "Open / print receipt",
+      "copyLink": "Copy link",
+      "copied": "Copied",
+      "done": "Done",
+      "sent": "Sent to {phone} on WhatsApp.",
+      "noPhone": "This payer has no WhatsApp number — copy the link instead.",
+      "sendFailed": "The receipt couldn't be sent."
+    },
+    "detail": {
+      "title": "Receipt {number}",
+      "loading": "Loading the receipt…",
+      "loadFailed": "Couldn't load the receipt.",
+      "voidedBanner": "Void — {reason} (by {by})",
+      "receivedFrom": "Received from",
+      "date": "Date",
+      "collector": "Received by",
+      "reference": "Reference",
+      "paidFor": "Paid for",
+      "voidNothing": "A void receipt pays nothing.",
+      "allCredit": "The whole amount is held as credit.",
+      "partOf": "part of {of}",
+      "leftAsCredit": "{amount} left as credit",
+      "nowOwes": "The account now owes {amount}",
+      "settled": "The account is settled",
+      "void": "Void receipt",
+      "voidReason": "Why is this receipt being voided?",
+      "voidReasonHint": "e.g. recorded on the wrong family",
+      "voidWarning": "Its number stays taken and what it paid goes back to unpaid. This can't be undone.",
+      "voidConfirm": "Void it",
+      "voidFailed": "The receipt couldn't be voided.",
+      "proof": "View proof",
+      "proofFailed": "The proof couldn't be opened."
+    },
+    "sheet": {
+      "loadFailed": "Couldn't load the group's accounts.",
+      "month": "Month",
+      "noPrice": "This group has no price, so it bills nothing.",
+      "rule": {
+        "MONTHLY": "{price} a month, paid up front",
+        "PER_LESSON": "{price} per lesson attended",
+        "COURSE": "{price} for the whole course"
+      },
+      "collectionRate": "Collection rate",
+      "counts": "{paid} paid · {partial} part-paid · {unpaid} unpaid",
+      "expected": "Expected this month",
+      "collected": "Collected",
+      "remaining": "Still owed",
+      "arrears": "Arrears",
+      "arrearsHint": "Owed from earlier months",
+      "receivedInMonth": "Came in this month",
+      "receivedHint": "Receipts dated this month, for any month",
+      "teacherCost": "Teacher cost",
+      "net": "Net",
+      "netHint": "Collected − teacher cost",
+      "empty": "No students or charges this month.",
+      "search": "Search a student or parent",
+      "filter": {
+        "ALL": "All",
+        "UNPAID": "Unpaid",
+        "PARTIAL": "Part-paid",
+        "PAID": "Paid"
+      },
+      "col": {
+        "student": "Student",
+        "due": "Due",
+        "paid": "Paid",
+        "remaining": "Left",
+        "arrears": "Arrears",
+        "status": "Status",
+        "lastPayment": "Last payment"
+      },
+      "collect": "Collect",
+      "arrearsLine": "Plus {amount} from earlier months",
+      "left": "left the group",
+      "paidBy": "Paid by {name}",
+      "noPayment": "No payment yet"
+    },
+    "register": {
+      "title": "Receipts",
+      "subtitle": "Every payment the academy took, numbered — who paid, how, and who received it.",
+      "record": "Record a payment",
+      "loadFailed": "Couldn't load the receipts.",
+      "from": "From",
+      "to": "To",
+      "method": "Method",
+      "allMethods": "All methods",
+      "collector": "Received by",
+      "everyone": "Everyone",
+      "status": "Status",
+      "statusActive": "Valid",
+      "statusVoid": "Void",
+      "statusAll": "All",
+      "search": "Search",
+      "searchHint": "Receipt no., name or reference",
+      "collectedTotal": "Collected",
+      "receiptsCount": "{count, plural, one {# receipt} other {# receipts}}",
+      "byMethod": "By payment method",
+      "empty": "No receipts in this period.",
+      "void": "Void",
+      "creditPart": "{amount} as credit",
+      "col": {
+        "number": "Receipt",
+        "date": "Date",
+        "payer": "Payer",
+        "method": "Method",
+        "amount": "Amount",
+        "collector": "Received by"
+      },
+      "prev": "Previous",
+      "next": "Next",
+      "page": "Page {page} of {pages}",
+      "pickTitle": "Who is paying?",
+      "pickHint": "Pick the student — their family's account opens with everything they owe.",
+      "pickPlaceholder": "Student name or phone",
+      "pickParent": "Parent: {name}",
+      "pickNone": "No student found."
     }
   }
 }

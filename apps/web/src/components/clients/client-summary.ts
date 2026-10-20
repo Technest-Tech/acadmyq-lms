@@ -137,6 +137,8 @@ export function nextUpcoming(
 /** `overrides` arrives as jsonb — an object from the directory read, a string from a write. */
 export function decodeOverrides(raw: ModuleSubscription["overrides"]): {
   disabled: string[];
+  /** Opt-in features switched ON for this client (FeatureCatalog::OPT_IN_CAPABILITIES). */
+  enabled: string[];
   limits: Record<string, number>;
 } {
   let parsed: unknown = raw;
@@ -147,10 +149,11 @@ export function decodeOverrides(raw: ModuleSubscription["overrides"]): {
       parsed = null;
     }
   }
-  const obj = (parsed ?? {}) as { disabled?: unknown; limits?: unknown };
+  const obj = (parsed ?? {}) as { disabled?: unknown; enabled?: unknown; limits?: unknown };
 
   return {
     disabled: Array.isArray(obj.disabled) ? obj.disabled.map(String) : [],
+    enabled: Array.isArray(obj.enabled) ? obj.enabled.map(String) : [],
     limits:
       obj.limits !== null && typeof obj.limits === "object"
         ? Object.fromEntries(

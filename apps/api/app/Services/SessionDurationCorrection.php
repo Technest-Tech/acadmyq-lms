@@ -253,6 +253,8 @@ final class SessionDurationCorrection
             after: ['session_id' => (string) $session->id, 'amount_minor' => $effect['amount_after']],
             before: ['amount_minor' => $effect['amount_before']],
         );
+
+        app(Ledger::class)->afterLinesChanged((string) $effect['invoice_id']);
     }
 
     /** @param array<string,mixed> $effect */

@@ -83,6 +83,9 @@ final class PermissionCatalog
         'booking.read', 'booking.manage',
         'notification.read',
         'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
+        // Receipts (docs/groups/01-ACCOUNTING.md): recording one rides invoice.mark_paid; voiding
+        // one — taking money back off the books — is its own, heavier call.
+        'receipt.void',
         'payout.read', 'payout.read_own', 'payout.finalize', 'payout.adjust',
         // Lesson packages — the hour-based second billing clock (docs/lesson-packages). Seeded
         // straight into `role_permissions` when the module shipped; listed here so the role
@@ -134,6 +137,7 @@ final class PermissionCatalog
      */
     public const FINANCIAL = [
         'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
+        'receipt.void',
         'payout.read', 'payout.read_own', 'payout.finalize', 'payout.adjust',
         'payment_settings.manage',
         'package.read', 'package.manage',
@@ -196,6 +200,7 @@ final class PermissionCatalog
         ['key' => 'audit', 'kind' => 'operations', 'view' => ['audit.read'], 'manage' => []],
 
         ['key' => 'invoices', 'kind' => 'financial', 'view' => ['invoice.read'], 'manage' => ['invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link']],
+        ['key' => 'receipts', 'kind' => 'financial', 'view' => [], 'manage' => ['receipt.void']],
         ['key' => 'packages', 'kind' => 'financial', 'view' => ['package.read'], 'manage' => ['package.manage']],
         ['key' => 'payroll', 'kind' => 'financial', 'view' => ['payout.read'], 'manage' => ['payout.finalize', 'payout.adjust']],
         ['key' => 'student_prices', 'kind' => 'financial', 'view' => [], 'manage' => ['student.set_price']],
@@ -221,6 +226,7 @@ final class PermissionCatalog
         'course_order' => 'lms', 'payment_method' => 'lms', 'booking' => 'lms',
         'crm' => 'crm',
         'invoice' => 'invoicing',
+        'receipt' => 'accounting',
         'payout' => 'payroll',
         'package' => 'packages',
         'group' => 'groups',
@@ -327,6 +333,7 @@ final class PermissionCatalog
             'booking.read', 'booking.manage',
             'notification.read',
             'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
+            'receipt.void',
             'payout.read', 'payout.finalize', 'payout.adjust',
             'package.read', 'package.manage',
             'group.read', 'group.manage',
@@ -379,6 +386,7 @@ final class PermissionCatalog
                 'student.read', 'guardian.read', 'teacher.read', 'staff.read',
                 'schedule.read', 'session.read', 'group.read',
                 'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
+                'receipt.void',
                 'payout.read', 'payout.finalize', 'payout.adjust',
                 'package.read', 'package.manage',
                 'student.set_price', 'teacher.set_pay', 'staff.set_salary',

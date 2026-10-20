@@ -11,11 +11,14 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { MethodBadge, dayLabel } from "@/components/accounting/accounting-ui";
+import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import type { ReceiptMethod } from "@/lib/accounting-api";
 import { ApiError, apiFetch } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -60,6 +63,20 @@ export interface InvoiceDetail {
 interface InvoiceDetailResponse {
   invoice: InvoiceDetail;
   lineItems: InvoiceLineItem[];
+  /** The receipts that paid it — only for an academy on receipts (accounting), else null. */
+  receipts?: InvoiceReceipt[] | null;
+}
+
+interface InvoiceReceipt {
+  id: string;
+  number: string;
+  received_on: string;
+  method: ReceiptMethod;
+  reference: string | null;
+  amount_minor: number;
+  /** What of the receipt went to THIS invoice. */
+  applied_minor: number;
+  currency: string;
 }
 
 interface SendLinkResult {
@@ -339,6 +356,9 @@ export function InvoiceDetailModal({
 
   // Mark Paid nested modal
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
+  const [receipts, setReceipts] = useState<InvoiceReceipt[] | null>(null);
+  const [receiptId, setReceiptId] = useState<string | null>(null);
+  const tAcc = useTranslations("accounting");
 
   // WhatsApp send-link state
   const [sendingLink, setSendingLink] = useState(false);
@@ -354,6 +374,7 @@ export function InvoiceDetailModal({
       const res = await apiFetch<InvoiceDetailResponse>(`/api/invoices/${id}`);
       setInvoice(res.invoice);
       setLineItems(res.lineItems ?? []);
+      setReceipts(res.receipts ?? null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -453,7 +474,8 @@ export function InvoiceDetailModal({
                   {t("sendWhatsAppLink")}
                 </Button>
               )}
-              {can("invoice.mark_paid") && (
+              {/* On receipts a running invoice stays OPEN once paid — nothing left, nothing to collect. */}
+              {can("invoice.mark_paid") && !(receipts !== null && balanceDue === 0) && (
                 <Button
                   type="button"
                   size="sm"
@@ -562,6 +584,35 @@ export function InvoiceDetailModal({
                   </p>
                 )}
               </div>
+            )}
+
+            {/* The receipts that paid it (academies on receipts) */}
+            {receipts && receipts.length > 0 && (
+              <section className="space-y-2" data-testid="invoice-receipts">
+                <h3 className="text-sm font-semibold">{tAcc("invoiceReceipts")}</h3>
+                <ul className="divide-y overflow-hidden rounded-xl border">
+                  {receipts.map((r) => (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        onClick={() => setReceiptId(r.id)}
+                        className="hover:bg-muted/50 flex w-full flex-wrap items-center justify-between gap-2 p-3 text-start text-sm"
+                      >
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs font-semibold" dir="ltr">
+                            {r.number}
+                          </span>
+                          <span className="text-muted-foreground text-xs">{dayLabel(r.received_on, locale)}</span>
+                          <MethodBadge method={r.method} />
+                        </span>
+                        <span className="font-semibold tabular-nums">
+                          {formatMoney({ amount: r.applied_minor, currency: r.currency }, locale)}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
 
             {/* Paid meta */}
@@ -765,6 +816,12 @@ export function InvoiceDetailModal({
           }}
         />
       )}
+
+      <ReceiptDetailModal
+        receiptId={receiptId}
+        onClose={() => setReceiptId(null)}
+        onChanged={() => invoiceId && void load(invoiceId)}
+      />
     </>
   );
 }

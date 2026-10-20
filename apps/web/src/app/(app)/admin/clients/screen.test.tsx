@@ -320,4 +320,35 @@ describe("FeaturesCard (switching a feature off for one client)", () => {
     );
     expect(onChanged).toHaveBeenCalled();
   });
+
+  it("keeps an opt-in feature off until it is switched on, and saves it as `enabled`", async () => {
+    const user = userEvent.setup();
+    const withOptIn: api.ClientFeatureCatalog = {
+      ...catalog,
+      modules: {
+        MANAGEMENT: {
+          capabilities: { ...catalog.modules.MANAGEMENT!.capabilities, accounting: "Accounting" },
+          limits: { maxStudents: "Max students" },
+          opt_in: ["accounting"],
+        },
+      },
+    };
+    render(
+      wrap(<FeaturesCard clientId="c1" catalog={withOptIn} modules={[sub]} onChanged={vi.fn()} />, ["academy_billing.manage"]),
+    );
+
+    // Nobody switched it on, so it is off — and that is not counted as a decision about the client.
+    expect(screen.getByTestId("feature-accounting")).not.toBeChecked();
+
+    await user.click(screen.getByTestId("feature-accounting"));
+    await user.click(screen.getByTestId("save-MANAGEMENT"));
+
+    await waitFor(() =>
+      expect(api.updateClientModuleFeatures).toHaveBeenCalledWith("c1", "MANAGEMENT", {
+        disabled: ["certificates"],
+        enabled: ["accounting"],
+        limits: { maxStudents: 120 },
+      }),
+    );
+  });
 });

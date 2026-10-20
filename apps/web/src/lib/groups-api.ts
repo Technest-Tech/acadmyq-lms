@@ -445,10 +445,15 @@ export interface GroupPayments {
     student_name: string | null;
     description: string;
     amount_minor: number;
+    /** What receipts have paid on it and what is left (exact on receipts; else 0 / the amount). */
+    paid_minor?: number;
+    remaining_minor?: number;
     currency: string;
     invoice_status: string;
   }[];
   sees_teacher_cost: boolean;
+  /** The academy is on receipts (accounting): paid amounts are exact, partial payments included. */
+  accounting?: boolean;
 }
 
 export function getGroupPayments(month?: string): Promise<GroupPayments> {

@@ -283,6 +283,9 @@ final class ClientController extends Controller
         $data = $request->validate([
             'disabled' => ['sometimes', 'array'],
             'disabled.*' => ['string', Rule::in(FeatureCatalog::capabilitiesOfModule($module))],
+            // The opt-in features that are ON (FeatureCatalog::OPT_IN_CAPABILITIES).
+            'enabled' => ['sometimes', 'array'],
+            'enabled.*' => ['string', Rule::in(array_values(array_intersect(FeatureCatalog::capabilitiesOfModule($module), FeatureCatalog::OPT_IN_CAPABILITIES)))],
             'limits' => ['sometimes', 'nullable', 'array'],
         ]);
         $ctx = app(AuthContext::class);
@@ -293,8 +296,14 @@ final class ClientController extends Controller
                 abort(404, 'That module is not enabled for this client.');
             }
 
-            if (array_key_exists('disabled', $data)) {
-                $sub = $this->modules->setDisabledFeatures($id, $module, array_values($data['disabled'])) ?? $sub;
+            if (array_key_exists('disabled', $data) || array_key_exists('enabled', $data)) {
+                $current = (array) (json_decode((string) ($sub->overrides ?? ''), true)['disabled'] ?? []);
+                $sub = $this->modules->setDisabledFeatures(
+                    $id,
+                    $module,
+                    array_values($data['disabled'] ?? $current),
+                    array_key_exists('enabled', $data) ? array_values($data['enabled']) : null,
+                ) ?? $sub;
             }
 
             if ($request->has('limits')) {
@@ -304,6 +313,7 @@ final class ClientController extends Controller
             Audit::log('module_subscription.features', 'module_subscription', $sub->id, $id, $ctx->userId, 'SUPER_ADMIN', after: [
                 'module' => $module,
                 'disabled' => $data['disabled'] ?? null,
+                'enabled' => $data['enabled'] ?? null,
                 'limits' => $data['limits'] ?? null,
             ]);
 
@@ -464,7 +474,7 @@ final class ClientController extends Controller
      * switch — the profile page renders its toggles straight off this, so the panel can never offer
      * a key the resolver doesn't honour.
      *
-     * @return array{clientType: string, allowedModules: list<string>, modules: array<string, array{capabilities: array<string,string>, limits: array<string,string>}>}
+     * @return array{clientType: string, allowedModules: list<string>, modules: array<string, array{capabilities: array<string,string>, limits: array<string,string>, opt_in: list<string>}>}
      */
     private function featureCatalogFor(string $clientType): array
     {
@@ -480,7 +490,11 @@ final class ClientController extends Controller
                 $limits[$key] = FeatureCatalog::LIMITS[$key] ?? FeatureCatalog::FLAGS[$key] ?? $key;
             }
 
-            $modules[$module] = ['capabilities' => $capabilities, 'limits' => $limits];
+            // Opt-in features (FeatureCatalog::OPT_IN_CAPABILITIES) are stored in `overrides.enabled`
+            // rather than `overrides.disabled`, so the switches need to know which ones they are.
+            $optIn = array_values(array_intersect(array_keys($capabilities), FeatureCatalog::OPT_IN_CAPABILITIES));
+
+            $modules[$module] = ['capabilities' => $capabilities, 'limits' => $limits, 'opt_in' => $optIn];
         }
 
         return [
