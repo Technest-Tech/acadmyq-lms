@@ -1,35 +1,40 @@
 "use client";
 
-import { BookOpen, MessageCircle, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { BookOpen, DatabaseBackup, MessageCircle, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AcademyNameCard } from "@/components/settings/academy-name-card";
+import { AdminsCard } from "@/components/settings/admins-card";
 import { ControlsManager } from "@/components/settings/controls-manager";
+import { DataExportCard } from "@/components/settings/data-export-card";
 import { ReportCardManager } from "@/components/settings/report-card-manager";
 import { SpecializationsManager } from "@/components/settings/specializations-manager";
 import { WhatsAppManager } from "@/components/settings/whatsapp-manager";
 import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
-type TabKey = "courses" | "reportCard" | "whatsapp" | "controls";
+type TabKey = "courses" | "reportCard" | "whatsapp" | "controls" | "account";
 
 /**
  * Each tab names the capability it needs: the course list and the report card are day-to-day
  * (a supervisor keeps them), the WhatsApp pairing and the Controls switches are the academy's own
- * settings (settings.manage, the owner's).
+ * settings (settings.manage, the owner's). Account & data (other admins, the data export) is for
+ * the academy's admins only — no delegated role reaches it, whatever it holds.
  */
 const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon; permission: string }> = [
   { key: "courses", icon: BookOpen, permission: "specialization.manage" },
   { key: "reportCard", icon: ScrollText, permission: "report_field.manage" },
   { key: "whatsapp", icon: MessageCircle, permission: "settings.manage" },
   { key: "controls", icon: SlidersHorizontal, permission: "settings.manage" },
+  { key: "account", icon: DatabaseBackup, permission: "settings.manage" },
 ];
 
 /** The Settings container: academy configuration, organized into top tabs. */
 export function SettingsManager() {
   const t = useTranslations("settings");
-  const { can } = useAuth();
+  const { can, session } = useAuth();
+  const isAdmin = session?.role === "ACADEMY_OWNER" || (session?.role === "SUPER_ADMIN" && session.academyId !== null);
   const [chosen, setChosen] = useState<TabKey>("courses");
   // The report card is a per-client feature; without it the tab (and its template) do not exist.
   const hasReportCard = useCapability("report_card");
@@ -39,7 +44,8 @@ export function SettingsManager() {
     (tab) =>
       can(tab.permission) &&
       (tab.key !== "reportCard" || hasReportCard) &&
-      (tab.key !== "whatsapp" || hasWhatsApp),
+      (tab.key !== "whatsapp" || hasWhatsApp) &&
+      (tab.key !== "account" || isAdmin),
   );
   const active: TabKey = tabs.some((tab) => tab.key === chosen) ? chosen : (tabs[0]?.key ?? "courses");
   const setActive = setChosen;
@@ -96,6 +102,12 @@ export function SettingsManager() {
         {active === "reportCard" && <ReportCardManager />}
         {active === "whatsapp" && <WhatsAppManager />}
         {active === "controls" && <ControlsManager />}
+        {active === "account" && (
+          <div className="space-y-6">
+            <AdminsCard />
+            <DataExportCard />
+          </div>
+        )}
       </div>
     </div>
   );

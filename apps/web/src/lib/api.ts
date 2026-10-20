@@ -2708,6 +2708,72 @@ export function updateAcademyControls(settings: AcademyControls): Promise<{ sett
   });
 }
 
+// ── Export data + Admins (Settings → Account & data) ─────────────────────────
+
+/** A bilingual label as the API sends it; the web picks the side for the current locale. */
+export interface BilingualLabel {
+  en: string;
+  ar: string;
+}
+
+/** One sheet on offer in the export picker. */
+export interface ExportDataset {
+  key: string;
+  title: BilingualLabel;
+  count: number;
+}
+
+/** How a column's cells read: money arrives in major units, `enum` cells carry a code. */
+export type ExportColumnType = "text" | "number" | "money" | "date" | "bool" | "enum";
+
+export interface ExportColumn {
+  key: string;
+  label: BilingualLabel;
+  type: ExportColumnType;
+  width: number;
+  /** For `enum` columns: coded value → its label. */
+  labels?: Record<string, BilingualLabel>;
+}
+
+/** One sheet, rows positional in `columns` order. */
+export interface ExportSheet {
+  key: string;
+  title: BilingualLabel;
+  columns: ExportColumn[];
+  rows: Array<Array<string | number | boolean | null>>;
+}
+
+export function getExportDatasets(): Promise<{ datasets: ExportDataset[] }> {
+  return apiFetch("/api/academy/export");
+}
+
+export function getExportSheet(key: string): Promise<ExportSheet> {
+  return apiFetch(`/api/academy/export/${encodeURIComponent(key)}`);
+}
+
+/** A full-access login of this academy (ACADEMY_OWNER). */
+export interface AcademyAdmin {
+  id: string;
+  fullName: string;
+  email: string;
+  isActive: boolean;
+  lastLoginAt: string | null;
+  createdAt: string | null;
+  isYou: boolean;
+}
+
+export function listAcademyAdmins(): Promise<{ admins: AcademyAdmin[] }> {
+  return apiFetch("/api/academy/admins");
+}
+
+export function createAcademyAdmin(body: { full_name: string; email: string; password: string }): Promise<{ id: string }> {
+  return apiFetch("/api/academy/admins", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function updateAcademyAdmin(id: string, body: { password?: string; is_active?: boolean }): Promise<{ ok: true }> {
+  return apiFetch(`/api/academy/admins/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) });
+}
+
 // ── WhatsApp number (Settings → WhatsApp) ────────────────────────────────────
 
 /**
@@ -6955,7 +7021,7 @@ export function setProductAccess(
   });
 }
 
-// ── Video classroom (docs/video-platform) ────────────────────────────────────
+// ── Video classroom (archive/video-platform/docs) ────────────────────────────────────
 // Management surface for the self-hosted LiveKit rooms + recordings. Plan-gated by
 // video.conferencing (402) and capability-gated by room.* / recording.view (403); the
 // live call itself runs in the Flutter client. Transport only — rules live in the API.
@@ -6963,7 +7029,7 @@ export function setProductAccess(
 export type VideoRoomStatus = "ACTIVE" | "ARCHIVED";
 
 /**
- * Per-room access settings (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §4), stored in the
+ * Per-room access settings (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §4), stored in the
  * room's config JSONB and enforced server-side at /join. Every password is OPTIONAL (null = none).
  */
 export interface RoomAccessSettings {

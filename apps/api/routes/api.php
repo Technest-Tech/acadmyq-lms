@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AcademyAdminController;
+use App\Http\Controllers\AcademyExportController;
 use App\Http\Controllers\AcademyProfileController;
 use App\Http\Controllers\AcademyRoleController;
 use App\Http\Controllers\AcademySettingsController;
@@ -175,7 +177,7 @@ Route::middleware('throttle:10,1')->post('/auth/reset-password', [AuthController
 Route::middleware(['throttle:60,1'])->group(function () {
     Route::get('/i/{token}', [InvoiceController::class, 'publicShow']);
 
-    // Public video join-by-link (docs/video-platform/06 + 08-ROOM-ACCESS §2/§3). Role-separated
+    // Public video join-by-link (archive/video-platform/docs/06 + 08-ROOM-ACCESS §2/§3). Role-separated
     // links: a guest/host/monitor token (/r/{token}) OR a readable per-academy slug
     // (/r/{academy}/{room}). NOT Sanctum-gated; the room + link role are resolved via SECURITY
     // DEFINER readers, and an authenticated host is still detected in the controller.
@@ -287,7 +289,7 @@ Route::middleware(['throttle:120,1', 'wa.apikey', 'throttle:wa-api'])->prefix('w
 Route::post('/internal/wa/webhook', [WhatsAppWebhookController::class, 'handle'])->middleware('wa.webhook');
 
 /*
-| Internal webhook from the self-hosted LiveKit server (docs/video-platform). NOT a Sanctum route —
+| Internal webhook from the self-hosted LiveKit server (archive/video-platform/docs). NOT a Sanctum route —
 | LiveKit signs each webhook with a JWT (verified by the `livekit.webhook` middleware) whose sha256
 | claim must match the body. Carries egress/participant/room events; the controller resolves the
 | academy from the room-name suffix and writes inside Tenancy::withContext.
@@ -585,7 +587,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::put('/admin/automation/gateway/settings', [AcademyAutomationController::class, 'updateGatewaySettings']);
 
     // Super Admin video oversight — Tier 1 (read-only governance for the self-hosted video
-    // platform; docs/video-platform/08-ROOM-ACCESS-AND-MONITORING). Each route is gated by
+    // platform; archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING). Each route is gated by
     // platform.manage in the controller; the cross-tenant reads go through the audited
     // SECURITY DEFINER hatches (app.admin_video_stats / app.admin_video_audit).
     Route::get('/admin/video/usage', [VideoOversightController::class, 'usage']);
@@ -758,6 +760,17 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // lessons read-only for teachers. settings.manage for both read and write.
     Route::get('/academy/settings', [AcademySettingsController::class, 'show']);
     Route::put('/academy/settings', [AcademySettingsController::class, 'update']);
+
+    // Settings → Export data: every record the academy holds, as sheets for one workbook (built in
+    // the browser). Admins only (ACADEMY_OWNER / entered Super Admin) — checked in the controller.
+    Route::get('/academy/export', [AcademyExportController::class, 'index']);
+    Route::get('/academy/export/{dataset}', [AcademyExportController::class, 'show'])->where('dataset', '[a-z_]+');
+
+    // Settings → Admins: the academy's full-access logins. Admins only, checked in the controller;
+    // never yourself off, never the last active admin off.
+    Route::get('/academy/admins', [AcademyAdminController::class, 'index']);
+    Route::post('/academy/admins', [AcademyAdminController::class, 'store']);
+    Route::patch('/academy/admins/{id}', [AcademyAdminController::class, 'update'])->whereUuid('id');
 
     // Settings → WhatsApp — the academy pairs its own number by QR (no Super Admin link needed).
     // settings.manage like the Controls tab; only for clients holding the WhatsApp module.
@@ -1200,7 +1213,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/teacher-insights/teachers/{id}', [TeacherInsightsController::class, 'show']);
     });
 
-    // Video classroom (docs/video-platform). Plan-gated by entitled:video.conferencing (402 on a
+    // Video classroom (archive/video-platform/docs). Plan-gated by entitled:video.conferencing (402 on a
     // miss); each operation is capability-gated in the controller via Gate::authorize (403), and
     // every row is tenant-scoped by RLS. The academy owns the room (V-CTL-1): owners create/manage,
     // teachers join; recordings are on-demand (V-REC-1) and the token endpoint mints a scoped JWT.
