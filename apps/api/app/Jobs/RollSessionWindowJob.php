@@ -14,6 +14,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Jobs\SyncJob;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -39,6 +40,18 @@ final class RollSessionWindowJob implements ShouldQueue
      *  to a null actor — it is not a `users` row, and writing it would violate the FK. */
     private const SYSTEM_USER_ID = Audit::SYSTEM_ACTOR_ID;
 
+    /**
+     * One academy's roll is seconds (the heaviest ~30 s on 2026-10-20). The worker's own default is
+     * 60 s, which is what killed the old all-academies loop every few nights (TimeoutExceeded since
+     * 2026-10-05) — so the job names its own ceiling, and the queue's `retry_after` sits above it.
+     */
+    public int $timeout = 600;
+
+    public int $tries = 3;
+
+    /** @var list<int> seconds before the 2nd and 3rd attempt */
+    public array $backoff = [60, 300];
+
     public function __construct(
         private readonly ?string $from = null,
         private readonly ?string $to = null,
@@ -54,6 +67,18 @@ final class RollSessionWindowJob implements ShouldQueue
      */
     public function handle(SessionGenerator $generator, ?GroupLessonGenerator $groups = null): array
     {
+        // The nightly run off the queue fans out: one job per academy. Each is short, retries on
+        // its own, and one slow or broken academy never stops the others from getting their
+        // lessons. Run inline (the sessions:generate command, a sync dispatch, a test) it still
+        // rolls every academy itself, as before.
+        if ($this->onlyAcademyId === null && $this->job !== null && ! $this->job instanceof SyncJob) {
+            foreach ($this->targetAcademyIds() as $academyId) {
+                self::dispatch($this->from, $this->to, $academyId, $this->floor);
+            }
+
+            return [];
+        }
+
         $groups ??= app(GroupLessonGenerator::class);
 
         [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
