@@ -404,6 +404,31 @@ final class Ledger
     }
 
     /**
+     * The account money is recorded against. A student is resolved to whoever their bills go to —
+     * their guardian, unless the academy invoices each student — exactly as Invoicing files their
+     * charges, so "paid for Adam" always lands on the invoices Adam's lessons are on.
+     *
+     * @return array{guardian_id: ?string, student_id: ?string}
+     */
+    public function resolvePayer(string $academyId, ?string $guardianId, ?string $studentId): array
+    {
+        if ($guardianId !== null) {
+            if (! DB::table('guardians')->where('id', $guardianId)->exists()) {
+                throw ValidationException::withMessages(['guardian_id' => ['Unknown payer. / دافع غير معروف.']]);
+            }
+
+            return ['guardian_id' => $guardianId, 'student_id' => null];
+        }
+        if ($studentId === null || ! DB::table('students')->where('id', $studentId)->exists()) {
+            throw ValidationException::withMessages(['student_id' => ['Unknown payer. / دافع غير معروف.']]);
+        }
+
+        [$g, $s] = app(Invoicing::class)->payerOf(DB::table('academies')->where('id', $academyId)->first(), $studentId);
+
+        return ['guardian_id' => $g, 'student_id' => $g === null ? $s : null];
+    }
+
+    /**
      * Who an invoice belongs to, as a payer.
      *
      * @return array{guardian_id: ?string, student_id: ?string, payer_name: ?string}

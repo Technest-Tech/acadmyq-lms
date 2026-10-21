@@ -277,3 +277,151 @@ export interface PublicReceipt {
   voided: boolean;
   allocations: { description: string; student_name: string | null; amount_minor: number }[];
 }
+
+// ── The Accounting section's pages ───────────────────────────────────────────
+
+export type AgeBucket = "d0_30" | "d31_60" | "d61_90" | "d90_plus";
+export const AGE_BUCKETS: AgeBucket[] = ["d0_30", "d31_60", "d61_90", "d90_plus"];
+
+export interface Collector {
+  id: string | null;
+  name: string | null;
+  source: string;
+  amount_minor: number;
+  count: number;
+}
+
+export interface AccountingOverview {
+  month: string;
+  today: string;
+  collected: {
+    currency: string;
+    amount_minor: number;
+    count: number;
+    today_minor: number;
+    by_method: Partial<Record<ReceiptMethod, number>>;
+    by_collector: Collector[];
+    by_day: { date: string; amount_minor: number }[];
+  }[];
+  billed: { currency: string; billed_minor: number; paid_minor: number; rate: number | null }[];
+  owed: ({ currency: string; due_minor: number; overdue_minor: number; payers: number } & Record<AgeBucket, number>)[];
+  credit: { currency: string; credit_minor: number }[];
+  top_debtors: ArrearsPayer[];
+  recent_receipts: { id: string; number: string; received_on: string; payer_name: string | null; amount_minor: number; currency: string; method: ReceiptMethod; voided: boolean }[];
+}
+
+export interface GroupMoney {
+  currency: string;
+  expected_minor: number;
+  collected_minor: number;
+  remaining_minor: number;
+  arrears_minor: number;
+  received_in_month_minor: number;
+  teacher_cost_minor: number | null;
+  net_minor: number | null;
+  rate: number | null;
+  margin: number | null;
+}
+
+export interface AccountingGroups {
+  month: string;
+  groups: {
+    id: string;
+    name: string;
+    level: string | null;
+    status: string;
+    teacher_name: string | null;
+    billing_mode: string;
+    price_minor: number | null;
+    currency: string | null;
+    students: number;
+    money: GroupMoney[];
+  }[];
+  totals: GroupMoney[];
+  teachers: (GroupMoney & { teacher_id: string | null; teacher_name: string | null; groups: number })[] | null;
+  sees_teacher_cost: boolean;
+}
+
+export interface ArrearsPayer {
+  kind: PayerKind;
+  id: string | null;
+  name: string | null;
+  phone: string | null;
+  students: string[];
+  groups: string[];
+  balances: ({ currency: string; due_minor: number; overdue_minor: number } & Record<AgeBucket, number>)[];
+  oldest_due: string | null;
+  open_charges: number;
+  last_receipt: { id: string; number: string; received_on: string; amount_minor: number; currency: string } | null;
+}
+
+export interface Arrears {
+  today: string;
+  payers: ArrearsPayer[];
+  totals: ({ currency: string; due_minor: number; overdue_minor: number; payers: number } & Record<AgeBucket, number>)[];
+  groups: { id: string; name: string }[];
+  can_collect: boolean;
+  can_remind: boolean;
+}
+
+export interface StatementEntry {
+  date: string;
+  kind: "CHARGE" | "RECEIPT";
+  id: string;
+  description: string;
+  student_name?: string | null;
+  group_name?: string | null;
+  method?: ReceiptMethod;
+  reference?: string | null;
+  currency: string;
+  debit_minor: number;
+  credit_minor: number;
+  paid_minor?: number;
+  invoice_url?: string;
+  balance_minor: number;
+}
+
+export interface Statement {
+  payer: Payer;
+  students: string[];
+  from: string;
+  to: string;
+  currencies: { currency: string; opening_minor: number; charges_minor: number; receipts_minor: number; closing_minor: number; entries: StatementEntry[] }[];
+  balance: PayerBalance[];
+}
+
+export interface DailyCollections {
+  from: string;
+  to: string;
+  days: {
+    date: string;
+    voided: number;
+    currencies: { currency: string; amount_minor: number; count: number; by_method: Partial<Record<ReceiptMethod, number>>; by_collector: Collector[] }[];
+  }[];
+  totals: { currency: string; amount_minor: number; count: number; by_method: Partial<Record<ReceiptMethod, number>> }[];
+  collectors: { id: string; name: string }[];
+}
+
+export function getAccountingOverview(month?: string): Promise<AccountingOverview> {
+  return apiFetch(`/api/accounting/overview${query({ month })}`);
+}
+
+export function getAccountingGroups(month?: string): Promise<AccountingGroups> {
+  return apiFetch(`/api/accounting/groups${query({ month })}`);
+}
+
+export function getArrears(filters: { group_id?: string; bucket?: AgeBucket | "overdue" | ""; q?: string } = {}): Promise<Arrears> {
+  return apiFetch(`/api/accounting/arrears${query(filters)}`);
+}
+
+export function remindPayer(payer: { guardian_id?: string | null; student_id?: string | null }): Promise<{ phone: string | null; message: string; transport: string; sent: boolean }> {
+  return apiFetch(`/api/accounting/arrears/remind`, { method: "POST", body: JSON.stringify(payer) });
+}
+
+export function getStatement(payer: { guardian_id?: string | null; student_id?: string | null }, from?: string, to?: string): Promise<Statement> {
+  return apiFetch(`/api/accounting/statement${query({ ...payer, from, to })}`);
+}
+
+export function getDailyCollections(filters: { from?: string; to?: string; collector_id?: string } = {}): Promise<DailyCollections> {
+  return apiFetch(`/api/accounting/daily${query(filters)}`);
+}

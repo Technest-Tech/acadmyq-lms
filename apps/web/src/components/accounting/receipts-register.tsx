@@ -2,19 +2,18 @@
 
 import { ChevronLeft, ChevronRight, Plus, Receipt, Search } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { METHOD_ICON, MethodBadge, Tile, dayLabel, todayLocal } from "@/components/accounting/accounting-ui";
+import { useCallback, useEffect, useState } from "react";
+import { MethodBadge, MethodBar, Tile, dayLabel, todayLocal } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
+import { PayerPicker } from "@/components/accounting/payer-picker";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
 import { PageHero } from "@/components/ui/page-hero";
 import { RECEIPT_METHODS, getReceipts, type ReceiptFilters, type ReceiptMethod, type ReceiptRegister } from "@/lib/accounting-api";
-import { listStudents } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -147,7 +146,7 @@ export function ReceiptsRegister() {
               />
               <div className="rounded-xl border p-3 lg:col-span-3">
                 <p className="text-muted-foreground mb-2 text-xs">{t("register.byMethod")}</p>
-                <MethodBreakdown byMethod={tot.by_method} total={tot.amount_minor} currency={tot.currency} />
+                <MethodBar byMethod={tot.by_method} currency={tot.currency} locale={locale} />
               </div>
             </div>
           ))}
@@ -252,105 +251,5 @@ export function ReceiptsRegister() {
       <CollectModal open={collect !== null} target={collect} onClose={() => setCollect(null)} onRecorded={() => void load()} />
       <ReceiptDetailModal receiptId={receiptId} onClose={() => setReceiptId(null)} onChanged={() => void load()} />
     </div>
-  );
-}
-
-/** A horizontal bar of what came in by method, then the figures. */
-function MethodBreakdown({ byMethod, total, currency }: { byMethod: Partial<Record<ReceiptMethod, number>>; total: number; currency: string }) {
-  const t = useTranslations("accounting");
-  const locale = useLocale();
-  const entries = useMemo(() => RECEIPT_METHODS.filter((m) => (byMethod[m] ?? 0) > 0).map((m) => [m, byMethod[m] ?? 0] as const), [byMethod]);
-  const tones: Record<ReceiptMethod, string> = {
-    CASH: "bg-emerald-500",
-    INSTAPAY: "bg-violet-500",
-    WALLET: "bg-rose-500",
-    BANK_TRANSFER: "bg-sky-500",
-    CARD: "bg-amber-500",
-    OTHER: "bg-zinc-400",
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="bg-muted flex h-2.5 overflow-hidden rounded-full">
-        {entries.map(([m, v]) => (
-          <div key={m} className={tones[m]} style={{ width: `${total > 0 ? (v / total) * 100 : 0}%` }} title={t(`method.${m}`)} />
-        ))}
-      </div>
-      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        {entries.map(([m, v]) => {
-          const Icon = METHOD_ICON[m];
-          return (
-            <li key={m} className="flex items-center gap-1.5">
-              <span className={cn("size-2 rounded-full", tones[m])} aria-hidden />
-              <Icon className="text-muted-foreground size-3.5" aria-hidden />
-              <span className="text-muted-foreground">{t(`method.${m}`)}</span>
-              <span className="font-semibold tabular-nums">{formatMoney({ amount: v, currency }, locale)}</span>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
-/**
- * Pick who is paying: search a student (or their parent) by name or phone — searched on the server,
- * so a big academy is never cut off at a page — and their family's account opens in Collect.
- */
-function PayerPicker({ open, onClose, onPick }: { open: boolean; onClose: () => void; onPick: (studentId: string) => void }) {
-  const t = useTranslations("accounting");
-  const [q, setQ] = useState("");
-  const [rows, setRows] = useState<{ id: string; name: string; sub: string | null }[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    let alive = true;
-    setLoading(true);
-    const id = setTimeout(() => {
-      void listStudents({ search: q.trim() || undefined, pageSize: 20, sort: "name" })
-        .then((res) =>
-          alive &&
-          setRows(
-            res.rows.map((s) => ({
-              id: s.id,
-              name: s.full_name,
-              sub: !s.is_self_guardian && s.guardian_name ? t("register.pickParent", { name: s.guardian_name }) : s.whatsapp_phone,
-            })),
-          ),
-        )
-        .catch(() => alive && setRows([]))
-        .finally(() => alive && setLoading(false));
-    }, 250);
-    return () => {
-      alive = false;
-      clearTimeout(id);
-    };
-  }, [open, q, t]);
-
-  useEffect(() => {
-    if (open) setQ("");
-  }, [open]);
-
-  return (
-    <Modal open={open} onClose={onClose} title={t("register.pickTitle")} description={t("register.pickHint")} size="md">
-      <div className="space-y-3">
-        <div className="relative">
-          <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" aria-hidden />
-          <input autoFocus className={cn(fieldClass, "ps-9")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("register.pickPlaceholder")} data-testid="picker-search" />
-        </div>
-        <ul className="max-h-80 divide-y overflow-y-auto rounded-xl border" data-testid="picker-results">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <button type="button" onClick={() => onPick(r.id)} className="hover:bg-muted/60 flex w-full flex-col items-start p-3 text-start" data-testid={`picker-${r.id}`}>
-                <span className="font-medium break-words">{r.name}</span>
-                {r.sub && <span className="text-muted-foreground text-xs break-words">{r.sub}</span>}
-              </button>
-            </li>
-          ))}
-          {!loading && rows.length === 0 && <li className="text-muted-foreground p-4 text-center text-sm">{t("register.pickNone")}</li>}
-        </ul>
-      </div>
-    </Modal>
   );
 }

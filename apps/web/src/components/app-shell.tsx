@@ -38,6 +38,9 @@ import {
   PanelLeftOpen,
   Layers,
   PackageCheck,
+  AlarmClock,
+  Calculator,
+  FileSpreadsheet,
   Receipt,
   ReceiptText,
   Scale,
@@ -135,7 +138,13 @@ type NavKey =
   | "certificates"
   | "billing"
   | "invoices"
+  | "accounting"
+  | "accountingOverview"
   | "receipts"
+  | "accountingGroups"
+  | "accountingArrears"
+  | "accountingStatement"
+  | "accountingDaily"
   | "packages"
   | "packagesFinished"
   | "payroll"
@@ -430,15 +439,23 @@ const NAV: ReadonlyArray<{
     href: "/invoices",
     group: "financial",
   },
-  // Receipts (docs/groups/01-ACCOUNTING.md): every payment taken, numbered — next to the invoices
-  // they pay. Only for a client on receipts (`accounting`, opt-in).
+  // Accounting (docs/groups/01-ACCOUNTING.md) — a section of its own, opened as a dropdown: the
+  // month at a glance, the receipts, every group's collection and profit, who owes (aged), a
+  // family's statement and the day-by-day collections. Only for a client on receipts
+  // (`accounting`, opt-in); every other client never sees any of it.
   {
-    key: "receipts",
-    icon: Receipt,
+    key: "accounting",
+    icon: Calculator,
     permission: "invoice.read",
-    href: "/receipts",
+    href: "/accounting",
     group: "financial",
   },
+  { key: "accountingOverview", icon: LayoutDashboard, permission: "invoice.read", href: "/accounting", group: "financial", parent: "accounting" },
+  { key: "receipts", icon: Receipt, permission: "invoice.read", href: "/receipts", group: "financial", parent: "accounting" },
+  { key: "accountingGroups", icon: Layers, permission: "invoice.read", href: "/accounting/groups", group: "financial", parent: "accounting" },
+  { key: "accountingArrears", icon: AlarmClock, permission: "invoice.read", href: "/accounting/arrears", group: "financial", parent: "accounting" },
+  { key: "accountingStatement", icon: FileSpreadsheet, permission: "invoice.read", href: "/accounting/statement", group: "financial", parent: "accounting" },
+  { key: "accountingDaily", icon: CalendarDays, permission: "invoice.read", href: "/accounting/daily", group: "financial", parent: "accounting" },
   // Lesson packages sit directly under Invoices because they ARE invoicing — the same money on a
   // different clock (a block of hours instead of a calendar month), for the students on that mode.
   {
@@ -637,7 +654,7 @@ const PLATFORM_NAV: readonly NavKey[] = [
  * rather than advertised. Items not listed here are never entitlement-gated. The server still
  * enforces the gate (entitled: middleware → 402); this is UX only.
  */
-const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
+const NAV_CAPABILITY: Partial<Record<NavKey, string | readonly string[]>> = {
   videoClassroom: "video.conferencing",
   staff: "staff",
   academyRoles: "custom_roles",
@@ -659,7 +676,14 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   studentReports: "student_reports",
   studentReportReviews: "student_reports",
   invoices: "invoicing",
+  accounting: "accounting",
+  accountingOverview: "accounting",
   receipts: "accounting",
+  // Group money needs both switches: accounting, and the groups it reads.
+  accountingGroups: ["accounting", "groups"],
+  accountingArrears: "accounting",
+  accountingStatement: "accounting",
+  accountingDaily: "accounting",
   // Packages ARE invoicing (the same money on a different clock) and the server keeps them inside
   // that gate — but they carry their own switch on top, so an academy that bills monthly is never
   // offered the second clock.
@@ -673,6 +697,15 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string>> = {
   myPayroll: "payroll",
   supervision: "supervision",
   financialStats: "financial_statistics",
+};
+
+/**
+ * Items a client stops seeing once it holds a capability that brings a fuller page for the same job.
+ * The Groups section's "Payments" is the classic month's group money; a client on receipts gets the
+ * Accounting section's group collection & profit page instead. Every other client keeps it as is.
+ */
+const NAV_REPLACED_BY: Partial<Record<NavKey, string>> = {
+  groupsPayments: "accounting",
 };
 
 /**
@@ -996,11 +1029,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   /** Switched off for this client (or not part of its modules) ⇒ the item does not exist for them. */
   const isLocked = (key: NavKey) => {
     const requiredCap = NAV_CAPABILITY[key];
-    return (
-      requiredCap !== undefined &&
-      capabilities !== null &&
-      !capabilities.includes(requiredCap)
-    );
+    if (requiredCap === undefined || capabilities === null) return false;
+    const required: readonly string[] = typeof requiredCap === "string" ? [requiredCap] : requiredCap;
+    return required.some((cap) => !capabilities.includes(cap));
+  };
+  /** Replaced for this client by a fuller page elsewhere (NAV_REPLACED_BY), so not listed twice. */
+  const isReplaced = (key: NavKey) => {
+    const by = NAV_REPLACED_BY[key];
+    return by !== undefined && capabilities !== null && capabilities.includes(by);
   };
 
   const items = NAV.filter((item) => {
@@ -1016,6 +1052,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // A client without the course platform never sees any of its surfaces.
     if (!hasLms && LMS_EXTRA_KEYS.has(item.key)) return false;
     if (isLocked(item.key)) return false;
+    if (isReplaced(item.key)) return false;
     return true;
   });
   const inEnteredAcademy =
@@ -1048,7 +1085,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     href === "/admin" ||
     href === "/lms" ||
     // Open packages must not also light up on its sibling, /packages/finished.
-    href === "/packages";
+    href === "/packages" ||
+    // The Accounting overview must not light up on its own sub-pages.
+    href === "/accounting";
   const matches = (href: string) => {
     // "All groups" is /groups and every group's own page (/groups/<uuid>) — never its sibling
     // pages (/groups/lessons, …), which own their own link.

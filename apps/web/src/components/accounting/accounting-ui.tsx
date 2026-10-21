@@ -3,8 +3,11 @@
 import { Banknote, Check, CircleEllipsis, Copy, CreditCard, Landmark, Smartphone, Zap, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import type { AccountState, ReceiptMethod } from "@/lib/accounting-api";
+import { useCapability } from "@/lib/capabilities";
+import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /**
@@ -112,4 +115,92 @@ export function CopyLinkButton({ value, label, copiedLabel, icon: Icon = Copy }:
       {copied ? copiedLabel : label}
     </Button>
   );
+}
+
+/**
+ * Each payment method's swatch — the validated categorical palette (dataviz reference instance) in
+ * its fixed order, stepped separately for dark. Fixed per METHOD, never by rank, so Cash is the same
+ * blue on every chart whether or not InstaPay was used that month.
+ */
+export const METHOD_SWATCH: Record<ReceiptMethod, string> = {
+  CASH: "bg-[#2a78d6] dark:bg-[#3987e5]",
+  INSTAPAY: "bg-[#eb6834] dark:bg-[#d95926]",
+  WALLET: "bg-[#1baf7a] dark:bg-[#199e70]",
+  BANK_TRANSFER: "bg-[#eda100] dark:bg-[#c98500]",
+  CARD: "bg-[#e87ba4] dark:bg-[#d55181]",
+  OTHER: "bg-[#008300] dark:bg-[#008300]",
+};
+
+const METHOD_ORDER: ReceiptMethod[] = ["CASH", "INSTAPAY", "WALLET", "BANK_TRANSFER", "CARD", "OTHER"];
+
+/**
+ * What came in, split by method: one stacked bar (2px surface gaps between segments) and a legend
+ * that carries every figure, so identity never rests on colour alone.
+ */
+export function MethodBar({ byMethod, currency, locale }: { byMethod: Partial<Record<ReceiptMethod, number>>; currency: string; locale: string }) {
+  const t = useTranslations("accounting");
+  const entries = METHOD_ORDER.filter((m) => (byMethod[m] ?? 0) > 0).map((m) => [m, byMethod[m] ?? 0] as const);
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  if (entries.length === 0) {
+    return <p className="text-muted-foreground text-sm">{t("overview.nothingCollected")}</p>;
+  }
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex h-3 gap-0.5" role="img" aria-label={t("register.byMethod")}>
+        {entries.map(([m, v], i) => (
+          <div
+            key={m}
+            className={cn("h-full min-w-1", METHOD_SWATCH[m], i === 0 && "rounded-s-full", i === entries.length - 1 && "rounded-e-full")}
+            style={{ width: `${(v / total) * 100}%` }}
+            title={`${t(`method.${m}`)} — ${Math.round((v / total) * 100)}%`}
+          />
+        ))}
+      </div>
+      <ul className="grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
+        {entries.map(([m, v]) => {
+          const Icon = METHOD_ICON[m];
+          return (
+            <li key={m} className="flex items-center justify-between gap-2">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className={cn("size-2.5 shrink-0 rounded-sm", METHOD_SWATCH[m])} aria-hidden />
+                <Icon className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
+                <span className="text-muted-foreground truncate">{t(`method.${m}`)}</span>
+              </span>
+              <span className="shrink-0 font-semibold tabular-nums">
+                {formatMoney({ amount: v, currency }, locale)}
+                <span className="text-muted-foreground ms-1.5 text-xs font-normal">{Math.round((v / total) * 100)}%</span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** A rate (0–1) as a whole percent, "—" when there is nothing to rate. */
+export function pct(rate: number | null | undefined): string {
+  return rate === null || rate === undefined ? "—" : `${Math.round(rate * 100)}%`;
+}
+
+/** The collection-rate bar: green from 90 %, amber from 60 %, red below. */
+export function RateBar({ rate }: { rate: number | null }) {
+  const v = rate === null ? 0 : Math.round(rate * 100);
+  return (
+    <div className="bg-muted h-2 overflow-hidden rounded-full" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={v}>
+      <div className={cn("h-full rounded-full", v >= 90 ? "bg-emerald-500" : v >= 60 ? "bg-amber-500" : "bg-rose-500")} style={{ width: `${Math.min(100, v)}%` }} />
+    </div>
+  );
+}
+
+/** Client gate for an Accounting page (`invoice.read` + the `accounting` switch); the API enforces both. */
+export function AccountingGate({ children }: { children: React.ReactNode }) {
+  const t = useTranslations("accounting");
+  const { can } = useAuth();
+  const accounting = useCapability("accounting");
+  if (!can("invoice.read") || !accounting) {
+    return <p className="text-muted-foreground text-sm">{t("noAccess")}</p>;
+  }
+  return <>{children}</>;
 }

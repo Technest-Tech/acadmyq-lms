@@ -40,6 +40,7 @@ use App\Http\Controllers\Groups\ClassGroupController;
 use App\Http\Controllers\Groups\ClassGroupLessonController;
 use App\Http\Controllers\Groups\GroupBoardController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\Accounting\AccountingController;
 use App\Http\Controllers\Accounting\ReceiptController;
 use App\Http\Controllers\Groups\GroupAccountsController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
@@ -1125,6 +1126,13 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::get('/receipts/{id}/proof', [ReceiptController::class, 'proof'])->whereUuid('id');
             Route::get('/payer-account', [ReceiptController::class, 'account']);
             Route::get('/groups/{id}/accounts', [GroupAccountsController::class, 'show'])->whereUuid('id')->middleware('entitled:groups');
+            // The Accounting section's pages.
+            Route::get('/accounting/overview', [AccountingController::class, 'overview']);
+            Route::get('/accounting/groups', [AccountingController::class, 'groups'])->middleware('entitled:groups');
+            Route::get('/accounting/arrears', [AccountingController::class, 'arrears']);
+            Route::post('/accounting/arrears/remind', [AccountingController::class, 'remind']);
+            Route::get('/accounting/statement', [AccountingController::class, 'statement']);
+            Route::get('/accounting/daily', [AccountingController::class, 'daily']);
         });
 
         // Lesson packages (docs/lesson-packages) — the hour-based billing mode that replaces the

@@ -191,7 +191,13 @@
     "groupsStudents": "Group students",
     "groupsPayments": "Payments",
     "groupsReports": "Reports",
-    "receipts": "Receipts"
+    "receipts": "Receipts",
+    "accounting": "Accounting",
+    "accountingOverview": "Overview",
+    "accountingGroups": "Group collections",
+    "accountingArrears": "Arrears",
+    "accountingStatement": "Statement of account",
+    "accountingDaily": "Daily collections"
   },
   "navGroup": {
     "general": "General",
@@ -9206,6 +9212,137 @@
       "pickPlaceholder": "Student name or phone",
       "pickParent": "Parent: {name}",
       "pickNone": "No student found."
+    },
+    "overview": {
+      "title": "Accounting",
+      "subtitle": "The month at a glance — what came in, what is owed and how old it is.",
+      "loadFailed": "Couldn't load the accounting overview.",
+      "empty": "No money in or out this month yet.",
+      "collectedMonth": "Collected this month",
+      "collectedToday": "Collected today",
+      "owed": "Still owed",
+      "payers": "{count, plural, one {# family} other {# families}}",
+      "overdue": "Overdue",
+      "overdueHint": "From months that have ended",
+      "credit": "Credit held",
+      "creditHint": "Paid ahead, waiting for the next charges",
+      "monthRate": "This month's billing collected",
+      "billedPaid": "{paid} of {billed}",
+      "byDay": "Collected per day",
+      "byCollector": "Received by",
+      "aging": "How old is what's owed",
+      "allArrears": "All arrears",
+      "topDebtors": "Owes the most",
+      "noDebtors": "Nobody owes anything.",
+      "latest": "Latest receipts",
+      "allReceipts": "All receipts",
+      "nothingCollected": "Nothing collected in this period.",
+      "hoverHint": "Point at a day to see its total"
+    },
+    "bucket": {
+      "d0_30": "Up to 30 days",
+      "d31_60": "31–60 days",
+      "d61_90": "61–90 days",
+      "d90_plus": "Over 90 days"
+    },
+    "bucketShort": {
+      "d0_30": "≤30d",
+      "d31_60": "31–60d",
+      "d61_90": "61–90d",
+      "d90_plus": "90d+"
+    },
+    "groupsPage": {
+      "title": "Group collections & profit",
+      "subtitle": "Every group's month: due, collected, left, owed from before — and what it left after the teacher.",
+      "loadFailed": "Couldn't load the groups' accounts.",
+      "sortBy": "Sort by",
+      "sort": {
+        "remaining": "Most still owed",
+        "rate": "Lowest collection",
+        "net": "Highest net",
+        "name": "Name"
+      },
+      "netAfterTeacher": "Net after teacher",
+      "netHint": "Teacher {cost} · margin {margin}",
+      "empty": "No groups with money this month.",
+      "col": {
+        "group": "Group",
+        "students": "Students",
+        "expected": "Due",
+        "collected": "Collected",
+        "remaining": "Left",
+        "arrears": "Arrears",
+        "rate": "Collected %",
+        "cost": "Teacher cost",
+        "net": "Net",
+        "teacher": "Teacher",
+        "groups": "Groups"
+      },
+      "archived": "archived",
+      "nothingThisMonth": "Nothing billed this month",
+      "studentsCount": "{count, plural, one {# student} other {# students}}",
+      "byTeacher": "By teacher"
+    },
+    "arrears": {
+      "title": "Arrears",
+      "subtitle": "Every family that owes, biggest first, aged by how long each charge has been due.",
+      "loadFailed": "Couldn't load the arrears.",
+      "remindFailed": "The reminder couldn't be sent.",
+      "all": "All",
+      "overdueOnly": "Overdue only",
+      "group": "Group",
+      "allGroups": "All groups",
+      "search": "Search a family, student or phone",
+      "totalOwed": "Total owed",
+      "empty": "Nobody owes anything here.",
+      "oldest": "Oldest due {date} ({days} days)",
+      "lastPaid": "Last paid {amount} on {date}",
+      "neverPaid": "No payment yet",
+      "remind": "WhatsApp reminder",
+      "statement": "Statement"
+    },
+    "statement": {
+      "title": "Statement of account",
+      "subtitle": "A family's charges and payments, with a running balance — ready to print.",
+      "loadFailed": "Couldn't load the statement.",
+      "change": "Another family",
+      "pick": "Choose a family",
+      "print": "Print / PDF",
+      "none": "Choose a family to see its statement.",
+      "heading": "Statement of account",
+      "period": "Period",
+      "owesNow": "Owes today",
+      "settledNow": "Settled — credit held",
+      "empty": "Nothing in this period.",
+      "opening": "Brought forward",
+      "charges": "Charges",
+      "receipts": "Payments",
+      "closing": "Balance at the end",
+      "col": {
+        "date": "Date",
+        "item": "Item",
+        "debit": "Charge",
+        "credit": "Payment",
+        "balance": "Balance"
+      },
+      "broughtForward": "Balance brought forward",
+      "receiptNo": "Receipt {number}",
+      "balanceNote": "A positive balance is owed by the family; zero or below means settled (below zero is credit).",
+      "pickTitle": "Whose statement?",
+      "pickHint": "Pick a student — the statement is their family's account."
+    },
+    "daily": {
+      "title": "Daily collections",
+      "subtitle": "What came in each day, by method and by who received it — for counting the cash.",
+      "loadFailed": "Couldn't load the daily collections.",
+      "total": "Collected in this period",
+      "col": {
+        "day": "Day",
+        "total": "Total",
+        "count": "Receipts",
+        "collectors": "Received by"
+      },
+      "voided": "{count} void"
     }
   }
 }

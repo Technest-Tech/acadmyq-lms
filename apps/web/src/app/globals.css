@@ -428,3 +428,26 @@
   outline: 3px solid var(--primary);
   outline-offset: 2px;
 }
+
+/*
+ * Print isolation, opt-in per page: a screen that sets `print-isolate` on <body> (the statement of
+ * account) prints only its `[data-print-area]` — no sidebar, header or controls. Inert everywhere
+ * else: no page that does not set the class prints any differently.
+ */
+@media print {
+  body.print-isolate * {
+    visibility: hidden;
+  }
+  body.print-isolate [data-print-area],
+  body.print-isolate [data-print-area] * {
+    visibility: visible;
+  }
+  body.print-isolate [data-print-area] {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+  }
+  body.print-isolate [data-print-hide] {
+    display: none !important;
+  }
+}

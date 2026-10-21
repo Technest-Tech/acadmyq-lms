@@ -366,3 +366,65 @@ describe("AppShell — the Groups dropdown (docs/groups)", () => {
     expect(navKeys().filter((k) => k.startsWith("groups"))).toEqual([]);
   });
 });
+
+describe("AppShell — the Accounting section (docs/groups/01-ACCOUNTING.md)", () => {
+  const money = { permissions: ["group.read", "invoice.read", "invoice.mark_paid", "student.read"] };
+  const ACCOUNTING = ["invoicing", "groups", "accounting"];
+
+  it("does not exist for a client without accounting — whose Groups section keeps its Payments page", async () => {
+    const user = userEvent.setup();
+    renderShell("ACADEMY_OWNER", money);
+    await ready();
+
+    expect(navKeys().filter((k) => k.startsWith("accounting") || k === "receipts")).toEqual([]);
+    await user.click(document.querySelector('[data-nav="groups"]') as HTMLElement);
+    expect(navKeys()).toContain("groupsPayments");
+  });
+
+  it("is ONE dropdown holding every accounting page, and replaces the Groups section's Payments", async () => {
+    const user = userEvent.setup();
+    renderShell("ACADEMY_OWNER", { ...money, capabilities: ACCOUNTING });
+    await ready();
+
+    const parent = document.querySelector('[data-nav="accounting"]') as HTMLElement;
+    expect(parent.tagName).toBe("BUTTON");
+    expect(navKeys()).not.toContain("receipts");
+    await user.click(parent);
+    expect(navKeys()).toEqual(
+      expect.arrayContaining(["accountingOverview", "receipts", "accountingGroups", "accountingArrears", "accountingStatement", "accountingDaily"]),
+    );
+    expect(document.querySelector('[data-nav="accountingArrears"]')).toHaveAttribute("href", "/accounting/arrears");
+
+    await user.click(document.querySelector('[data-nav="groups"]') as HTMLElement);
+    expect(navKeys()).toContain("groupsReports");
+    expect(navKeys()).not.toContain("groupsPayments");
+  });
+
+  it("lights only the open sub-page, never the overview with it", async () => {
+    const user = userEvent.setup();
+    pathname = "/accounting/daily";
+    renderShell("ACADEMY_OWNER", { ...money, capabilities: ACCOUNTING });
+    await ready();
+    await user.click(document.querySelector('[data-nav="accounting"]') as HTMLElement);
+
+    expect(document.querySelector('[data-nav="accountingDaily"]')).toHaveAttribute("data-active", "true");
+    expect(document.querySelector('[data-nav="accountingOverview"]')).not.toHaveAttribute("data-active");
+  });
+
+  it("drops the group page when the client has accounting but not group classes", async () => {
+    const user = userEvent.setup();
+    renderShell("ACADEMY_OWNER", { ...money, capabilities: ["invoicing", "accounting"] });
+    await ready();
+    await user.click(document.querySelector('[data-nav="accounting"]') as HTMLElement);
+
+    expect(navKeys()).toContain("accountingArrears");
+    expect(navKeys()).not.toContain("accountingGroups");
+  });
+
+  it("is hidden from someone who cannot see invoices", async () => {
+    renderShell("SUPERVISOR", { permissions: ["group.read"], capabilities: ACCOUNTING });
+    await ready();
+
+    expect(navKeys().filter((k) => k.startsWith("accounting") || k === "receipts")).toEqual([]);
+  });
+});

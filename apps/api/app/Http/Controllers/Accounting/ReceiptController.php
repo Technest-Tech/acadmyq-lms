@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Accounting;
 
 use App\Http\Controllers\Controller;
-use App\Services\Invoicing;
 use App\Services\Ledger;
 use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\AcademyUrl;
@@ -148,7 +147,7 @@ final class ReceiptController extends Controller
             'apply_rest' => ['nullable', 'boolean'],
         ]);
 
-        $payer = $this->resolvePayer($academyId, $data['guardian_id'] ?? null, $data['student_id'] ?? null);
+        $payer = $this->ledger->resolvePayer($academyId, $data['guardian_id'] ?? null, $data['student_id'] ?? null);
 
         $currency = $data['currency'] ?? null;
         if (isset($data['invoice_id'])) {
@@ -266,7 +265,7 @@ final class ReceiptController extends Controller
             }
             $payer = $this->ledger->payerOfInvoice($invoice);
         } else {
-            $payer = $this->resolvePayer($academyId, $data['guardian_id'] ?? null, $data['student_id'] ?? null) + ['payer_name' => null];
+            $payer = $this->ledger->resolvePayer($academyId, $data['guardian_id'] ?? null, $data['student_id'] ?? null) + ['payer_name' => null];
         }
 
         $named = $payer['guardian_id'] === null && $payer['student_id'] === null;
@@ -441,31 +440,6 @@ final class ReceiptController extends Controller
         }
 
         return $out;
-    }
-
-    /**
-     * The account money is recorded against. A student is resolved to whoever their bills go to —
-     * their guardian, unless the academy invoices each student — exactly as Invoicing files their
-     * charges, so "paid for Adam" always lands on the invoices Adam's lessons are on.
-     *
-     * @return array{guardian_id: ?string, student_id: ?string}
-     */
-    private function resolvePayer(string $academyId, ?string $guardianId, ?string $studentId): array
-    {
-        if ($guardianId !== null) {
-            if (! DB::table('guardians')->where('id', $guardianId)->exists()) {
-                throw ValidationException::withMessages(['guardian_id' => ['Unknown payer. / دافع غير معروف.']]);
-            }
-
-            return ['guardian_id' => $guardianId, 'student_id' => null];
-        }
-        if ($studentId === null || ! DB::table('students')->where('id', $studentId)->exists()) {
-            throw ValidationException::withMessages(['student_id' => ['Unknown payer. / دافع غير معروف.']]);
-        }
-
-        [$g, $s] = app(Invoicing::class)->payerOf(DB::table('academies')->where('id', $academyId)->first(), $studentId);
-
-        return ['guardian_id' => $g, 'student_id' => $g === null ? $s : null];
     }
 
     /**
