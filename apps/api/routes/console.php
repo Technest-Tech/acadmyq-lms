@@ -143,7 +143,7 @@ Schedule::job(new LessonReminderJob)->hourly()->name('type2-lesson-reminders')->
 Schedule::command('whatsapp:group-alerts')->everyMinute()->name('whatsapp-group-alerts')->withoutOverlapping(10)->runInBackground();
 
 /*
-| Daily recording-retention purge (docs/video-platform, V-REC-2). Each morning, for every active
+| Daily recording-retention purge (archive/video-platform/docs, V-REC-2). Each morning, for every active
 | academy, delete COMPLETED room recordings whose retention window has lapsed so stored video does
 | not grow unbounded. Idempotent and per-academy tenant-isolated, so missed/duplicated runs are safe.
 */

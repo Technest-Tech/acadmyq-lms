@@ -16,7 +16,7 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * W1 — shareable join-by-link (docs/video-platform/06-WEB-CALL-CLIENT). The public endpoint
+ * W1 — shareable join-by-link (archive/video-platform/docs/06-WEB-CALL-CLIENT). The public endpoint
  * POST /api/video/join/{token} resolves a room through the SECURITY DEFINER reader (no tenant
  * context on the request) and maps the joiner to grants:
  *   AC-W1 — link resolves to a room; AC-W3 — host gets roomAdmin only with room.manage, a guest

@@ -25,6 +25,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   listTrialTeachers: () => listTrialTeachers(),
   updateTrial: (id: string, patch: unknown) => updateTrial(id, patch),
   createTrial: (input: unknown) => createTrial(input),
+  listTeamActors: () => Promise.resolve({ actors: [] }),
 }));
 
 const TZ = "Africa/Cairo";

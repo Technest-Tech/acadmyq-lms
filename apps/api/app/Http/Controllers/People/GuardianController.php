@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Support\Audit;
 use App\Support\DataTable;
+use App\Support\DoneBy;
 use App\Support\Phone;
 use App\Support\StudentTeachers;
 use Illuminate\Database\Query\Builder;
@@ -55,11 +56,13 @@ final class GuardianController extends Controller
 
         $query = DB::table('guardians')
             ->select([
-                'id', 'full_name', 'whatsapp_phone', 'country', 'currency', 'notes',
+                'id', 'full_name', 'whatsapp_phone', 'secondary_phone', 'country', 'currency', 'notes',
                 'deleted_at', 'created_at',
             ])
             ->selectRaw(self::ACTIVE_CHILDREN.' as children_count')
             ->selectRaw(self::ACTIVE_CHILDREN_JSON.' as children');
+        // Who added each parent — the list's "Done by" column and its filter.
+        DoneBy::joinCreator($query, 'guardian', 'guardian.create', 'guardians.id', 'guardians.academy_id');
 
         // Active-only by default; filter[status]=inactive|all reveals soft-deleted rows (TC-4.5).
         $this->applyActiveScope($query, $request);
@@ -81,6 +84,7 @@ final class GuardianController extends Controller
                     'none' => $q->whereRaw(self::ACTIVE_CHILDREN.' = 0'),
                     default => $q,
                 },
+                'added_by' => DoneBy::addedByFilter(),
             ],
             'defaultSort' => 'name',
         ]);
@@ -110,6 +114,7 @@ final class GuardianController extends Controller
             'academy_id' => $academyId,
             'full_name' => $data['full_name'],
             'whatsapp_phone' => Phone::normalize($data['whatsapp_phone'], 'whatsapp_phone'),
+            'secondary_phone' => Phone::normalize($data['secondary_phone'] ?? null, 'secondary_phone'),
             'country' => $data['country'] ?? null,
             'currency' => strtoupper($data['currency'] ?? $this->academyDefaultCurrency($academyId)),
             'notes' => $data['notes'] ?? null,
@@ -157,7 +162,7 @@ final class GuardianController extends Controller
             ->orderByRaw('(s.deleted_at is not null)')
             ->orderBy('s.full_name')
             ->get([
-                's.id', 's.full_name', 's.whatsapp_phone', 's.country', 's.status',
+                's.id', 's.full_name', 's.whatsapp_phone', 's.secondary_phone', 's.country', 's.status',
                 's.is_self_guardian', 's.notes', 's.deleted_at', 's.created_at',
                 'sta.teacher_id', 'sta.teacher_name', 'sta.teachers',
                 'sub.id as subscription_id', 'sub.plan_label', 'sub.sessions_per_month',
@@ -192,6 +197,9 @@ final class GuardianController extends Controller
         if (array_key_exists('whatsapp_phone', $data)) {
             $data['whatsapp_phone'] = Phone::normalize($data['whatsapp_phone'], 'whatsapp_phone');
         }
+        if (array_key_exists('secondary_phone', $data)) {
+            $data['secondary_phone'] = Phone::normalize($data['secondary_phone'], 'secondary_phone');
+        }
         // `guardians.currency` is NOT NULL, and the validation rule admits null so that the
         // create form can send "no preference" and get the academy default. On an EDIT the same
         // null would diff to a real change and hand Postgres a NOT NULL violation — a 500 out of
@@ -203,7 +211,7 @@ final class GuardianController extends Controller
             $data['currency'] = strtoupper($data['currency']);
         }
 
-        [$before, $after] = $this->diff($existing, $data, ['full_name', 'whatsapp_phone', 'country', 'currency', 'notes']);
+        [$before, $after] = $this->diff($existing, $data, ['full_name', 'whatsapp_phone', 'secondary_phone', 'country', 'currency', 'notes']);
         if ($after === []) {
             return response()->json(['ok' => true, 'changed' => []]);
         }
@@ -276,6 +284,7 @@ final class GuardianController extends Controller
         $query->where(function (Builder $q) use ($like): void {
             $q->where('full_name', 'ilike', $like)
                 ->orWhere('whatsapp_phone', 'ilike', $like)
+                ->orWhere('secondary_phone', 'ilike', $like)
                 ->orWhereExists(function (Builder $sub) use ($like): void {
                     $sub->selectRaw('1')
                         ->from('students as c')
@@ -314,6 +323,8 @@ final class GuardianController extends Controller
         return $request->validate([
             'full_name' => [$req, 'string', 'max:255'],
             'whatsapp_phone' => [$req, 'string', 'max:32'],
+            // Optional, contact only — messages and invoice links still go to `whatsapp_phone`.
+            'secondary_phone' => ['sometimes', 'nullable', 'string', 'max:32'],
             'country' => ['nullable', 'string', 'max:2'],
             'currency' => ['sometimes', 'nullable', 'string', 'size:3'],
             'notes' => ['nullable', 'string', 'max:2000'],

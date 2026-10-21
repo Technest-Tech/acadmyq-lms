@@ -27,7 +27,7 @@ can pick up any phase and know exactly what to build, why, and how it plugs into
 
 ---
 
-## Conventions (mirroring [docs/00-MASTER-SPEC.md](../00-MASTER-SPEC.md) and `docs/video-platform/`)
+## Conventions (mirroring [docs/00-MASTER-SPEC.md](../00-MASTER-SPEC.md) and `archive/video-platform/docs/`)
 
 - **Rule IDs** `M-<AREA>-<n>` — durable product/engineering rules (e.g. `M-SUB-1`). Defined in `00-OVERVIEW`.
   Areas: `SUB` (subscriptions), `CLI` (client identity), `ENT` (entitlement), `BILL` (billing),

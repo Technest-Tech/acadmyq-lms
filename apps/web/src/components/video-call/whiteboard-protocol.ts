@@ -2,7 +2,7 @@
  * The shared-whiteboard wire protocol + reconciliation, kept pure (no React, no LiveKit) so the
  * merge rule is unit-testable in isolation. Messages are JSON over the LiveKit data channel on the
  * `whiteboard` topic; Excalidraw elements satisfy {@link SyncElement} structurally. See
- * docs/video-platform/09-WHITEBOARD-AND-ANNOTATION.md.
+ * archive/video-platform/docs/09-WHITEBOARD-AND-ANNOTATION.md.
  */
 
 export const WHITEBOARD_TOPIC = "whiteboard";

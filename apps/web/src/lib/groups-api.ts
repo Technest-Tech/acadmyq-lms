@@ -25,6 +25,11 @@ export interface GroupPricing {
   charge_absent: boolean;
   /** MONTHLY only: pro-rate a late joiner's first month by the lessons left. */
   prorate_join: boolean;
+  /**
+   * MONTHLY only: the hours one month buys, in minutes. Set = a member's next month is raised when
+   * the group has held that many hours since their last one; null = the calendar month.
+   */
+  month_minutes: number | null;
 }
 
 /** What the teacher earns per held lesson (or, REVENUE_SHARE, per month). */
@@ -104,6 +109,11 @@ export interface GroupMember {
   attendance: MemberAttendance | null;
   /** This member's own price (null = the group's, or hidden). Minor units. */
   price_minor: number | null;
+  /**
+   * An hours group, for whoever sees money: the months bought so far and the minutes they bought
+   * (carried-in hours included) against the minutes the group has held for them. null otherwise.
+   */
+  hour_month?: { months: number; bought_minutes: number; used_minutes: number } | null;
 }
 
 export interface GroupDetail extends GroupRow {
@@ -195,6 +205,7 @@ export interface GroupInput {
   currency?: string | null;
   charge_absent?: boolean;
   prorate_join?: boolean;
+  month_minutes?: number | null;
   teacher_pay_mode?: GroupTeacherPayMode;
   teacher_pay_minor?: number | null;
   teacher_share_bp?: number | null;

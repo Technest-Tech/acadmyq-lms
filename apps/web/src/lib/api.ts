@@ -2029,6 +2029,8 @@ export interface GuardianRow {
   id: string;
   full_name: string;
   whatsapp_phone: string;
+  /** An optional second number — contact only; messages go to `whatsapp_phone`. */
+  secondary_phone?: string | null;
   country: string | null;
   currency: string;
   notes: string | null;
@@ -2045,6 +2047,9 @@ export interface GuardianRow {
    * the parents page to name its children. LIST only, for the same reason as `children_count`.
    */
   children?: Array<{ id: string; full_name: string; status: string | null }>;
+  /** The login that added this row (from the audit trail); null for imports and old rows. */
+  added_by_user_id?: string | null;
+  added_by_name?: string | null;
 }
 
 /**
@@ -2056,6 +2061,7 @@ export interface GuardianChild {
   id: string;
   full_name: string;
   whatsapp_phone: string | null;
+  secondary_phone?: string | null;
   country: string | null;
   status: string | null;
   is_self_guardian: boolean;
@@ -2078,6 +2084,7 @@ export interface GuardianChild {
 export interface GuardianInput {
   full_name?: string;
   whatsapp_phone?: string;
+  secondary_phone?: string | null;
   country?: string | null;
   currency?: string | null;
   notes?: string | null;
@@ -2177,6 +2184,9 @@ export interface TeacherRow {
   is_active: boolean;
   deleted_at: string | null;
   created_at: string;
+  /** The login that added this row (from the audit trail); null for imports and old rows. */
+  added_by_user_id?: string | null;
+  added_by_name?: string | null;
 }
 
 export interface TeacherStudent {
@@ -2227,6 +2237,21 @@ export function listTeachers(
   q: DataTableQuery = {},
 ): Promise<ListResult<TeacherRow>> {
   return apiFetch(`/api/teachers${toQueryString(q)}`);
+}
+
+/** One of the academy's team logins — an owner, supervisor or staff member (never a teacher). */
+export interface TeamActor {
+  id: string;
+  name: string;
+  /** System role code, or a custom role's code (then `role_name` is its display name). */
+  role: string;
+  role_name: string | null;
+  is_active: boolean;
+}
+
+/** GET /api/team/actors — who can appear in a list's "Done by" column and filter. */
+export function listTeamActors(): Promise<{ actors: TeamActor[] }> {
+  return apiFetch("/api/team/actors");
 }
 
 export function getTeacher(id: string): Promise<{
@@ -3052,11 +3077,15 @@ export interface StudentRow {
   id: string;
   full_name: string;
   whatsapp_phone: string | null;
+  /** An optional second number — contact only; messages go to `whatsapp_phone`. */
+  secondary_phone?: string | null;
   country: string | null;
   status: string | null;
   is_self_guardian: boolean;
   guardian_id: string;
   guardian_name: string | null;
+  /** The parent's WhatsApp — the number to reach a child who has none of their own. */
+  guardian_phone?: string | null;
   subscription_id: string | null;
   price_minor: number | null;
   price_currency: string | null;
@@ -3073,6 +3102,9 @@ export interface StudentRow {
   teachers?: StudentTeacherSummary[];
   deleted_at: string | null;
   created_at: string;
+  /** The login that added this row (from the audit trail); null for imports and old rows. */
+  added_by_user_id?: string | null;
+  added_by_name?: string | null;
 }
 
 /** One of a student's teachers as list rows carry it. */
@@ -3123,11 +3155,23 @@ export interface RepricePreview {
 export interface StudentInput {
   full_name?: string;
   whatsapp_phone?: string | null;
+  secondary_phone?: string | null;
   country?: string | null;
   status?: string | null;
   notes?: string | null;
   is_self_guardian?: boolean;
   guardian_id?: string | null;
+  /**
+   * Create only, instead of `guardian_id`: no parent on file yet, so they are created in the same
+   * save. Needs `guardian.create`.
+   */
+  new_guardian?: {
+    full_name: string;
+    whatsapp_phone: string;
+    secondary_phone?: string | null;
+    country?: string | null;
+    currency?: string | null;
+  };
   currency?: string | null;
   teacher_id?: string | null;
   /** Create only: every teacher the student starts with, one per course. */
@@ -3884,6 +3928,11 @@ export interface DaySession extends PendingSession {
   /** Set when a teacher-raised cancellation is awaiting owner approval — the session is still
    *  SCHEDULED, so the row shows an "awaiting approval" marker. null when there's no pending request. */
   pending_cancel_type: "teacher" | "student" | null;
+  /** Who recorded the outcome (attended, absent, cancelled, free); null while still pending. */
+  done_by_user_id?: string | null;
+  done_by_name?: string | null;
+  /** The lesson's own teacher marked it, rather than a supervisor. */
+  done_by_teacher?: boolean;
 }
 
 /**
@@ -5483,6 +5532,9 @@ export interface TrialRow {
   needs_decision: boolean;
   /** The number to call — the student's, the CRM lead's, or the inline prospect's. */
   contact_whatsapp: string | null;
+  /** The login that booked this trial (from the audit trail); null for imports and old rows. */
+  added_by_user_id?: string | null;
+  added_by_name?: string | null;
 }
 
 export interface TrialSummary {

@@ -12,6 +12,7 @@ use App\Services\LessonPackages;
 use App\Services\SessionGenerator;
 use App\Support\Audit;
 use App\Support\DataTable;
+use App\Support\DoneBy;
 use App\Support\Entitlement;
 use App\Support\Phone;
 use App\Support\StudentStatus;
@@ -51,6 +52,8 @@ final class StudentController extends Controller
         Gate::authorize('student.read');
 
         $query = $this->baseListQuery();
+        // Who added each student — the list's "Done by" column and its filter.
+        DoneBy::joinCreator($query, 'student', 'student.create', 's.id', 's.academy_id');
         $this->applyActiveScope($query, $request, 's.deleted_at');
         $this->applyTeacherRowScope($query);
 
@@ -61,7 +64,7 @@ final class StudentController extends Controller
 
         $result = DataTable::paginate($query, $request, [
             'idColumn' => 's.id',
-            'searchable' => ['s.full_name', 'g.full_name', 's.whatsapp_phone'],
+            'searchable' => ['s.full_name', 'g.full_name', 's.whatsapp_phone', 's.secondary_phone', 'g.whatsapp_phone'],
             'sortable' => [
                 'name' => 's.full_name',
                 ...($seesPricing ? ['price' => 'sub.price_minor'] : []),
@@ -79,6 +82,7 @@ final class StudentController extends Controller
                 'subscription_status' => fn (Builder $q, $value) => $q->where('sub.status', (string) $value),
                 'student_status' => fn (Builder $q, $value) => $q->where('s.status', (string) $value),
                 'trial_any' => fn (Builder $q, $value) => $value === '1' ? $q->whereIn('s.status', [StudentStatus::TRIAL, StudentStatus::TRIAL_BOOKED]) : null,
+                'added_by' => DoneBy::addedByFilter(),
             ],
             'defaultSort' => 'name',
         ]);
@@ -131,75 +135,92 @@ final class StudentController extends Controller
         }
 
         $selfGuardian = (bool) ($data['is_self_guardian'] ?? false);
+        $newGuardian = ! $selfGuardian && empty($data['guardian_id']) ? ($data['new_guardian'] ?? null) : null;
+        if ($newGuardian !== null) {
+            Gate::authorize('guardian.create');
+        }
 
-        // R-STU-2: an adult-solo student still gets a real guardian row, mirrored from their
-        // own details, so Sprint 7 invoicing always has a consistent billing anchor.
-        if ($selfGuardian) {
-            $guardianId = $this->createSelfGuardian($academyId, $data);
-        } else {
-            $guardianId = $data['guardian_id'];
-            $exists = DB::table('guardians')->where('id', $guardianId)->whereNull('deleted_at')->exists();
-            if (! $exists) {
-                throw ValidationException::withMessages(['guardian_id' => ['Unknown or inactive guardian.']]);
+        // Every write below in one unit: the request transaction COMMITS what was written before a
+        // refusal further down (an inactive teacher, a package that will not open), which left a
+        // student — and now a brand-new parent — behind a 422, to be created twice on the retry.
+        $created = DB::transaction(function () use ($academyId, $data, $package, $selfGuardian, $newGuardian): array {
+            // R-STU-2: an adult-solo student still gets a real guardian row, mirrored from their
+            // own details, so Sprint 7 invoicing always has a consistent billing anchor.
+            if ($selfGuardian) {
+                $guardianId = $this->createSelfGuardian($academyId, $data);
+            } elseif ($newGuardian !== null) {
+                // No parent on file yet: they are typed into the student form and created with it,
+                // in the student's country unless told otherwise — a family lives in one place.
+                $guardianId = $this->createGuardian($academyId, $newGuardian + ['country' => $data['country'] ?? null]);
+            } else {
+                $guardianId = $data['guardian_id'] ?? null;
+                $exists = $guardianId !== null && DB::table('guardians')->where('id', $guardianId)->whereNull('deleted_at')->exists();
+                if (! $exists) {
+                    throw ValidationException::withMessages(['guardian_id' => ['Unknown or inactive guardian.']]);
+                }
             }
-        }
 
-        $studentId = (string) Str::uuid();
-        DB::table('students')->insert([
-            'id' => $studentId,
-            'academy_id' => $academyId,
-            'guardian_id' => $guardianId,
-            'full_name' => $data['full_name'],
-            'whatsapp_phone' => Phone::normalize($data['whatsapp_phone'] ?? null, 'whatsapp_phone'),
-            'country' => $data['country'] ?? null,
-            'status' => $data['status'] ?? StudentStatus::REGULAR,
-            'is_self_guardian' => $selfGuardian,
-            'notes' => $data['notes'] ?? null,
-        ]);
-        Audit::log('student.create', 'student', $studentId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
-            'full_name' => $data['full_name'],
-            'guardian_id' => $guardianId,
-            'is_self_guardian' => $selfGuardian,
-        ]);
+            $studentId = (string) Str::uuid();
+            DB::table('students')->insert([
+                'id' => $studentId,
+                'academy_id' => $academyId,
+                'guardian_id' => $guardianId,
+                'full_name' => $data['full_name'],
+                'whatsapp_phone' => Phone::normalize($data['whatsapp_phone'] ?? null, 'whatsapp_phone'),
+                'secondary_phone' => Phone::normalize($data['secondary_phone'] ?? null, 'secondary_phone'),
+                'country' => $data['country'] ?? null,
+                'status' => $data['status'] ?? StudentStatus::REGULAR,
+                'is_self_guardian' => $selfGuardian,
+                'notes' => $data['notes'] ?? null,
+            ]);
+            Audit::log('student.create', 'student', $studentId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
+                'full_name' => $data['full_name'],
+                'guardian_id' => $guardianId,
+                'is_self_guardian' => $selfGuardian,
+            ]);
 
-        // Optional inline subscription (the per-student price, R-STU-4). Naming a price is a
-        // pricing act wherever it happens, so it needs `student.set_price` even on the create
-        // form — otherwise a role denied repricing could set any rate it liked at enrolment.
-        if (isset($data['subscription'])) {
-            Gate::authorize('student.set_price');
-            $this->writeSubscription($academyId, $studentId, $data['subscription'], replace: false);
-        }
+            // Optional inline subscription (the per-student price, R-STU-4). Naming a price is a
+            // pricing act wherever it happens, so it needs `student.set_price` even on the create
+            // form — otherwise a role denied repricing could set any rate it liked at enrolment.
+            if (isset($data['subscription'])) {
+                Gate::authorize('student.set_price');
+                $this->writeSubscription($academyId, $studentId, $data['subscription'], replace: false);
+            }
 
-        // The package path. LessonPackages::open() creates the PER_PACKAGE subscription itself
-        // (ensurePackageBilling), so a package student is REGULAR from the first second with a
-        // billing anchor, and the package is on /packages the moment this returns. The request
-        // runs in one tenant transaction, so a package that fails to open rolls the student back
-        // with it rather than leaving a learner nobody bills.
-        $packageResult = null;
-        if ($package !== null) {
-            $packageResult = app(LessonPackages::class)->open([
-                'student_id' => $studentId,
-                'label' => (string) $package['label'],
-                'minutes_total' => (int) round(((float) $package['hours']) * 60),
-                'price_minor' => (int) $package['price_minor'],
-                'currency' => $package['currency'] ?? null,
-                'bill_timing' => $package['bill_timing'] ?? null,
-                'starts_on' => $package['starts_on'] ?? null,
-                'expires_on' => $package['expires_on'] ?? null,
-                // A brand-new student has no earlier package to carry hours from.
-                'carry_over' => false,
-            ], $this->ctx()->userId, $this->ctx()->role);
-        }
+            // The package path. LessonPackages::open() creates the PER_PACKAGE subscription itself
+            // (ensurePackageBilling), so a package student is REGULAR from the first second with a
+            // billing anchor, and the package is on /packages the moment this returns. A package
+            // that fails to open rolls the student back with it rather than leaving a learner
+            // nobody bills.
+            $packageResult = null;
+            if ($package !== null) {
+                $packageResult = app(LessonPackages::class)->open([
+                    'student_id' => $studentId,
+                    'label' => (string) $package['label'],
+                    'minutes_total' => (int) round(((float) $package['hours']) * 60),
+                    'price_minor' => (int) $package['price_minor'],
+                    'currency' => $package['currency'] ?? null,
+                    'bill_timing' => $package['bill_timing'] ?? null,
+                    'starts_on' => $package['starts_on'] ?? null,
+                    'expires_on' => $package['expires_on'] ?? null,
+                    // A brand-new student has no earlier package to carry hours from.
+                    'carry_over' => false,
+                ], $this->ctx()->userId, $this->ctx()->role);
+            }
 
-        // Optional inline teachers (R-STU-3) — one per course. `teacher_id` is the older
-        // single-teacher shape, still accepted.
-        $links = $this->normaliseLinks($data);
-        foreach ($links as $link) {
-            $this->assertActiveTeacher($link['teacher_id']);
-            $this->openLink($academyId, $studentId, $link['teacher_id'], $link['course'], now());
-            Audit::log('student.teacher_added', 'student', $studentId, $academyId, $this->ctx()->userId, $this->ctx()->role,
-                after: ['teacher_id' => $link['teacher_id'], 'course' => $link['course'], 'effective_date' => now()->toDateString()]);
-        }
+            // Optional inline teachers (R-STU-3) — one per course. `teacher_id` is the older
+            // single-teacher shape, still accepted.
+            $links = $this->normaliseLinks($data);
+            foreach ($links as $link) {
+                $this->assertActiveTeacher($link['teacher_id']);
+                $this->openLink($academyId, $studentId, $link['teacher_id'], $link['course'], now());
+                Audit::log('student.teacher_added', 'student', $studentId, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                    after: ['teacher_id' => $link['teacher_id'], 'course' => $link['course'], 'effective_date' => now()->toDateString()]);
+            }
+
+            return [$studentId, $guardianId, $packageResult];
+        });
+        [$studentId, $guardianId, $packageResult] = $created;
 
         return response()->json([
             'studentId' => $studentId,
@@ -268,6 +289,9 @@ final class StudentController extends Controller
         if (array_key_exists('whatsapp_phone', $data)) {
             $data['whatsapp_phone'] = Phone::normalize($data['whatsapp_phone'], 'whatsapp_phone');
         }
+        if (array_key_exists('secondary_phone', $data)) {
+            $data['secondary_phone'] = Phone::normalize($data['secondary_phone'], 'secondary_phone');
+        }
 
         // Guard status transitions (R-STU). A plain edit may move between ACTIVE states only:
         //   - terminal states are reached solely via deactivate(), which preserves history and
@@ -289,7 +313,7 @@ final class StudentController extends Controller
 
         $before = [];
         $after = [];
-        foreach (['full_name', 'whatsapp_phone', 'country', 'status', 'notes'] as $col) {
+        foreach (['full_name', 'whatsapp_phone', 'secondary_phone', 'country', 'status', 'notes'] as $col) {
             if (array_key_exists($col, $data) && (string) $data[$col] !== (string) $existing->{$col}) {
                 $before[$col] = $existing->{$col};
                 $after[$col] = $data[$col];
@@ -781,9 +805,9 @@ final class StudentController extends Controller
             })
             ->leftJoinSub(StudentTeachers::summary(), 'sta', 'sta.student_id', '=', 's.id')
             ->select([
-                's.id', 's.full_name', 's.whatsapp_phone', 's.country', 's.status', 's.is_self_guardian',
+                's.id', 's.full_name', 's.whatsapp_phone', 's.secondary_phone', 's.country', 's.status', 's.is_self_guardian',
                 's.guardian_id', 's.deleted_at', 's.created_at',
-                'g.full_name as guardian_name',
+                'g.full_name as guardian_name', 'g.whatsapp_phone as guardian_phone',
                 'sub.id as subscription_id', 'sub.price_minor', 'sub.currency as price_currency',
                 'sub.price_basis', 'sub.plan_label', 'sub.sessions_per_month',
                 'sub.start_date', 'sub.status as subscription_status',
@@ -839,12 +863,43 @@ final class StudentController extends Controller
             'full_name' => $data['full_name'],
             'whatsapp_phone' => Phone::normalize($data['whatsapp_phone'] ?? null, 'whatsapp_phone')
                 ?? throw ValidationException::withMessages(['whatsapp_phone' => ['A self-guardian student needs a WhatsApp number for billing.']]),
+            'secondary_phone' => Phone::normalize($data['secondary_phone'] ?? null, 'secondary_phone'),
             'country' => $data['country'] ?? null,
             'currency' => strtoupper($data['currency'] ?? $this->academyDefaultCurrency($academyId)),
         ]);
         Audit::log('guardian.create', 'guardian', $guardianId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
             'full_name' => $data['full_name'],
             'self_guardian' => true,
+        ]);
+
+        return $guardianId;
+    }
+
+    /**
+     * A parent typed into the student form — the same row and audit line POST /api/guardians writes,
+     * so a family created here is indistinguishable from one created on the parents page.
+     *
+     * @param  array<string,mixed>  $input
+     */
+    private function createGuardian(string $academyId, array $input): string
+    {
+        $guardianId = (string) Str::uuid();
+        $row = [
+            'id' => $guardianId,
+            'academy_id' => $academyId,
+            'full_name' => trim((string) $input['full_name']),
+            'whatsapp_phone' => Phone::normalize($input['whatsapp_phone'] ?? null, 'new_guardian.whatsapp_phone')
+                ?? throw ValidationException::withMessages(['new_guardian.whatsapp_phone' => ['Enter the parent\'s WhatsApp number. / أدخل رقم واتساب ولي الأمر.']]),
+            'secondary_phone' => Phone::normalize($input['secondary_phone'] ?? null, 'new_guardian.secondary_phone'),
+            'country' => $input['country'] ?? null,
+            'currency' => strtoupper($input['currency'] ?? $this->academyDefaultCurrency($academyId)),
+        ];
+
+        DB::table('guardians')->insert($row);
+        Audit::log('guardian.create', 'guardian', $guardianId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
+            'full_name' => $row['full_name'],
+            'whatsapp_phone' => $row['whatsapp_phone'],
+            'currency' => $row['currency'],
         ]);
 
         return $guardianId;
@@ -1115,6 +1170,8 @@ final class StudentController extends Controller
         $rules = [
             'full_name' => [$req, 'string', 'max:255'],
             'whatsapp_phone' => ['nullable', 'string', 'max:32'],
+            // Optional, contact only — messages and reports still go to `whatsapp_phone`.
+            'secondary_phone' => ['sometimes', 'nullable', 'string', 'max:32'],
             'country' => ['nullable', 'string', 'max:2'],
             'status' => ['sometimes', 'nullable', Rule::in($statusVocab)],
             'notes' => ['nullable', 'string', 'max:2000'],
@@ -1125,6 +1182,13 @@ final class StudentController extends Controller
 
         if ($creating) {
             $rules['is_self_guardian'] = ['sometimes', 'boolean'];
+            // No parent on file yet: create one with the student (used when guardian_id is empty).
+            $rules['new_guardian'] = ['sometimes', 'nullable', 'array'];
+            $rules['new_guardian.full_name'] = ['required_with:new_guardian', 'string', 'max:255'];
+            $rules['new_guardian.whatsapp_phone'] = ['required_with:new_guardian', 'string', 'max:32'];
+            $rules['new_guardian.secondary_phone'] = ['sometimes', 'nullable', 'string', 'max:32'];
+            $rules['new_guardian.country'] = ['sometimes', 'nullable', 'string', 'max:2'];
+            $rules['new_guardian.currency'] = ['sometimes', 'nullable', 'string', 'size:3'];
             $rules['currency'] = ['sometimes', 'nullable', 'string', 'size:3'];
             $rules['teacher_id'] = ['sometimes', 'nullable', 'uuid'];
             $rules['teachers'] = ['sometimes', 'array', 'max:20'];

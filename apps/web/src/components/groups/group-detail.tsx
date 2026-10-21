@@ -23,7 +23,7 @@ import { useCallback, useEffect, useState, type ComponentType, type ReactNode } 
 import { useAuth } from "@/components/auth-provider";
 import { GroupAccountsPanel } from "@/components/groups/group-accounts-panel";
 import { GroupForm, apiErrorMessage } from "@/components/groups/group-form";
-import { percent, sortSlots, wallTime } from "@/components/groups/group-format";
+import { hoursText, percent, pricingRuleKey, sortSlots, wallTime } from "@/components/groups/group-format";
 import { GroupLessonsPanel } from "@/components/groups/group-lessons-panel";
 import { GroupMembersPanel } from "@/components/groups/group-members-panel";
 import { GroupMoneyPanel } from "@/components/groups/group-money-panel";
@@ -323,8 +323,9 @@ function GroupOverview({ group }: { group: GroupDetail }) {
         {group.pricing && (
           <Fact icon={Wallet} label={t("money.studentPays")}>
             {group.pricing.price_minor != null && group.pricing.currency
-              ? t(`moneyTab.rule.${group.pricing.billing_mode}`, {
+              ? t(`moneyTab.rule.${pricingRuleKey(group.pricing)}`, {
                   price: formatMoney({ amount: group.pricing.price_minor, currency: group.pricing.currency }, locale),
+                  hours: hoursText(group.pricing.month_minutes ?? 0, locale),
                 })
               : t("moneyTab.noPrice")}
           </Fact>

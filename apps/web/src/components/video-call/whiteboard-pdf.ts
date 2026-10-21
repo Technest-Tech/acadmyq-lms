@@ -13,7 +13,7 @@
  *   1. git show 7af85f7:apps/web/src/components/video-call/whiteboard-pdf.ts > <this file>
  *   2. re-add "pdfjs-dist" to apps/web/package.json + pnpm install
  *   3. flip SHOW_PDF = true in whiteboard-panel.tsx
- * See docs/video-platform/09-WHITEBOARD-AND-ANNOTATION.md.
+ * See archive/video-platform/docs/09-WHITEBOARD-AND-ANNOTATION.md.
  */
 
 /** Minimal shape the whiteboard needs from a loaded document (kept so consumers type-check unchanged). */

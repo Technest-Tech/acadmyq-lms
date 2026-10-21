@@ -8,7 +8,7 @@ use Illuminate\Support\Str;
 
 /**
  * Builds the tokens that power a room's shareable links (`/r/{token}`,
- * docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §14).
+ * archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §14).
  *
  * The room links (guest/host/monitor) are now **auto-generated SHORT links** of the form
  * `{kebab-room-name}-{code}` (e.g. `halaqa-live-k3p9x`) — see `forRoom()`. The room name makes the

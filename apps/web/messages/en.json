@@ -197,7 +197,11 @@
     "accountingGroups": "Group collections",
     "accountingArrears": "Arrears",
     "accountingStatement": "Statement of account",
-    "accountingDaily": "Daily collections"
+    "accountingDaily": "Daily collections",
+    "accountingTreasury": "Treasury & expenses",
+    "accountingExpenses": "Expenses",
+    "accountingIncome": "Income vs expenses",
+    "accountingReports": "Reports"
   },
   "navGroup": {
     "general": "General",
@@ -965,6 +969,8 @@
       "fullName": "Full name",
       "phone": "WhatsApp phone",
       "phoneHint": "Enter the number without the country code or leading zeros",
+      "secondaryPhone": "Other phone",
+      "secondaryPhoneHint": "Optional — another number to reach them. WhatsApp messages still go to the first one.",
       "country": "Country",
       "countryPlaceholder": "Pick country…",
       "currency": "Currency",
@@ -1619,6 +1625,8 @@
       "fullNameRequired": "Full name is required.",
       "phone": "WhatsApp phone",
       "phoneHint": "Enter the number without the country code or leading zeros",
+      "secondaryPhone": "Other phone",
+      "secondaryPhoneHint": "Optional — another number to reach them. WhatsApp messages still go to the first one.",
       "country": "Country",
       "countryPlaceholder": "Pick country…",
       "searchCountry": "Search country…",
@@ -1626,6 +1634,16 @@
       "notes": "Notes",
       "guardian": "Guardian",
       "guardianRequired": "Please select a guardian, or mark the student as self-guardian.",
+      "newGuardian": "New parent",
+      "addNewGuardian": "New parent",
+      "pickExistingGuardian": "Pick an existing parent",
+      "newGuardianHint": "No parent on file yet? Enter them here — they are created with the student and get the invoices and messages.",
+      "guardianName": "Parent's name",
+      "guardianNamePlaceholder": "e.g. Ahmed Hassan",
+      "guardianPhone": "Parent's WhatsApp",
+      "guardianSecondaryPhone": "Parent's other phone",
+      "guardianCurrencyHint": "What the parent is billed in. Empty = the academy's currency.",
+      "newGuardianRequired": "Enter the new parent's name and WhatsApp number.",
       "searchGuardian": "Search guardian…",
       "selfGuardian": "Adult student (is their own guardian)",
       "selfGuardianHint": "A guardian record is created automatically from the student's details.",
@@ -6497,6 +6515,7 @@
         "capacity": "Seats must be a whole number, 1 or more.",
         "save": "Could not save the group.",
         "price": "The price must be a positive number.",
+        "monthHours": "Enter the hours as a number, e.g. 8 or 7.5.",
         "payAmount": "Enter what the teacher earns.",
         "share": "The share must be between 0 and 100."
       }
@@ -6599,6 +6618,7 @@
       "addTitle": "Add students",
       "addHint": "They are expected at every lesson from the date they join.",
       "searchStudents": "Search students",
+      "searchStudentsOrPhone": "Search by name or phone",
       "noStudents": "No students to add.",
       "joinedOn": "Joins on",
       "joinedOnHint": "Earlier lessons won't count them as absent.",
@@ -6610,6 +6630,7 @@
       "addFailed": "Could not add the students.",
       "empty": "No students in this group yet.",
       "since": "Since {date}",
+      "hourMonth": "Month {month} · {left} h left",
       "between": "{from} → {to}",
       "rateTitle": "Attendance rate",
       "absences": "{count, plural, one {# absence} other {# absences}}",
@@ -6675,6 +6696,11 @@
       "currencyHint": "Empty = the academy's currency.",
       "academyCurrency": "Academy currency",
       "prorateJoin": "A student who joins mid-month pays only for the lessons left",
+      "monthHours": "Hours per month",
+      "monthHoursPlaceholder": "e.g. 8",
+      "monthHoursHint": "Empty = billed every calendar month. With hours, the fee covers that many hours of lessons and the next month is billed when they are used up.",
+      "monthHoursOnHint": "Each fee covers {hours} hours of the group's lessons. The next month is billed when the group has held them — an absence still counts, the class happened.",
+      "monthHoursSwitchHint": "Anyone already billed for this month keeps that bill — the new way starts on the 1st of next month.",
       "chargeAbsent": "Charge an unexcused absence too (an excused one is never charged)",
       "forwardOnly": "A new price applies from now on; charges already made keep theirs.",
       "teacherEarns": "What the teacher earns",
@@ -6705,6 +6731,7 @@
       "loadFailed": "Could not load the group's money.",
       "rule": {
         "MONTHLY": "{price} a month, up front",
+        "MONTHLY_HOURS": "{price} for every {hours} hours, up front",
         "PER_LESSON": "{price} per lesson attended",
         "COURSE": "{price} course fee"
       },
@@ -7054,6 +7081,10 @@
       "receipts": {
         "label": "Receipts",
         "hint": "Void a recorded payment (collecting rides Invoices → manage)"
+      },
+      "treasury": {
+        "label": "Treasury & expenses",
+        "hint": "Money out, accounts and transfers; closing the day's cash"
       }
     }
   },
@@ -7098,7 +7129,9 @@
       "booking": "Booking requests",
       "group": "Group classes",
       "settings": "Settings",
-      "receipt": "Receipts"
+      "receipt": "Receipts",
+      "expense": "Expenses",
+      "cashbox": "Cash box"
     },
     "items": {
       "crm_read": {
@@ -7484,6 +7517,14 @@
       "receipt_void": {
         "label": "Void receipts",
         "desc": "Cancel a recorded payment, with a reason (its money goes back to unpaid)"
+      },
+      "expense_manage": {
+        "label": "Manage expenses & treasury",
+        "desc": "Record expenses and salaries paid, set up accounts and move money between them"
+      },
+      "cashbox_close": {
+        "label": "Close the day's cash",
+        "desc": "Count an account and close the day (short / over recorded)"
       }
     }
   },
@@ -9237,7 +9278,9 @@
       "latest": "Latest receipts",
       "allReceipts": "All receipts",
       "nothingCollected": "Nothing collected in this period.",
-      "hoverHint": "Point at a day to see its total"
+      "hoverHint": "Point at a day to see its total",
+      "treasuryNow": "The treasury now",
+      "openTreasury": "Open the treasury"
     },
     "bucket": {
       "d0_30": "Up to 30 days",
@@ -9299,7 +9342,9 @@
       "lastPaid": "Last paid {amount} on {date}",
       "neverPaid": "No payment yet",
       "remind": "WhatsApp reminder",
-      "statement": "Statement"
+      "statement": "Statement",
+      "openPrint": "Open to print",
+      "pickStatement": "A family’s statement"
     },
     "statement": {
       "title": "Statement of account",
@@ -9343,6 +9388,205 @@
         "collectors": "Received by"
       },
       "voided": "{count} void"
+    },
+    "family": {
+      "title": "Family account",
+      "loadFailed": "Couldn't load the family's account.",
+      "owes": "Owes now",
+      "settled": "Settled",
+      "paidThisYear": "Paid this year",
+      "lastPaid": "Last payment {date}",
+      "followUp": "Follow up {date}",
+      "children": "Children & what they're in",
+      "nothingDue": "Nothing due",
+      "privateLessons": "Private lessons",
+      "notEnrolled": "Not in a group or private lessons",
+      "collectFor": "Collect for {name}",
+      "openCharges": "Open charges",
+      "noCharges": "Nothing open.",
+      "source": {
+        "ALL": "All",
+        "GROUP": "Groups",
+        "PRIVATE": "Private lessons",
+        "OTHER": "Other bills"
+      },
+      "timeline": "Timeline & notes",
+      "notePlaceholder": "A note — e.g. called, will pay Thursday",
+      "followUpOn": "Follow-up date",
+      "addNote": "Add",
+      "noteFailed": "The note couldn't be saved.",
+      "noEvents": "Nothing recorded yet.",
+      "deleteNote": "Delete note",
+      "voided": "void — {reason}",
+      "event": {
+        "RECEIPT": "Paid {amount} — {number}",
+        "REMINDER": "WhatsApp reminder sent",
+        "BILL_SENT": "Bill {period} sent ({amount})"
+      }
+    },
+    "kind": {
+      "CASH": "Cash drawer",
+      "BANK": "Bank account",
+      "INSTAPAY": "InstaPay",
+      "WALLET": "Mobile wallet",
+      "CARD": "Card / gateway",
+      "OTHER": "Other"
+    },
+    "treasury": {
+      "title": "Treasury",
+      "subtitle": "Where the academy's money is — every account, its balance, and the day's count.",
+      "loadFailed": "Couldn't load the treasury.",
+      "addAccount": "New account",
+      "transfer": "Transfer",
+      "setupTitle": "Set up the treasury",
+      "setupHint": "Add the places your money sits — the cash drawer, InstaPay, the bank — with what each holds today. From then on every payment lands in its account by method, expenses come out of one, and the cash drawer is counted each evening.",
+      "totalNow": "In all accounts now",
+      "totalHint": "Sum of every open account",
+      "monthIn": "In this month",
+      "monthOut": "Out this month",
+      "monthNet": "Net this month",
+      "unmapped": "Money arrives by {methods} but no account takes it yet — choose one below.",
+      "closedToday": "Closed today",
+      "todayIn": "In today {amount}",
+      "todayOut": "Out today {amount}",
+      "lastClosing": "Last count {date}",
+      "short": "short",
+      "over": "over",
+      "ledger": "Movements",
+      "closeDay": "Close the day",
+      "mapping": "Where each payment method lands",
+      "mappingHint": "A receipt goes into the account its method points to.",
+      "noAccount": "— no account —",
+      "mapFailed": "Couldn't save the mapping.",
+      "accountAdded": "Account added.",
+      "transferred": "Transfer recorded.",
+      "saveFailed": "Couldn't save.",
+      "addAccountHint": "Start it with what it holds today; only money from that day on counts.",
+      "save": "Save",
+      "accountName": "Name",
+      "accountNameHint": "e.g. Reception cash drawer",
+      "kind": "Type",
+      "opening": "Opening balance",
+      "openingOn": "From",
+      "openingHint": "The balance on the start day. Payments before that day are not added to it.",
+      "takes": "Takes payments by",
+      "transferHint": "Move money between two accounts — e.g. cash deposited at the bank. It is neither income nor expense.",
+      "transferDo": "Transfer",
+      "from": "From",
+      "to": "To",
+      "transferNoteHint": "e.g. deposited at the bank",
+      "closeTitle": "Close the day — {name}",
+      "closeHint": "Count what is actually there and enter it.",
+      "closeDo": "Close the day",
+      "expected": "The books say",
+      "counted": "Counted",
+      "matches": "Matches exactly",
+      "shortBy": "Short by {amount}",
+      "overBy": "Over by {amount}",
+      "closeLock": "Once closed, nothing new can be dated on this day for this account.",
+      "closedExact": "Day closed — the count matches.",
+      "closedDiff": "Day closed — difference {diff} recorded.",
+      "ledgerTitle": "Movements — {name}",
+      "broughtForward": "Brought forward on {date}",
+      "balanceAt": "Balance on {date}",
+      "in": "In",
+      "out": "Out",
+      "noMovements": "No movements in this period.",
+      "entry": {
+        "RECEIPT": "Receipt",
+        "EXPENSE": "Expense",
+        "TRANSFER_IN": "Transfer in",
+        "TRANSFER_OUT": "Transfer out",
+        "CLOSING": "Day closed"
+      },
+      "closingLine": "Books {expected} · counted {counted}"
+    },
+    "expenses": {
+      "title": "Expenses",
+      "subtitle": "Money out — every expense numbered, from the account it was paid from.",
+      "loadFailed": "Couldn't load the expenses.",
+      "new": "New expense",
+      "paySalary": "Pay a salary",
+      "needAccount": "Add a treasury account first — every expense comes out of one.",
+      "category": "Category",
+      "allCategories": "All categories",
+      "account": "Account",
+      "allAccounts": "All accounts",
+      "searchHint": "Number, payee or description",
+      "total": "Spent in the period",
+      "count": "{count, plural, one {# expense} other {# expenses}}",
+      "byCategory": "By category",
+      "manageCategories": "Categories",
+      "empty": "No expenses in this period.",
+      "col": {
+        "number": "No.",
+        "item": "Item"
+      },
+      "attachment": "Attachment",
+      "recorded": "Expense {number} recorded.",
+      "voided": "Expense voided.",
+      "save": "Record expense",
+      "paidFrom": "Paid from",
+      "payee": "Paid to",
+      "payeeHint": "e.g. landlord, printer",
+      "description": "Description",
+      "paySalaryHint": "Finalized pay statements still to be paid. The payment comes out of the account you choose.",
+      "back": "Back",
+      "payNow": "Pay",
+      "noSalaries": "No finalized statement is waiting to be paid.",
+      "alreadyPaid": "{amount} already paid",
+      "salaryLine": "{period} · statement {total} · left {left}",
+      "newCategory": "New category",
+      "hideCategory": "Hide",
+      "showCategory": "Show",
+      "voidTitle": "Void expense {number}",
+      "voidWarning": "Its number stays taken and the money goes back into the account."
+    },
+    "income": {
+      "title": "Income vs expenses",
+      "subtitle": "The year month by month: money in, money out, and what is left.",
+      "loadFailed": "Couldn't load the report.",
+      "year": "Year",
+      "noSalaries": "Salaries are left out — you don't have access to pay.",
+      "totalIn": "In this year",
+      "totalOut": "Out this year",
+      "totalNet": "Net this year",
+      "byMonth": "Month by month",
+      "in": "In",
+      "out": "Out",
+      "net": "Net",
+      "month": "Month",
+      "empty": "No money in or out this year.",
+      "whereItWent": "Where the money went"
+    },
+    "quickCollect": "Collect",
+    "hub": {
+      "treasury": {
+        "title": "Treasury & expenses",
+        "subtitle": "Where the money sits, what came in and what went out: accounts, receipts and expenses in one place.",
+        "tabs": {
+          "accounts": "Accounts",
+          "receipts": "Receipts",
+          "expenses": "Expenses"
+        }
+      },
+      "reports": {
+        "title": "Reports",
+        "subtitle": "Collections day by day, income against expenses, and every group’s collection.",
+        "tabs": {
+          "daily": "Daily collections",
+          "income": "Income vs expenses",
+          "groups": "Group collections"
+        }
+      }
     }
+  },
+  "doneBy": {
+    "col": "Done by",
+    "filter": "Done by",
+    "teacher": "Teacher",
+    "theTeacher": "The lesson's teacher",
+    "off": "off",
+    "everyone": "Everyone"
   }
 }

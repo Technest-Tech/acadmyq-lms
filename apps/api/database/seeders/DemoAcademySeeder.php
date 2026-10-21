@@ -156,7 +156,7 @@ class DemoAcademySeeder extends Seeder
             );
         }
 
-        // Video classroom add-on (docs/video-platform §5). Sold standalone OR bundled: it is
+        // Video classroom add-on (archive/video-platform/docs §5). Sold standalone OR bundled: it is
         // already in every PRO/FREE plan above (PRO uses the full FeatureCatalog), and these
         // per-currency add-on rows let a BASIC / video-only academy buy it à la carte. Money never
         // converts (MoneyMinorUnits), so there is one priced row per currency, all unlocking the

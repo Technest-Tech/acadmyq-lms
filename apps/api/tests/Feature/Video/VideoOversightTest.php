@@ -16,7 +16,7 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * Super Admin video oversight — Tier 1 (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING). Covers the
+ * Super Admin video oversight — Tier 1 (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING). Covers the
  * two SECURITY DEFINER readers behind the page (cross-tenant usage aggregation + the compliance audit
  * feed), the platform.manage Gate (a non-admin is forbidden, RLS is the DB backstop), the monitor_join
  * visibility semantics (the Super Admin compliance feed is exactly where covert-supervision entries

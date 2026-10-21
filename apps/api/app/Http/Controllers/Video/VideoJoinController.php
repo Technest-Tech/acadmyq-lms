@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Public join-by-link endpoint (docs/video-platform/06 + 08-ROOM-ACCESS §2) — the browser sibling of
+ * Public join-by-link endpoint (archive/video-platform/docs/06 + 08-ROOM-ACCESS §2) — the browser sibling of
  * the authenticated `/video/rooms/{id}/token` flow. Role-separated links resolve to grants:
  *
  *   - Authenticated HOST (strongest): a logged-in user holding `room.join` in the room's academy

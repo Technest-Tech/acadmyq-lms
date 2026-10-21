@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Shareable per-room join links (docs/video-platform/06-WEB-CALL-CLIENT §2). Adds an
+ * Shareable per-room join links (archive/video-platform/docs/06-WEB-CALL-CLIENT §2). Adds an
  * unguessable `join_token` to video_rooms so a room can be opened from the browser at
  * `/r/{join_token}` — the Zoom-style "one link, two joiner types" model: a logged-in teacher
  * becomes the host, an anonymous student becomes a guest.

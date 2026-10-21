@@ -142,7 +142,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     // Open the guardian combobox and pick "Guardian One"
     await user.click(screen.getByTestId("guardian-select"));
-    await user.click(await screen.findByRole("option", { name: "Guardian One" }));
+    await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
     await user.click(screen.getByRole("button", { name: "Create student" }));
 
     await waitFor(() =>
@@ -174,7 +174,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
 
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     await user.click(screen.getByTestId("guardian-select"));
-    await user.click(await screen.findByRole("option", { name: "Guardian One" }));
+    await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
 
     await user.click(await screen.findByTestId("add-teacher-link"));
     await user.click(screen.getByTestId("teacher-link-select-0"));
@@ -223,7 +223,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
 
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     await user.click(screen.getByTestId("guardian-select"));
-    await user.click(await screen.findByRole("option", { name: "Guardian One" }));
+    await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
     await user.click(screen.getByTestId("intent-enrolled"));
     await user.type(screen.getByLabelText("Hourly rate"), "150");
     await user.type(screen.getByLabelText("Hours / month"), "8");
@@ -254,7 +254,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
 
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     await user.click(screen.getByTestId("guardian-select"));
-    await user.click(await screen.findByRole("option", { name: "Guardian One" }));
+    await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
     await user.click(screen.getByTestId("intent-enrolled"));
     await user.click(screen.getByRole("button", { name: "Add student" }));
 
@@ -273,7 +273,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
 
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     await user.click(screen.getByTestId("guardian-select"));
-    await user.click(await screen.findByRole("option", { name: "Guardian One" }));
+    await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
     await user.click(screen.getByTestId("intent-enrolled"));
     expect(screen.queryByTestId("billing-details")).not.toBeInTheDocument();
 
@@ -298,7 +298,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     await user.click(screen.getByTestId("guardian-select"));
-    await user.click(await screen.findByRole("option", { name: "Guardian One" }));
+    await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
     await user.click(screen.getByTestId("intent-enrolled"));
   }
 
@@ -368,5 +368,64 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await fillActiveStudent(user);
 
     expect(screen.queryByTestId("billing-package")).not.toBeInTheDocument();
+  });
+
+  // No parent on file yet: they are typed in beside the picker and created in the same save.
+  it("creates the student with a brand-new parent in one save", async () => {
+    const user = userEvent.setup();
+    const { onCreated } = renderForm();
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+
+    await user.type(screen.getByLabelText("Full name"), "Yusuf");
+    await user.click(screen.getByTestId("guardian-new-toggle"));
+    expect(screen.queryByTestId("guardian-select")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Parent's name"), "Hassan Ali");
+    await user.type(screen.getByTestId("new-guardian-phone"), "100000001");
+    await user.click(screen.getByRole("button", { name: "Create student" }));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalled());
+    const sent = vi.mocked(api.createStudent).mock.calls[0]![0];
+    expect(sent.guardian_id).toBeUndefined();
+    expect(sent.new_guardian).toEqual(
+      expect.objectContaining({ full_name: "Hassan Ali", whatsapp_phone: "+966100000001" }),
+    );
+  });
+
+  it("refuses a new parent without a WhatsApp number", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+
+    await user.type(screen.getByLabelText("Full name"), "Yusuf");
+    await user.click(screen.getByTestId("guardian-new-toggle"));
+    await user.type(screen.getByLabelText("Parent's name"), "Hassan Ali");
+    await user.click(screen.getByRole("button", { name: "Create student" }));
+
+    expect(await screen.findByText("Enter the new parent's name and WhatsApp number.")).toBeInTheDocument();
+    expect(api.createStudent).not.toHaveBeenCalled();
+  });
+
+  it("starts on a new parent when the academy has none yet", async () => {
+    vi.mocked(api.listGuardians).mockResolvedValue({ rows: [], total: 0, page: 1, pageSize: 200 });
+    renderForm();
+
+    expect(await screen.findByTestId("new-guardian")).toBeInTheDocument();
+    expect(screen.queryByTestId("guardian-select")).not.toBeInTheDocument();
+  });
+
+  it("sends the optional second phone", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+
+    await user.type(screen.getByLabelText("Full name"), "Yusuf");
+    await user.click(screen.getByTestId("guardian-select"));
+    await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
+    await user.type(screen.getByTestId("student-secondary-phone"), "1234567");
+    await user.click(screen.getByRole("button", { name: "Create student" }));
+
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalled());
+    // Picking the Egyptian parent moved the empty second number onto +20 too.
+    expect(vi.mocked(api.createStudent).mock.calls[0]![0].secondary_phone).toBe("+201234567");
   });
 });

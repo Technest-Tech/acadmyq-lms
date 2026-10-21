@@ -9,7 +9,7 @@ namespace App\Services\Livekit;
  * with the API secret; LiveKit webhooks carry a JWT (signed with the same secret) whose `sha256`
  * claim is the base64 SHA-256 of the request body. We hand-roll HS256 rather than add a JWT
  * dependency — the structure is verified against a live LiveKit server (the Phase-0 smoke test in
- * docs/video-platform/02-INFRASTRUCTURE.md). The secret never leaves the server (V-SEC-1).
+ * archive/video-platform/docs/02-INFRASTRUCTURE.md). The secret never leaves the server (V-SEC-1).
  */
 final class Jwt
 {

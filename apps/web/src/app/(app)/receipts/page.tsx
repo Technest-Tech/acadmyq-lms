@@ -1,6 +1,6 @@
-import { ReceiptsScreen } from "./screen";
+import { redirect } from "next/navigation";
 
-/** Accounting (docs/groups/01-ACCOUNTING.md) — every payment the academy took, as numbered receipts. */
-export default function ReceiptsPage() {
-  return <ReceiptsScreen />;
+/** The receipts register moved into a tab (docs/groups/01-ACCOUNTING.md); the old address still lands there. */
+export default function Page() {
+  redirect("/accounting/treasury?tab=receipts");
 }

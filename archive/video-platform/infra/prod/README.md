@@ -1,11 +1,11 @@
-# Production media stack — `infra/video/prod/`
+# Production media stack — `archive/video-platform/infra/prod/`
 
 The **production**, internet-facing LiveKit media plane for the AcademIQ video platform, running on a
 DigitalOcean droplet (`media.acadmyq.com`). This is the hardened sibling of the dev-only
 [`../local/`](../local/) stack — it adds TLS, a real standalone TURN, durable object storage, secrets,
 observability, and boot-time self-healing.
 
-> **Full runbook:** [`docs/video-platform/07-DEPLOYMENT.md`](../../../docs/video-platform/07-DEPLOYMENT.md).
+> **Full runbook:** [`archive/video-platform/docs/07-DEPLOYMENT.md`](../../docs/07-DEPLOYMENT.md).
 > Read it before touching anything — it is written so a stranger can redeploy from zero.
 
 > ⚠️ **No secrets in this folder.** Configs read from a root-only `/opt/academiq-video/.env` (chmod 600,

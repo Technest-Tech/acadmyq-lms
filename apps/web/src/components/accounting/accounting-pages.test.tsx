@@ -17,8 +17,9 @@ import { AccountingGate } from "./accounting-ui";
  */
 
 let params = new URLSearchParams();
+const push = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ replace: vi.fn(), push, refresh: vi.fn() }),
   useSearchParams: () => params,
   usePathname: () => "/accounting",
 }));
@@ -63,8 +64,32 @@ function payer(over: Partial<ArrearsPayer> = {}): ArrearsPayer {
   };
 }
 
+function statement(): Statement {
+  return {
+    payer: { kind: "GUARDIAN", id: "gd1", name: "Parent of two", phone: null },
+    students: ["Adam", "Bassel"],
+    from: "2026-06-01",
+    to: "2026-06-30",
+    currencies: [
+      {
+        currency: "EGP",
+        opening_minor: 90000,
+        charges_minor: 90000,
+        receipts_minor: 110000,
+        closing_minor: 70000,
+        entries: [
+          { date: "2026-06-01", kind: "CHARGE", id: "l1", description: "English A1 — June 2026", currency: "EGP", debit_minor: 45000, credit_minor: 0, paid_minor: 45000, balance_minor: 135000 },
+          { date: "2026-06-17", kind: "RECEIPT", id: "r1", description: "R-000001", method: "CASH", currency: "EGP", debit_minor: 0, credit_minor: 90000, balance_minor: 45000 },
+        ],
+      },
+    ],
+    balance: [{ currency: "EGP", due_minor: 70000, credit_minor: 0, balance_minor: 70000 }],
+  };
+}
+
 beforeEach(() => {
   params = new URLSearchParams();
+  push.mockReset();
   Object.values(api).forEach((f) => f.mockReset());
 });
 
@@ -94,8 +119,15 @@ describe("Overview", () => {
     expect(await screen.findByTestId("kpi-collected")).toBeTruthy();
     expect(screen.getByText("48%")).toBeTruthy();
     expect(screen.getByText("Owner Omar")).toBeTruthy();
-    expect(within(screen.getByTestId("overview-debtors")).getByRole("link", { name: "Celine’s mother" })).toHaveAttribute("href", "/accounting/statement?guardian_id=gd2");
-    expect(screen.getByRole("link", { name: new RegExp(ar.bucket.d31_60) })).toHaveAttribute("href", "/accounting/arrears?bucket=d31_60");
+    // A debtor opens their statement right here, as a modal — the statement is an action, not a page to go to.
+    api.getStatement.mockResolvedValue(statement());
+    await userEvent.click(within(screen.getByTestId("overview-debtors")).getByRole("button", { name: "Celine’s mother" }));
+    expect(await screen.findByTestId("statement-sheet")).toBeTruthy();
+    expect(api.getStatement).toHaveBeenCalledWith({ guardian_id: "gd2", student_id: null }, expect.any(String), expect.any(String));
+    // Only the ages that hold money are drawn; one opens the arrears filtered to it.
+    expect(screen.queryByTestId("aging-d61_90")).toBeNull();
+    await userEvent.click(screen.getByTestId("aging-d31_60"));
+    expect(push).toHaveBeenCalledWith("/accounting/arrears?bucket=d31_60");
   });
 });
 
@@ -136,6 +168,10 @@ describe("Arrears", () => {
 
     await screen.findByTestId("arrears-list");
     expect(api.getArrears).toHaveBeenCalledWith(expect.objectContaining({ bucket: "d31_60" }));
+    // One summary per currency, no zero tiles: only the ages that hold money.
+    const summary = screen.getByTestId("arrears-summary");
+    expect(within(summary).getByTestId("aging-d0_30")).toBeTruthy();
+    expect(within(summary).queryByTestId("aging-d90_plus")).toBeNull();
     await userEvent.click(screen.getByTestId("arrears-bucket-overdue"));
     await waitFor(() => expect(api.getArrears).toHaveBeenLastCalledWith(expect.objectContaining({ bucket: "overdue" })));
   });
@@ -150,35 +186,32 @@ describe("Arrears", () => {
     await userEvent.click(within(row).getByRole("button", { name: ar.arrears.remind }));
     await waitFor(() => expect(api.remindPayer).toHaveBeenCalledWith({ guardian_id: "gd1" }));
     expect(open).toHaveBeenCalledWith(expect.stringContaining("https://wa.me/201001112223"), "_blank", "noopener,noreferrer");
-    expect(within(row).getByRole("link", { name: ar.arrears.statement })).toHaveAttribute("href", "/accounting/statement?guardian_id=gd1");
     open.mockRestore();
+  });
+
+  it("opens a family's statement in place, and hands Collect back to the list", async () => {
+    api.getArrears.mockResolvedValue(data());
+    api.getStatement.mockResolvedValue(statement());
+    render(withAuth(owner(), <AccountingArrearsScreen />));
+
+    const row = await screen.findByTestId("arrears-gd1");
+    await userEvent.click(within(row).getByTestId("arrears-statement-gd1"));
+    const sheet = await screen.findByTestId("statement-sheet");
+    expect(api.getStatement).toHaveBeenCalledWith({ guardian_id: "gd1", student_id: null }, expect.any(String), expect.any(String));
+    expect(within(sheet).getByText(ar.statement.broughtForward)).toBeTruthy();
+    // The printable page is one click away, in a new tab; the list underneath never changed.
+    expect(screen.getByRole("link", { name: ar.arrears.openPrint })).toHaveAttribute("href", "/accounting/statement?guardian_id=gd1");
+
+    await userEvent.click(screen.getByTestId("statement-collect"));
+    await waitFor(() => expect(screen.queryByTestId("statement-sheet")).toBeNull());
+    expect(screen.getByTestId("arrears-list")).toBeTruthy();
   });
 });
 
 describe("Statement", () => {
   it("shows the brought-forward balance, every entry with its running balance, and prints on its own", async () => {
     params = new URLSearchParams("guardian_id=gd1");
-    const data: Statement = {
-      payer: { kind: "GUARDIAN", id: "gd1", name: "Parent of two", phone: null },
-      students: ["Adam", "Bassel"],
-      from: "2026-06-01",
-      to: "2026-06-30",
-      currencies: [
-        {
-          currency: "EGP",
-          opening_minor: 90000,
-          charges_minor: 90000,
-          receipts_minor: 110000,
-          closing_minor: 70000,
-          entries: [
-            { date: "2026-06-01", kind: "CHARGE", id: "l1", description: "English A1 — June 2026", currency: "EGP", debit_minor: 45000, credit_minor: 0, paid_minor: 45000, balance_minor: 135000 },
-            { date: "2026-06-17", kind: "RECEIPT", id: "r1", description: "R-000001", method: "CASH", currency: "EGP", debit_minor: 0, credit_minor: 90000, balance_minor: 45000 },
-          ],
-        },
-      ],
-      balance: [{ currency: "EGP", due_minor: 70000, credit_minor: 0, balance_minor: 70000 }],
-    };
-    api.getStatement.mockResolvedValue(data);
+    api.getStatement.mockResolvedValue(statement());
     render(withAuth(owner(), <AccountingStatementScreen />));
 
     const sheet = await screen.findByTestId("statement-sheet");

@@ -62,7 +62,7 @@ return [
             'report' => false,
         ],
 
-        // LiveKit Egress recordings (docs/video-platform). Used ONLY to mint short-lived presigned
+        // LiveKit Egress recordings (archive/video-platform/docs). Used ONLY to mint short-lived presigned
         // GET URLs for replay — the same LIVEKIT_S3_* bucket egress uploads to. The endpoint must be
         // BROWSER-reachable: locally MinIO is `minio:9000` on the docker network (where egress writes)
         // but `localhost:9000` from the browser, so LIVEKIT_S3_PUBLIC_ENDPOINT overrides it; in prod

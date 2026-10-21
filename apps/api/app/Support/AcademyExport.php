@@ -198,6 +198,7 @@ final class AcademyExport
         $columns = [
             self::col('full_name', 'Student', 'الطالب', width: 28),
             self::col('whatsapp_phone', 'WhatsApp', 'واتساب', width: 18),
+            self::col('secondary_phone', 'Other phone', 'رقم آخر', width: 18),
             self::col('country', 'Country', 'الدولة', width: 14),
             self::col('status', 'Status', 'الحالة', 'enum', self::STUDENT_STATUS, 14),
             self::col('guardian_name', 'Guardian', 'ولي الأمر', width: 26),
@@ -212,7 +213,7 @@ final class AcademyExport
             ->leftJoin('guardians as g', 'g.id', '=', 's.guardian_id')
             ->where('s.academy_id', $this->academyId)
             ->select([
-                's.full_name', 's.whatsapp_phone', 's.country', 's.status', 's.notes',
+                's.full_name', 's.whatsapp_phone', 's.secondary_phone', 's.country', 's.status', 's.notes',
                 'g.full_name as guardian_name', 'g.whatsapp_phone as guardian_phone',
                 DB::raw('(s.deleted_at is null) as is_active'),
                 DB::raw("(select string_agg(distinct t.full_name, ', ') from student_teacher_assignments a
@@ -231,6 +232,7 @@ final class AcademyExport
         $columns = [
             self::col('full_name', 'Guardian', 'ولي الأمر', width: 28),
             self::col('whatsapp_phone', 'WhatsApp', 'واتساب', width: 18),
+            self::col('secondary_phone', 'Other phone', 'رقم آخر', width: 18),
             self::col('country', 'Country', 'الدولة', width: 14),
             self::col('currency', 'Currency', 'العملة', width: 10),
             self::col('students', 'Students', 'الطلاب', width: 36),
@@ -242,7 +244,7 @@ final class AcademyExport
         $query = DB::table('guardians as g')
             ->where('g.academy_id', $this->academyId)
             ->select([
-                'g.full_name', 'g.whatsapp_phone', 'g.country', 'g.currency', 'g.notes',
+                'g.full_name', 'g.whatsapp_phone', 'g.secondary_phone', 'g.country', 'g.currency', 'g.notes',
                 DB::raw('(g.deleted_at is null) as is_active'),
                 DB::raw("(select string_agg(s.full_name, ', ' order by s.full_name) from students s
                     where s.guardian_id = g.id and s.deleted_at is null) as students"),

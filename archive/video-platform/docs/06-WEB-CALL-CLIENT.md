@@ -130,7 +130,7 @@ a user-gesture to start audio (mobile autoplay), screen wake-lock during a call,
   `ws://localhost:7880` from an `http://localhost:3000` page — fine.
 - **Token grants**: guests get publish+subscribe ONLY — never `roomAdmin`/record. Short-lived; refresh
   before expiry.
-- **Local stack must be up**: `cd infra/video/local && docker compose up -d` (macOS Docker PATH gotcha:
+- **Local stack must be up**: `cd archive/video-platform/infra/local && docker compose up -d` (macOS Docker PATH gotcha:
   prefix with `PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"`).
 
 ---

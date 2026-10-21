@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Support\Audit;
 use App\Support\DataTable;
+use App\Support\DoneBy;
 use App\Support\LeadTimeline;
 use App\Support\TrialBooking;
 use Illuminate\Database\Query\Builder;
@@ -72,6 +73,7 @@ final class TrialController extends Controller
                     ? $q->where('tr.status', 'SCHEDULED')->where('tr.scheduled_at_utc', '>=', now()->format('Y-m-d H:i:sP'))
                     : null,
                 'decision' => fn ($q, $value) => (string) $value === 'needed' ? $this->needsDecision($q) : null,
+                'added_by' => DoneBy::addedByFilter(),
             ],
             'defaultSort' => '-scheduled',
         ]);
@@ -523,7 +525,8 @@ final class TrialController extends Controller
     /** Every live trial joined to its teacher, student and CRM lead — the one shape every read returns. */
     private function baseQuery(): Builder
     {
-        return DB::table('trials as tr')
+        // Who booked each trial rides along on every read (list, agenda, red queue), as "Done by".
+        return DoneBy::joinCreator(DB::table('trials as tr')
             ->leftJoin('teachers as t', 't.id', '=', 'tr.teacher_id')
             ->leftJoin('students as s', 's.id', '=', 'tr.student_id')
             ->leftJoin('crm_leads as cl', 'cl.id', '=', 'tr.lead_id')
@@ -539,7 +542,7 @@ final class TrialController extends Controller
                 'cl.full_name as crm_lead_name',
                 'cl.whatsapp_phone as crm_lead_whatsapp',
                 'cl.source as crm_source',
-            ]);
+            ]), 'trial', 'trial.create', 'tr.id', 'tr.academy_id');
     }
 
     /**

@@ -18,7 +18,7 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * Phase 1 — LiveKit webhook ingestion (docs/video-platform/05-ROADMAP). AC-V1.6 (signed accepted,
+ * Phase 1 — LiveKit webhook ingestion (archive/video-platform/docs/05-ROADMAP). AC-V1.6 (signed accepted,
  * tampered/absent rejected, idempotent) and AC-V1.7 (egress_ended finalises the recording linked to
  * its room). The webhook carries no tenant context — the controller resolves the academy from the
  * `__<academyId>` suffix in the room name and writes inside Tenancy::withContext.
@@ -101,7 +101,7 @@ it('finalises a recording on egress_ended and is idempotent on duplicate deliver
     $this->clearTenantContext();
 
     // The REAL LiveKit egress_ended shape, verified 2026-06-27 against a live local egress (see
-    // docs/video-platform/03-DATA-MODEL §egress-webhook): camelCase keys, a `fileResults[]` array,
+    // archive/video-platform/docs/03-DATA-MODEL §egress-webhook): camelCase keys, a `fileResults[]` array,
     // string-typed int64s (`size` bytes, `duration` NANOSECONDS), and a `filename` object key
     // distinct from the full-URL `location`.
     [$body, $token] = signLivekit([

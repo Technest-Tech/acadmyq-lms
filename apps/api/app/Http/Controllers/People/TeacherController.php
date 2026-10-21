@@ -9,6 +9,7 @@ use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Services\Payroll;
 use App\Support\Audit;
 use App\Support\DataTable;
+use App\Support\DoneBy;
 use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -93,6 +94,8 @@ final class TeacherController extends Controller
             'payout_method', 'payout_handle', 'meeting_url',
             'is_active', 'deleted_at', 'created_at',
         ]);
+        // Who added each teacher — the list's "Done by" column and its filter.
+        DoneBy::joinCreator($query, 'teacher', 'teacher.create', 'teachers.id', 'teachers.academy_id');
         $this->applyActiveScope($query, $request);
 
         $result = DataTable::paginate($query, $request, [
@@ -106,6 +109,7 @@ final class TeacherController extends Controller
             'filters' => [
                 'currency' => fn ($q, $value) => $q->where('currency', strtoupper((string) $value)),
                 'specialization' => fn ($q, $value) => $q->where('specialization', (string) $value),
+                'added_by' => DoneBy::addedByFilter(),
             ],
             'defaultSort' => 'name',
         ]);

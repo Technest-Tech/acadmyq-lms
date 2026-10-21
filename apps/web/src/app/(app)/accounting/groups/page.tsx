@@ -1,14 +1,6 @@
-import { Suspense } from "react";
-import { AccountingGate } from "@/components/accounting/accounting-ui";
-import { AccountingGroupsScreen } from "@/components/accounting/accounting-groups";
+import { redirect } from "next/navigation";
 
-/** Accounting (docs/groups/01-ACCOUNTING.md) — every group's collection and profit. Gated on invoice.read + the accounting switch. */
+/** Group collections moved into a tab (docs/groups/01-ACCOUNTING.md); the old address still lands there. */
 export default function Page() {
-  return (
-    <Suspense>
-      <AccountingGate>
-        <AccountingGroupsScreen />
-      </AccountingGate>
-    </Suspense>
-  );
+  redirect("/accounting/reports?tab=groups");
 }

@@ -63,7 +63,7 @@ return [
     ],
 
     /*
-    | Self-hosted LiveKit video stack (docs/video-platform). `host` is the wss:// URL clients
+    | Self-hosted LiveKit video stack (archive/video-platform/docs). `host` is the wss:// URL clients
     | connect to; `api_url` is the https:// server API the room/egress clients call. `api_secret`
     | signs every access token AND verifies inbound webhooks — it NEVER leaves the server (V-SEC-1).
     | The S3-compatible keys are where Egress uploads recordings (MinIO locally, Backblaze/Wasabi in
@@ -78,7 +78,7 @@ return [
         // 4h — a join token must OUTLIVE a full lesson. A connected participant is never dropped when
         // the token expires; only (re)connection re-checks it, so a short TTL means a mid-call network
         // blip can fail to reconnect (the SDK re-auths the resume with the original token). See
-        // docs/video-platform/06-WEB-CALL-CLIENT §5 "refresh before expiry".
+        // archive/video-platform/docs/06-WEB-CALL-CLIENT §5 "refresh before expiry".
         'token_ttl' => (int) env('LIVEKIT_TOKEN_TTL', 14400),
         'recording_retention_days' => (int) env('LIVEKIT_RECORDING_RETENTION_DAYS', 90),
         's3_key' => env('LIVEKIT_S3_KEY'),

@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Waiting room, S4 (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §13). When a room has
+ * Waiting room, S4 (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §13). When a room has
  * `config.waiting_room = true`, a guest does not get a token at /join — instead a knock is recorded
  * and the guest short-polls until a host admits or denies. This migration adds:
  *

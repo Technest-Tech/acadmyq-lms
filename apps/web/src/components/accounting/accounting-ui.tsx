@@ -81,14 +81,107 @@ export function todayLocal(): string {
   return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
 
-export function Tile({ label, value, tone, hint, testId }: { label: string; value: string; tone?: string; hint?: string; testId?: string }) {
+/** A tile's colour family: the wash behind it, its icon chip, its accent bar. */
+export const ACCENTS = {
+  emerald: { wash: "from-emerald-500/[0.09]", chip: "bg-emerald-500/12 text-emerald-600 ring-emerald-500/25 dark:text-emerald-400", bar: "bg-emerald-500" },
+  rose: { wash: "from-rose-500/[0.08]", chip: "bg-rose-500/12 text-rose-600 ring-rose-500/25 dark:text-rose-400", bar: "bg-rose-500" },
+  amber: { wash: "from-amber-500/[0.09]", chip: "bg-amber-500/12 text-amber-600 ring-amber-500/25 dark:text-amber-400", bar: "bg-amber-500" },
+  sky: { wash: "from-sky-500/[0.08]", chip: "bg-sky-500/12 text-sky-600 ring-sky-500/25 dark:text-sky-400", bar: "bg-sky-500" },
+  violet: { wash: "from-violet-500/[0.08]", chip: "bg-violet-500/12 text-violet-600 ring-violet-500/25 dark:text-violet-400", bar: "bg-violet-500" },
+  slate: { wash: "from-slate-400/[0.07]", chip: "bg-slate-400/12 text-slate-600 ring-slate-400/25 dark:text-slate-300", bar: "bg-slate-400" },
+} as const;
+
+export type Accent = keyof typeof ACCENTS;
+
+/** The accent a value colour implies, so a tile that already says "this is good / owed" looks it. */
+function accentOf(tone?: string): Accent {
+  if (!tone) return "slate";
+  if (tone.includes("emerald")) return "emerald";
+  if (tone.includes("rose")) return "rose";
+  if (tone.includes("amber") || tone.includes("orange")) return "amber";
+  return "slate";
+}
+
+/**
+ * A stat tile in the app's card style: white card, a soft wash of its colour, an icon chip, a thin
+ * accent bar on the reading edge. Money is never truncated (mobile conventions): it wraps.
+ */
+export function Tile({
+  label,
+  value,
+  tone,
+  hint,
+  testId,
+  icon: Icon,
+  accent,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  hint?: string;
+  testId?: string;
+  icon?: LucideIcon;
+  accent?: Accent;
+}) {
+  const a = ACCENTS[accent ?? accentOf(tone)];
   return (
-    <div className="rounded-xl border p-3" data-testid={testId}>
-      <p className="text-muted-foreground text-xs">{label}</p>
-      {/* Money is never truncated (mobile conventions): it wraps instead. */}
-      <p className={cn("mt-1 text-lg font-bold break-words tabular-nums", tone)}>{value}</p>
+    <div
+      className={cn("bg-card relative overflow-hidden rounded-xl border bg-gradient-to-br to-transparent p-3.5 shadow-sm", a.wash)}
+      data-testid={testId}
+    >
+      <span className={cn("absolute inset-y-3 start-0 w-1 rounded-e-full", a.bar)} aria-hidden />
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-muted-foreground text-xs font-medium">{label}</p>
+        {Icon && (
+          <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg ring-1", a.chip)}>
+            <Icon className="size-4" aria-hidden />
+          </span>
+        )}
+      </div>
+      <p className={cn("mt-1 text-xl font-bold break-words tabular-nums", tone)}>{value}</p>
       {hint && <p className="text-muted-foreground mt-0.5 text-xs">{hint}</p>}
     </div>
+  );
+}
+
+/** A white section card with an optional icon-chip heading and a link or control on its end. */
+export function Panel({
+  title,
+  icon: Icon,
+  accent = "emerald",
+  action,
+  className,
+  children,
+  testId,
+}: {
+  title?: string;
+  icon?: LucideIcon;
+  accent?: Accent;
+  action?: React.ReactNode;
+  className?: string;
+  children: React.ReactNode;
+  testId?: string;
+}) {
+  const a = ACCENTS[accent];
+  return (
+    <section className={cn("bg-card rounded-2xl border p-4 shadow-sm sm:p-5", className)} data-testid={testId}>
+      {(title || action) && (
+        <div className="mb-3 flex items-center justify-between gap-2">
+          {title && (
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              {Icon && (
+                <span className={cn("flex size-7 items-center justify-center rounded-lg ring-1", a.chip)}>
+                  <Icon className="size-3.5" aria-hidden />
+                </span>
+              )}
+              {title}
+            </h3>
+          )}
+          {action}
+        </div>
+      )}
+      {children}
+    </section>
   );
 }
 
@@ -203,4 +296,109 @@ export function AccountingGate({ children }: { children: React.ReactNode }) {
     return <p className="text-muted-foreground text-sm">{t("noAccess")}</p>;
   }
   return <>{children}</>;
+}
+
+type Bucket = "d0_30" | "d31_60" | "d61_90" | "d90_plus";
+const BUCKET_ORDER: Bucket[] = ["d0_30", "d31_60", "d61_90", "d90_plus"];
+
+/**
+ * How old what is owed is — one hue, light (recent) → dark (oldest), so age reads as magnitude.
+ * Only the buckets that hold money are drawn and listed: no row of zero tiles.
+ */
+const BUCKET_SWATCH: Record<Bucket, string> = {
+  d0_30: "bg-rose-200 dark:bg-rose-900",
+  d31_60: "bg-rose-400 dark:bg-rose-700",
+  d61_90: "bg-rose-600 dark:bg-rose-500",
+  d90_plus: "bg-rose-800 dark:bg-rose-300",
+};
+
+export function AgingBar({
+  amounts,
+  currency,
+  locale,
+  onSelect,
+}: {
+  amounts: Record<Bucket, number>;
+  currency: string;
+  locale: string;
+  onSelect?: (bucket: Bucket) => void;
+}) {
+  const t = useTranslations("accounting");
+  const parts = BUCKET_ORDER.filter((b) => amounts[b] > 0);
+  const total = parts.reduce((s, b) => s + amounts[b], 0);
+  if (total === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex h-2.5 gap-0.5" role="img" aria-label={t("overview.aging")}>
+        {parts.map((b, i) => (
+          <span
+            key={b}
+            className={cn("h-full min-w-1", BUCKET_SWATCH[b], i === 0 && "rounded-s-full", i === parts.length - 1 && "rounded-e-full")}
+            style={{ width: `${(amounts[b] / total) * 100}%` }}
+          />
+        ))}
+      </div>
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {parts.map((b) => {
+          const label = (
+            <>
+              <span className={cn("size-2.5 shrink-0 rounded-sm", BUCKET_SWATCH[b])} aria-hidden />
+              <span className="text-muted-foreground">{t(`bucket.${b}`)}</span>
+              <span className="font-semibold tabular-nums">{formatMoney({ amount: amounts[b], currency }, locale)}</span>
+            </>
+          );
+          return (
+            <li key={b}>
+              {onSelect ? (
+                <button type="button" onClick={() => onSelect(b)} className="hover:bg-muted -mx-1 flex items-center gap-1.5 rounded px-1" data-testid={`aging-${b}`}>
+                  {label}
+                </button>
+              ) : (
+                <span className="flex items-center gap-1.5">{label}</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * The tab strip a hub page (Treasury, Reports) switches its screens with — the group page's strip,
+ * lifted out. The chosen tab is also written to `?tab=` by the caller, so a link can land on one.
+ */
+export function AccountingTabs<K extends string>({
+  tabs,
+  value,
+  onChange,
+  testIdPrefix,
+}: {
+  tabs: { key: K; label: string; icon?: LucideIcon }[];
+  value: K;
+  onChange: (key: K) => void;
+  testIdPrefix: string;
+}) {
+  return (
+    <div className="no-scrollbar -mx-1 flex gap-1 overflow-x-auto border-b px-1" role="tablist">
+      {tabs.map(({ key, label, icon: Icon }) => (
+        <button
+          key={key}
+          type="button"
+          role="tab"
+          aria-selected={value === key}
+          onClick={() => onChange(key)}
+          className={cn(
+            "-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+            value === key ? "border-primary text-primary" : "text-muted-foreground hover:text-foreground border-transparent",
+          )}
+          data-testid={`${testIdPrefix}-${key}`}
+        >
+          {Icon && <Icon className="size-4" aria-hidden />}
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 }

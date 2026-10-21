@@ -41,7 +41,9 @@ use App\Http\Controllers\Groups\ClassGroupLessonController;
 use App\Http\Controllers\Groups\GroupBoardController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Accounting\AccountingController;
+use App\Http\Controllers\Accounting\FamilyAccountController;
 use App\Http\Controllers\Accounting\ReceiptController;
+use App\Http\Controllers\Accounting\TreasuryController;
 use App\Http\Controllers\Groups\GroupAccountsController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
 use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
@@ -80,6 +82,7 @@ use App\Http\Controllers\People\GuardianController;
 use App\Http\Controllers\People\StaffController;
 use App\Http\Controllers\People\StudentController;
 use App\Http\Controllers\People\TeacherController;
+use App\Http\Controllers\People\TeamActorController;
 use App\Http\Controllers\Public\AcademyPaymentController;
 use App\Http\Controllers\Public\BrandAssetController;
 use App\Http\Controllers\Public\DemoRequestController as PublicDemoRequestController;
@@ -679,6 +682,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
 
     // People: Guardians, Students & Teachers (Sprint 4 §8). Every route is capability-gated
     // (Gate::authorize) and tenant-scoped by RLS; lists are server-driven via App\Support\DataTable.
+    // The team logins behind every list's "Done by" column and filter (owners, supervisors, staff).
+    Route::get('/team/actors', [TeamActorController::class, 'index']);
+
     Route::get('/guardians', [GuardianController::class, 'index']);
     Route::post('/guardians', [GuardianController::class, 'store']);
     Route::get('/guardians/{id}', [GuardianController::class, 'show']);
@@ -1133,6 +1139,28 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::post('/accounting/arrears/remind', [AccountingController::class, 'remind']);
             Route::get('/accounting/statement', [AccountingController::class, 'statement']);
             Route::get('/accounting/daily', [AccountingController::class, 'daily']);
+            // The family card's money and follow-up notes.
+            Route::get('/accounting/family/{guardianId}', [FamilyAccountController::class, 'show'])->whereUuid('guardianId');
+            Route::post('/accounting/family/{guardianId}/notes', [FamilyAccountController::class, 'addNote'])->whereUuid('guardianId');
+            Route::delete('/accounting/family/{guardianId}/notes/{noteId}', [FamilyAccountController::class, 'deleteNote'])->whereUuid(['guardianId', 'noteId']);
+            // The treasury and the money out.
+            Route::get('/treasury', [TreasuryController::class, 'index']);
+            Route::post('/treasury/accounts', [TreasuryController::class, 'storeAccount']);
+            Route::patch('/treasury/accounts/{id}', [TreasuryController::class, 'updateAccount'])->whereUuid('id');
+            Route::get('/treasury/accounts/{id}/ledger', [TreasuryController::class, 'ledger'])->whereUuid('id');
+            Route::put('/treasury/methods', [TreasuryController::class, 'mapMethods']);
+            Route::post('/treasury/transfers', [TreasuryController::class, 'storeTransfer']);
+            Route::post('/treasury/transfers/{id}/void', [TreasuryController::class, 'voidTransfer'])->whereUuid('id');
+            Route::post('/treasury/closings', [TreasuryController::class, 'close']);
+            Route::delete('/treasury/closings/{id}', [TreasuryController::class, 'reopen'])->whereUuid('id');
+            Route::get('/expenses', [TreasuryController::class, 'expenses']);
+            Route::post('/expenses', [TreasuryController::class, 'storeExpense']);
+            Route::get('/expenses/salaries', [TreasuryController::class, 'salaries']);
+            Route::post('/expenses/{id}/void', [TreasuryController::class, 'voidExpense'])->whereUuid('id');
+            Route::get('/expenses/{id}/attachment', [TreasuryController::class, 'attachment'])->whereUuid('id');
+            Route::post('/expense-categories', [TreasuryController::class, 'storeCategory']);
+            Route::patch('/expense-categories/{id}', [TreasuryController::class, 'updateCategory'])->whereUuid('id');
+            Route::get('/accounting/income-expenses', [TreasuryController::class, 'incomeExpenses']);
         });
 
         // Lesson packages (docs/lesson-packages) — the hour-based billing mode that replaces the

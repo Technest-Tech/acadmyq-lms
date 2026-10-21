@@ -9,7 +9,7 @@ import '../data/permission_gateway.dart';
 
 /// Drives the lobby pre-flight: device permissions, the mic/camera intent the user will carry into
 /// the room, and a coarse connectivity check — so problems are fixed *before* joining, not mid-class
-/// (docs/video-platform/04-FLUTTER-CLIENT §4).
+/// (archive/video-platform/docs/04-FLUTTER-CLIENT §4).
 ///
 /// Audio is sacred (V-AUD-1): the microphone permission is required to join; the camera is optional.
 class LobbyController extends ChangeNotifier {

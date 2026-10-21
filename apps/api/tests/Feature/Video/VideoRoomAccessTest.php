@@ -16,7 +16,7 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * S1 — Room access settings (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §4). Per-room settings
+ * S1 — Room access settings (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §4). Per-room settings
  * live in the existing config JSONB and are enforced server-side at the public join endpoint and in
  * the token grants. Covers: optional guest password (OFF by default, AC-8.2), the guest-screenshare
  * grant (AC-8.4), the recording gate (AC-8.4), require_host_present + max_participants (AC-8.4), the

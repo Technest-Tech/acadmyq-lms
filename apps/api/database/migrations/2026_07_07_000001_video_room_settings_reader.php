@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Room access settings, S1 (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §4/§6.1). Per-room
+ * Room access settings, S1 (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §4/§6.1). Per-room
  * settings (optional passwords, waiting room, recording gate, host-present gate, mute-on-join,
  * guest-screenshare gate, max participants, monitor-enabled) live in the EXISTING `video_rooms.config`
  * JSONB — no table change. But the public join endpoint carries no tenant context, so it must read

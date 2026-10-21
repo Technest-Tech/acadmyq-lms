@@ -1,6 +1,6 @@
 "use client";
 
-import { Receipt, Search, Wallet } from "lucide-react";
+import { AlarmClock, Banknote, CalendarCheck, GraduationCap, Hourglass, Receipt, Search, TrendingUp, Wallet } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MethodBadge, StateChip, Tile, dayLabel } from "@/components/accounting/accounting-ui";
@@ -104,7 +104,7 @@ export function GroupAccountsPanel({ group }: { group: GroupDetail }) {
           const rate = tot.rate === null ? null : Math.round(tot.rate * 100);
           return (
             <section key={tot.currency} className="space-y-3" data-testid={`accounts-totals-${tot.currency}`}>
-              <div className="rounded-2xl border p-4">
+              <div className="from-primary/[0.08] via-card to-card bg-card rounded-2xl border bg-gradient-to-br p-4 shadow-sm sm:p-5">
                 <div className="flex flex-wrap items-end justify-between gap-2">
                   <div>
                     <p className="text-muted-foreground text-xs">{t("sheet.collectionRate")}</p>
@@ -123,22 +123,22 @@ export function GroupAccountsPanel({ group }: { group: GroupDetail }) {
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Tile label={t("sheet.expected")} value={fmt(tot.expected_minor, tot.currency)} />
-                <Tile label={t("sheet.collected")} value={fmt(tot.collected_minor, tot.currency)} tone="text-emerald-600 dark:text-emerald-400" />
-                <Tile label={t("sheet.remaining")} value={fmt(tot.remaining_minor, tot.currency)} tone={tot.remaining_minor > 0 ? "text-rose-600 dark:text-rose-400" : undefined} />
+                <Tile label={t("sheet.expected")} icon={CalendarCheck} accent="sky" value={fmt(tot.expected_minor, tot.currency)} />
+                <Tile label={t("sheet.collected")} icon={Wallet} accent="emerald" value={fmt(tot.collected_minor, tot.currency)} tone="text-emerald-600 dark:text-emerald-400" />
+                <Tile label={t("sheet.remaining")} icon={AlarmClock} accent="rose" value={fmt(tot.remaining_minor, tot.currency)} tone={tot.remaining_minor > 0 ? "text-rose-600 dark:text-rose-400" : undefined} />
                 <Tile
-                  label={t("sheet.arrears")}
+                  label={t("sheet.arrears")} icon={Hourglass} accent="amber"
                   value={fmt(tot.arrears_minor, tot.currency)}
                   tone={tot.arrears_minor > 0 ? "text-amber-600 dark:text-amber-400" : undefined}
                   hint={t("sheet.arrearsHint")}
                 />
-                <Tile label={t("sheet.receivedInMonth")} value={fmt(tot.received_in_month_minor, tot.currency)} hint={t("sheet.receivedHint")} />
+                <Tile label={t("sheet.receivedInMonth")} icon={Banknote} accent="emerald" value={fmt(tot.received_in_month_minor, tot.currency)} hint={t("sheet.receivedHint")} />
                 {data.sees_teacher_cost && tot.teacher_cost_minor !== null && (
                   <>
-                    <Tile label={t("sheet.teacherCost")} value={fmt(tot.teacher_cost_minor, tot.currency)} />
+                    <Tile label={t("sheet.teacherCost")} icon={GraduationCap} accent="slate" value={fmt(tot.teacher_cost_minor, tot.currency)} />
                     {tot.net_minor !== null && (
                       <Tile
-                        label={t("sheet.net")}
+                        label={t("sheet.net")} icon={TrendingUp} accent="violet"
                         value={fmt(tot.net_minor, tot.currency)}
                         tone={tot.net_minor < 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}
                         hint={t("sheet.netHint")}
@@ -152,7 +152,7 @@ export function GroupAccountsPanel({ group }: { group: GroupDetail }) {
         })}
 
       {data && data.rows.length === 0 && (
-        <p className="text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm">{t("sheet.empty")}</p>
+        <p className="text-muted-foreground rounded-xl border border-dashed bg-card/60 p-6 text-center text-sm">{t("sheet.empty")}</p>
       )}
 
       {data && data.rows.length > 0 && (
@@ -183,9 +183,9 @@ export function GroupAccountsPanel({ group }: { group: GroupDetail }) {
           </div>
 
           {/* Desktop: a table. Phone: one card per student. */}
-          <div className="hidden overflow-x-auto rounded-xl border md:block">
+          <div className="hidden bg-card overflow-x-auto rounded-xl border shadow-sm md:block">
             <table className="w-full text-sm" data-testid="accounts-table">
-              <thead className="bg-muted/50 text-muted-foreground text-xs">
+              <thead className="bg-muted/70 text-muted-foreground border-b text-xs font-semibold">
                 <tr>
                   <th className="p-3 text-start font-medium">{t("sheet.col.student")}</th>
                   <th className="p-3 text-end font-medium">{t("sheet.col.due")}</th>
@@ -231,7 +231,7 @@ export function GroupAccountsPanel({ group }: { group: GroupDetail }) {
 
           <ul className="space-y-2 md:hidden">
             {rows.map((r) => (
-              <li key={r.student_id} className="space-y-3 rounded-xl border p-3">
+              <li key={r.student_id} className="space-y-3 bg-card rounded-xl border p-3 shadow-sm">
                 <div className="flex items-start justify-between gap-2">
                   <StudentCell row={r} />
                   <StateChip state={r.state} />

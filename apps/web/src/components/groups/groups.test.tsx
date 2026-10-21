@@ -7,6 +7,7 @@ import type { GroupDetail, GroupLesson, GroupLessonSheet, GroupRow } from "@/lib
 import { AttendanceSheet } from "./attendance-sheet";
 import { GroupLessonsPanel } from "./group-lessons-panel";
 import { GroupForm } from "./group-form";
+import { AddMembersForm } from "./group-members-panel";
 import { GroupsManager } from "./groups-manager";
 
 /**
@@ -33,6 +34,16 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   listTeachers: () => Promise.resolve({ rows: [{ id: "t1", full_name: "Mona" }], total: 1, page: 1, pageSize: 200 }),
   listSpecializations: () => Promise.resolve({ specializations: [] }),
+  listStudents: () =>
+    Promise.resolve({
+      rows: [
+        { id: "s-adam", full_name: "Adam", whatsapp_phone: "+201001112222", secondary_phone: null, guardian_name: "Hassan", guardian_phone: "+201009998888", is_self_guardian: false },
+        { id: "s-dina", full_name: "Dina", whatsapp_phone: null, secondary_phone: null, guardian_name: "Mariam", guardian_phone: "+201005556666", is_self_guardian: false },
+      ],
+      total: 2,
+      page: 1,
+      pageSize: 200,
+    }),
 }));
 
 const push = vi.fn();
@@ -288,6 +299,41 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
     });
   });
 
+  it("sells a monthly group by hours: the hours go up as minutes, and the join pro-rating drops away", async () => {
+    const user = userEvent.setup();
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage", "student.set_price"] }),
+      <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    await user.type(screen.getByTestId("group-name"), "English A1");
+    await user.click(screen.getByTestId("group-teacher"));
+    await user.click(await screen.findByText("Mona"));
+    await user.type(screen.getByTestId("group-price"), "600");
+    expect(screen.getByText(ar.money.prorateJoin)).toBeInTheDocument();
+    await user.type(screen.getByTestId("group-month-hours"), "7.5");
+    expect(screen.queryByText(ar.money.prorateJoin)).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("group-save"));
+
+    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
+    expect(createGroup.mock.calls[0]![0]).toMatchObject({ billing_mode: "MONTHLY", price_minor: 60000, month_minutes: 450 });
+  });
+
+  it("drops the hours when the group is not monthly", async () => {
+    const user = userEvent.setup();
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage", "student.set_price"] }),
+      <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    await user.type(screen.getByTestId("group-name"), "English A1");
+    await user.click(screen.getByTestId("group-teacher"));
+    await user.click(await screen.findByText("Mona"));
+    await user.type(screen.getByTestId("group-month-hours"), "8");
+    await user.click(screen.getByTestId("billing-PER_LESSON"));
+    expect(screen.queryByTestId("group-month-hours")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("group-save"));
+
+    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
+    expect(createGroup.mock.calls[0]![0]).toMatchObject({ billing_mode: "PER_LESSON", month_minutes: null });
+  });
+
   it("shows a supervisor no money at all, and sends none", async () => {
     const user = userEvent.setup();
     render(withAuth(makeSession("SUPERVISOR", { permissions: ["group.manage"] }),
@@ -305,5 +351,23 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
     const input = createGroup.mock.calls[0]![0];
     expect(input).not.toHaveProperty("price_minor");
     expect(input).not.toHaveProperty("teacher_pay_mode");
+  });
+});
+
+describe("AddMembersForm — picking students for a group", () => {
+  const group = { ...groupRow({ capacity: null, member_count: 0 }), notes: null, effective_meeting_url: null, members: [], attendance_rate: null } as GroupDetail;
+
+  it("shows each student's number — their own, else the parent's — and finds them by it", async () => {
+    const user = userEvent.setup();
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage"] }),
+      <AddMembersForm group={group} onCancel={() => {}} onSaved={() => {}} />));
+
+    expect(await screen.findByTestId("pick-phone-s-adam")).toHaveTextContent("+201001112222");
+    expect(screen.getByTestId("pick-phone-s-dina")).toHaveTextContent("+201005556666");
+
+    // Typed the local way, with the leading 0 and a space.
+    await user.type(screen.getByLabelText(ar.members.searchStudents), "0100 555");
+    expect(screen.queryByTestId("pick-s-adam")).not.toBeInTheDocument();
+    expect(screen.getByTestId("pick-s-dina")).toBeInTheDocument();
   });
 });

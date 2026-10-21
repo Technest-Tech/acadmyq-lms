@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Super Admin video oversight — Tier 1 (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING).
+ * Super Admin video oversight — Tier 1 (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING).
  *
  * Two audited cross-tenant escape hatches, following the `app.admin_dashboard_stats()` /
  * `app.admin_audit()` contract exactly: SECURITY DEFINER (so they bypass RLS), owned by the

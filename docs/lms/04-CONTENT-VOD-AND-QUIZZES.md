@@ -31,7 +31,7 @@ source mp3/m4a); PDF is served to a viewer.
 ## VOD pipeline (phase 3 — uploaded video)
 
 The one genuinely heavy piece. Live video (the `VIDEO` module / LiveKit) is a *different serving
-path* from on-demand course video, but the storage/CDN layer from `infra/video` is reused.
+path* from on-demand course video, but the storage/CDN layer from `archive/video-platform/infra` is reused.
 
 ```
 dashboard                      API                     object storage        transcode worker        CDN

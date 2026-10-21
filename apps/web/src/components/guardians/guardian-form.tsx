@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox, DialCodePicker, type ComboboxOption } from "@/components/ui/combobox";
+import { joinPhone, PhoneInput, type PhoneParts } from "@/components/ui/phone-input";
 import { ApiError, createGuardian, type GuardianInput } from "@/lib/api";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { cn } from "@/lib/utils";
@@ -81,6 +82,8 @@ export function GuardianForm({
   // Phone split: dialCountryCode (ISO-2) + localNumber (digits only)
   const [dialCountry, setDialCountry] = useState("SA");
   const [localNumber, setLocalNumber] = useState("");
+  // Optional second number (the other parent, a home line) — contact only.
+  const [otherPhone, setOtherPhone] = useState<PhoneParts>({ dialCountry: "SA", localNumber: "" });
   const [country, setCountry] = useState("");
   const [currency, setCurrency] = useState("");
   const [notes, setNotes] = useState("");
@@ -92,6 +95,7 @@ export function GuardianForm({
     const found = COUNTRIES.find((c) => c.code === code);
     if (!found) return;
     setDialCountry(found.code);
+    if (!otherPhone.localNumber) setOtherPhone({ dialCountry: found.code, localNumber: "" });
     if (!currency) setCurrency(found.currency);
   }
 
@@ -108,6 +112,7 @@ export function GuardianForm({
       const input: GuardianInput = {
         full_name: fullName,
         whatsapp_phone,
+        secondary_phone: joinPhone(otherPhone),
         country: country || null,
         currency: currency || null,
         notes: notes || null,
@@ -180,6 +185,15 @@ export function GuardianForm({
             className="flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>
+      </Field>
+
+      <Field label={t("form.secondaryPhone")} hint={t("form.secondaryPhoneHint")}>
+        <PhoneInput
+          value={otherPhone}
+          onChange={setOtherPhone}
+          ariaLabel={t("form.secondaryPhone")}
+          testId="guardian-secondary-phone"
+        />
       </Field>
 
       {/* Country + Currency — searchable comboboxes */}

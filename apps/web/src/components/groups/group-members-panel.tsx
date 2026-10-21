@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fromMinor, toMinor } from "@/components/groups/group-form";
-import { fieldClass, percent, todayIn } from "@/components/groups/group-format";
+import { fieldClass, hoursText, percent, todayIn } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -83,6 +83,14 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
               ? ` · ${t("members.ownPrice", { price: formatMoney({ amount: m.price_minor, currency: group.pricing.currency }, locale) })}`
               : ""}
           </p>
+          {m.hour_month && m.hour_month.months > 0 && (
+            <p className="text-muted-foreground mt-0.5 text-xs" data-testid={`hour-month-${m.student_id}`}>
+              {t("members.hourMonth", {
+                month: m.hour_month.months,
+                left: hoursText(Math.max(0, m.hour_month.bought_minutes - m.hour_month.used_minutes), locale),
+              })}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <span className="text-sm" title={t("members.rateTitle")}>
@@ -247,9 +255,20 @@ export function AddMembersForm({
   );
   const options = useMemo(() => {
     const needle = q.trim().toLowerCase();
+    // A number is searched by its digits, without the local leading 0 — "0100 123" finds +20100123….
+    const digits = needle.replace(/\D/g, "").replace(/^0+/, "");
+    const phoneMatches = (s: StudentRow) =>
+      digits.length >= 3 &&
+      [s.whatsapp_phone, s.secondary_phone, s.guardian_phone].some((p) => (p ?? "").replace(/\D/g, "").includes(digits));
     return (students ?? [])
       .filter((s) => !inGroup.has(s.id))
-      .filter((s) => !needle || s.full_name.toLowerCase().includes(needle) || (s.guardian_name ?? "").toLowerCase().includes(needle));
+      .filter(
+        (s) =>
+          !needle ||
+          s.full_name.toLowerCase().includes(needle) ||
+          (s.guardian_name ?? "").toLowerCase().includes(needle) ||
+          phoneMatches(s),
+      );
   }, [students, q, inGroup]);
 
   const seatsLeft = group.capacity !== null ? group.capacity - inGroup.size : null;
@@ -287,7 +306,7 @@ export function AddMembersForm({
 
       <label className="relative block">
         <Search className="text-muted-foreground absolute top-1/2 size-4 -translate-y-1/2 ltr:left-3 rtl:right-3" />
-        <input className={cn(fieldClass, "ps-9")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("members.searchStudents")} aria-label={t("members.searchStudents")} />
+        <input className={cn(fieldClass, "ps-9")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("members.searchStudentsOrPhone")} aria-label={t("members.searchStudents")} />
       </label>
 
       <div className="max-h-72 overflow-y-auto rounded-xl border">
@@ -301,12 +320,18 @@ export function AddMembersForm({
               <li key={s.id}>
                 <label className="hover:bg-muted/50 flex cursor-pointer items-center gap-3 px-3 py-2">
                   <input type="checkbox" checked={picked.has(s.id)} onChange={() => toggle(s.id)} data-testid={`pick-${s.id}`} />
-                  <span className="min-w-0">
+                  <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{s.full_name}</span>
                     {s.guardian_name && !s.is_self_guardian && (
                       <span className="text-muted-foreground block truncate text-xs">{s.guardian_name}</span>
                     )}
                   </span>
+                  {/* The student's own number, else the parent's — enough to tell two same-named students apart. */}
+                  {(s.whatsapp_phone ?? s.guardian_phone) && (
+                    <span dir="ltr" className="text-muted-foreground shrink-0 text-xs tabular-nums" data-testid={`pick-phone-${s.id}`}>
+                      {s.whatsapp_phone ?? s.guardian_phone}
+                    </span>
+                  )}
                 </label>
               </li>
             ))}

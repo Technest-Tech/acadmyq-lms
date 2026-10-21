@@ -34,7 +34,7 @@ final class ClassGroupController extends Controller
     private const STATES = ['UPCOMING', 'RUNNING', 'FINISHED', 'ARCHIVED'];
 
     /** What the student pays — `student.set_price` to change, hidden from anyone who can't see money. */
-    private const PRICE_FIELDS = ['billing_mode', 'price_minor', 'currency', 'charge_absent', 'prorate_join'];
+    private const PRICE_FIELDS = ['billing_mode', 'price_minor', 'currency', 'charge_absent', 'prorate_join', 'month_minutes'];
 
     /** What the teacher earns — `teacher.set_pay` to change; it or `payout.read` to see. */
     private const TEACHER_PAY_FIELDS = ['teacher_pay_mode', 'teacher_pay_minor', 'teacher_share_bp'];
@@ -198,6 +198,14 @@ final class ClassGroupController extends Controller
         ]));
         if (isset($fields['name'])) {
             $fields['name'] = trim($fields['name']);
+        }
+        // A monthly group moving between calendar months and hours: the month already paid under
+        // the old rule runs out first, and the new rule bills from the 1st of next month.
+        if (array_key_exists('month_minutes', $fields) || array_key_exists('billing_mode', $fields)) {
+            $switch = $this->billing->ruleSwitchDate($group, $fields);
+            if ($switch !== null) {
+                $fields['billing_rule_from'] = $switch;
+            }
         }
 
         // One unit, so a failure part-way never leaves the times edited and the lessons not.
@@ -581,6 +589,8 @@ final class ClassGroupController extends Controller
         $counters = $this->groups->lessonCounters([$id])[$id] ?? null;
         $attendance = $this->groups->memberAttendance($id);
         $seesPrices = $this->seesPrices();
+        // An hours group: where each member is in their month (bought vs used), for whoever sees money.
+        $hours = $seesPrices ? $this->billing->hourMonthBalances($g) : [];
 
         $members = DB::table('class_group_members as m')
             ->join('students as st', 'st.id', '=', 'm.student_id')
@@ -605,6 +615,7 @@ final class ClassGroupController extends Controller
                 'attendance' => $attendance[(string) $m->student_id] ?? null,
                 // The member's own price (null = the group's); hidden like the group's.
                 'price_minor' => $seesPrices && $m->price_minor !== null ? (int) $m->price_minor : null,
+                'hour_month' => $m->status === 'ACTIVE' ? ($hours[(string) $m->student_id] ?? null) : null,
             ])->values();
 
         // The group's own rate: everyone who came, over every mark on a held lesson.
@@ -649,6 +660,7 @@ final class ClassGroupController extends Controller
                 'currency' => $g->currency,
                 'charge_absent' => (bool) $g->charge_absent,
                 'prorate_join' => (bool) $g->prorate_join,
+                'month_minutes' => $g->month_minutes !== null ? (int) $g->month_minutes : null,
             ] : null,
             'teacher_pay' => Gate::allows('teacher.set_pay') || Gate::allows('payout.read') ? [
                 'mode' => $g->teacher_pay_mode,
@@ -708,6 +720,10 @@ final class ClassGroupController extends Controller
         if ($get('price_minor') !== null && $get('currency') === null) {
             $data['currency'] = (string) DB::table('academies')->where('id', $this->currentAcademyId())->value('default_currency');
         }
+        // Hours describe a month, so only a monthly group keeps them.
+        if ($get('billing_mode') !== GroupBilling::MONTHLY && $get('month_minutes') !== null) {
+            $data['month_minutes'] = null;
+        }
 
         $mode = $get('teacher_pay_mode');
         if (in_array($mode, ['PER_LESSON', 'PER_HOUR', 'PER_STUDENT'], true) && $get('teacher_pay_minor') === null) {
@@ -756,6 +772,8 @@ final class ClassGroupController extends Controller
             'currency' => ['sometimes', 'nullable', 'string', 'size:3'],
             'charge_absent' => ['sometimes', 'boolean'],
             'prorate_join' => ['sometimes', 'boolean'],
+            // MONTHLY only: the hours one month buys (null = the calendar month).
+            'month_minutes' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:60000'],
             'teacher_pay_mode' => ['sometimes', 'nullable', Rule::in(['PER_LESSON', 'PER_HOUR', 'PER_STUDENT', 'REVENUE_SHARE'])],
             'teacher_pay_minor' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000000000000'],
             'teacher_share_bp' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:10000'],

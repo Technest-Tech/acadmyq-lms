@@ -1,7 +1,7 @@
 /// Engine-agnostic value types for a live media session.
 ///
 /// No LiveKit (or any SDK) type appears here — this is the contract the UI and controllers depend
-/// on (rule V-ARCH-1, see docs/video-platform/04-FLUTTER-CLIENT.md). Swapping the media engine
+/// on (rule V-ARCH-1, see archive/video-platform/docs/04-FLUTTER-CLIENT.md). Swapping the media engine
 /// means writing one new [MediaSession] implementation; nothing here changes.
 library;
 

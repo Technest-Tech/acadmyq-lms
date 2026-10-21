@@ -7,7 +7,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Auto-generated SHORT links, S5 (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §14).
+ * Auto-generated SHORT links, S5 (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §14).
  *
  * From now on a room's three links (guest `join_token`, `host_token`, `monitor_token`) are short,
  * human-readable `{kebab-room-name}-{≤7 alnum}` links minted by VideoRoomController — replacing the

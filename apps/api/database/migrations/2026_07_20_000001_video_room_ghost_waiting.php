@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Ghost waiting room (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §13, extends S4). When a room
+ * Ghost waiting room (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §13, extends S4). When a room
  * has `config.ghost_waiting_room = true`, a MONITOR/ghost-link entrant no longer joins silently — they
  * knock exactly like a guest, and the host (e.g. a female teacher who wants to accept an observer
  * before class) admits or denies them. Requested by academies whose teachers must consent to any

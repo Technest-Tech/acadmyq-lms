@@ -262,6 +262,30 @@ PARTIALLY_PAID. Because "OPEN" no longer means "nothing paid":
 - Teacher % on collected money is F3 and not built yet.
 - A member who leaves mid-month gets nothing back (unchanged).
 
+## The section, reorganised (2026-10-21)
+
+The first Accounting dropdown listed nine pages — one per table (receipts, statement, daily, arrears,
+treasury, expenses, income, groups, overview). An accountant does not think in tables; they ask four
+questions. The sidebar now has four pages, laid out by question, and nothing changed server-side:
+
+| Sidebar | Question | What is on it |
+|---|---|---|
+| **Overview** `/accounting` | How is the month going? | KPIs, collection rate, by day / method / collector, aging, top debtors (a name opens their statement in place), latest receipts, the treasury strip once accounts exist. |
+| **Arrears** `/accounting/arrears` | Who owes? | Every family with a balance, aged. From a row: Collect, WhatsApp reminder, **Statement** (a modal — the family never leaves the list; "Open to print" is the page). A hero button picks any family's statement. |
+| **Treasury & expenses** `/accounting/treasury` | Where is the money, what moved? | Tabs: **Accounts** (balances, mapping, transfers, close the day) · **Receipts** (the register, record a payment) · **Expenses** (money out, pay a salary). An expense needs an account to pay it from, so the two belong together. |
+| **Reports** `/accounting/reports` | What do the numbers say? | Tabs: **Daily collections** · **Income vs expenses** · **Group collections** (only with `groups`). |
+
+- A **Collect** button sits in the header on every page for a client on receipts whose user may mark
+  invoices paid (`CollectQuickAction`). Pick the student, their family's account opens.
+- `/accounting/statement` stays as the printable page but is no longer a sidebar item: a statement is an
+  action on a family (Arrears row, Overview debtor, family card), not a place.
+- The old addresses redirect to the tab that replaced them: `/receipts` → treasury?tab=receipts,
+  `/accounting/expenses` → treasury?tab=expenses, `/accounting/daily|income|groups` → reports?tab=….
+- Every screen component takes `hero?: boolean`; a hub renders one `PageHero` and the tab strip
+  (`AccountingTabs`), and the screen inside puts its actions in a row of its own.
+- Non-accounting academies: nothing changed (app-shell tests pin the sidebar; `AccountingGate` and
+  `entitled:accounting` still 402 everything).
+
 ## Decisions needed
 
 1. **Receipts academy-wide (recommended) or groups only?** Groups-only would leave the

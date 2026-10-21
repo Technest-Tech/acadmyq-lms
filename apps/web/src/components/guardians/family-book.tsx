@@ -7,6 +7,7 @@ import {
   GraduationCap,
   MapPin,
   MessageCircle,
+  Phone,
   Plus,
   Search,
   Users,
@@ -131,6 +132,15 @@ function FamilyCard({ row, onOpen }: { row: GuardianRow; onOpen: () => void }) {
                   aria-hidden
                 />
                 {row.whatsapp_phone}
+              </span>
+            )}
+            {row.secondary_phone && (
+              <span
+                dir="ltr"
+                className="inline-flex items-center gap-1 tabular-nums"
+              >
+                <Phone className="size-3 shrink-0" aria-hidden />
+                {row.secondary_phone}
               </span>
             )}
             {country && (

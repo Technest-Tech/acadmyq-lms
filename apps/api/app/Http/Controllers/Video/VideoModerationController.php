@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * In-call host moderation (docs/video-platform — V-CTL-1). Server-mediated: the browser never holds
+ * In-call host moderation (archive/video-platform/docs — V-CTL-1). Server-mediated: the browser never holds
  * the LiveKit admin secret (V-SEC-1), it asks the control plane, which acts on the SFU with a
  * freshly-minted admin token. Two authorities reach the same actions:
  *   - a logged-in manager (room.manage), resolved under their tenant context (RLS); or

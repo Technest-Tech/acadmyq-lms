@@ -32,7 +32,7 @@ into the existing AcademIQ system (`apps/api` Laravel + `apps/web` Next.js + Pos
 
 All seven docs are written. Per the project working rule ([V-PROC-1](00-OVERVIEW.md#rules)), we still
 **build** one phase at a time — the docs are the blueprint; implementation proceeds phase by phase per
-[05-ROADMAP](05-ROADMAP.md). The local media stack is live in [`infra/video/local/`](../../infra/video/local/)
+[05-ROADMAP](05-ROADMAP.md). The local media stack is live in [`archive/video-platform/infra/local/`](../infra/local/)
 (Phase 0, Part A — verified).
 
 ---
@@ -45,7 +45,7 @@ All seven docs are written. Per the project working rule ([V-PROC-1](00-OVERVIEW
 3. Open `05-ROADMAP`, find the **current phase**, and work only inside it.
 4. Every change must satisfy the phase's acceptance criteria and ship with passing tests.
 
-**Conventions (mirroring [docs/00-MASTER-SPEC.md](../00-MASTER-SPEC.md)):**
+**Conventions (mirroring [docs/00-MASTER-SPEC.md](../../../docs/00-MASTER-SPEC.md)):**
 - **Rule IDs** `V-<AREA>-<n>` — durable product/engineering rules (e.g. `V-AUD-1`). Defined in `00-OVERVIEW`.
 - **Acceptance criteria** `AC-V<phase>.<n>` — what "done" means for a phase. Defined in `05-ROADMAP`.
 - **Test cases** `TC-V<phase>.<n>` — concrete tests proving an AC. Defined in `05-ROADMAP`.

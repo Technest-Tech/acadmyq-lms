@@ -22,7 +22,7 @@ use Throwable;
 
 /**
  * Super Admin video oversight — Tier 1 (read-only governance for the self-hosted video platform;
- * docs/video-platform/08-ROOM-ACCESS-AND-MONITORING). Three reads, each gated by `platform.manage`:
+ * archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING). Three reads, each gated by `platform.manage`:
  *
  *   - usage()      — cross-tenant usage dashboard (per-academy active rooms vs the plan's maxRooms,
  *                    recordings + storage + recording-hours, in-flight recordings).

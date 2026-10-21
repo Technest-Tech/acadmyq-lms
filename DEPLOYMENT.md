@@ -35,7 +35,7 @@ or redeploy from it.
 
 > The **media/video plane is a second box** — Contabo VPS 6 `169.58.59.255`
 > (`ssh academiq-s2`, `media.acadmyq.com` + `turn.acadmyq.com`). See
-> [`docs/video-platform/07-DEPLOYMENT.md`](docs/video-platform/07-DEPLOYMENT.md).
+> [`archive/video-platform/docs/07-DEPLOYMENT.md`](archive/video-platform/docs/07-DEPLOYMENT.md).
 
 ### Connecting, and running anything by hand
 

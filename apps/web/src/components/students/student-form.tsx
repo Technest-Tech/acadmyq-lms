@@ -8,6 +8,7 @@ import {
   Layers,
   User,
   UserCheck,
+  UserPlus,
   Users,
   Zap,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import {
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox, DialCodePicker, type ComboboxOption } from "@/components/ui/combobox";
+import { joinPhone, PhoneInput, type PhoneParts } from "@/components/ui/phone-input";
 import {
   ApiError,
   createStudent,
@@ -208,6 +210,30 @@ export function StudentForm({
   const [country, setCountry] = useState("");
   const [selfGuardian, setSelfGuardian] = useState(false);
   const [guardianId, setGuardianId] = useState(fixedGuardianId ?? "");
+  // Optional second number (the other parent, a home line) — contact only.
+  const [otherPhone, setOtherPhone] = useState<PhoneParts>({
+    dialCountry: initialSplit.dialCountry,
+    localNumber: "",
+  });
+
+  /**
+   * No parent on file yet: rather than leave the form for the parents page and come back, the
+   * parent is typed in here and created in the same save as the student. Only for a role that may
+   * create parents; it opens by itself when the academy has none at all.
+   */
+  const canCreateGuardian = can("guardian.create");
+  const [newParent, setNewParent] = useState(false);
+  const [parentName, setParentName] = useState("");
+  const [parentPhone, setParentPhone] = useState<PhoneParts>({
+    dialCountry: initialSplit.dialCountry,
+    localNumber: "",
+  });
+  const [parentOtherPhone, setParentOtherPhone] = useState<PhoneParts>({
+    dialCountry: initialSplit.dialCountry,
+    localNumber: "",
+  });
+  const [parentCurrency, setParentCurrency] = useState("");
+  const addingParent = newParent && !selfGuardian && !fixedGuardianId;
 
   // Teachers are offered only to a role that can see the teacher list at all.
   const canPickTeachers = can("teacher.read");
@@ -240,9 +266,9 @@ export function StudentForm({
   // Package — the same fields, defaults and suggestions as the packages screen, because they are
   // literally the same component. A new student has no agreed rate yet, so no total is suggested;
   // the guardian's currency seeds the field since that is who pays.
-  const guardianCurrency =
-    guardians.find((g) => g.id === (fixedGuardianId ?? guardianId))?.currency ??
-    "";
+  const guardianCurrency = addingParent
+    ? parentCurrency
+    : (guardians.find((g) => g.id === (fixedGuardianId ?? guardianId))?.currency ?? "");
   const terms = usePackageTerms({ defaultCurrency: guardianCurrency });
 
   const currencyOptions = useMemo<ComboboxOption[]>(
@@ -260,9 +286,13 @@ export function StudentForm({
 
   useEffect(() => {
     if (!fixedGuardianId) {
-      void listGuardians({ pageSize: 50 }).then((r) => setGuardians(r.rows));
+      void listGuardians({ pageSize: 200 }).then((r) => {
+        setGuardians(r.rows);
+        // Nobody to pick yet: the only way forward is a new parent, so start there.
+        if (r.rows.length === 0 && canCreateGuardian) setNewParent(true);
+      });
     }
-  }, [fixedGuardianId]);
+  }, [fixedGuardianId, canCreateGuardian]);
 
   useEffect(() => {
     if (!canPickTeachers) return;
@@ -273,9 +303,15 @@ export function StudentForm({
 
   function handleCountryChange(code: string) {
     setCountry(code);
-    if (!code || localNumber) return;
-    const found = COUNTRIES.find((c) => c.code === code);
-    if (found) setDialCountry(found.code);
+    const found = code ? COUNTRIES.find((c) => c.code === code) : undefined;
+    if (!found) return;
+    // Every number still empty follows the country; one already typed keeps its code.
+    const follow = (p: PhoneParts) => (p.localNumber ? p : { ...p, dialCountry: found.code });
+    setOtherPhone(follow);
+    setParentPhone(follow);
+    setParentOtherPhone(follow);
+    if (!parentCurrency) setParentCurrency(found.currency);
+    if (!localNumber) setDialCountry(found.code);
   }
 
   // Selecting a guardian copies their country + WhatsApp onto the student, since
@@ -288,7 +324,10 @@ export function StudentForm({
     if (g.country) {
       setCountry(g.country);
       const c = COUNTRIES.find((x) => x.code === g.country);
-      if (c) setDialCountry(c.code);
+      if (c) {
+        setDialCountry(c.code);
+        setOtherPhone((p) => (p.localNumber ? p : { ...p, dialCountry: c.code }));
+      }
     }
     if (g.whatsapp_phone) {
       const phone = g.whatsapp_phone;
@@ -321,7 +360,11 @@ export function StudentForm({
       setError(t("form.fullNameRequired"));
       return false;
     }
-    if (!selfGuardian && !guardianId && !fixedGuardianId) {
+    if (addingParent && (!parentName.trim() || !parentPhone.localNumber)) {
+      setError(t("form.newGuardianRequired"));
+      return false;
+    }
+    if (!selfGuardian && !addingParent && !guardianId && !fixedGuardianId) {
       setError(t("form.guardianRequired"));
       return false;
     }
@@ -348,9 +391,22 @@ export function StudentForm({
       const res = await createStudent({
         full_name: fullName,
         whatsapp_phone: buildPhone(),
+        secondary_phone: joinPhone(otherPhone),
         country: country || null,
         is_self_guardian: selfGuardian,
-        guardian_id: selfGuardian ? undefined : ((fixedGuardianId ?? guardianId) || undefined),
+        guardian_id:
+          selfGuardian || addingParent ? undefined : ((fixedGuardianId ?? guardianId) || undefined),
+        ...(addingParent
+          ? {
+              new_guardian: {
+                full_name: parentName.trim(),
+                whatsapp_phone: joinPhone(parentPhone) ?? "",
+                secondary_phone: joinPhone(parentOtherPhone),
+                country: country || null,
+                currency: parentCurrency || null,
+              },
+            }
+          : {}),
         status: enrolling ? "REGULAR" : "TRIAL",
         ...(links.length > 0 ? { teachers: links } : {}),
         // The package path opens the package in the same request, which also creates the
@@ -478,16 +534,94 @@ export function StudentForm({
         </p>
       ) : (
         !fixedGuardianId && (
-          <Field label={t("form.guardian")} required>
-            <Combobox
-              options={guardians.map((g) => ({ value: g.id, label: g.full_name }))}
-              value={guardianId}
-              onChange={handleGuardianChange}
-              placeholder={t("form.none")}
-              searchPlaceholder={t("form.searchGuardian")}
-              data-testid="guardian-select"
-            />
-          </Field>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-sm font-medium">
+                {addingParent ? t("form.newGuardian") : t("form.guardian")}
+                <span className="text-destructive ms-0.5">*</span>
+              </label>
+              {canCreateGuardian && (
+                <button
+                  type="button"
+                  onClick={() => setNewParent((v) => !v)}
+                  className="text-primary inline-flex items-center gap-1 text-xs font-semibold underline-offset-4 hover:underline"
+                  data-testid="guardian-new-toggle"
+                >
+                  {addingParent ? (
+                    <>
+                      <Users className="size-3.5" aria-hidden />
+                      {t("form.pickExistingGuardian")}
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="size-3.5" aria-hidden />
+                      {t("form.addNewGuardian")}
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {addingParent ? (
+              <div
+                className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-3.5"
+                data-testid="new-guardian"
+              >
+                <p className="text-muted-foreground text-xs">{t("form.newGuardianHint")}</p>
+                <Field label={t("form.guardianName")} required>
+                  <div className="relative">
+                    <User className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      aria-label={t("form.guardianName")}
+                      className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                      placeholder={t("form.guardianNamePlaceholder")}
+                      value={parentName}
+                      onChange={(e) => setParentName(e.target.value)}
+                    />
+                  </div>
+                </Field>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label={t("form.guardianPhone")} required>
+                    <PhoneInput
+                      value={parentPhone}
+                      onChange={setParentPhone}
+                      ariaLabel={t("form.guardianPhone")}
+                      testId="new-guardian-phone"
+                    />
+                  </Field>
+                  <Field label={t("form.secondaryPhone")}>
+                    <PhoneInput
+                      value={parentOtherPhone}
+                      onChange={setParentOtherPhone}
+                      ariaLabel={t("form.guardianSecondaryPhone")}
+                    />
+                  </Field>
+                </div>
+                <Field label={t("subscription.currency")} hint={t("form.guardianCurrencyHint")}>
+                  <Combobox
+                    options={currencyOptions}
+                    value={parentCurrency}
+                    onChange={setParentCurrency}
+                    placeholder={t("form.currencyPlaceholder")}
+                    searchPlaceholder={t("form.searchCurrency")}
+                  />
+                </Field>
+              </div>
+            ) : (
+              <Combobox
+                options={guardians.map((g) => ({
+                  value: g.id,
+                  label: g.full_name,
+                  sublabel: g.whatsapp_phone,
+                }))}
+                value={guardianId}
+                onChange={handleGuardianChange}
+                placeholder={t("form.none")}
+                searchPlaceholder={t("form.searchGuardian")}
+                data-testid="guardian-select"
+              />
+            )}
+          </div>
         )
       )}
 
@@ -516,6 +650,15 @@ export function StudentForm({
             className="flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>
+      </Field>
+
+      <Field label={t("form.secondaryPhone")} hint={t("form.secondaryPhoneHint")}>
+        <PhoneInput
+          value={otherPhone}
+          onChange={setOtherPhone}
+          ariaLabel={t("form.secondaryPhone")}
+          testId="student-secondary-phone"
+        />
       </Field>
 
       <Field label={t("form.country")}>

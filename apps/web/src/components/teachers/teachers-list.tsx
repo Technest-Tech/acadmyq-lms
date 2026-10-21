@@ -13,6 +13,7 @@ import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Octagram } from "@/components/ornaments";
+import { addedByFilter, DoneByCell, useTeamActors } from "@/components/team/done-by";
 import { usePaySummary } from "@/components/teachers/teacher-pay-editor";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -132,8 +133,10 @@ export function TeachersList({
   onPrefetch?: (id: string) => void;
 }) {
   const t = useTranslations("teachers");
+  const tDone = useTranslations("doneBy");
   const paySummary = usePaySummary();
   const { can } = useAuth();
+  const actors = useTeamActors();
   // Pay is teacher.set_pay's to see (the API redacts it for a supervisor) — no column without it.
   const canPay = can("teacher.set_pay");
 
@@ -232,8 +235,15 @@ export function TeachersList({
           );
         },
       },
+      // Which of the team added the teacher — for an academy run by several supervisors.
+      {
+        key: "added_by",
+        header: tDone("col"),
+        headerClassName: "min-w-32",
+        render: (r) => <DoneByCell name={r.added_by_name} />,
+      },
     ],
-    [t, paySummary, canPay],
+    [t, tDone, paySummary, canPay],
   );
 
   const filters = useMemo<FilterDef[]>(
@@ -247,8 +257,9 @@ export function TeachersList({
           { value: "all", label: t("filter.all") },
         ],
       },
+      ...addedByFilter(actors, tDone),
     ],
-    [t],
+    [t, tDone, actors],
   );
 
   const exportColumns = useMemo<ExcelColumn<TeacherRow>[]>(
@@ -271,8 +282,9 @@ export function TeachersList({
         header: t("colStatus"),
         value: (r) => (r.deleted_at == null ? t("stat.active") : t("stat.inactive")),
       },
+      { header: tDone("col"), value: (r) => r.added_by_name ?? "", width: 22 },
     ],
-    [t, paySummary, canPay],
+    [t, tDone, paySummary, canPay],
   );
 
   const newButton = can("teacher.create") ? (

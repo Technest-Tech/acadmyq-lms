@@ -2,9 +2,11 @@
 
 import { Ban, CalendarClock, CheckCircle2, Sparkles, Trash2, UserPlus, UserRoundSearch } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
+import { useAuth } from "@/components/auth-provider";
 import { Octagram } from "@/components/ornaments";
+import { addedByFilter, DoneByCell, useTeamActors } from "@/components/team/done-by";
 import { Button } from "@/components/ui/button";
-import { DataTable } from "@/components/ui/data-table";
+import { type ColumnDef, DataTable } from "@/components/ui/data-table";
 import { listTrials, type TrialRow, type TrialStatus } from "@/lib/api";
 import { formatLocalDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -44,7 +46,11 @@ export function TrialsTable({
   onDelete: (trial: TrialRow) => void;
 }) {
   const t = useTranslations("trials");
+  const tDone = useTranslations("doneBy");
   const locale = useLocale();
+  const { session } = useAuth();
+  const isTeacher = session?.role === "TEACHER";
+  const actors = useTeamActors();
 
   const statusLabel = (s: TrialStatus) => t(`status.${s}`);
 
@@ -108,6 +114,7 @@ export function TrialsTable({
           label: t("filters.decision"),
           options: [{ value: "needed", label: t("filters.needsDecision") }],
         },
+        ...addedByFilter(actors, tDone),
       ]}
       emptyMessage={t("table.empty")}
       columns={[
@@ -175,6 +182,16 @@ export function TrialsTable({
             </span>
           ),
         },
+        // Which of the team booked the trial — for an academy run by several supervisors.
+        ...(isTeacher
+          ? []
+          : [
+              {
+                key: "added_by",
+                header: tDone("col"),
+                render: (row) => <DoneByCell name={row.added_by_name} />,
+              } satisfies ColumnDef<TrialRow>,
+            ]),
       ]}
       rowActions={(row) => (
         <div className="flex items-center justify-end gap-1">

@@ -40,9 +40,8 @@ import {
   PackageCheck,
   AlarmClock,
   Calculator,
-  FileSpreadsheet,
-  Receipt,
   ReceiptText,
+  Vault,
   Scale,
   Settings,
   ShieldCheck,
@@ -61,6 +60,7 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ComponentType } from "react";
+import { CollectQuickAction } from "@/components/accounting/collect-quick-action";
 import { useAuth } from "@/components/auth-provider";
 import { ChangePasswordModal } from "@/components/change-password-modal";
 import { CommandPalette, type CommandItem } from "@/components/command-palette";
@@ -140,11 +140,9 @@ type NavKey =
   | "invoices"
   | "accounting"
   | "accountingOverview"
-  | "receipts"
-  | "accountingGroups"
   | "accountingArrears"
-  | "accountingStatement"
-  | "accountingDaily"
+  | "accountingTreasury"
+  | "accountingReports"
   | "packages"
   | "packagesFinished"
   | "payroll"
@@ -439,10 +437,13 @@ const NAV: ReadonlyArray<{
     href: "/invoices",
     group: "financial",
   },
-  // Accounting (docs/groups/01-ACCOUNTING.md) — a section of its own, opened as a dropdown: the
-  // month at a glance, the receipts, every group's collection and profit, who owes (aged), a
-  // family's statement and the day-by-day collections. Only for a client on receipts
-  // (`accounting`, opt-in); every other client never sees any of it.
+  // Accounting (docs/groups/01-ACCOUNTING.md) — a section of its own, opened as a dropdown, laid
+  // out by the question an accountant asks rather than by table: how is the month going (Overview),
+  // who owes (Arrears, with a family's statement as an action on its row), where is the money and
+  // what moved (Treasury: accounts, receipts, expenses as tabs) and the reports (daily collections,
+  // income vs expenses, group collections as tabs). Nine pages were cut to these four; the old URLs
+  // redirect to the tab that replaced them. Only for a client on receipts (`accounting`, opt-in);
+  // every other client never sees any of it.
   {
     key: "accounting",
     icon: Calculator,
@@ -451,11 +452,9 @@ const NAV: ReadonlyArray<{
     group: "financial",
   },
   { key: "accountingOverview", icon: LayoutDashboard, permission: "invoice.read", href: "/accounting", group: "financial", parent: "accounting" },
-  { key: "receipts", icon: Receipt, permission: "invoice.read", href: "/receipts", group: "financial", parent: "accounting" },
-  { key: "accountingGroups", icon: Layers, permission: "invoice.read", href: "/accounting/groups", group: "financial", parent: "accounting" },
   { key: "accountingArrears", icon: AlarmClock, permission: "invoice.read", href: "/accounting/arrears", group: "financial", parent: "accounting" },
-  { key: "accountingStatement", icon: FileSpreadsheet, permission: "invoice.read", href: "/accounting/statement", group: "financial", parent: "accounting" },
-  { key: "accountingDaily", icon: CalendarDays, permission: "invoice.read", href: "/accounting/daily", group: "financial", parent: "accounting" },
+  { key: "accountingTreasury", icon: Vault, permission: "invoice.read", href: "/accounting/treasury", group: "financial", parent: "accounting" },
+  { key: "accountingReports", icon: BarChart3, permission: "invoice.read", href: "/accounting/reports", group: "financial", parent: "accounting" },
   // Lesson packages sit directly under Invoices because they ARE invoicing — the same money on a
   // different clock (a block of hours instead of a calendar month), for the students on that mode.
   {
@@ -678,12 +677,10 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string | readonly string[]>> = {
   invoices: "invoicing",
   accounting: "accounting",
   accountingOverview: "accounting",
-  receipts: "accounting",
-  // Group money needs both switches: accounting, and the groups it reads.
-  accountingGroups: ["accounting", "groups"],
   accountingArrears: "accounting",
-  accountingStatement: "accounting",
-  accountingDaily: "accounting",
+  accountingTreasury: "accounting",
+  // The reports page shows its group tab only to a client that also holds `groups`.
+  accountingReports: "accounting",
   // Packages ARE invoicing (the same money on a different clock) and the server keeps them inside
   // that gate — but they carry their own switch on top, so an academy that bills monthly is never
   // offered the second clock.
@@ -1606,6 +1603,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
             {/* Right-side actions */}
             <div className="ms-auto flex items-center gap-0.5 sm:gap-1.5">
+              {/* A desk on receipts collects from anywhere (docs/groups/01-ACCOUNTING.md). */}
+              <CollectQuickAction />
               <CommandPalette items={commandItems} />
 
               {can("notification.read") && (

@@ -2,7 +2,7 @@
 
 The platform-side view of the course platform: **one sidebar item, one roster page, one page per
 client**. It is the LMS twin of the video oversight surface
-(`docs/video-platform/08-ROOM-ACCESS-AND-MONITORING`) and follows the same two rules:
+(`archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING`) and follows the same two rules:
 
 1. **Every cross-tenant READ goes through an audited SECURITY DEFINER function.** A Super Admin has
    no academy context, so a direct query returns nothing under RLS — the hatches are the only way,

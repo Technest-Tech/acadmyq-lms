@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays } from "lucide-react";
+import { Banknote, CalendarDays } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { METHOD_SWATCH, MethodBar, Tile, todayLocal } from "@/components/accounting/accounting-ui";
@@ -27,7 +27,7 @@ function weekday(date: string, locale: string): string {
  * payment method and by who received it — the figures a day's cash is counted against. Voided
  * receipts are left out of the money and counted apart, so a correction is visible, not hidden.
  */
-export function AccountingDailyScreen() {
+export function AccountingDailyScreen({ hero = true }: { hero?: boolean }) {
   const t = useTranslations("accounting");
   const locale = useLocale();
   const [from, setFrom] = useState(() => daysBack(13));
@@ -58,9 +58,9 @@ export function AccountingDailyScreen() {
 
   return (
     <div className="space-y-5" data-testid="accounting-daily">
-      <PageHero icon={CalendarDays} title={t("daily.title")} subtitle={t("daily.subtitle")} latticeId="accounting-daily-hero" />
+      {hero && <PageHero icon={CalendarDays} title={t("daily.title")} subtitle={t("daily.subtitle")} latticeId="accounting-daily-hero" />}
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:w-[36rem]">
+      <div className="bg-card grid grid-cols-1 gap-2 rounded-2xl border p-3 shadow-sm sm:grid-cols-3">
         <label className="text-muted-foreground text-xs">
           {t("register.from")}
           <input type="date" className={cn(fieldClass, "mt-1")} value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} />
@@ -87,12 +87,12 @@ export function AccountingDailyScreen() {
       {data?.totals.map((tot) => (
         <div key={tot.currency} className="grid grid-cols-1 gap-3 lg:grid-cols-4" data-testid={`daily-totals-${tot.currency}`}>
           <Tile
-            label={t("daily.total")}
+            label={t("daily.total")} icon={Banknote} accent="emerald"
             value={money(tot.amount_minor, tot.currency)}
             tone="text-emerald-600 dark:text-emerald-400"
             hint={t("register.receiptsCount", { count: tot.count })}
           />
-          <div className="rounded-xl border p-3 lg:col-span-3">
+          <div className="bg-card rounded-xl border p-3 shadow-sm lg:col-span-3">
             <p className="text-muted-foreground mb-2 text-xs">{t("register.byMethod")}</p>
             <MethodBar byMethod={tot.by_method} currency={tot.currency} locale={locale} />
           </div>
@@ -100,9 +100,9 @@ export function AccountingDailyScreen() {
       ))}
 
       {data && (
-        <div className="overflow-x-auto rounded-xl border">
+        <div className="bg-card overflow-x-auto rounded-xl border shadow-sm">
           <table className="w-full min-w-[640px] text-sm" data-testid="daily-table">
-            <thead className="bg-muted/50 text-muted-foreground text-xs">
+            <thead className="bg-muted/70 text-muted-foreground border-b text-xs font-semibold">
               <tr>
                 <th className="p-3 text-start font-medium">{t("daily.col.day")}</th>
                 <th className="p-3 text-end font-medium">{t("daily.col.total")}</th>

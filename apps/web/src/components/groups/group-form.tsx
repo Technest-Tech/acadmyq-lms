@@ -4,7 +4,7 @@ import { CalendarDays, Clock, Coins, GraduationCap, Link2, MapPin, Plus, Trash2,
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { fieldClass, sortSlots, textareaClass, todayIn } from "@/components/groups/group-format";
+import { fieldClass, hoursText, sortSlots, textareaClass, todayIn } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -116,6 +116,10 @@ export function GroupForm({
   const [currency, setCurrency] = useState(group?.pricing?.currency ?? "");
   const [chargeAbsent, setChargeAbsent] = useState(group?.pricing?.charge_absent ?? false);
   const [prorateJoin, setProrateJoin] = useState(group?.pricing?.prorate_join ?? true);
+  // MONTHLY only: the hours one month buys. Empty = the calendar month (the way every group billed
+  // before); set = the next month is raised once the group has held that many hours.
+  const savedMonthMinutes = group?.pricing?.month_minutes ?? null;
+  const [monthHours, setMonthHours] = useState(savedMonthMinutes != null ? hoursText(savedMonthMinutes) : "");
   const [payMode, setPayMode] = useState<GroupTeacherPayMode>(group?.teacher_pay?.mode ?? null);
   const [payAmount, setPayAmount] = useState(fromMinor(group?.teacher_pay?.amount_minor));
   const [sharePct, setSharePct] = useState(
@@ -163,12 +167,22 @@ export function GroupForm({
     }
     if (capacity && (!Number.isInteger(Number(capacity)) || Number(capacity) < 1)) return t("form.errors.capacity");
     if (canPrice && price.trim() !== "" && (toMinor(price) ?? -1) < 0) return t("form.errors.price");
+    if (canPrice && billingMode === "MONTHLY" && monthHours.trim() !== "" && monthMinutes() === null) {
+      return t("form.errors.monthHours");
+    }
     if (canPay && payMode !== null && payMode !== "REVENUE_SHARE" && toMinor(payAmount) === null) return t("form.errors.payAmount");
     if (canPay && payMode === "REVENUE_SHARE") {
       const pct = Number.parseFloat(sharePct);
       if (Number.isNaN(pct) || pct < 0 || pct > 100) return t("form.errors.share");
     }
     return null;
+  }
+
+  /** The typed hours → minutes; null when empty or not a positive number. */
+  function monthMinutes(): number | null {
+    const h = Number.parseFloat(monthHours.replace(",", "."));
+    if (monthHours.trim() === "" || Number.isNaN(h) || h <= 0 || h > 1000) return null;
+    return Math.round(h * 60);
   }
 
   async function submit() {
@@ -198,6 +212,7 @@ export function GroupForm({
             currency: currency || null,
             charge_absent: billingMode === "PER_LESSON" && chargeAbsent,
             prorate_join: prorateJoin,
+            month_minutes: billingMode === "MONTHLY" ? monthMinutes() : null,
           }
         : {}),
       ...(canPay
@@ -482,6 +497,23 @@ export function GroupForm({
             </Field>
           </div>
           {billingMode === "MONTHLY" && (
+            <Field label={t("money.monthHours")} icon={Clock} hint={monthHours.trim() ? t("money.monthHoursOnHint", { hours: monthHours.trim() }) : t("money.monthHoursHint")}>
+              <input
+                className={cn(fieldClass, "sm:w-40")}
+                inputMode="decimal"
+                value={monthHours}
+                onChange={(e) => setMonthHours(e.target.value)}
+                placeholder={t("money.monthHoursPlaceholder")}
+                data-testid="group-month-hours"
+              />
+            </Field>
+          )}
+          {billingMode === "MONTHLY" && editing && (savedMonthMinutes === null) !== (monthHours.trim() === "") && (
+            <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+              {t("money.monthHoursSwitchHint")}
+            </p>
+          )}
+          {billingMode === "MONTHLY" && monthHours.trim() === "" && (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={prorateJoin} onChange={(e) => setProrateJoin(e.target.checked)} />
               {t("money.prorateJoin")}

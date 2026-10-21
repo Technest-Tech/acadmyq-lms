@@ -101,7 +101,7 @@ the two overlap exactly, so there is no visible doubling.
 `electron-vite` (main / preload / overlay+picker renderers) + `electron-builder` (NSIS). Node 24 is
 build-only — Electron ships its own. **pnpm gotcha:** pnpm 10 ignores dependency build scripts, so
 Electron's ~150 MB binary isn't downloaded by CI/deploy (which never run the app); developers fetch it
-with `pnpm --filter @academiq/desktop run rebuild:electron`. See [apps/desktop/README](../../apps/desktop/README.md).
+with `pnpm --filter @academiq/desktop run rebuild:electron`. See [apps/desktop/README](../../../apps/desktop/README.md).
 
 ## Gotchas
 

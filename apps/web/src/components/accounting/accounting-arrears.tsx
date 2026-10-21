@@ -1,12 +1,13 @@
 "use client";
 
 import { AlarmClock, FileText, Loader2, MessageSquare, Search, Wallet } from "lucide-react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
-import { Tile, dayLabel, waLink } from "@/components/accounting/accounting-ui";
+import { StatementModal, type StatementTarget } from "@/components/accounting/accounting-statement";
+import { AgingBar, dayLabel, waLink } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
+import { PayerPicker } from "@/components/accounting/payer-picker";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
@@ -46,6 +47,8 @@ export function AccountingArrearsScreen() {
   const [data, setData] = useState<Arrears | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [collect, setCollect] = useState<CollectTarget | null>(null);
+  const [statement, setStatement] = useState<StatementTarget | null>(null);
+  const [picking, setPicking] = useState(false);
   const [reminding, setReminding] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -93,9 +96,20 @@ export function AccountingArrearsScreen() {
 
   return (
     <div className="space-y-5" data-testid="accounting-arrears">
-      <PageHero icon={AlarmClock} title={t("arrears.title")} subtitle={t("arrears.subtitle")} latticeId="accounting-arrears-hero" />
+      <PageHero
+        icon={AlarmClock}
+        title={t("arrears.title")}
+        subtitle={t("arrears.subtitle")}
+        latticeId="accounting-arrears-hero"
+        actions={
+          <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setPicking(true)} data-testid="arrears-pick-statement">
+            <FileText className="size-4" aria-hidden />
+            {t("arrears.pickStatement")}
+          </Button>
+        }
+      />
 
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+      <div className="bg-card flex flex-col gap-2 rounded-2xl border p-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
         <div className="no-scrollbar flex gap-1 overflow-x-auto" role="tablist">
           {(["", "overdue", ...AGE_BUCKETS] as BucketFilter[]).map((b) => (
             <button
@@ -133,18 +147,35 @@ export function AccountingArrearsScreen() {
       {error && <AlertBanner variant="error" message={error} />}
       {notice && <AlertBanner variant="info" message={notice} onDismiss={() => setNotice(null)} />}
 
-      {data?.totals.map((tot) => (
-        <div key={tot.currency} className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6" data-testid={`arrears-totals-${tot.currency}`}>
-          <Tile label={t("arrears.totalOwed")} value={money(tot.due_minor, tot.currency)} tone="text-rose-600 dark:text-rose-400" hint={t("overview.payers", { count: tot.payers })} />
-          <Tile label={t("overview.overdue")} value={money(tot.overdue_minor, tot.currency)} tone={tot.overdue_minor > 0 ? "text-amber-600 dark:text-amber-400" : undefined} hint={t("overview.overdueHint")} />
-          {AGE_BUCKETS.map((b) => (
-            <Tile key={b} label={t(`bucket.${b}`)} value={money(tot[b], tot.currency)} tone={tot[b] > 0 ? BUCKET_TONE[b] : undefined} />
+      {data && data.totals.length > 0 && (
+        <section className="bg-card divide-y rounded-2xl border shadow-sm" data-testid="arrears-summary">
+          {data.totals.map((tot) => (
+            <div key={tot.currency} className="grid grid-cols-1 gap-3 p-4 lg:grid-cols-[minmax(0,14rem)_1fr] lg:items-center" data-testid={`arrears-totals-${tot.currency}`}>
+              <div className="flex items-start gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/12 text-rose-600 ring-1 ring-rose-500/25 dark:text-rose-400">
+                  <AlarmClock className="size-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-muted-foreground text-xs">{t("arrears.totalOwed")}</p>
+                  <p className="text-2xl font-bold break-words text-rose-600 tabular-nums dark:text-rose-400">{money(tot.due_minor, tot.currency)}</p>
+                  <p className="text-muted-foreground text-xs">
+                    {t("overview.payers", { count: tot.payers })}
+                    {tot.overdue_minor > 0 && (
+                      <span className="ms-1.5 font-semibold text-amber-700 dark:text-amber-300">
+                        · {t("overview.overdue")} {money(tot.overdue_minor, tot.currency)}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <AgingBar amounts={tot} currency={tot.currency} locale={locale} onSelect={(b) => setBucket(b)} />
+            </div>
           ))}
-        </div>
-      ))}
+        </section>
+      )}
 
       {data && data.payers.length === 0 && (
-        <p className="text-muted-foreground rounded-2xl border border-dashed p-10 text-center text-sm">{t("arrears.empty")}</p>
+        <p className="text-muted-foreground rounded-2xl border border-dashed bg-card/60 p-10 text-center text-sm">{t("arrears.empty")}</p>
       )}
 
       {data && data.payers.length > 0 && (
@@ -152,7 +183,7 @@ export function AccountingArrearsScreen() {
           {data.payers.map((p) => {
             const age = ageDays(p.oldest_due);
             return (
-              <li key={`${p.kind}-${p.id}`} className="rounded-xl border p-3" data-testid={`arrears-${p.id}`}>
+              <li key={`${p.kind}-${p.id}`} className="bg-card rounded-xl border p-3 shadow-sm" data-testid={`arrears-${p.id}`}>
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0 space-y-1">
                     <p className="font-semibold break-words">{p.name ?? "—"}</p>
@@ -201,13 +232,10 @@ export function AccountingArrearsScreen() {
                         </Button>
                       )}
                       {p.id && (
-                        <Link
-                          href={`/accounting/statement?${p.kind === "GUARDIAN" ? "guardian_id" : "student_id"}=${p.id}`}
-                          className="hover:bg-muted inline-flex h-7 items-center gap-1 rounded-lg px-2.5 text-[0.8rem] font-medium"
-                        >
+                        <Button type="button" size="sm" variant="ghost" className="gap-1" onClick={() => setStatement(payerParam(p))} data-testid={`arrears-statement-${p.id}`}>
                           <FileText className="size-3.5" aria-hidden />
                           {t("arrears.statement")}
-                        </Link>
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -218,6 +246,28 @@ export function AccountingArrearsScreen() {
         </ul>
       )}
 
+      <PayerPicker
+        open={picking}
+        title={t("statement.pickTitle")}
+        hint={t("statement.pickHint")}
+        onClose={() => setPicking(false)}
+        onPick={(id) => {
+          setPicking(false);
+          setStatement({ student_id: id });
+        }}
+      />
+      <StatementModal
+        target={statement}
+        onClose={() => setStatement(null)}
+        onCollect={
+          data?.can_collect
+            ? (target) => {
+                setStatement(null);
+                setCollect(target);
+              }
+            : undefined
+        }
+      />
       <CollectModal open={collect !== null} target={collect} onClose={() => setCollect(null)} onRecorded={() => void load()} />
     </div>
   );

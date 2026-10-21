@@ -4,7 +4,7 @@ A free, local LiveKit media stack to develop and test the AcademIQ video platfor
 no cost. Brings up **LiveKit SFU + Redis + Egress + MinIO**. Two browser tabs (or two devices on your
 WiFi) can hold a 1:1 call; recordings land in local MinIO.
 
-Full context: [`docs/video-platform/02-INFRASTRUCTURE.md`](../../../docs/video-platform/02-INFRASTRUCTURE.md).
+Full context: [`archive/video-platform/docs/02-INFRASTRUCTURE.md`](../../docs/02-INFRASTRUCTURE.md).
 
 > ⚠️ **Dev keys only.** The key/secret here are throwaway. Never reuse them anywhere public.
 
@@ -16,7 +16,7 @@ Full context: [`docs/video-platform/02-INFRASTRUCTURE.md`](../../../docs/video-p
 
 ## 1. Start the stack
 ```bash
-cd infra/video/local
+cd archive/video-platform/infra/local
 cp .env.example .env          # optional; only needed for the LAN test
 docker compose up -d
 docker compose ps             # all services "running"; minio-init exits 0 after making the bucket

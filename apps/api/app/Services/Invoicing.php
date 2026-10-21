@@ -221,14 +221,15 @@ final class Invoicing implements BillingHook
      * Put one group-class charge on the student's payer's AUTO invoice for `$year-$month`, in the
      * group's currency — the same monthly bill their private lessons land on, so a parent gets ONE
      * invoice. `$fields` carries the line's group links (class_group_id, group_charge, group_period
-     * and, for a lesson charge, class_group_lesson_id) plus description / amount / session_date.
+     * and, for a lesson charge, class_group_lesson_id; for an hour-month, group_cycle + group_minutes)
+     * plus description / amount / session_date.
      *
      * Idempotent by the partial unique indexes on those links (insertOrIgnore): a second call for the
      * same member + month / lesson / enrolment adds nothing and returns null. When that month's
      * invoice is no longer OPEN (closed on the 2nd, or paid) the charge goes on the CURRENT month's
      * invoice instead — a closed bill is never reopened, and a late charge is still collected.
      *
-     * @param  array{class_group_id: string, group_charge: string, group_period: string, class_group_lesson_id?: ?string, description: string, amount_minor: int, session_date: string}  $fields
+     * @param  array{class_group_id: string, group_charge: string, group_period: string, class_group_lesson_id?: ?string, group_cycle?: ?int, group_minutes?: ?int, description: string, amount_minor: int, session_date: string}  $fields
      * @return ?string the new line's id, or null when nothing was added
      */
     public function addGroupLine(string $academyId, string $studentId, string $currency, int $year, int $month, array $fields): ?string
@@ -265,6 +266,8 @@ final class Invoicing implements BillingHook
             'class_group_lesson_id' => $fields['class_group_lesson_id'] ?? null,
             'group_charge' => $fields['group_charge'],
             'group_period' => $fields['group_period'],
+            'group_cycle' => $fields['group_cycle'] ?? null,
+            'group_minutes' => $fields['group_minutes'] ?? null,
             'created_at' => now(),
         ]);
 

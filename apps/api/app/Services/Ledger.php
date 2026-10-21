@@ -590,10 +590,22 @@ final class Ledger
             throw ValidationException::withMessages(['method' => ['Unknown payment method.']]);
         }
 
+        // The treasury account the money lands in (cash → the drawer …), when one is set up. A day
+        // already counted and closed for that account takes nothing new — except money a card
+        // gateway reports, or a payment carried over from before receipts: that is history.
+        $source = $opts['source'] ?? self::SOURCE_MANUAL;
+        $receivedOn = $opts['received_on'] ?? Carbon::now($this->timezone($academyId))->format('Y-m-d');
+        $treasury = app(Treasury::class);
+        $accountId = $opts['cash_account_id'] ?? ($source === self::SOURCE_MIGRATED ? null : $treasury->accountForReceipt($academyId, $method, $currency));
+        if ($accountId !== null && $source === self::SOURCE_MANUAL) {
+            $treasury->assertOpenDay($accountId, $receivedOn);
+        }
+
         $id = (string) Str::uuid();
         DB::table('receipts')->insert([
             'id' => $id,
             'academy_id' => $academyId,
+            'cash_account_id' => $accountId,
             'number' => $this->nextNumber($academyId),
             'guardian_id' => $payer['guardian_id'],
             'student_id' => $payer['student_id'],
@@ -604,8 +616,8 @@ final class Ledger
             'reference' => $this->clean($opts['reference'] ?? null),
             'proof_path' => $opts['proof_path'] ?? null,
             'note' => $this->clean($opts['note'] ?? null),
-            'source' => $opts['source'] ?? self::SOURCE_MANUAL,
-            'received_on' => $opts['received_on'] ?? Carbon::now($this->timezone($academyId))->format('Y-m-d'),
+            'source' => $source,
+            'received_on' => $receivedOn,
             'received_by' => $opts['received_by'] ?? null,
             'public_token' => bin2hex(random_bytes(20)),
             'created_at' => now(),

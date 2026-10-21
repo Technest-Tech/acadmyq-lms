@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Role-separated room links + short slugs, S2 (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §2/§3).
+ * Role-separated room links + short slugs, S2 (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §2/§3).
  * Adds three columns to video_rooms:
  *   - slug          — academy-chosen short handle, UNIQUE PER ACADEMY (the readable guest link
  *                     /r/{academy}/{room}); guessable, so only allowed behind a guest password.

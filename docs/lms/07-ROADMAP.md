@@ -65,7 +65,7 @@ Add `VIDEO_UPLOAD` lessons: direct-to-storage upload → transcode → HLS playb
 
 **Backend**
 - Presigned upload URL endpoint; `media_assets` lifecycle; ffmpeg transcode worker (reuses
-  `infra/video` storage/CDN); signed short-TTL playback URLs behind the enrollment check.
+  `archive/video-platform/infra` storage/CDN); signed short-TTL playback URLs behind the enrollment check.
 - `maxStorageGb` enforcement via summed `media_assets.size_bytes`.
 
 **Frontend**

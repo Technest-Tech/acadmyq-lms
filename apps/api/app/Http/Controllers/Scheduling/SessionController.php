@@ -94,12 +94,28 @@ final class SessionController extends Controller
             ->addSelect(['te.meeting_url', 'sj.joined_at as teacher_joined_at']);
     }
 
+    /**
+     * Join who recorded the lesson's outcome (attended, absent, cancelled, free) — the attendance
+     * page's "Done by" column. `done_by_teacher` says the lesson's own teacher marked it, so the
+     * page can tell a teacher's self-marking from a supervisor's. Null on a lesson still pending.
+     */
+    private function joinDoneBy(Builder $query): Builder
+    {
+        return $query
+            ->leftJoin('users as dbu', 'dbu.id', '=', 'se.outcome_set_by')
+            ->addSelect(['se.outcome_set_by as done_by_user_id', 'dbu.full_name as done_by_name'])
+            ->selectRaw('coalesce(se.outcome_set_by = te.user_id, false) as done_by_teacher');
+    }
+
     /** Present a row's timestamps as UTC ISO strings (the joins above add `followed_at`/`teacher_joined_at`). */
     private function presentRowTimes(object $r): object
     {
         $r->scheduled_at_utc = Carbon::parse($r->scheduled_at_utc)->utc()->toIso8601String();
         $r->followed_at = isset($r->followed_at) ? Carbon::parse($r->followed_at)->utc()->toIso8601String() : null;
         $r->followed_by_user_id = isset($r->followed_by_user_id) ? (string) $r->followed_by_user_id : null;
+        if (property_exists($r, 'done_by_teacher')) {
+            $r->done_by_teacher = (bool) $r->done_by_teacher;
+        }
         if (property_exists($r, 'teacher_joined_at')) {
             $r->teacher_joined_at = $r->teacher_joined_at !== null ? Carbon::parse($r->teacher_joined_at)->utc()->toIso8601String() : null;
         }
@@ -677,6 +693,7 @@ final class SessionController extends Controller
             ->orderBy('se.scheduled_at_utc')->orderBy('se.id');
         $this->joinFirstFollowUp($query);
         $this->joinTeacherEntry($query);
+        $this->joinDoneBy($query);
 
         if (! empty($data['teacher_id'])) {
             $query->where('se.teacher_id', $data['teacher_id']);

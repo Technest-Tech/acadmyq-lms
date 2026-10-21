@@ -2,6 +2,7 @@ import type {
   GroupAttendanceStatus,
   GroupLesson,
   GroupLessonStatus,
+  GroupPricing,
   GroupSlot,
   GroupState,
 } from "@/lib/groups-api";
@@ -17,6 +18,19 @@ export const fieldClass =
 
 export const textareaClass =
   "border-input bg-background focus:border-primary focus:ring-primary/15 min-h-20 w-full rounded-xl border px-3 py-2 text-sm outline-none transition-colors focus:ring-3";
+
+/** Minutes → the hours a person reads: 480 → "8", 450 → "7.5". */
+export function hoursText(minutes: number, locale = "en"): string {
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 2, useGrouping: false }).format(minutes / 60);
+}
+
+/**
+ * Which `moneyTab.rule.*` sentence describes what a student pays — a monthly group sold by hours
+ * reads "450 for every 8 hours", not "450 a month".
+ */
+export function pricingRuleKey(pricing: Pick<GroupPricing, "billing_mode" | "month_minutes">): string {
+  return pricing.billing_mode === "MONTHLY" && pricing.month_minutes != null ? "MONTHLY_HOURS" : pricing.billing_mode;
+}
 
 /** Today as "YYYY-MM-DD" in `tz`. */
 export function todayIn(tz: string): string {

@@ -18,7 +18,7 @@ keys:
 # Webhooks → the Laravel control plane (signed with the devkey secret; verified by
 # VerifyLivekitWebhook). The URL must be reachable FROM this container; `host.docker.internal`
 # resolves to the host on Docker Desktop, so run the API bound to 0.0.0.0:8000
-# (`php artisan serve --host=0.0.0.0`). LOCAL ONLY — Hetzner config lives in infra/video/prod.
+# (`php artisan serve --host=0.0.0.0`). LOCAL ONLY — Hetzner config lives in archive/video-platform/infra/prod.
 webhook:
   api_key: devkey
   urls:

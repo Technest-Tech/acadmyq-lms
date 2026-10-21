@@ -20,7 +20,8 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Raises this month's up-front charge for every member of every MONTHLY group (docs/groups §Money).
+ * Raises this month's up-front charge for every member of every MONTHLY group (docs/groups §Money)
+ * — or, for a group sold by hours, any member's next hour-month that is due.
  *
  * Daily, not on the 1st, for the reason the session roll is daily: a missed run heals itself the
  * next morning, and the work is a no-op once a month is billed (the invoice lines' unique group
@@ -65,6 +66,12 @@ final class BillGroupMonthsJob implements ShouldQueue
                         ->get();
 
                     foreach ($groups as $group) {
+                        if (GroupBilling::byHours($group)) {
+                            // A month of hours: catches up anyone whose next month is due.
+                            $added += $billing->billHourMonths($group);
+
+                            continue;
+                        }
                         $today = Carbon::now((string) $group->timezone);
                         $added += $billing->billMonth($group, (int) $today->year, (int) $today->month);
                     }

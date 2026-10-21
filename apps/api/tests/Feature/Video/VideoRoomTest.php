@@ -15,7 +15,7 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * Phase 1 — video rooms, scoped tokens and the two gating layers (docs/video-platform/05-ROADMAP).
+ * Phase 1 — video rooms, scoped tokens and the two gating layers (archive/video-platform/docs/05-ROADMAP).
  * AC-V1.1 (CRUD + tenant scope), AC-V1.2 (token grant matches capabilities), AC-V1.3 (entitlement
  * 402), AC-V1.4 (capability 403), AC-V1.5 (cross-tenant RLS). PRO bundles video.conferencing; BASIC
  * does not. The academy owns the room (V-CTL-1): owners create/manage, teachers only join.

@@ -10,7 +10,7 @@ import '../application/lobby_controller.dart';
 import '../data/permission_gateway.dart';
 
 /// The pre-flight before a class: set mic/camera, grant permissions, confirm you're online — so the
-/// user fixes problems here, not mid-lesson (docs/video-platform/04-FLUTTER-CLIENT §4). On Join it
+/// user fixes problems here, not mid-lesson (archive/video-platform/docs/04-FLUTTER-CLIENT §4). On Join it
 /// fetches a scoped room token from the control plane, then enters the room.
 class LobbyScreen extends ConsumerWidget {
   const LobbyScreen({super.key, required this.roomId, this.roomTitle});

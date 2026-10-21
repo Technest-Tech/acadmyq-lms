@@ -14,6 +14,7 @@ import {
   Link2,
   MessageCircle,
   Pencil,
+  Phone,
   Plus,
   RotateCcw,
   ShieldAlert,
@@ -33,6 +34,7 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Modal } from "@/components/ui/modal";
 import { HeroBadge, PageHero } from "@/components/ui/page-hero";
 import { FactCard, ProfileCard } from "@/components/ui/profile-card";
+import { FamilyAccountsCard } from "@/components/accounting/family-accounts-card";
 import {
   ApiError,
   deactivateGuardian,
@@ -185,6 +187,7 @@ function ChildRow({
   const [name, setName] = useState(child.full_name);
   const [status, setStatus] = useState(child.status ?? "");
   const [phone, setPhone] = useState(child.whatsapp_phone ?? "");
+  const [otherPhone, setOtherPhone] = useState(child.secondary_phone ?? "");
   const [saving, setSaving] = useState(false);
 
   const active = child.deleted_at == null;
@@ -207,6 +210,7 @@ function ChildRow({
       await updateStudent(child.id, {
         full_name: name,
         whatsapp_phone: phone.trim() || null,
+        secondary_phone: otherPhone.trim() || null,
         // A deactivated child carries a terminal status (GRADUATED/WITHDRAWN) which the API
         // refuses on a plain edit — only forward one it accepts.
         ...((STUDENT_STATUSES as readonly string[]).includes(status)
@@ -284,6 +288,16 @@ function ChildRow({
                     onChange={(e) => setPhone(e.target.value)}
                   />
                 </Field>
+                <Field label={ts("form.secondaryPhone")}>
+                  <input
+                    aria-label={ts("form.secondaryPhone")}
+                    dir="ltr"
+                    className={cn(inputBase, "px-3 py-2 tabular-nums")}
+                    placeholder="+20…"
+                    value={otherPhone}
+                    onChange={(e) => setOtherPhone(e.target.value)}
+                  />
+                </Field>
                 <Field label={ts("form.status")}>
                   <select
                     aria-label={ts("form.status")}
@@ -317,6 +331,7 @@ function ChildRow({
                     setName(child.full_name);
                     setStatus(child.status ?? "");
                     setPhone(child.whatsapp_phone ?? "");
+                    setOtherPhone(child.secondary_phone ?? "");
                   }}
                 >
                   {t("detail.deactivateCancel")}
@@ -371,6 +386,14 @@ function ChildRow({
                 dir="ltr"
                 value={child.whatsapp_phone ?? t("form.none")}
               />
+              {child.secondary_phone && (
+                <ChildFact
+                  icon={Phone}
+                  label={t("form.secondaryPhone")}
+                  dir="ltr"
+                  value={child.secondary_phone}
+                />
+              )}
               <ChildFact
                 icon={CalendarDays}
                 label={t("detail.childAddedOn")}
@@ -398,6 +421,7 @@ function ChildRow({
                     setName(child.full_name);
                     setStatus(child.status ?? "");
                     setPhone(child.whatsapp_phone ?? "");
+                    setOtherPhone(child.secondary_phone ?? "");
                     setEditing(true);
                   }}
                   data-testid={`edit-child-${child.id}`}
@@ -539,6 +563,7 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
       await updateGuardian(guardianId, {
         full_name: guardian.full_name,
         whatsapp_phone: guardian.whatsapp_phone,
+        secondary_phone: guardian.secondary_phone?.trim() || null,
         country: guardian.country,
         currency: guardian.currency,
         notes: guardian.notes,
@@ -643,7 +668,10 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
               t("form.none")
             )
           }
-          sub={countryName ?? undefined}
+          sub={
+            [guardian.secondary_phone, countryName].filter(Boolean).join(" · ") ||
+            undefined
+          }
         />
         <FactCard
           icon={Coins}
@@ -747,6 +775,9 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
         )}
       </ProfileCard>
 
+      {/* ── The family's money (accounting academies only; renders nothing otherwise) ── */}
+      <FamilyAccountsCard guardianId={guardianId} />
+
       {/* ── Billing contact ──────────────────────────────────────────── */}
       {canEdit && (
         <ProfileCard
@@ -777,6 +808,22 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
                     )}
                     value={guardian.whatsapp_phone}
                     onChange={(e) => set("whatsapp_phone", e.target.value)}
+                  />
+                </div>
+              </Field>
+              <Field label={t("form.secondaryPhone")}>
+                <div className="relative">
+                  <Phone className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    aria-label={t("form.secondaryPhone")}
+                    dir="ltr"
+                    className={cn(
+                      inputBase,
+                      "py-2.5 ps-10 pe-3.5 tabular-nums",
+                    )}
+                    placeholder="+20…"
+                    value={guardian.secondary_phone ?? ""}
+                    onChange={(e) => set("secondary_phone", e.target.value)}
                   />
                 </div>
               </Field>

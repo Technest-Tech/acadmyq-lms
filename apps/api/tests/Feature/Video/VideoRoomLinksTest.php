@@ -15,7 +15,7 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * S2 — role-separated links + short slugs (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §2/§3).
+ * S2 — role-separated links + short slugs (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §2/§3).
  * Covers link_role mapping (host/guest/monitor), the no-login host link (roomAdmin + optional host
  * password + HOST attendance), the authenticated-host override, the readable per-academy slug join,
  * slug validation (protection / subdomain / uniqueness), generalized rotate, and link exposure.

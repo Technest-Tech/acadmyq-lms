@@ -2,7 +2,7 @@
 
 > **This plan is superseded and kept only for historical context.** We self-host everything on **Contabo**
 > now. The live runbooks are [`DEPLOYMENT.md`](DEPLOYMENT.md) (app: Laravel + Next.js + Postgres on
-> Contabo Server 1) and [`docs/video-platform/07-DEPLOYMENT.md`](docs/video-platform/07-DEPLOYMENT.md)
+> Contabo Server 1) and [`archive/video-platform/docs/07-DEPLOYMENT.md`](archive/video-platform/docs/07-DEPLOYMENT.md)
 > (media: LiveKit + coturn on Contabo Server 2). DNS is on Cloudflare. Do **not** follow the
 > Railway/Vercel/Supabase steps below.
 

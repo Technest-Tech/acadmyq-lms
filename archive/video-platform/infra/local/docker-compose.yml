@@ -2,7 +2,7 @@
 # LiveKit SFU + Redis + Egress (recording) + MinIO (S3-compatible storage).
 #
 # DEV KEYS ONLY. Never use this config or these secrets in production.
-# Full runbook: docs/video-platform/02-INFRASTRUCTURE.md
+# Full runbook: archive/video-platform/docs/02-INFRASTRUCTURE.md
 name: academiq-video-local
 
 services:

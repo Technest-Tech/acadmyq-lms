@@ -14,7 +14,7 @@ const REMIND_MS = 12000;
 const MAX_REMINDERS = 10;
 
 /**
- * The host's waiting-room queue (docs/video-platform/08-ROOM-ACCESS §13.8). A prominent floating
+ * The host's waiting-room queue (archive/video-platform/docs/08-ROOM-ACCESS §13.8). A prominent floating
  * notification that polls `listKnocks` (authenticated by the manage credential = the room's
  * host_token) and lets the host admit/deny each knocker — with a chime + pulse the moment someone
  * new knocks, so a busy teacher never misses a waiting student. Pure REST — needs no LiveKit context,

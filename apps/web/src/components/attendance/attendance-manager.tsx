@@ -45,6 +45,7 @@ import { RescheduleModal } from "@/components/attendance/reschedule-modal";
 import { RevertOutcomeDialog } from "@/components/attendance/revert-outcome-dialog";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
+import { actorLabel, DoneByCell, useTeamActors } from "@/components/team/done-by";
 import {
   addDays,
   addMonths,
@@ -154,10 +155,14 @@ const STATUS_DOT: Record<string, string> = {
 /** How far ahead a row shows its greyed-out Enter button — beyond this the row stays quiet. */
 const ENTER_EARLY_HORIZON_MINUTES = 180;
 
+/** The "Done by" filter value for lessons their own teacher marked (not a team login id). */
+const DONE_BY_TEACHER = "teacher";
+
 export function AttendanceManager() {
   const t = useTranslations("attendance");
   const tSched = useTranslations("scheduling");
   const tDt = useTranslations("datatable");
+  const tDone = useTranslations("doneBy");
   const locale = useLocale();
   const { session: auth, can } = useAuth();
   const isTeacher = auth?.role === "TEACHER";
@@ -181,11 +186,16 @@ export function AttendanceManager() {
   const [range, setRange] = useState<RangeMode>("day");
   const [teacherId, setTeacherId] = useState("");
   const [status, setStatus] = useState("");
+  // "Done by": one team login's id, or DONE_BY_TEACHER for lessons their own teacher marked.
+  const [doneBy, setDoneBy] = useState("");
   const [trialOnly, setTrialOnly] = useState(false);
   const [search, setSearch] = useState("");
 
   const [sessions, setSessions] = useState<DaySession[] | null>(null);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const actors = useTeamActors();
+  // Who marked a lesson only needs telling apart once more than one person runs the academy.
+  const showDoneByFilter = !isTeacher && actors.length > 1;
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Selected>(null);
   const [rescheduling, setRescheduling] = useState<DaySession | null>(null);
@@ -199,6 +209,16 @@ export function AttendanceManager() {
   const followInfo = (s: DaySession): FollowInfo | null =>
     followOverrides[s.id] ??
     (s.followed_at ? { followed_at: s.followed_at, followed_by_name: s.followed_by_name ?? null } : null);
+  /**
+   * Who recorded the lesson's outcome. A mark made on this page shows the caller straight away
+   * (the server stamps them too); a lesson back at SCHEDULED has nobody on it.
+   */
+  const doneByOf = (s: DaySession): { name: string | null; teacher: boolean } => {
+    const override = statusOverrides[s.id];
+    if ((override ?? s.status) === "SCHEDULED") return { name: null, teacher: false };
+    if (override) return { name: auth?.user.fullName ?? null, teacher: false };
+    return { name: s.done_by_name ?? null, teacher: !!s.done_by_teacher };
+  };
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   // The server returns at most one capped page per window; a busy month can reach it.
@@ -295,6 +315,9 @@ export function AttendanceManager() {
     const q = search.trim().toLowerCase();
     return sessions.filter((s) => {
       if (status && s.status !== status) return false;
+      if (doneBy === DONE_BY_TEACHER ? !s.done_by_teacher : doneBy && s.done_by_user_id !== doneBy) {
+        return false;
+      }
       if (
         trialOnly &&
         s.student_status !== "TRIAL" &&
@@ -311,7 +334,7 @@ export function AttendanceManager() {
       }
       return true;
     });
-  }, [sessions, search, status, trialOnly]);
+  }, [sessions, search, status, trialOnly, doneBy]);
 
   const total = sessions?.length ?? 0;
   const attendedCount = sessions?.filter((s) => s.status === "ATTENDED").length ?? 0;
@@ -377,14 +400,15 @@ export function AttendanceManager() {
     return groups;
   }, [filteredSessions]);
 
-  /** Columns in the desktop table — the Teacher column is owner-only. */
-  const colCount = 5 + (isTeacher ? 0 : 1);
+  /** Columns in the desktop table — the Teacher and Done-by columns are owner-only. */
+  const colCount = 5 + (isTeacher ? 0 : 2);
 
-  const hasActiveFilters = !!(teacherId || status || trialOnly || search);
+  const hasActiveFilters = !!(teacherId || status || trialOnly || search || doneBy);
 
   function clearFilters() {
     setTeacherId("");
     setStatus("");
+    setDoneBy("");
     setTrialOnly(false);
     setSearch("");
   }
@@ -426,6 +450,15 @@ export function AttendanceManager() {
           value: (s) => `${s.duration_minutes} ${t("min")}`,
         },
         { header: t("status"), value: (s) => tSched(`status.${s.status}`) },
+        ...(!isTeacher
+          ? [
+              {
+                header: tDone("col"),
+                value: (s: DaySession) => s.done_by_name ?? "",
+                width: 22,
+              } satisfies ExcelColumn<DaySession>,
+            ]
+          : []),
         {
           header: t("trial"),
           value: (s) =>
@@ -754,6 +787,28 @@ export function AttendanceManager() {
           </select>
         </div>
 
+        {/* Done-by filter — only once more than one person runs the academy */}
+        {showDoneByFilter && (
+          <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
+            <label className="text-muted-foreground text-xs font-medium">{tDone("filter")}</label>
+            <select
+              aria-label={tDone("filter")}
+              data-testid="done-by-filter"
+              value={doneBy}
+              onChange={(e) => setDoneBy(e.target.value)}
+              className="border-input bg-background h-9 w-full rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15 sm:w-auto"
+            >
+              <option value="">{tDone("everyone")}</option>
+              <option value={DONE_BY_TEACHER}>{tDone("theTeacher")}</option>
+              {actors.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {actorLabel(a, tDone("off"))}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Trials-only toggle */}
         <Button
           type="button"
@@ -892,6 +947,11 @@ export function AttendanceManager() {
                     <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
                       {t("status")}
                     </th>
+                    {!isTeacher && (
+                      <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
+                        {tDone("col")}
+                      </th>
+                    )}
                     <th className="px-5 py-3" />
                   </tr>
                 </thead>
@@ -1004,6 +1064,13 @@ export function AttendanceManager() {
                                 )}
                               </div>
                             </td>
+
+                            {/* Done by (owner only) */}
+                            {!isTeacher && (
+                              <td className="px-5 py-3.5">
+                                <DoneByCell {...doneByOf(s)} />
+                              </td>
+                            )}
 
                             {/* Action */}
                             <td className="px-5 py-3.5 text-end">
@@ -1155,6 +1222,12 @@ export function AttendanceManager() {
                               {" · "}
                               {s.duration_minutes} {t("min")}
                             </p>
+                            {!isTeacher && doneByOf(s).name && (
+                              <div className="text-muted-foreground mt-1 flex min-w-0 items-center gap-1 text-xs">
+                                <span className="shrink-0">{tDone("col")}:</span>
+                                <DoneByCell {...doneByOf(s)} />
+                              </div>
+                            )}
                           </div>
                           <div className="flex shrink-0 flex-col items-end gap-1">
                             <StatusBadge status={displayStatus} className="shrink-0" />

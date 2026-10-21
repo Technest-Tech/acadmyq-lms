@@ -5,6 +5,7 @@ import {
   GraduationCap,
   MapPin,
   MessageCircle,
+  Phone,
   Plus,
   UserCog,
 } from "lucide-react";
@@ -12,6 +13,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Octagram } from "@/components/ornaments";
+import { addedByFilter, DoneByCell, useTeamActors } from "@/components/team/done-by";
 import { Button } from "@/components/ui/button";
 import {
   type ColumnDef,
@@ -85,8 +87,10 @@ export function GuardiansList({
   filterPreset?: { values: Record<string, string>; token: number };
 }) {
   const t = useTranslations("guardians");
+  const tDone = useTranslations("doneBy");
   const locale = useLocale();
   const { can } = useAuth();
+  const actors = useTeamActors();
 
   const columns = useMemo<ColumnDef<GuardianRow>[]>(
     () => [
@@ -128,16 +132,27 @@ export function GuardiansList({
         headerClassName: "min-w-40",
         render: (r) =>
           r.whatsapp_phone ? (
-            <span
-              dir="ltr"
-              className="inline-flex items-center gap-1.5 text-sm tabular-nums"
-            >
-              <MessageCircle
-                className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
-                aria-hidden
-              />
-              {r.whatsapp_phone}
-            </span>
+            <div className="space-y-0.5 leading-tight">
+              <span
+                dir="ltr"
+                className="inline-flex items-center gap-1.5 text-sm tabular-nums"
+              >
+                <MessageCircle
+                  className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                  aria-hidden
+                />
+                {r.whatsapp_phone}
+              </span>
+              {r.secondary_phone && (
+                <span
+                  dir="ltr"
+                  className="text-muted-foreground flex items-center gap-1.5 text-[11px] tabular-nums"
+                >
+                  <Phone className="size-3 shrink-0" aria-hidden />
+                  {r.secondary_phone}
+                </span>
+              )}
+            </div>
           ) : (
             <span className="text-muted-foreground/35">—</span>
           ),
@@ -202,8 +217,15 @@ export function GuardiansList({
           </span>
         ),
       },
+      // Which of the team added the parent — for an academy run by several supervisors.
+      {
+        key: "added_by",
+        header: tDone("col"),
+        headerClassName: "min-w-32",
+        render: (r) => <DoneByCell name={r.added_by_name} />,
+      },
     ],
-    [t, locale],
+    [t, tDone, locale],
   );
 
   const filters = useMemo<FilterDef[]>(
@@ -234,14 +256,16 @@ export function GuardiansList({
           { value: "none", label: t("filter.familyNone") },
         ],
       },
+      ...addedByFilter(actors, tDone),
     ],
-    [t],
+    [t, tDone, actors],
   );
 
   const exportColumns = useMemo<ExcelColumn<GuardianRow>[]>(
     () => [
       { header: t("colName"), value: (r) => r.full_name, width: 26 },
       { header: t("colPhone"), value: (r) => r.whatsapp_phone },
+      { header: t("form.secondaryPhone"), value: (r) => r.secondary_phone ?? "" },
       {
         header: t("colCountry"),
         value: (r) => countryCell(r.country)?.name ?? "",
@@ -254,9 +278,10 @@ export function GuardiansList({
           r.deleted_at == null ? t("state.active") : t("state.inactive"),
       },
       { header: t("colAdded"), value: (r) => r.created_at?.slice(0, 10) ?? "" },
+      { header: tDone("col"), value: (r) => r.added_by_name ?? "", width: 22 },
       { header: t("form.notes"), value: (r) => r.notes, width: 32 },
     ],
-    [t],
+    [t, tDone],
   );
 
   const newButton = can("guardian.create") ? (

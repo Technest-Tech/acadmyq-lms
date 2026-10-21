@@ -5,7 +5,7 @@
  * PiP video, a Document-PiP window is a real, separate browser window we can render live DOM into —
  * actual `<video>` tiles (which keep decoding while the opener tab is backgrounded) AND interactive
  * controls. The opener's stylesheets don't carry over, so we clone them in. See
- * docs/video-platform/06-WEB-CALL-CLIENT.md. Not in the TS DOM lib yet → declared here.
+ * archive/video-platform/docs/06-WEB-CALL-CLIENT.md. Not in the TS DOM lib yet → declared here.
  */
 
 interface DocumentPictureInPictureApi {

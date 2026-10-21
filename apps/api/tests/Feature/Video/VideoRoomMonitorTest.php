@@ -15,7 +15,7 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * S3 — supervisor / monitor mode (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §5). The monitor
+ * S3 — supervisor / monitor mode (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §5). The monitor
  * link mints a HIDDEN LiveKit participant (subscribe-only, invisible) for a logged-in user holding
  * room.monitor, on a monitor-enabled room. Entry overrides the auth-host default, is always audited,
  * writes no attendance row, and (covert mode) hides disclosure + suppresses the recording indicator.

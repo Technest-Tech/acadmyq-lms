@@ -10,7 +10,7 @@ import { BrandBackdrop } from "./brand-backdrop";
 const POLL_MS = 3000;
 
 /**
- * The guest "knocking" view (docs/video-platform/08-ROOM-ACCESS §13.8). A guest who joined a
+ * The guest "knocking" view (archive/video-platform/docs/08-ROOM-ACCESS §13.8). A guest who joined a
  * `waiting_room` room landed here instead of a token; they short-poll `pollKnock` until a host
  * admits (→ onAdmitted with the minted credential), denies, or the knock times out. Calm by design —
  * a quiet spinner, the room name, and a cancel affordance — never a token until admitted.

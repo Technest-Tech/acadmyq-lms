@@ -1,16 +1,19 @@
 "use client";
 
-import { ArrowLeft, Calculator, Receipt } from "lucide-react";
+import { AlarmClock, ArrowLeft, BarChart3, Calculator, CalendarCheck, CreditCard, Hourglass, PiggyBank, Receipt, UserCheck, Vault, Wallet } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
-import { MethodBadge, MethodBar, RateBar, Tile, dayLabel, pct, todayLocal } from "@/components/accounting/accounting-ui";
+import { StatementModal, type StatementTarget } from "@/components/accounting/accounting-statement";
+import { AgingBar, MethodBadge, MethodBar, RateBar, Tile, dayLabel, pct, todayLocal } from "@/components/accounting/accounting-ui";
+import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
 import { PageHero } from "@/components/ui/page-hero";
-import { AGE_BUCKETS, getAccountingOverview, type AccountingOverview } from "@/lib/accounting-api";
+import { getAccountingOverview, getTreasury, type AccountingOverview, type TreasuryState } from "@/lib/accounting-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -23,10 +26,21 @@ import { cn } from "@/lib/utils";
 export function AccountingOverviewScreen() {
   const t = useTranslations("accounting");
   const locale = useLocale();
+  const router = useRouter();
   const [month, setMonth] = useState(() => todayLocal().slice(0, 7));
   const [data, setData] = useState<AccountingOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [receiptId, setReceiptId] = useState<string | null>(null);
+  const [statement, setStatement] = useState<StatementTarget | null>(null);
+  const [collect, setCollect] = useState<CollectTarget | null>(null);
+  const [treasury, setTreasury] = useState<TreasuryState | null>(null);
+
+  // Where the money is right now — once the treasury is set up (no accounts ⇒ nothing shown).
+  useEffect(() => {
+    getTreasury()
+      .then(setTreasury)
+      .catch(() => setTreasury(null));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -54,8 +68,45 @@ export function AccountingOverviewScreen() {
 
       {error && <AlertBanner variant="error" message={error} />}
 
+      {treasury && treasury.accounts.some((a) => a.is_active) && (
+        <section className="bg-card rounded-2xl border p-4 shadow-sm" data-testid="overview-treasury">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-500/12 text-emerald-600 ring-1 ring-emerald-500/25 dark:text-emerald-400">
+                <Vault className="size-3.5" aria-hidden />
+              </span>
+              {t("overview.treasuryNow")}
+            </h3>
+            <Link href="/accounting/treasury" className="text-primary text-xs font-medium hover:underline">
+              {t("overview.openTreasury")}
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {treasury.accounts
+              .filter((a) => a.is_active)
+              .map((a) => (
+                <Link key={a.id} href="/accounting/treasury" className="bg-muted/30 hover:bg-muted/60 rounded-xl border p-3 transition-colors">
+                  <p className="text-muted-foreground truncate text-xs">{a.name}</p>
+                  <p className={cn("mt-1 text-lg font-bold break-words tabular-nums", a.balance_minor < 0 && "text-rose-600 dark:text-rose-400")}>
+                    {money(a.balance_minor, a.currency)}
+                  </p>
+                </Link>
+              ))}
+            {treasury.month.currencies.map((m) => (
+              <div key={m.currency} className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+                <p className="text-muted-foreground text-xs">{t("treasury.monthOut")}</p>
+                <p className="mt-1 text-lg font-bold tabular-nums">{money(m.out_minor, m.currency)}</p>
+                <p className={cn("text-xs font-semibold", m.net_minor < 0 ? "text-rose-600" : "text-emerald-700 dark:text-emerald-300")}>
+                  {t("treasury.monthNet")}: {money(m.net_minor, m.currency)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {data && currencies.length === 0 && (
-        <p className="text-muted-foreground rounded-2xl border border-dashed p-10 text-center text-sm">{t("overview.empty")}</p>
+        <p className="text-muted-foreground rounded-2xl border border-dashed bg-card/60 p-10 text-center text-sm">{t("overview.empty")}</p>
       )}
 
       {data &&
@@ -72,31 +123,31 @@ export function AccountingOverviewScreen() {
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 <Tile
-                  label={t("overview.collectedMonth")}
+                  label={t("overview.collectedMonth")} icon={Wallet} accent="emerald"
                   value={money(col?.amount_minor ?? 0, c)}
                   tone="text-emerald-600 dark:text-emerald-400"
                   hint={t("register.receiptsCount", { count: col?.count ?? 0 })}
                   testId="kpi-collected"
                 />
-                {isThisMonth && <Tile label={t("overview.collectedToday")} value={money(col?.today_minor ?? 0, c)} />}
+                {isThisMonth && <Tile label={t("overview.collectedToday")} icon={CalendarCheck} accent="sky" value={money(col?.today_minor ?? 0, c)} />}
                 <Tile
-                  label={t("overview.owed")}
+                  label={t("overview.owed")} icon={AlarmClock} accent="rose"
                   value={money(owed?.due_minor ?? 0, c)}
                   tone={(owed?.due_minor ?? 0) > 0 ? "text-rose-600 dark:text-rose-400" : undefined}
                   hint={t("overview.payers", { count: owed?.payers ?? 0 })}
                   testId="kpi-owed"
                 />
                 <Tile
-                  label={t("overview.overdue")}
+                  label={t("overview.overdue")} icon={Hourglass} accent="amber"
                   value={money(owed?.overdue_minor ?? 0, c)}
                   tone={(owed?.overdue_minor ?? 0) > 0 ? "text-amber-600 dark:text-amber-400" : undefined}
                   hint={t("overview.overdueHint")}
                 />
-                <Tile label={t("overview.credit")} value={money(credit, c)} hint={t("overview.creditHint")} />
+                <Tile label={t("overview.credit")} icon={PiggyBank} accent="violet" value={money(credit, c)} hint={t("overview.creditHint")} />
               </div>
 
               {billed && (
-                <div className="rounded-2xl border p-4">
+                <div className="from-primary/[0.08] via-card to-card bg-card rounded-2xl border bg-gradient-to-br p-4 shadow-sm sm:p-5">
                   <div className="flex flex-wrap items-end justify-between gap-2">
                     <div>
                       <p className="text-muted-foreground text-xs">{t("overview.monthRate")}</p>
@@ -113,18 +164,18 @@ export function AccountingOverviewScreen() {
               )}
 
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-                <div className="rounded-2xl border p-4 lg:col-span-3">
-                  <h3 className="mb-3 text-sm font-semibold">{t("overview.byDay")}</h3>
+                <div className="bg-card rounded-2xl border p-4 shadow-sm lg:col-span-3">
+                  <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><span className="flex size-7 items-center justify-center rounded-lg ring-1 bg-emerald-500/12 text-emerald-600 ring-emerald-500/25 dark:text-emerald-400"><BarChart3 className="size-3.5" aria-hidden /></span>{t("overview.byDay")}</h3>
                   <DailyBars days={col?.by_day ?? []} currency={c} locale={locale} />
                 </div>
-                <div className="space-y-4 rounded-2xl border p-4 lg:col-span-2">
+                <div className="space-y-4 bg-card rounded-2xl border p-4 shadow-sm lg:col-span-2">
                   <div>
-                    <h3 className="mb-3 text-sm font-semibold">{t("register.byMethod")}</h3>
+                    <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><span className="flex size-7 items-center justify-center rounded-lg ring-1 bg-sky-500/12 text-sky-600 ring-sky-500/25 dark:text-sky-400"><CreditCard className="size-3.5" aria-hidden /></span>{t("register.byMethod")}</h3>
                     <MethodBar byMethod={col?.by_method ?? {}} currency={c} locale={locale} />
                   </div>
                   {(col?.by_collector.length ?? 0) > 0 && (
                     <div>
-                      <h3 className="mb-2 text-sm font-semibold">{t("overview.byCollector")}</h3>
+                      <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold"><span className="flex size-7 items-center justify-center rounded-lg ring-1 bg-violet-500/12 text-violet-600 ring-violet-500/25 dark:text-violet-400"><UserCheck className="size-3.5" aria-hidden /></span>{t("overview.byCollector")}</h3>
                       <ul className="divide-y text-sm">
                         {col!.by_collector.map((p) => (
                           <li key={p.id ?? p.source} className="flex items-center justify-between gap-2 py-1.5">
@@ -141,30 +192,15 @@ export function AccountingOverviewScreen() {
               </div>
 
               {owed && owed.due_minor > 0 && (
-                <div className="rounded-2xl border p-4">
+                <div className="bg-card rounded-2xl border p-4 shadow-sm">
                   <div className="mb-3 flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold">{t("overview.aging")}</h3>
+                    <h3 className="flex items-center gap-2 text-sm font-semibold"><span className="flex size-7 items-center justify-center rounded-lg ring-1 bg-amber-500/12 text-amber-600 ring-amber-500/25 dark:text-amber-400"><Hourglass className="size-3.5" aria-hidden /></span>{t("overview.aging")}</h3>
                     <Link href="/accounting/arrears" className="text-primary inline-flex items-center gap-1 text-xs font-medium hover:underline">
                       {t("overview.allArrears")}
                       <ArrowLeft className="size-3.5 ltr:rotate-180" aria-hidden />
                     </Link>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                    {AGE_BUCKETS.map((b) => (
-                      <Link
-                        key={b}
-                        href={`/accounting/arrears?bucket=${b}`}
-                        className={cn(
-                          "rounded-xl border p-3 transition-colors hover:bg-muted/40",
-                          b === "d90_plus" && owed[b] > 0 && "border-rose-500/40 bg-rose-500/5",
-                          b === "d61_90" && owed[b] > 0 && "border-amber-500/40 bg-amber-500/5",
-                        )}
-                      >
-                        <p className="text-muted-foreground text-xs">{t(`bucket.${b}`)}</p>
-                        <p className="mt-1 font-bold break-words tabular-nums">{money(owed[b], c)}</p>
-                      </Link>
-                    ))}
-                  </div>
+                  <AgingBar amounts={owed} currency={c} locale={locale} onSelect={(b) => router.push(`/accounting/arrears?bucket=${b}`)} />
                 </div>
               )}
             </section>
@@ -173,9 +209,9 @@ export function AccountingOverviewScreen() {
 
       {data && (data.top_debtors.length > 0 || data.recent_receipts.length > 0) && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <section className="rounded-2xl border p-4">
+          <section className="bg-card rounded-2xl border p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold">{t("overview.topDebtors")}</h3>
+              <h3 className="flex items-center gap-2 text-sm font-semibold"><span className="flex size-7 items-center justify-center rounded-lg ring-1 bg-rose-500/12 text-rose-600 ring-rose-500/25 dark:text-rose-400"><AlarmClock className="size-3.5" aria-hidden /></span>{t("overview.topDebtors")}</h3>
               <Link href="/accounting/arrears" className="text-primary text-xs font-medium hover:underline">
                 {t("overview.allArrears")}
               </Link>
@@ -188,9 +224,14 @@ export function AccountingOverviewScreen() {
                   <li key={`${p.kind}-${p.id}`} className="flex items-start justify-between gap-3 py-2">
                     <div className="min-w-0">
                       {p.id ? (
-                        <Link href={`/accounting/statement?${p.kind === "GUARDIAN" ? "guardian_id" : "student_id"}=${p.id}`} className="font-medium break-words hover:underline">
+                        <button
+                          type="button"
+                          onClick={() => setStatement(p.kind === "GUARDIAN" ? { guardian_id: p.id } : { student_id: p.id })}
+                          className="font-medium break-words text-start hover:underline"
+                          data-testid={`overview-debtor-${p.id}`}
+                        >
                           {p.name ?? "—"}
-                        </Link>
+                        </button>
                       ) : (
                         <span className="font-medium">{p.name ?? "—"}</span>
                       )}
@@ -209,10 +250,10 @@ export function AccountingOverviewScreen() {
             )}
           </section>
 
-          <section className="rounded-2xl border p-4">
+          <section className="bg-card rounded-2xl border p-4 shadow-sm">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold">{t("overview.latest")}</h3>
-              <Link href="/receipts" className="text-primary text-xs font-medium hover:underline">
+              <h3 className="flex items-center gap-2 text-sm font-semibold"><span className="flex size-7 items-center justify-center rounded-lg ring-1 bg-emerald-500/12 text-emerald-600 ring-emerald-500/25 dark:text-emerald-400"><Receipt className="size-3.5" aria-hidden /></span>{t("overview.latest")}</h3>
+              <Link href="/accounting/treasury?tab=receipts" className="text-primary text-xs font-medium hover:underline">
                 {t("overview.allReceipts")}
               </Link>
             </div>
@@ -242,6 +283,15 @@ export function AccountingOverviewScreen() {
         </div>
       )}
 
+      <StatementModal
+        target={statement}
+        onClose={() => setStatement(null)}
+        onCollect={(target) => {
+          setStatement(null);
+          setCollect(target);
+        }}
+      />
+      <CollectModal open={collect !== null} target={collect} onClose={() => setCollect(null)} onRecorded={() => void load()} />
       <ReceiptDetailModal receiptId={receiptId} onClose={() => setReceiptId(null)} onChanged={() => void load()} />
     </div>
   );

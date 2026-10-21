@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Plus, Receipt, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Receipt, Search, Wallet } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { MethodBadge, MethodBar, Tile, dayLabel, todayLocal } from "@/components/accounting/accounting-ui";
@@ -29,7 +29,7 @@ function monthStart(): string {
  * across the whole filter. A row opens the receipt (send it, open it, void it); "Record a payment"
  * picks a student and opens their family's account to collect from.
  */
-export function ReceiptsRegister() {
+export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
   const t = useTranslations("accounting");
   const locale = useLocale();
   const { can } = useAuth();
@@ -65,25 +65,23 @@ export function ReceiptsRegister() {
   const pages = data ? Math.max(1, Math.ceil(data.meta.total / data.meta.per_page)) : 1;
   const page = filters.page ?? 1;
 
+  const actions = can("invoice.mark_paid") ? (
+    <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setPicking(true)} data-testid="register-record">
+      <Plus className="size-4" aria-hidden />
+      {t("register.record")}
+    </Button>
+  ) : undefined;
+
   return (
-    <div className="space-y-5">
-      <PageHero
-        icon={Receipt}
-        title={t("register.title")}
-        subtitle={t("register.subtitle")}
-        latticeId="receipts-hero"
-        actions={
-          can("invoice.mark_paid") ? (
-            <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setPicking(true)} data-testid="register-record">
-              <Plus className="size-4" aria-hidden />
-              {t("register.record")}
-            </Button>
-          ) : undefined
-        }
-      />
+    <div className="space-y-5" data-testid="receipts-register">
+      {hero ? (
+        <PageHero icon={Receipt} title={t("register.title")} subtitle={t("register.subtitle")} latticeId="receipts-hero" actions={actions} />
+      ) : (
+        actions && <div className="flex justify-end">{actions}</div>
+      )}
 
       {/* Filters */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="bg-card grid grid-cols-1 gap-2 rounded-2xl border p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-6">
         <label className="text-muted-foreground text-xs">
           {t("register.from")}
           <input type="date" className={cn(fieldClass, "mt-1")} value={filters.from ?? ""} max={filters.to} onChange={(e) => set({ from: e.target.value })} />
@@ -139,12 +137,12 @@ export function ReceiptsRegister() {
           {data.totals.map((tot) => (
             <div key={tot.currency} className="grid grid-cols-1 gap-3 lg:grid-cols-4" data-testid={`register-totals-${tot.currency}`}>
               <Tile
-                label={t("register.collectedTotal")}
+                label={t("register.collectedTotal")} icon={Wallet} accent="emerald"
                 value={formatMoney({ amount: tot.amount_minor, currency: tot.currency }, locale)}
                 tone="text-emerald-600 dark:text-emerald-400"
                 hint={t("register.receiptsCount", { count: tot.count })}
               />
-              <div className="rounded-xl border p-3 lg:col-span-3">
+              <div className="bg-card rounded-xl border p-3 shadow-sm lg:col-span-3">
                 <p className="text-muted-foreground mb-2 text-xs">{t("register.byMethod")}</p>
                 <MethodBar byMethod={tot.by_method} currency={tot.currency} locale={locale} />
               </div>
@@ -154,14 +152,14 @@ export function ReceiptsRegister() {
       )}
 
       {data && data.receipts.length === 0 && (
-        <p className="text-muted-foreground rounded-2xl border border-dashed p-10 text-center text-sm">{t("register.empty")}</p>
+        <p className="text-muted-foreground rounded-2xl border border-dashed bg-card/60 p-10 text-center text-sm">{t("register.empty")}</p>
       )}
 
       {data && data.receipts.length > 0 && (
         <>
-          <div className="hidden overflow-x-auto rounded-xl border md:block">
+          <div className="hidden bg-card overflow-x-auto rounded-xl border shadow-sm md:block">
             <table className="w-full text-sm" data-testid="register-table">
-              <thead className="bg-muted/50 text-muted-foreground text-xs">
+              <thead className="bg-muted/70 text-muted-foreground border-b text-xs font-semibold">
                 <tr>
                   <th className="p-3 text-start font-medium">{t("register.col.number")}</th>
                   <th className="p-3 text-start font-medium">{t("register.col.date")}</th>
@@ -206,7 +204,7 @@ export function ReceiptsRegister() {
           <ul className="space-y-2 md:hidden">
             {data.receipts.map((r) => (
               <li key={r.id}>
-                <button type="button" onClick={() => setReceiptId(r.id)} className={cn("w-full space-y-2 rounded-xl border p-3 text-start", r.voided && "opacity-60")}>
+                <button type="button" onClick={() => setReceiptId(r.id)} className={cn("w-full space-y-2 bg-card rounded-xl border p-3 shadow-sm text-start", r.voided && "opacity-60")}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="font-medium break-words">{r.payer_name ?? "—"}</p>

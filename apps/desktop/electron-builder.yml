@@ -1,6 +1,6 @@
 # Windows packaging — UNSIGNED (no code-signing certificate yet). The build is fully usable; Windows
 # SmartScreen will show an "unknown publisher" prompt that academies dismiss with "More info → Run
-# anyway" (see docs/video-platform/11-DESKTOP-BUILD.md). A proper icon + metadata keeps it out of most
+# anyway" (see archive/video-platform/docs/11-DESKTOP-BUILD.md). A proper icon + metadata keeps it out of most
 # antivirus false-positives. macOS dmg/notarize + real Windows signing come later.
 appId: com.academiq.teacher
 productName: AcademIQ Teacher

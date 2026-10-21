@@ -273,6 +273,18 @@ subscription, so that check must learn about memberships.
   student moved between groups is not billed the same month twice.
 - **Prices are snapshots.** A new group or member price applies from now on, and charges already
   made keep theirs.
+- **MONTHLY by hours** (`2026_10_21_000005_group_hour_months`, Ahmed's call 2026-10-21): a
+  monthly group may set `month_minutes` ("600 for 8 hours"). Then a member's month is HOURS, not
+  the calendar: month 1 is raised on joining, and month N+1 by the held lesson that uses up what
+  months 1..N bought, as long as another lesson is still to come for them (no bill after the last
+  lesson or after leaving). Every held lesson inside the member's dates counts, absent or not. No
+  join pro-rating. Lines stay `group_charge = MONTHLY` and carry `group_cycle` (idempotency:
+  one per group + student + cycle) and `group_minutes` (the hours that month bought — a snapshot,
+  so changing the hours later only affects months sold after). A member moved between two hours
+  groups takes their unused minutes (`class_group_members.carried_minutes`, negative on the side
+  they left). Switching an already-billed monthly group between calendar and hours sets
+  `billing_rule_from` = the 1st of next month, so the month already paid is never paid twice.
+  Empty `month_minutes` = calendar months, exactly as before.
 - **Teacher pay:** `GroupPayroll::syncLessonPay` keeps exactly one line per HELD lesson on its
   teacher's statement, re-priced as the sheet changes. `REVENUE_SHARE` is one monthly line, kept in
   step every time a group charge is raised or removed. It is only allowed when the group bills in

@@ -15,7 +15,7 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * Ghost waiting room (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §13). When a monitor-enabled
+ * Ghost waiting room (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §13). When a monitor-enabled
  * room also has `config.ghost_waiting_room = true`, a monitor/ghost-link entrant no longer joins
  * silently — they knock, and the host admits or denies them (the teacher-consent gate). On admit the
  * knock mints a HIDDEN monitor token (never a visible guest), writes no attendance row, and audits the

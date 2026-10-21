@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Guards the shipped LiveKit token TTL (docs/video-platform/06-WEB-CALL-CLIENT §5 + the SDK reality
+ * Guards the shipped LiveKit token TTL (archive/video-platform/docs/06-WEB-CALL-CLIENT §5 + the SDK reality
  * note): a LiveKit access token is the credential the client re-auths with when the SDK auto-resumes
  * after a network blip. A connected participant is NOT dropped when the token expires — only
  * (re)connection re-checks it — so the token must comfortably OUTLIVE a full 30–90 min lesson, or a

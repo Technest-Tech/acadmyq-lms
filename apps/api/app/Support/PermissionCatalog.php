@@ -86,6 +86,9 @@ final class PermissionCatalog
         // Receipts (docs/groups/01-ACCOUNTING.md): recording one rides invoice.mark_paid; voiding
         // one — taking money back off the books — is its own, heavier call.
         'receipt.void',
+        // The treasury (docs/groups/01-ACCOUNTING.md): record money OUT (expenses, a salary paid),
+        // set up the accounts and move money between them; and count / close a day's cash.
+        'expense.manage', 'cashbox.close',
         'payout.read', 'payout.read_own', 'payout.finalize', 'payout.adjust',
         // Lesson packages — the hour-based second billing clock (docs/lesson-packages). Seeded
         // straight into `role_permissions` when the module shipped; listed here so the role
@@ -119,7 +122,7 @@ final class PermissionCatalog
         // See and set an employee's salary. Without it the staff list and file never carry one.
         'staff.set_salary',
         'staff_department.manage',
-        // Video classroom (docs/video-platform). The academy OWNS the room (V-CTL-1): owners
+        // Video classroom (archive/video-platform/docs). The academy OWNS the room (V-CTL-1): owners
         // create/manage rooms and recordings; teachers join. Gated by the `video.conferencing`
         // entitlement on top of these RBAC capabilities. `room.monitor` = enter supervisor (ghost)
         // mode to silently observe + record a session for quality & safety (08-ROOM-ACCESS §5).
@@ -137,7 +140,7 @@ final class PermissionCatalog
      */
     public const FINANCIAL = [
         'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
-        'receipt.void',
+        'receipt.void', 'expense.manage', 'cashbox.close',
         'payout.read', 'payout.read_own', 'payout.finalize', 'payout.adjust',
         'payment_settings.manage',
         'package.read', 'package.manage',
@@ -201,6 +204,7 @@ final class PermissionCatalog
 
         ['key' => 'invoices', 'kind' => 'financial', 'view' => ['invoice.read'], 'manage' => ['invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link']],
         ['key' => 'receipts', 'kind' => 'financial', 'view' => [], 'manage' => ['receipt.void']],
+        ['key' => 'treasury', 'kind' => 'financial', 'view' => [], 'manage' => ['expense.manage', 'cashbox.close']],
         ['key' => 'packages', 'kind' => 'financial', 'view' => ['package.read'], 'manage' => ['package.manage']],
         ['key' => 'payroll', 'kind' => 'financial', 'view' => ['payout.read'], 'manage' => ['payout.finalize', 'payout.adjust']],
         ['key' => 'student_prices', 'kind' => 'financial', 'view' => [], 'manage' => ['student.set_price']],
@@ -227,6 +231,8 @@ final class PermissionCatalog
         'crm' => 'crm',
         'invoice' => 'invoicing',
         'receipt' => 'accounting',
+        'expense' => 'accounting',
+        'cashbox' => 'accounting',
         'payout' => 'payroll',
         'package' => 'packages',
         'group' => 'groups',
@@ -333,7 +339,7 @@ final class PermissionCatalog
             'booking.read', 'booking.manage',
             'notification.read',
             'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
-            'receipt.void',
+            'receipt.void', 'expense.manage', 'cashbox.close',
             'payout.read', 'payout.finalize', 'payout.adjust',
             'package.read', 'package.manage',
             'group.read', 'group.manage',
@@ -386,7 +392,7 @@ final class PermissionCatalog
                 'student.read', 'guardian.read', 'teacher.read', 'staff.read',
                 'schedule.read', 'session.read', 'group.read',
                 'invoice.read', 'invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link',
-                'receipt.void',
+                'receipt.void', 'expense.manage', 'cashbox.close',
                 'payout.read', 'payout.finalize', 'payout.adjust',
                 'package.read', 'package.manage',
                 'student.set_price', 'teacher.set_pay', 'staff.set_salary',

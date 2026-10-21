@@ -425,3 +425,252 @@ export function getStatement(payer: { guardian_id?: string | null; student_id?: 
 export function getDailyCollections(filters: { from?: string; to?: string; collector_id?: string } = {}): Promise<DailyCollections> {
   return apiFetch(`/api/accounting/daily${query(filters)}`);
 }
+
+// ── The family card ──────────────────────────────────────────────────────────
+
+export interface FamilyCharge {
+  id: string;
+  invoice_id: string;
+  source: "GROUP" | "PRIVATE" | "OTHER";
+  group_name: string | null;
+  description: string;
+  student_id: string | null;
+  student_name: string | null;
+  date: string;
+  period: string;
+  amount_minor: number;
+  paid_minor: number;
+  remaining_minor: number;
+  currency: string;
+  payer_kind: "GUARDIAN" | "STUDENT";
+  payer_id: string;
+}
+
+export type FamilyEvent =
+  | { kind: "RECEIPT"; at: string; date: string; id: string; number: string; amount_minor: number; currency: string; method: ReceiptMethod; by: string | null; voided: boolean; void_reason: string | null }
+  | { kind: "REMINDER"; at: string; date: string; id: string; by: string | null }
+  | { kind: "BILL_SENT"; at: string; date: string; id: string; period: string; amount_minor: number; currency: string }
+  | { kind: "NOTE"; at: string; date: string; id: string; body: string; follow_up_on: string | null; by: string | null; mine: boolean };
+
+export interface FamilyAccount {
+  family: { id: string; name: string; phone: string | null };
+  today: string;
+  balance: { currency: string; due_minor: number; credit_minor: number; balance_minor: number; overdue_minor: number }[];
+  paid_this_year: { currency: string; amount_minor: number }[];
+  last_receipt: { id: string; number: string; received_on: string; amount_minor: number; currency: string } | null;
+  next_follow_up: { date: string; body: string } | null;
+  children: {
+    id: string;
+    name: string;
+    status: string;
+    groups: { id: string; name: string; teacher_name: string | null; billing_mode: string; price_minor: number | null; currency: string | null; joined_on: string }[];
+    private: { plan_label: string; price_minor: number; currency: string; price_basis: string; teachers: string[] } | null;
+    due: { currency: string; due_minor: number }[];
+  }[];
+  charges: FamilyCharge[];
+  timeline: FamilyEvent[];
+  can_collect: boolean;
+  can_remind: boolean;
+  can_note: boolean;
+}
+
+export function getFamilyAccount(guardianId: string): Promise<FamilyAccount> {
+  return apiFetch(`/api/accounting/family/${guardianId}`);
+}
+
+export function addFamilyNote(guardianId: string, body: string, followUpOn?: string | null): Promise<{ id: string }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/notes`, { method: "POST", body: JSON.stringify({ body, follow_up_on: followUpOn || null }) });
+}
+
+export function deleteFamilyNote(guardianId: string, noteId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/notes/${noteId}`, { method: "DELETE" });
+}
+
+// ── The treasury ─────────────────────────────────────────────────────────────
+
+export type AccountKind = "CASH" | "BANK" | "WALLET" | "INSTAPAY" | "CARD" | "OTHER";
+export const ACCOUNT_KINDS: AccountKind[] = ["CASH", "BANK", "INSTAPAY", "WALLET", "CARD", "OTHER"];
+
+export interface CashAccount {
+  id: string;
+  name: string;
+  kind: AccountKind;
+  currency: string;
+  opening_balance_minor: number;
+  opening_on: string;
+  is_active: boolean;
+  balance_minor: number;
+  today_in_minor: number;
+  today_out_minor: number;
+  last_closing: { day: string; difference_minor: number } | null;
+  closed_today: boolean;
+}
+
+export interface ExpenseCategory {
+  id: string;
+  key: string | null;
+  name: string;
+  is_active: boolean;
+}
+
+export interface InOut {
+  currencies: { currency: string; in_minor: number; out_minor: number; net_minor: number }[];
+}
+
+export interface TreasuryState {
+  today: string;
+  accounts: CashAccount[];
+  methods: { method: ReceiptMethod; currency: string; cash_account_id: string }[];
+  unmapped_methods: { method: ReceiptMethod; currency: string }[];
+  month: InOut;
+  categories: ExpenseCategory[];
+  can_manage: boolean;
+  can_close: boolean;
+  sees_salaries: boolean;
+}
+
+export interface LedgerEntry {
+  kind: "RECEIPT" | "EXPENSE" | "TRANSFER_IN" | "TRANSFER_OUT" | "CLOSING";
+  id: string;
+  date: string;
+  label: string | null;
+  party?: string | null;
+  method?: ReceiptMethod;
+  category?: string;
+  description?: string | null;
+  expected_minor?: number;
+  counted_minor?: number;
+  in_minor: number;
+  out_minor: number;
+  balance_minor: number;
+}
+
+export interface AccountLedger {
+  account: { id: string; name: string; kind: AccountKind; currency: string; opening_on: string };
+  from: string;
+  to: string;
+  opening_minor: number;
+  entries: LedgerEntry[];
+  closing_minor: number;
+}
+
+export function getTreasury(): Promise<TreasuryState> {
+  return apiFetch(`/api/treasury`);
+}
+
+export function createCashAccount(input: { name: string; kind: AccountKind; currency?: string; opening_balance_minor?: number; opening_on?: string; methods?: ReceiptMethod[] }): Promise<{ id: string }> {
+  return apiFetch(`/api/treasury/accounts`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateCashAccount(id: string, patch: { name?: string; is_active?: boolean }): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/treasury/accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export function mapMethodToAccount(method: ReceiptMethod, currency: string, cashAccountId: string | null): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/treasury/methods`, { method: "PUT", body: JSON.stringify({ method, currency, cash_account_id: cashAccountId }) });
+}
+
+export function getAccountLedger(id: string, from?: string, to?: string): Promise<AccountLedger> {
+  return apiFetch(`/api/treasury/accounts/${id}/ledger${query({ from, to })}`);
+}
+
+export function createTransfer(input: { from_account_id: string; to_account_id: string; amount_minor: number; transferred_on?: string; note?: string }): Promise<{ id: string }> {
+  return apiFetch(`/api/treasury/transfers`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function voidTransfer(id: string, reason: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/treasury/transfers/${id}/void`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export function closeDay(input: { cash_account_id: string; counted_minor: number; day?: string; note?: string }): Promise<{ id: string; expected_minor: number; counted_minor: number; difference_minor: number }> {
+  return apiFetch(`/api/treasury/closings`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function reopenDay(closingId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/treasury/closings/${closingId}`, { method: "DELETE" });
+}
+
+// ── Expenses ─────────────────────────────────────────────────────────────────
+
+export interface Expense {
+  id: string;
+  number: string;
+  spent_on: string;
+  category_id: string;
+  category: string;
+  category_key: string | null;
+  amount_minor: number;
+  currency: string;
+  cash_account_id: string;
+  account: string;
+  payee: string | null;
+  description: string | null;
+  has_attachment: boolean;
+  payout_id: string | null;
+  created_by_name: string | null;
+  voided: boolean;
+  void_reason: string | null;
+}
+
+export interface ExpensesPage {
+  from: string;
+  to: string;
+  expenses: Expense[];
+  by_category: { category_id: string; name: string; currency: string; amount_minor: number; count: number }[];
+  totals: { currency: string; amount_minor: number; count: number }[];
+  categories: ExpenseCategory[];
+  accounts: { id: string; name: string; kind: AccountKind; currency: string }[];
+  can_manage: boolean;
+  sees_salaries: boolean;
+}
+
+export interface SalaryDue {
+  payout_id: string;
+  teacher_name: string;
+  period: string;
+  total_minor: number;
+  paid_minor: number;
+  remaining_minor: number;
+  currency: string;
+}
+
+export function getExpenses(filters: { from?: string; to?: string; category_id?: string; cash_account_id?: string; q?: string; status?: "active" | "void" | "all" } = {}): Promise<ExpensesPage> {
+  return apiFetch(`/api/expenses${query(filters)}`);
+}
+
+export function createExpense(input: { category_id?: string | null; payout_id?: string | null; cash_account_id: string; amount_minor: number; spent_on?: string; payee?: string; description?: string; attachment?: File | null }): Promise<{ id: string; number: string }> {
+  const body = new FormData();
+  if (input.category_id) body.set("category_id", input.category_id);
+  if (input.payout_id) body.set("payout_id", input.payout_id);
+  body.set("cash_account_id", input.cash_account_id);
+  body.set("amount_minor", String(input.amount_minor));
+  if (input.spent_on) body.set("spent_on", input.spent_on);
+  if (input.payee?.trim()) body.set("payee", input.payee.trim());
+  if (input.description?.trim()) body.set("description", input.description.trim());
+  if (input.attachment) body.set("attachment", input.attachment);
+  return apiFetch(`/api/expenses`, { method: "POST", body });
+}
+
+export function voidExpense(id: string, reason: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/expenses/${id}/void`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export function fetchExpenseAttachment(id: string): Promise<string> {
+  return fetchPrivateFileUrl(`/api/expenses/${id}/attachment`);
+}
+
+export function getSalariesDue(): Promise<{ salaries: SalaryDue[] }> {
+  return apiFetch(`/api/expenses/salaries`);
+}
+
+export function createExpenseCategory(name: string): Promise<{ id: string }> {
+  return apiFetch(`/api/expense-categories`, { method: "POST", body: JSON.stringify({ name }) });
+}
+
+export function updateExpenseCategory(id: string, patch: { name?: string; is_active?: boolean }): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/expense-categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export function getIncomeExpenses(year?: number): Promise<{ year: number; months: ({ month: string } & InOut)[]; categories: { name: string; currency: string; amount_minor: number }[]; sees_salaries: boolean }> {
+  return apiFetch(`/api/accounting/income-expenses${query({ year })}`);
+}

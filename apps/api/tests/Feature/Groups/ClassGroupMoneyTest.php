@@ -208,6 +208,96 @@ it('does not bill a group without a price, and bills it the moment it gets one',
     expect((int) groupLines($this, $groupId)->first()->amount_minor)->toBe(40000);
 });
 
+// ── MONTHLY by hours ─────────────────────────────────────────────────────────
+
+it('by hours: the first month on joining, the next once the group has held its hours — absent or not', function () {
+    // 2 hours a month; the group meets Mon + Wed for an hour from 1 June.
+    $groupId = moneyGroup($this, ['price_minor' => 30000, 'month_minutes' => 120, 'student_ids' => [$this->kids['Adam']]]);
+
+    $lines = groupLines($this, $groupId);
+    expect($lines)->toHaveCount(1);
+    expect($lines->first()->description)->toBe('English A1 — month 1 (2 h)');
+    expect((int) $lines->first()->group_cycle)->toBe(1);
+    expect((int) $lines->first()->group_minutes)->toBe(120);
+    expect((int) $lines->first()->amount_minor)->toBe(30000);
+
+    // One hour used — absent, but the class happened. Nothing new.
+    heldLesson($this, $groupId, '2026-06-01', [['student_id' => $this->kids['Adam'], 'status' => 'ABSENT']]);
+    expect(groupLines($this, $groupId))->toHaveCount(1);
+
+    Sanctum::actingAs($this->owner);
+    $member = collect($this->getJson("/api/groups/{$groupId}")->assertOk()->json('group.members'))->first();
+    expect($member['hour_month'])->toBe(['months' => 1, 'bought_minutes' => 120, 'used_minutes' => 60]);
+
+    // The second hour uses the month up: the next one is raised by that lesson, up front.
+    heldLesson($this, $groupId, '2026-06-03');
+    $lines = groupLines($this, $groupId);
+    expect($lines)->toHaveCount(2);
+    expect($lines->last()->description)->toBe('English A1 — month 2 (2 h)');
+    expect(Carbon::parse($lines->last()->group_period)->format('Y-m-d'))->toBe('2026-06-03');
+
+    // However often the nightly job runs, nothing more until more hours are held.
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    expect(groupLines($this, $groupId))->toHaveCount(2);
+    expect(groupLines($this, $groupId)->where('description', 'English A1 — June 2026'))->toHaveCount(0);
+});
+
+it('by hours: no next month once nothing is left to come', function () {
+    // Two lessons in all (1 and 3 June) — exactly one month of two hours.
+    $groupId = moneyGroup($this, ['price_minor' => 30000, 'month_minutes' => 120, 'end_date' => '2026-06-03', 'student_ids' => [$this->kids['Adam']]]);
+
+    heldLesson($this, $groupId, '2026-06-01');
+    heldLesson($this, $groupId, '2026-06-03');
+
+    expect(groupLines($this, $groupId))->toHaveCount(1);
+});
+
+it('by hours: switching a calendar group over starts on the 1st of next month, never paying June twice', function () {
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);
+    expect(groupLines($this, $groupId)->pluck('description')->all())->toBe(['English A1 — June 2026']);
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/groups/{$groupId}", ['month_minutes' => 120])->assertOk()
+        ->assertJsonPath('group.pricing.month_minutes', 120);
+    expect(Carbon::parse(asTenant($this->academy, fn () => DB::table('class_groups')->where('id', $groupId)->value('billing_rule_from')))->format('Y-m-d'))
+        ->toBe('2026-07-01');
+    heldLesson($this, $groupId, '2026-06-01');
+    expect(groupLines($this, $groupId))->toHaveCount(1); // June stays the calendar month already paid
+
+    Carbon::setTestNow('2026-07-01 03:00:00');
+    (new RollSessionWindowJob(onlyAcademyId: $this->academy))->handle(app(SessionGenerator::class));
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+
+    expect(groupLines($this, $groupId)->pluck('description')->all())->toBe(['English A1 — June 2026', 'English A1 — month 1 (2 h)']);
+});
+
+it('by hours: a member moved to another hours group takes their unused hours with them', function () {
+    $from = moneyGroup($this, ['price_minor' => 30000, 'month_minutes' => 120, 'student_ids' => [$this->kids['Adam']]]);
+    $to = moneyGroup($this, ['name' => 'English A2', 'price_minor' => 30000, 'month_minutes' => 120]);
+    heldLesson($this, $from, '2026-06-01'); // one of the two hours used
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/groups/{$from}/members/{$this->kids['Adam']}/move", ['to_group_id' => $to, 'on' => '2026-06-03'])->assertOk();
+    // The hour left over is spent in the new group first: no new month yet.
+    expect(groupLines($this, $to))->toHaveCount(0);
+
+    heldLesson($this, $to, '2026-06-03');
+    $lines = groupLines($this, $to);
+    expect($lines)->toHaveCount(1);
+    expect($lines->first()->description)->toBe('English A2 — month 1 (2 h)');
+    // …and the old group never bills them again.
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    expect(groupLines($this, $from))->toHaveCount(1);
+});
+
+it('by hours: only a monthly group keeps its hours', function () {
+    Sanctum::actingAs($this->owner);
+    $groupId = moneyGroup($this, ['billing_mode' => 'PER_LESSON', 'price_minor' => 8000, 'month_minutes' => 120]);
+
+    $this->getJson("/api/groups/{$groupId}")->assertOk()->assertJsonPath('group.pricing.month_minutes', null);
+});
+
 // ── PER_LESSON & COURSE ──────────────────────────────────────────────────────
 
 it('per lesson: charges who came, the absent only when the group says so, never the excused', function () {

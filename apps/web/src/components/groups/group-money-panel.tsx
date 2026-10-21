@@ -3,7 +3,7 @@
 import { useLocale, useTranslations } from "next-intl";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { apiErrorMessage } from "@/components/groups/group-form";
-import { fieldClass, todayIn } from "@/components/groups/group-format";
+import { fieldClass, hoursText, pricingRuleKey, todayIn } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
 import { getGroupMoney, type GroupDetail, type GroupMoney } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
@@ -49,7 +49,10 @@ export function GroupMoneyPanel({ group }: { group: GroupDetail }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-sm">
           {group.pricing?.price_minor != null && group.pricing.currency
-            ? t(`moneyTab.rule.${group.pricing.billing_mode}`, { price: fmt(group.pricing.price_minor, group.pricing.currency) })
+            ? t(`moneyTab.rule.${pricingRuleKey(group.pricing)}`, {
+                price: fmt(group.pricing.price_minor, group.pricing.currency),
+                hours: hoursText(group.pricing.month_minutes ?? 0, locale),
+              })
             : t("moneyTab.noPrice")}
         </p>
         <input

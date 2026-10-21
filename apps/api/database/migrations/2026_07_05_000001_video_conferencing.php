@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Video conferencing (docs/video-platform/03-DATA-MODEL.md). Three tenant-scoped tables:
+ * Video conferencing (archive/video-platform/docs/03-DATA-MODEL.md). Three tenant-scoped tables:
  *   - video_rooms        : a persistent classroom owned by an academy (and usually a teacher),
  *                          mapped 1:1 to a LiveKit room via the globally-unique `livekit_name`.
  *   - room_participants  : join/leave history per room session (the "history" value prop).

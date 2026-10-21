@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 ///
 /// Brand-aligned with the web panel (emerald primary, gold accent) and a calm, audio-first
 /// aesthetic. Exposed as a [ThemeExtension] so light/dark and future per-academy white-label are
-/// config, not code (docs/video-platform/04-FLUTTER-CLIENT.md §5).
+/// config, not code (archive/video-platform/docs/04-FLUTTER-CLIENT.md §5).
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
   const AppColors({

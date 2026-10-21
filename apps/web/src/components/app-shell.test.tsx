@@ -370,30 +370,34 @@ describe("AppShell — the Groups dropdown (docs/groups)", () => {
 describe("AppShell — the Accounting section (docs/groups/01-ACCOUNTING.md)", () => {
   const money = { permissions: ["group.read", "invoice.read", "invoice.mark_paid", "student.read"] };
   const ACCOUNTING = ["invoicing", "groups", "accounting"];
+  const accountingKeys = () => navKeys().filter((k) => k.startsWith("accounting") || k === "receipts");
 
-  it("does not exist for a client without accounting — whose Groups section keeps its Payments page", async () => {
+  it("does not exist for a client without accounting — whose Groups section keeps its Payments page, and who gets no Collect button", async () => {
     const user = userEvent.setup();
     renderShell("ACADEMY_OWNER", money);
     await ready();
 
-    expect(navKeys().filter((k) => k.startsWith("accounting") || k === "receipts")).toEqual([]);
+    expect(accountingKeys()).toEqual([]);
+    expect(screen.queryByTestId("header-collect")).toBeNull();
     await user.click(document.querySelector('[data-nav="groups"]') as HTMLElement);
     expect(navKeys()).toContain("groupsPayments");
   });
 
-  it("is ONE dropdown holding every accounting page, and replaces the Groups section's Payments", async () => {
+  it("is ONE dropdown of four pages — overview, arrears, treasury, reports — and replaces the Groups section's Payments", async () => {
     const user = userEvent.setup();
     renderShell("ACADEMY_OWNER", { ...money, capabilities: ACCOUNTING });
     await ready();
 
     const parent = document.querySelector('[data-nav="accounting"]') as HTMLElement;
     expect(parent.tagName).toBe("BUTTON");
-    expect(navKeys()).not.toContain("receipts");
+    expect(accountingKeys()).toEqual(["accounting"]);
     await user.click(parent);
-    expect(navKeys()).toEqual(
-      expect.arrayContaining(["accountingOverview", "receipts", "accountingGroups", "accountingArrears", "accountingStatement", "accountingDaily"]),
-    );
-    expect(document.querySelector('[data-nav="accountingArrears"]')).toHaveAttribute("href", "/accounting/arrears");
+    expect(accountingKeys()).toEqual(["accounting", "accountingOverview", "accountingArrears", "accountingTreasury", "accountingReports"]);
+    // The pages that became tabs are no longer sidebar items of their own.
+    expect(navKeys()).not.toContain("receipts");
+    expect(navKeys()).not.toContain("accountingStatement");
+    expect(document.querySelector('[data-nav="accountingTreasury"]')).toHaveAttribute("href", "/accounting/treasury");
+    expect(document.querySelector('[data-nav="accountingReports"]')).toHaveAttribute("href", "/accounting/reports");
 
     await user.click(document.querySelector('[data-nav="groups"]') as HTMLElement);
     expect(navKeys()).toContain("groupsReports");
@@ -402,29 +406,33 @@ describe("AppShell — the Accounting section (docs/groups/01-ACCOUNTING.md)", (
 
   it("lights only the open sub-page, never the overview with it", async () => {
     const user = userEvent.setup();
-    pathname = "/accounting/daily";
+    pathname = "/accounting/reports";
     renderShell("ACADEMY_OWNER", { ...money, capabilities: ACCOUNTING });
     await ready();
     await user.click(document.querySelector('[data-nav="accounting"]') as HTMLElement);
 
-    expect(document.querySelector('[data-nav="accountingDaily"]')).toHaveAttribute("data-active", "true");
+    expect(document.querySelector('[data-nav="accountingReports"]')).toHaveAttribute("data-active", "true");
     expect(document.querySelector('[data-nav="accountingOverview"]')).not.toHaveAttribute("data-active");
   });
 
-  it("drops the group page when the client has accounting but not group classes", async () => {
-    const user = userEvent.setup();
-    renderShell("ACADEMY_OWNER", { ...money, capabilities: ["invoicing", "accounting"] });
+  it("puts a Collect button in the header for whoever may record a payment, and only them", async () => {
+    renderShell("ACADEMY_OWNER", { ...money, capabilities: ACCOUNTING });
     await ready();
-    await user.click(document.querySelector('[data-nav="accounting"]') as HTMLElement);
+    expect(screen.getByTestId("header-collect")).toBeTruthy();
+  });
 
-    expect(navKeys()).toContain("accountingArrears");
-    expect(navKeys()).not.toContain("accountingGroups");
+  it("gives no Collect button to someone who may only read the money", async () => {
+    renderShell("ACADEMY_OWNER", { permissions: ["invoice.read"], capabilities: ACCOUNTING });
+    await ready();
+    expect(screen.queryByTestId("header-collect")).toBeNull();
+    expect(navKeys()).toContain("accounting");
   });
 
   it("is hidden from someone who cannot see invoices", async () => {
     renderShell("SUPERVISOR", { permissions: ["group.read"], capabilities: ACCOUNTING });
     await ready();
 
-    expect(navKeys().filter((k) => k.startsWith("accounting") || k === "receipts")).toEqual([]);
+    expect(accountingKeys()).toEqual([]);
+    expect(screen.queryByTestId("header-collect")).toBeNull();
   });
 });

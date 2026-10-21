@@ -7,6 +7,7 @@ import {
   GraduationCap,
   MapPin,
   MessageCircle,
+  Phone,
   Plus,
   ShieldCheck,
   UserCheck,
@@ -17,6 +18,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Octagram } from "@/components/ornaments";
+import { addedByFilter, DoneByCell, useTeamActors } from "@/components/team/done-by";
 import { Button } from "@/components/ui/button";
 import {
   type ColumnDef,
@@ -205,11 +207,13 @@ export function StudentsList({
   onPrefetch?: (id: string) => void;
 }) {
   const t = useTranslations("students");
+  const tDone = useTranslations("doneBy");
   const locale = useLocale();
   const { can, session } = useAuth();
   const isTeacher = session?.role === "TEACHER";
   const canPrice = can("student.set_price");
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const actors = useTeamActors();
 
   useEffect(() => {
     void listTeachers({ pageSize: 50, filter: { status: "active" } })
@@ -386,6 +390,15 @@ export function StudentsList({
                   {r.whatsapp_phone}
                 </span>
               )}
+              {!isTeacher && r.secondary_phone && (
+                <span
+                  dir="ltr"
+                  className="text-muted-foreground flex items-center gap-1.5 text-[11px] tabular-nums"
+                >
+                  <Phone className="size-3 shrink-0" aria-hidden />
+                  {r.secondary_phone}
+                </span>
+              )}
               {c && (
                 <div
                   className="text-muted-foreground flex items-center gap-1.5 text-[11px]"
@@ -416,9 +429,19 @@ export function StudentsList({
         ),
       });
 
+      // Which of the team added the student — for an academy run by several supervisors.
+      if (!isTeacher) {
+        cols.push({
+          key: "added_by",
+          header: tDone("col"),
+          headerClassName: "min-w-32",
+          render: (r) => <DoneByCell name={r.added_by_name} />,
+        });
+      }
+
       return cols;
     },
-    [t, locale, isTeacher, canPrice, priceSuffix],
+    [t, tDone, locale, isTeacher, canPrice, priceSuffix],
   );
 
   const filters = useMemo<FilterDef[]>(
@@ -464,8 +487,9 @@ export function StudentsList({
         hidden: true,
         options: [{ value: "1", label: t("stats.trials") }],
       },
+      ...addedByFilter(actors, tDone),
     ],
-    [t, teachers],
+    [t, tDone, teachers, actors],
   );
 
   const exportColumns = useMemo<ExcelColumn<StudentRow>[]>(() => {
@@ -506,6 +530,7 @@ export function StudentsList({
           value: (r) => (r.price_basis ? t(`basis.${r.price_basis}`) : ""),
         },
         { header: t("colWhatsapp"), value: (r) => r.whatsapp_phone },
+        { header: t("form.secondaryPhone"), value: (r) => r.secondary_phone ?? "" },
       );
     }
     cols.push(
@@ -515,8 +540,11 @@ export function StudentsList({
       },
       { header: t("colAdded"), value: (r) => r.created_at?.slice(0, 10) ?? "" },
     );
+    if (!isTeacher) {
+      cols.push({ header: tDone("col"), value: (r) => r.added_by_name ?? "", width: 22 });
+    }
     return cols;
-  }, [t, locale, isTeacher]);
+  }, [t, tDone, locale, isTeacher]);
 
   const newButton = can("student.create") ? (
     <Button

@@ -37,7 +37,7 @@ tested for free. Two browser tabs (or two devices on your WiFi) can hold a 1:1 c
 
 ### A.1 Files
 
-Put these in `infra/video/local/` (new folder; not committed secrets — these are dev-only keys).
+Put these in `archive/video-platform/infra/local/` (new folder; not committed secrets — these are dev-only keys).
 
 **`docker-compose.yml`**
 ```yaml
@@ -118,7 +118,7 @@ s3:
 
 ### A.2 Bring it up
 ```bash
-cd infra/video/local
+cd archive/video-platform/infra/local
 docker compose up -d
 # create the recordings bucket in MinIO (console at http://localhost:9001, login minioadmin/minioadmin)
 ```

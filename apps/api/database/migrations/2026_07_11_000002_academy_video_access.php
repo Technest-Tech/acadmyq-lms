@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Per-academy video governance — Tier 2 (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING; the
+ * Per-academy video governance — Tier 2 (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING; the
  * Super Admin "add academy to video / activate-deactivate / trial / tier" controls).
  *
  * Three nullable columns on `academies` (no backfill → no FORCE-RLS dance needed):

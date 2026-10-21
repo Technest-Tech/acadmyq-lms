@@ -14,7 +14,7 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * S6 — per-room access log (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §15). Covers the access
+ * S6 — per-room access log (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §15). Covers the access
  * sessions (who/when/duration/ongoing), the activity feed (audit events newest-first), the stats, the
  * room.monitor privacy gate on monitor_join events, and 404 for an unknown room.
  */

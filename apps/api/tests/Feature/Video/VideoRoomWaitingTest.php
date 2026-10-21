@@ -15,7 +15,7 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * S4 — the waiting room (docs/video-platform/08-ROOM-ACCESS-AND-MONITORING §13). Covers: the knock
+ * S4 — the waiting room (archive/video-platform/docs/08-ROOM-ACCESS-AND-MONITORING §13). Covers: the knock
  * state at /join (no token minted), the guest short-poll lifecycle (knocking → admitted/denied), the
  * host queue authenticated by the manage credential (= host_token), all three bypasses (auth-host,
  * host link, monitor), the guest-password-before-knock ordering, and the broadened slug protection.

@@ -431,22 +431,40 @@ export function ProfileSection({
   onError: (msg: string) => void;
 }) {
   const t = useTranslations("students");
+  const { session } = useAuth();
+  // A teacher reads the record but not the family's numbers — the students list hides them too.
+  const showPhones = session?.role !== "TEACHER";
+  const savedPhone = (data.student.whatsapp_phone as string | null) ?? "";
+  const savedOtherPhone = (data.student.secondary_phone as string | null) ?? "";
   const [name, setName] = useState(data.student.full_name);
   const [status, setStatus] = useState((data.student.status as string) ?? "");
+  const [phone, setPhone] = useState(savedPhone);
+  const [otherPhone, setOtherPhone] = useState(savedOtherPhone);
   const [saving, setSaving] = useState(false);
 
+  const phonesDirty = phone !== savedPhone || otherPhone !== savedOtherPhone;
   const dirty =
     name !== data.student.full_name ||
-    status !== ((data.student.status as string) ?? "");
+    status !== ((data.student.status as string) ?? "") ||
+    phonesDirty;
 
   async function save() {
     setSaving(true);
     try {
       // Only forward a status the API accepts as an editable active state; a deactivated
       // student carries a terminal status (GRADUATED/WITHDRAWN) that must not be re-sent.
-      const patch: { full_name: string; status?: string } = { full_name: name };
+      const patch: {
+        full_name: string;
+        status?: string;
+        whatsapp_phone?: string | null;
+        secondary_phone?: string | null;
+      } = { full_name: name };
       if ((STUDENT_STATUSES as readonly string[]).includes(status)) {
         patch.status = status;
+      }
+      if (phonesDirty) {
+        patch.whatsapp_phone = phone.trim() || null;
+        patch.secondary_phone = otherPhone.trim() || null;
       }
       await updateStudent(data.student.id, patch);
       onSaved();
@@ -501,6 +519,40 @@ export function ProfileSection({
               ))}
             </select>
           </Field>
+
+          {showPhones && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label={t("form.phone")}>
+                <div className="relative">
+                  <MessageCircle className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-emerald-500" />
+                  <input
+                    aria-label={t("form.phone")}
+                    dir="ltr"
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
+                    placeholder="+20…"
+                    value={phone}
+                    disabled={!canEdit}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                </div>
+              </Field>
+              <Field label={t("form.secondaryPhone")}>
+                <div className="relative">
+                  <Phone className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    aria-label={t("form.secondaryPhone")}
+                    dir="ltr"
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
+                    placeholder="+20…"
+                    value={otherPhone}
+                    disabled={!canEdit}
+                    onChange={(e) => setOtherPhone(e.target.value)}
+                    data-testid="student-secondary-phone"
+                  />
+                </div>
+              </Field>
+            </div>
+          )}
 
           {canEdit && (
             <div className="flex items-center justify-end gap-3 border-t pt-4">
@@ -678,6 +730,14 @@ function ParentCard({
                 icon={Phone}
                 label={t("form.phone")}
                 value={guardian.whatsapp_phone}
+                dir="ltr"
+              />
+            )}
+            {guardian.secondary_phone && (
+              <DetailRow
+                icon={Phone}
+                label={t("form.secondaryPhone")}
+                value={guardian.secondary_phone}
                 dir="ltr"
               />
             )}
@@ -901,6 +961,7 @@ function ParentEditForm({
   const t = useTranslations("guardians");
   const [fullName, setFullName] = useState(guardian.full_name);
   const [phone, setPhone] = useState(guardian.whatsapp_phone);
+  const [otherPhone, setOtherPhone] = useState(guardian.secondary_phone ?? "");
   const [country, setCountry] = useState(guardian.country ?? "");
   const [currency, setCurrency] = useState(guardian.currency);
   const [notes, setNotes] = useState(guardian.notes ?? "");
@@ -912,6 +973,7 @@ function ParentEditForm({
       await updateGuardian(guardian.id, {
         full_name: fullName,
         whatsapp_phone: phone,
+        secondary_phone: otherPhone.trim() || null,
         country: country || null,
         currency: currency || null,
         notes: notes || null,
@@ -944,6 +1006,20 @@ function ParentEditForm({
             className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
+          />
+        </div>
+      </Field>
+
+      <Field label={t("form.secondaryPhone")}>
+        <div className="relative">
+          <Phone className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+          <input
+            aria-label={t("form.secondaryPhone")}
+            dir="ltr"
+            className={cn(inputBase, "py-2.5 ps-10 pe-3.5 tabular-nums")}
+            placeholder="+20…"
+            value={otherPhone}
+            onChange={(e) => setOtherPhone(e.target.value)}
           />
         </div>
       </Field>

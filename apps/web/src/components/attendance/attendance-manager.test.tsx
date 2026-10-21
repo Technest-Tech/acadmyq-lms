@@ -21,6 +21,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   createSession: vi.fn(),
   listStudents: vi.fn(),
   followSession: vi.fn(),
+  listTeamActors: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -99,6 +100,7 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     // The page writes the day it is showing into the URL, and jsdom keeps that between tests —
     // so reset it, or a deep-link test leaks its day into every test that follows.
     window.history.replaceState(null, "", "/attendance");
+    vi.mocked(api.listTeamActors).mockResolvedValue({ actors: [] });
     vi.mocked(api.listTeachers).mockResolvedValue({
       rows: [],
       total: 0,
@@ -137,6 +139,49 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
 
     const list = await screen.findByTestId("day-list");
     expect(within(list).getAllByText("Abdullah").length).toBeGreaterThan(0);
+  });
+
+  it("names who marked each lesson, and filters by them once two people run the academy", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listTeamActors).mockResolvedValue({
+      actors: [
+        { id: "u1", name: "Supervisor A", role: "SUPERVISOR", role_name: null, is_active: true },
+        { id: "u2", name: "Supervisor B", role: "SUPERVISOR", role_name: null, is_active: true },
+      ],
+    });
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({
+      sessions: [
+        { ...daySession, id: "a", student_name: "Marked By A", status: "ATTENDED", done_by_user_id: "u1", done_by_name: "Supervisor A", done_by_teacher: false },
+        { ...daySession, id: "b", student_name: "Marked By B", status: "ATTENDED", done_by_user_id: "u2", done_by_name: "Supervisor B", done_by_teacher: false },
+        { ...daySession, id: "c", student_name: "Marked By Teacher", status: "ATTENDED", done_by_user_id: "ut", done_by_name: "Ustadh", done_by_teacher: true },
+      ],
+    });
+    renderManager();
+
+    const list = await screen.findByTestId("day-list");
+    expect(within(list).getByText("Supervisor A")).toBeInTheDocument();
+    expect(within(list).getByText("Ustadh", { selector: "[data-testid=done-by] span" })).toBeInTheDocument();
+
+    await user.selectOptions(await screen.findByTestId("done-by-filter"), "u2");
+    expect(within(list).queryByText("Marked By A")).not.toBeInTheDocument();
+    expect(within(list).getByText("Marked By B")).toBeInTheDocument();
+
+    // "The lesson's teacher" narrows to lessons their own teacher marked.
+    await user.selectOptions(screen.getByTestId("done-by-filter"), "teacher");
+    expect(within(list).getByText("Marked By Teacher")).toBeInTheDocument();
+    expect(within(list).queryByText("Marked By B")).not.toBeInTheDocument();
+  });
+
+  it("offers no done-by filter while one person runs the academy", async () => {
+    vi.mocked(api.listTeamActors).mockResolvedValue({
+      actors: [{ id: "u1", name: "Owner", role: "ACADEMY_OWNER", role_name: null, is_active: true }],
+    });
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
+    renderManager();
+
+    await screen.findByTestId("day-list");
+    await waitFor(() => expect(api.listTeamActors).toHaveBeenCalled());
+    expect(screen.queryByTestId("done-by-filter")).not.toBeInTheDocument();
   });
 
   it("shows the empty state when nothing matches the day's filters", async () => {

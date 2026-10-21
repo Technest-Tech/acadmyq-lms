@@ -2,14 +2,14 @@
 
 A **teacher-only** desktop client that wraps the existing web call UI (`apps/web`) and will add
 screen-share annotations that **bake into the shared screen pixels** (Zoom-style). Students keep
-using the browser. See the design in [docs/video-platform/10-DESKTOP-CLIENT.md](../../docs/video-platform/10-DESKTOP-CLIENT.md)
+using the browser. See the design in [archive/video-platform/docs/10-DESKTOP-CLIENT.md](../../archive/video-platform/docs/10-DESKTOP-CLIENT.md)
 (added in a later phase) and the plan it implements.
 
 > **Status: Phases 1–6 built.** Shell, capture gate (✅ macOS — confirm on Windows), native picker,
 > the **real annotation feature** (web draw → bake into the shared screen), web control-bar
 > Annotate/Clear toggle, and `academiq://room/<token>` deep-linking. Remaining follow-ups:
 > code-signing + macOS dmg/notarize + auto-update, the teacher's own interactive-overlay drawing,
-> and a colour/width toolbar. See [docs/video-platform/10-DESKTOP-CLIENT.md](../../docs/video-platform/10-DESKTOP-CLIENT.md).
+> and a colour/width toolbar. See [archive/video-platform/docs/10-DESKTOP-CLIENT.md](../../archive/video-platform/docs/10-DESKTOP-CLIENT.md).
 
 ## Architecture (1 line)
 

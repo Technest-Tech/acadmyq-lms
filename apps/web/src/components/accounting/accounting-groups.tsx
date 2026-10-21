@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers } from "lucide-react";
+import { AlarmClock, Hourglass, Layers, TrendingUp, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -21,7 +21,7 @@ type Sort = "name" | "rate" | "remaining" | "net";
  * what the teacher cost and what the group left the academy (net on money actually received). Then
  * the same per teacher. A group opens its own Accounts tab.
  */
-export function AccountingGroupsScreen() {
+export function AccountingGroupsScreen({ hero = true }: { hero?: boolean }) {
   const t = useTranslations("accounting");
   const locale = useLocale();
   const [month, setMonth] = useState(() => todayLocal().slice(0, 7));
@@ -54,7 +54,7 @@ export function AccountingGroupsScreen() {
 
   return (
     <div className="space-y-5" data-testid="accounting-groups">
-      <PageHero icon={Layers} title={t("groupsPage.title")} subtitle={t("groupsPage.subtitle")} latticeId="accounting-groups-hero" />
+      {hero && <PageHero icon={Layers} title={t("groupsPage.title")} subtitle={t("groupsPage.subtitle")} latticeId="accounting-groups-hero" />}
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="text-muted-foreground flex items-center gap-2 text-xs">
@@ -73,7 +73,7 @@ export function AccountingGroupsScreen() {
 
       {data?.totals.map((tot) => (
         <section key={tot.currency} className="space-y-3" data-testid={`groups-totals-${tot.currency}`}>
-          <div className="rounded-2xl border p-4">
+          <div className="from-primary/[0.08] via-card to-card bg-card rounded-2xl border bg-gradient-to-br p-4 shadow-sm sm:p-5">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>
                 <p className="text-muted-foreground text-xs">{t("sheet.collectionRate")}</p>
@@ -86,12 +86,12 @@ export function AccountingGroupsScreen() {
             </div>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Tile label={t("sheet.remaining")} value={money(tot.remaining_minor, tot.currency)} tone={tot.remaining_minor > 0 ? "text-rose-600 dark:text-rose-400" : undefined} />
-            <Tile label={t("sheet.arrears")} value={money(tot.arrears_minor, tot.currency)} tone={tot.arrears_minor > 0 ? "text-amber-600 dark:text-amber-400" : undefined} hint={t("sheet.arrearsHint")} />
-            <Tile label={t("sheet.receivedInMonth")} value={money(tot.received_in_month_minor, tot.currency)} tone="text-emerald-600 dark:text-emerald-400" hint={t("sheet.receivedHint")} />
+            <Tile label={t("sheet.remaining")} icon={AlarmClock} accent="rose" value={money(tot.remaining_minor, tot.currency)} tone={tot.remaining_minor > 0 ? "text-rose-600 dark:text-rose-400" : undefined} />
+            <Tile label={t("sheet.arrears")} icon={Hourglass} accent="amber" value={money(tot.arrears_minor, tot.currency)} tone={tot.arrears_minor > 0 ? "text-amber-600 dark:text-amber-400" : undefined} hint={t("sheet.arrearsHint")} />
+            <Tile label={t("sheet.receivedInMonth")} icon={Wallet} accent="emerald" value={money(tot.received_in_month_minor, tot.currency)} tone="text-emerald-600 dark:text-emerald-400" hint={t("sheet.receivedHint")} />
             {cost && (
               <Tile
-                label={t("groupsPage.netAfterTeacher")}
+                label={t("groupsPage.netAfterTeacher")} icon={TrendingUp} accent="violet"
                 value={money(tot.net_minor, tot.currency)}
                 tone={(tot.net_minor ?? 0) < 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}
                 hint={t("groupsPage.netHint", { cost: money(tot.teacher_cost_minor, tot.currency), margin: pct(tot.margin) })}
@@ -101,13 +101,13 @@ export function AccountingGroupsScreen() {
         </section>
       ))}
 
-      {data && rows.length === 0 && <p className="text-muted-foreground rounded-2xl border border-dashed p-10 text-center text-sm">{t("groupsPage.empty")}</p>}
+      {data && rows.length === 0 && <p className="text-muted-foreground rounded-2xl border border-dashed bg-card/60 p-10 text-center text-sm">{t("groupsPage.empty")}</p>}
 
       {data && rows.length > 0 && (
         <>
-          <div className="hidden overflow-x-auto rounded-xl border lg:block">
+          <div className="hidden bg-card overflow-x-auto rounded-xl border shadow-sm lg:block">
             <table className="w-full text-sm" data-testid="groups-table">
-              <thead className="bg-muted/50 text-muted-foreground text-xs">
+              <thead className="bg-muted/70 text-muted-foreground border-b text-xs font-semibold">
                 <tr>
                   <th className="p-3 text-start font-medium">{t("groupsPage.col.group")}</th>
                   <th className="p-3 text-end font-medium">{t("groupsPage.col.students")}</th>
@@ -169,7 +169,7 @@ export function AccountingGroupsScreen() {
 
           <ul className="space-y-2 lg:hidden">
             {rows.map(({ g, m }) => (
-              <li key={`${g.id}-${m?.currency ?? "none"}`} className="space-y-3 rounded-xl border p-3">
+              <li key={`${g.id}-${m?.currency ?? "none"}`} className="space-y-3 bg-card rounded-xl border p-3 shadow-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <Link href={`/groups/${g.id}?tab=accounts`} className="font-medium break-words hover:underline">
@@ -203,9 +203,9 @@ export function AccountingGroupsScreen() {
       {data?.teachers && data.teachers.length > 0 && (
         <section className="space-y-2" data-testid="groups-teachers">
           <h3 className="text-sm font-semibold">{t("groupsPage.byTeacher")}</h3>
-          <div className="overflow-x-auto rounded-xl border">
+          <div className="bg-card overflow-x-auto rounded-xl border shadow-sm">
             <table className="w-full min-w-[640px] text-sm">
-              <thead className="bg-muted/50 text-muted-foreground text-xs">
+              <thead className="bg-muted/70 text-muted-foreground border-b text-xs font-semibold">
                 <tr>
                   <th className="p-3 text-start font-medium">{t("groupsPage.col.teacher")}</th>
                   <th className="p-3 text-end font-medium">{t("groupsPage.col.groups")}</th>
