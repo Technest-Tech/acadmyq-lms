@@ -55,6 +55,23 @@ it('persists the per-type toggles and audits the change', function () {
     expect(DB::table('audit_log')->where('action', 'automation.settings_updated')->exists())->toBeTrue();
 });
 
+it('stores who lesson reminders go to, and refuses anything but the three choices', function () {
+    $academyId = $this->createAcademy();
+
+    Sanctum::actingAs($this->admin);
+    $this->getJson("/api/admin/academies/{$academyId}/automation")
+        ->assertOk()->assertJsonPath('automation.type2_lessons_enabled', false)
+        ->assertJsonPath('automation.type2_recipients', 'BOTH');
+
+    $this->putJson("/api/admin/academies/{$academyId}/automation", [
+        'type2_lessons_enabled' => true,
+        'type2_recipients' => 'TEACHERS',
+    ])->assertOk()->assertJsonPath('automation.type2_recipients', 'TEACHERS');
+
+    $this->putJson("/api/admin/academies/{$academyId}/automation", ['type2_recipients' => 'PARENTS'])
+        ->assertStatus(422);
+});
+
 it('forbids an owner from the automation endpoints', function () {
     $academyId = $this->createAcademy();
     $owner = $this->makeUser($academyId, 'ACADEMY_OWNER');

@@ -115,6 +115,8 @@ final class AcademyAutomationController extends Controller
         $data = $request->validate([
             'type1_billing_enabled' => ['sometimes', 'boolean'],
             'type2_lessons_enabled' => ['sometimes', 'boolean'],
+            // Who a lesson reminder goes to: both, the teacher only, or the student only.
+            'type2_recipients' => ['sometimes', 'string', 'in:BOTH,TEACHERS,STUDENTS'],
             'type1_config' => ['sometimes', 'array'],
             'type2_config' => ['sometimes', 'array'],
         ]);
@@ -128,6 +130,9 @@ final class AcademyAutomationController extends Controller
                 if (array_key_exists($k, $data)) {
                     $fields[$k] = (bool) $data[$k];
                 }
+            }
+            if (array_key_exists('type2_recipients', $data)) {
+                $fields['type2_recipients'] = (string) $data['type2_recipients'];
             }
             foreach (['type1_config', 'type2_config'] as $k) {
                 if (array_key_exists($k, $data)) {
@@ -524,6 +529,7 @@ final class AcademyAutomationController extends Controller
         return [
             'type1_billing_enabled' => (bool) $row->type1_billing_enabled,
             'type2_lessons_enabled' => (bool) $row->type2_lessons_enabled,
+            'type2_recipients' => (string) ($row->type2_recipients ?? 'BOTH'),
             'type1_config' => json_decode((string) $row->type1_config, true) ?: [],
             'type2_config' => json_decode((string) $row->type2_config, true) ?: [],
             'wasender_session_status' => $row->wasender_session_status,

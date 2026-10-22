@@ -93,6 +93,28 @@ it('Type 2 reminds both the student and the teacher of an upcoming session, idem
     expect($out2[$academyId])->toBe(0);
 });
 
+it('Type 2 reminds only the side the academy chose — teachers only, or students only', function (string $recipients, string $kind) {
+    $academyId = $this->createAcademy();
+    $teacherId = $this->createTeacher($academyId, ['phone' => '+201111111111']);
+    $studentId = $this->createStudent($academyId);
+    $this->createSession($academyId, $studentId, $teacherId, [
+        'scheduled_at_utc' => now()->addMinutes(60)->format('Y-m-d H:i:sP'),
+        'status' => 'SCHEDULED',
+    ]);
+    enableAutomation($academyId, 'type2_lessons_enabled');
+    DB::table('academy_automation_settings')->where('academy_id', $academyId)->update(['type2_recipients' => $recipients]);
+
+    $out = (new LessonReminderJob($academyId))->handle(app(WhatsAppSender::class));
+    expect($out[$academyId])->toBe(1);
+
+    $this->asAcademy($academyId);
+    expect(DB::table('automation_send_log')->where('academy_id', $academyId)->where('automation_type', 'TYPE2_LESSON')
+        ->pluck('recipient_kind')->all())->toBe([$kind]);
+})->with([
+    'teachers only' => ['TEACHERS', 'TEACHER'],
+    'students only' => ['STUDENTS', 'STUDENT'],
+]);
+
 it('Type 2 skips sessions outside the lead window', function () {
     $academyId = $this->createAcademy();
     $teacherId = $this->createTeacher($academyId, ['phone' => '+201111111111']);

@@ -921,9 +921,13 @@ export function reviewPaymentSubmission(
 
 // ── Per-academy WhatsApp automation (Super Admin) ────────────────────────────
 
+/** Who a private lesson reminder goes to. */
+export type LessonReminderRecipients = "BOTH" | "TEACHERS" | "STUDENTS";
+
 export interface AcademyAutomation {
   type1_billing_enabled: boolean;
   type2_lessons_enabled: boolean;
+  type2_recipients: LessonReminderRecipients;
   type1_config: Record<string, unknown>;
   type2_config: Record<string, unknown>;
   wasender_session_status: string | null;
@@ -954,6 +958,7 @@ export function updateAcademyAutomation(
   patch: {
     type1_billing_enabled?: boolean;
     type2_lessons_enabled?: boolean;
+    type2_recipients?: LessonReminderRecipients;
     type1_config?: Record<string, unknown>;
     type2_config?: Record<string, unknown>;
   },

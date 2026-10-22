@@ -4527,7 +4527,7 @@
     "manage": {
       "title": "Manage WhatsApp",
       "connection": "Connection",
-      "automation": "Automation",
+      "automation": "Private messages",
       "sendTest": "Send a test message",
       "recentActivity": "Recent activity",
       "phone": "Number",
@@ -4538,10 +4538,10 @@
       "refresh": "Refresh",
       "connect": "Connect",
       "logout": "Log out",
-      "billing": "Monthly billing & dunning",
-      "billingDesc": "Auto-send student invoices and unpaid reminders.",
-      "reminders": "Lesson & trial reminders",
-      "remindersDesc": "Auto-send lesson and trial reminders.",
+      "billing": "Billing reminders (private)",
+      "billingDesc": "Sends each student/parent their monthly invoice and unpaid reminders.",
+      "reminders": "Lesson reminders (private)",
+      "remindersDesc": "Reminds people privately before each lesson or trial.",
       "toLabel": "Recipient number",
       "toPlaceholder": "e.g. +201234567890",
       "messageLabel": "Message",
@@ -4583,7 +4583,15 @@
         "revoked": "Revoked",
         "revoke": "Revoke",
         "lastUsed": "last used {time}"
-      }
+      },
+      "automationHint": "One-to-one WhatsApp messages to students, parents and teachers. Off by default — group alerts are separate and are not affected.",
+      "sendTo": "Send to",
+      "recipients": {
+        "BOTH": "Teachers & students",
+        "TEACHERS": "Teachers only",
+        "STUDENTS": "Students only"
+      },
+      "privateOff": "No private messages are sent — only the selected group alerts."
     },
     "tabs": {
       "overview": "Academies",

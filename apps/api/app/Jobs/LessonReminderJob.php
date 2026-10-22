@@ -20,8 +20,9 @@ use Illuminate\Support\Facades\DB;
 /**
  * Type 2 automation — lesson & trial reminders over WhatsApp. Hourly, for every academy with
  * `type2_lessons_enabled`, find upcoming SCHEDULED sessions starting within the lead window and
- * remind BOTH the student (guardian/student WhatsApp) and the teacher through the WhatsApp seam
- * (Wasender when a token is set, otherwise a deep link logged for manual follow-up).
+ * remind the student (guardian/student WhatsApp) and/or the teacher — whoever the academy's
+ * `type2_recipients` names (BOTH, TEACHERS or STUDENTS) — through the WhatsApp seam (Wasender when
+ * a token is set, otherwise a deep link logged for manual follow-up).
  *
  * Idempotent per (session, recipient) via the send-log dedupe key; per-academy tenant-isolated.
  * The bilingual body is built inline so the "lesson"/"trial" word reads naturally in each language.
@@ -67,9 +68,13 @@ final class LessonReminderJob implements ShouldQueue
 
     private function remindForAcademy(string $academyId, Carbon $from, Carbon $to, WhatsAppSender $sender): int
     {
-        if (! DB::table('academy_automation_settings')->where('academy_id', $academyId)->where('type2_lessons_enabled', true)->exists()) {
+        $recipients = DB::table('academy_automation_settings')->where('academy_id', $academyId)
+            ->where('type2_lessons_enabled', true)->value('type2_recipients');
+        if ($recipients === null) {
             return 0;
         }
+        $toStudents = $recipients !== 'TEACHERS';
+        $toTeachers = $recipients !== 'STUDENTS';
 
         $tz = (string) (DB::table('academies')->where('id', $academyId)->value('timezone') ?? 'UTC');
 
@@ -95,7 +100,7 @@ final class LessonReminderJob implements ShouldQueue
             $kindEn = $isTrial ? 'trial' : 'lesson';
 
             // Reminder to the student/guardian.
-            if ((string) ($s->student_phone ?? '') !== '') {
+            if ($toStudents && (string) ($s->student_phone ?? '') !== '') {
                 $msg = implode("\n\n", [
                     "تذكير: لديك {$kindAr} مع {$s->teacher_name} الساعة {$time}.",
                     "Reminder: you have a {$kindEn} with {$s->teacher_name} at {$time}.",
@@ -113,7 +118,7 @@ final class LessonReminderJob implements ShouldQueue
             }
 
             // Reminder to the teacher.
-            if ((string) ($s->teacher_phone ?? '') !== '') {
+            if ($toTeachers && (string) ($s->teacher_phone ?? '') !== '') {
                 $msg = implode("\n\n", [
                     "تذكير: لديك {$kindAr} مع {$s->student_name} الساعة {$time}.",
                     "Reminder: you have a {$kindEn} with {$s->student_name} at {$time}.",

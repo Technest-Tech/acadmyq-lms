@@ -25,6 +25,7 @@ import {
   ApiError,
   createApiKey,
   createConnectLink,
+  getAcademyAutomation,
   getApiKeys,
   getAutomationLog,
   revokeApiKey,
@@ -37,6 +38,7 @@ import {
   whatsappStatus,
   type AutomationLogRow,
   type AutomationOverviewRow,
+  type LessonReminderRecipients,
   type WhatsAppApiKey,
   type WhatsAppStatus,
 } from "@/lib/api";
@@ -118,6 +120,7 @@ export function ManageModal({
   const [log, setLog] = useState<AutomationLogRow[] | null>(null);
   const [type1, setType1] = useState(academy.type1_billing_enabled);
   const [type2, setType2] = useState(academy.type2_lessons_enabled);
+  const [recipients, setRecipients] = useState<LessonReminderRecipients>("BOTH");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -175,6 +178,17 @@ export function ManageModal({
       qrPoll.current = null;
     }
   }, []);
+
+  // The overview row has no recipient choice — read the client's own settings once.
+  useEffect(() => {
+    getAcademyAutomation(id)
+      .then(({ automation }) => {
+        setType1(automation.type1_billing_enabled);
+        setType2(automation.type2_lessons_enabled);
+        setRecipients(automation.type2_recipients ?? "BOTH");
+      })
+      .catch(() => {});
+  }, [id]);
 
   useEffect(() => {
     void refreshStatus();
@@ -252,6 +266,20 @@ export function ManageModal({
       if (which === 1) setType1(next);
       else setType2(next);
       onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function chooseRecipients(next: LessonReminderRecipients) {
+    if (next === recipients) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateAcademyAutomation(id, { type2_recipients: next });
+      setRecipients(next);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -397,22 +425,56 @@ export function ManageModal({
           </div>
         </section>
 
-        {/* Automation toggles */}
-        <section className="rounded-xl border p-4">
-          <h3 className="mb-3 text-sm font-semibold">{t("manage.automation")}</h3>
+        {/* Private messages — the one-to-one automations. Group alerts live on their own page. */}
+        <section className="rounded-xl border p-4" data-testid="private-messages">
+          <h3 className="text-sm font-semibold">{t("manage.automation")}</h3>
+          <p className="text-muted-foreground mb-3 text-xs">{t("manage.automationHint")}</p>
           <div className="space-y-3">
             {([
               { which: 1 as const, on: type1, title: t("manage.billing"), desc: t("manage.billingDesc") },
               { which: 2 as const, on: type2, title: t("manage.reminders"), desc: t("manage.remindersDesc") },
             ]).map((r) => (
-              <div key={r.which} className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{r.title}</p>
-                  <p className="text-muted-foreground text-xs">{r.desc}</p>
+              <div key={r.which}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{r.title}</p>
+                    <p className="text-muted-foreground text-xs">{r.desc}</p>
+                  </div>
+                  {/* Switching OFF is always allowed — even with WhatsApp disconnected. */}
+                  <Switch on={r.on} disabled={busy || (!r.on && !connected && !academy.has_token)} onClick={() => void toggle(r.which)} />
                 </div>
-                <Switch on={r.on} disabled={busy || (!connected && !academy.has_token)} onClick={() => void toggle(r.which)} />
+                {r.which === 2 && r.on && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-muted-foreground text-xs">{t("manage.sendTo")}</span>
+                    <div className="bg-muted inline-flex rounded-lg p-0.5" role="radiogroup" aria-label={t("manage.sendTo")}>
+                      {(["BOTH", "TEACHERS", "STUDENTS"] as const).map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          role="radio"
+                          aria-checked={recipients === v}
+                          disabled={busy}
+                          onClick={() => void chooseRecipients(v)}
+                          data-testid={`recipients-${v}`}
+                          className={cn(
+                            "rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40",
+                            recipients === v ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {t(`manage.recipients.${v}`)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
+            {!type1 && !type2 && (
+              <p className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                <CheckCircle2 className="size-3.5 shrink-0" aria-hidden />
+                {t("manage.privateOff")}
+              </p>
+            )}
           </div>
         </section>
 
