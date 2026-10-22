@@ -350,14 +350,19 @@ final class WhatsAppGroupController extends Controller
 
         $res = $this->client->listGroups($token);
         if (! $res['ok']) {
-            $notConnected = str_starts_with((string) $res['error'], 'http_409');
+            // 401 = the gateway no longer knows the stored token (its session is gone): as good as
+            // not connected, and reconnecting is the fix.
+            $error = (string) $res['error'];
+            $notConnected = str_starts_with($error, 'http_409') || str_starts_with($error, 'http_401');
 
+            // Never a 502/504: Cloudflare swaps those for its own page, which carries no CORS
+            // header, so the browser reported "blocked by CORS" instead of this message.
             return response()->json([
                 'error' => $notConnected ? 'not_connected' : 'gateway_unavailable',
                 'message' => $notConnected
                     ? 'WhatsApp is not connected for this client — reconnect it, then list the groups again.'
                     : 'Could not reach the WhatsApp service to list groups. Please retry.',
-            ], $notConnected ? 409 : 502);
+            ], $notConnected ? 409 : 503);
         }
 
         return $res['groups'];

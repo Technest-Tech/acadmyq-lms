@@ -8134,6 +8134,19 @@ export function listLessonPackages(
   return apiFetch(`/api/packages${qs ? `?${qs}` : ""}`);
 }
 
+/**
+ * POST /api/client-errors — the error page reports the browser-side exception that put it on
+ * screen, so a crash that never touched the server still leaves a line in the server log.
+ */
+export function reportClientError(report: {
+  message?: string;
+  stack?: string;
+  digest?: string;
+  path?: string;
+}): Promise<{ ok: boolean }> {
+  return apiFetch("/api/client-errors", { method: "POST", body: JSON.stringify(report) });
+}
+
 export function getLessonPackageSummary(): Promise<LessonPackageSummary> {
   return apiFetch("/api/packages/summary");
 }

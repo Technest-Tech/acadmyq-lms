@@ -31,6 +31,7 @@ use App\Http\Controllers\Admin\VideoOversightController;
 use App\Http\Controllers\Admin\WhatsAppGroupController;
 use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
+use App\Http\Controllers\ClientErrorController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CertificateTemplateController;
 use App\Http\Controllers\Crm\LeadController;
@@ -436,6 +437,8 @@ Route::middleware('signed')->group(function () {
 Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
+    // The web error page reports the browser-side exception behind it (logged only, never stored).
+    Route::middleware('throttle:20,1')->post('/client-errors', [ClientErrorController::class, 'store']);
     Route::patch('/auth/locale', [AuthController::class, 'setLocale']);
     // The signed-in user changes their own password (current one required).
     Route::post('/auth/password', [AuthController::class, 'changePassword']);
