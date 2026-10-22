@@ -39,7 +39,8 @@ final class Payroll implements PayoutHook
 
     /**
      * A session became ATTENDED → snapshot the teacher's rate and ensure exactly one line item
-     * exists on the teacher's OPEN payout for the period.
+     * exists on the teacher's OPEN payout for the period — or, when that month's statement is
+     * already finalized, on the next one still open ({@see openPayoutForLesson()}).
      */
     public function onSessionAttended(object $session): void
     {
@@ -64,7 +65,9 @@ final class Payroll implements PayoutHook
         $amountMinor = $this->linePayMinor($teacher, $session);
         $currency    = (string) $teacher->currency;
 
-        $payoutId = $this->ensureOpenPayout($academy, $teacher, $year, $month);
+        $payoutId = $this->openPayoutForLesson($academy, $teacher, $year, $month);
+        $carried = DB::table('payouts')->where('id', $payoutId)
+            ->whereRaw('(period_year, period_month) <> (?, ?)', [$year, $month])->exists();
 
         // Idempotency: if a line already exists for this session, do nothing.
         $exists = DB::table('payout_line_items')
@@ -111,6 +114,8 @@ final class Payroll implements PayoutHook
                     'teacher_id'   => $session->teacher_id,
                     'amount_minor' => $amountMinor,
                     'currency'     => $currency,
+                    // The lesson's own month, when its statement was finalized and it was paid on a later one.
+                    ...($carried ? ['carried_from' => sprintf('%04d-%02d', $year, $month)] : []),
                 ],
             );
 
@@ -984,6 +989,36 @@ final class Payroll implements PayoutHook
      *
      * @return string the payout UUID
      */
+    /**
+     * The statement a lesson's pay goes on: its own month's — unless that one is already finalized,
+     * i.e. paid in the real world. A finalized statement is never reopened (the DB refuses the line
+     * outright, which used to surface as a 500 on every lesson marked after its month closed), and
+     * the lesson is still owed, so it goes on the teacher's first statement that is still open, from
+     * the current month on. The line keeps the lesson's own date, so it reads as a late lesson.
+     */
+    private function openPayoutForLesson(object $academy, object $teacher, int $year, int $month): string
+    {
+        $payoutId = $this->ensureOpenPayout($academy, $teacher, $year, $month);
+        if (DB::table('payouts')->where('id', $payoutId)->value('finalized_at') === null) {
+            return $payoutId;
+        }
+
+        // From the current month — or the lesson's own, for a future lesson in a month finalized early.
+        $cursor = Carbon::now($academy->timezone ?: 'UTC')->startOfMonth()
+            ->max(Carbon::create($year, $month, 1, 0, 0, 0, $academy->timezone ?: 'UTC'));
+
+        for ($i = 0; $i < 24; $i++, $cursor->addMonthNoOverflow()) {
+            $payoutId = $this->ensureOpenPayout($academy, $teacher, (int) $cursor->year, (int) $cursor->month);
+            if (DB::table('payouts')->where('id', $payoutId)->value('finalized_at') === null) {
+                return $payoutId;
+            }
+        }
+
+        throw ValidationException::withMessages([
+            'payout' => ['This teacher has no open salary statement to pay this lesson on. / لا يوجد كشف راتب مفتوح للمدرس لاحتساب هذه الحصة.'],
+        ]);
+    }
+
     private function ensureOpenPayout(object $academy, object $teacher, int $year, int $month): string
     {
         $existing = DB::table('payouts')

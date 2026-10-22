@@ -79,7 +79,7 @@ final class Invoicing implements BillingHook
         $month = (int) $local->month;
 
         [$guardianId, $studentId, $currency] = $this->resolvePayerAndCurrency($academy, $session);
-        $invoiceId = $this->ensureOpenInvoice($academy, $guardianId, $studentId, $year, $month, $currency);
+        $invoiceId = $this->openInvoiceForLesson($academy, $guardianId, $studentId, $year, $month, $currency);
 
         // Idempotency: if a line already exists for this session, do nothing.
         $exists = DB::table('invoice_line_items')
@@ -99,7 +99,7 @@ final class Invoicing implements BillingHook
         $amountMinor = $isFreeTrial
             ? 0
             : ($subscription !== null
-                ? $this->resolvePerSessionAmount($subscription, $invoiceId, (string) $session->student_id, (int) $session->duration_minutes)
+                ? $this->resolvePerSessionAmount($subscription, $year, $month, (string) $session->student_id, (int) $session->duration_minutes)
                 : 0);
         $description = $isFreeTrial
             ? 'Free trial — '.$local->format('Y-m-d')
@@ -777,6 +777,43 @@ final class Invoicing implements BillingHook
      *
      * @return string the invoice UUID
      */
+    /**
+     * The bill a lesson's charge goes on: its own month's — unless that one has left OPEN (closed on
+     * the 2nd, or already paid). A closed bill is never reopened (the DB refuses the line, which used
+     * to surface as a 500 on every lesson marked after its month closed), and the lesson is still
+     * owed, so it goes on the payer's first bill that is still open, from the current month on —
+     * the same rule {@see addGroupLine()} applies to a late group charge. The line keeps the lesson's
+     * own date, and {@see resolvePerSessionAmount()} prices it against its own month.
+     */
+    private function openInvoiceForLesson(
+        object $academy,
+        ?string $guardianId,
+        ?string $studentId,
+        int $year,
+        int $month,
+        string $currency,
+    ): string {
+        $invoiceId = $this->ensureOpenInvoice($academy, $guardianId, $studentId, $year, $month, $currency);
+        if (DB::table('invoices')->where('id', $invoiceId)->value('status') === 'OPEN') {
+            return $invoiceId;
+        }
+
+        // From the current month — or the lesson's own, for a future lesson whose bill closed early.
+        $cursor = Carbon::now($academy->timezone ?: 'UTC')->startOfMonth()
+            ->max(Carbon::create($year, $month, 1, 0, 0, 0, $academy->timezone ?: 'UTC'));
+
+        for ($i = 0; $i < 24; $i++, $cursor->addMonthNoOverflow()) {
+            $invoiceId = $this->ensureOpenInvoice($academy, $guardianId, $studentId, (int) $cursor->year, (int) $cursor->month, $currency);
+            if (DB::table('invoices')->where('id', $invoiceId)->value('status') === 'OPEN') {
+                return $invoiceId;
+            }
+        }
+
+        throw ValidationException::withMessages([
+            'invoice' => ['There is no open bill to charge this lesson on. / لا توجد فاتورة مفتوحة لاحتساب هذه الحصة.'],
+        ]);
+    }
+
     private function ensureOpenInvoice(
         object $academy,
         ?string $guardianId,
@@ -853,7 +890,8 @@ final class Invoicing implements BillingHook
      */
     private function resolvePerSessionAmount(
         object $subscription,
-        string $invoiceId,
+        int $year,
+        int $month,
         string $studentId,
         int $durationMinutes = 0,
     ): int {
@@ -890,15 +928,22 @@ final class Invoicing implements BillingHook
 
         $perSessionFloor = intdiv($priceMinor, $sessionsPerMonth);
 
-        // What this student's LESSONS have already taken off the monthly fee on this invoice.
-        // Both the count and the sum are read: the count says which quota slot this lesson fills,
-        // the sum says how much of the flat fee is left to charge. Manual (non-session) lines are
-        // excluded — they are their own charge, not a lesson against the quota.
-        $billed = DB::table('invoice_line_items')
-            ->where('invoice_id', $invoiceId)
-            ->where('student_id', $studentId)
-            ->whereNotNull('session_id')
-            ->selectRaw('count(*) as line_count, coalesce(sum(amount_minor), 0) as line_sum')
+        // What this student's LESSONS of this month have already taken off the monthly fee. Both
+        // the count and the sum are read: the count says which quota slot this lesson fills, the
+        // sum says how much of the flat fee is left to charge. Manual (non-session) lines are
+        // excluded — they are their own charge, not a lesson against the quota. Counted by lesson
+        // date rather than by invoice: a lesson marked after its month's bill closed rides a later
+        // bill ({@see openInvoiceForLesson()}) but still belongs to — and fills — its own month.
+        // A voided bill's charges were taken back, so they fill nothing.
+        $monthStart = Carbon::create($year, $month, 1);
+        $billed = DB::table('invoice_line_items as li')
+            ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+            ->where('li.student_id', $studentId)
+            ->whereNotNull('li.session_id')
+            ->where('li.currency', (string) $subscription->currency)
+            ->where('i.status', '<>', 'VOID')
+            ->whereBetween('li.session_date', [$monthStart->format('Y-m-d'), $monthStart->copy()->endOfMonth()->format('Y-m-d')])
+            ->selectRaw('count(*) as line_count, coalesce(sum(li.amount_minor), 0) as line_sum')
             ->first();
 
         $alreadyBilled = (int) $billed->line_count;
