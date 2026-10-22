@@ -8284,8 +8284,10 @@ export interface PackageReminderResult {
   phone: string;
   message: string;
   transport: string;
-  /** True when it went out through the academy's own number; false = open the wa.me link. */
+  /** Always false: a package reminder never goes through the gateway — open `deeplink`. */
   sent: boolean;
+  /** wa.me link with the message already written; the staff member presses send. */
+  deeplink: string;
   reminders_sent: number;
   last_reminded_at: string;
 }

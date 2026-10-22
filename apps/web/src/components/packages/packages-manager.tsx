@@ -317,20 +317,22 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
 
   /**
    * Remind the payer — pay what is due, or renew a block that ran out (the server picks which).
-   * Counted on the package either way, so the next person on the case can see the family has
-   * already been chased, how often, and when.
+   * It opens WhatsApp the ordinary way, with the message written, and the staff member sends it —
+   * never through the gateway. Counted on the package either way, so the next person on the case
+   * can see the family has already been chased, how often, and when.
    */
   async function remind(row: LessonPackageRow) {
     setRemindingId(row.id);
+    // Opened on the click itself: a tab opened after the request returns is a popup the browser
+    // is entitled to block. It is pointed at WhatsApp once the message is ready.
+    const tab = window.open("", "_blank");
     try {
       const result = await remindLessonPackage(row.id, locale);
-      if (!result.sent) {
-        const digits = result.phone.replace(/\D+/g, "");
-        window.open(
-          `https://wa.me/${digits}?text=${encodeURIComponent(result.message)}`,
-          "_blank",
-          "noopener,noreferrer",
-        );
+      if (tab !== null) {
+        tab.opener = null;
+        tab.location.href = result.deeplink;
+      } else {
+        window.open(result.deeplink, "_blank", "noopener,noreferrer");
       }
       setRows((prev) =>
         (prev ?? []).map((r) =>
@@ -343,13 +345,9 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
             : r,
         ),
       );
-      showAlert(
-        "success",
-        result.sent
-          ? t("alerts.reminderSent", { name: row.student_name })
-          : t("alerts.reminderReady"),
-      );
+      showAlert("success", t("alerts.reminderReady"));
     } catch (err) {
+      tab?.close();
       showAlert(
         "error",
         err instanceof ApiError && err.message

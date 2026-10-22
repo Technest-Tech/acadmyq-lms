@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Services\Invoicing;
 use App\Services\LessonPackages;
 use App\Services\ModuleBilling;
+use App\Services\Xpay\XpayFulfillment;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -1205,8 +1206,13 @@ it('sends the parent a short payment reminder for an unpaid finished package and
         ->assertJsonPath('kind', 'PAYMENT')
         // The package bill is addressed to the child; the reminder still reaches the parent.
         ->assertJsonPath('phone', '+201009998887')
+        // Never through the gateway: a wa.me link the staff member opens and sends themselves.
+        ->assertJsonPath('sent', false)
+        ->assertJsonPath('transport', 'DEEPLINK')
         ->assertJsonPath('reminders_sent', 1)
         ->json();
+
+    expect($first['deeplink'])->toStartWith('https://wa.me/201009998887?text=');
 
     expect($first['message'])->toContain('200 EGP')
         ->and($first['message'])->toContain('رابط الدفع:')
@@ -1260,4 +1266,34 @@ it('refuses a reminder when there is nothing to remind about, and keeps it from 
 
     $this->asAcademy($this->academy);
     expect((int) DB::table('lesson_packages')->where('id', $first['package_id'])->value('reminders_sent'))->toBe(0);
+});
+
+it('marks a package paid the moment its XPay payment link is paid', function () {
+    $package = ($this->openPackage)(1, 20000);
+    ($this->attend)(($this->lesson)(60));
+
+    // The webhook and the return page both settle through XpayFulfillment; the package reads its
+    // paid state from its own invoice, so nobody has to press "Mark as paid".
+    $this->asAcademy($this->academy);
+    DB::select('select app.xpay_record_session(?, ?, ?, ?, ?, ?, ?, ?)', [
+        'cs_pkg_1', $this->academy, $package['invoice_id'], 20000, 'EGP', 'open', 'unpaid', null,
+    ]);
+    $marked = app(XpayFulfillment::class)->settle([
+        'id' => 'cs_pkg_1',
+        'status' => 'complete',
+        'paymentStatus' => 'paid',
+        'currency' => 'EGP',
+        'amountTotal' => 20000,
+    ], $this->academy, $package['invoice_id'], 20000);
+    expect($marked)->toBeTrue();
+
+    Sanctum::actingAs($this->owner);
+    $row = collect($this->getJson('/api/packages?scope=finished')->assertOk()->json('packages'))
+        ->firstWhere('id', $package['package_id']);
+    expect($row['invoice_status'])->toBe('PAID')
+        ->and($row['outstanding_minor'])->toBe(0)
+        ->and($row['payment_method'])->toBe('GATEWAY')
+        ->and($row['paid_at'])->not->toBeNull()
+        ->and($row['follow_up'])->toBeFalse();
+    $this->getJson('/api/packages/summary')->assertOk()->assertJsonPath('finishedAttention', 0);
 });

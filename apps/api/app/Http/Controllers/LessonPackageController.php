@@ -729,10 +729,11 @@ final class LessonPackageController extends Controller
      * invoice link; a finished block that is paid and has no next block → a renewal reminder.
      * Anything else has nothing to remind about and is refused.
      *
-     * Every press counts, whichever way it leaves: sent through the academy's own WhatsApp number,
-     * or handed back as a wa.me link the staff member opens (the same seam as the invoice's
-     * send-link). The counter and the last date are what tell the next person on the case that
-     * the family has already been chased — and how often.
+     * It never goes through the WhatsApp gateway: it is handed back as a wa.me link that opens the
+     * staff member's own WhatsApp with the message written, and they press send. A reminder about
+     * money is a personal message from the academy, not an automated one. Every press counts — the
+     * counter and the last date tell the next person on the case that the family has already been
+     * chased, and how often.
      */
     public function remind(Request $request, string $id): JsonResponse
     {
@@ -805,13 +806,11 @@ final class LessonPackageController extends Controller
             'url' => $url,
         ]);
 
-        $send = app(WhatsAppSender::class)->sendOrLink($academyId, $phone, $message, [
-            'automation_type' => 'MANUAL',
-            'recipient_kind' => $recipientKind,
-            'recipient_id' => (string) $recipientId,
-            'ref_type' => 'lesson_package',
-            'ref_id' => $id,
-        ]);
+        $send = [
+            'transport' => 'DEEPLINK',
+            'sent' => false,
+            'deeplink' => app(WhatsAppSender::class)->deeplink($phone, $message),
+        ];
 
         // Bound WITH its offset: a bare Carbon lands in timestamptz as a naive local time, read in
         // the database's own zone (Africa/Cairo), and the date shown on the card comes out hours off.
@@ -829,6 +828,8 @@ final class LessonPackageController extends Controller
             'phone' => $phone,
             'transport' => $send['transport'],
             'sent' => $send['sent'],
+            'recipient_kind' => $recipientKind,
+            'recipient_id' => (string) $recipientId,
             'reminders_sent' => $count,
         ]);
 
@@ -838,6 +839,7 @@ final class LessonPackageController extends Controller
             'message' => $message,
             'transport' => $send['transport'],
             'sent' => $send['sent'],
+            'deeplink' => $send['deeplink'],
             'reminders_sent' => $count,
             'last_reminded_at' => $now->utc()->toIso8601String(),
         ]);

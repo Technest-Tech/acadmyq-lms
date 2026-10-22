@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../../messages/ar.json";
@@ -165,8 +165,9 @@ beforeEach(() => {
     kind: "PAYMENT",
     phone: "+201001112222",
     message: "Reminder",
-    transport: "WASENDER",
-    sent: true,
+    transport: "DEEPLINK",
+    sent: false,
+    deeplink: "https://wa.me/201001112222?text=Reminder",
     reminders_sent: 3,
     last_reminded_at: "2026-10-12T09:30:00Z",
   });
@@ -459,9 +460,20 @@ describe("PackagesManager", () => {
       arMessages.packages.card.noReminders,
     );
 
+    const tab = { opener: {}, location: { href: "" }, close: vi.fn() };
+    const open = vi
+      .spyOn(window, "open")
+      .mockReturnValue(tab as unknown as Window);
+
     await userEvent.click(within(card).getByTestId("remind-package"));
 
     expect(remindLessonPackage).toHaveBeenCalledWith("p1", "ar");
+    // WhatsApp opened the ordinary way, with the message written — never sent by the gateway.
+    await waitFor(() =>
+      expect(tab.location.href).toBe("https://wa.me/201001112222?text=Reminder"),
+    );
+    expect(open).toHaveBeenCalledTimes(1);
+    open.mockRestore();
     expect(
       (await within(card).findByTestId("package-reminders")).textContent,
     ).toContain(formatNumber(3, "ar"));
