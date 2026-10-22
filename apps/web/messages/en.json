@@ -2581,6 +2581,12 @@
       "remaining": "{left} left",
       "carried": "{carried} carried over",
       "overdrawn": "{over} past the end",
+      "packageNo": "Package #{n}",
+      "autoOpened": "Opened automatically when package #{previous} ran out",
+      "absorbedFromPrevious": "Includes {over} from the last lesson of #{previous}, which ran past its end",
+      "overdraftAbsorbed": "{over} past the end — taken from package #{next}, nothing extra to bill",
+      "autoRenewNext": "Package #{n} opens automatically when this one runs out",
+      "autoRenewOff": "Won't renew — no package opens after this one",
       "totalHours": "Total hours",
       "lessonsUsed": "Lessons used",
       "remainingShort": "Remaining",
@@ -2621,7 +2627,7 @@
       "copied": "Copied",
       "sendPayment": "Send payment link",
       "markPaid": "Mark as paid",
-      "viewProof": "Payment proof",
+      "viewProof": "Payment receipt",
       "syncLessons": "Sync lessons",
       "billOverdraft": "Bill the extra hours",
       "edit": "Edit",
@@ -2649,6 +2655,8 @@
       "expiresHint": "Leave empty for no expiry.",
       "carryOver": "Carry over unused hours from the last package",
       "carryOverHint": "Off by default — unused hours are yours to keep or forgive, so moving them is always a decision.",
+      "autoRenew": "Open the next package automatically when this one runs out",
+      "autoRenewHint": "Same hours and price. If the last lesson runs past the end, those minutes come off the new package instead of being billed.",
       "currency": "Currency",
       "currencyPlaceholder": "Choose a currency",
       "searchCurrency": "Search currency…",
@@ -2768,11 +2776,11 @@
     "pages": {
       "open": {
         "title": "Open packages",
-        "subtitle": "Blocks of hours being used right now. Every lesson burns its own length; when a block runs out it moves to Finished packages."
+        "subtitle": "Blocks of hours being used right now. Every lesson burns its own length; when a block runs out, the next one opens by itself and the old one moves to Finished packages."
       },
       "finished": {
         "title": "Finished packages",
-        "subtitle": "Blocks that ran out or were closed. Follow up on what is still unpaid or waiting for renewal, and send a reminder from the card."
+        "subtitle": "Blocks that ran out or were closed — each one is a payment to collect. Mark it paid and attach the receipt, or send a reminder from the card."
       }
     },
     "emptyOpen": "No open packages right now.",

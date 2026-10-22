@@ -57,15 +57,27 @@ type CardAction = {
 };
 
 /**
+ * An overdraft nothing has settled: not billed, and not absorbed by the next package (which is
+ * where it normally goes — the next block starts with those minutes already used).
+ */
+function hasStrandedOverdraft(row: LessonPackageRow): boolean {
+  return (
+    row.minutes_overdrawn > 0 &&
+    !row.overdraft_billed &&
+    row.overdraft_absorbed_into === null
+  );
+}
+
+/**
  * A finished package with nothing left to collect: its bill is settled, nothing it used went
- * unbilled, and no overdraft is waiting to be billed. The one rule behind the Paid / Not paid tabs
- * of Finished packages and the card turning green, so the two can never disagree.
+ * unbilled, and no overdraft is left unsettled. The one rule behind the Paid / Not paid tabs of
+ * Finished packages and the card turning green, so the two can never disagree.
  */
 export function isPackagePaid(row: LessonPackageRow): boolean {
   return (
     row.outstanding_minor === 0 &&
     !(row.invoice_id === null && row.minutes_consumed > 0) &&
-    !(row.minutes_overdrawn > 0 && !row.overdraft_billed)
+    !hasStrandedOverdraft(row)
   );
 }
 
@@ -131,7 +143,9 @@ export function PackageCard({
   // Something to remind the payer about: money due on this block, or a finished block with no
   // next one. The reminder history shows whenever there is one, even once it is settled.
   const remindable = owes || row.awaiting_next_package;
-  const strandedOverdraft = row.minutes_overdrawn > 0 && !row.overdraft_billed;
+  const strandedOverdraft = hasStrandedOverdraft(row);
+  // The package before this one, by number — what a renewal and an absorbed overdraft came from.
+  const previousNo = row.sequence_no - 1;
   const invoiceUrl = useInvoiceUrl();
   const paymentUrl = row.invoice_token !== null ? invoiceUrl(row.invoice_token) : null;
 
@@ -145,8 +159,9 @@ export function PackageCard({
   /**
    * Every action this card offers, in the order they matter for THIS package's state. The first
    * two are buttons; the rest sit behind "⋯". It used to be up to eleven buttons at once, which
-   * buried the one that mattered (open the next block, collect what's owed) among the ones that
-   * almost never do (sync, copy link, proof).
+   * buried the one that mattered (collect what's owed) among the ones that almost never do (sync,
+   * copy link). A finished package is a payment to collect, so "Mark as paid" leads, and once it
+   * is paid the receipt does.
    */
   const actions: CardAction[] = [];
   const add = (when: boolean, action: CardAction) => {
@@ -154,12 +169,12 @@ export function PackageCard({
   };
   const hasInvoice = row.invoice_id !== null;
 
-  add(canManage && !isActive && strandedOverdraft, {
-    key: "billOverdraft",
-    icon: AlertTriangle,
-    label: t("actions.billOverdraft"),
-    onClick: onBillOverdraft,
-    danger: true,
+  add(canMarkPaid && hasInvoice && owes, {
+    key: "markPaid",
+    icon: BadgeCheck,
+    label: t("actions.markPaid"),
+    onClick: onMarkPaid,
+    testId: "mark-package-paid",
   });
   add(canSendInvoice && remindable, {
     key: "remind",
@@ -170,11 +185,12 @@ export function PackageCard({
     spin: reminding,
     testId: "remind-package",
   });
-  add(canMarkPaid && hasInvoice && owes, {
-    key: "markPaid",
-    icon: BadgeCheck,
-    label: t("actions.markPaid"),
-    onClick: onMarkPaid,
+  add(row.payment_proof_url !== null, {
+    key: "viewProof",
+    icon: FileImage,
+    label: t("actions.viewProof"),
+    external: `${apiBase()}${row.payment_proof_url}`,
+    testId: "package-receipt",
   });
   add(canManage && row.awaiting_next_package, {
     key: "renew",
@@ -219,12 +235,6 @@ export function PackageCard({
       },
     );
   }
-  add(row.payment_proof_url !== null, {
-    key: "viewProof",
-    icon: FileImage,
-    label: t("actions.viewProof"),
-    external: `${apiBase()}${row.payment_proof_url}`,
-  });
   if (canManage && isActive) {
     actions.push(
       {
@@ -257,6 +267,17 @@ export function PackageCard({
     label: t("actions.toMonthly"),
     onClick: onReturnToMonthly,
     testId: "package-to-monthly",
+  });
+  // Extra hours are normally taken off the NEXT package, so there is nothing to bill. This is
+  // only for the dead end where no next package will ever come (the student went monthly, or
+  // the renewal was cancelled) — last in the menu, never a headline button.
+  add(canManage && !isActive && strandedOverdraft && !row.awaiting_next_package, {
+    key: "billOverdraft",
+    icon: AlertTriangle,
+    label: t("actions.billOverdraft"),
+    onClick: onBillOverdraft,
+    danger: true,
+    testId: "bill-overdraft",
   });
 
   const featured = actions.slice(0, 2);
@@ -316,9 +337,19 @@ export function PackageCard({
             >
               {row.student_name}
             </button>
-            <p className="text-muted-foreground mt-0.5 truncate text-xs">
-              #{row.sequence_no} · {row.label}
-            </p>
+            <div className="mt-1 flex min-w-0 items-center gap-1.5">
+              {/* The package's number for this student, big enough to say down a phone line:
+                  "#3 is open, #2 isn't paid". */}
+              <span
+                className="bg-foreground text-background shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums"
+                data-testid="package-number"
+              >
+                {t("card.packageNo", { n: row.sequence_no })}
+              </span>
+              <span className="text-muted-foreground min-w-0 truncate text-xs">
+                {row.label}
+              </span>
+            </div>
           </div>
           {paidUp ? (
             <span
@@ -361,6 +392,33 @@ export function PackageCard({
             </p>
           </div>
         )}
+
+        {/* Where this block came from: opened by the renewal, and/or starting with the minutes the
+            last lesson of the previous one ran over. */}
+        {isActive &&
+          (row.opened_automatically || row.absorbed_overdraft_minutes > 0) && (
+            <p
+              className="mb-3 flex items-start gap-1.5 rounded-xl bg-sky-500/10 px-2.5 py-2 text-[11px] font-semibold text-sky-700 dark:text-sky-300"
+              data-testid="package-renewed"
+            >
+              <RefreshCw className="mt-px size-3.5 shrink-0" aria-hidden />
+              <span className="min-w-0">
+                {row.opened_automatically && (
+                  <span className="block">
+                    {t("card.autoOpened", { previous: previousNo })}
+                  </span>
+                )}
+                {row.absorbed_overdraft_minutes > 0 && (
+                  <span className="block font-normal opacity-90">
+                    {t("card.absorbedFromPrevious", {
+                      over: formatHours(row.absorbed_overdraft_minutes, locale),
+                      previous: previousNo,
+                    })}
+                  </span>
+                )}
+              </span>
+            </p>
+          )}
 
         <div className="grid grid-cols-2 gap-2">
           <Metric
@@ -408,6 +466,16 @@ export function PackageCard({
               style={{ width: `${Math.min(100, row.percent_used)}%` }}
             />
           </div>
+          {isActive && (
+            <p
+              className="text-muted-foreground mt-1.5 text-[11px]"
+              data-testid="package-auto-renew-note"
+            >
+              {row.auto_renew
+                ? t("card.autoRenewNext", { n: row.sequence_no + 1 })
+                : t("card.autoRenewOff")}
+            </p>
+          )}
         </div>
 
         {/* The four facts someone rings up about. They sit on their own surface rather than as
@@ -487,14 +555,27 @@ export function PackageCard({
           />
         </dl>
 
-        {row.minutes_overdrawn > 0 && (
-          <p className="bg-destructive/8 text-destructive mt-3 flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-semibold">
-            <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
-            {t("card.overdrawn", {
-              over: formatHours(row.minutes_overdrawn, locale),
-            })}
-          </p>
-        )}
+        {row.minutes_overdrawn > 0 &&
+          (row.overdraft_absorbed_into !== null ? (
+            // Not a debt: the next package started with these minutes already used.
+            <p
+              className="mt-3 flex items-center gap-1.5 rounded-xl bg-sky-500/10 px-2.5 py-2 text-[11px] font-semibold text-sky-700 dark:text-sky-300"
+              data-testid="overdraft-absorbed"
+            >
+              <RefreshCw className="size-3.5 shrink-0" aria-hidden />
+              {t("card.overdraftAbsorbed", {
+                over: formatHours(row.minutes_overdrawn, locale),
+                next: row.overdraft_absorbed_into,
+              })}
+            </p>
+          ) : (
+            <p className="bg-destructive/8 text-destructive mt-3 flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-semibold">
+              <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+              {t("card.overdrawn", {
+                over: formatHours(row.minutes_overdrawn, locale),
+              })}
+            </p>
+          ))}
 
         {/* What was taught after the block ran out. Those lessons are billed by the hour on the
             student's monthly invoice — a different page — so without this the card said "next

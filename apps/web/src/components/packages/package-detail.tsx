@@ -201,7 +201,26 @@ export function PackageDetail({
         </div>
       </div>
 
-      {pkg.minutes_overdrawn > 0 && (
+      {/* The ledger below lists lessons only; these minutes belong to the previous block's last one. */}
+      {pkg.absorbed_overdraft_minutes > 0 && (
+        <p className="rounded-xl bg-sky-500/10 px-3 py-2.5 text-xs font-medium text-sky-700 dark:text-sky-300">
+          {t("card.absorbedFromPrevious", {
+            over: formatHours(pkg.absorbed_overdraft_minutes, locale),
+            previous: pkg.sequence_no - 1,
+          })}
+        </p>
+      )}
+
+      {pkg.minutes_overdrawn > 0 && pkg.overdraft_absorbed_into !== null && (
+        <p className="rounded-xl bg-sky-500/10 px-3 py-2.5 text-xs font-medium text-sky-700 dark:text-sky-300">
+          {t("card.overdraftAbsorbed", {
+            over: formatHours(pkg.minutes_overdrawn, locale),
+            next: pkg.overdraft_absorbed_into,
+          })}
+        </p>
+      )}
+
+      {pkg.minutes_overdrawn > 0 && pkg.overdraft_absorbed_into === null && (
         <p className="bg-destructive/8 text-destructive rounded-xl px-3 py-2.5 text-xs font-medium">
           {t("detail.overdraftNote", {
             over: formatHours(pkg.minutes_overdrawn, locale),

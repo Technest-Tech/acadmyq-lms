@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Combobox } from "@/components/ui/combobox";
@@ -29,6 +29,7 @@ export interface PackageTermsPayload {
   bill_timing: PackageBillTiming;
   starts_on: string;
   expires_on: string | null;
+  auto_renew: boolean;
 }
 
 /**
@@ -66,6 +67,9 @@ export function usePackageTerms({
     new Date().toISOString().slice(0, 10),
   );
   const [expiresOn, setExpiresOn] = useState("");
+  // On unless someone says otherwise: a block that runs out opens the next one by itself, so the
+  // owner chases money rather than remembering to sell the next block.
+  const [autoRenew, setAutoRenew] = useState(true);
 
   const hoursNum = Number.parseFloat(hours);
   const priceMinor = Math.round(Number.parseFloat(price || "0") * 100);
@@ -129,6 +133,7 @@ export function usePackageTerms({
       bill_timing: timing,
       starts_on: startsOn,
       expires_on: expiresOn === "" ? null : expiresOn,
+      auto_renew: autoRenew,
     };
   }
 
@@ -153,6 +158,8 @@ export function usePackageTerms({
     setStartsOn,
     expiresOn,
     setExpiresOn,
+    autoRenew,
+    setAutoRenew,
     hourlyRate,
     valid,
     toPayload,
@@ -368,10 +375,51 @@ export function PackageTermsFields({
               </div>
             </div>
 
+            <AutoRenewField
+              checked={terms.autoRenew}
+              onChange={terms.setAutoRenew}
+            />
+
             {advancedExtra}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * "Open the next package by itself when this one runs out" — shared by the open and edit forms.
+ * Same hours and price; the minutes the last lesson ran over come off the new block.
+ */
+export function AutoRenewField({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  const t = useTranslations("packages");
+  return (
+    <label
+      className="border-input hover:bg-muted/30 flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-sm transition-colors"
+      data-testid="package-auto-renew"
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5"
+      />
+      <span>
+        <span className="flex items-center gap-1.5 font-medium">
+          <RefreshCw className="size-3.5" aria-hidden />
+          {t("form.autoRenew")}
+        </span>
+        <span className="text-muted-foreground/80 block text-[11px]">
+          {t("form.autoRenewHint")}
+        </span>
+      </span>
+    </label>
   );
 }

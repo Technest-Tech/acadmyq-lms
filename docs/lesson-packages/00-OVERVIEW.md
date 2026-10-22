@@ -151,16 +151,32 @@ Per package, defaulting from `academies.package_bill_timing`:
   - Closed early → billed **pro-rata** at the snapshotted rate. Billing a full block for half a
     block used is not a defensible reading of "pay at the end".
 
-### Where an overdraft lands
+### Where an overdraft lands (2026-10-22: absorbed, not billed)
 
-- `ON_COMPLETION`: on the same closing invoice, as its own line.
-- `ON_START`: the package's invoice went out before the lessons happened and is immutable by the
-  time the last one overdraws it. The overdraft therefore **travels** — it rolls onto the *next*
-  package's invoice as a line. If no next package is ever opened, `POST /packages/{id}/bill-overdraft`
-  puts it on its own bill; the packages page surfaces it in the attention queue until it does.
+The next package **absorbs** it as minutes: it opens with the overdraft already used
+(`absorbed_overdraft_minutes`, counted inside `minutes_consumed`) and the old package records
+`overdraft_absorbed_by`. No "extra hours" line is billed anywhere — the family pays for those minutes
+by buying the next block. The lesson itself still sits, whole, on the old package (rule 2 holds).
 
-Cross-currency debt is never converted (§3.6, no FX inside invoicing) — an overdraft only travels
-onto a package in the same currency.
+- An `ON_COMPLETION` package that renews leaves the extra line off its closing bill.
+- Fallbacks, both rare: an overdraft as big as the new block keeps the old money path (rolls onto an
+  `ON_START` invoice as a line); one that nothing will ever absorb (student went monthly, renewal
+  cancelled) can still be billed with `POST /packages/{id}/bill-overdraft` — last item in the card's
+  "⋯" menu, never a headline button.
+
+### Auto-renew
+
+`lesson_packages.auto_renew` (default **true**, every running package included): a package that runs
+**out** (`EXHAUSTED` — never one closed by hand) opens the next one through `open()` on the same
+label, hours, price, currency and billing moment, from today, with the same validity length if it
+had an expiry, flagged `opened_automatically`. Skipped when the student is deleted/deactivated or no
+longer on package billing. Turn it off per package in the open/edit forms. Cancelling an unused
+renewal (only the absorbed minutes on it) voids its untouched bill and hands the overdraft back;
+un-marking the lesson that emptied a block undoes an unused renewal and re-opens the old block, but
+leaves a renewal that is already being taught from (two blocks are never open at once).
+
+Cross-currency debt is never converted (§3.6, no FX inside invoicing) — a money overdraft only
+travels onto a package in the same currency.
 
 ---
 
@@ -246,4 +262,4 @@ sit behind `entitled:invoicing` — packages *are* invoicing, on a different clo
 - Splitting a lesson across two packages. See rule 2.
 - Automatic expiry enforcement — `expires_on` is stored and displayed, but nothing sweeps it yet.
 - Guardian-level packages shared across siblings.
-- Auto-renew, and instalments against a single package.
+- Instalments against a single package.

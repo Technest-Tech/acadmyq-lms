@@ -119,10 +119,12 @@ final class LessonPackageController extends Controller
             ->where('minutes_consumed', '>', 0)
             ->count();
 
+        // An overdraft the next block absorbed is settled — its minutes are paid for there.
         $pendingOverdraft = (int) DB::table('lesson_packages')
             ->where('status', 'COMPLETED')
             ->where('minutes_overdrawn', '>', 0)
             ->whereNull('overdraft_invoice_id')
+            ->whereNull('overdraft_absorbed_by')
             ->count();
 
         $unpaid = (int) DB::table('lesson_packages as p')
@@ -163,7 +165,8 @@ final class LessonPackageController extends Controller
                     ->orWhere(fn ($overdraft) => $overdraft
                         ->where('p.status', 'COMPLETED')
                         ->where('p.minutes_overdrawn', '>', 0)
-                        ->whereNull('p.overdraft_invoice_id')))
+                        ->whereNull('p.overdraft_invoice_id')
+                        ->whereNull('p.overdraft_absorbed_by')))
                 ->pluck('p.id')
                 ->map(fn ($id) => (string) $id)
                 ->all(),
@@ -333,6 +336,7 @@ final class LessonPackageController extends Controller
             'starts_on' => ['sometimes', 'nullable', 'date'],
             'expires_on' => ['sometimes', 'nullable', 'date', 'after_or_equal:starts_on'],
             'carry_over' => ['sometimes', 'boolean'],
+            'auto_renew' => ['sometimes', 'boolean'],
         ]);
 
         $ctx = app(AuthContext::class);
@@ -347,6 +351,7 @@ final class LessonPackageController extends Controller
             'starts_on' => $validated['starts_on'] ?? null,
             'expires_on' => $validated['expires_on'] ?? null,
             'carry_over' => (bool) ($validated['carry_over'] ?? false),
+            'auto_renew' => (bool) ($validated['auto_renew'] ?? true),
         ], $ctx->userId, $ctx->role);
 
         return response()->json([
@@ -362,8 +367,8 @@ final class LessonPackageController extends Controller
     /**
      * PATCH /api/packages/{id} — correct a package that was entered wrong.
      *
-     * Deliberately narrow: the label, the hours, the price and the expiry, and only while the
-     * package is open. It is a correction, not a second way to close or re-price history — see
+     * Deliberately narrow: the label, the hours, the price, the expiry and whether it renews
+     * itself, and only while the package is open. It is a correction, not a second way to close or re-price history — see
      * {@see LessonPackages::edit()} for what that costs and why the bill is the hard edge.
      *
      * `hours` is sent for the same reason it is on store(): the academy sells hours, the server
@@ -378,6 +383,7 @@ final class LessonPackageController extends Controller
             'hours' => ['sometimes', 'numeric', 'min:0.5', 'max:1000'],
             'price_minor' => ['sometimes', 'integer', 'min:0'],
             'expires_on' => ['sometimes', 'nullable', 'date'],
+            'auto_renew' => ['sometimes', 'boolean'],
         ]);
 
         $changes = [];
@@ -392,6 +398,9 @@ final class LessonPackageController extends Controller
         }
         if (array_key_exists('expires_on', $validated)) {
             $changes['expires_on'] = $validated['expires_on'];
+        }
+        if (array_key_exists('auto_renew', $validated)) {
+            $changes['auto_renew'] = (bool) $validated['auto_renew'];
         }
 
         $ctx = app(AuthContext::class);
@@ -477,9 +486,9 @@ final class LessonPackageController extends Controller
     /**
      * POST /api/packages/{id}/bill-overdraft — put a stranded overdraft on its own invoice.
      *
-     * An ON_START package's bill went out before the lessons happened, so it is immutable by the
-     * time the last lesson overdraws it. The overdraft normally rides along on the next package's
-     * invoice; this is the escape hatch for when there is no next package.
+     * The overdraft of a block's last lesson is normally absorbed by the next block, which opens
+     * itself when the last one runs out. This is the escape hatch for when nothing will absorb
+     * it — the student left package billing, or the renewal was cancelled.
      */
     public function billOverdraft(string $id): JsonResponse
     {
@@ -848,6 +857,7 @@ final class LessonPackageController extends Controller
                 'p.starts_on', 'p.expires_on', 'p.invoice_id', 'p.overdraft_invoice_id',
                 'p.closed_at', 'p.closed_reason', 'p.created_at',
                 'p.reminders_sent', 'p.last_reminded_at',
+                'p.auto_renew', 'p.opened_automatically', 'p.absorbed_overdraft_minutes', 'p.overdraft_absorbed_by',
                 's.full_name as student_name',
                 'i.status as invoice_status', 'i.total_minor as invoice_total_minor',
                 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
@@ -859,6 +869,12 @@ final class LessonPackageController extends Controller
                     ->selectRaw('count(*)')
                     ->whereColumn('pc.package_id', 'p.id'),
                 'lesson_count',
+            )
+            ->selectSub(
+                DB::table('lesson_packages as absorber')
+                    ->select('absorber.sequence_no')
+                    ->whereColumn('absorber.id', 'p.overdraft_absorbed_by'),
+                'overdraft_absorbed_into',
             )
             ->selectSub(
                 DB::table('sessions as upcoming')
@@ -1030,7 +1046,7 @@ final class LessonPackageController extends Controller
         $followUp = ! $isActive && (
             (in_array((string) $row->invoice_status, self::UNPAID_INVOICE_STATUSES, true) && $outstanding > 0)
             || ($row->status === 'COMPLETED' && $row->invoice_id === null && $consumed > 0)
-            || ($row->status === 'COMPLETED' && (int) $row->minutes_overdrawn > 0 && $row->overdraft_invoice_id === null)
+            || ($row->status === 'COMPLETED' && (int) $row->minutes_overdrawn > 0 && $row->overdraft_invoice_id === null && $row->overdraft_absorbed_by === null)
             || ($gap !== null && $gap['lessons'] > 0)
         );
 
@@ -1074,6 +1090,12 @@ final class LessonPackageController extends Controller
                 ? "/api/invoices/{$row->invoice_id}/payment-proof"
                 : null,
             'overdraft_billed' => $row->overdraft_invoice_id !== null,
+            // The package # whose first minutes paid for this block's overdraft, instead of a bill.
+            'overdraft_absorbed_into' => $row->overdraft_absorbed_into !== null ? (int) $row->overdraft_absorbed_into : null,
+            // How many of THIS block's used minutes were the previous block's last lesson running over.
+            'absorbed_overdraft_minutes' => (int) $row->absorbed_overdraft_minutes,
+            'auto_renew' => (bool) $row->auto_renew,
+            'opened_automatically' => (bool) $row->opened_automatically,
             // The student's latest block, finished, and they are still on package billing: the
             // owner owes a decision — open the next block or move them back to monthly.
             'awaiting_next_package' => $gap !== null,

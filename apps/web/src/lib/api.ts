@@ -7988,6 +7988,17 @@ export interface LessonPackageRow {
   payment_proof_url: string | null;
   overdraft_billed: boolean;
   /**
+   * The number (#) of the next package that took this one's overdraft as already-used minutes —
+   * settled that way instead of a bill. Null when nothing absorbed it.
+   */
+  overdraft_absorbed_into: number | null;
+  /** Of this package's used minutes, how many were the previous block's last lesson running over. */
+  absorbed_overdraft_minutes: number;
+  /** Opens the next package on the same terms when this one runs out. */
+  auto_renew: boolean;
+  /** This package was opened by the renewal, not by hand. */
+  opened_automatically: boolean;
+  /**
    * The student's latest package, finished, and they are still on package billing — somebody
    * owes a decision: open the next block or move them back to monthly.
    */
@@ -8151,6 +8162,7 @@ export function openLessonPackage(input: {
   starts_on?: string;
   expires_on?: string | null;
   carry_over?: boolean;
+  auto_renew?: boolean;
 }): Promise<{
   id: string;
   invoice_id: string | null;
@@ -8173,8 +8185,8 @@ export function openLessonPackage(input: {
 /**
  * PATCH /api/packages/{id} — correct a package that was entered wrong.
  *
- * Open packages only, and only these four facts: everything else about a package is a record of
- * what happened. The hourly rate is re-derived server-side, and a still-OPEN bill moves with the
+ * Open packages only, and only these four facts (plus whether it renews itself): everything else
+ * about a package is a record of what happened. The hourly rate is re-derived server-side, and a still-OPEN bill moves with the
  * package — one that has been paid makes the API refuse rather than let the two disagree.
  */
 export function updateLessonPackage(
@@ -8184,6 +8196,7 @@ export function updateLessonPackage(
     hours?: number;
     price_minor?: number;
     expires_on?: string | null;
+    auto_renew?: boolean;
   },
 ): Promise<{ ok: boolean; changed: string[]; invoice_id: string | null }> {
   return apiFetch(`/api/packages/${id}`, {

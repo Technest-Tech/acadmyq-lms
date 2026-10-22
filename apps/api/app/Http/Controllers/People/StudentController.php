@@ -203,6 +203,7 @@ final class StudentController extends Controller
                     'bill_timing' => $package['bill_timing'] ?? null,
                     'starts_on' => $package['starts_on'] ?? null,
                     'expires_on' => $package['expires_on'] ?? null,
+                    'auto_renew' => (bool) ($package['auto_renew'] ?? true),
                     // A brand-new student has no earlier package to carry hours from.
                     'carry_over' => false,
                 ], $this->ctx()->userId, $this->ctx()->role);
@@ -1057,7 +1058,8 @@ final class StudentController extends Controller
         }
 
         $ctx = $this->ctx();
-        if ((int) $package->minutes_consumed === 0) {
+        // Minutes absorbed from the previous block's last lesson are not this package's own use.
+        if ((int) $package->minutes_consumed - (int) $package->absorbed_overdraft_minutes === 0) {
             $packages->cancel((string) $package->id, 'STUDENT_REMOVED', $ctx->userId, $ctx->role);
 
             return 'CANCELLED';
@@ -1205,6 +1207,7 @@ final class StudentController extends Controller
             $rules['package.bill_timing'] = ['sometimes', 'nullable', Rule::in(['ON_START', 'ON_COMPLETION'])];
             $rules['package.starts_on'] = ['sometimes', 'nullable', 'date'];
             $rules['package.expires_on'] = ['sometimes', 'nullable', 'date', 'after_or_equal:package.starts_on'];
+            $rules['package.auto_renew'] = ['sometimes', 'boolean'];
         }
 
         return $request->validate($rules);

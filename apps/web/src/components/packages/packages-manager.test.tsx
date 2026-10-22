@@ -79,6 +79,10 @@ function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
     payment_reference: null,
     payment_proof_url: null,
     overdraft_billed: false,
+    overdraft_absorbed_into: null,
+    absorbed_overdraft_minutes: 0,
+    auto_renew: true,
+    opened_automatically: false,
     awaiting_next_package: false,
     gap: null,
     follow_up: false,
@@ -204,10 +208,90 @@ describe("PackagesManager", () => {
 
     const card = await screen.findByTestId("package-card");
     expect(card.textContent).toContain(formatHours(60, "ar"));
-    // Stranded overdraft on a paid-up-front package → the escape-hatch action is offered.
+    // Stranded with no next package to absorb it → the escape hatch exists, but only in the menu.
     expect(
-      within(card).getByText(arMessages.packages.actions.billOverdraft),
-    ).toBeInTheDocument();
+      within(card).queryByText(arMessages.packages.actions.billOverdraft),
+    ).toBeNull();
+    await openCardMenu();
+    expect(await screen.findByTestId("bill-overdraft")).toBeInTheDocument();
+  });
+
+  it("says an overdraft went into the next package, and offers nothing to bill for it", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          id: "p2",
+          status: "COMPLETED",
+          minutes_consumed: 1260,
+          minutes_remaining: 0,
+          minutes_overdrawn: 60,
+          percent_used: 100,
+          overdraft_absorbed_into: 2,
+        }),
+      ],
+    });
+
+    renderManager([], "finished");
+
+    // Paid up front and the extra minutes are the next block's — nothing left to collect, so it
+    // sits on the Paid tab, green.
+    await userEvent.click(await screen.findByTestId("finished-tab-paid"));
+    const card = await screen.findByTestId("package-card");
+    expect(within(card).getByTestId("overdraft-absorbed")).toBeInTheDocument();
+    expect(card).toHaveAttribute("data-paid", "true");
+    expect(screen.queryByTestId("bill-overdraft")).toBeNull();
+  });
+
+  it("leads an unpaid finished package with Mark as paid, and its number", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          id: "p2",
+          status: "COMPLETED",
+          sequence_no: 3,
+          follow_up: true,
+          minutes_remaining: 0,
+          outstanding_minor: 400000,
+          invoice_paid_minor: 0,
+        }),
+      ],
+    });
+
+    renderManager(["invoice.send_link", "invoice.mark_paid"], "finished");
+
+    const card = await screen.findByTestId("package-card");
+    expect(within(card).getByTestId("package-number")).toHaveTextContent(
+      arMessages.packages.card.packageNo.replace("{n}", "3"),
+    );
+    // On the card itself, ahead of the reminder — not behind "⋯".
+    const markPaid = within(card).getByTestId("mark-package-paid");
+    const remind = within(card).getByTestId("remind-package");
+    expect(
+      markPaid.compareDocumentPosition(remind) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("marks a package the renewal opened, with the minutes it took from the last block", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          sequence_no: 4,
+          opened_automatically: true,
+          absorbed_overdraft_minutes: 30,
+        }),
+      ],
+    });
+
+    renderManager();
+
+    const note = await screen.findByTestId("package-renewed");
+    expect(note).toHaveTextContent(
+      arMessages.packages.card.autoOpened.replace("{previous}", "3"),
+    );
+    expect(note.textContent).toContain(formatHours(30, "ar"));
+    expect(screen.getByTestId("package-auto-renew-note")).toHaveTextContent(
+      arMessages.packages.card.autoRenewNext.replace("{n}", "5"),
+    );
   });
 
   it("splits Finished into not paid and paid, and keeps a paid package on the page in green", async () => {

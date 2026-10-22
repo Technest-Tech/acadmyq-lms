@@ -66,8 +66,11 @@ beforeEach(function () {
         'start_date' => '2026-01-01',
     ]);
 
-    /** Open a package directly through the engine. Hours in, minutes stored. */
-    $this->openPackage = function (float $hours, int $priceMinor, string $timing = 'ON_START', bool $carryOver = false): array {
+    /**
+     * Open a package directly through the engine. Hours in, minutes stored. Renewal is OFF unless
+     * asked for: most of these tests are about a block that ran out with nothing next.
+     */
+    $this->openPackage = function (float $hours, int $priceMinor, string $timing = 'ON_START', bool $carryOver = false, bool $autoRenew = false): array {
         $this->asAcademy($this->academy);
 
         return app(LessonPackages::class)->open([
@@ -79,7 +82,13 @@ beforeEach(function () {
             'bill_timing' => $timing,
             'starts_on' => '2026-06-01',
             'carry_over' => $carryOver,
+            'auto_renew' => $autoRenew,
         ], (string) $this->owner->id, 'ACADEMY_OWNER');
+    };
+
+    $this->attend = function (string $session): void {
+        Sanctum::actingAs($this->owner);
+        $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
     };
 
     /** A June lesson of the given length. */
@@ -185,24 +194,174 @@ it('overdraws rather than splitting a lesson across two packages', function () {
         ->and((int) $credits[0]->amount_minor)->toBe(20000);
 });
 
-it('carries an unbilled overdraft onto the next package invoice', function () {
+it('takes the last lesson\'s overdraft out of the next package instead of billing it', function () {
     $first = ($this->openPackage)(0.5, 10000);              // 30 min @ 20 000/hour
     $session = ($this->lesson)(90);
-    Sanctum::actingAs($this->owner);
-    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    ($this->attend)($session);
 
     $this->asAcademy($this->academy);
     expect(($this->packageRow)($first['package_id'])->overdraft_invoice_id)->toBeNull();
 
-    // The next block picks the debt up — the first invoice went out up front and is immutable.
+    // The next block starts with those 60 minutes already used — no "extra hours" line anywhere.
     $second = ($this->openPackage)(4, 80000);
 
     $this->asAcademy($this->academy);
-    $lines = DB::table('invoice_line_items')->where('invoice_id', $second['invoice_id'])->get();
+    $next = ($this->packageRow)($second['package_id']);
+    $old = ($this->packageRow)($first['package_id']);
 
-    expect($lines)->toHaveCount(2)
-        ->and((int) DB::table('invoices')->where('id', $second['invoice_id'])->value('total_minor'))->toBe(100000)
-        ->and((string) ($this->packageRow)($first['package_id'])->overdraft_invoice_id)->toBe($second['invoice_id']);
+    expect((int) $next->minutes_consumed)->toBe(60)
+        ->and((int) $next->absorbed_overdraft_minutes)->toBe(60)
+        ->and(DB::table('invoice_line_items')->where('invoice_id', $second['invoice_id'])->count())->toBe(1)
+        ->and((int) DB::table('invoices')->where('id', $second['invoice_id'])->value('total_minor'))->toBe(80000)
+        ->and((string) $old->overdraft_absorbed_by)->toBe($second['package_id'])
+        ->and($old->overdraft_invoice_id)->toBeNull();
+
+    // Settled, so it is no longer an overdraft to chase — and there is nothing left to bill by hand.
+    Sanctum::actingAs($this->owner);
+    $row = collect($this->getJson('/api/packages')->assertOk()->json('packages'))->firstWhere('id', $first['package_id']);
+    expect($row['overdraft_absorbed_into'])->toBe(2);
+    $this->getJson('/api/packages/summary')->assertOk()->assertJsonPath('pendingOverdraft', 0);
+    $this->postJson("/api/packages/{$first['package_id']}/bill-overdraft")->assertStatus(422);
+});
+
+// ─── Renewal ─────────────────────────────────────────────────────────────────
+
+it('opens the next package on the same terms the moment one runs out', function () {
+    $first = ($this->openPackage)(1, 20000, autoRenew: true);
+    ($this->attend)(($this->lesson)(90));               // 60 inside, 30 past the end
+
+    $this->asAcademy($this->academy);
+    $old = ($this->packageRow)($first['package_id']);
+    $next = DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+
+    expect($old->status)->toBe('COMPLETED')
+        ->and($next)->not->toBeNull()
+        ->and((int) $next->sequence_no)->toBe(2)
+        ->and((bool) $next->opened_automatically)->toBeTrue()
+        ->and((bool) $next->auto_renew)->toBeTrue()
+        ->and($next->label)->toBe($old->label)
+        ->and((int) $next->minutes_total)->toBe(60)
+        ->and((int) $next->price_minor)->toBe(20000)
+        ->and($next->starts_on)->toBe('2026-06-11')
+        // The 30 minutes the last lesson ran over are the new block's first 30.
+        ->and((int) $next->minutes_consumed)->toBe(30)
+        ->and((string) $old->overdraft_absorbed_by)->toBe((string) $next->id)
+        // ON_START: billed the moment it opens, for the block only.
+        ->and((int) DB::table('invoices')->where('id', $next->invoice_id)->value('total_minor'))->toBe(20000);
+
+    // The open card says the earlier block is still unpaid, by number.
+    Sanctum::actingAs($this->owner);
+    $open = $this->getJson('/api/packages?scope=open')->assertOk()->json('packages');
+    expect($open[0]['opened_automatically'])->toBeTrue()
+        ->and($open[0]['sequence_no'])->toBe(2)
+        ->and($open[0]['previous_unpaid']['sequence_nos'])->toBe([1]);
+});
+
+it('leaves the extra hours off an ON_COMPLETION bill when the next block absorbs them', function () {
+    $first = ($this->openPackage)(1, 20000, 'ON_COMPLETION', autoRenew: true);
+    ($this->attend)(($this->lesson)(90));
+
+    $this->asAcademy($this->academy);
+    $old = ($this->packageRow)($first['package_id']);
+    $lines = DB::table('invoice_line_items')->where('invoice_id', $old->invoice_id)->get();
+
+    expect($lines)->toHaveCount(1)
+        ->and((int) $lines[0]->amount_minor)->toBe(20000)
+        ->and($old->overdraft_invoice_id)->toBeNull()
+        ->and($old->overdraft_absorbed_by)->not->toBeNull()
+        ->and((int) ($this->packageRow)((string) $old->overdraft_absorbed_by)->minutes_consumed)->toBe(30);
+});
+
+it('never renews a package closed by hand, or one set not to renew', function () {
+    $closed = ($this->openPackage)(4, 80000, autoRenew: true);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/{$closed['package_id']}/close")->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->exists())->toBeFalse();
+
+    $off = ($this->openPackage)(1, 20000, autoRenew: false);
+    ($this->attend)(($this->lesson)(60, '2026-06-03 10:00:00+00'));
+
+    $this->asAcademy($this->academy);
+    expect(($this->packageRow)($off['package_id'])->status)->toBe('COMPLETED')
+        ->and(DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->exists())->toBeFalse();
+});
+
+it('turns renewal off from the edit form', function () {
+    $package = ($this->openPackage)(4, 80000, autoRenew: true);
+    Sanctum::actingAs($this->owner);
+
+    $this->patchJson("/api/packages/{$package['package_id']}", ['auto_renew' => false])
+        ->assertOk()
+        ->assertJsonPath('changed', ['auto_renew']);
+
+    $this->asAcademy($this->academy);
+    expect((bool) ($this->packageRow)($package['package_id'])->auto_renew)->toBeFalse();
+});
+
+it('cancels an unused renewal: its bill is voided and the overdraft goes back to be billed', function () {
+    $first = ($this->openPackage)(1, 20000, autoRenew: true);
+    ($this->attend)(($this->lesson)(90));
+
+    $this->asAcademy($this->academy);
+    $next = DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+
+    // Only the absorbed overdraft is on it — none of its own lessons — so it can still be voided.
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/{$next->id}/cancel")->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(($this->packageRow)((string) $next->id)->status)->toBe('CANCELLED')
+        ->and(DB::table('invoices')->where('id', $next->invoice_id)->value('status'))->toBe('VOID')
+        ->and(($this->packageRow)($first['package_id'])->overdraft_absorbed_by)->toBeNull();
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/{$first['package_id']}/bill-overdraft")->assertStatus(201);
+});
+
+it('undoes an unused renewal when the lesson that emptied the block is taken back', function () {
+    $first = ($this->openPackage)(1, 20000, autoRenew: true);
+    $session = ($this->lesson)(90);
+    ($this->attend)($session);
+
+    $this->asAcademy($this->academy);
+    $next = DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'CANCELLED_BY_TEACHER'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $old = ($this->packageRow)($first['package_id']);
+    expect($old->status)->toBe('ACTIVE')
+        ->and((int) $old->minutes_consumed)->toBe(0)
+        ->and((int) $old->minutes_overdrawn)->toBe(0)
+        ->and($old->overdraft_absorbed_by)->toBeNull()
+        ->and(($this->packageRow)((string) $next->id)->status)->toBe('CANCELLED')
+        ->and(DB::table('invoices')->where('id', $next->invoice_id)->value('status'))->toBe('VOID');
+});
+
+it('keeps a renewal that is already being taught from when an earlier lesson is taken back', function () {
+    $first = ($this->openPackage)(1, 20000, autoRenew: true);
+    $last = ($this->lesson)(90, '2026-06-02 10:00:00+00');
+    ($this->attend)($last);
+    ($this->attend)(($this->lesson)(15, '2026-06-03 10:00:00+00'));
+
+    $this->asAcademy($this->academy);
+    $next = DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+    expect((int) $next->minutes_consumed)->toBe(45);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$last}/attendance", ['status' => 'CANCELLED_BY_TEACHER'])->assertOk();
+
+    // Two blocks are never open at once: the old one gets its minutes back but stays closed, and
+    // the 30 overdrawn minutes leave the new one with the lesson they belonged to.
+    $this->asAcademy($this->academy);
+    expect(($this->packageRow)($first['package_id'])->status)->toBe('COMPLETED')
+        ->and((int) ($this->packageRow)($first['package_id'])->minutes_consumed)->toBe(0)
+        ->and(($this->packageRow)((string) $next->id)->status)->toBe('ACTIVE')
+        ->and((int) ($this->packageRow)((string) $next->id)->minutes_consumed)->toBe(15)
+        ->and((int) ($this->packageRow)((string) $next->id)->absorbed_overdraft_minutes)->toBe(0);
 });
 
 // ─── Reversal ────────────────────────────────────────────────────────────────

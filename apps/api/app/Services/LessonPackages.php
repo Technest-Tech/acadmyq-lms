@@ -409,15 +409,40 @@ final class LessonPackages
             $minutes = (int) $credit->minutes;
             $overdrawn = (int) $credit->minutes_overdrawn;
 
+            // Giving minutes back re-opens a package that closed only because it ran out — but such
+            // a package has usually renewed itself, and a student never holds two open blocks. A
+            // renewal nobody has used yet is undone so this one can re-open; one already being
+            // taught from stays, and this block takes its minutes back without re-opening.
+            $reopen = $package->status === 'COMPLETED' && $package->closed_reason === 'EXHAUSTED';
+            if ($reopen) {
+                $next = $this->activeFor((string) $package->student_id);
+                if ($next !== null && (string) $next->id !== (string) $package->id) {
+                    if ((bool) $next->opened_automatically && (int) $next->minutes_consumed <= (int) $next->absorbed_overdraft_minutes) {
+                        $this->cancel((string) $next->id, 'RENEWAL_UNDONE', null, null);
+                        $package = DB::table('lesson_packages')->where('id', $package->id)->first();
+                    } else {
+                        $reopen = false;
+                    }
+                }
+            }
+
+            // The overdrawn slice of this lesson may already be sitting inside the next block.
+            // Taking the lesson back takes that slice back out of it as well.
+            if ($overdrawn > 0 && $package->overdraft_absorbed_by !== null) {
+                DB::table('lesson_packages')->where('id', $package->overdraft_absorbed_by)->update([
+                    'minutes_consumed' => DB::raw("greatest(0, minutes_consumed - least(absorbed_overdraft_minutes, {$overdrawn}))"),
+                    'absorbed_overdraft_minutes' => DB::raw("greatest(0, absorbed_overdraft_minutes - {$overdrawn})"),
+                    'updated_at' => now(),
+                ]);
+            }
+
             DB::table('lesson_packages')->where('id', $package->id)->update([
                 'minutes_consumed' => DB::raw("greatest(0, minutes_consumed - {$minutes})"),
                 'minutes_overdrawn' => DB::raw("greatest(0, minutes_overdrawn - {$overdrawn})"),
-                // Giving minutes back re-opens a package that closed only because it ran out.
-                'status' => $package->status === 'COMPLETED' && $package->closed_reason === 'EXHAUSTED'
-                    ? 'ACTIVE'
-                    : $package->status,
-                'closed_at' => $package->closed_reason === 'EXHAUSTED' ? null : $package->closed_at,
-                'closed_reason' => $package->closed_reason === 'EXHAUSTED' ? null : $package->closed_reason,
+                'overdraft_absorbed_by' => (int) $package->minutes_overdrawn - $overdrawn > 0 ? $package->overdraft_absorbed_by : null,
+                'status' => $reopen ? 'ACTIVE' : $package->status,
+                'closed_at' => $reopen ? null : $package->closed_at,
+                'closed_reason' => $reopen ? null : $package->closed_reason,
                 'updated_at' => now(),
             ]);
 
@@ -669,10 +694,15 @@ final class LessonPackages
      * Two things happen here that answer the "he started a new package without paying the old
      * one" case, and neither of them blocks anything:
      *   - an unpaid previous package raises a PACKAGE_UNPAID alert;
-     *   - an unbilled overdraft from the previous package rolls onto THIS package's invoice
-     *     (the ON_START case, where the previous invoice was already issued and is immutable).
+     *   - the previous package's unbilled overdraft is ABSORBED: this package starts with those
+     *     minutes already used ({@see absorbableOverdraft()}), so nobody bills "extra hours" for a
+     *     block the family is renewing. Only an overdraft too big to absorb still rolls onto THIS
+     *     package's invoice as money (the ON_START case, where the previous bill is immutable).
      *
-     * @param  array{student_id:string,label:string,minutes_total:int,price_minor:int,currency?:?string,bill_timing?:?string,starts_on?:?string,expires_on?:?string,carry_over?:bool}  $data
+     * `auto_renew` (default true) is whether THIS package opens the next one when it runs out
+     * ({@see renew()}); `opened_automatically` and `sync` are set only by that renewal.
+     *
+     * @param  array{student_id:string,label:string,minutes_total:int,price_minor:int,currency?:?string,bill_timing?:?string,starts_on?:?string,expires_on?:?string,carry_over?:bool,auto_renew?:bool,opened_automatically?:bool,sync?:bool}  $data
      * @return array{package_id:string, invoice_id:?string, carried_over_minutes:int, imported_lessons:int, skipped_locked_lessons:int, switched_to_package_billing:bool}
      */
     public function open(array $data, ?string $actorUserId, ?string $actorRole): array
@@ -727,13 +757,18 @@ final class LessonPackages
         $packageId = (string) Str::uuid();
         $sequenceNo = ((int) DB::table('lesson_packages')->where('student_id', $studentId)->max('sequence_no')) + 1;
 
+        $absorbFrom = $this->absorbableOverdraft($studentId, $minutesTotal + $carried);
+        $absorbed = $absorbFrom !== null ? (int) $absorbFrom->minutes_overdrawn : 0;
+
         DB::table('lesson_packages')->insert([
             'id' => $packageId,
             'academy_id' => $academyId,
             'student_id' => $studentId,
             'label' => (string) $data['label'],
             'minutes_total' => $minutesTotal,
-            'minutes_consumed' => 0,
+            // The previous block's last lesson ran past its end; those minutes are this block's.
+            'minutes_consumed' => $absorbed,
+            'absorbed_overdraft_minutes' => $absorbed,
             'carried_over_minutes' => $carried,
             'minutes_overdrawn' => 0,
             'price_minor' => $priceMinor,
@@ -744,10 +779,24 @@ final class LessonPackages
             'sequence_no' => $sequenceNo,
             'starts_on' => $startsOn,
             'expires_on' => $data['expires_on'] ?? null,
+            'auto_renew' => (bool) ($data['auto_renew'] ?? true),
+            'opened_automatically' => (bool) ($data['opened_automatically'] ?? false),
             'opened_by_user_id' => $actorUserId,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        if ($absorbFrom !== null) {
+            DB::table('lesson_packages')->where('id', $absorbFrom->id)->update([
+                'overdraft_absorbed_by' => $packageId,
+                'updated_at' => now(),
+            ]);
+
+            Audit::log('lesson_package.overdraft_absorbed', 'lesson_package', (string) $absorbFrom->id, $academyId, $actorUserId, $actorRole, after: [
+                'absorbed_by' => $packageId,
+                'minutes' => $absorbed,
+            ]);
+        }
 
         if ($carried > 0 && $previous !== null) {
             DB::table('lesson_packages')->where('id', $previous->id)->update([
@@ -801,18 +850,23 @@ final class LessonPackages
                 'student_id' => $studentId,
                 'minutes_total' => $minutesTotal,
                 'carried_over_minutes' => $carried,
+                'absorbed_overdraft_minutes' => $absorbed,
                 'price_minor' => $priceMinor,
                 'currency' => $currency,
                 'bill_timing' => $billTiming,
                 'invoice_id' => $invoiceId,
+                'opened_automatically' => (bool) ($data['opened_automatically'] ?? false),
             ],
         );
 
         // A package may deliberately start before the day it is entered. Move lessons already
         // billed on still-open monthly invoices onto this package immediately, so a package that
         // starts on 24 Aug and is entered on 6 Sep does not misleadingly begin at zero. Settled
-        // invoices are immutable and are reported back instead of being touched.
-        $sync = $this->syncBackdatedLessons($packageId, $actorUserId, $actorRole);
+        // invoices are immutable and are reported back instead of being touched. A renewal skips
+        // it: it opens the instant the last block ran out, so there is nothing behind it to import.
+        $sync = ($data['sync'] ?? true)
+            ? $this->syncBackdatedLessons($packageId, $actorUserId, $actorRole)
+            : ['imported' => 0, 'skipped_locked' => 0];
         $invoiceId = DB::table('lesson_packages')->where('id', $packageId)->value('invoice_id');
 
         return [
@@ -943,8 +997,9 @@ final class LessonPackages
     /**
      * Correct a package that was entered wrong.
      *
-     * Four facts only — the label, the hours sold, the price and the expiry — and only while the
-     * package is still ACTIVE. Everything else about a package is a record of things that already
+     * Four facts only — the label, the hours sold, the price and the expiry — plus whether it
+     * renews itself when it runs out, and only while the package is still ACTIVE. Everything else
+     * about a package is a record of things that already
      * happened (which lessons burnt it, what was paid), and an edit form is the wrong instrument
      * for history: a package that should end is CLOSED, one that should never have existed is
      * CANCELLED. An ACTIVE package also always has `minutes_overdrawn = 0` — the engine completes
@@ -958,7 +1013,7 @@ final class LessonPackages
      * refuses rather than let the package and the bill quietly disagree. While the invoice is
      * still OPEN and untouched, its package line moves with the package.
      *
-     * @param  array{label?:string, minutes_total?:int, price_minor?:int, expires_on?:?string}  $changes
+     * @param  array{label?:string, minutes_total?:int, price_minor?:int, expires_on?:?string, auto_renew?:bool}  $changes
      * @return array{changed: list<string>, invoice_id: ?string}
      */
     public function edit(string $packageId, array $changes, ?string $actorUserId, ?string $actorRole): array
@@ -989,6 +1044,9 @@ final class LessonPackages
         $expires = array_key_exists('expires_on', $changes)
             ? $changes['expires_on']
             : $package->expires_on;
+        $autoRenew = array_key_exists('auto_renew', $changes)
+            ? (bool) $changes['auto_renew']
+            : (bool) $package->auto_renew;
 
         $carried = (int) $package->carried_over_minutes;
         $consumed = (int) $package->minutes_consumed;
@@ -1013,6 +1071,7 @@ final class LessonPackages
             'minutes_total' => $minutes,
             'price_minor' => $price,
             'expires_on' => $expires,
+            'auto_renew' => $autoRenew,
         ] as $col => $value) {
             if ((string) $value !== (string) $package->{$col}) {
                 $before[$col] = $package->{$col};
@@ -1159,7 +1218,11 @@ final class LessonPackages
      * the only fair reading of "pay at the end". A package that ran its full course bills exactly
      * the agreed price, so full consumption never drifts by a rounding unit.
      *
-     * @return array{package_id:string, invoice_id:?string}
+     * A package that ran OUT (never one closed by hand) renews itself when it is set to
+     * ({@see renew()}). The renewal absorbs the overdraft, so an ON_COMPLETION bill then leaves the
+     * "extra hours" line off — those minutes are paid for by the next block, not billed twice.
+     *
+     * @return array{package_id:string, invoice_id:?string, renewed_package_id:?string}
      */
     public function complete(string $packageId, string $reason, ?string $actorUserId, ?string $actorRole): array
     {
@@ -1172,10 +1235,12 @@ final class LessonPackages
         }
 
         if ($package->status !== 'ACTIVE') {
-            return ['package_id' => $packageId, 'invoice_id' => $package->invoice_id !== null ? (string) $package->invoice_id : null];
+            return ['package_id' => $packageId, 'invoice_id' => $package->invoice_id !== null ? (string) $package->invoice_id : null, 'renewed_package_id' => null];
         }
 
         $invoiceId = $package->invoice_id !== null ? (string) $package->invoice_id : null;
+        // Decided before the bill, because it changes the bill.
+        $renews = $reason === 'EXHAUSTED' && $this->renewable($package);
 
         if ($package->bill_timing === 'ON_COMPLETION') {
             $lines = [];
@@ -1196,7 +1261,7 @@ final class LessonPackages
                 ];
             }
 
-            if ($overdrawn > 0) {
+            if ($overdrawn > 0 && ! $renews) {
                 $lines[] = [
                     'description' => 'Extra '.$this->humanHours($overdrawn).' beyond the package',
                     'amount_minor' => $this->rateFor($package, $overdrawn),
@@ -1221,13 +1286,15 @@ final class LessonPackages
             'closed_at' => now(),
             'closed_reason' => $reason,
             'invoice_id' => $invoiceId,
-            // ON_COMPLETION settles the overdraft on the same bill; ON_START leaves it pending
-            // so it can travel to the next package (or be billed on its own from the UI).
-            'overdraft_invoice_id' => $package->bill_timing === 'ON_COMPLETION'
+            // ON_COMPLETION settles the overdraft on the same bill; ON_START — and any block that
+            // renews — leaves it pending so the next package can absorb it.
+            'overdraft_invoice_id' => $package->bill_timing === 'ON_COMPLETION' && ! $renews
                 ? $invoiceId
                 : $package->overdraft_invoice_id,
             'updated_at' => now(),
         ]);
+
+        $renewedId = $renews ? $this->renew($package, $actorUserId, $actorRole) : null;
 
         $this->notify(
             (string) $package->academy_id,
@@ -1243,6 +1310,7 @@ final class LessonPackages
                 'minutes_overdrawn' => (int) $package->minutes_overdrawn,
                 'invoice_id' => $invoiceId,
                 'currency' => (string) $package->currency,
+                'renewed_package_id' => $renewedId,
             ],
         );
 
@@ -1253,17 +1321,68 @@ final class LessonPackages
             (string) $package->academy_id,
             $actorUserId,
             $actorRole,
-            after: ['reason' => $reason, 'invoice_id' => $invoiceId],
+            after: ['reason' => $reason, 'invoice_id' => $invoiceId, 'renewed_package_id' => $renewedId],
             before: ['status' => (string) $package->status],
         );
 
-        return ['package_id' => $packageId, 'invoice_id' => $invoiceId];
+        return ['package_id' => $packageId, 'invoice_id' => $invoiceId, 'renewed_package_id' => $renewedId];
     }
 
     /**
-     * Void a package that was opened by mistake. Only possible while nothing has been consumed —
-     * once a lesson has burnt minutes the package has to be CLOSED (and billed for what was
-     * used), never made to disappear underneath a delivered lesson.
+     * Whether a package that just ran out should open the next one: it is set to renew, the
+     * student is still with the academy, and they are still billed by package (an owner who moved
+     * them to monthly has already answered "what comes next").
+     */
+    private function renewable(object $package): bool
+    {
+        return (bool) $package->auto_renew
+            && DB::table('students')->where('id', $package->student_id)->whereNull('deleted_at')->exists()
+            && $this->isPackageStudent((string) $package->student_id);
+    }
+
+    /**
+     * Open the next block on the finished one's terms — same label, hours, price, currency and
+     * billing moment, from today, for the same length of validity if it had one. It goes through
+     * {@see open()} like any other package, so it is billed, numbered and flagged exactly as if
+     * the owner had opened it by hand; the only differences are that it says it was automatic and
+     * skips the backdated-lesson import (it opens the instant the last one ran out).
+     */
+    private function renew(object $finished, ?string $actorUserId, ?string $actorRole): string
+    {
+        $timezone = (string) (DB::table('academies')->where('id', $finished->academy_id)->value('timezone') ?: 'UTC');
+        $startsOn = Carbon::now($timezone)->toDateString();
+
+        $expiresOn = null;
+        if ($finished->expires_on !== null) {
+            $days = (int) abs(Carbon::parse((string) $finished->starts_on)->diffInDays(Carbon::parse((string) $finished->expires_on)));
+            $expiresOn = Carbon::parse($startsOn)->addDays($days)->toDateString();
+        }
+
+        return $this->open([
+            'student_id' => (string) $finished->student_id,
+            'label' => (string) $finished->label,
+            'minutes_total' => (int) $finished->minutes_total,
+            'price_minor' => (int) $finished->price_minor,
+            'currency' => (string) $finished->currency,
+            'bill_timing' => (string) $finished->bill_timing,
+            'starts_on' => $startsOn,
+            'expires_on' => $expiresOn,
+            'carry_over' => false,
+            'auto_renew' => true,
+            'opened_automatically' => true,
+            'sync' => false,
+        ], $actorUserId, $actorRole)['package_id'];
+    }
+
+    /**
+     * Void a package that was opened by mistake — or renewed for a family that is not coming
+     * back. Only possible while none of its OWN lessons have been taught: once one has burnt
+     * minutes the package has to be CLOSED (and billed for what was used), never made to
+     * disappear underneath a delivered lesson.
+     *
+     * Minutes it absorbed from the previous block's last lesson go back to that block, where
+     * they are an overdraft to bill again, and its own bill is voided if nobody has paid toward
+     * it — a cancelled package must not leave a debt behind it.
      */
     public function cancel(string $packageId, ?string $note, ?string $actorUserId, ?string $actorRole): void
     {
@@ -1275,7 +1394,7 @@ final class LessonPackages
             ]);
         }
 
-        if ((int) $package->minutes_consumed > 0) {
+        if ((int) $package->minutes_consumed - (int) $package->absorbed_overdraft_minutes > 0) {
             throw ValidationException::withMessages([
                 'package_id' => ['This package has already been used. Close it instead so the used hours are billed. / تم استخدام هذه الباقة بالفعل. أغلقها بدلًا من ذلك ليتم احتساب الساعات المستهلكة.'],
             ]);
@@ -1285,8 +1404,29 @@ final class LessonPackages
             'status' => 'CANCELLED',
             'closed_at' => now(),
             'closed_reason' => $note ?? 'CANCELLED',
+            'minutes_consumed' => 0,
+            'absorbed_overdraft_minutes' => 0,
             'updated_at' => now(),
         ]);
+
+        DB::table('lesson_packages')->where('overdraft_absorbed_by', $packageId)->update([
+            'overdraft_absorbed_by' => null,
+            'updated_at' => now(),
+        ]);
+
+        $voided = $package->invoice_id !== null && DB::table('invoices')
+            ->where('id', $package->invoice_id)
+            ->where('status', 'OPEN')
+            ->where('amount_paid_minor', 0)
+            ->update(['status' => 'VOID', 'updated_at' => now()]) > 0;
+
+        if ($voided) {
+            // An older overdraft that rode along on that bill is owed again.
+            DB::table('lesson_packages')->where('overdraft_invoice_id', $package->invoice_id)->update([
+                'overdraft_invoice_id' => null,
+                'updated_at' => now(),
+            ]);
+        }
 
         Audit::log(
             'lesson_package.cancelled',
@@ -1295,21 +1435,25 @@ final class LessonPackages
             (string) $package->academy_id,
             $actorUserId,
             $actorRole,
-            after: ['note' => $note],
+            after: ['note' => $note, 'invoice_voided' => $voided],
             before: ['status' => (string) $package->status],
         );
     }
 
     /**
-     * Bill a completed ON_START package's leftover overdraft on its own invoice — the escape
-     * hatch for when no next package is ever opened, so the debt would otherwise sit pending
-     * forever. Idempotent: a package whose overdraft is already on an invoice is left alone.
+     * Bill a completed package's leftover overdraft on its own invoice — the escape hatch for
+     * when no next package will ever absorb it (the student left package billing, or the
+     * renewal was cancelled), so the debt would otherwise sit pending forever. Idempotent: an
+     * overdraft already on an invoice, or already absorbed by the next block, is left alone.
      */
     public function billOverdraft(string $packageId, ?string $actorUserId, ?string $actorRole): ?string
     {
         $package = DB::table('lesson_packages')->where('id', $packageId)->first();
 
-        if ($package === null || (int) $package->minutes_overdrawn <= 0 || $package->overdraft_invoice_id !== null) {
+        if ($package === null
+            || (int) $package->minutes_overdrawn <= 0
+            || $package->overdraft_invoice_id !== null
+            || $package->overdraft_absorbed_by !== null) {
             return null;
         }
 
@@ -1441,6 +1585,7 @@ final class LessonPackages
             ->where('bill_timing', 'ON_START')
             ->where('minutes_overdrawn', '>', 0)
             ->whereNull('overdraft_invoice_id')
+            ->whereNull('overdraft_absorbed_by')
             ->where('currency', $currency)
             ->orderByDesc('sequence_no')
             ->first();
@@ -1454,6 +1599,29 @@ final class LessonPackages
             'description' => 'Extra '.$this->humanHours((int) $package->minutes_overdrawn).' beyond package "'.$package->label.'"',
             'amount_minor' => $this->rateFor($package, (int) $package->minutes_overdrawn),
         ];
+    }
+
+    /**
+     * The student's last finished block, when its final lesson ran past the end and nothing has
+     * settled those minutes yet — the overdraft a new package takes over as already-used minutes.
+     *
+     * Only the LAST finished block, and only when the new one is bigger than the overdraft: a new
+     * block born already empty would close the moment it opened. That rare case keeps the old
+     * money path ({@see pendingOverdraft()}).
+     */
+    private function absorbableOverdraft(string $studentId, int $capacity): ?object
+    {
+        $last = $this->latestClosedFor($studentId);
+
+        if ($last === null
+            || (int) $last->minutes_overdrawn <= 0
+            || $last->overdraft_invoice_id !== null
+            || $last->overdraft_absorbed_by !== null
+            || (int) $last->minutes_overdrawn >= $capacity) {
+            return null;
+        }
+
+        return $last;
     }
 
     /**

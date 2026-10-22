@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
+import { AutoRenewField } from "@/components/packages/package-terms";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +23,7 @@ const inputBase =
  * Deliberately not the open form with the fields greyed out. Almost nothing about a running
  * package is a correction: the student it belongs to, when it started, whether it bills up front
  * and what carried into it are all facts other records already depend on. What is left is these
- * four, so those are the only ones offered — and the floor under the hours is what has already
+ * four — plus whether it renews itself — so those are the only ones offered — and the floor under the hours is what has already
  * been taught, because a package cannot be sold backwards.
  */
 export function EditPackageForm({
@@ -41,6 +42,7 @@ export function EditPackageForm({
   const [hours, setHours] = useState((row.minutes_total / 60).toString());
   const [price, setPrice] = useState((row.price_minor / 100).toFixed(2));
   const [expiresOn, setExpiresOn] = useState(row.expires_on ?? "");
+  const [autoRenew, setAutoRenew] = useState(row.auto_renew);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,6 +81,7 @@ export function EditPackageForm({
         hours: hoursNum,
         price_minor: priceMinor,
         expires_on: expiresOn === "" ? null : expiresOn,
+        auto_renew: autoRenew,
       });
       onSaved(t("alerts.edited"));
     } catch (err) {
@@ -185,6 +188,9 @@ export function EditPackageForm({
           {t("form.expiresHint")}
         </p>
       </div>
+
+      {/* Turning it off is how a family that is stopping does not get a next block opened. */}
+      <AutoRenewField checked={autoRenew} onChange={setAutoRenew} />
 
       {/* The bill is the hard edge, and it is cheaper to say so here than to be refused on save. */}
       {row.invoice_id !== null && (

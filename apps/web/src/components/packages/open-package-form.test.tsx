@@ -132,7 +132,8 @@ describe("OpenPackageForm", () => {
 
     await waitFor(() =>
       expect(openLessonPackage).toHaveBeenCalledWith(
-        expect.objectContaining({ currency: "USD", hours: 10 }),
+        // Renewal is on unless someone turns it off.
+        expect.objectContaining({ currency: "USD", hours: 10, auto_renew: true }),
       ),
     );
   });
