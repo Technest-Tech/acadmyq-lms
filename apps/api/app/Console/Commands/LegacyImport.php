@@ -51,6 +51,12 @@ use RuntimeException;
  *     updates what it made the first time instead of creating a second copy of everybody. It
  *     never touches a row a human has since edited by hand beyond re-aligning names and phones.
  *
+ *     `--sync` goes further, for a client that kept teaching on the old app after the first run:
+ *     the old app is still the truth, so existing rows are brought in line with it — a changed
+ *     price, a changed teacher, a moved family, a timetable that gained, lost or moved a slot, a
+ *     series that ended. It refuses an academy that already marks lessons or bills here, because
+ *     by then the new system is the truth and overwriting it would undo real work.
+ *
  * Examples:
  *
  *     php artisan legacy:import storage/app/ehsan.json --academy=<uuid> --dry-run
@@ -70,6 +76,7 @@ final class LegacyImport extends Command
         {--teacher-rate=0 : Session rate for every imported teacher, in major units}
         {--teacher-currency= : Currency for teacher rates (default: the academy default)}
         {--no-generate : Skip the session generator afterwards}
+        {--sync : Also bring EXISTING rows in line with the old app: prices, teachers, families, timetables}
         {--dry-run : Do the whole import against the real database, report, then roll it back}';
 
     protected $description = 'Import students, teachers and recurring appointments from a legacy academy app.';
@@ -79,6 +86,9 @@ final class LegacyImport extends Command
 
     /** How many real examples of a repeated note to print before summarising the rest. */
     private const NOTE_EXAMPLES = 5;
+
+    /** The label the first run gives the old hourly rate — how --sync tells its own subscription apart. */
+    private const IMPORTED_PLAN_LABEL = 'Imported hourly rate / سعر الساعة المستورد';
 
     /** @var list<array{code:string,detail:string}> */
     private array $notes = [];
@@ -160,11 +170,24 @@ final class LegacyImport extends Command
             $this->note('academy_not_empty', "{$preexisting} student(s) already in this academy did not come from this import — check you are pointing at the right client.");
         }
 
+        if ($this->option('sync')) {
+            $marked = DB::table('sessions')->where('academy_id', $academyId)->where('status', '<>', 'SCHEDULED')->count();
+            $invoices = DB::table('invoices')->where('academy_id', $academyId)->count();
+            if ($marked > 0 || $invoices > 0) {
+                throw new RuntimeException("--sync refused: this academy already works here ({$marked} marked lesson(s), {$invoices} invoice(s)). The new system is the truth now; re-run without --sync to only add what is new.");
+            }
+        }
+
         $teacherIds = $this->importTeachers($payload, $academyId, $source, $defaultCurrency);
         [$studentIds, $guardianIds] = $this->importPeople($payload, $academyId, $source, $defaultCurrency, $scheduleStart);
         $liveByStudent = $this->liveSchedulesByStudent($payload);
         $this->importAssignments($payload, $academyId, $studentIds, $teacherIds, $liveByStudent);
-        $this->importSchedules($academyId, $source, $timezone, $scheduleStart, $studentIds, $teacherIds, $liveByStudent);
+        if ($this->option('sync')) {
+            $this->syncSchedules($academyId, $source, $timezone, $scheduleStart, $studentIds, $teacherIds, $liveByStudent);
+        } else {
+            $this->importSchedules($academyId, $source, $timezone, $scheduleStart, $studentIds, $teacherIds, $liveByStudent);
+        }
+        $this->reportMissing($payload, $academyId, $source);
 
         $this->counts['guardians'] = count($guardianIds);
         $this->counts['lessons_in_file_not_imported'] = count($payload['lessons'] ?? []);
@@ -179,6 +202,12 @@ final class LegacyImport extends Command
         if (! $this->option('no-generate')) {
             [$from, $to] = SessionGenerator::defaultWindow();
             $result = $generator->generateForAcademy($academyId, $from, $to);
+            // The academy pass only reads ACTIVE timetables, so one that just ended would keep its
+            // future lessons. Reconciling it on its own clears them (inactive → nothing intended).
+            foreach ($this->endedSchedules as $scheduleId) {
+                $r = $generator->generateForSchedule($scheduleId, $from, $to);
+                $result['removed'] += $r['removed'];
+            }
             $this->counts['sessions_generated'] = $result['created'];
             $this->counts['sessions_removed'] = $result['removed'];
         }
@@ -376,11 +405,24 @@ final class LegacyImport extends Command
                 $existing = $this->mapped($academyId, $source, 'student', (string) $legacyId);
 
                 if ($existing !== null) {
-                    DB::table('students')->where('id', $existing)->update([
+                    $update = [
                         'full_name' => $s['name'],
                         'whatsapp_phone' => $phone,
                         'updated_at' => now(),
-                    ]);
+                    ];
+                    if ($this->option('sync')) {
+                        // A changed number is a different household here: move the student to
+                        // the guardian the number now belongs to, rather than leaving them
+                        // billed to the parent whose phone they no longer share.
+                        $was = DB::table('students')->where('id', $existing)->value('guardian_id');
+                        if ((string) $was !== $guardianId) {
+                            $update['guardian_id'] = $guardianId;
+                            $update['is_self_guardian'] = count($members) === 1 && ! $group['explicit'];
+                            $this->counts['students_moved_guardian'] = ($this->counts['students_moved_guardian'] ?? 0) + 1;
+                        }
+                        $this->syncPrice($academyId, $existing, $s, $guardianCurrency, $scheduleStart);
+                    }
+                    DB::table('students')->where('id', $existing)->update($update);
                     $studentIds[$legacyId] = $existing;
                     $studentsUpdated++;
 
@@ -415,7 +457,7 @@ final class LegacyImport extends Command
                         'id' => (string) Str::uuid(),
                         'academy_id' => $academyId,
                         'student_id' => $studentId,
-                        'plan_label' => 'Imported hourly rate / سعر الساعة المستورد',
+                        'plan_label' => self::IMPORTED_PLAN_LABEL,
                         'price_minor' => (int) round(((float) $hourly) * 100),
                         'currency' => $this->currencyOf($s) ?? $guardianCurrency,
                         'price_basis' => 'PER_HOUR',
@@ -427,6 +469,23 @@ final class LegacyImport extends Command
 
                 $studentIds[$legacyId] = $studentId;
                 $studentsCreated++;
+            }
+        }
+
+        if ($this->option('sync')) {
+            // A guardian everyone moved away from would sit in the parents list with nobody to
+            // bill. Only the importer's own, and only while nothing hangs off them.
+            $emptied = DB::table('guardians as g')
+                ->join('legacy_import_map as m', function ($j) use ($academyId, $source) {
+                    $j->on('m.target_id', '=', 'g.id')
+                        ->where('m.academy_id', $academyId)->where('m.source', $source)->where('m.entity', 'guardian');
+                })
+                ->whereNull('g.deleted_at')
+                ->whereNotExists(fn ($q) => $q->select(DB::raw(1))->from('students as s')->whereColumn('s.guardian_id', 'g.id')->whereNull('s.deleted_at'))
+                ->pluck('g.id');
+            if ($emptied->isNotEmpty()) {
+                DB::table('guardians')->whereIn('id', $emptied)->update(['deleted_at' => now(), 'updated_at' => now()]);
+                $this->counts['guardians_emptied_removed'] = $emptied->count();
             }
         }
 
@@ -478,6 +537,16 @@ final class LegacyImport extends Command
             // Never re-write an assignment: a second run must not close the teacher an owner has
             // since chosen by hand and re-open the one the old system happened to remember.
             $already = DB::table('student_teacher_assignments')->where('student_id', $studentId)->exists();
+            if ($already && $this->option('sync')) {
+                [$o, $c] = $this->syncAssignments($academyId, $studentId, $liveByStudent[$legacyStudentId] ?? [], $teacherIds);
+                $opened += $o;
+                $closed += $c;
+                if (count($liveByStudent[$legacyStudentId] ?? []) > 1) {
+                    $split++;
+                }
+
+                continue;
+            }
             if ($already) {
                 $skipped++;
 
@@ -554,7 +623,9 @@ final class LegacyImport extends Command
         $this->counts['assignments_active'] = $opened;
         $this->counts['assignments_historical'] = $closed;
         $this->counts['assignments_left_alone'] = $skipped;
-        if ($split > 0) {
+        if ($split > 0 && $this->option('sync')) {
+            $this->note('two_teachers_one_student', "{$split} student(s) are taught by more than one teacher in the old timetable; each teacher got their own timetable for their own slots.");
+        } elseif ($split > 0) {
             $this->note('two_teachers_one_student', "{$split} student(s) are taught by more than one teacher in the old timetable. Here a student has one teacher, so every lesson went to whichever teacher holds more of their slots — check those students and move the odd lesson by hand.");
         }
     }
@@ -666,6 +737,334 @@ final class LegacyImport extends Command
         $this->counts['timetable_slots'] = $slotsWritten;
     }
 
+    // ------------------------------------------------------------------ --sync
+
+    /** @var list<string> timetables --sync switched off, whose future lessons still need clearing */
+    private array $endedSchedules = [];
+
+    /**
+     * Make the timetables match the old app exactly: one per (student, teacher), holding exactly
+     * that teacher's live slots. Slots the old app dropped are removed, and a student whose series
+     * all ended has their timetable switched off — the two things a plain re-run never does.
+     *
+     * The student's main teacher keeps the original `student:<id>` key, so the timetable made by
+     * the first run is the one that carries on. Each further teacher gets `student:<id>|teacher:<id>`.
+     *
+     * @param  array<int,string>  $studentIds
+     * @param  array<int,string>  $teacherIds
+     * @param  array<int, array<int,int>>  $liveByStudent
+     */
+    private function syncSchedules(
+        string $academyId,
+        string $source,
+        string $timezone,
+        string $scheduleStart,
+        array $studentIds,
+        array $teacherIds,
+        array $liveByStudent,
+    ): void {
+        $created = 0;
+        $updated = 0;
+        $slotsWritten = 0;
+        $slotsRemoved = 0;
+        $wanted = [];
+
+        foreach ($this->slotsByStudent as $legacyStudentId => $slots) {
+            if (! isset($studentIds[$legacyStudentId])) {
+                continue;   // student was skipped (no phone)
+            }
+            $studentId = $studentIds[$legacyStudentId];
+
+            $live = $liveByStudent[$legacyStudentId] ?? [];
+            arsort($live);
+            $main = null;
+            foreach (array_keys($live) as $t) {
+                if (isset($teacherIds[(int) $t])) {
+                    $main = (int) $t;
+                    break;
+                }
+            }
+            if ($main === null) {
+                continue;
+            }
+
+            $byTeacher = [];
+            foreach ($slots as $slot) {
+                // A slot whose teacher did not come across stays with the student's main teacher
+                // rather than being dropped — a lesson under the wrong name beats a lost lesson.
+                $t = isset($teacherIds[$slot['teacher']]) ? $slot['teacher'] : $main;
+                $byTeacher[$t][] = $slot;
+            }
+
+            foreach ($byTeacher as $teacherLegacy => $teacherSlots) {
+                $key = $teacherLegacy === $main
+                    ? 'student:'.$legacyStudentId
+                    : 'student:'.$legacyStudentId.'|teacher:'.$teacherLegacy;
+                $teacherId = $teacherIds[$teacherLegacy];
+                $scheduleId = $this->mapped($academyId, $source, 'schedule', $key);
+
+                if ($scheduleId === null) {
+                    // Adopt this teacher's timetable for the student if one was made by hand,
+                    // but never one this import already files under another key.
+                    $adopted = DB::table('schedules')
+                        ->where('student_id', $studentId)->where('teacher_id', $teacherId)
+                        ->where('is_active', true)->whereNull('deleted_at')
+                        ->whereNotIn('id', DB::table('legacy_import_map')
+                            ->where('academy_id', $academyId)->where('source', $source)->where('entity', 'schedule')
+                            ->select('target_id'))
+                        ->value('id');
+                    $scheduleId = $adopted !== null ? (string) $adopted : null;
+                }
+
+                if ($scheduleId === null) {
+                    $scheduleId = (string) Str::uuid();
+                    DB::table('schedules')->insert([
+                        'id' => $scheduleId,
+                        'academy_id' => $academyId,
+                        'student_id' => $studentId,
+                        'teacher_id' => $teacherId,
+                        'timezone' => $timezone,
+                        // Decision 2 still holds: a timetable new to us starts today.
+                        'start_date' => $scheduleStart,
+                        'is_active' => true,
+                        'version' => 1,
+                    ]);
+                    $created++;
+                } else {
+                    DB::table('schedules')->where('id', $scheduleId)->update([
+                        'teacher_id' => $teacherId,
+                        'timezone' => $timezone,
+                        'is_active' => true,
+                        'deleted_at' => null,
+                        'version' => DB::raw('version + 1'),
+                        'updated_at' => now(),
+                    ]);
+                    $updated++;
+                }
+                $this->remember($academyId, $source, 'schedule', $key, $scheduleId);
+                $wanted[$scheduleId] = true;
+
+                [$written, $removed] = $this->reconcileSlots($academyId, $scheduleId, $teacherSlots);
+                $slotsWritten += $written;
+                $slotsRemoved += $removed;
+            }
+        }
+
+        // Every timetable this import made that the old app no longer has a live series for.
+        $ended = DB::table('legacy_import_map as m')
+            ->join('schedules as s', 's.id', '=', 'm.target_id')
+            ->where('m.academy_id', $academyId)->where('m.source', $source)->where('m.entity', 'schedule')
+            ->where('s.is_active', true)->whereNull('s.deleted_at')
+            ->pluck('s.id')
+            ->map(fn ($id) => (string) $id)
+            ->reject(fn ($id) => isset($wanted[$id]))
+            ->values()->all();
+        if ($ended !== []) {
+            DB::table('schedules')->whereIn('id', $ended)->update([
+                'is_active' => false,
+                'deleted_at' => now(),
+                'updated_at' => now(),
+            ]);
+            $this->endedSchedules = $ended;
+        }
+
+        $this->counts['timetables_created'] = $created;
+        $this->counts['timetables_updated'] = $updated;
+        $this->counts['timetables_ended'] = count($ended);
+        $this->counts['timetable_slots'] = $slotsWritten;
+        $this->counts['timetable_slots_removed'] = $slotsRemoved;
+    }
+
+    /**
+     * Exactly these slots, keyed by (weekday, start time) — ScheduleController::reconcileSlots'
+     * rule. A kept slot keeps its id so its generated lessons stay matched; a dropped one loses
+     * its future untouched lessons, and anything past or touched is detached, never deleted.
+     *
+     * @param  list<array{weekday:int,start_time:string,duration_minutes:int}>  $slots
+     * @return array{0:int,1:int} [slots written, slots removed]
+     */
+    private function reconcileSlots(string $academyId, string $scheduleId, array $slots): array
+    {
+        $key = fn ($weekday, $time) => $weekday.'|'.substr((string) $time, 0, 5);
+        $desired = [];
+        foreach ($slots as $slot) {
+            $desired[$key($slot['weekday'], $slot['start_time'])] = $slot;
+        }
+
+        $removed = 0;
+        $current = [];
+        foreach (DB::table('schedule_slots')->where('schedule_id', $scheduleId)->get() as $row) {
+            $k = $key($row->weekday, $row->start_time_local);
+            if (isset($desired[$k])) {
+                $current[$k] = $row;
+
+                continue;
+            }
+            DB::table('sessions')->where('slot_id', $row->id)
+                ->where('status', 'SCHEDULED')
+                ->whereNull('original_session_id')
+                ->where('scheduled_at_utc', '>=', now())
+                ->whereNotExists(fn ($q) => $q->select(DB::raw(1))->from('session_reports as sr')->whereColumn('sr.session_id', 'sessions.id'))
+                ->delete();
+            DB::table('sessions')->where('slot_id', $row->id)->update(['slot_id' => null, 'updated_at' => now()]);
+            DB::table('schedule_slots')->where('id', $row->id)->delete();
+            $removed++;
+        }
+
+        foreach ($desired as $k => $slot) {
+            if (isset($current[$k])) {
+                if ((int) $current[$k]->duration_minutes !== $slot['duration_minutes']) {
+                    DB::table('schedule_slots')->where('id', $current[$k]->id)
+                        ->update(['duration_minutes' => $slot['duration_minutes'], 'updated_at' => now()]);
+                }
+
+                continue;
+            }
+            DB::table('schedule_slots')->insert([
+                'id' => (string) Str::uuid(),
+                'academy_id' => $academyId,
+                'schedule_id' => $scheduleId,
+                'weekday' => $slot['weekday'],
+                'start_time_local' => $slot['start_time'],
+                'duration_minutes' => $slot['duration_minutes'],
+            ]);
+        }
+
+        return [count($desired), $removed];
+    }
+
+    /**
+     * The student's active teachers become exactly the teachers holding their live slots. A
+     * student with no live series keeps whoever they have: their lessons stop, their teacher
+     * does not (the same rule as deleting a timetable by hand).
+     *
+     * @param  array<int,int>  $live  legacy teacher id → slot count
+     * @param  array<int,string>  $teacherIds
+     * @return array{0:int,1:int} [opened, closed]
+     */
+    private function syncAssignments(string $academyId, string $studentId, array $live, array $teacherIds): array
+    {
+        $want = [];
+        foreach (array_keys($live) as $t) {
+            if (isset($teacherIds[(int) $t])) {
+                $want[$teacherIds[(int) $t]] = true;
+            }
+        }
+        if ($want === []) {
+            return [0, 0];
+        }
+
+        $active = DB::table('student_teacher_assignments')
+            ->where('student_id', $studentId)->whereNull('ended_at')
+            ->pluck('teacher_id')->map(fn ($id) => (string) $id)->all();
+
+        $closed = 0;
+        foreach ($active as $teacherId) {
+            if (! isset($want[$teacherId])) {
+                DB::table('student_teacher_assignments')
+                    ->where('student_id', $studentId)->where('teacher_id', $teacherId)->whereNull('ended_at')
+                    ->update(['ended_at' => now(), 'updated_at' => now()]);
+                $closed++;
+            }
+        }
+
+        $opened = 0;
+        foreach (array_keys($want) as $teacherId) {
+            if (! in_array($teacherId, $active, true)) {
+                DB::table('student_teacher_assignments')->insert([
+                    'id' => (string) Str::uuid(),
+                    'academy_id' => $academyId,
+                    'student_id' => $studentId,
+                    'teacher_id' => $teacherId,
+                    'started_at' => now(),
+                    'ended_at' => null,
+                ]);
+                $opened++;
+            }
+        }
+        if ($opened > 0 || $closed > 0) {
+            $this->counts['students_teacher_changed'] = ($this->counts['students_teacher_changed'] ?? 0) + 1;
+        }
+
+        return [$opened, $closed];
+    }
+
+    /**
+     * The old hourly rate, re-applied to the subscription the first run made. A subscription a
+     * human set up here (any other label) is theirs and is left alone.
+     *
+     * @param  array<string,mixed>  $s
+     */
+    private function syncPrice(string $academyId, string $studentId, array $s, string $guardianCurrency, string $scheduleStart): void
+    {
+        $hourly = $s['hour_price'] ?? null;
+        if ($hourly === null) {
+            return;
+        }
+        $price = (int) round(((float) $hourly) * 100);
+        $currency = $this->currencyOf($s) ?? $guardianCurrency;
+
+        $active = DB::table('subscriptions')
+            ->where('student_id', $studentId)->where('status', 'ACTIVE')->whereNull('deleted_at')
+            ->get(['id', 'plan_label', 'price_minor', 'currency']);
+
+        $imported = $active->firstWhere('plan_label', self::IMPORTED_PLAN_LABEL);
+        if ($imported !== null) {
+            if ((int) $imported->price_minor !== $price || strtoupper(trim((string) $imported->currency)) !== $currency) {
+                DB::table('subscriptions')->where('id', $imported->id)->update([
+                    'price_minor' => $price,
+                    'currency' => $currency,
+                    'updated_at' => now(),
+                ]);
+                $this->counts['prices_changed'] = ($this->counts['prices_changed'] ?? 0) + 1;
+            }
+
+            return;
+        }
+
+        if ($active->isEmpty()) {
+            // Had no price at the first run and has one now.
+            DB::table('subscriptions')->insert([
+                'id' => (string) Str::uuid(),
+                'academy_id' => $academyId,
+                'student_id' => $studentId,
+                'plan_label' => self::IMPORTED_PLAN_LABEL,
+                'price_minor' => $price,
+                'currency' => $currency,
+                'price_basis' => 'PER_HOUR',
+                'status' => 'ACTIVE',
+                'start_date' => $s['first_activity_date'] ?? $scheduleStart,
+            ]);
+            $this->counts['subscriptions_added_by_sync'] = ($this->counts['subscriptions_added_by_sync'] ?? 0) + 1;
+        }
+    }
+
+    /**
+     * People this import made that the old app no longer has. Reported, never deleted: a row
+     * gone from the old database may be a mistake there, and removing a student here winds down
+     * their lessons and package — a decision for a person.
+     *
+     * @param  array<string,mixed>  $payload
+     */
+    private function reportMissing(array $payload, string $academyId, string $source): void
+    {
+        foreach (['teacher' => 'teachers', 'student' => 'students'] as $entity => $table) {
+            $inFile = array_map(fn ($r) => (string) $r['legacy_id'], $payload[$table] ?? []);
+            $gone = DB::table('legacy_import_map as m')
+                ->join($table.' as t', 't.id', '=', 'm.target_id')
+                ->where('m.academy_id', $academyId)->where('m.source', $source)->where('m.entity', $entity)
+                ->whereNull('t.deleted_at')
+                ->whereNotIn('m.legacy_key', $inFile)
+                ->pluck('t.full_name')->all();
+            if ($gone !== []) {
+                $this->counts[$table.'_gone_from_old_app'] = count($gone);
+                foreach ($gone as $name) {
+                    $this->note($entity.'_gone', ucfirst($entity)." \"{$name}\" is no longer in the old app. Left as is here — deactivate them by hand if they really left.");
+                }
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ reading the export
 
     /** @var array<int, list<array{weekday:int,start_time:string,duration_minutes:int}>> */
@@ -722,6 +1121,8 @@ final class LegacyImport extends Command
                         'weekday' => (int) $slot['weekday'],
                         'start_time' => (string) $slot['start_time'],
                         'duration_minutes' => $duration,
+                        // Whose lesson it is, so --sync can give each teacher their own timetable.
+                        'teacher' => $teacherId,
                     ];
                 }
 

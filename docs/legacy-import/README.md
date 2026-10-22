@@ -100,6 +100,7 @@ the real run will land.
 | `--timezone=` | The timezone the old wall-clock times are in. Defaults to the academy's. |
 | `--max-duration=240` | A slot longer than this is treated as a typo in the old data and imported as 60 minutes. |
 | `--no-generate` | Skip the session generator afterwards. |
+| `--sync` | The client kept teaching on the old app after the first run. Existing rows are brought in line with it: prices, families (a changed phone moves the student), teachers, and timetables — one per teacher, slots the old app dropped are removed, ended series switched off with their future lessons. People gone from the old app are only reported. Refused once the academy marks lessons or bills here. |
 | `--source=` | Override the name recorded in `legacy_import_map`. Only matters if two legacy systems are merged into one academy. |
 
 ## When the old app never collected phone numbers

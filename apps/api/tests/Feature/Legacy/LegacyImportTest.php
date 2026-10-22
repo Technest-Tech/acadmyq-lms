@@ -400,3 +400,106 @@ it('refuses to guess between one shared number and a placeholder each', function
         '--placeholder-phones' => true,
     ])->run();
 })->throws(RuntimeException::class, 'not both');
+
+/**
+ * `--sync`: the client kept teaching on the old app after the first run, so the old app is still
+ * the truth and the re-run must CHANGE what it made, not only add to it.
+ */
+function legacySyncFile(array $fixture): string
+{
+    $file = tempnam(sys_get_temp_dir(), 'legacysync').'.json';
+    file_put_contents($file, json_encode($fixture, JSON_UNESCAPED_UNICODE));
+
+    return $file;
+}
+
+it('brings prices, families, teachers and timetables in line with the old app', function () {
+    runImport($this->exportFile, $this->academy);
+
+    // A month later in the old app: ابن أول's rate went up, their Wednesday lesson was dropped,
+    // and a second teacher took a new Saturday lesson; ابن ثانٍ got their own phone.
+    Carbon::setTestNow('2026-10-23 09:00:00');
+    $fixture = legacyExportFixture();
+    $fixture['students'][0]['hour_price'] = 7.0;
+    $fixture['students'][1]['phone_raw'] = '447000000002';
+    unset($fixture['schedules'][0]['slots'][1]);
+    $fixture['schedules'][0]['slots'] = array_values($fixture['schedules'][0]['slots']);
+    $fixture['schedules'][] = [
+        'series_id' => 'live-2', 'student_legacy_id' => 100, 'teacher_legacy_id' => 10,
+        'lesson_name' => 'تجويد', 'first_date' => '2026-10-03', 'last_date' => '2029-12-29',
+        'occurrences' => 1, 'is_live' => true,
+        'slots' => [
+            ['weekday' => 6, 'start_time' => '10:00:00', 'end_time' => '11:00:00', 'duration_minutes' => 60, 'crosses_midnight' => false, 'occurrences' => 1, 'first_date' => '2026-10-03', 'last_date' => '2029-12-29'],
+        ],
+    ];
+    $file = legacySyncFile($fixture);
+    runImport($file, $this->academy, ['--sync' => true]);
+
+    $this->asAcademy($this->academy);
+    $student = DB::table('students')->where('full_name', 'ابن أول')->first();
+    $sibling = DB::table('students')->where('full_name', 'ابن ثانٍ')->first();
+    $first = DB::table('teachers')->where('full_name', 'أستاذ أول')->value('id');
+    $second = DB::table('teachers')->where('full_name', 'أستاذ ثانٍ')->value('id');
+
+    // The new rate replaces the old one on the subscription the first run made — no second one.
+    $subs = DB::table('subscriptions')->where('student_id', $student->id)->get();
+    expect($subs)->toHaveCount(1);
+    expect((int) $subs[0]->price_minor)->toBe(700);
+
+    // A new number is a new household: the sibling moved to it and stopped sharing a guardian.
+    expect($sibling->guardian_id)->not->toBe($student->guardian_id);
+    expect(DB::table('guardians')->where('id', $sibling->guardian_id)->value('whatsapp_phone'))->toBe('+447000000002');
+    expect((bool) $sibling->is_self_guardian)->toBeTrue();
+
+    // Each teacher has their own timetable with only their own lessons; the dropped Wednesday is gone.
+    $main = DB::table('schedules')->where('student_id', $student->id)->where('teacher_id', $second)->where('is_active', true)->first();
+    $extra = DB::table('schedules')->where('student_id', $student->id)->where('teacher_id', $first)->where('is_active', true)->first();
+    expect(DB::table('schedule_slots')->where('schedule_id', $main->id)->orderBy('weekday')->pluck('weekday')->map(fn ($w) => (int) $w)->all())->toBe([1, 5]);
+    expect(DB::table('schedule_slots')->where('schedule_id', $extra->id)->pluck('weekday')->map(fn ($w) => (int) $w)->all())->toBe([6]);
+    // ...and so has every future lesson: none left on a Wednesday.
+    expect(DB::table('sessions')->where('student_id', $student->id)->where('scheduled_at_utc', '>=', now())
+        ->get()->contains(fn ($s) => Carbon::parse($s->scheduled_at_utc)->setTimezone('Africa/Cairo')->dayOfWeek === 3))->toBeFalse();
+
+    // Both teachers now actively teach the student.
+    expect(DB::table('student_teacher_assignments')->where('student_id', $student->id)->whereNull('ended_at')
+        ->pluck('teacher_id')->sort()->values()->all())->toBe(collect([$first, $second])->sort()->values()->all());
+
+    // A second sync of the same file changes nothing.
+    $before = DB::table('schedule_slots')->count().'/'.DB::table('schedules')->count().'/'.DB::table('student_teacher_assignments')->count();
+    runImport($file, $this->academy, ['--sync' => true]);
+    $this->asAcademy($this->academy);
+    expect(DB::table('schedule_slots')->count().'/'.DB::table('schedules')->count().'/'.DB::table('student_teacher_assignments')->count())->toBe($before);
+    @unlink($file);
+});
+
+it('switches off a timetable whose series ended in the old app, and clears its future lessons', function () {
+    runImport($this->exportFile, $this->academy);
+
+    Carbon::setTestNow('2026-10-23 09:00:00');
+    $fixture = legacyExportFixture();
+    $fixture['schedules'][0]['is_live'] = false;
+    $file = legacySyncFile($fixture);
+    runImport($file, $this->academy, ['--sync' => true]);
+    @unlink($file);
+
+    $this->asAcademy($this->academy);
+    $student = DB::table('students')->where('full_name', 'ابن أول')->first();
+    expect(DB::table('schedules')->where('student_id', $student->id)->where('is_active', true)->exists())->toBeFalse();
+    expect(DB::table('sessions')->where('student_id', $student->id)->where('scheduled_at_utc', '>=', now())->count())->toBe(0);
+    // Their lessons stop; their teacher does not.
+    expect(DB::table('student_teacher_assignments')->where('student_id', $student->id)->whereNull('ended_at')->exists())->toBeTrue();
+});
+
+it('refuses to sync an academy that already marks lessons here', function () {
+    runImport($this->exportFile, $this->academy);
+
+    $this->asAcademy($this->academy);
+    DB::table('sessions')->limit(1)->update(['status' => 'ATTENDED']);
+    $this->clearTenantContext();
+
+    $this->artisan('legacy:import', [
+        'file' => $this->exportFile,
+        '--academy' => $this->academy,
+        '--sync' => true,
+    ])->run();
+})->throws(RuntimeException::class, '--sync refused');
