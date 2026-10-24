@@ -4,6 +4,7 @@ import { CheckCircle2, ExternalLink, Link2, Loader2, MessageSquare, Send } from 
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { CopyButton, waLink } from "@/components/invoices/invoice-detail-modal";
+import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
@@ -12,7 +13,9 @@ import {
   ApiError,
   createQuickBill,
   getAcademyProfile,
+  listLessonPackages,
   listStudents,
+  type LessonPackageRow,
   sendInvoicePaymentLink,
   type InvoiceSendLinkResult,
 } from "@/lib/api";
@@ -53,6 +56,14 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
   const t = useTranslations("invoices.quick");
   const tInv = useTranslations("invoices");
   const locale = useLocale();
+  const invoiceUrl = useInvoiceUrl();
+  /**
+   * The chosen student's package with money still owed on it, if any. An academy paid up front
+   * reaches for a quick bill out of habit when a block renews — but that block already raised its
+   * own bill, and a second one for the same money leaves the package "unpaid" after the family
+   * pays the hand-made one. So the modal says so and hands over the package's own link instead.
+   */
+  const [duePackage, setDuePackage] = useState<LessonPackageRow | null>(null);
 
   const [mode, setMode] = useState<PayerMode>("student");
   const [students, setStudents] = useState<ComboboxOption[]>([]);
@@ -69,7 +80,7 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [created, setCreated] = useState<{ id: string; url: string; totalMinor: number; currency: string } | null>(null);
+  const [created, setCreated] = useState<{ id: string; url: string; totalMinor: number; currency: string; reused?: boolean } | null>(null);
 
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<InvoiceSendLinkResult | null>(null);
@@ -107,6 +118,23 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
     const c = studentCurrency[studentId];
     if (studentId && c) setCurrency(c);
   }, [studentId, studentCurrency]);
+
+  // Does this student already have a package bill waiting? (A role without package.read simply
+  // never sees the note.)
+  useEffect(() => {
+    setDuePackage(null);
+    if (!open || mode !== "student" || studentId === "") return;
+    let cancelled = false;
+    void listLessonPackages({ student_id: studentId, scope: "due" })
+      .then((res) => {
+        if (cancelled) return;
+        setDuePackage(res.packages.find((p) => p.invoice_token !== null && p.outstanding_minor > 0) ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open, mode, studentId]);
 
   const reset = useCallback(() => {
     setMode("student");
@@ -173,7 +201,7 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
       <Modal
         open={open}
         onClose={handleClose}
-        title={t("doneTitle")}
+        title={created.reused ? t("packageBillTitle") : t("doneTitle")}
         description={t("doneSubtitle")}
         footer={
           <>
@@ -190,7 +218,7 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
           <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
             <CheckCircle2 className="size-6 shrink-0 text-emerald-600" aria-hidden />
             <div className="min-w-0">
-              <p className="text-sm font-medium">{t("created")}</p>
+              <p className="text-sm font-medium">{created.reused ? t("packageBillDue") : t("created")}</p>
               <p className="text-lg font-bold tabular-nums">
                 {formatMoney({ amount: created.totalMinor, currency: created.currency }, locale)}
               </p>
@@ -328,6 +356,40 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
             />
           )}
         </div>
+
+        {duePackage !== null && duePackage.invoice_token !== null && (
+          <div
+            className="flex flex-col gap-2 rounded-xl border border-amber-400/60 bg-amber-500/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+            data-testid="quick-package-due"
+          >
+            <p className="text-amber-900 dark:text-amber-200">
+              {t("packageBillNote", {
+                n: duePackage.sequence_no,
+                amount: formatMoney({ amount: duePackage.outstanding_minor, currency: duePackage.currency }, locale),
+              })}
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              data-testid="quick-use-package-bill"
+              onClick={() => {
+                const token = duePackage.invoice_token;
+                if (token === null) return;
+                setCreated({
+                  id: duePackage.invoice_id ?? "",
+                  url: invoiceUrl(token),
+                  totalMinor: duePackage.outstanding_minor,
+                  currency: duePackage.currency,
+                  reused: true,
+                });
+              }}
+            >
+              {t("usePackageBill")}
+            </Button>
+          </div>
+        )}
 
         {/* Amount + currency */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

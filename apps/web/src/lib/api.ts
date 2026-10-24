@@ -8033,6 +8033,11 @@ export interface LessonPackageRow {
    * hours) — the rows behind the red badge on "Finished packages". Always false while open.
    */
   follow_up: boolean;
+  /**
+   * Money still owed on THIS package, open or finished — the rows of the Due page. Payment is up
+   * front, so a block that opened today and is not yet paid is due.
+   */
+  due: boolean;
   /** On an open package: what the student still owes on earlier ones. Null when nothing is owed. */
   previous_unpaid: PreviousUnpaid | null;
   /** WhatsApp reminders sent to the payer about this package, and when the last one went. */
@@ -8069,8 +8074,12 @@ export interface LessonPackageSummary {
   pendingOverdraft: number;
   unpaid: number;
   outOfHours: number;
-  /** Finished packages that still need following up — the red badge on "Finished packages". */
+  /** Finished packages that still need following up (unpaid, unbilled, overdraft, out of hours). */
   finishedAttention: number;
+  /** Packages with money still owed on them, open or finished — the red badge on "Due". */
+  due: number;
+  /** What those packages owe, per currency, never summed across currencies. */
+  dueAmounts: { currency: string; amount_minor: number }[];
   total: number;
   financials: PackageFinancialSummary[];
 }
@@ -8142,7 +8151,7 @@ export interface PackageAttachableLesson {
 
 export function listLessonPackages(
   filters: {
-    scope?: "open" | "finished";
+    scope?: "open" | "finished" | "due";
     status?: PackageStatus;
     student_id?: string;
     q?: string;

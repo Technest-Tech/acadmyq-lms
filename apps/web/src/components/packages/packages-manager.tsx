@@ -41,8 +41,8 @@ import { formatMoney, formatNumber } from "@/lib/money";
 import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-/** The two pages of the packages screen, each its own sidebar item. */
-export type PackagesView = "open" | "finished";
+/** The three pages of the packages screen, each its own sidebar item. */
+export type PackagesView = "due" | "open" | "finished";
 
 /**
  * The two halves of Finished packages. A package moves from "unpaid" to "paid" the moment its
@@ -59,8 +59,11 @@ function localDay(iso: string, timezone: string): string {
 }
 
 /**
- * The Packages screen, split in two pages:
+ * The Packages screen, split in three pages:
  *
+ *   • Due — every block with money still owed on it, open or finished, oldest debt first. The
+ *     page the academy opens every day: payment is up front, so a block that opened this morning
+ *     and is not yet paid belongs here, not on a "finished" list weeks later.
  *   • Open packages — blocks being consumed right now. A block opened while the student still
  *     owes on an earlier one wears its own colour and says so, because that debt is otherwise on
  *     a different page.
@@ -170,7 +173,11 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   const pageRows = useMemo(
     () =>
       (rows ?? []).filter((r) =>
-        view === "open" ? r.status === "ACTIVE" : r.status !== "ACTIVE",
+        view === "due"
+          ? r.due
+          : view === "open"
+            ? r.status === "ACTIVE"
+            : r.status !== "ACTIVE",
       ),
     [rows, view],
   );
@@ -193,7 +200,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       if (needle !== "" && !r.student_name.toLowerCase().includes(needle)) {
         return false;
       }
-      if (view === "open") return true;
+      if (view !== "finished") return true;
       if (isPackagePaid(r) !== (tab === "paid")) return false;
       const day = localDay(finishedDate(r), timezone);
       return (from === "" || day >= from) && (to === "" || day <= to);
@@ -204,6 +211,11 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       return [...matched].sort((a, b) =>
         finishedDate(b).localeCompare(finishedDate(a)),
       );
+    }
+
+    if (view === "due") {
+      // The oldest debt first — it has waited longest.
+      return [...matched].sort((a, b) => a.created_at.localeCompare(b.created_at));
     }
 
     // On Open, what needs a hand first: a block opened over an unpaid one, then a block about to
@@ -366,7 +378,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
     <div className="space-y-5">
       <PageHero
         latticeId="packages-hero-lattice"
-        icon={view === "open" ? Layers : PackageCheck}
+        icon={view === "due" ? CircleDollarSign : view === "open" ? Layers : PackageCheck}
         title={centre ? t(`centre.${view}.title`) : t(`pages.${view}.title`)}
         subtitle={centre ? t(`centre.${view}.subtitle`) : t(`pages.${view}.subtitle`)}
         actions={
@@ -389,6 +401,28 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
                 {t("hero.followUp", { count: unpaidCount })}
               </span>
             )}
+            {/* What is owed across the Due page, per currency and never summed across them. */}
+            {view === "due" && rows !== null && (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/60 bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm"
+                data-testid="due-count"
+              >
+                <AlertTriangle className="size-3.5" aria-hidden />
+                {t("hero.due", { count: pageRows.length })}
+              </span>
+            )}
+            {view === "due" &&
+              (summary?.dueAmounts ?? []).map((a) => (
+                <HeroPill key={a.currency}>
+                  <CircleDollarSign className="size-3.5" aria-hidden />
+                  {t("hero.outstanding", {
+                    amount: formatMoney(
+                      { amount: a.amount_minor, currency: a.currency },
+                      locale,
+                    ),
+                  })}
+                </HeroPill>
+              ))}
             {/* What finished packages still owe — the one number the old stat tiles carried that
                 this page still needs, per currency and never summed across them. */}
             {view === "finished" &&
@@ -518,13 +552,15 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
 
         {rows !== null && visible.length === 0 && (
           <p className="text-muted-foreground rounded-2xl border border-dashed p-8 text-center text-sm">
-            {view === "open"
-              ? t("emptyOpen")
-              : from !== "" || to !== ""
-                ? t("emptyRange")
-                : tab === "unpaid"
-                  ? t("emptyUnpaid")
-                  : t("emptyPaid")}
+            {view === "due"
+              ? t("emptyDue")
+              : view === "open"
+                ? t("emptyOpen")
+                : from !== "" || to !== ""
+                  ? t("emptyRange")
+                  : tab === "unpaid"
+                    ? t("emptyUnpaid")
+                    : t("emptyPaid")}
           </p>
         )}
 

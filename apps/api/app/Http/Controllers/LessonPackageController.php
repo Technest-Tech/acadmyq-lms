@@ -46,15 +46,15 @@ final class LessonPackageController extends Controller
 
     /**
      * GET /api/packages — every package, newest first, with its live balance.
-     * Filters: scope (open = ACTIVE | finished = everything else), status (ACTIVE|COMPLETED|CANCELLED),
-     * student_id, q (student name).
+     * Filters: scope (open = ACTIVE | finished = everything else | due = money still owed on it,
+     * whatever its status), status (ACTIVE|COMPLETED|CANCELLED), student_id, q (student name).
      */
     public function index(Request $request): JsonResponse
     {
         Gate::authorize('package.read');
 
         $validated = $request->validate([
-            'scope' => ['sometimes', 'nullable', Rule::in(['open', 'finished'])],
+            'scope' => ['sometimes', 'nullable', Rule::in(['open', 'finished', 'due'])],
             'status' => ['sometimes', 'nullable', Rule::in(['ACTIVE', 'COMPLETED', 'CANCELLED'])],
             'student_id' => ['sometimes', 'nullable', 'string'],
             'q' => ['sometimes', 'nullable', 'string', 'max:120'],
@@ -62,10 +62,12 @@ final class LessonPackageController extends Controller
 
         $query = $this->baseQuery();
 
-        // The two pages of the screen: Open packages and Finished packages.
+        // The three pages of the screen: Due (a payment to collect, open or finished), Open
+        // packages and Finished packages.
         match ($validated['scope'] ?? null) {
             'open' => $query->where('p.status', 'ACTIVE'),
             'finished' => $query->where('p.status', '!=', 'ACTIVE'),
+            'due' => $this->whereDue($query),
             default => null,
         };
 
@@ -173,6 +175,23 @@ final class LessonPackageController extends Controller
             ...$gapIds,
         ]));
 
+        // The red badge on "Due": packages whose money has not arrived, open or finished — the
+        // academy is paid up front, so a block that has just opened is already a payment to
+        // collect. Per currency, never summed across them.
+        $dueRows = $this->whereDue(
+            DB::table('lesson_packages as p')->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id'),
+        )
+            ->selectRaw('p.currency, count(*) as n')
+            ->selectRaw('coalesce(sum(greatest(coalesce(i.total_minor, 0) - coalesce(i.amount_paid_minor, 0), 0)), 0) as due_minor')
+            ->groupBy('p.currency')
+            ->orderBy('p.currency')
+            ->get();
+        $due = (int) $dueRows->sum('n');
+        $dueAmounts = $dueRows
+            ->filter(fn ($row) => (int) $row->due_minor > 0)
+            ->map(fn ($row) => ['currency' => trim((string) $row->currency), 'amount_minor' => (int) $row->due_minor])
+            ->values();
+
         $active = (int) DB::table('lesson_packages')->where('status', 'ACTIVE')->count();
         $completed = (int) DB::table('lesson_packages')->where('status', 'COMPLETED')->count();
         $cancelled = (int) DB::table('lesson_packages')->where('status', 'CANCELLED')->count();
@@ -209,6 +228,8 @@ final class LessonPackageController extends Controller
             'unpaid' => $unpaid,
             'outOfHours' => $outOfHours,
             'finishedAttention' => $finishedAttention,
+            'due' => $due,
+            'dueAmounts' => $dueAmounts,
             'total' => $lowBalance + $needsBilling + $pendingOverdraft + $unpaid + $outOfHours,
             'financials' => $financials,
         ]);
@@ -988,6 +1009,27 @@ final class LessonPackageController extends Controller
     }
 
     /**
+     * Narrow a lesson_packages query (aliased `p`, invoices left-joined as `i`) to the packages
+     * with money still owed on them — the SQL twin of the `due` flag in {@see present()}.
+     */
+    private function whereDue($query)
+    {
+        return $query->where(fn ($q) => $q
+            ->where(fn ($unpaid) => $unpaid
+                ->whereIn('i.status', self::UNPAID_INVOICE_STATUSES)
+                ->whereRaw('i.total_minor > i.amount_paid_minor'))
+            ->orWhere(fn ($unbilled) => $unbilled
+                ->where('p.status', 'COMPLETED')
+                ->whereNull('p.invoice_id')
+                ->where('p.minutes_consumed', '>', 0))
+            ->orWhere(fn ($overdraft) => $overdraft
+                ->where('p.status', 'COMPLETED')
+                ->where('p.minutes_overdrawn', '>', 0)
+                ->whereNull('p.overdraft_invoice_id')
+                ->whereNull('p.overdraft_absorbed_by')));
+    }
+
+    /**
      * What each student still owes on their EARLIER packages — the case where a new block was
      * opened before the last one was paid. Keyed by student; money per currency, never summed.
      *
@@ -1052,6 +1094,14 @@ final class LessonPackageController extends Controller
             ? max(0, (int) $row->invoice_total_minor - (int) $row->invoice_paid_minor)
             : 0;
 
+        // Money still owed on THIS package, whatever its status: its bill is unpaid, it was used but
+        // never billed, or its overdraft is stranded. The rows of the Due page ({@see whereDue()} is
+        // the same rule in SQL). A package opened today and not yet paid is due — payment is up
+        // front, so "it just opened" is exactly when the money is expected.
+        $due = (in_array((string) $row->invoice_status, self::UNPAID_INVOICE_STATUSES, true) && $outstanding > 0)
+            || ($row->status === 'COMPLETED' && $row->invoice_id === null && $consumed > 0)
+            || ($row->status === 'COMPLETED' && (int) $row->minutes_overdrawn > 0 && $row->overdraft_invoice_id === null && $row->overdraft_absorbed_by === null);
+
         // A finished package someone still has to follow up on — the rows behind the red badge on
         // "Finished packages" ({@see summary()} counts the same four conditions).
         $followUp = ! $isActive && (
@@ -1113,6 +1163,7 @@ final class LessonPackageController extends Controller
             // What has been taught since it ran out, billed by the hour outside any package.
             'gap' => $gap !== null && $gap['lessons'] > 0 ? $gap : null,
             'follow_up' => $followUp,
+            'due' => $due,
             // An open block whose student still owes on an earlier one: it was opened before the
             // last one was paid. Null when nothing earlier is owed.
             'previous_unpaid' => $isActive ? ($previous[(string) $row->student_id] ?? null) : null,

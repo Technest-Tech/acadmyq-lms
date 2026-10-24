@@ -3,6 +3,7 @@
 import {
   Award,
   BookOpen,
+  CircleDollarSign,
   BarChart3,
   BellRing,
   Briefcase,
@@ -144,6 +145,7 @@ type NavKey =
   | "accountingTreasury"
   | "accountingReports"
   | "packages"
+  | "packagesDue"
   | "packagesFinished"
   | "payroll"
   | "teacherQuality"
@@ -457,6 +459,15 @@ const NAV: ReadonlyArray<{
   { key: "accountingReports", icon: BarChart3, permission: "invoice.read", href: "/accounting/reports", group: "financial", parent: "accounting" },
   // Lesson packages sit directly under Invoices because they ARE invoicing — the same money on a
   // different clock (a block of hours instead of a calendar month), for the students on that mode.
+  // Three pages: Due (the payments to collect — payment is up front, so a block that opened today
+  // is already due; carries the red badge), Open (the live balances) and Finished (history).
+  {
+    key: "packagesDue",
+    icon: CircleDollarSign,
+    permission: "package.read",
+    href: "/packages/due",
+    group: "financial",
+  },
   {
     key: "packages",
     icon: Layers,
@@ -464,8 +475,6 @@ const NAV: ReadonlyArray<{
     href: "/packages",
     group: "financial",
   },
-  // The finished half of the same screen, its own item so its red badge (packages someone still
-  // has to follow up on) sits on the page that holds them.
   {
     key: "packagesFinished",
     icon: PackageCheck,
@@ -685,6 +694,7 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string | readonly string[]>> = {
   // that gate — but they carry their own switch on top, so an academy that bills monthly is never
   // offered the second clock.
   packages: "packages",
+  packagesDue: "packages",
   packagesFinished: "packages",
   payroll: "payroll",
   // Teacher performance and Discounts & Awards share one switch of their own, so an academy can
@@ -782,7 +792,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // A centre (`centre`, opt-in) sells "subscriptions"; a Quran academy keeps "packages".
   const centre = capabilities?.includes("centre") ?? false;
   const navLabel = (key: NavKey): string =>
-    centre && (key === "packages" || key === "packagesFinished") ? t(`nav.${key}Centre`) : t(`nav.${key}`);
+    centre && (key === "packages" || key === "packagesDue" || key === "packagesFinished") ? t(`nav.${key}Centre`) : t(`nav.${key}`);
 
   // The preference is read after mount, never during render — reading localStorage while
   // rendering would make the server and client markup disagree.
@@ -863,10 +873,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [session, can, pathname]);
 
-  // Finished-packages badge: how many finished blocks still need following up — unpaid, unbilled,
-  // an overdraft still to bill, or still being taught with nothing open. Deliberately not
-  // "unread": the count is derived from package state, so it clears when the work is done rather
-  // than when it is seen.
+  // Due-packages badge: how many packages still have money owed on them, open or finished.
+  // Deliberately not "unread": the count is derived from package state, so it clears when the
+  // money arrives rather than when it is seen.
   useEffect(() => {
     if (session === null || !can("package.read")) {
       setPkgCount(0);
@@ -875,7 +884,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     let alive = true;
     const refresh = () =>
       getLessonPackageSummary()
-        .then((s) => alive && setPkgCount(s.finishedAttention))
+        .then((s) => alive && setPkgCount(s.due))
         .catch(() => {});
     void refresh();
     const id = setInterval(refresh, 60_000);
@@ -1085,7 +1094,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     href === "/dashboard" ||
     href === "/admin" ||
     href === "/lms" ||
-    // Open packages must not also light up on its sibling, /packages/finished.
+    // Open packages must not also light up on its siblings, /packages/due and /packages/finished.
     href === "/packages" ||
     // The Accounting overview must not light up on its own sub-pages.
     href === "/accounting";
@@ -1114,10 +1123,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         label: `${attnCount} sessions awaiting attendance today`,
       };
     }
-    if (key === "packagesFinished" && pkgCount > 0) {
+    if (key === "packagesDue" && pkgCount > 0) {
       return {
         count: pkgCount,
-        label: `${pkgCount} finished packages need follow-up`,
+        label: `${pkgCount} packages awaiting payment`,
       };
     }
     if (key === "lmsSales" && salesCount > 0) {

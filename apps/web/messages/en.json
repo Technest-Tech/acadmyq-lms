@@ -203,7 +203,9 @@
     "accountingIncome": "Income vs expenses",
     "accountingReports": "Reports",
     "packagesCentre": "Open subscriptions",
-    "packagesFinishedCentre": "Finished subscriptions"
+    "packagesFinishedCentre": "Finished subscriptions",
+    "packagesDue": "Due packages",
+    "packagesDueCentre": "Due subscriptions"
   },
   "navGroup": {
     "general": "General",
@@ -2605,7 +2607,11 @@
       "sendWhatsApp": "Send on WhatsApp",
       "sent": "Sent on WhatsApp.",
       "viewBill": "View bill",
-      "done": "Done"
+      "done": "Done",
+      "packageBillNote": "Package #{n} already has a bill of {amount} waiting. Send that link instead of making a second bill — the package is marked paid the moment it is settled.",
+      "usePackageBill": "Use the package bill",
+      "packageBillTitle": "Package bill",
+      "packageBillDue": "Still due on the package"
     }
   },
   "packages": {
@@ -2619,7 +2625,8 @@
       "active": "{count} open",
       "previousUnpaid": "{count, plural, one {# opened over an unpaid package} other {# opened over unpaid packages}}",
       "followUp": "{count, plural, =0 {All paid} one {# not paid} other {# not paid}}",
-      "outstanding": "{amount} still due"
+      "outstanding": "{amount} still due",
+      "due": "{count, plural, =0 {Nothing due} one {# package awaiting payment} other {# packages awaiting payment}}"
     },
     "status": {
       "ACTIVE": "Open",
@@ -2841,7 +2848,11 @@
       },
       "finished": {
         "title": "Finished packages",
-        "subtitle": "Blocks that ran out or were closed — each one is a payment to collect. Mark it paid and attach the receipt, or send a reminder from the card."
+        "subtitle": "History: every block that ran out or was closed, with the day it was paid. The money to collect lives on Due packages."
+      },
+      "due": {
+        "title": "Due packages",
+        "subtitle": "Every package with money still owed on it — payment is up front, so a block that opened today is already here. Mark it paid with the receipt, or send a reminder. It leaves the moment the money arrives."
       }
     },
     "emptyOpen": "No open packages right now.",
@@ -2867,7 +2878,8 @@
         "title": "Finished subscriptions",
         "subtitle": "Subscriptions that ran out, and what was paid on them."
       }
-    }
+    },
+    "emptyDue": "Nothing due. Every package is paid for."
   },
   "attendance": {
     "title": "Attendance & report",

@@ -1299,3 +1299,36 @@ it('marks a package paid the moment its XPay payment link is paid', function () 
         ->and($row['follow_up'])->toBeFalse();
     $this->getJson('/api/packages/summary')->assertOk()->assertJsonPath('finishedAttention', 0);
 });
+
+it('lists every package with money still owed on it as due, open or finished, and totals it per currency', function () {
+    // #1 opens today (paid up front, not yet paid) → due while it is still OPEN.
+    $first = ($this->openPackage)(1, 20000);
+    Sanctum::actingAs($this->owner);
+    $due = $this->getJson('/api/packages?scope=due')->assertOk()->json('packages');
+    expect(array_column($due, 'id'))->toBe([$first['package_id']])
+        ->and($due[0]['status'])->toBe('ACTIVE')
+        ->and($due[0]['due'])->toBeTrue();
+    $this->getJson('/api/packages/summary')->assertOk()
+        ->assertJsonPath('due', 1)
+        ->assertJsonPath('dueAmounts', [['currency' => 'EGP', 'amount_minor' => 20000]]);
+
+    // Paid → gone from Due, still on Open.
+    $this->postJson("/api/invoices/{$first['invoice_id']}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+    expect($this->getJson('/api/packages?scope=due')->json('packages'))->toBe([]);
+    $this->getJson('/api/packages/summary')->assertOk()->assertJsonPath('due', 0);
+    expect(collect($this->getJson('/api/packages?scope=open')->json('packages'))->firstWhere('id', $first['package_id'])['due'])->toBeFalse();
+
+    // It runs out and #2 opens itself, unpaid → #2 is the one that is due; #1 is history.
+    ($this->attend)(($this->lesson)(60));
+    $this->asAcademy($this->academy);
+    ($this->packageRow)($first['package_id']); // refresh context
+    DB::table('lesson_packages')->where('id', $first['package_id'])->update(['auto_renew' => true]);
+    $second = ($this->openPackage)(1, 20000);
+
+    Sanctum::actingAs($this->owner);
+    $due = $this->getJson('/api/packages?scope=due')->assertOk()->json('packages');
+    expect(array_column($due, 'id'))->toBe([$second['package_id']]);
+    $finished = $this->getJson('/api/packages?scope=finished')->assertOk()->json('packages');
+    expect(array_column($finished, 'id'))->toBe([$first['package_id']])
+        ->and($finished[0]['due'])->toBeFalse();
+});

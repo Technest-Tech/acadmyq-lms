@@ -76,6 +76,7 @@ function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
     awaiting_next_package: false,
     gap: null,
     follow_up: false,
+    due: false,
     previous_unpaid: null,
     reminders_sent: 0,
     last_reminded_at: null,

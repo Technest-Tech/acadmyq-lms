@@ -374,6 +374,7 @@ describe("AppShell — centre mode (`centre`, opt-in)", () => {
     renderShell("ACADEMY_OWNER", { ...money, capabilities: ["invoicing", "packages", "centre"] });
     await ready();
     expect(document.querySelector('[data-nav="packages"]')?.textContent).toContain(arMessages.nav.packagesCentre);
+    expect(document.querySelector('[data-nav="packagesDue"]')?.textContent).toContain(arMessages.nav.packagesDueCentre);
     expect(document.querySelector('[data-nav="packagesFinished"]')?.textContent).toContain(arMessages.nav.packagesFinishedCentre);
   });
 

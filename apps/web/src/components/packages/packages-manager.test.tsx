@@ -86,6 +86,7 @@ function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
     awaiting_next_package: false,
     gap: null,
     follow_up: false,
+    due: false,
     previous_unpaid: null,
     reminders_sent: 0,
     last_reminded_at: null,
@@ -104,6 +105,8 @@ const summary: LessonPackageSummary = {
   unpaid: 1,
   outOfHours: 0,
   finishedAttention: 1,
+  due: 2,
+  dueAmounts: [{ currency: "EGP", amount_minor: 550000 }],
   total: 1,
   financials: [
     {
@@ -119,7 +122,7 @@ const summary: LessonPackageSummary = {
 
 function renderManager(
   extraPermissions: string[] = [],
-  view: "open" | "finished" = "open",
+  view: "due" | "open" | "finished" = "open",
 ) {
   return render(
     withAuth(
@@ -270,6 +273,47 @@ describe("PackagesManager", () => {
     expect(
       markPaid.compareDocumentPosition(remind) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("puts every package with money owed on Due — open or finished — oldest first, and totals it", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        // Opened today, paid up front, not yet paid: due on day one.
+        pkg({
+          id: "p-open",
+          student_name: "Mona",
+          due: true,
+          outstanding_minor: 400000,
+          invoice_paid_minor: 0,
+          created_at: "2026-10-20T00:00:00Z",
+        }),
+        // Finished and still unpaid.
+        pkg({
+          id: "p-old",
+          student_name: "Sara",
+          status: "COMPLETED",
+          due: true,
+          outstanding_minor: 150000,
+          invoice_paid_minor: 250000,
+          created_at: "2026-09-01T00:00:00Z",
+        }),
+        // Paid: not on this page at all.
+        pkg({ id: "p-paid", student_name: "Omar" }),
+      ],
+    });
+
+    renderManager(["invoice.mark_paid"], "due");
+
+    const cards = await screen.findAllByTestId("package-card");
+    expect(cards.map((c) => within(c).getByRole("button", { name: /Sara|Mona/ }).textContent)).toEqual([
+      "Sara",
+      "Mona",
+    ]);
+    // Arabic dual: "باقتان" carries the two, no digit needed.
+    expect(screen.getByTestId("due-count")).toHaveTextContent("باقتان بانتظار الدفع");
+    expect(screen.getByText(/5,500|٥٬٥٠٠/)).toBeInTheDocument();
+    // Each card leads with Mark as paid.
+    expect(within(cards[0]!).getByTestId("mark-package-paid")).toBeInTheDocument();
   });
 
   it("marks a package the renewal opened, with the minutes it took from the last block", async () => {
