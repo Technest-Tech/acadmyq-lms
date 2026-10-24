@@ -124,6 +124,8 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     renderForm();
 
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+    // These intake flows are the trial path; the form now opens on "active".
+    await user.click(screen.getByTestId("intent-trial"));
     expect(screen.getByTestId("guardian-select")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("guardian-mode-single"));
@@ -148,6 +150,8 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderForm();
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+    // These intake flows are the trial path; the form now opens on "active".
+    await user.click(screen.getByTestId("intent-trial"));
 
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     // Open the guardian combobox and pick "Guardian One"
@@ -181,6 +185,8 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     const user = userEvent.setup();
     renderForm();
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+    // These intake flows are the trial path; the form now opens on "active".
+    await user.click(screen.getByTestId("intent-trial"));
 
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     await user.click(screen.getByTestId("guardian-select"));
@@ -212,18 +218,28 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
   });
 
   // The intake form is no longer trial-only: the two cards decide the lifecycle, and the
-  // package fields exist only behind the "active student" one.
-  it("keeps the package hidden until the active card is picked", async () => {
+  // package fields exist only behind the "active student" one — which is the default now.
+  it("starts on the active card, and hides the package once the trial card is picked", async () => {
     const user = userEvent.setup();
     renderForm();
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
 
-    expect(screen.getByTestId("intent-trial")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByTestId("billing-details")).not.toBeInTheDocument();
-
-    await user.click(screen.getByTestId("intent-enrolled"));
-    expect(screen.getByTestId("intent-trial")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("intent-enrolled")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("billing-details")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("intent-trial"));
+    expect(screen.getByTestId("intent-enrolled")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByTestId("billing-details")).not.toBeInTheDocument();
+  });
+
+  it("folds the student's own numbers away while a family is on the record, and shows them for a self-guardian", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+    // A family's child: only the parent's numbers by default.
+    expect(screen.queryByTestId("student-secondary-phone")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("own-phones-toggle"));
+    expect(screen.getByTestId("student-secondary-phone")).toBeInTheDocument();
   });
 
   it("creates an active student with their package in one save", async () => {
@@ -435,6 +451,8 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     const user = userEvent.setup();
     const { onCreated } = renderForm();
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+    // These intake flows are the trial path; the form now opens on "active".
+    await user.click(screen.getByTestId("intent-trial"));
 
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     await user.click(screen.getByTestId("guardian-new-toggle"));
@@ -455,6 +473,8 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     const user = userEvent.setup();
     renderForm();
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+    // These intake flows are the trial path; the form now opens on "active".
+    await user.click(screen.getByTestId("intent-trial"));
 
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     await user.click(screen.getByTestId("guardian-new-toggle"));
@@ -477,6 +497,9 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     const user = userEvent.setup();
     renderForm();
     await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+    // These intake flows are the trial path; the form now opens on "active".
+    await user.click(screen.getByTestId("intent-trial"));
+    await user.click(screen.getByTestId("own-phones-toggle"));
 
     await user.type(screen.getByLabelText("Full name"), "Yusuf");
     await user.click(screen.getByTestId("guardian-select"));

@@ -6,6 +6,7 @@ import {
   CalendarRange,
   Hash,
   Layers,
+  Phone,
   User,
   UserCheck,
   UserPlus,
@@ -207,12 +208,15 @@ export function StudentForm({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [mode, setMode] = useState<Intent>(intent ?? "trial");
+  // A new student is active by default (Ahmed, 2026-10-24); a trial is the deliberate choice.
+  const [mode, setMode] = useState<Intent>(intent ?? "enrolled");
   const [fullName, setFullName] = useState(initialFullName ?? "");
   const [dialCountry, setDialCountry] = useState(initialSplit.dialCountry);
   const [localNumber, setLocalNumber] = useState(initialSplit.localNumber);
   const [country, setCountry] = useState("");
   const [selfGuardian, setSelfGuardian] = useState(false);
+  // With a family on the record, the student's own numbers are the exception: folded away.
+  const [ownPhones, setOwnPhones] = useState(false);
   const [guardianId, setGuardianId] = useState(fixedGuardianId ?? "");
   // Optional second number (the other parent, a home line) — contact only.
   const [otherPhone, setOtherPhone] = useState<PhoneParts>({
@@ -660,6 +664,21 @@ export function StudentForm({
         )
       )}
 
+      {!selfGuardian && !ownPhones && (
+        <button
+          type="button"
+          onClick={() => setOwnPhones(true)}
+          className="text-primary inline-flex items-center gap-1 text-xs font-semibold underline-offset-4 hover:underline"
+          data-testid="own-phones-toggle"
+        >
+          <Phone className="size-3.5" aria-hidden />
+          {t("form.ownPhones")}
+          <span className="text-muted-foreground font-normal">· {t("form.ownPhonesHint")}</span>
+        </button>
+      )}
+
+      {(selfGuardian || ownPhones) && (
+        <>
       <Field label={t("form.phone")} hint={t("form.phoneHint")}>
         <div
           dir="ltr"
@@ -695,6 +714,8 @@ export function StudentForm({
           testId="student-secondary-phone"
         />
       </Field>
+        </>
+      )}
 
       <Field label={t("form.country")}>
         <Combobox

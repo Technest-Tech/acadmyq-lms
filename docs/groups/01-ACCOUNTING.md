@@ -352,6 +352,10 @@ and the private subscription tile beside it (or "no private subscription"). On s
 is created, then enrolled in each group from the start date; a group that refuses leaves the student
 made and the form open to say which one.
 
+**The new-student form, for everyone (2026-10-24):** it opens on "active student" (a trial is the
+deliberate choice), and while a family is on the record the student's own numbers are folded behind
+"the student's own numbers" — the parent's numbers are the ones that matter.
+
 **Subscriptions card on the student** (`centre`): `SubscriptionsCard` on the student page lists the
 student's groups (memberships, via `/group-members?student_id=`) and private subscriptions (lesson
 packages) with where each stands, and offers "Join a group" and "New private subscription" — the

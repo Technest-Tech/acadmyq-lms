@@ -1732,7 +1732,9 @@
       "groupJoinFailed": "The student was added, but enrolling in {names} failed. Add it from the student’s page.",
       "closeAfter": "Close",
       "noPrivate": "No private subscription",
-      "noPrivateHint": "Groups only. A private lesson, if any, is billed by the hour."
+      "noPrivateHint": "Groups only. A private lesson, if any, is billed by the hour.",
+      "ownPhones": "The student’s own numbers",
+      "ownPhonesHint": "Optional. Messages and bills go to the parent; add the student’s number only if they have a phone."
     },
     "subscription": {
       "title": "Subscription",
