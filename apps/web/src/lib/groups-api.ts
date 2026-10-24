@@ -420,6 +420,7 @@ export function listBoardMembers(params: {
   flag?: MemberFlag;
   group_id?: string;
   teacher_id?: string;
+  student_id?: string;
   q?: string;
 } = {}): Promise<{ members: BoardMember[]; thresholds: { streak: number; low_rate: number }; sees_money: boolean }> {
   const qs = new URLSearchParams();

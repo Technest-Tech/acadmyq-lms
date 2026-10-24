@@ -1890,6 +1890,31 @@
     "colAdded": "Added",
     "hero": {
       "onRoll": "{count} on the roll"
+    },
+    "subscriptions": {
+      "title": "Subscriptions",
+      "description": "Everything this student pays for — their groups and private subscriptions — in one place.",
+      "loadFailed": "Couldn’t load the subscriptions.",
+      "empty": "No subscriptions yet.",
+      "groups": "Groups",
+      "private": "Private subscriptions",
+      "joinGroup": "Join a group",
+      "joinGroupTitle": "Enrol {name} in a group",
+      "joinGroupHint": "Charged from the join date.",
+      "pickGroup": "Group",
+      "joinedOn": "Join date",
+      "join": "Enrol",
+      "joined": "Enrolled in the group.",
+      "joinFailed": "Couldn’t enrol.",
+      "noGroups": "No active groups.",
+      "newPrivate": "New private subscription",
+      "newPrivateTitle": "A private subscription for {name}",
+      "since": "Since {date}",
+      "left": "Left {date}",
+      "remaining": "{hours} h left",
+      "outstanding": "{amount} owed",
+      "openGroup": "Open the group",
+      "openPackage": "Open the subscription"
     }
   },
   "scheduling": {

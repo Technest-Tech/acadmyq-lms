@@ -29,6 +29,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { GuardianForm } from "@/components/guardians/guardian-form";
 import { TeacherTimetables } from "@/components/scheduling/schedule-editor";
+import { SubscriptionsCard } from "@/components/students/subscriptions-card";
 import { DetailRow, ProfileCard } from "@/components/ui/profile-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -255,6 +256,9 @@ export function StudentDetail({
           )}
         </div>
       </div>
+
+      {/* ── Subscriptions: a centre's view of everything the student pays for ── */}
+      <SubscriptionsCard studentId={studentId} studentName={data.student.full_name} onChanged={() => void refresh()} />
 
       {/* ── Alerts ──────────────────────────────────────────────────── */}
       {error && (

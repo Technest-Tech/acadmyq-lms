@@ -1890,6 +1890,31 @@
     "colAdded": "أُضيف",
     "hero": {
       "onRoll": "{count} في السجل"
+    },
+    "subscriptions": {
+      "title": "الاشتراكات",
+      "description": "كل ما يُدفع عنه هذا الطالب: مجموعاته واشتراكاته الخاصة، في مكان واحد.",
+      "loadFailed": "لم تُحمَّل الاشتراكات.",
+      "empty": "لا اشتراكات بعد.",
+      "groups": "المجموعات",
+      "private": "اشتراكات خاصة",
+      "joinGroup": "اشتراك في مجموعة",
+      "joinGroupTitle": "اشتراك {name} في مجموعة",
+      "joinGroupHint": "يُحسب له من تاريخ الانضمام.",
+      "pickGroup": "المجموعة",
+      "joinedOn": "تاريخ الانضمام",
+      "join": "اشترك",
+      "joined": "تم الاشتراك في المجموعة.",
+      "joinFailed": "لم يتم الاشتراك.",
+      "noGroups": "لا مجموعات نشطة.",
+      "newPrivate": "اشتراك خاص جديد",
+      "newPrivateTitle": "اشتراك خاص لـ {name}",
+      "since": "منذ {date}",
+      "left": "غادر {date}",
+      "remaining": "{hours} س متبقية",
+      "outstanding": "متأخر {amount}",
+      "openGroup": "فتح المجموعة",
+      "openPackage": "فتح الاشتراك"
     }
   },
   "scheduling": {

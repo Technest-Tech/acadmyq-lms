@@ -120,6 +120,8 @@ final class GroupBoardController extends Controller
             'flag' => ['sometimes', 'nullable', Rule::in(['absent_streak', 'low_attendance', 'unpaid'])],
             'group_id' => ['sometimes', 'nullable', 'uuid'],
             'teacher_id' => ['sometimes', 'nullable', 'uuid'],
+            // One student's memberships — the student page's subscriptions card.
+            'student_id' => ['sometimes', 'nullable', 'uuid'],
             'q' => ['sometimes', 'nullable', 'string', 'max:120'],
         ]);
         $status = $data['status'] ?? 'ACTIVE';
@@ -133,6 +135,7 @@ final class GroupBoardController extends Controller
             ->when($status !== 'ALL', fn ($q) => $q->where('m.status', $status))
             ->when(! empty($data['group_id']), fn ($q) => $q->where('g.id', $data['group_id']))
             ->when(! empty($data['teacher_id']), fn ($q) => $q->where('g.teacher_id', $data['teacher_id']))
+            ->when(! empty($data['student_id']), fn ($q) => $q->where('m.student_id', $data['student_id']))
             ->orderBy('st.full_name')->orderBy('g.name');
         $this->scopeGroupsToCaller($query);
 

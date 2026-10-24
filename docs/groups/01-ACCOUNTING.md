@@ -346,9 +346,20 @@ Two more asks needed no switch:
   recorded stays. Resume switches exactly those timetables back on and regenerates. Family page:
   a card and a badge. Pinned in `GuardianSuspendTest`.
 
-Still open from the client's list: the subscriptions tab on the student (a private subscription per
-teacher/subject), and the "attendance shows only lessons after now" report, which the code does not
-reproduce and needs a screenshot.
+**Subscriptions card on the student** (`centre`): `SubscriptionsCard` on the student page lists the
+student's groups (memberships, via `/group-members?student_id=`) and private subscriptions (lesson
+packages) with where each stands, and offers "Join a group" and "New private subscription" — the
+existing records, read the way a centre thinks. Nothing without `centre`.
+
+**Deliberately NOT built yet — a private subscription keyed to a teacher/subject.** Today a package
+is one open block of hours per student (`lesson_packages_one_active_per_student`), consumed by any
+of their lessons; the whole packages engine (consume, renew, overdraft, carry-over, return to
+monthly) rests on that. Keying packages by teacher is a refactor of that engine, shared with every
+Quran academy, not a gated screen. It needs the client's answer on what a private subscription IS
+(hours that renew, or a monthly fee) and a session of its own.
+
+Still open: the "attendance shows only lessons after now" report, which the code does not reproduce
+and needs a screenshot.
 
 ## Decisions needed
 
