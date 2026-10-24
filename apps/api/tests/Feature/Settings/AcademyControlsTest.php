@@ -212,3 +212,18 @@ it('takes only "Add class" from a teacher when that switch is off', function () 
     // Marking their existing lessons is untouched.
     $this->postJson("/api/sessions/{$this->sessionId}/attendance", ['status' => 'ATTENDED'])->assertOk();
 });
+
+it('stores the academy’s default country and currency, and hands them to every session', function () {
+    Sanctum::actingAs($this->owner);
+    $this->patchJson('/api/academy', ['name' => 'Noor', 'country' => 'eg', 'default_currency' => 'egp'])->assertOk();
+    $profile = $this->getJson('/api/academy')->assertOk()->json('academy');
+    expect($profile['country'])->toBe('EG')->and($profile['default_currency'])->toBe('EGP');
+
+    $me = $this->getJson('/api/auth/me')->assertOk()->json('academy');
+    expect($me['country'])->toBe('EG')->and($me['defaultCurrency'])->toBe('EGP');
+
+    // Clearing the country is allowed; the currency is never blanked.
+    $this->patchJson('/api/academy', ['name' => 'Noor', 'country' => null])->assertOk();
+    expect($this->getJson('/api/academy')->json('academy.country'))->toBeNull();
+    $this->patchJson('/api/academy', ['name' => 'Noor', 'country' => 'Egypt'])->assertStatus(422);
+});

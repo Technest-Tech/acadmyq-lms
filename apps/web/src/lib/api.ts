@@ -198,6 +198,9 @@ export interface SessionAcademy {
   /** The brand name when the client set one, else the academy name. Never empty. */
   displayName: string;
   logoUrl: string | null;
+  /** The defaults every new-person form opens on: ISO-2 country (dial code follows) and currency. */
+  country?: string | null;
+  defaultCurrency?: string;
   /**
    * The academy's public address (custom domain → `<handle>.<root>` → platform). Links we hand to
    * payers are built on it — see `useInvoiceUrl`.
@@ -2731,6 +2734,8 @@ export interface AcademyProfile {
   name: string;
   timezone: string;
   default_currency: string;
+  /** ISO-2, or null when never set. */
+  country?: string | null;
   invoice_grouping: string;
   billing_day: number;
 }
@@ -2742,6 +2747,8 @@ export function getAcademyProfile(): Promise<{ academy: AcademyProfile }> {
 export function updateAcademyProfile(patch: {
   name: string;
   timezone?: string;
+  country?: string | null;
+  default_currency?: string;
 }): Promise<{ ok: boolean }> {
   return apiFetch("/api/academy", {
     method: "PATCH",

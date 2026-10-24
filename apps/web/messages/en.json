@@ -1397,7 +1397,13 @@
       "save": "Save",
       "saving": "Saving…",
       "saved": "Saved",
-      "unsaved": "Unsaved changes"
+      "unsaved": "Unsaved changes",
+      "country": "Default country",
+      "currency": "Default currency",
+      "defaultsHint": "Pre-selected on every student and parent form (country, dial code, currency). Each form can still change them.",
+      "pickCountry": "Pick a country",
+      "pickCurrency": "Pick a currency",
+      "search": "Search…"
     },
     "reportCard": {
       "title": "Report card",

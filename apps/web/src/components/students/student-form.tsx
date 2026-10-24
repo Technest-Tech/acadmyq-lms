@@ -40,6 +40,7 @@ import {
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { hoursText } from "@/components/groups/group-format";
 import { addGroupMembers, listGroups, type GroupRow } from "@/lib/groups-api";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -134,17 +135,17 @@ const countryOptions: ComboboxOption[] = [
 ];
 
 /** Split a stored E.164 phone back into a dial-code country + local number for the inputs. */
-function splitPhone(phone: string | null | undefined): {
+function splitPhone(phone: string | null | undefined, fallbackCountry = "SA"): {
   dialCountry: string;
   localNumber: string;
 } {
-  if (!phone) return { dialCountry: "SA", localNumber: "" };
+  if (!phone) return { dialCountry: fallbackCountry, localNumber: "" };
   const match = [...COUNTRIES]
     .sort((a, b) => b.dialCode.length - a.dialCode.length)
     .find((c) => phone.startsWith(c.dialCode));
   return match
     ? { dialCountry: match.code, localNumber: phone.slice(match.dialCode.length) }
-    : { dialCountry: "SA", localNumber: phone.replace(/[^\d]/g, "") };
+    : { dialCountry: fallbackCountry, localNumber: phone.replace(/[^\d]/g, "") };
 }
 
 function toMinor(val: string): number {
@@ -203,7 +204,9 @@ export function StudentForm({
   // Naming a price is a pricing act wherever it happens — the API enforces `student.set_price`
   // on the inline subscription too, so a role without it is never shown the package fields.
   const canPrice = can("student.set_price");
-  const initialSplit = splitPhone(initialPhone);
+  // What the academy set under Settings: the country (and its dial code) and the currency.
+  const defaults = useAcademyDefaults();
+  const initialSplit = splitPhone(initialPhone, defaults.dialCountry);
   const [guardians, setGuardians] = useState<GuardianRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -213,7 +216,7 @@ export function StudentForm({
   const [fullName, setFullName] = useState(initialFullName ?? "");
   const [dialCountry, setDialCountry] = useState(initialSplit.dialCountry);
   const [localNumber, setLocalNumber] = useState(initialSplit.localNumber);
-  const [country, setCountry] = useState("");
+  const [country, setCountry] = useState(defaults.country);
   const [selfGuardian, setSelfGuardian] = useState(false);
   // With a family on the record, the student's own numbers are the exception: folded away.
   const [ownPhones, setOwnPhones] = useState(false);
@@ -240,7 +243,7 @@ export function StudentForm({
     dialCountry: initialSplit.dialCountry,
     localNumber: "",
   });
-  const [parentCurrency, setParentCurrency] = useState("");
+  const [parentCurrency, setParentCurrency] = useState(defaults.currency);
   const addingParent = newParent && !selfGuardian && !fixedGuardianId;
 
   // Teachers are offered only to a role that can see the teacher list at all.
@@ -282,7 +285,7 @@ export function StudentForm({
   // Monthly — hourly, matching the enrolment wizard's pricing step and the student-detail form.
   const [price, setPrice] = useState("");
   const [hours, setHours] = useState("");
-  const [currency, setCurrency] = useState("");
+  const [currency, setCurrency] = useState(defaults.currency);
   const [startDate, setStartDate] = useState(
     () => new Date().toISOString().split("T")[0] ?? "",
   );
@@ -290,9 +293,8 @@ export function StudentForm({
   // Package — the same fields, defaults and suggestions as the packages screen, because they are
   // literally the same component. A new student has no agreed rate yet, so no total is suggested;
   // the guardian's currency seeds the field since that is who pays.
-  const guardianCurrency = addingParent
-    ? parentCurrency
-    : (guardians.find((g) => g.id === (fixedGuardianId ?? guardianId))?.currency ?? "");
+  const guardianCurrency =
+    (addingParent ? parentCurrency : (guardians.find((g) => g.id === (fixedGuardianId ?? guardianId))?.currency ?? "")) || defaults.currency;
   const terms = usePackageTerms({ defaultCurrency: guardianCurrency });
 
   const currencyOptions = useMemo<ComboboxOption[]>(

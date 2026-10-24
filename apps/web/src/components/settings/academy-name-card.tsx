@@ -6,11 +6,13 @@ import { useCallback, useEffect, useState } from "react";
 import { SectionCard } from "@/components/settings/section-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Combobox } from "@/components/ui/combobox";
 import {
   ApiError,
   getAcademyProfile,
   updateAcademyProfile,
 } from "@/lib/api";
+import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { cn } from "@/lib/utils";
 
 const inputBase =
@@ -22,6 +24,9 @@ export function AcademyNameCard() {
 
   const [name, setName]           = useState("");
   const [timezone, setTimezone]   = useState("");
+  // The defaults every new-person form opens on.
+  const [country, setCountry]     = useState("");
+  const [currency, setCurrency]   = useState("");
   const [dirty, setDirty]         = useState(false);
   const [busy, setBusy]           = useState(false);
   const [loading, setLoading]     = useState(true);
@@ -34,6 +39,8 @@ export function AcademyNameCard() {
       const res = await getAcademyProfile();
       setName(res.academy.name);
       setTimezone(res.academy.timezone);
+      setCountry(res.academy.country ?? "");
+      setCurrency(res.academy.default_currency ?? "");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -59,7 +66,7 @@ export function AcademyNameCard() {
     setBusy(true);
     setError(null);
     try {
-      await updateAcademyProfile({ name: name.trim(), timezone: timezone.trim() });
+      await updateAcademyProfile({ name: name.trim(), timezone: timezone.trim(), country: country || null, ...(currency ? { default_currency: currency } : {}) });
       setDirty(false);
       setSavedFlag(true);
       setTimeout(() => setSavedFlag(false), 2000);
@@ -117,6 +124,35 @@ export function AcademyNameCard() {
                 {t("timezoneHint")}
               </p>
             </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t("country")}</label>
+              <Combobox
+                options={[{ value: "", label: "—" }, ...COUNTRIES.map((c) => ({ value: c.code, label: c.name, sublabel: c.dialCode }))]}
+                value={country}
+                onChange={(v) => {
+                  setCountry(v);
+                  setDirty(true);
+                }}
+                placeholder={t("pickCountry")}
+                searchPlaceholder={t("search")}
+                data-testid="academy-country"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{t("currency")}</label>
+              <Combobox
+                options={CURRENCIES.map((c) => ({ value: c.code, label: c.code, sublabel: c.name }))}
+                value={currency}
+                onChange={(v) => {
+                  setCurrency(v);
+                  setDirty(true);
+                }}
+                placeholder={t("pickCurrency")}
+                searchPlaceholder={t("search")}
+                data-testid="academy-currency"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground/70 sm:col-span-2">{t("defaultsHint")}</p>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">

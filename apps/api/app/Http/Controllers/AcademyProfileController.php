@@ -32,7 +32,7 @@ final class AcademyProfileController extends Controller
         }
 
         $row = DB::table('academies')
-            ->select(['id', 'name', 'timezone', 'default_currency', 'invoice_grouping', 'billing_day'])
+            ->select(['id', 'name', 'timezone', 'default_currency', 'country', 'invoice_grouping', 'billing_day'])
             ->first();
 
         if ($row === null) {
@@ -50,6 +50,9 @@ final class AcademyProfileController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'min:2', 'max:120'],
             'timezone' => ['sometimes', 'string', 'max:60'],
+            // The defaults every new-person form opens on (country → dial code too; currency).
+            'country' => ['sometimes', 'nullable', 'string', 'size:2', 'alpha'],
+            'default_currency' => ['sometimes', 'string', 'size:3', 'alpha'],
         ]);
 
         $ctx = app(AuthContext::class);
@@ -58,7 +61,7 @@ final class AcademyProfileController extends Controller
         }
 
         $before = DB::table('academies')
-            ->select(['name', 'timezone'])
+            ->select(['name', 'timezone', 'country', 'default_currency'])
             ->first();
 
         $name = trim($data['name']);
@@ -72,6 +75,11 @@ final class AcademyProfileController extends Controller
         if (! $ok) {
             abort(500, 'Could not update academy settings.');
         }
+        $country = array_key_exists('country', $data) ? strtoupper((string) ($data['country'] ?? '')) : strtoupper((string) ($before->country ?? ''));
+        $currency = isset($data['default_currency']) ? strtoupper((string) $data['default_currency']) : (string) ($before->default_currency ?? '');
+        if (array_key_exists('country', $data) || isset($data['default_currency'])) {
+            DB::selectOne('select app.update_academy_defaults(?, ?) as ok', [$country, $currency]);
+        }
 
         Audit::log(
             'academy.settings',
@@ -80,8 +88,8 @@ final class AcademyProfileController extends Controller
             $ctx->academyId,
             $ctx->userId,
             $ctx->role,
-            before: ['name' => $before?->name, 'timezone' => $before?->timezone],
-            after: ['name' => $name, 'timezone' => $timezone],
+            before: ['name' => $before?->name, 'timezone' => $before?->timezone, 'country' => $before?->country, 'default_currency' => $before?->default_currency],
+            after: ['name' => $name, 'timezone' => $timezone, 'country' => $country ?: null, 'default_currency' => $currency],
         );
 
         return response()->json(['ok' => true]);

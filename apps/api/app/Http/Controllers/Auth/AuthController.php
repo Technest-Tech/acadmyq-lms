@@ -181,7 +181,7 @@ final class AuthController extends Controller
      * own identity. Readable under the caller's own context (academies_select is
      * `id = app.current_academy_id()`), so this can only ever describe the caller's academy.
      *
-     * @return array{name: string, displayName: string, logoUrl: ?string, subdomain: ?string, publicOrigin: string}|null
+     * @return array{name: string, displayName: string, logoUrl: ?string, country: ?string, defaultCurrency: string, subdomain: ?string, publicOrigin: string}|null
      */
     private function academyIdentity(?string $academyId): ?array
     {
@@ -191,7 +191,7 @@ final class AuthController extends Controller
 
         $academy = DB::table('academies')
             ->where('id', $academyId)
-            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain']);
+            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain', 'country', 'default_currency']);
 
         if ($academy === null) {
             return null;
@@ -205,6 +205,10 @@ final class AuthController extends Controller
             'name' => $name,
             'displayName' => $display !== '' ? $display : $name,
             'logoUrl' => $logo !== '' ? $logo : null,
+            // The defaults every new-person form opens on — the country (and its dial code) and the
+            // currency — so nothing is typed twice per student.
+            'country' => ($academy->country ?? null) ?: null,
+            'defaultCurrency' => (string) ($academy->default_currency ?? ''),
             // The academy's own handle, so the shell can tell whether the host the browser is on is
             // this academy's address. One session covers every `*.<root>` host, so without it a
             // signed-in user can sit on another client's subdomain looking at their OWN data under

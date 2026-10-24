@@ -105,7 +105,7 @@ export function makeSession(
     academy:
       role === "SUPER_ADMIN"
         ? null
-        : { name: "Noor Academy", displayName: "Noor Academy", logoUrl: null },
+        : { name: "Noor Academy", displayName: "Noor Academy", logoUrl: null, country: "EG", defaultCurrency: "EGP" },
     ...overrides,
   };
 

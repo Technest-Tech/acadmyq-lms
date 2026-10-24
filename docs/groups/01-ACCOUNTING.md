@@ -356,6 +356,15 @@ made and the form open to say which one.
 deliberate choice), and while a family is on the record the student's own numbers are folded behind
 "the student's own numbers" — the parent's numbers are the ones that matter.
 
+**Academy defaults (everyone, 2026-10-24):** Settings → Academy carries the academy's country and
+default currency (`academies.country`, written through `app.update_academy_defaults`, a
+security-definer function like the name/timezone one). They travel with the session
+(`academy.country`, `academy.defaultCurrency`) and every new-person form opens on them: the student
+form's country, dial code and currencies; the parent form's dial code, country and currency.
+Found on the way: the definer role only ever had SELECT on `academies`, so the name/timezone card
+had 500'd on every save (0 `academy.settings` audit rows on prod); the migration grants it UPDATE
+on exactly those columns.
+
 **Subscriptions card on the student** (`centre`): `SubscriptionsCard` on the student page lists the
 student's groups (memberships, via `/group-members?student_id=`) and private subscriptions (lesson
 packages) with where each stands, and offers "Join a group" and "New private subscription" — the

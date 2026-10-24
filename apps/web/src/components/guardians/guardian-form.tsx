@@ -9,6 +9,7 @@ import { Combobox, DialCodePicker, type ComboboxOption } from "@/components/ui/c
 import { joinPhone, PhoneInput, type PhoneParts } from "@/components/ui/phone-input";
 import { ApiError, createGuardian, type GuardianInput } from "@/lib/api";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
 const inputBase =
@@ -78,14 +79,16 @@ export function GuardianForm({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // What the academy set under Settings: its country (and dial code) and currency.
+  const defaults = useAcademyDefaults();
   const [fullName, setFullName] = useState("");
   // Phone split: dialCountryCode (ISO-2) + localNumber (digits only)
-  const [dialCountry, setDialCountry] = useState("SA");
+  const [dialCountry, setDialCountry] = useState(defaults.dialCountry);
   const [localNumber, setLocalNumber] = useState("");
   // Optional second number (the other parent, a home line) — contact only.
-  const [otherPhone, setOtherPhone] = useState<PhoneParts>({ dialCountry: "SA", localNumber: "" });
-  const [country, setCountry] = useState("");
-  const [currency, setCurrency] = useState("");
+  const [otherPhone, setOtherPhone] = useState<PhoneParts>({ dialCountry: defaults.dialCountry, localNumber: "" });
+  const [country, setCountry] = useState(defaults.country);
+  const [currency, setCurrency] = useState(defaults.currency);
   const [notes, setNotes] = useState("");
 
   // When a country is picked, auto-fill dial code + currency (if both are still empty/default)

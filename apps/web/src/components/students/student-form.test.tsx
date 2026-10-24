@@ -465,7 +465,8 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     const sent = vi.mocked(api.createStudent).mock.calls[0]![0];
     expect(sent.guardian_id).toBeUndefined();
     expect(sent.new_guardian).toEqual(
-      expect.objectContaining({ full_name: "Hassan Ali", whatsapp_phone: "+966100000001" }),
+      // The dial code follows the academy's country (EG in the test session), not a fixed +966.
+      expect.objectContaining({ full_name: "Hassan Ali", whatsapp_phone: "+20100000001" }),
     );
   });
 
