@@ -1216,8 +1216,8 @@ it('sends the parent a short payment reminder for an unpaid finished package and
 
     // One fact per line, the amount in bold, the package by its number — never the stored label.
     expect($first['message'])->toContain('*تذكير بسداد باقة الحصص*')
-        ->and($first['message'])->toContain('▫️ الباقة: رقم 1 — ساعة واحدة')
-        ->and($first['message'])->toContain('▫️ المبلغ المستحق: *200 EGP*')
+        ->and($first['message'])->toContain('• الباقة: رقم 1 — ساعة واحدة')
+        ->and($first['message'])->toContain('• المبلغ المستحق: *200 EGP*')
         ->and($first['message'])->toContain("للدفع من خلال الرابط:\nhttp")
         ->and($first['message'])->not->toContain('1 hours');
 

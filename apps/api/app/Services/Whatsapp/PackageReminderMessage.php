@@ -16,6 +16,9 @@ use Illuminate\Support\Carbon;
  *     page, which carries every way to pay.
  *   • RENEWAL — the block ran out, the bill is settled, and no next block has been opened.
  *
+ * Plain characters only — "•", never an emoji. A wa.me link pre-fills the text, and WhatsApp
+ * (Web/Desktop especially) turned "▫️" into "�" on the way in.
+ *
  * It names the package by its NUMBER and its hours, never by the stored label: the label is
  * usually the auto-generated "10 hours — October 2026", in whatever language the form was in,
  * and dropped into an Arabic sentence it read as noise.
@@ -46,21 +49,21 @@ final class PackageReminderMessage
         $lines = ['السلام عليكم ورحمة الله وبركاته،', ''];
         $lines[] = $renewal ? '*انتهاء باقة الحصص*' : '*تذكير بسداد باقة الحصص*';
         $lines[] = '';
-        $lines[] = '▫️ الطالب: *'.trim((string) $p['student']).'*';
-        $lines[] = '▫️ الباقة: '.self::packageAr($p);
+        $lines[] = '• الطالب: *'.trim((string) $p['student']).'*';
+        $lines[] = '• الباقة: '.self::packageAr($p);
         if ($p['finished'] && ($p['finished_on'] ?? null) !== null) {
-            $lines[] = '▫️ انتهت في: '.Carbon::parse($p['finished_on'])->locale('ar')->translatedFormat('j F Y');
+            $lines[] = '• انتهت في: '.Carbon::parse($p['finished_on'])->locale('ar')->translatedFormat('j F Y');
         } elseif (! $p['finished'] && isset($p['minutes_remaining'])) {
-            $lines[] = '▫️ المتبقي: '.self::hoursAr((int) $p['minutes_remaining']);
+            $lines[] = '• المتبقي: '.self::hoursAr((int) $p['minutes_remaining']);
         }
 
         if (! $renewal) {
             $paid = (int) ($p['paid_minor'] ?? 0);
             if ($paid > 0 && isset($p['total_minor'])) {
-                $lines[] = '▫️ إجمالي الباقة: '.self::money((int) $p['total_minor'], (string) $p['currency']);
-                $lines[] = '▫️ المدفوع: '.self::money($paid, (string) $p['currency']);
+                $lines[] = '• إجمالي الباقة: '.self::money((int) $p['total_minor'], (string) $p['currency']);
+                $lines[] = '• المدفوع: '.self::money($paid, (string) $p['currency']);
             }
-            $lines[] = '▫️ المبلغ المستحق: *'.self::money((int) $p['balance_minor'], (string) $p['currency']).'*';
+            $lines[] = '• المبلغ المستحق: *'.self::money((int) $p['balance_minor'], (string) $p['currency']).'*';
             $lines[] = '';
             if ($p['url'] !== null) {
                 $lines[] = 'للدفع من خلال الرابط:';
@@ -89,21 +92,21 @@ final class PackageReminderMessage
         $lines = ['Hello,', ''];
         $lines[] = $renewal ? '*Lesson package ended*' : '*Lesson package payment reminder*';
         $lines[] = '';
-        $lines[] = '▫️ Student: *'.trim((string) $p['student']).'*';
-        $lines[] = '▫️ Package: '.self::packageEn($p);
+        $lines[] = '• Student: *'.trim((string) $p['student']).'*';
+        $lines[] = '• Package: '.self::packageEn($p);
         if ($p['finished'] && ($p['finished_on'] ?? null) !== null) {
-            $lines[] = '▫️ Ended on: '.Carbon::parse($p['finished_on'])->format('j F Y');
+            $lines[] = '• Ended on: '.Carbon::parse($p['finished_on'])->format('j F Y');
         } elseif (! $p['finished'] && isset($p['minutes_remaining'])) {
-            $lines[] = '▫️ Remaining: '.self::hoursEn((int) $p['minutes_remaining']);
+            $lines[] = '• Remaining: '.self::hoursEn((int) $p['minutes_remaining']);
         }
 
         if (! $renewal) {
             $paid = (int) ($p['paid_minor'] ?? 0);
             if ($paid > 0 && isset($p['total_minor'])) {
-                $lines[] = '▫️ Package total: '.self::money((int) $p['total_minor'], (string) $p['currency']);
-                $lines[] = '▫️ Paid: '.self::money($paid, (string) $p['currency']);
+                $lines[] = '• Package total: '.self::money((int) $p['total_minor'], (string) $p['currency']);
+                $lines[] = '• Paid: '.self::money($paid, (string) $p['currency']);
             }
-            $lines[] = '▫️ Amount due: *'.self::money((int) $p['balance_minor'], (string) $p['currency']).'*';
+            $lines[] = '• Amount due: *'.self::money((int) $p['balance_minor'], (string) $p['currency']).'*';
             $lines[] = '';
             if ($p['url'] !== null) {
                 $lines[] = 'Pay here:';
