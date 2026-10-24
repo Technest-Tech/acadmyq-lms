@@ -4,6 +4,8 @@ import {
   ArrowLeft,
   BookOpen,
   CalendarDays,
+  PauseCircle,
+  PlayCircle,
   Check,
   ChevronDown,
   Coins,
@@ -41,6 +43,8 @@ import {
   getGuardian,
   listStudents,
   reactivateGuardian,
+  resumeGuardian,
+  suspendGuardian,
   updateGuardian,
   updateStudent,
   type GuardianChild,
@@ -623,6 +627,12 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
               />
               {isActive ? t("state.active") : t("state.inactive")}
             </HeroBadge>
+            {isActive && guardian.suspended_at && (
+              <HeroBadge>
+                <PauseCircle className="size-3" aria-hidden />
+                {t("detail.suspended")}
+              </HeroBadge>
+            )}
             <HeroBadge tone="gold">
               <Users className="size-3" aria-hidden />
               {t("book.students", { count: activeChildren })}
@@ -896,6 +906,46 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
                 )}
               </Button>
             </div>
+          </div>
+        </ProfileCard>
+      )}
+
+      {/* ── Paused for a while (docs/groups/01-ACCOUNTING.md) ─────────── */}
+      {canEdit && isActive && (
+        <ProfileCard
+          icon={guardian.suspended_at ? PlayCircle : PauseCircle}
+          title={guardian.suspended_at ? t("detail.resume") : t("detail.suspend")}
+          description={guardian.suspended_at ? t("detail.resumeDesc") : t("detail.suspendDesc")}
+          tone={guardian.suspended_at ? "slate" : "violet"}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-muted-foreground min-w-0 text-xs">{guardian.suspended_at ? "" : t("detail.suspendHint")}</p>
+            <Button
+              type="button"
+              size="sm"
+              variant={guardian.suspended_at ? "default" : "outline"}
+              data-testid={guardian.suspended_at ? "resume-guardian" : "suspend-guardian"}
+              className="shrink-0 gap-1.5"
+              onClick={async () => {
+                setError(null);
+                try {
+                  if (guardian.suspended_at) {
+                    await resumeGuardian(guardianId);
+                    await refresh();
+                    flash(t("detail.resumedOk"));
+                  } else {
+                    await suspendGuardian(guardianId);
+                    await refresh();
+                    flash(t("detail.suspendedOk"));
+                  }
+                } catch (err) {
+                  setError(err instanceof ApiError ? err.message : String(err));
+                }
+              }}
+            >
+              {guardian.suspended_at ? <PlayCircle className="size-3.5" aria-hidden /> : <PauseCircle className="size-3.5" aria-hidden />}
+              {guardian.suspended_at ? t("detail.resume") : t("detail.suspend")}
+            </Button>
           </div>
         </ProfileCard>
       )}

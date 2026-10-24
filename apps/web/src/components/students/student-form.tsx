@@ -252,7 +252,9 @@ export function StudentForm({
     (session?.capabilities == null ||
       (session.capabilities.includes("invoicing") &&
         session.capabilities.includes("packages")));
-  const [billing, setBilling] = useState<Billing>("monthly");
+  // A centre (`centre`) sells subscriptions: a new student starts on one; a Quran academy starts monthly.
+  const centre = session?.capabilities?.includes("centre") ?? false;
+  const [billing, setBilling] = useState<Billing>(centre && packagesAvailable ? "package" : "monthly");
   const onPackage = packagesAvailable && billing === "package";
 
   // Monthly — hourly, matching the enrolment wizard's pricing step and the student-detail form.
@@ -717,8 +719,8 @@ export function StudentForm({
                 />
                 <ChoiceCard
                   icon={Layers}
-                  title={t("form.billingPackage")}
-                  hint={t("form.billingPackageHint")}
+                  title={centre ? t("form.billingSubscription") : t("form.billingPackage")}
+                  hint={centre ? t("form.billingSubscriptionHint") : t("form.billingPackageHint")}
                   selected={billing === "package"}
                   onSelect={() => setBilling("package")}
                   testId="billing-package"

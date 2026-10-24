@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\People;
 
+use App\Services\SessionGenerator;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Support\Audit;
@@ -241,6 +242,89 @@ final class GuardianController extends Controller
         Audit::log('guardian.deactivate', 'guardian', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['deleted_at' => now()->toIso8601String()]);
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * POST /api/guardians/{id}/suspend — pause the whole family for a while, without deactivating
+     * anyone. The children's active timetables are switched off and flagged, their future untouched
+     * lessons are taken back off the calendar, and no group month is raised on them while it lasts.
+     * Everything already recorded (lessons held, bills, receipts) stays exactly as it is.
+     */
+    public function suspend(string $id): JsonResponse
+    {
+        Gate::authorize('guardian.update');
+
+        $guardian = DB::table('guardians')->where('id', $id)->whereNull('deleted_at')->first();
+        if ($guardian === null) {
+            abort(404, 'Guardian not found.');
+        }
+        if ($guardian->suspended_at !== null) {
+            return response()->json(['ok' => true, 'already' => true]);
+        }
+
+        $paused = DB::transaction(function () use ($id): array {
+            DB::table('guardians')->where('id', $id)->update(['suspended_at' => now(), 'suspended_by' => $this->ctx()->userId, 'updated_at' => now()]);
+            $scheduleIds = DB::table('schedules as sc')
+                ->join('students as st', 'st.id', '=', 'sc.student_id')
+                ->where('st.guardian_id', $id)
+                ->where('sc.is_active', true)->whereNull('sc.deleted_at')
+                ->pluck('sc.id')->map(fn ($v) => (string) $v)->all();
+            DB::table('schedules')->whereIn('id', $scheduleIds)->update(['is_active' => false, 'paused_by_suspension' => true, 'updated_at' => now()]);
+
+            return $scheduleIds;
+        });
+        // An inactive timetable has an empty intended set: the generator removes its future
+        // untouched lessons — never a held, moved or reported one.
+        $this->regenerate($paused);
+
+        Audit::log('guardian.suspend', 'guardian', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['suspended_at' => now()->toIso8601String(), 'paused_schedules' => count($paused)]);
+
+        return response()->json(['ok' => true, 'paused_schedules' => count($paused)]);
+    }
+
+    /** POST /api/guardians/{id}/resume — the timetables suspend switched off come back, and their lessons with them. */
+    public function resume(string $id): JsonResponse
+    {
+        Gate::authorize('guardian.update');
+
+        $guardian = DB::table('guardians')->where('id', $id)->whereNull('deleted_at')->first();
+        if ($guardian === null) {
+            abort(404, 'Guardian not found.');
+        }
+        if ($guardian->suspended_at === null) {
+            return response()->json(['ok' => true, 'already' => true]);
+        }
+
+        $resumed = DB::transaction(function () use ($id): array {
+            DB::table('guardians')->where('id', $id)->update(['suspended_at' => null, 'suspended_by' => null, 'updated_at' => now()]);
+            $scheduleIds = DB::table('schedules as sc')
+                ->join('students as st', 'st.id', '=', 'sc.student_id')
+                ->where('st.guardian_id', $id)
+                ->where('sc.paused_by_suspension', true)->whereNull('sc.deleted_at')
+                ->whereNull('st.deleted_at')
+                ->pluck('sc.id')->map(fn ($v) => (string) $v)->all();
+            DB::table('schedules')->whereIn('id', $scheduleIds)->update(['is_active' => true, 'paused_by_suspension' => false, 'updated_at' => now()]);
+
+            return $scheduleIds;
+        });
+        $this->regenerate($resumed);
+
+        Audit::log('guardian.resume', 'guardian', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['resumed_schedules' => count($resumed)]);
+
+        return response()->json(['ok' => true, 'resumed_schedules' => count($resumed)]);
+    }
+
+    /** @param  list<string>  $scheduleIds */
+    private function regenerate(array $scheduleIds): void
+    {
+        if ($scheduleIds === []) {
+            return;
+        }
+        [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
+        $generator = app(SessionGenerator::class);
+        foreach ($scheduleIds as $scheduleId) {
+            $generator->generateForSchedule($scheduleId, $windowStart, $windowEnd);
+        }
     }
 
     /**

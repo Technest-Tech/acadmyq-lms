@@ -367,6 +367,24 @@ describe("AppShell — the Groups dropdown (docs/groups)", () => {
   });
 });
 
+describe("AppShell — centre mode (`centre`, opt-in)", () => {
+  const money = { permissions: ["invoice.read", "package.read"] };
+
+  it("calls the packages subscriptions for a centre, and packages for everyone else", async () => {
+    renderShell("ACADEMY_OWNER", { ...money, capabilities: ["invoicing", "packages", "centre"] });
+    await ready();
+    expect(document.querySelector('[data-nav="packages"]')?.textContent).toContain(arMessages.nav.packagesCentre);
+    expect(document.querySelector('[data-nav="packagesFinished"]')?.textContent).toContain(arMessages.nav.packagesFinishedCentre);
+  });
+
+  it("keeps the packages wording for an academy without centre mode", async () => {
+    renderShell("ACADEMY_OWNER", { ...money, capabilities: ["invoicing", "packages"] });
+    await ready();
+    expect(document.querySelector('[data-nav="packages"]')?.textContent).toContain(arMessages.nav.packages);
+    expect(document.querySelector('[data-nav="packages"]')?.textContent).not.toContain(arMessages.nav.packagesCentre);
+  });
+});
+
 describe("AppShell — the Accounting section (docs/groups/01-ACCOUNTING.md)", () => {
   const money = { permissions: ["group.read", "invoice.read", "invoice.mark_paid", "student.read"] };
   const ACCOUNTING = ["invoicing", "groups", "accounting"];

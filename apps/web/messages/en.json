@@ -201,7 +201,9 @@
     "accountingTreasury": "Treasury & expenses",
     "accountingExpenses": "Expenses",
     "accountingIncome": "Income vs expenses",
-    "accountingReports": "Reports"
+    "accountingReports": "Reports",
+    "packagesCentre": "Open subscriptions",
+    "packagesFinishedCentre": "Finished subscriptions"
   },
   "navGroup": {
     "general": "General",
@@ -1084,7 +1086,16 @@
       "reactivateDesc": "Return this parent to your active lists",
       "reactivateHint": "Their students are deactivated separately and are restored from their own profiles.",
       "reactivated": "Parent reactivated.",
-      "selfGuardian": "Self-guardian"
+      "selfGuardian": "Self-guardian",
+      "suspend": "Pause the family",
+      "suspendDesc": "Pause the family for a while without deactivating anyone: the children’s timetables and upcoming lessons stop and no group month is raised on them; everything already recorded stays.",
+      "suspendHint": "One click resumes it; the timetables and lessons come back.",
+      "suspended": "Paused",
+      "suspendedSince": "Paused since {date}",
+      "resume": "Resume",
+      "resumeDesc": "The family is paused. Resuming brings the children’s timetables and lessons back from today.",
+      "suspendedOk": "The family is paused.",
+      "resumedOk": "The family is active again."
     }
   },
   "teachers": {
@@ -1704,7 +1715,9 @@
       "billingPackageIntro": "The package opens as you save — it's on the Packages page straight away, billed and ready for the first lesson.",
       "packageTermsRequired": "Enter the package hours, a total price, a currency and a name.",
       "savedWithPackage": "Student added, and their package is open on the Packages page.",
-      "teachers": "Teachers"
+      "teachers": "Teachers",
+      "billingSubscription": "Subscription",
+      "billingSubscriptionHint": "A block of hours paid up front; lessons draw on it and it renews when it runs out."
     },
     "subscription": {
       "title": "Subscription",
@@ -2796,7 +2809,17 @@
     },
     "emptyUnpaid": "Nothing unpaid. Every finished package is settled.",
     "emptyPaid": "No paid packages yet.",
-    "emptyRange": "No packages between these dates."
+    "emptyRange": "No packages between these dates.",
+    "centre": {
+      "open": {
+        "title": "Open subscriptions",
+        "subtitle": "Blocks of hours paid up front. Each lesson uses its length; a finished subscription renews and is billed."
+      },
+      "finished": {
+        "title": "Finished subscriptions",
+        "subtitle": "Subscriptions that ran out, and what was paid on them."
+      }
+    }
   },
   "attendance": {
     "title": "Attendance & report",
@@ -3005,6 +3028,10 @@
       "cancel": "Keep it as it is",
       "done": "The lesson is back to pending.",
       "inlineHint": "Didn't happen after all? Put the lesson back to pending so it can be marked again or moved."
+    },
+    "tabs": {
+      "private": "Private lessons",
+      "groups": "Group classes"
     }
   },
   "payroll": {
@@ -3111,7 +3138,8 @@
     "rangeLessonsWindow": "{from} → {to}",
     "rangeLessonsLoading": "Loading lessons…",
     "rangeLessonsEmpty": "No paid lessons in this period.",
-    "rangeTapHint": "Tap a teacher to see their lessons"
+    "rangeTapHint": "Tap a teacher to see their lessons",
+    "blocksHint": "Click a row to see its lessons."
   },
   "audit": {
     "title": "Audit Log",

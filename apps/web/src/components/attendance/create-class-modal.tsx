@@ -121,21 +121,24 @@ export function CreateClassModal({
   }, [open, isTeacher]);
 
   // A teacher's roster is scoped server-side, so they need no teacher picker; an owner must pick
-  // the teacher first, and the student list is then that teacher's roster.
+  // the teacher first, and the student list is then that teacher's roster. A centre (`centre`)
+  // lists every student instead: a one-off lesson there is often with a teacher the student has
+  // never had.
+  const centre = auth?.capabilities?.includes("centre") ?? false;
   useEffect(() => {
     if (!open) return;
-    if (!isTeacher && !teacherId) {
+    if (!isTeacher && !teacherId && !centre) {
       setStudents(null);
       return;
     }
     setStudents(null);
     void listStudents({
       pageSize: 200,
-      filter: isTeacher ? {} : { teacher_id: teacherId },
+      filter: isTeacher || centre ? {} : { teacher_id: teacherId },
     })
       .then((r) => setStudents(r.rows))
       .catch(() => setStudents([]));
-  }, [open, isTeacher, teacherId]);
+  }, [open, isTeacher, teacherId, centre]);
 
   const isCancel = CANCEL_STATUSES.includes(status);
   const canSubmit = !!studentId && !!when && duration > 0 && !busy;

@@ -302,6 +302,23 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await user.click(screen.getByTestId("intent-enrolled"));
   }
 
+  it("starts a centre's new student on a subscription, with that word — and everyone else monthly", async () => {
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "centre"] });
+    await fillActiveStudent(user);
+    // The subscription's own fields are already open: no click on the billing tile needed.
+    expect(screen.getByLabelText(enMessages.packages.form.hours)).toBeInTheDocument();
+    expect(screen.getByTestId("billing-package").textContent).toContain(enMessages.students.form.billingSubscription);
+  });
+
+  it("keeps a Quran academy's new student monthly by default", async () => {
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"] });
+    await fillActiveStudent(user);
+    expect(screen.queryByLabelText(enMessages.packages.form.hours)).not.toBeInTheDocument();
+    expect(screen.getByTestId("billing-package").textContent).toContain(enMessages.students.form.billingPackage);
+  });
+
   it("creates an active student straight onto a lesson package in one save", async () => {
     vi.mocked(api.createStudent).mockResolvedValue({
       studentId: "s1",

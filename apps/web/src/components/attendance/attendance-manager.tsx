@@ -158,7 +158,7 @@ const ENTER_EARLY_HORIZON_MINUTES = 180;
 /** The "Done by" filter value for lessons their own teacher marked (not a team login id). */
 const DONE_BY_TEACHER = "teacher";
 
-export function AttendanceManager() {
+export function AttendanceManager({ header }: { header?: React.ReactNode } = {}) {
   const t = useTranslations("attendance");
   const tSched = useTranslations("scheduling");
   const tDt = useTranslations("datatable");
@@ -533,6 +533,8 @@ export function AttendanceManager() {
           </>
         }
       />
+
+      {header}
 
       {/* ── الحصص المعلقة / Held-up lessons ───────────────────────────────
           Sits ABOVE the period navigator on purpose: it is the only block on the page that is not

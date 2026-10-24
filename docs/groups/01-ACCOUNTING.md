@@ -322,6 +322,34 @@ questions. The sidebar now has four pages, laid out by question, and nothing cha
   (`GroupPayroll` reads the lesson's own duration). Null = the real length. Pinned in
   ClassGroupMoneyTest ("a student alone in the class…").
 
+## Centre mode (`centre`, 2026-10-24)
+
+The centre's asks that touch screens every academy shares sit behind ONE opt-in capability,
+`centre` (`FeatureCatalog::OPT_IN_CAPABILITIES`), OFF for every client until a Super Admin switches
+it on from the Features card. A Quran academy without it sees every one of these screens exactly as
+before, pinned by tests on each.
+
+| With `centre` | Where |
+|---|---|
+| A new student starts on a **subscription** (package) rather than monthly, and the tile says "subscription" | Student form |
+| Packages are called **subscriptions** in the sidebar and on their pages | app-shell `navLabel`, packages pages |
+| A manual lesson from Attendance lists **every** student, not the picked teacher's roster | Create-class modal |
+| A teacher's pay statement reads as **blocks** — one per group or private student, opened to see its lessons — instead of a flat line list | Payout detail modal |
+
+Two more asks needed no switch:
+- **Attendance with group classes** — a client holding `groups` gets a second tab on the Attendance
+  page, the groups' own lessons board (`AttendanceScreen`); the private page is unchanged underneath.
+- **A family paused for a while** — `POST /guardians/{id}/suspend` / `resume`
+  (`guardians.suspended_at`). Suspend switches the children's active timetables off and flags them
+  (`schedules.paused_by_suspension`), the generator takes their future untouched lessons off the
+  calendar, and `GroupBilling::billableMembers` raises no group month on them. Everything already
+  recorded stays. Resume switches exactly those timetables back on and regenerates. Family page:
+  a card and a badge. Pinned in `GuardianSuspendTest`.
+
+Still open from the client's list: the subscriptions tab on the student (a private subscription per
+teacher/subject), and the "attendance shows only lessons after now" report, which the code does not
+reproduce and needs a screenshot.
+
 ## Decisions needed
 
 1. **Receipts academy-wide (recommended) or groups only?** Groups-only would leave the

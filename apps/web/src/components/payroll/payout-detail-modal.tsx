@@ -4,6 +4,7 @@ import {
   CalendarCheck,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   FileText,
   Gift,
   Loader2,
@@ -16,7 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   AdjustmentReason,
   SourceBadge,
@@ -41,6 +42,7 @@ import {
   repricePayout,
   type SessionReportData,
 } from "@/lib/api";
+import { useCapability } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -87,6 +89,9 @@ export function PayoutDetailModal({
 
   const [payout, setPayout] = useState<PayoutDetail | null>(null);
   const [lineItems, setLineItems] = useState<PayoutLineItem[]>([]);
+  // A centre (`centre`) reads the statement as blocks per group / student; which one is open.
+  const centre = useCapability("centre");
+  const [openBlock, setOpenBlock] = useState<string | null>(null);
   const [adjustments, setAdjustments] = useState<PayoutAdjustment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -354,10 +359,20 @@ export function PayoutDetailModal({
                     </thead>
                     <tbody className="divide-y">
                       {byStudent.map((g) => (
-                        <tr key={g.key} className="hover:bg-muted/20 transition-colors">
+                        <Fragment key={g.key}>
+                        <tr
+                          className={cn("hover:bg-muted/20 transition-colors", centre && "cursor-pointer")}
+                          onClick={centre ? () => setOpenBlock((k) => (k === g.key ? null : g.key)) : undefined}
+                          data-testid={centre ? `payout-block-${g.key}` : undefined}
+                          aria-expanded={centre ? openBlock === g.key : undefined}
+                        >
                           <td className="px-4 py-2.5">
                             <span className="inline-flex items-center gap-1.5">
-                              <Users className="text-muted-foreground size-3 shrink-0" aria-hidden />
+                              {centre ? (
+                                <ChevronDown className={cn("text-muted-foreground size-3.5 shrink-0 transition-transform", openBlock === g.key && "rotate-180")} aria-hidden />
+                              ) : (
+                                <Users className="text-muted-foreground size-3 shrink-0" aria-hidden />
+                              )}
                               {g.name}
                             </span>
                           </td>
@@ -374,14 +389,42 @@ export function PayoutDetailModal({
                             {fmt(g.amount)}
                           </td>
                         </tr>
+                        {/* A centre reads the statement as blocks — one per group or private student —
+                            and opens a block to see the lessons behind its figure. */}
+                        {centre && openBlock === g.key && (
+                          <tr className="bg-muted/10">
+                            <td colSpan={5} className="px-4 py-2">
+                              <ul className="divide-y text-xs" data-testid={`payout-block-lines-${g.key}`}>
+                                {lineItems
+                                  .filter((li) => (li.student_id ?? (li.group_id ? `group:${li.group_id}` : null) ?? li.student_name ?? "—") === g.key)
+                                  .map((li) => (
+                                    <li key={li.id} className="flex items-center justify-between gap-2 py-1.5">
+                                      <span className="min-w-0 truncate">
+                                        {[li.session_date ? dateFmt.format(new Date(li.session_date)) : null, li.description, li.duration_minutes ? `${li.duration_minutes} min` : null]
+                                          .filter(Boolean)
+                                          .join(" · ")}
+                                      </span>
+                                      <span className="flex shrink-0 items-center gap-2">
+                                        <ReportStatusBadge status={li.report_status} />
+                                        <span className="font-semibold tabular-nums">{formatMoney({ amount: li.amount_minor, currency: li.currency }, locale)}</span>
+                                      </span>
+                                    </li>
+                                  ))}
+                              </ul>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       ))}
                     </tbody>
                   </table>
                 </div>
+                {centre && <p className="text-muted-foreground mt-2 text-xs">{t("blocksHint")}</p>}
               </Section>
             )}
 
-            {/* Session line items */}
+            {/* Session line items — a centre reads them inside the blocks above instead. */}
+            {!centre && (
             <Section title={t("lineItems")}>
               <div className="overflow-x-auto rounded-xl border">
                 <table className="w-full min-w-[30rem] text-sm">
@@ -446,6 +489,7 @@ export function PayoutDetailModal({
                 </table>
               </div>
             </Section>
+            )}
 
             {/* Rewards & deductions ledger */}
             <Section

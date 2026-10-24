@@ -12,6 +12,7 @@ import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { useCapability } from "@/lib/capabilities";
 import { EditPackageForm } from "@/components/packages/edit-package-form";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { OpenPackageForm } from "@/components/packages/open-package-form";
@@ -74,6 +75,8 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   const t = useTranslations("packages");
   const locale = useLocale();
   const { can } = useAuth();
+  // A centre calls these subscriptions; a Quran academy keeps packages.
+  const centre = useCapability("centre");
   const canManage = can("package.manage");
   const canSendInvoice = can("invoice.send_link");
   const canMarkPaid = can("invoice.mark_paid");
@@ -364,8 +367,8 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       <PageHero
         latticeId="packages-hero-lattice"
         icon={view === "open" ? Layers : PackageCheck}
-        title={t(`pages.${view}.title`)}
-        subtitle={t(`pages.${view}.subtitle`)}
+        title={centre ? t(`centre.${view}.title`) : t(`pages.${view}.title`)}
+        subtitle={centre ? t(`centre.${view}.subtitle`) : t(`pages.${view}.subtitle`)}
         actions={
           <>
             {view === "open" && rows !== null && (

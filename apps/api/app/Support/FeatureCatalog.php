@@ -41,6 +41,7 @@ final class FeatureCatalog
         'report_card' => 'Report card image (shareable lesson/trial report)',
         'groups' => 'Group classes — groups, members, timetable & attendance',
         'accounting' => 'Accounting — numbered receipts, partial payments, balances & collection sheets',
+        'centre' => 'Centre mode — subscriptions wording, packages by default, any student on a manual lesson, salary blocks',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
         'video.only' => 'Video-only workspace (the panel shows the video classroom only)',
         'lms' => 'LMS — online courses (course builder & learner site)',
@@ -179,6 +180,7 @@ final class FeatureCatalog
             'report_card',
             'groups',
             'accounting',
+            'centre',
         ],
         'VIDEO' => ['video.conferencing'],
         'WHATSAPP' => ['whatsapp.automation'],
@@ -196,6 +198,9 @@ final class FeatureCatalog
      */
     public const OPT_IN_CAPABILITIES = [
         'accounting',
+        // The centre's ways on the shared screens (docs/groups/01-ACCOUNTING.md): a Quran academy
+        // never sees them unless a Super Admin switches the client over.
+        'centre',
     ];
 
     /**

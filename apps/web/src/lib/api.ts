@@ -2040,6 +2040,8 @@ export interface GuardianRow {
   currency: string;
   notes: string | null;
   deleted_at: string | null;
+  /** Set while the family is paused (docs/groups/01-ACCOUNTING.md): timetables off, no group months. */
+  suspended_at?: string | null;
   created_at: string;
   /**
    * How many ACTIVE students this parent sponsors. Present on the LIST only (the parents page
@@ -2133,6 +2135,15 @@ export function deactivateGuardian(id: string): Promise<{ ok: boolean }> {
 /** The way back from a deactivated parent — their children are restored separately. */
 export function reactivateGuardian(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/guardians/${id}/reactivate`, { method: "POST" });
+}
+
+/** Pause the whole family for a while (timetables off, no group months); nothing is deactivated. */
+export function suspendGuardian(id: string): Promise<{ ok: boolean; paused_schedules?: number }> {
+  return apiFetch(`/api/guardians/${id}/suspend`, { method: "POST" });
+}
+
+export function resumeGuardian(id: string): Promise<{ ok: boolean; resumed_schedules?: number }> {
+  return apiFetch(`/api/guardians/${id}/resume`, { method: "POST" });
 }
 
 // ── Teachers (Sprint 4 §8) ───────────────────────────────────────────────────

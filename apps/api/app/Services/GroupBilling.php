@@ -655,8 +655,11 @@ final class GroupBilling
     {
         return DB::table('class_group_members as m')
             ->join('students as st', 'st.id', '=', 'm.student_id')
+            ->leftJoin('guardians as gu', 'gu.id', '=', 'st.guardian_id')
             ->where('m.group_id', $group->id)
             ->whereNull('st.deleted_at')
+            // A suspended family is not billed while it lasts; what was raised before stays.
+            ->whereNull('gu.suspended_at')
             ->whereNotIn('st.status', [StudentStatus::TRIAL, StudentStatus::TRIAL_BOOKED])
             ->when($studentIds !== null, fn ($q) => $q->whereIn('m.student_id', $studentIds))
             ->orderBy('m.joined_on')

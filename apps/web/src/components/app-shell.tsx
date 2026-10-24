@@ -779,6 +779,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // is no separate loading state to guard, and no window in which a video-only ("Meet Plan") academy
   // could flash the full academy chrome. `null` = a platform Super Admin, who has no plan.
   const capabilities = session?.capabilities ?? null;
+  // A centre (`centre`, opt-in) sells "subscriptions"; a Quran academy keeps "packages".
+  const centre = capabilities?.includes("centre") ?? false;
+  const navLabel = (key: NavKey): string =>
+    centre && (key === "packages" || key === "packagesFinished") ? t(`nav.${key}Centre`) : t(`nav.${key}`);
 
   // The preference is read after mount, never during render — reading localStorage while
   // rendering would make the server and client markup disagree.
@@ -1151,7 +1155,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const commandItems: CommandItem[] = items.filter((item) => childrenOf(item.key).length === 0).map((item) => ({
     key: item.key,
-    label: t(`nav.${item.key}`),
+    label: navLabel(item.key),
     href: item.href,
     icon: item.icon,
     group: t(`navGroup.${item.group}`),
@@ -1168,7 +1172,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const renderNavItem = ({ key, icon: Icon, href }: (typeof NAV)[number]) => {
     const isActive = matches(href);
     const badge = badgeFor(key);
-    const label = t(`nav.${key}`);
+    const label = navLabel(key);
 
     const link = (
       <Link
@@ -1248,7 +1252,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const Icon = item.icon;
     const holdsPage = children.some((c) => matches(c.href));
     const isOpen = openParents.has(item.key);
-    const label = t(`nav.${item.key}`);
+    const label = navLabel(item.key);
     const waiting = children.reduce((sum, c) => sum + (badgeFor(c.key)?.count ?? 0), 0);
     const toggle = () =>
       setOpenParents((prev) => {
@@ -1580,7 +1584,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="text-muted-foreground/40 select-none">/</span>
                 {pathname === activeItem.href ? (
                   <span className="text-foreground font-semibold">
-                    {t(`nav.${activeItem.key}`)}
+                    {navLabel(activeItem.key)}
                   </span>
                 ) : (
                   <>
@@ -1588,7 +1592,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       href={activeItem.href}
                       className="text-muted-foreground hover:text-foreground font-medium transition-colors"
                     >
-                      {t(`nav.${activeItem.key}`)}
+                      {navLabel(activeItem.key)}
                     </Link>
                     <span className="text-muted-foreground/40 select-none">
                       /
