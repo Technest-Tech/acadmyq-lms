@@ -41,6 +41,7 @@ import {
   type TeacherRow,
 } from "@/lib/api";
 import { CURRENCIES } from "@/lib/countries";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
 // ── Shared ─────────────────────────────────────────────────────────────────────
@@ -148,7 +149,9 @@ export function EnrollmentWizard({
   const [billing, setBilling] = useState<"monthly" | "package">("monthly");
   const onPackage = packagesAvailable && billing === "package";
   // The guardian pays, so their currency seeds the package's. Fetched only when it can matter.
-  const [guardianCurrency, setGuardianCurrency] = useState("");
+  // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
+  const defaults = useAcademyDefaults();
+  const [guardianCurrency, setGuardianCurrency] = useState(defaults.currency);
   const terms = usePackageTerms({ defaultCurrency: guardianCurrency });
 
   useEffect(() => {
@@ -177,7 +180,7 @@ export function EnrollmentWizard({
   // Pricing step — always hourly, matching the student-detail subscription form.
   const [sessions, setSessions] = useState("");
   const [price, setPrice] = useState("");
-  const [currency, setCurrency] = useState("");
+  const [currency, setCurrency] = useState(defaults.currency);
   const [startDate, setStartDate] = useState(
     () => new Date().toISOString().split("T")[0] ?? "",
   );

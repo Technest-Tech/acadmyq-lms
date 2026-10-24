@@ -15,6 +15,7 @@ import {
   type StudentRow,
 } from "@/lib/api";
 import { COUNTRIES } from "@/lib/countries";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
 const inputBase =
@@ -85,7 +86,9 @@ export function AddTrialForm({
 
   const [who, setWho] = useState<Who>("new");
   const [name, setName] = useState("");
-  const [dialCountry, setDialCountry] = useState("EG");
+  // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
+  const defaults = useAcademyDefaults();
+  const [dialCountry, setDialCountry] = useState(defaults.dialCountry);
   const [localNumber, setLocalNumber] = useState("");
   const [email, setEmail] = useState("");
   const [studentId, setStudentId] = useState("");

@@ -14,6 +14,7 @@ import {
   type LeadSource,
 } from "@/lib/api";
 import { COUNTRIES } from "@/lib/countries";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
 const inputBase =
@@ -66,7 +67,9 @@ export function LeadForm({
   const [busy, setBusy] = useState(false);
 
   const [fullName, setFullName] = useState("");
-  const [dialCountry, setDialCountry] = useState("EG");
+  // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
+  const defaults = useAcademyDefaults();
+  const [dialCountry, setDialCountry] = useState(defaults.dialCountry);
   const [localNumber, setLocalNumber] = useState("");
   const [source, setSource] = useState<LeadSource>("WHATSAPP");
   const [interestedIn, setInterestedIn] = useState("");

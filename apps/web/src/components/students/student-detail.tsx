@@ -68,6 +68,7 @@ import {
 } from "@/lib/api";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
 // The manually-settable active states. Terminal states (GRADUATED/WITHDRAWN) are not editable
@@ -1137,7 +1138,9 @@ export function SubscriptionSection({
 
   const [sessions, setSessions] = useState("");
   const [price, setPrice] = useState("");
-  const [currency, setCurrency] = useState("");
+  // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
+  const defaults = useAcademyDefaults();
+  const [currency, setCurrency] = useState(defaults.currency);
   const [startDate, setStartDate] = useState("");
 
   // Correcting a mistyped rate must also fix the bills it already produced; a real rate change

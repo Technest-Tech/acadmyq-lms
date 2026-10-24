@@ -22,6 +22,7 @@ import {
   type GroupSlot,
   type GroupTeacherPayMode,
 } from "@/lib/groups-api";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
 /** A typed major-unit amount ("450", "12.5") → integer minor units; "" → null. */
@@ -118,7 +119,9 @@ export function GroupForm({
 
   const [billingMode, setBillingMode] = useState<GroupBillingMode>(group?.pricing?.billing_mode ?? "MONTHLY");
   const [price, setPrice] = useState(fromMinor(group?.pricing?.price_minor));
-  const [currency, setCurrency] = useState(group?.pricing?.currency ?? "");
+  // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
+  const defaults = useAcademyDefaults();
+  const [currency, setCurrency] = useState(group?.pricing?.currency ?? defaults.currency);
   const [chargeAbsent, setChargeAbsent] = useState(group?.pricing?.charge_absent ?? false);
   const [prorateJoin, setProrateJoin] = useState(group?.pricing?.prorate_join ?? true);
   // MONTHLY only: the hours one month buys. Empty = the calendar month (the way every group billed

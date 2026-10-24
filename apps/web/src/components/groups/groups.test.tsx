@@ -292,7 +292,8 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
     expect(input).toMatchObject({
       billing_mode: "MONTHLY",
       price_minor: 45000,
-      currency: null,
+      // Opens on the academy's own currency (EGP in the test session); "academy currency" is still a choice.
+      currency: "EGP",
       teacher_pay_mode: "REVENUE_SHARE",
       teacher_pay_minor: null,
       teacher_share_bp: 4000,

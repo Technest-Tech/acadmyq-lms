@@ -24,6 +24,7 @@ import {
   type LmsPaymentMethod,
   type PaymentMethodType,
 } from "@/lib/api";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
 /**
@@ -56,7 +57,9 @@ export function PaymentsManager() {
   const canSetCurrency = can("payment_settings.manage");
 
   const [methods, setMethods] = useState<LmsPaymentMethod[]>([]);
-  const [currency, setCurrency] = useState("EGP");
+  // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
+  const defaults = useAcademyDefaults();
+  const [currency, setCurrency] = useState(defaults.currency || "EGP");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);

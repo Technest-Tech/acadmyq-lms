@@ -34,6 +34,7 @@ import {
 } from "@/lib/api";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { STAFF_ROLES } from "@/lib/roles";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -143,12 +144,14 @@ export function StaffForm({
   const canSalary = can("staff.set_salary");
 
   const [fullName, setFullName]       = useState(initial?.full_name ?? "");
-  const [dialCountry, setDialCountry] = useState("EG");
+  // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
+  const defaults = useAcademyDefaults();
+  const [dialCountry, setDialCountry] = useState(defaults.dialCountry);
   const [localNumber, setLocalNumber] = useState(initial?.phone ?? "");
   const [salary, setSalary]           = useState(
     initial?.salary_minor ? String(initial.salary_minor / 100) : "",
   );
-  const [currency, setCurrency]       = useState(initial?.currency ?? "EGP");
+  const [currency, setCurrency]       = useState(initial?.currency ?? (defaults.currency || "EGP"));
   const [notes, setNotes]             = useState(initial?.notes ?? "");
   const [department, setDepartment]   = useState(initial?.department ?? "");
   const [departments, setDepartments] = useState<StaffDepartment[]>([]);

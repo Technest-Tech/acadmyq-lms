@@ -43,6 +43,7 @@ import {
   updateTeacher,
 } from "@/lib/api";
 import { COUNTRIES } from "@/lib/countries";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
 const dialOptions: ComboboxOption[] = COUNTRIES.map((c) => ({
@@ -144,7 +145,9 @@ export function TeacherDetail({
   const [saving, setSaving] = useState(false);
 
   const [fullName, setFullName] = useState("");
-  const [dialCountry, setDialCountry] = useState("EG");
+  // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
+  const defaults = useAcademyDefaults();
+  const [dialCountry, setDialCountry] = useState(defaults.dialCountry);
   const [localNumber, setLocalNumber] = useState("");
   const [specialization, setSpecialization] = useState("");
   // The destination pay is sent to. The method is only ever saved alongside a handle — an

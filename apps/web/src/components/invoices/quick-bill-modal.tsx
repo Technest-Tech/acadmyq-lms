@@ -17,6 +17,7 @@ import {
   type InvoiceSendLinkResult,
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
+import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
 type PayerMode = "student" | "name";
@@ -61,7 +62,9 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
   const [studentId, setStudentId] = useState("");
   const [payerName, setPayerName] = useState("");
   const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState("EGP");
+  // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
+  const defaults = useAcademyDefaults();
+  const [currency, setCurrency] = useState(defaults.currency || "EGP");
   const [description, setDescription] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
