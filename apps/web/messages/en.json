@@ -1717,7 +1717,22 @@
       "savedWithPackage": "Student added, and their package is open on the Packages page.",
       "teachers": "Teachers",
       "billingSubscription": "Subscription",
-      "billingSubscriptionHint": "A block of hours paid up front; lessons draw on it and it renews when it runs out."
+      "billingSubscriptionHint": "A block of hours paid up front; lessons draw on it and it renews when it runs out.",
+      "groupSubs": "Group subscriptions",
+      "groupSubsHint": "Joined from the start date; each group’s subscription is raised at once. Add as many as needed.",
+      "addGroup": "+ Add a group",
+      "pickGroup": "Pick a group",
+      "noGroups": "No active groups yet.",
+      "removeGroup": "Remove",
+      "groupPrice": "{price} · {hours} h a month",
+      "groupPriceMonthly": "{price} a month",
+      "groupPriceLesson": "{price} a lesson",
+      "groupPriceCourse": "{price} for the course",
+      "groupNoPrice": "No price set",
+      "groupJoinFailed": "The student was added, but enrolling in {names} failed. Add it from the student’s page.",
+      "closeAfter": "Close",
+      "noPrivate": "No private subscription",
+      "noPrivateHint": "Groups only. A private lesson, if any, is billed by the hour."
     },
     "subscription": {
       "title": "Subscription",

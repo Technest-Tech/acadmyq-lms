@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +16,13 @@ vi.mock("@/lib/api", async (importActual) => ({
 
 import * as api from "@/lib/api";
 
+const groupsApi = { listGroups: vi.fn(), addGroupMembers: vi.fn() };
+vi.mock("@/lib/groups-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/groups-api")>()),
+  listGroups: (...a: unknown[]) => groupsApi.listGroups(...a),
+  addGroupMembers: (...a: unknown[]) => groupsApi.addGroupMembers(...a),
+}));
+
 /**
  * `student.set_price` is what gates the package fields, so it is spelled out per test rather
  * than inherited from the role fixture — the two halves of the "active student" card (with a
@@ -25,12 +32,14 @@ function renderForm({
   canPrice = true,
   canManagePackages = false,
   capabilities,
+  extraPermissions = [],
   onCreated = vi.fn(),
   onCancel = vi.fn(),
 }: {
   canPrice?: boolean;
   canManagePackages?: boolean;
   capabilities?: string[];
+  extraPermissions?: string[];
   onCreated?: () => void;
   onCancel?: () => void;
 } = {}) {
@@ -42,6 +51,7 @@ function renderForm({
     ...session.permissions,
     ...(canPrice ? ["student.set_price"] : []),
     ...(canManagePackages ? ["package.manage"] : []),
+    ...extraPermissions,
   ];
 
   render(
@@ -317,6 +327,39 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await fillActiveStudent(user);
     expect(screen.queryByLabelText(enMessages.packages.form.hours)).not.toBeInTheDocument();
     expect(screen.getByTestId("billing-package").textContent).toContain(enMessages.students.form.billingPackage);
+  });
+
+  it("enrols a centre's new student in the groups picked on the form, in the same save", async () => {
+    groupsApi.listGroups.mockResolvedValue({
+      groups: [
+        { id: "g1", name: "English A1", teacher_name: "Miss Mona", pricing: { billing_mode: "MONTHLY", price_minor: 60000, currency: "EGP", charge_absent: false, prorate_join: true, month_minutes: 480, solo_billed_minutes: null } },
+        { id: "g2", name: "Math B2", teacher_name: "Mr Ali", pricing: null },
+      ],
+      counts: {},
+    });
+    groupsApi.addGroupMembers.mockResolvedValue({ added: 1, group: {} });
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s9", guardianId: "g1" });
+    const user = userEvent.setup();
+    const { onCreated } = renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "groups", "centre"], extraPermissions: ["group.manage"] });
+    // Pass on the private subscription: groups only.
+    await fillActiveStudent(user);
+    await user.click(screen.getByTestId("billing-monthly"));
+
+    const pick = await screen.findByTestId("group-subs-pick");
+    await waitFor(() => expect(within(pick).getAllByRole("option").length).toBeGreaterThan(1));
+    await user.selectOptions(pick, "g1");
+    await user.selectOptions(pick, "g2");
+    const list = screen.getByTestId("group-subs-list");
+    expect(within(list).getByText("English A1")).toBeInTheDocument();
+    // The group's own price and hours show on its row.
+    expect(within(list).getByText(/8/)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(enMessages.students.subscription.priceHourly), "100");
+    await user.click(screen.getByTestId("submit-student"));
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(groupsApi.addGroupMembers).toHaveBeenCalledTimes(2));
+    expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g1", expect.objectContaining({ student_ids: ["s9"] }));
+    expect(onCreated).toHaveBeenCalledWith("s9", expect.anything());
   });
 
   it("creates an active student straight onto a lesson package in one save", async () => {

@@ -1717,7 +1717,22 @@
       "savedWithPackage": "تمت إضافة الطالب، وباقته مفتوحة في صفحة الباقات.",
       "teachers": "المعلّمون",
       "billingSubscription": "اشتراك",
-      "billingSubscriptionHint": "اشتراك بعدد ساعات يُدفع مقدمًا؛ تُخصم الحصص منه ويتجدد عند انتهائه."
+      "billingSubscriptionHint": "اشتراك بعدد ساعات يُدفع مقدمًا؛ تُخصم الحصص منه ويتجدد عند انتهائه.",
+      "groupSubs": "اشتراكات المجموعات",
+      "groupSubsHint": "يُضاف إلى كل مجموعة من تاريخ البدء، ويُحسب له اشتراكها فورًا. أضف أكثر من مجموعة إن لزم.",
+      "addGroup": "+ إضافة مجموعة",
+      "pickGroup": "اختر مجموعة",
+      "noGroups": "لا مجموعات نشطة بعد.",
+      "removeGroup": "إزالة",
+      "groupPrice": "{price} · {hours} س في الشهر",
+      "groupPriceMonthly": "{price} شهريًا",
+      "groupPriceLesson": "{price} للحصة",
+      "groupPriceCourse": "{price} للكورس",
+      "groupNoPrice": "بلا سعر",
+      "groupJoinFailed": "أُضيف الطالب، لكن الاشتراك في {names} لم يتم. أضفه من صفحة الطالب.",
+      "closeAfter": "إغلاق",
+      "noPrivate": "بلا اشتراك خاص",
+      "noPrivateHint": "مجموعات فقط. تُحسب حصة خاصة بالساعة إن حدثت."
     },
     "subscription": {
       "title": "الاشتراك",

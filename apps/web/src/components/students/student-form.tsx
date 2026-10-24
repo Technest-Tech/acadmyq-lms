@@ -12,7 +12,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import {
@@ -37,6 +37,9 @@ import {
   type TeacherRow,
 } from "@/lib/api";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
+import { hoursText } from "@/components/groups/group-format";
+import { addGroupMembers, listGroups, type GroupRow } from "@/lib/groups-api";
+import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -194,6 +197,7 @@ export function StudentForm({
   onCancel: () => void;
 }) {
   const t = useTranslations("students");
+  const locale = useLocale();
   const { can, session } = useAuth();
   // Naming a price is a pricing act wherever it happens — the API enforces `student.set_price`
   // on the inline subscription too, so a role without it is never shown the package fields.
@@ -255,6 +259,20 @@ export function StudentForm({
   // A centre (`centre`) sells subscriptions: a new student starts on one; a Quran academy starts monthly.
   const centre = session?.capabilities?.includes("centre") ?? false;
   const [billing, setBilling] = useState<Billing>(centre && packagesAvailable ? "package" : "monthly");
+  // A centre enrols the student in their groups in the same save (docs/groups/01-ACCOUNTING.md,
+  // "Centre mode"): the chosen groups, and the active ones to choose from.
+  const groupsOn = centre && (session?.capabilities?.includes("groups") ?? false) && can("group.manage");
+  const [groupOptions, setGroupOptions] = useState<GroupRow[] | null>(null);
+  const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [pickingGroup, setPickingGroup] = useState("");
+  // Set once the student exists but a group enrolment failed: the form stays open to say so.
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!groupsOn) return;
+    void listGroups({ state: "ACTIVE" })
+      .then((r) => setGroupOptions(r.groups))
+      .catch(() => setGroupOptions([]));
+  }, [groupsOn]);
   const onPackage = packagesAvailable && billing === "package";
 
   // Monthly — hourly, matching the enrolment wizard's pricing step and the student-detail form.
@@ -428,6 +446,21 @@ export function StudentForm({
             }
           : {}),
       });
+      // The groups: each enrolment is its own call; one that fails leaves the student made and
+      // the form open to say which one, rather than losing the save.
+      const failed: string[] = [];
+      for (const gid of groupIds) {
+        try {
+          await addGroupMembers(gid, { student_ids: [res.studentId], joined_on: startDate });
+        } catch {
+          failed.push(groupOptions?.find((g) => g.id === gid)?.name ?? gid);
+        }
+      }
+      if (failed.length > 0) {
+        setCreatedId(res.studentId);
+        setError(t("form.groupJoinFailed", { names: failed.join("، ") }));
+        return;
+      }
       onCreated(res.studentId, { packageOpened: Boolean(res.packageId) });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -711,8 +744,8 @@ export function StudentForm({
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <ChoiceCard
                   icon={CalendarRange}
-                  title={t("form.billingMonthly")}
-                  hint={t("form.billingMonthlyHint")}
+                  title={centre ? t("form.noPrivate") : t("form.billingMonthly")}
+                  hint={centre ? t("form.noPrivateHint") : t("form.billingMonthlyHint")}
                   selected={billing === "monthly"}
                   onSelect={() => setBilling("monthly")}
                   testId="billing-monthly"
@@ -725,6 +758,67 @@ export function StudentForm({
                   onSelect={() => setBilling("package")}
                   testId="billing-package"
                 />
+              </div>
+            )}
+
+            {groupsOn && (
+              <div className="space-y-2 rounded-xl border bg-background/60 p-3" data-testid="group-subs">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">{t("form.groupSubs")}</p>
+                  <select
+                    className={cn(inputBase, "w-56 px-3 py-1.5 text-sm")}
+                    value={pickingGroup}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setPickingGroup("");
+                      if (id && !groupIds.includes(id)) setGroupIds((prev) => [...prev, id]);
+                    }}
+                    aria-label={t("form.pickGroup")}
+                    data-testid="group-subs-pick"
+                  >
+                    <option value="">{groupOptions === null ? "…" : groupOptions.length === 0 ? t("form.noGroups") : t("form.addGroup")}</option>
+                    {(groupOptions ?? [])
+                      .filter((g) => !groupIds.includes(g.id))
+                      .map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                          {g.teacher_name ? ` · ${g.teacher_name}` : ""}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                {groupIds.length === 0 ? (
+                  <p className="text-muted-foreground text-xs">{t("form.groupSubsHint")}</p>
+                ) : (
+                  <ul className="divide-y rounded-lg border" data-testid="group-subs-list">
+                    {groupIds.map((id) => {
+                      const g = groupOptions?.find((x) => x.id === id);
+                      const pr = g?.pricing ?? null;
+                      const price = pr?.price_minor != null && pr.currency ? formatMoney({ amount: pr.price_minor, currency: pr.currency }, locale) : null;
+                      const summary =
+                        price === null
+                          ? t("form.groupNoPrice")
+                          : pr?.billing_mode === "MONTHLY" && pr.month_minutes
+                            ? t("form.groupPrice", { price, hours: hoursText(pr.month_minutes) })
+                            : pr?.billing_mode === "PER_LESSON"
+                              ? t("form.groupPriceLesson", { price })
+                              : pr?.billing_mode === "COURSE"
+                                ? t("form.groupPriceCourse", { price })
+                                : t("form.groupPriceMonthly", { price });
+                      return (
+                        <li key={id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm" data-testid={`group-sub-${id}`}>
+                          <span className="min-w-0">
+                            <span className="block font-medium">{g?.name ?? id}</span>
+                            <span className="text-muted-foreground block text-xs">{[g?.teacher_name, summary].filter(Boolean).join(" · ")}</span>
+                          </span>
+                          <button type="button" onClick={() => setGroupIds((prev) => prev.filter((x) => x !== id))} className="text-muted-foreground hover:text-destructive text-xs">
+                            {t("form.removeGroup")}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
             )}
 
@@ -802,9 +896,10 @@ export function StudentForm({
         <Button
           type="button"
           size="sm"
-          onClick={() => void save()}
+          onClick={() => (createdId ? onCreated(createdId, { packageOpened: false }) : void save())}
           disabled={busy}
           className="gap-1.5"
+          data-testid="submit-student"
         >
           {busy ? (
             <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
@@ -813,7 +908,7 @@ export function StudentForm({
           ) : (
             <Zap className="size-3.5" />
           )}
-          {enrolling ? t("form.createEnrolled") : t("form.create")}
+          {createdId ? t("form.closeAfter") : enrolling ? t("form.createEnrolled") : t("form.create")}
         </Button>
       </div>
     </div>

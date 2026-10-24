@@ -346,6 +346,12 @@ Two more asks needed no switch:
   recorded stays. Resume switches exactly those timetables back on and regenerates. Family page:
   a card and a badge. Pinned in `GuardianSuspendTest`.
 
+**Group subscriptions on the student form** (`centre` + `groups`): the new-student form has a "Group
+subscriptions" list — pick one group or several (each row shows the group's price and hours),
+and the private subscription tile beside it (or "no private subscription"). On save the student
+is created, then enrolled in each group from the start date; a group that refuses leaves the student
+made and the form open to say which one.
+
 **Subscriptions card on the student** (`centre`): `SubscriptionsCard` on the student page lists the
 student's groups (memberships, via `/group-members?student_id=`) and private subscriptions (lesson
 packages) with where each stands, and offers "Join a group" and "New private subscription" — the
