@@ -378,6 +378,11 @@ final class GroupBilling
     private function countedLessons(object $group): Collection
     {
         $from = $this->ruleFrom($group);
+        $solo = isset($group->solo_billed_minutes) && $group->solo_billed_minutes !== null ? (int) $group->solo_billed_minutes : null;
+        $ranges = $solo === null ? collect() : DB::table('class_group_members')
+            ->where('group_id', $group->id)
+            ->get(['joined_on', 'left_on'])
+            ->map(fn ($m) => [Carbon::parse($m->joined_on)->format('Y-m-d'), $m->left_on !== null ? Carbon::parse($m->left_on)->format('Y-m-d') : null]);
 
         return DB::table('class_group_lessons')
             ->where('group_id', $group->id)
@@ -386,11 +391,19 @@ final class GroupBilling
             ->orderBy('occurrence_local_date')
             ->orderBy('scheduled_at_utc')
             ->get(['occurrence_local_date', 'duration_minutes', 'status'])
-            ->map(fn ($l) => (object) [
-                'date' => Carbon::parse($l->occurrence_local_date)->format('Y-m-d'),
-                'minutes' => (int) $l->duration_minutes,
-                'held' => $l->status === 'HELD',
-            ]);
+            ->map(function ($l) use ($solo, $ranges) {
+                $date = Carbon::parse($l->occurrence_local_date)->format('Y-m-d');
+                // The solo rule: a lesson with exactly one member on its roster counts at the solo
+                // length against their hours. The roster is the memberships covering that date —
+                // the same half-open range the sheet expects a student on.
+                $onRoster = $solo === null ? 0 : $ranges->filter(fn ($r) => $r[0] <= $date && ($r[1] === null || $date < $r[1]))->count();
+
+                return (object) [
+                    'date' => $date,
+                    'minutes' => $solo !== null && $onRoster === 1 ? $solo : (int) $l->duration_minutes,
+                    'held' => $l->status === 'HELD',
+                ];
+            });
     }
 
     /**

@@ -6534,7 +6534,10 @@
         "monthHours": "Enter the hours as a number, e.g. 8 or 7.5.",
         "payAmount": "Enter what the teacher earns.",
         "share": "The share must be between 0 and 100."
-      }
+      },
+      "students": "Students",
+      "studentsHint": "Optional. They join from the start date and their first month is raised at once.",
+      "durationOther": "Other…"
     },
     "detail": {
       "back": "All groups",
@@ -6741,7 +6744,10 @@
         "PER_HOUR": "One line per held lesson: the rate × the lesson's length.",
         "PER_STUDENT": "One line per held lesson: the amount × the students who came.",
         "REVENUE_SHARE": "One line a month, kept in step with the group's bills."
-      }
+      },
+      "soloMinutes": "A student alone in the lesson is charged",
+      "soloMinutesHint": "Minutes taken off their hours for each lesson they attend alone. The teacher is paid the real length. Empty = the real length.",
+      "rateFromTeacher": "From the teacher’s profile: {rate} an hour. Change it if this group differs."
     },
     "moneyTab": {
       "loadFailed": "Could not load the group's money.",
@@ -9159,7 +9165,9 @@
       "done": "Done",
       "sent": "Sent to {phone} on WhatsApp.",
       "noPhone": "This payer has no WhatsApp number — copy the link instead.",
-      "sendFailed": "The receipt couldn't be sent."
+      "sendFailed": "The receipt couldn't be sent.",
+      "required": "required",
+      "proofNeeded": "Upload the transfer receipt before saving."
     },
     "detail": {
       "title": "Receipt {number}",
@@ -9390,7 +9398,8 @@
       "receiptNo": "Receipt {number}",
       "balanceNote": "A positive balance is owed by the family; zero or below means settled (below zero is credit).",
       "pickTitle": "Whose statement?",
-      "pickHint": "Pick a student — the statement is their family's account."
+      "pickHint": "Pick a student — the statement is their family's account.",
+      "discounted": "{label}: {amount} off {list}"
     },
     "daily": {
       "title": "Daily collections",
@@ -9438,7 +9447,34 @@
         "RECEIPT": "Paid {amount} — {number}",
         "REMINDER": "WhatsApp reminder sent",
         "BILL_SENT": "Bill {period} sent ({amount})"
-      }
+      },
+      "discounts": "Discounts",
+      "noDiscounts": "No discounts on this family.",
+      "addDiscount": "Add a discount",
+      "discountKind": {
+        "PERCENT": "Percent",
+        "FIXED": "Fixed amount"
+      },
+      "discountValuePercent": "Percent",
+      "discountValueFixed": "Amount per charge",
+      "discountLabel": "Reason",
+      "discountLabelHint": "e.g. sibling, scholarship, staff",
+      "discountFor": "For",
+      "wholeFamily": "Every child",
+      "discountScope": {
+        "ALL": "Every charge",
+        "GROUP": "Group charges",
+        "PRIVATE": "Private lessons"
+      },
+      "discountGroupAny": "Any group",
+      "endDiscount": "End",
+      "endDiscountHint": "Stops today. What it already took stays.",
+      "ended": "Ended {date}",
+      "since": "Since {date}",
+      "discountSaved": "Discount recorded. It applies to charges raised from today.",
+      "discountFailed": "Couldn’t save the discount.",
+      "wasPrice": "instead of {list} · {discount} off ({label})",
+      "openFamily": "Open the family"
     },
     "kind": {
       "CASH": "Cash drawer",
@@ -9556,7 +9592,15 @@
       "hideCategory": "Hide",
       "showCategory": "Show",
       "voidTitle": "Void expense {number}",
-      "voidWarning": "Its number stays taken and the money goes back into the account."
+      "voidWarning": "Its number stays taken and the money goes back into the account.",
+      "addCategoryInline": "+ New category…",
+      "newCategoryName": "New category name",
+      "searchTeacher": "Search by teacher",
+      "statementDetails": "Statement details",
+      "statementSummary": "{lines} lessons · lessons {sessions} · rewards {rewards} · deductions {deductions}",
+      "statementLines": "Lessons on the statement",
+      "noTeacherMatch": "No statements under that name.",
+      "linesCount": "{count} lessons"
     },
     "income": {
       "title": "Income vs expenses",

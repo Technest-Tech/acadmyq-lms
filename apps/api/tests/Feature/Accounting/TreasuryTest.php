@@ -2,11 +2,16 @@
 
 declare(strict_types=1);
 
+use App\Jobs\BillGroupMonthsJob;
+use App\Services\GroupBilling;
 use App\Services\ModuleBilling;
+use App\Services\PayerDiscounts;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
@@ -26,6 +31,7 @@ uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::cla
  *   - an academy without accounting reaches none of it, and money stays with money roles.
  */
 beforeEach(function () {
+    Storage::fake('local');
     Carbon::setTestNow('2026-06-17 09:00:00');
     $this->seed(DemoAcademySeeder::class);
     $this->clearTenantContext();
@@ -107,9 +113,9 @@ it('lands receipts in the account their method maps to, and keeps the balance', 
     [$drawer, $bank] = trsAccounts($this);
 
     $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 30000, 'method' => 'CASH'])->assertCreated();
-    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 20000, 'method' => 'INSTAPAY'])->assertCreated();
+    $this->post('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 20000, 'method' => 'INSTAPAY', 'proof' => UploadedFile::fake()->image('instapay.jpg')])->assertCreated();
     // Wallet money with no account mapped: kept, but in no account (the treasury says so).
-    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 5000, 'method' => 'WALLET'])->assertCreated();
+    $this->post('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 5000, 'method' => 'WALLET', 'proof' => UploadedFile::fake()->image('wallet.jpg')])->assertCreated();
 
     expect(trsTenant($this->academy, fn () => DB::table('receipts')->where('method', 'CASH')->value('cash_account_id')))->toBe($drawer);
     expect(trsAccount($this, $drawer))->toMatchArray(['balance_minor' => 80000, 'today_in_minor' => 30000]);
@@ -254,4 +260,65 @@ it('sums each child’s own account for an academy that bills per student', func
         ->and($charges->where('payer_kind', 'GUARDIAN')->count())->toBe(4);
     // The card's total is the whole family's: the parent's account and Carl's together.
     expect($res->json('balance.0.due_minor'))->toBe(180000 + (int) $own->sum('remaining_minor'));
+});
+
+it('takes a family discount off every charge raised from now on — percent and fixed stack, and nothing already billed moves', function () {
+    trsOn($this->academy);
+    Sanctum::actingAs($this->owner);
+    // 10 % for the whole family on everything, plus 50 off Adam alone on group charges.
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'PERCENT', 'value' => 10, 'label' => 'Sibling'])->assertCreated();
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'FIXED', 'value' => 5000, 'label' => 'Scholarship', 'student_id' => $this->adam, 'scope' => 'GROUP'])->assertCreated();
+    // Not one of the family's children, and a percentage over 100: refused.
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'PERCENT', 'value' => 10, 'label' => 'x', 'student_id' => $this->teacher])->assertStatus(422);
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'PERCENT', 'value' => 120, 'label' => 'x'])->assertStatus(422);
+
+    $card = $this->getJson("/api/accounting/family/{$this->parent}")->assertOk();
+    expect($card->json('discounts'))->toHaveCount(2);
+    expect(collect($card->json('discounts'))->firstWhere('label', 'Scholarship'))->toMatchArray(['kind' => 'FIXED', 'value' => 5000, 'scope' => 'GROUP', 'student_name' => 'Adam', 'active' => true]);
+    // May and June were billed before the discounts: untouched.
+    expect(collect($card->json('charges'))->pluck('discount_minor')->unique()->all())->toBe([0]);
+
+    // July is raised under them: Adam 450 − 45 − 50 = 355, Bassel 450 − 45 = 405.
+    Carbon::setTestNow('2026-07-01 09:00:00');
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    $july = trsTenant($this->academy, fn () => DB::table('invoice_line_items')->where('class_group_id', $this->groupId)->where('group_period', '2026-07-01')->get()->keyBy(fn ($l) => (string) $l->student_id));
+    expect($july)->toHaveCount(2);
+    expect((int) $july[$this->adam]->amount_minor)->toBe(35500)
+        ->and((int) $july[$this->adam]->list_amount_minor)->toBe(45000)
+        ->and((int) $july[$this->adam]->discount_minor)->toBe(9500)
+        ->and($july[$this->adam]->discount_label)->toBe('Sibling + Scholarship');
+    expect((int) $july[$this->bassel]->amount_minor)->toBe(40500)->and($july[$this->bassel]->discount_label)->toBe('Sibling');
+    // The invoice total is the net.
+    expect((int) trsTenant($this->academy, fn () => DB::table('invoices')->where('id', $july[$this->adam]->invoice_id)->value('total_minor')))->toBe(76000);
+
+    // The statement and the family card both show list, discount and net.
+    Sanctum::actingAs($this->owner);
+    $stmt = $this->getJson("/api/accounting/statement?guardian_id={$this->parent}&from=2026-07-01&to=2026-07-31")->assertOk();
+    $entries = collect($stmt->json('currencies.0.entries'))->where('kind', 'CHARGE');
+    expect($entries->sum('debit_minor'))->toBe(76000)->and($entries->sum('discount_minor'))->toBe(14000)->and($entries->sum('list_amount_minor'))->toBe(90000);
+    $charges = collect($this->getJson("/api/accounting/family/{$this->parent}")->assertOk()->json('charges'))->where('period', '2026-07');
+    expect($charges->firstWhere('student_name', 'Adam'))->toMatchArray(['amount_minor' => 35500, 'list_amount_minor' => 45000, 'discount_minor' => 9500, 'discount_label' => 'Sibling + Scholarship']);
+
+    // Ending the family discount stops it from today; August: Adam 450 − 50, Bassel full.
+    $sibling = collect($card->json('discounts'))->firstWhere('label', 'Sibling')['id'];
+    $this->deleteJson("/api/accounting/family/{$this->parent}/discounts/{$sibling}")->assertOk();
+    expect(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('label', 'Sibling')['active'])->toBeFalse();
+    // From the day it ended, a charge is priced without it — the day itself included.
+    $price = fn (string $student, string $on) => trsTenant($this->academy, fn () => app(PayerDiscounts::class)->apply($this->academy, $student, PayerDiscounts::SCOPE_GROUP, $this->groupId, 45000, $on));
+    expect($price($this->adam, '2026-07-01'))->toMatchArray(['amount_minor' => 40000, 'discount_minor' => 5000, 'discount_label' => 'Scholarship']);
+    expect($price($this->bassel, '2026-08-01'))->toMatchArray(['amount_minor' => 45000, 'discount_minor' => 0, 'discount_label' => null]);
+    // And the day before it ended, it still counted.
+    expect($price($this->bassel, '2026-06-30')['discount_minor'])->toBe(4500);
+});
+
+it('never discounts an academy that is not on receipts — its lines are written as they always were', function () {
+    // The switch is off: the discount API is out of reach, and a raised charge carries no discount columns.
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'PERCENT', 'value' => 10, 'label' => 'x'])->assertStatus(402);
+    Carbon::setTestNow('2026-07-01 09:00:00');
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    $july = trsTenant($this->academy, fn () => DB::table('invoice_line_items')->where('class_group_id', $this->groupId)->where('group_period', '2026-07-01')->get());
+    expect($july)->toHaveCount(2);
+    expect($july->pluck('amount_minor')->map(fn ($v) => (int) $v)->unique()->all())->toBe([45000]);
+    expect($july->pluck('list_amount_minor')->unique()->all())->toBe([null]);
 });

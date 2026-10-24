@@ -1214,16 +1214,18 @@ it('sends the parent a short payment reminder for an unpaid finished package and
 
     expect($first['deeplink'])->toStartWith('https://wa.me/201009998887?text=');
 
-    expect($first['message'])->toContain('200 EGP')
-        ->and($first['message'])->toContain('رابط الدفع:')
-        ->and($first['message'])->toContain('1 hours')
-        ->and(substr_count($first['message'], "\n"))->toBeLessThanOrEqual(6);
+    // One fact per line, the amount in bold, the package by its number — never the stored label.
+    expect($first['message'])->toContain('*تذكير بسداد باقة الحصص*')
+        ->and($first['message'])->toContain('▫️ الباقة: رقم 1 — ساعة واحدة')
+        ->and($first['message'])->toContain('▫️ المبلغ المستحق: *200 EGP*')
+        ->and($first['message'])->toContain("للدفع من خلال الرابط:\nhttp")
+        ->and($first['message'])->not->toContain('1 hours');
 
     Carbon::setTestNow('2026-06-12 09:30:00');
     $this->postJson("/api/packages/{$package['package_id']}/remind", ['locale' => 'en'])
         ->assertOk()
         ->assertJsonPath('reminders_sent', 2)
-        ->assertJsonPath('message', fn (string $m) => str_contains($m, 'with 200 EGP still due') && str_contains($m, 'Pay here:'));
+        ->assertJsonPath('message', fn (string $m) => str_contains($m, 'Amount due: *200 EGP*') && str_contains($m, "Pay here:\nhttp"));
 
     $row = collect($this->getJson('/api/packages?scope=finished')->json('packages'))->firstWhere('id', $package['package_id']);
     expect($row['reminders_sent'])->toBe(2)
@@ -1245,7 +1247,7 @@ it('sends a renewal reminder, without a pay link, for a paid package that ran ou
         ->assertJsonPath('kind', 'RENEWAL')
         ->json();
 
-    expect($res['message'])->toContain('please renew the package')
+    expect($res['message'])->toContain('to renew the package')
         ->and($res['message'])->not->toContain('http');
 });
 

@@ -773,7 +773,7 @@ final class LessonPackageController extends Controller
             ->leftJoin('guardians as gs', 'gs.id', '=', 's.guardian_id')
             ->where('p.id', $id)
             ->first([
-                'p.academy_id', 'p.student_id', 'a.name as academy_name',
+                'p.academy_id', 'p.student_id', 'a.name as academy_name', 'a.timezone as academy_timezone',
                 'gi.id as invoice_guardian_id', 'gi.whatsapp_phone as invoice_guardian_phone',
                 'gs.id as student_guardian_id', 'gs.whatsapp_phone as student_guardian_phone',
                 's.whatsapp_phone as student_phone',
@@ -800,7 +800,16 @@ final class LessonPackageController extends Controller
             'academy' => (string) $payer->academy_name,
             'student' => (string) $row->student_name,
             'label' => (string) $row->label,
+            'sequence_no' => $presented['sequence_no'],
+            'minutes_total' => $presented['minutes_sold'],
+            'minutes_remaining' => $presented['minutes_remaining'],
             'finished' => $row->status !== 'ACTIVE',
+            // The day it ran out, in the academy's own calendar — what the family remembers.
+            'finished_on' => $row->closed_at !== null
+                ? Carbon::parse($row->closed_at)->setTimezone((string) ($payer->academy_timezone ?: 'UTC'))->toDateString()
+                : null,
+            'total_minor' => $presented['invoice_total_minor'],
+            'paid_minor' => $presented['invoice_paid_minor'],
             'balance_minor' => $presented['outstanding_minor'],
             'currency' => (string) $row->currency,
             'url' => $url,

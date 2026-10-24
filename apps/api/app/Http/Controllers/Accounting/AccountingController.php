@@ -436,6 +436,9 @@ final class AccountingController extends Controller
                 'group_name' => $l->group_name,
                 'currency' => (string) $l->currency,
                 'debit_minor' => (int) $l->amount_minor,
+                'list_amount_minor' => $l->list_amount_minor !== null ? (int) $l->list_amount_minor : null,
+                'discount_minor' => (int) $l->discount_minor,
+                'discount_label' => $l->discount_label,
                 'credit_minor' => 0,
                 'paid_minor' => min((int) $l->paid, (int) $l->amount_minor),
                 'invoice_url' => AcademyUrl::invoice($academyId, (string) $l->public_token),
@@ -589,6 +592,7 @@ final class AccountingController extends Controller
             ->where('li.amount_minor', '>', 0)
             ->select([
                 'li.id', 'li.invoice_id', 'li.student_id', 'li.class_group_id', 'li.group_period', 'li.currency', 'li.amount_minor',
+                'li.list_amount_minor', 'li.discount_minor', 'li.discount_label',
                 'i.guardian_id', 'i.student_id as payer_student_id', 'i.payer_name',
                 DB::raw('coalesce(a.paid, 0) as paid'),
                 DB::raw('coalesce(li.session_date, make_date(i.period_year::int, i.period_month::int, 1)) as due_date'),

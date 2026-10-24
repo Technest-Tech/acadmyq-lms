@@ -2,6 +2,7 @@
 
 import {
   AlarmClock,
+  Ban,
   BellRing,
   CalendarClock,
   FileText,
@@ -11,7 +12,9 @@ import {
   Loader2,
   MessageSquare,
   NotebookPen,
+  Percent,
   PiggyBank,
+  Plus,
   Receipt,
   Send,
   Trash2,
@@ -29,7 +32,20 @@ import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { addFamilyNote, deleteFamilyNote, getFamilyAccount, remindPayer, type FamilyAccount, type FamilyCharge, type FamilyEvent } from "@/lib/accounting-api";
+import {
+  addFamilyDiscount,
+  addFamilyNote,
+  deleteFamilyNote,
+  endFamilyDiscount,
+  getFamilyAccount,
+  remindPayer,
+  type DiscountKind,
+  type DiscountScope,
+  type FamilyAccount,
+  type FamilyCharge,
+  type FamilyDiscount,
+  type FamilyEvent,
+} from "@/lib/accounting-api";
 import { useCapability } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -295,6 +311,11 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
                     {c.student_name && <span>{c.student_name}</span>}
                     <span>{dayLabel(c.date, locale)}</span>
                     {c.paid_minor > 0 && <span className="text-amber-700 dark:text-amber-300">{t("collect.partlyPaid", { paid: money(c.paid_minor, c.currency), of: money(c.amount_minor, c.currency) })}</span>}
+                    {c.discount_minor > 0 && c.list_amount_minor !== null && (
+                      <span className="text-violet-700 dark:text-violet-300" data-testid={`charge-discount-${c.id}`}>
+                        {t("family.wasPrice", { list: money(c.list_amount_minor, c.currency), discount: money(c.discount_minor, c.currency), label: c.discount_label ?? "" })}
+                      </span>
+                    )}
                   </p>
                 </div>
                 <span className="shrink-0 font-semibold text-rose-600 tabular-nums dark:text-rose-400">{money(c.remaining_minor, c.currency)}</span>
@@ -303,6 +324,9 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
           </ul>
         )}
       </Panel>
+
+      {/* Standing discounts: visible entries with a reason and who gave them, never a quietly lower price. */}
+      <DiscountsPanel data={data} guardianId={guardianId} onChanged={() => void load()} onNotice={setNotice} />
 
       {/* Timeline + notes */}
       <Panel title={t("family.timeline")} icon={NotebookPen} accent="sky">
@@ -388,5 +412,186 @@ function TimelineItem({
         )}
       </div>
     </li>
+  );
+}
+
+/**
+ * The family's discounts (docs/groups/01-ACCOUNTING.md, F2): each one a percentage or a fixed
+ * amount off every charge — for the whole family or one child, on everything or only group /
+ * private charges — with the reason and who gave it. They apply to charges raised from today;
+ * ending one stops it today and leaves what it already took on the lines it touched.
+ */
+function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: FamilyAccount; guardianId: string; onChanged: () => void; onNotice: (m: string | null) => void }) {
+  const t = useTranslations("accounting");
+  const locale = useLocale();
+  const [adding, setAdding] = useState(false);
+  const [kind, setKind] = useState<DiscountKind>("PERCENT");
+  const [value, setValue] = useState("");
+  const [label, setLabel] = useState("");
+  const [scope, setScope] = useState<DiscountScope>("ALL");
+  const [studentId, setStudentId] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
+  const currency = data.balance[0]?.currency ?? data.charges[0]?.currency ?? "EGP";
+  const groups = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const c of data.children) for (const g of c.groups) seen.set(g.id, g.name);
+    return [...seen.entries()];
+  }, [data.children]);
+
+  const valueNumber = Number.parseFloat(value.replace(",", "."));
+  const valid = label.trim().length > 0 && Number.isFinite(valueNumber) && valueNumber > 0 && (kind !== "PERCENT" || valueNumber <= 100);
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!valid) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await addFamilyDiscount(guardianId, {
+        kind,
+        value: kind === "PERCENT" ? Math.round(valueNumber) : Math.round(valueNumber * 100),
+        label: label.trim(),
+        scope,
+        student_id: studentId || null,
+        class_group_id: scope === "GROUP" && groupId ? groupId : null,
+      });
+      setAdding(false);
+      setValue("");
+      setLabel("");
+      setScope("ALL");
+      setStudentId("");
+      setGroupId("");
+      onNotice(t("family.discountSaved"));
+      onChanged();
+    } catch (err) {
+      setError(apiErrorMessage(err, t("family.discountFailed")));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function end(id: string) {
+    try {
+      await endFamilyDiscount(guardianId, id);
+      onChanged();
+    } catch (err) {
+      onNotice(apiErrorMessage(err, t("family.discountFailed")));
+    }
+  }
+
+  const describe = (d: FamilyDiscount) =>
+    d.kind === "PERCENT" ? `${d.value / 100}%` : money(d.value, currency);
+
+  return (
+    <Panel
+      title={t("family.discounts")}
+      icon={Percent}
+      accent="violet"
+      testId="family-discounts"
+      action={
+        data.can_collect && !adding ? (
+          <Button type="button" size="xs" variant="ghost" className="gap-1" onClick={() => setAdding(true)} data-testid="discount-add">
+            <Plus className="size-3.5" aria-hidden />
+            {t("family.addDiscount")}
+          </Button>
+        ) : undefined
+      }
+    >
+      {adding && (
+        <form onSubmit={(e) => void save(e)} className="bg-muted/30 mb-4 space-y-3 rounded-xl border p-3" data-testid="discount-form">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <label className="text-muted-foreground text-xs">
+              {t("family.discountKind.PERCENT")} / {t("family.discountKind.FIXED")}
+              <select className={cn(fieldClass, "mt-1")} value={kind} onChange={(e) => setKind(e.target.value as DiscountKind)} data-testid="discount-kind">
+                <option value="PERCENT">{t("family.discountKind.PERCENT")}</option>
+                <option value="FIXED">{t("family.discountKind.FIXED")}</option>
+              </select>
+            </label>
+            <label className="text-muted-foreground text-xs">
+              {kind === "PERCENT" ? t("family.discountValuePercent") : t("family.discountValueFixed")}
+              <input className={cn(fieldClass, "mt-1")} inputMode="decimal" dir="ltr" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "PERCENT" ? "10" : "100"} data-testid="discount-value" />
+            </label>
+            <label className="text-muted-foreground text-xs">
+              {t("family.discountLabel")}
+              <input className={cn(fieldClass, "mt-1")} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t("family.discountLabelHint")} maxLength={80} data-testid="discount-label" />
+            </label>
+            <label className="text-muted-foreground text-xs">
+              {t("family.discountFor")}
+              <select className={cn(fieldClass, "mt-1")} value={studentId} onChange={(e) => setStudentId(e.target.value)} data-testid="discount-student">
+                <option value="">{t("family.wholeFamily")}</option>
+                {data.children.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-muted-foreground text-xs">
+              {t("family.source.ALL")}
+              <select className={cn(fieldClass, "mt-1")} value={scope} onChange={(e) => setScope(e.target.value as DiscountScope)} data-testid="discount-scope">
+                {(["ALL", "GROUP", "PRIVATE"] as DiscountScope[]).map((s) => (
+                  <option key={s} value={s}>
+                    {t(`family.discountScope.${s}`)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {scope === "GROUP" && groups.length > 0 && (
+              <label className="text-muted-foreground text-xs">
+                {t("arrears.group")}
+                <select className={cn(fieldClass, "mt-1")} value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+                  <option value="">{t("family.discountGroupAny")}</option>
+                  {groups.map(([id, name]) => (
+                    <option key={id} value={id}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          {error && <AlertBanner variant="error" message={error} />}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(false)} disabled={busy}>
+              {t("collect.cancel")}
+            </Button>
+            <Button type="submit" size="sm" disabled={busy || !valid} data-testid="discount-save">
+              {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Plus className="size-3.5" aria-hidden />}
+              {t("family.addDiscount")}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {data.discounts.length === 0 ? (
+        <p className="text-muted-foreground py-3 text-center text-sm">{t("family.noDiscounts")}</p>
+      ) : (
+        <ul className="divide-y" data-testid="discount-list">
+          {data.discounts.map((d) => (
+            <li key={d.id} className={cn("flex flex-wrap items-center justify-between gap-2 py-2 text-sm", !d.active && "opacity-60")} data-testid={`discount-${d.id}`}>
+              <div className="min-w-0">
+                <p className="font-medium break-words">
+                  <span className="text-violet-700 tabular-nums dark:text-violet-300">{describe(d)}</span> · {d.label}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {[d.student_name ?? t("family.wholeFamily"), d.scope === "ALL" ? null : (d.group_name ?? t(`family.discountScope.${d.scope}`)), d.by].filter(Boolean).join(" · ")}
+                  {" · "}
+                  {d.active ? t("family.since", { date: dayLabel(d.starts_on, locale) }) : t("family.ended", { date: dayLabel(d.ends_on ?? d.starts_on, locale) })}
+                </p>
+              </div>
+              {d.active && data.can_collect && (
+                <Button type="button" size="xs" variant="ghost" className="text-destructive gap-1" onClick={() => void end(d.id)} title={t("family.endDiscountHint")} data-testid={`discount-end-${d.id}`}>
+                  <Ban className="size-3.5" aria-hidden />
+                  {t("family.endDiscount")}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
   );
 }

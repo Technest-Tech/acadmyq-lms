@@ -2,8 +2,9 @@
 
 import { Ban, FileImage, GraduationCap, Loader2, Plus, ReceiptText, Search, Settings2, TrendingDown } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Panel, Tile, dayLabel, toMajorText, toMinor, todayLocal } from "@/components/accounting/accounting-ui";
+import { getPayout, type PayoutDetailResponse } from "@/lib/api";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
@@ -266,10 +267,14 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
   );
 }
 
+const NEW_CATEGORY = "__new__";
+
 function ExpenseModal({ data, onClose, onDone }: { data: ExpensesPage; onClose: () => void; onDone: (number: string) => void }) {
   const t = useTranslations("accounting");
   const categories = data.categories.filter((c) => c.is_active && c.key !== "teacher_salaries");
   const [category, setCategory] = useState(categories[0]?.id ?? "");
+  // "+ New category…" right in the list: the desk names it here and the expense lands under it.
+  const [newCategory, setNewCategory] = useState("");
   const [accountId, setAccountId] = useState(data.accounts[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [on, setOn] = useState(todayLocal());
@@ -285,7 +290,11 @@ function ExpenseModal({ data, onClose, onDone }: { data: ExpensesPage; onClose: 
     setBusy(true);
     setError(null);
     try {
-      const res = await createExpense({ category_id: category, cash_account_id: accountId, amount_minor: toMinor(amount), spent_on: on, payee, description, attachment: file });
+      let categoryId = category;
+      if (category === NEW_CATEGORY) {
+        categoryId = (await createExpenseCategory(newCategory.trim())).id;
+      }
+      const res = await createExpense({ category_id: categoryId, cash_account_id: accountId, amount_minor: toMinor(amount), spent_on: on, payee, description, attachment: file });
       onDone(res.number);
     } catch (err) {
       setError(apiErrorMessage(err, t("treasury.saveFailed")));
@@ -305,7 +314,12 @@ function ExpenseModal({ data, onClose, onDone }: { data: ExpensesPage; onClose: 
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             {t("collect.cancel")}
           </Button>
-          <Button type="submit" form="expense-form" disabled={busy || toMinor(amount) <= 0 || !category || !accountId} data-testid="expense-save">
+          <Button
+            type="submit"
+            form="expense-form"
+            disabled={busy || toMinor(amount) <= 0 || !category || !accountId || (category === NEW_CATEGORY && newCategory.trim() === "")}
+            data-testid="expense-save"
+          >
             {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
             {t("expenses.save")}
           </Button>
@@ -316,13 +330,25 @@ function ExpenseModal({ data, onClose, onDone }: { data: ExpensesPage; onClose: 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block text-sm font-medium">
             {t("expenses.category")}
-            <select className={cn(fieldClass, "mt-1.5")} value={category} onChange={(e) => setCategory(e.target.value)}>
+            <select className={cn(fieldClass, "mt-1.5")} value={category} onChange={(e) => setCategory(e.target.value)} data-testid="expense-category">
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
               ))}
+              {data.can_manage && <option value={NEW_CATEGORY}>{t("expenses.addCategoryInline")}</option>}
             </select>
+            {category === NEW_CATEGORY && (
+              <input
+                className={cn(fieldClass, "mt-1.5")}
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+                placeholder={t("expenses.newCategoryName")}
+                maxLength={80}
+                autoFocus
+                data-testid="expense-new-category"
+              />
+            )}
           </label>
           <label className="block text-sm font-medium">
             {t("expenses.paidFrom")}
@@ -365,7 +391,11 @@ function SalaryModal({ data, onClose, onDone }: { data: ExpensesPage; onClose: (
   const t = useTranslations("accounting");
   const locale = useLocale();
   const [rows, setRows] = useState<SalaryDue[] | null>(null);
+  const [q, setQ] = useState("");
   const [picked, setPicked] = useState<SalaryDue | null>(null);
+  // The statement behind the figure: what the teacher taught and what moved the total, so the desk
+  // pays a statement it has read, not a number.
+  const [detail, setDetail] = useState<PayoutDetailResponse | null>(null);
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState("");
   const [busy, setBusy] = useState(false);
@@ -377,11 +407,24 @@ function SalaryModal({ data, onClose, onDone }: { data: ExpensesPage; onClose: (
       .catch((err) => setError(apiErrorMessage(err, t("expenses.loadFailed"))));
   }, [t]);
 
+  const shown = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return (rows ?? []).filter((s) => !needle || s.teacher_name.toLowerCase().includes(needle) || s.period.includes(needle));
+  }, [rows, q]);
+
   const accounts = data.accounts.filter((a) => !picked || a.currency === picked.currency);
   useEffect(() => {
     if (picked) {
       setAmount(toMajorText(picked.remaining_minor));
       setAccountId(accounts[0]?.id ?? "");
+      setDetail(null);
+      let alive = true;
+      getPayout(picked.payout_id)
+        .then((d) => alive && setDetail(d))
+        .catch(() => alive && setDetail(null));
+      return () => {
+        alive = false;
+      };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picked]);
@@ -428,29 +471,64 @@ function SalaryModal({ data, onClose, onDone }: { data: ExpensesPage; onClose: (
       {!picked && rows === null && !error && <p className="text-muted-foreground py-8 text-center text-sm">{t("detail.loading")}</p>}
       {!picked && rows !== null && rows.length === 0 && <p className="text-muted-foreground py-8 text-center text-sm">{t("expenses.noSalaries")}</p>}
       {!picked && rows !== null && rows.length > 0 && (
-        <ul className="divide-y rounded-xl border" data-testid="salary-list">
-          {rows.map((s) => (
-            <li key={s.payout_id}>
-              <button type="button" onClick={() => setPicked(s)} className="hover:bg-muted/50 flex w-full items-center justify-between gap-3 p-3 text-start">
-                <span>
-                  <span className="block font-medium">{s.teacher_name}</span>
-                  <span className="text-muted-foreground text-xs">
-                    {s.period}
-                    {s.paid_minor > 0 && ` · ${t("expenses.alreadyPaid", { amount: money(s.paid_minor, s.currency) })}`}
-                  </span>
-                </span>
-                <span className="font-bold tabular-nums">{money(s.remaining_minor, s.currency)}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className="space-y-3">
+          <span className="relative block">
+            <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" aria-hidden />
+            <input className={cn(fieldClass, "ps-9")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("expenses.searchTeacher")} autoFocus data-testid="salary-search" />
+          </span>
+          {shown.length === 0 ? (
+            <p className="text-muted-foreground py-6 text-center text-sm">{t("expenses.noTeacherMatch")}</p>
+          ) : (
+            <ul className="max-h-80 divide-y overflow-y-auto rounded-xl border" data-testid="salary-list">
+              {shown.map((s) => (
+                <li key={s.payout_id}>
+                  <button type="button" onClick={() => setPicked(s)} className="hover:bg-muted/50 flex w-full items-center justify-between gap-3 p-3 text-start" data-testid={`salary-${s.payout_id}`}>
+                    <span>
+                      <span className="block font-medium">{s.teacher_name}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {s.period} · {t("expenses.linesCount", { count: s.lines })}
+                        {s.paid_minor > 0 && ` · ${t("expenses.alreadyPaid", { amount: money(s.paid_minor, s.currency) })}`}
+                      </span>
+                    </span>
+                    <span className="font-bold tabular-nums">{money(s.remaining_minor, s.currency)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
       {picked && (
         <form id="salary-form" onSubmit={(e) => void submit(e)} className="space-y-4">
           <div className="bg-muted/40 rounded-xl border p-3 text-sm">
             <p className="font-semibold">{picked.teacher_name}</p>
             <p className="text-muted-foreground text-xs">{t("expenses.salaryLine", { period: picked.period, total: money(picked.total_minor, picked.currency), left: money(picked.remaining_minor, picked.currency) })}</p>
+            {detail && (
+              <p className="text-muted-foreground mt-1 text-xs" data-testid="salary-summary">
+                {t("expenses.statementSummary", {
+                  lines: detail.lineItems.length,
+                  sessions: money(detail.payout.sessions_minor, picked.currency),
+                  rewards: money(detail.payout.rewards_minor, picked.currency),
+                  deductions: money(detail.payout.deductions_minor, picked.currency),
+                })}
+              </p>
+            )}
           </div>
+          {detail && detail.lineItems.length > 0 && (
+            <details className="rounded-xl border">
+              <summary className="cursor-pointer px-3 py-2 text-sm font-medium">{t("expenses.statementLines")}</summary>
+              <ul className="max-h-48 divide-y overflow-y-auto border-t text-xs" data-testid="salary-lines">
+                {detail.lineItems.map((l) => (
+                  <li key={l.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                    <span className="min-w-0 truncate">
+                      {[l.session_date, l.group_name ?? l.student_name, l.description].filter(Boolean).join(" · ")}
+                    </span>
+                    <span className="shrink-0 font-semibold tabular-nums">{money(l.amount_minor, l.currency)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block text-sm font-medium">
               {t("collect.amount", { currency: picked.currency })}

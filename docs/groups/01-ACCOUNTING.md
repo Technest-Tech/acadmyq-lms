@@ -286,6 +286,42 @@ questions. The sidebar now has four pages, laid out by question, and nothing cha
 - Non-accounting academies: nothing changed (app-shell tests pin the sidebar; `AccountingGate` and
   `entitled:accounting` still 402 everything).
 
+## F2 as built, part one (2026-10-24): discounts, proof, the desk's asks
+
+- **Discounts are entries, not lower prices.** `payer_discounts`: a family (or one child) carries one
+  or more standing discounts — PERCENT (basis points) or FIXED (minor units per charge), a label
+  ("sibling", "scholarship"), a scope (ALL / GROUP, optionally one group / PRIVATE), from a day until
+  ended. `PayerDiscounts::apply()` is called by every line writer (private lesson, group month /
+  lesson / course, package) right before the insert: the line keeps `list_amount_minor`,
+  `discount_minor`, `discount_label`, and `amount_minor` stays the NET the ledger always used.
+  Percentages come off the list price, fixed amounts after, never more than the charge. Nothing
+  already billed moves; ending a discount stops it from that day (the day itself included).
+  Only an academy on receipts applies one — `Ledger::enabledFor` — so the classic academies' lines
+  are written byte for byte as before (pinned in TreasuryTest). API: `POST/DELETE
+  /accounting/family/{guardianId}/discounts`; the family card lists them, adds and ends them; the
+  statement and the family card show "was 450 · 45 off (Sibling)".
+- **A picture of the proof is required for anything but cash** (`POST /receipts`: InstaPay,
+  wallet, bank, card). Cash has no receipt to photograph. The Collect screen will not submit
+  without it; the API refuses too (422).
+- **Paying a salary from the treasury**: search by teacher, each statement says how many lessons it
+  holds, and picking one shows what is behind the figure (lessons, rewards, deductions, the lesson
+  list) before the amount — which stays editable — is paid.
+- **A new expense category is named right in the expense form** ("+ New category…").
+- **Treasury ↔ family**: a receipt's payer in the register, the receipt detail and an account's
+  ledger opens the family (or the student billed directly).
+
+## Groups, the centre's asks (2026-10-24)
+
+- A group is created **with its students** (the API always took `student_ids`; the form now has the
+  picker). Picking a **teacher brings their hourly rate** into "what the teacher earns" (per hour,
+  editable; a typed amount is never overwritten). The lesson **length is a list** — 20 / 30 / 40 /
+  45 / 60 / 90 / 120 — with "Other".
+- **A student alone in the class**: `class_groups.solo_billed_minutes`. For an HOURS group, a lesson
+  whose roster (memberships covering that date) holds exactly one member counts this long against
+  the student's hours — a 40-minute class alone eats 60 — while the teacher is paid the real 40
+  (`GroupPayroll` reads the lesson's own duration). Null = the real length. Pinned in
+  ClassGroupMoneyTest ("a student alone in the class…").
+
 ## Decisions needed
 
 1. **Receipts academy-wide (recommended) or groups only?** Groups-only would leave the

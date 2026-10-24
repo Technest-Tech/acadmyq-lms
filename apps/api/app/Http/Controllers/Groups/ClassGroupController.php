@@ -34,7 +34,7 @@ final class ClassGroupController extends Controller
     private const STATES = ['UPCOMING', 'RUNNING', 'FINISHED', 'ARCHIVED'];
 
     /** What the student pays — `student.set_price` to change, hidden from anyone who can't see money. */
-    private const PRICE_FIELDS = ['billing_mode', 'price_minor', 'currency', 'charge_absent', 'prorate_join', 'month_minutes'];
+    private const PRICE_FIELDS = ['billing_mode', 'price_minor', 'currency', 'charge_absent', 'prorate_join', 'month_minutes', 'solo_billed_minutes'];
 
     /** What the teacher earns — `teacher.set_pay` to change; it or `payout.read` to see. */
     private const TEACHER_PAY_FIELDS = ['teacher_pay_mode', 'teacher_pay_minor', 'teacher_share_bp'];
@@ -661,6 +661,7 @@ final class ClassGroupController extends Controller
                 'charge_absent' => (bool) $g->charge_absent,
                 'prorate_join' => (bool) $g->prorate_join,
                 'month_minutes' => $g->month_minutes !== null ? (int) $g->month_minutes : null,
+                'solo_billed_minutes' => $g->solo_billed_minutes !== null ? (int) $g->solo_billed_minutes : null,
             ] : null,
             'teacher_pay' => Gate::allows('teacher.set_pay') || Gate::allows('payout.read') ? [
                 'mode' => $g->teacher_pay_mode,
@@ -774,6 +775,8 @@ final class ClassGroupController extends Controller
             'prorate_join' => ['sometimes', 'boolean'],
             // MONTHLY only: the hours one month buys (null = the calendar month).
             'month_minutes' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:60000'],
+            // A lone student's lesson counts this long against their hours (the teacher is paid the real length).
+            'solo_billed_minutes' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:600'],
             'teacher_pay_mode' => ['sometimes', 'nullable', Rule::in(['PER_LESSON', 'PER_HOUR', 'PER_STUDENT', 'REVENUE_SHARE'])],
             'teacher_pay_minor' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000000000000'],
             'teacher_share_bp' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:10000'],

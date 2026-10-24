@@ -30,6 +30,8 @@ export interface GroupPricing {
    * the group has held that many hours since their last one; null = the calendar month.
    */
   month_minutes: number | null;
+  /** Hours group only: a lesson with ONE student on the roster counts this long against their hours; null = its real length. */
+  solo_billed_minutes: number | null;
 }
 
 /** What the teacher earns per held lesson (or, REVENUE_SHARE, per month). */
@@ -206,6 +208,7 @@ export interface GroupInput {
   charge_absent?: boolean;
   prorate_join?: boolean;
   month_minutes?: number | null;
+  solo_billed_minutes?: number | null;
   teacher_pay_mode?: GroupTeacherPayMode;
   teacher_pay_minor?: number | null;
   teacher_share_bp?: number | null;

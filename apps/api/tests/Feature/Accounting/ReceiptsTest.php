@@ -12,7 +12,9 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
@@ -34,6 +36,7 @@ uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::cla
  *   - the group's collection sheet is exact per member, partial payments and arrears included.
  */
 beforeEach(function () {
+    Storage::fake('local');
     // Wednesday 17 June 2026, 12:00 Cairo.
     Carbon::setTestNow('2026-06-17 09:00:00');
     $this->seed(DemoAcademySeeder::class);
@@ -119,7 +122,13 @@ function acctCollect($test, array $body): array
 {
     Sanctum::actingAs($test->owner);
 
-    return $test->postJson('/api/receipts', $body + ['method' => 'CASH'])->assertCreated()->json('receipt');
+    $body += ['method' => 'CASH'];
+    // Anything but cash leaves a picture (a transfer screenshot) — the API insists on it.
+    if ($body['method'] !== 'CASH' && ! isset($body['proof'])) {
+        $body['proof'] = UploadedFile::fake()->image('proof.jpg');
+    }
+
+    return $test->post('/api/receipts', $body)->assertCreated()->json('receipt');
 }
 
 // ── The switch ───────────────────────────────────────────────────────────────
@@ -547,4 +556,15 @@ it('refuses a card checkout on a running invoice its receipts already cover', fu
     $this->clearTenantContext();
     $this->postJson("/api/i/{$invoice->public_token}/xpay/session")->assertStatus(422);
     Http::assertNothingSent();
+});
+
+it('insists on a picture of the proof for anything but cash', function () {
+    acctSwitch($this, true);
+    acctGroup($this);
+    Sanctum::actingAs($this->owner);
+    $this->post('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 10000, 'method' => 'INSTAPAY'])
+        ->assertStatus(422)->assertJsonValidationErrors(['proof']);
+    $this->post('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 10000, 'method' => 'CASH'])->assertCreated();
+    $this->post('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 10000, 'method' => 'INSTAPAY', 'proof' => UploadedFile::fake()->image('p.png')])
+        ->assertCreated()->assertJsonPath('receipt.has_proof', true);
 });

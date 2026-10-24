@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Services\PayerDiscounts;
 use App\Billing\BillingHook;
 use App\Support\Audit;
 use App\Support\PublicInvoiceToken;
@@ -105,6 +106,9 @@ final class Invoicing implements BillingHook
             ? 'Free trial — '.$local->format('Y-m-d')
             : $this->buildDescription($session, $academy);
         $sessionDate = $local->format('Y-m-d');
+        // A family's standing discount comes off here; the net is what the line has always carried.
+        $priced = app(PayerDiscounts::class)->apply((string) $session->academy_id, (string) $session->student_id, PayerDiscounts::SCOPE_PRIVATE, null, $amountMinor, $sessionDate);
+        $amountMinor = $priced['amount_minor'];
 
         // insertOrIgnore is the concurrency backstop for the unique (invoice_id, session_id)
         // constraint — even in a race condition a duplicate line cannot be created (R-BIL-1).
@@ -116,6 +120,9 @@ final class Invoicing implements BillingHook
             'student_id' => $session->student_id,
             'description' => $description,
             'amount_minor' => $amountMinor,
+            'list_amount_minor' => $priced['list_amount_minor'],
+            'discount_minor' => $priced['discount_minor'],
+            'discount_label' => $priced['discount_label'],
             'currency' => $currency,
             'session_date' => $sessionDate,
             'created_at' => now(),
@@ -251,7 +258,8 @@ final class Invoicing implements BillingHook
         }
 
         $lineId = (string) Str::uuid();
-        $amountMinor = (int) $fields['amount_minor'];
+        $priced = app(PayerDiscounts::class)->apply($academyId, $studentId, PayerDiscounts::SCOPE_GROUP, (string) $fields['class_group_id'], (int) $fields['amount_minor'], (string) $fields['session_date']);
+        $amountMinor = $priced['amount_minor'];
         $inserted = DB::table('invoice_line_items')->insertOrIgnore([
             'id' => $lineId,
             'academy_id' => $academyId,
@@ -260,6 +268,9 @@ final class Invoicing implements BillingHook
             'student_id' => $studentId,
             'description' => $fields['description'],
             'amount_minor' => $amountMinor,
+            'list_amount_minor' => $priced['list_amount_minor'],
+            'discount_minor' => $priced['discount_minor'],
+            'discount_label' => $priced['discount_label'],
             'currency' => $currency,
             'session_date' => $fields['session_date'],
             'class_group_id' => $fields['class_group_id'],

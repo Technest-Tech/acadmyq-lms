@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRightLeft, ChevronDown, Search, Tag, UserMinus, UserPlus } from "lucide-react";
+import { ArrowRightLeft, ChevronDown, Tag, UserMinus, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
@@ -8,10 +8,10 @@ import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fromMinor, toMinor } from "@/components/groups/group-form";
 import { fieldClass, hoursText, percent, todayIn } from "@/components/groups/group-format";
+import { StudentPicker } from "@/components/groups/student-picker";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { listStudents, type StudentRow } from "@/lib/api";
 import {
   addGroupMembers,
   listGroups,
@@ -232,8 +232,6 @@ export function AddMembersForm({
   onSaved: (g: GroupDetail, added: number) => void;
 }) {
   const t = useTranslations("groups");
-  const [students, setStudents] = useState<StudentRow[] | null>(null);
-  const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [joinedOn, setJoinedOn] = useState(() => {
     const today = todayIn(group.timezone);
@@ -243,33 +241,10 @@ export function AddMembersForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void listStudents({ pageSize: 200, filter: { status: "active" } })
-      .then((res) => setStudents(res.rows))
-      .catch(() => setStudents([]));
-  }, []);
-
   const inGroup = useMemo(
     () => new Set(group.members.filter((m) => m.status === "ACTIVE").map((m) => m.student_id)),
     [group.members],
   );
-  const options = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    // A number is searched by its digits, without the local leading 0 — "0100 123" finds +20100123….
-    const digits = needle.replace(/\D/g, "").replace(/^0+/, "");
-    const phoneMatches = (s: StudentRow) =>
-      digits.length >= 3 &&
-      [s.whatsapp_phone, s.secondary_phone, s.guardian_phone].some((p) => (p ?? "").replace(/\D/g, "").includes(digits));
-    return (students ?? [])
-      .filter((s) => !inGroup.has(s.id))
-      .filter(
-        (s) =>
-          !needle ||
-          s.full_name.toLowerCase().includes(needle) ||
-          (s.guardian_name ?? "").toLowerCase().includes(needle) ||
-          phoneMatches(s),
-      );
-  }, [students, q, inGroup]);
 
   const seatsLeft = group.capacity !== null ? group.capacity - inGroup.size : null;
   const over = seatsLeft !== null && picked.size > seatsLeft;
@@ -304,40 +279,7 @@ export function AddMembersForm({
     <div className="space-y-4" data-testid="add-members-form">
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
 
-      <label className="relative block">
-        <Search className="text-muted-foreground absolute top-1/2 size-4 -translate-y-1/2 ltr:left-3 rtl:right-3" />
-        <input className={cn(fieldClass, "ps-9")} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("members.searchStudentsOrPhone")} aria-label={t("members.searchStudents")} />
-      </label>
-
-      <div className="max-h-72 overflow-y-auto rounded-xl border">
-        {students === null ? (
-          <p className="text-muted-foreground p-4 text-center text-sm">{t("loading")}</p>
-        ) : options.length === 0 ? (
-          <p className="text-muted-foreground p-4 text-center text-sm">{t("members.noStudents")}</p>
-        ) : (
-          <ul className="divide-y">
-            {options.map((s) => (
-              <li key={s.id}>
-                <label className="hover:bg-muted/50 flex cursor-pointer items-center gap-3 px-3 py-2">
-                  <input type="checkbox" checked={picked.has(s.id)} onChange={() => toggle(s.id)} data-testid={`pick-${s.id}`} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{s.full_name}</span>
-                    {s.guardian_name && !s.is_self_guardian && (
-                      <span className="text-muted-foreground block truncate text-xs">{s.guardian_name}</span>
-                    )}
-                  </span>
-                  {/* The student's own number, else the parent's — enough to tell two same-named students apart. */}
-                  {(s.whatsapp_phone ?? s.guardian_phone) && (
-                    <span dir="ltr" className="text-muted-foreground shrink-0 text-xs tabular-nums" data-testid={`pick-phone-${s.id}`}>
-                      {s.whatsapp_phone ?? s.guardian_phone}
-                    </span>
-                  )}
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <StudentPicker picked={picked} onToggle={toggle} exclude={inGroup} />
 
       <label className="block space-y-1.5">
         <span className="text-sm font-medium">{t("members.joinedOn")}</span>

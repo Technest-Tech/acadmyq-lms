@@ -139,6 +139,9 @@ describe("Collect", () => {
     expect(within(screen.getByTestId("collect-preview")).getByText((text) => text.includes(tail))).toBeTruthy();
 
     await userEvent.click(screen.getByTestId("collect-method-INSTAPAY"));
+    // Anything but cash needs the transfer's picture before it can be saved.
+    expect(screen.getByTestId("collect-submit")).toBeDisabled();
+    await userEvent.upload(screen.getByTestId("collect-proof"), new File(["img"], "instapay.png", { type: "image/png" }));
     await userEvent.click(screen.getByTestId("collect-submit"));
 
     await waitFor(() => expect(recordReceipt).toHaveBeenCalledTimes(1));

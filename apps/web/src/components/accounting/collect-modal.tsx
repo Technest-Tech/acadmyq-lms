@@ -274,7 +274,7 @@ export function CollectModal({
             <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
               {t("collect.cancel")}
             </Button>
-            <Button type="submit" form="collect-form" disabled={submitting || amount <= 0} className="gap-1.5" data-testid="collect-submit">
+            <Button type="submit" form="collect-form" disabled={submitting || amount <= 0 || (method !== "CASH" && proof === null)} className="gap-1.5" data-testid="collect-submit">
               {submitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Wallet className="size-4" aria-hidden />}
               {amount > 0 ? t("collect.submitAmount", { amount: fmt(amount) }) : t("collect.submit")}
             </Button>
@@ -459,10 +459,12 @@ export function CollectModal({
                 <input id="collect-ref" type="text" dir="ltr" maxLength={255} className={inputClass} value={reference} onChange={(e) => setReference(e.target.value)} placeholder={t("collect.referenceHint")} />
               </div>
               <div>
+                {/* Money that moved through a bank, a wallet or a card leaves a picture — the API insists on it too. */}
                 <label htmlFor="collect-proof" className={labelClass}>
-                  {t("collect.proof")} <span className="text-muted-foreground font-normal">({t("collect.optional")})</span>
+                  {t("collect.proof")} <span className="text-destructive font-normal">({t("collect.required")})</span>
                 </label>
-                <input id="collect-proof" type="file" accept="image/jpeg,image/png,image/webp" className={cn(inputClass, "py-1.5")} onChange={(e) => setProof(e.target.files?.[0] ?? null)} />
+                <input id="collect-proof" type="file" required accept="image/jpeg,image/png,image/webp" className={cn(inputClass, "py-1.5")} onChange={(e) => setProof(e.target.files?.[0] ?? null)} data-testid="collect-proof" />
+                {proof === null && <p className="text-muted-foreground mt-1 text-xs">{t("collect.proofNeeded")}</p>}
               </div>
             </div>
           )}

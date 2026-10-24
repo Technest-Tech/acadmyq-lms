@@ -6,7 +6,9 @@ use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesSchedules;
@@ -22,6 +24,7 @@ uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::cla
  *   - every figure is the receipts' (partial payments, credit, voids), and money stays with money roles.
  */
 beforeEach(function () {
+    Storage::fake('local');
     // Wednesday 17 June 2026. The group runs from 1 May: May + June are billed (450 each, per kid).
     Carbon::setTestNow('2026-06-17 09:00:00');
     $this->seed(DemoAcademySeeder::class);
@@ -86,8 +89,9 @@ function apgPayments($test): void
         'guardian_id' => $test->parent, 'amount_minor' => 90000, 'method' => 'CASH', 'apply_rest' => false,
         'line_ids' => [apgLine($test->academy, $test->adam, '2026-05-01'), apgLine($test->academy, $test->adam, '2026-06-01')],
     ])->assertCreated();
-    $test->postJson('/api/receipts', [
+    $test->post('/api/receipts', [
         'guardian_id' => $test->parent, 'amount_minor' => 20000, 'method' => 'INSTAPAY', 'apply_rest' => false,
+        'proof' => UploadedFile::fake()->image('instapay.jpg'),
         'line_ids' => [apgLine($test->academy, $test->bassel, '2026-06-01')],
     ])->assertCreated();
 }
@@ -204,7 +208,7 @@ it('builds a statement of account with an opening balance and a running balance'
 
 it('counts the day’s collections by method and collector, voids apart', function () {
     apgPayments($this);
-    $voidMe = $this->postJson('/api/receipts', ['guardian_id' => $this->mother, 'amount_minor' => 1000, 'method' => 'WALLET'])->json('receipt.id');
+    $voidMe = $this->post('/api/receipts', ['guardian_id' => $this->mother, 'amount_minor' => 1000, 'method' => 'WALLET', 'proof' => UploadedFile::fake()->image('wallet.jpg')])->json('receipt.id');
     $this->postJson("/api/receipts/{$voidMe}/void", ['reason' => 'Wrong family'])->assertOk();
 
     $res = $this->getJson('/api/accounting/daily?from=2026-06-15&to=2026-06-17')->assertOk();

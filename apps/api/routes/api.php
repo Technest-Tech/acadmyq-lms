@@ -1146,6 +1146,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::get('/accounting/family/{guardianId}', [FamilyAccountController::class, 'show'])->whereUuid('guardianId');
             Route::post('/accounting/family/{guardianId}/notes', [FamilyAccountController::class, 'addNote'])->whereUuid('guardianId');
             Route::delete('/accounting/family/{guardianId}/notes/{noteId}', [FamilyAccountController::class, 'deleteNote'])->whereUuid(['guardianId', 'noteId']);
+            Route::post('/accounting/family/{guardianId}/discounts', [FamilyAccountController::class, 'addDiscount'])->whereUuid('guardianId');
+            Route::delete('/accounting/family/{guardianId}/discounts/{discountId}', [FamilyAccountController::class, 'endDiscount'])->whereUuid(['guardianId', 'discountId']);
             // The treasury and the money out.
             Route::get('/treasury', [TreasuryController::class, 'index']);
             Route::post('/treasury/accounts', [TreasuryController::class, 'storeAccount']);

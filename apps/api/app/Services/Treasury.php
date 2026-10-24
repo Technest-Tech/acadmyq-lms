@@ -131,9 +131,11 @@ final class Treasury
         $entries = [];
         foreach ($this->receiptsQuery($id)->whereBetween('r.received_on', [$from, $to])
             ->leftJoin('guardians as g', 'g.id', '=', 'r.guardian_id')->leftJoin('students as s', 's.id', '=', 'r.student_id')
-            ->get(['r.id', 'r.number', 'r.received_on', 'r.created_at', 'r.amount_minor', 'r.method', DB::raw('coalesce(g.full_name, s.full_name, r.payer_name) as party')]) as $r) {
+            ->get(['r.id', 'r.number', 'r.received_on', 'r.created_at', 'r.amount_minor', 'r.method', 'r.guardian_id', 'r.student_id', DB::raw('coalesce(g.full_name, s.full_name, r.payer_name) as party')]) as $r) {
             $entries[] = ['kind' => 'RECEIPT', 'id' => (string) $r->id, 'date' => Carbon::parse($r->received_on)->format('Y-m-d'), 'at' => (string) $r->created_at,
-                'label' => (string) $r->number, 'party' => $r->party, 'method' => (string) $r->method, 'in_minor' => (int) $r->amount_minor, 'out_minor' => 0];
+                'label' => (string) $r->number, 'party' => $r->party, 'method' => (string) $r->method, 'in_minor' => (int) $r->amount_minor, 'out_minor' => 0,
+                // So the ledger can open the family the money came from.
+                'guardian_id' => $r->guardian_id !== null ? (string) $r->guardian_id : null, 'student_id' => $r->student_id !== null ? (string) $r->student_id : null];
         }
         foreach (DB::table('expenses as e')->join('expense_categories as c', 'c.id', '=', 'e.category_id')
             ->where('e.cash_account_id', $id)->whereNull('e.voided_at')->whereBetween('e.spent_on', [$from, $to])

@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronLeft, ChevronRight, Plus, Receipt, Search, Wallet } from "lucide-react";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { MethodBadge, MethodBar, Tile, dayLabel, todayLocal } from "@/components/accounting/accounting-ui";
@@ -180,7 +181,18 @@ export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
                     </td>
                     <td className="p-3 whitespace-nowrap">{dayLabel(r.received_on, locale)}</td>
                     <td className="p-3">
-                      <p className="font-medium break-words">{r.payer_name ?? "—"}</p>
+                      {r.guardian_id || r.student_id ? (
+                        <Link
+                          href={r.guardian_id ? `/guardians/${r.guardian_id}` : `/students/${r.student_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="font-medium break-words hover:underline"
+                          title={t("family.openFamily")}
+                        >
+                          {r.payer_name ?? "—"}
+                        </Link>
+                      ) : (
+                        <p className="font-medium break-words">{r.payer_name ?? "—"}</p>
+                      )}
                       {r.groups.length > 0 && <p className="text-muted-foreground text-xs break-words">{r.groups.join(" · ")}</p>}
                     </td>
                     <td className="p-3">

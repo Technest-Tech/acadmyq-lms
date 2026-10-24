@@ -377,6 +377,9 @@ export interface StatementEntry {
   debit_minor: number;
   credit_minor: number;
   paid_minor?: number;
+  list_amount_minor?: number | null;
+  discount_minor?: number;
+  discount_label?: string | null;
   invoice_url?: string;
   balance_minor: number;
 }
@@ -439,11 +442,35 @@ export interface FamilyCharge {
   date: string;
   period: string;
   amount_minor: number;
+  /** Set when a discount was taken: the price before it, how much, and the discount's label(s). */
+  list_amount_minor: number | null;
+  discount_minor: number;
+  discount_label: string | null;
   paid_minor: number;
   remaining_minor: number;
   currency: string;
   payer_kind: "GUARDIAN" | "STUDENT";
   payer_id: string;
+}
+
+export type DiscountKind = "PERCENT" | "FIXED";
+export type DiscountScope = "ALL" | "GROUP" | "PRIVATE";
+
+/** A standing discount on a family's (or one child's) charges. PERCENT `value` is basis points; FIXED is minor units per charge. */
+export interface FamilyDiscount {
+  id: string;
+  kind: DiscountKind;
+  value: number;
+  label: string;
+  scope: DiscountScope;
+  student_id: string | null;
+  student_name: string | null;
+  class_group_id: string | null;
+  group_name: string | null;
+  starts_on: string;
+  ends_on: string | null;
+  active: boolean;
+  by: string | null;
 }
 
 export type FamilyEvent =
@@ -468,6 +495,7 @@ export interface FamilyAccount {
     due: { currency: string; due_minor: number }[];
   }[];
   charges: FamilyCharge[];
+  discounts: FamilyDiscount[];
   timeline: FamilyEvent[];
   can_collect: boolean;
   can_remind: boolean;
@@ -484,6 +512,19 @@ export function addFamilyNote(guardianId: string, body: string, followUpOn?: str
 
 export function deleteFamilyNote(guardianId: string, noteId: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/accounting/family/${guardianId}/notes/${noteId}`, { method: "DELETE" });
+}
+
+/** PERCENT `value` is a whole percent (1–100) here; FIXED is minor units per charge. */
+export function addFamilyDiscount(
+  guardianId: string,
+  input: { kind: DiscountKind; value: number; label: string; scope?: DiscountScope; student_id?: string | null; class_group_id?: string | null },
+): Promise<{ id: string }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/discounts`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Ends it today; what it already took off stays on those charges. */
+export function endFamilyDiscount(guardianId: string, discountId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/discounts/${discountId}`, { method: "DELETE" });
 }
 
 // ── The treasury ─────────────────────────────────────────────────────────────
@@ -535,6 +576,9 @@ export interface LedgerEntry {
   date: string;
   label: string | null;
   party?: string | null;
+  /** RECEIPT: the family (or student) the money came from, to open from the ledger. */
+  guardian_id?: string | null;
+  student_id?: string | null;
   method?: ReceiptMethod;
   category?: string;
   description?: string | null;
@@ -626,7 +670,10 @@ export interface ExpensesPage {
 
 export interface SalaryDue {
   payout_id: string;
+  teacher_id: string;
   teacher_name: string;
+  /** How many paid lessons the statement holds. */
+  lines: number;
   period: string;
   total_minor: number;
   paid_minor: number;

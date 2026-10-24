@@ -499,16 +499,19 @@ final class TreasuryController extends Controller
         $paid = DB::table('expenses')->whereNotNull('payout_id')->whereNull('voided_at')->groupBy('payout_id')
             ->get(['payout_id', DB::raw('sum(amount_minor) as paid')])->keyBy(fn ($r) => (string) $r->payout_id);
 
+        $lines = DB::table('payout_line_items')->groupBy('payout_id')->get(['payout_id', DB::raw('count(*) as n')])->keyBy(fn ($r) => (string) $r->payout_id);
         $rows = DB::table('payouts as p')->join('teachers as t', 't.id', '=', 'p.teacher_id')
             ->whereNotNull('p.finalized_at')->where('p.total_minor', '>', 0)
             ->orderByDesc('p.period_year')->orderByDesc('p.period_month')->orderBy('t.full_name')->limit(300)
-            ->get(['p.id', 'p.period_year', 'p.period_month', 'p.total_minor', 'p.currency', 't.full_name'])
-            ->map(function ($p) use ($paid) {
+            ->get(['p.id', 'p.teacher_id', 'p.period_year', 'p.period_month', 'p.total_minor', 'p.currency', 't.full_name'])
+            ->map(function ($p) use ($paid, $lines) {
                 $already = (int) ($paid[(string) $p->id]->paid ?? 0);
 
                 return [
                     'payout_id' => (string) $p->id,
+                    'teacher_id' => (string) $p->teacher_id,
                     'teacher_name' => (string) $p->full_name,
+                    'lines' => (int) ($lines[(string) $p->id]->n ?? 0),
                     'period' => sprintf('%04d-%02d', (int) $p->period_year, (int) $p->period_month),
                     'total_minor' => (int) $p->total_minor,
                     'paid_minor' => $already,

@@ -531,3 +531,24 @@ it('lets a group-only student be REGULAR', function () {
     Sanctum::actingAs($this->owner);
     $this->patchJson("/api/students/{$this->kids['Dina']}", ['status' => 'REGULAR'])->assertOk();
 });
+
+it('by hours: a student alone in the class is counted the solo length, while the teacher is paid the real one', function () {
+    // 2 hours a month, hour-long lessons; alone, a lesson counts as 90 minutes of the hours bought.
+    $groupId = moneyGroup($this, ['price_minor' => 30000, 'month_minutes' => 120, 'solo_billed_minutes' => 90, 'student_ids' => [$this->kids['Adam']]]);
+    expect($this->getJson("/api/groups/{$groupId}")->assertOk()->json('group.pricing.solo_billed_minutes'))->toBe(90);
+
+    heldLesson($this, $groupId, '2026-06-01');
+    Sanctum::actingAs($this->owner);
+    $member = collect($this->getJson("/api/groups/{$groupId}")->assertOk()->json('group.members'))->first();
+    expect($member['hour_month'])->toBe(['months' => 1, 'bought_minutes' => 120, 'used_minutes' => 90]);
+    // The teacher's line is the 60 minutes that happened: 60/h → 60.
+    expect((int) groupPayLines($this, $groupId)->first()->amount_minor)->toBe(6000);
+
+    // A second student joins: from then on a lesson counts its real length again.
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Bassel']], 'joined_on' => '2026-06-03'])->assertCreated();
+    heldLesson($this, $groupId, '2026-06-03');
+    Sanctum::actingAs($this->owner);
+    $adam = collect($this->getJson("/api/groups/{$groupId}")->assertOk()->json('group.members'))->firstWhere('full_name', 'Adam');
+    // 90 + 60 = 150 > 120: the second month was raised by that lesson.
+    expect($adam['hour_month'])->toBe(['months' => 2, 'bought_minutes' => 240, 'used_minutes' => 150]);
+});

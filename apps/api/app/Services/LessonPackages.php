@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Services\PayerDiscounts;
 use App\Payroll\PayoutHook;
 use App\Support\Audit;
 use App\Support\PublicInvoiceToken;
@@ -1702,7 +1703,10 @@ final class LessonPackages
             'updated_at' => now(),
         ]);
 
+        $discounted = 0;
         foreach ($lines as $line) {
+            // A family's standing discount on private lessons comes off a package too.
+            $priced = app(PayerDiscounts::class)->apply($academyId, $studentId, PayerDiscounts::SCOPE_PRIVATE, null, (int) $line['amount_minor'], $period->toDateString());
             DB::table('invoice_line_items')->insert([
                 'id' => (string) Str::uuid(),
                 'academy_id' => $academyId,
@@ -1710,10 +1714,21 @@ final class LessonPackages
                 'session_id' => null,
                 'student_id' => $studentId,
                 'description' => (string) $line['description'],
-                'amount_minor' => (int) $line['amount_minor'],
+                'amount_minor' => $priced['amount_minor'],
+                'list_amount_minor' => $priced['list_amount_minor'],
+                'discount_minor' => $priced['discount_minor'],
+                'discount_label' => $priced['discount_label'],
                 'currency' => $currency,
                 'session_date' => $period->toDateString(),
                 'created_at' => now(),
+            ]);
+            $discounted += $priced['discount_minor'];
+        }
+        if ($discounted > 0) {
+            DB::table('invoices')->where('id', $invoiceId)->update([
+                'subtotal_minor' => DB::raw("subtotal_minor - {$discounted}"),
+                'total_minor' => DB::raw("total_minor - {$discounted}"),
+                'updated_at' => now(),
             ]);
         }
         app(Ledger::class)->afterLinesChanged($invoiceId);

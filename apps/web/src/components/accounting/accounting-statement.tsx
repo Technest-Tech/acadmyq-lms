@@ -297,6 +297,11 @@ export function StatementSheet({ data, onOpenReceipt }: { data: Statement; onOpe
                       ) : (
                         <>
                           <span className="font-medium break-words">{e.description}</span>
+                          {(e.discount_minor ?? 0) > 0 && e.list_amount_minor != null && (
+                            <span className="block text-xs text-violet-700 dark:text-violet-300" data-testid="statement-discount">
+                              {t("statement.discounted", { amount: money(e.discount_minor ?? 0, e.currency), list: money(e.list_amount_minor, e.currency), label: e.discount_label ?? "" })}
+                            </span>
+                          )}
                           <span className="text-muted-foreground block text-xs">
                             {[e.student_name, e.group_name].filter(Boolean).join(" · ")}
                             {(e.paid_minor ?? 0) >= e.debit_minor ? (

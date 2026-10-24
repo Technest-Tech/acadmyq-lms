@@ -1,15 +1,17 @@
 "use client";
 
 import { CalendarDays, Clock, Coins, GraduationCap, Link2, MapPin, Plus, Trash2, Users, Wallet } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { fieldClass, hoursText, sortSlots, textareaClass, todayIn } from "@/components/groups/group-format";
+import { StudentPicker } from "@/components/groups/student-picker";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
-import { ApiError, listSpecializations, listTeachers, type Specialization } from "@/lib/api";
+import { ApiError, listSpecializations, listTeachers, type Specialization, type TeacherRow } from "@/lib/api";
 import { CURRENCIES } from "@/lib/countries";
+import { formatMoney } from "@/lib/money";
 import {
   createGroup,
   updateGroup,
@@ -35,6 +37,8 @@ export function fromMinor(value: number | null | undefined): string {
 
 const BILLING_MODES: GroupBillingMode[] = ["MONTHLY", "PER_LESSON", "COURSE"];
 const PAY_MODES: Exclude<GroupTeacherPayMode, null>[] = ["PER_LESSON", "PER_HOUR", "PER_STUDENT", "REVENUE_SHARE"];
+/** The lesson lengths a centre actually runs; anything else is typed under "Other". */
+export const DURATION_PRESETS = [20, 30, 40, 45, 60, 90, 120];
 
 /** The first validation message an API refusal carries, else its message. */
 export function apiErrorMessage(err: unknown, fallback: string): string {
@@ -89,6 +93,7 @@ export function GroupForm({
 }) {
   const t = useTranslations("groups");
   const tw = useTranslations("scheduling");
+  const locale = useLocale();
   const { can } = useAuth();
   const editing = group !== undefined;
   // Each half of the money is its own capability, and an edit only shows what the API showed us.
@@ -120,20 +125,27 @@ export function GroupForm({
   // before); set = the next month is raised once the group has held that many hours.
   const savedMonthMinutes = group?.pricing?.month_minutes ?? null;
   const [monthHours, setMonthHours] = useState(savedMonthMinutes != null ? hoursText(savedMonthMinutes) : "");
+  // Hours group only: what a lesson counts against a student's hours when they are alone in it.
+  const [soloMinutes, setSoloMinutes] = useState(group?.pricing?.solo_billed_minutes != null ? String(group.pricing.solo_billed_minutes) : "");
   const [payMode, setPayMode] = useState<GroupTeacherPayMode>(group?.teacher_pay?.mode ?? null);
   const [payAmount, setPayAmount] = useState(fromMinor(group?.teacher_pay?.amount_minor));
+  // The amount was filled from the teacher's own hourly rate, not typed — so picking another
+  // teacher may replace it, while a typed amount is never overwritten.
+  const [payFromTeacher, setPayFromTeacher] = useState<number | null>(null);
   const [sharePct, setSharePct] = useState(
     group?.teacher_pay?.share_bp != null ? String(group.teacher_pay.share_bp / 100) : "",
   );
+  // Create only: the students the class starts with.
+  const [studentIds, setStudentIds] = useState<Set<string>>(new Set());
 
-  const [teachers, setTeachers] = useState<{ value: string; label: string }[]>([]);
+  const [teachers, setTeachers] = useState<TeacherRow[]>([]);
   const [subjects, setSubjects] = useState<Specialization[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void listTeachers({ pageSize: 200, filter: { status: "active" } })
-      .then((res) => setTeachers(res.rows.map((r) => ({ value: r.id, label: r.full_name }))))
+      .then((res) => setTeachers(res.rows))
       .catch(() => setTeachers([]));
     void listSpecializations()
       .then((res) => setSubjects(res.specializations.filter((s) => s.is_active)))
@@ -142,11 +154,27 @@ export function GroupForm({
 
   // An edit can be opened on a group whose teacher has since been deactivated: keep them pickable.
   const teacherOptions = useMemo(() => {
-    if (group && !teachers.some((o) => o.value === group.teacher_id)) {
-      return [{ value: group.teacher_id, label: group.teacher_name ?? "—" }, ...teachers];
+    const options = teachers.map((r) => ({ value: r.id, label: r.full_name }));
+    if (group && !teachers.some((o) => o.id === group.teacher_id)) {
+      return [{ value: group.teacher_id, label: group.teacher_name ?? "—" }, ...options];
     }
-    return teachers;
+    return options;
   }, [teachers, group]);
+
+  // Picking a teacher brings their own hourly rate into "what the teacher earns" — per hour, as a
+  // starting point the desk can change. Only when nothing was typed there yet.
+  useEffect(() => {
+    if (!canPay || !teacherId) return;
+    const teacher = teachers.find((r) => r.id === teacherId);
+    const rate = teacher?.session_rate_minor ?? null;
+    const untouched = payAmount === "" || (payFromTeacher !== null && payAmount === fromMinor(payFromTeacher));
+    if (rate === null || rate <= 0 || !untouched || (payMode !== null && payMode !== "PER_HOUR")) return;
+    setPayMode("PER_HOUR");
+    setPayAmount(fromMinor(rate));
+    setPayFromTeacher(rate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teacherId, teachers, canPay]);
+  const payTeacherCurrency = teachers.find((r) => r.id === teacherId)?.currency ?? group?.teacher_pay?.currency ?? "EGP";
 
   const weekdays = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ value: d, label: tw(`weekday.${d}`) }));
 
@@ -169,6 +197,9 @@ export function GroupForm({
     if (canPrice && price.trim() !== "" && (toMinor(price) ?? -1) < 0) return t("form.errors.price");
     if (canPrice && billingMode === "MONTHLY" && monthHours.trim() !== "" && monthMinutes() === null) {
       return t("form.errors.monthHours");
+    }
+    if (canPrice && soloMinutes.trim() !== "" && (!Number.isInteger(Number(soloMinutes)) || Number(soloMinutes) < 1 || Number(soloMinutes) > 600)) {
+      return t("form.errors.slotInvalid");
     }
     if (canPay && payMode !== null && payMode !== "REVENUE_SHARE" && toMinor(payAmount) === null) return t("form.errors.payAmount");
     if (canPay && payMode === "REVENUE_SHARE") {
@@ -205,6 +236,7 @@ export function GroupForm({
       end_date: endDate || null,
       notes: notes.trim() || null,
       slots: sortSlots(slots),
+      ...(!editing && studentIds.size > 0 ? { student_ids: [...studentIds] } : {}),
       ...(canPrice
         ? {
             billing_mode: billingMode,
@@ -213,6 +245,7 @@ export function GroupForm({
             charge_absent: billingMode === "PER_LESSON" && chargeAbsent,
             prorate_join: prorateJoin,
             month_minutes: billingMode === "MONTHLY" ? monthMinutes() : null,
+            solo_billed_minutes: billingMode === "MONTHLY" && monthMinutes() !== null && soloMinutes.trim() !== "" ? Number(soloMinutes) : null,
           }
         : {}),
       ...(canPay
@@ -402,18 +435,7 @@ export function GroupForm({
                 onChange={(e) => updateSlot(i, { start_time_local: e.target.value })}
                 aria-label={tw("startTime")}
               />
-              <div className="flex items-center gap-1.5">
-                <input
-                  className={cn(fieldClass, "w-24")}
-                  type="number"
-                  min={1}
-                  max={600}
-                  value={s.duration_minutes}
-                  onChange={(e) => updateSlot(i, { duration_minutes: Number(e.target.value) })}
-                  aria-label={tw("duration")}
-                />
-                <span className="text-muted-foreground text-xs">{t("form.minutes")}</span>
-              </div>
+              <DurationField value={s.duration_minutes} onChange={(minutes) => updateSlot(i, { duration_minutes: minutes })} />
               <Button
                 type="button"
                 variant="ghost"
@@ -508,6 +530,24 @@ export function GroupForm({
               />
             </Field>
           )}
+          {billingMode === "MONTHLY" && monthMinutes() !== null && (
+            <Field label={t("money.soloMinutes")} icon={Users} hint={t("money.soloMinutesHint")}>
+              <div className="flex items-center gap-1.5">
+                <input
+                  className={cn(fieldClass, "w-28")}
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={600}
+                  value={soloMinutes}
+                  onChange={(e) => setSoloMinutes(e.target.value)}
+                  placeholder={String(slots[0]?.duration_minutes ?? 60)}
+                  data-testid="group-solo-minutes"
+                />
+                <span className="text-muted-foreground text-xs">{t("form.minutes")}</span>
+              </div>
+            </Field>
+          )}
           {billingMode === "MONTHLY" && editing && (savedMonthMinutes === null) !== (monthHours.trim() === "") && (
             <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
               {t("money.monthHoursSwitchHint")}
@@ -550,7 +590,14 @@ export function GroupForm({
             ))}
           </select>
           {payMode !== null && payMode !== "REVENUE_SHARE" && (
-            <Field label={t(`money.payAmount.${payMode}`)} hint={t("money.payCurrencyHint")}>
+            <Field
+              label={t(`money.payAmount.${payMode}`)}
+              hint={
+                payMode === "PER_HOUR" && payFromTeacher !== null && payAmount === fromMinor(payFromTeacher)
+                  ? t("money.rateFromTeacher", { rate: formatMoney({ amount: payFromTeacher, currency: payTeacherCurrency }, locale) })
+                  : t("money.payCurrencyHint")
+              }
+            >
               <input className={fieldClass} inputMode="decimal" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} data-testid="group-pay-amount" />
             </Field>
           )}
@@ -560,6 +607,28 @@ export function GroupForm({
             </Field>
           )}
           <p className="text-muted-foreground text-xs">{t(`money.payModeHint.${payMode ?? "DEFAULT"}`)}</p>
+        </section>
+      )}
+
+      {!editing && (
+        <section className="space-y-2 rounded-xl border p-3" data-testid="group-students">
+          <p className="flex items-center gap-1.5 text-sm font-semibold">
+            <Users className="text-muted-foreground size-4" />
+            {t("form.students")}
+            {studentIds.size > 0 && <span className="text-muted-foreground text-xs font-normal">· {t("members.picked", { count: studentIds.size })}</span>}
+          </p>
+          <StudentPicker
+            picked={studentIds}
+            onToggle={(id) =>
+              setStudentIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
+          />
+          <p className="text-muted-foreground text-xs">{t("form.studentsHint")}</p>
         </section>
       )}
 
@@ -575,6 +644,54 @@ export function GroupForm({
           {busy ? t("form.saving") : editing ? t("form.saveChanges") : t("form.create")}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A lesson's length: the lengths a centre runs as a list, "Other" for anything else. A saved length
+ * that is not on the list opens as "Other" with its number, so nothing is silently rounded.
+ */
+function DurationField({ value, onChange }: { value: number; onChange: (minutes: number) => void }) {
+  const t = useTranslations("groups");
+  const tw = useTranslations("scheduling");
+  const [other, setOther] = useState(() => !DURATION_PRESETS.includes(value));
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <select
+        className={cn(fieldClass, "w-28")}
+        value={other ? "other" : String(value)}
+        onChange={(e) => {
+          if (e.target.value === "other") {
+            setOther(true);
+            return;
+          }
+          setOther(false);
+          onChange(Number(e.target.value));
+        }}
+        aria-label={tw("duration")}
+        data-testid="group-duration"
+      >
+        {DURATION_PRESETS.map((m) => (
+          <option key={m} value={m}>
+            {m} {t("form.minutes")}
+          </option>
+        ))}
+        <option value="other">{t("form.durationOther")}</option>
+      </select>
+      {other && (
+        <input
+          className={cn(fieldClass, "w-20")}
+          type="number"
+          min={1}
+          max={600}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          aria-label={tw("duration")}
+          data-testid="group-duration-other"
+        />
+      )}
     </div>
   );
 }

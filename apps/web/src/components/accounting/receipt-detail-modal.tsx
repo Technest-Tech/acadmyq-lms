@@ -1,6 +1,7 @@
 "use client";
 
 import { Ban, ExternalLink, FileImage, Link2, Loader2, MessageSquare } from "lucide-react";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { CopyLinkButton, MethodBadge, dayLabel, waLink } from "@/components/accounting/accounting-ui";
@@ -125,7 +126,18 @@ export function ReceiptDetailModal({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-muted-foreground text-xs">{t("detail.receivedFrom")}</p>
-                <p className="font-semibold break-words">{receipt.payer.name ?? receipt.payer_name ?? "—"}</p>
+                {/* The family (or the student billed directly) is one click away: the treasury and the family card are one book. */}
+                {receipt.guardian_id || receipt.student_id ? (
+                  <Link
+                    href={receipt.guardian_id ? `/guardians/${receipt.guardian_id}` : `/students/${receipt.student_id}`}
+                    className="font-semibold break-words hover:underline"
+                    data-testid="receipt-payer-link"
+                  >
+                    {receipt.payer.name ?? receipt.payer_name ?? "—"}
+                  </Link>
+                ) : (
+                  <p className="font-semibold break-words">{receipt.payer.name ?? receipt.payer_name ?? "—"}</p>
+                )}
                 {receipt.payer.phone && (
                   <p className="text-muted-foreground text-xs" dir="ltr">
                     {receipt.payer.phone}

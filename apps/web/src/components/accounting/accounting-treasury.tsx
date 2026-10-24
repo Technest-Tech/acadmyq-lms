@@ -17,6 +17,7 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MethodBadge, Panel, Tile, dayLabel, toMajorText, toMinor, todayLocal } from "@/components/accounting/accounting-ui";
@@ -631,9 +632,18 @@ function LedgerModal({ account, onClose }: { account: CashAccount; onClose: () =
                     <td className="p-2.5">
                       <span className="font-medium">{t(`treasury.entry.${e.kind}`)}</span>
                       <span className="text-muted-foreground block text-xs break-words">
-                        {e.kind === "CLOSING"
-                          ? t("treasury.closingLine", { expected: money(e.expected_minor ?? 0), counted: money(e.counted_minor ?? 0) })
-                          : [e.label, e.party, e.category, e.description].filter(Boolean).join(" · ")}
+                        {e.kind === "CLOSING" ? (
+                          t("treasury.closingLine", { expected: money(e.expected_minor ?? 0), counted: money(e.counted_minor ?? 0) })
+                        ) : e.kind === "RECEIPT" && (e.guardian_id || e.student_id) ? (
+                          <>
+                            {e.label} ·{" "}
+                            <Link href={e.guardian_id ? `/guardians/${e.guardian_id}` : `/students/${e.student_id}`} className="hover:underline" title={t("family.openFamily")}>
+                              {e.party}
+                            </Link>
+                          </>
+                        ) : (
+                          [e.label, e.party, e.category, e.description].filter(Boolean).join(" · ")
+                        )}
                       </span>
                     </td>
                     <td className="p-2.5 text-end text-emerald-700 tabular-nums dark:text-emerald-300">{e.in_minor > 0 ? money(e.in_minor) : ""}</td>

@@ -6534,7 +6534,10 @@
         "monthHours": "أدخل الساعات رقمًا، مثل 8 أو 7.5.",
         "payAmount": "أدخل ما يتقاضاه المدرس.",
         "share": "النسبة يجب أن تكون بين 0 و100."
-      }
+      },
+      "students": "الطلاب",
+      "studentsHint": "اختياري. يُضافون من تاريخ البداية ويُحسب لهم الشهر الأول فورًا.",
+      "durationOther": "أخرى…"
     },
     "detail": {
       "back": "كل المجموعات",
@@ -6741,7 +6744,10 @@
         "PER_HOUR": "سطر واحد لكل حصة تمت: السعر × مدة الحصة.",
         "PER_STUDENT": "سطر واحد لكل حصة تمت: المبلغ × عدد الطلاب الحاضرين.",
         "REVENUE_SHARE": "سطر واحد في الشهر، يتحدّث مع فواتير المجموعة."
-      }
+      },
+      "soloMinutes": "لو الطالب وحده في الحصة، تُحسب عليه",
+      "soloMinutesHint": "دقائق تُخصم من ساعاته عن كل حصة يحضرها وحده. المعلم يُحاسَب على المدة الفعلية. فارغ = المدة الفعلية.",
+      "rateFromTeacher": "من ملف المعلم: {rate} للساعة. عدّله لو هذه المجموعة مختلفة."
     },
     "moneyTab": {
       "loadFailed": "تعذّر تحميل فلوس المجموعة.",
@@ -9159,7 +9165,9 @@
       "done": "تم",
       "sent": "تم الإرسال إلى {phone} على واتساب.",
       "noPhone": "لا يوجد رقم واتساب لهذا الدافع — انسخ الرابط بدلًا من ذلك.",
-      "sendFailed": "تعذّر إرسال الإيصال."
+      "sendFailed": "تعذّر إرسال الإيصال.",
+      "required": "مطلوب",
+      "proofNeeded": "ارفع صورة إيصال التحويل قبل الحفظ."
     },
     "detail": {
       "title": "إيصال {number}",
@@ -9390,7 +9398,8 @@
       "receiptNo": "إيصال {number}",
       "balanceNote": "الرصيد الموجب مستحق على الأسرة؛ الصفر أو أقل يعني مسدَّد (السالب رصيد مقدم).",
       "pickTitle": "كشف حساب من؟",
-      "pickHint": "اختر الطالب — الكشف لحساب أسرته."
+      "pickHint": "اختر الطالب — الكشف لحساب أسرته.",
+      "discounted": "خصم {amount} من {list}: {label}"
     },
     "daily": {
       "title": "التحصيل اليومي",
@@ -9438,7 +9447,34 @@
         "RECEIPT": "دفع {amount} — {number}",
         "REMINDER": "أُرسل تذكير واتساب",
         "BILL_SENT": "أُرسلت فاتورة {period} ({amount})"
-      }
+      },
+      "discounts": "الخصومات",
+      "noDiscounts": "لا خصومات على هذه الأسرة.",
+      "addDiscount": "إضافة خصم",
+      "discountKind": {
+        "PERCENT": "نسبة %",
+        "FIXED": "مبلغ ثابت"
+      },
+      "discountValuePercent": "النسبة",
+      "discountValueFixed": "المبلغ عن كل مستحق",
+      "discountLabel": "البند / السبب",
+      "discountLabelHint": "مثال: خصم أخوة، منحة، موظف",
+      "discountFor": "على",
+      "wholeFamily": "كل الأبناء",
+      "discountScope": {
+        "ALL": "كل المستحقات",
+        "GROUP": "المجموعات",
+        "PRIVATE": "الدروس الخاصة"
+      },
+      "discountGroupAny": "أي مجموعة",
+      "endDiscount": "إنهاء",
+      "endDiscountHint": "يتوقف من اليوم. ما خُصم قبل ذلك يبقى كما هو.",
+      "ended": "انتهى {date}",
+      "since": "منذ {date}",
+      "discountSaved": "تم تسجيل الخصم. يُطبَّق على المستحقات الجديدة من اليوم.",
+      "discountFailed": "لم يُحفظ الخصم.",
+      "wasPrice": "بدل {list} · خصم {discount} ({label})",
+      "openFamily": "فتح الأسرة"
     },
     "kind": {
       "CASH": "درج نقدي",
@@ -9556,7 +9592,15 @@
       "hideCategory": "إخفاء",
       "showCategory": "إظهار",
       "voidTitle": "إلغاء المصروف {number}",
-      "voidWarning": "يظل رقمه محجوزًا ويعود المبلغ إلى الخزنة."
+      "voidWarning": "يظل رقمه محجوزًا ويعود المبلغ إلى الخزنة.",
+      "addCategoryInline": "+ بند جديد…",
+      "newCategoryName": "اسم البند الجديد",
+      "searchTeacher": "ابحث باسم المعلم",
+      "statementDetails": "تفاصيل الكشف",
+      "statementSummary": "{lines} حصة · حصص {sessions} · مكافآت {rewards} · خصومات {deductions}",
+      "statementLines": "الحصص في الكشف",
+      "noTeacherMatch": "لا كشوف بهذا الاسم.",
+      "linesCount": "{count} حصة"
     },
     "income": {
       "title": "الإيرادات والمصروفات",

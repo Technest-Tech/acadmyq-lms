@@ -32,7 +32,7 @@ vi.mock("@/lib/groups-api", async (importOriginal) => ({
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
-  listTeachers: () => Promise.resolve({ rows: [{ id: "t1", full_name: "Mona" }], total: 1, page: 1, pageSize: 200 }),
+  listTeachers: () => Promise.resolve({ rows: [{ id: "t1", full_name: "Mona", session_rate_minor: 6000, pay_type: "HOURLY", currency: "EGP" }], total: 1, page: 1, pageSize: 200 }),
   listSpecializations: () => Promise.resolve({ specializations: [] }),
   listStudents: () =>
     Promise.resolve({
@@ -351,6 +351,64 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
     const input = createGroup.mock.calls[0]![0];
     expect(input).not.toHaveProperty("price_minor");
     expect(input).not.toHaveProperty("teacher_pay_mode");
+  });
+
+  it("brings the teacher's own hourly rate in as a starting point, and never overwrites a typed amount", async () => {
+    const user = userEvent.setup();
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage", "student.set_price", "teacher.set_pay"] }),
+      <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    await user.type(screen.getByTestId("group-name"), "English A1");
+    await user.click(screen.getByTestId("group-teacher"));
+    await user.click(await screen.findByText("Mona"));
+    await waitFor(() => expect((screen.getByTestId("group-pay-mode") as HTMLSelectElement).value).toBe("PER_HOUR"));
+    expect((screen.getByTestId("group-pay-amount") as HTMLInputElement).value).toBe("60");
+
+    await user.clear(screen.getByTestId("group-pay-amount"));
+    await user.type(screen.getByTestId("group-pay-amount"), "75");
+    await user.click(screen.getByTestId("group-save"));
+    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
+    expect(createGroup.mock.calls[0]![0]).toMatchObject({ teacher_pay_mode: "PER_HOUR", teacher_pay_minor: 7500 });
+  });
+
+  it("offers the lesson lengths a centre runs as a list, 'Other' for the rest", async () => {
+    const user = userEvent.setup();
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage"] }), <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    await user.type(screen.getByTestId("group-name"), "English A1");
+    await user.click(screen.getByTestId("group-teacher"));
+    await user.click(await screen.findByText("Mona"));
+    await user.selectOptions(screen.getByTestId("group-duration"), "45");
+    await user.click(screen.getByTestId("group-save"));
+    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
+    expect(createGroup.mock.calls[0]![0].slots[0]).toMatchObject({ duration_minutes: 45 });
+
+    // A length off the list is typed under "Other".
+    createGroup.mockClear();
+    await user.selectOptions(screen.getByTestId("group-duration"), "other");
+    await user.clear(screen.getByTestId("group-duration-other"));
+    await user.type(screen.getByTestId("group-duration-other"), "75");
+    await user.click(screen.getByTestId("group-save"));
+    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
+    expect(createGroup.mock.calls[0]![0].slots[0]).toMatchObject({ duration_minutes: 75 });
+  });
+
+  it("creates the class with its students, and says what a lesson alone counts against their hours", async () => {
+    const user = userEvent.setup();
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage", "student.set_price"] }),
+      <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    await user.type(screen.getByTestId("group-name"), "English A1");
+    await user.click(screen.getByTestId("group-teacher"));
+    await user.click(await screen.findByText("Mona"));
+    await user.type(screen.getByTestId("group-price"), "600");
+    await user.type(screen.getByTestId("group-month-hours"), "8");
+    await user.type(await screen.findByTestId("group-solo-minutes"), "90");
+    await user.click(await screen.findByTestId("pick-s-adam"));
+    await user.click(screen.getByTestId("group-save"));
+
+    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
+    expect(createGroup.mock.calls[0]![0]).toMatchObject({ student_ids: ["s-adam"], month_minutes: 480, solo_billed_minutes: 90 });
   });
 });
 

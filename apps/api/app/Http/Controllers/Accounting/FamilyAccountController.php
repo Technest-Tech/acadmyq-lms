@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Services\Ledger;
+use App\Services\PayerDiscounts;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use Illuminate\Http\JsonResponse;
@@ -13,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -33,7 +35,7 @@ use Illuminate\Validation\ValidationException;
  */
 final class FamilyAccountController extends Controller
 {
-    public function __construct(private readonly Ledger $ledger) {}
+    public function __construct(private readonly Ledger $ledger, private readonly PayerDiscounts $discounts) {}
 
     public function show(string $guardianId): JsonResponse
     {
@@ -98,6 +100,9 @@ final class FamilyAccountController extends Controller
                 'date' => $date,
                 'period' => sprintf('%04d-%02d', (int) $l->period_year, (int) $l->period_month),
                 'amount_minor' => (int) $l->amount_minor,
+                'list_amount_minor' => $l->list_amount_minor !== null ? (int) $l->list_amount_minor : null,
+                'discount_minor' => (int) $l->discount_minor,
+                'discount_label' => $l->discount_label,
                 'paid_minor' => (int) $l->allocated,
                 'remaining_minor' => $left,
                 'currency' => (string) $l->currency,
@@ -227,6 +232,21 @@ final class FamilyAccountController extends Controller
             'next_follow_up' => $nextFollowUp !== null ? ['date' => Carbon::parse($nextFollowUp->follow_up_on)->format('Y-m-d'), 'body' => (string) $nextFollowUp->body] : null,
             'children' => $childRows,
             'charges' => $charges,
+            'discounts' => $this->discounts->forFamily($guardianId, $childIds)->map(fn ($d) => [
+                'id' => (string) $d->id,
+                'kind' => (string) $d->kind,
+                'value' => (int) $d->value,
+                'label' => (string) $d->label,
+                'scope' => (string) $d->scope,
+                'student_id' => $d->student_id !== null ? (string) $d->student_id : null,
+                'student_name' => $d->student_name,
+                'class_group_id' => $d->class_group_id !== null ? (string) $d->class_group_id : null,
+                'group_name' => $d->group_name,
+                'starts_on' => Carbon::parse($d->starts_on)->format('Y-m-d'),
+                'ends_on' => $d->ends_on !== null ? Carbon::parse($d->ends_on)->format('Y-m-d') : null,
+                'active' => $d->ends_on === null || Carbon::parse($d->ends_on)->format('Y-m-d') > $today,
+                'by' => $d->created_by_name,
+            ])->values()->all(),
             'timeline' => array_slice($timeline, 0, 150),
             'can_collect' => Gate::allows('invoice.mark_paid'),
             'can_remind' => Gate::allows('invoice.send_link'),
@@ -272,6 +292,89 @@ final class FamilyAccountController extends Controller
         }
         DB::table('payer_notes')->where('id', $noteId)->delete();
         Audit::log('accounting.note_deleted', 'guardian', $guardianId, $this->academyId(), $ctx->userId, $ctx->role, before: ['body' => $note->body]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * POST /api/accounting/family/{guardianId}/discounts — a standing discount for the family (or one
+     * child): a percentage or a fixed amount off each charge, from today, until it is ended. It is
+     * applied to charges raised from now on; nothing already billed moves.
+     */
+    public function addDiscount(Request $request, string $guardianId): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $data = $request->validate([
+            'kind' => ['required', Rule::in(['PERCENT', 'FIXED'])],
+            // PERCENT: whole percent (1–100); FIXED: minor units per charge.
+            'value' => ['required', 'integer', 'min:1', 'max:1000000000000'],
+            'label' => ['required', 'string', 'min:1', 'max:80'],
+            'scope' => ['sometimes', Rule::in(['ALL', 'GROUP', 'PRIVATE'])],
+            'student_id' => ['nullable', 'uuid'],
+            'class_group_id' => ['nullable', 'uuid'],
+            'starts_on' => ['nullable', 'date_format:Y-m-d'],
+        ]);
+        if (! DB::table('guardians')->where('id', $guardianId)->exists()) {
+            throw ValidationException::withMessages(['guardian' => ['Unknown family. / أسرة غير معروفة.']]);
+        }
+        if ($data['kind'] === 'PERCENT' && (int) $data['value'] > 100) {
+            throw ValidationException::withMessages(['value' => ['A percentage is 1–100. / النسبة من 1 إلى 100.']]);
+        }
+        $studentId = $data['student_id'] ?? null;
+        if ($studentId !== null && ! DB::table('students')->where('id', $studentId)->where('guardian_id', $guardianId)->exists()) {
+            throw ValidationException::withMessages(['student_id' => ['Not one of this family\'s children. / ليس من أبناء هذه الأسرة.']]);
+        }
+        $scope = $data['scope'] ?? 'ALL';
+        $groupId = $scope === 'GROUP' ? ($data['class_group_id'] ?? null) : null;
+        if ($groupId !== null && ! DB::table('class_groups')->where('id', $groupId)->exists()) {
+            throw ValidationException::withMessages(['class_group_id' => ['Unknown group. / مجموعة غير معروفة.']]);
+        }
+
+        $ctx = app(AuthContext::class);
+        $academyId = $this->academyId();
+        $id = (string) DB::table('payer_discounts')->insertGetId([
+            'academy_id' => $academyId,
+            'guardian_id' => $studentId === null ? $guardianId : null,
+            'student_id' => $studentId,
+            'kind' => $data['kind'],
+            'value' => $data['kind'] === 'PERCENT' ? (int) $data['value'] * 100 : (int) $data['value'],
+            'label' => trim((string) $data['label']),
+            'scope' => $scope,
+            'class_group_id' => $groupId,
+            'starts_on' => $data['starts_on'] ?? $this->discounts->today($academyId),
+            'created_by' => $ctx->userId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        Audit::log('accounting.discount_added', 'guardian', $guardianId, $academyId, $ctx->userId, $ctx->role, after: [
+            'discount' => $id, 'kind' => $data['kind'], 'value' => (int) $data['value'], 'label' => trim((string) $data['label']), 'scope' => $scope, 'student_id' => $studentId,
+        ]);
+
+        return response()->json(['id' => $id], 201);
+    }
+
+    /** DELETE /api/accounting/family/{guardianId}/discounts/{id} — ends it today. What it already took stays. */
+    public function endDiscount(string $guardianId, string $discountId): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $childIds = DB::table('students')->where('guardian_id', $guardianId)->pluck('id')->map(fn ($v) => (string) $v)->all();
+        $d = DB::table('payer_discounts')->where('id', $discountId)
+            ->where(fn ($q) => $q->where('guardian_id', $guardianId)->orWhereIn('student_id', $childIds ?: ['00000000-0000-0000-0000-000000000000']))
+            ->first();
+        if ($d === null) {
+            abort(404, 'Discount not found.');
+        }
+        $ctx = app(AuthContext::class);
+        $today = $this->discounts->today($this->academyId());
+        if ($d->ends_on === null || Carbon::parse($d->ends_on)->format('Y-m-d') > $today) {
+            // Ending it on the day it started removes it outright: it never applied to anything.
+            DB::table('payer_discounts')->where('id', $discountId)->update([
+                'ends_on' => max($today, Carbon::parse($d->starts_on)->format('Y-m-d')),
+                'ended_by' => $ctx->userId,
+                'updated_at' => now(),
+            ]);
+        }
+        Audit::log('accounting.discount_ended', 'guardian', $guardianId, $this->academyId(), $ctx->userId, $ctx->role, before: ['discount' => $discountId, 'label' => $d->label]);
 
         return response()->json(['ok' => true]);
     }

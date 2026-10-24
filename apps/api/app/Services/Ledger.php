@@ -470,6 +470,7 @@ final class Ledger
             ->orderBy('li.id')
             ->select([
                 'li.id', 'li.invoice_id', 'li.description', 'li.amount_minor', 'li.currency', 'li.student_id',
+                'li.list_amount_minor', 'li.discount_minor', 'li.discount_label',
                 'st.full_name as student_name', 'li.session_date', 'li.class_group_id', 'li.group_charge', 'li.group_period',
                 'i.period_year', 'i.period_month', 'i.status as invoice_status', 'i.kind as invoice_kind',
                 DB::raw('coalesce(a.allocated, 0) as allocated'),
