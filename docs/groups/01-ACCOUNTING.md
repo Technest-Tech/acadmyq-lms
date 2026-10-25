@@ -420,3 +420,40 @@ Every open row on the student profile's subscriptions card (`SubscriptionsCard`,
   member endpoint; ending sends the date + `PAUSED: note` and the row greys with the reason; package
   edit/close/cancel; no buttons without `group.manage` / `package.manage`; nothing without
   `centre`), `ClassGroupMoneyTest` ("corrects a join date while nothing was held since…").
+
+## Dues on the parent: a family is one account (2026-10-25)
+
+The arrears page showed a child next to their parent because a package bill was addressed to the
+child (`LessonPackages::raiseInvoice`: `guardian_id null, student_id …`), and so was every quick bill
+raised on a student and the out-of-hours lessons. Fixed at both ends:
+
+- **New package bills** of an academy on receipts (`Ledger::enabledFor`) are filed the way
+  `Invoicing::payerOf` files every other charge — the guardian, unless the academy bills each
+  student. The line keeps the child's `student_id`. Every reader of a package bill goes by
+  `lesson_packages.invoice_id` or the line's student (packages page, Due page, reminder — which
+  already preferred the invoice's guardian —, public page, XPay), so nothing else moved. An academy
+  without accounting keeps child-addressed package bills, byte for byte (pinned in
+  `LessonPackageTest` "bills ON_START packages the moment they open").
+- **Existing child-addressed bills are not rewritten.** Instead the ledger reads a family as one
+  account: `Ledger::poolsFamily` (every academy that does not bill PER_STUDENT — all 23 on prod).
+  There, a guardian's account (`wherePayer`) is the bills addressed to the guardian **plus** those
+  addressed to any of their children, and its credit is the receipts recorded on the guardian plus
+  on any child. So the Collect screen for a parent lists the children's own bills and one receipt
+  on the parent covers them (no receipt splitting — allocations simply reach those lines); the
+  parent's credit pays a child's next bill by itself (`afterLinesChanged` on a child-addressed bill
+  also applies the guardian's credit); the statement shows both. A receipt keeps the payer it was
+  recorded on; only the reading pools.
+- **Readers:** `AccountingController::linesQuery` computes the family once in SQL
+  (`coalesce(i.guardian_id, child's guardian_id)`), so arrears, overview debtors and the group
+  filter show ONE row per family with the children as its names; the family's last payment counts
+  one recorded on a child. `FamilyAccountController::show` reads the guardian's pooled account alone
+  (summing each child's as well would now count twice); a PER_STUDENT academy still sums every
+  child's own account, and its arrears stay one row per student — that academy chose to bill each
+  student separately.
+- Prod at deploy: 2 academies on receipts, with 3 and 1 child-addressed bills — those now sit in
+  their family's row.
+- Tests: `AccountingPagesTest` ("shows a family as ONE payer…": arrears, overview, statement, family
+  card), `ReceiptsTest` ("collects for the whole family…": the child's bill on the parent's Collect,
+  covered by a parent receipt, credit pays a later child bill, the other family untouched),
+  `LessonPackageTest` (new bill on the guardian on receipts and still read/reminded/paid; on the
+  student in PER_STUDENT; the classic case pinned).

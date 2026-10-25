@@ -51,11 +51,14 @@ final class FamilyAccountController extends Controller
         $childIds = $children->pluck('id')->map(fn ($id) => (string) $id)->all();
         $today = Carbon::now($this->timezone($academyId))->format('Y-m-d');
 
-        // Every account the family's money sits on: the guardian's, plus each child's own (an
-        // academy billing per student, or a bill raised on a child directly).
+        // Every account the family's money sits on. Where the academy bills families, that is the
+        // guardian's alone — it already holds the bills raised on a child (Ledger::poolsFamily).
+        // An academy billing each student adds each child's own account.
         $payers = [['guardian_id' => $guardianId, 'student_id' => null, 'payer_name' => null]];
-        foreach ($childIds as $sid) {
-            $payers[] = ['guardian_id' => null, 'student_id' => $sid, 'payer_name' => null];
+        if (! Ledger::poolsFamily($academyId)) {
+            foreach ($childIds as $sid) {
+                $payers[] = ['guardian_id' => null, 'student_id' => $sid, 'payer_name' => null];
+            }
         }
 
         $lines = collect();

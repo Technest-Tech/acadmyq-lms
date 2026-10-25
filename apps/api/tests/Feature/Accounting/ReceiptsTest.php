@@ -441,6 +441,38 @@ it('gives the payer account the Collect screen works from', function () {
     expect($viaChild['payer']['kind'])->toBe('GUARDIAN')->and($viaChild['payer']['id'])->toBe($this->parent);
 });
 
+it('collects for the whole family, a bill addressed to a child included, and the family’s credit pays the next one', function () {
+    acctSwitch($this, true);
+    acctGroup($this); // June: 450 on the parent's invoice for each of Adam and Bassel.
+
+    // A bill raised on Adam himself — how package bills and quick bills were addressed before.
+    Sanctum::actingAs($this->owner);
+    $quick = $this->postJson('/api/invoices/quick', ['student_id' => $this->adam, 'amount_minor' => 30000, 'currency' => 'EGP', 'description' => 'Books'])->assertCreated()->json('id');
+    $childLine = (string) acctTenant($this->academy, fn () => DB::table('invoice_line_items')->where('invoice_id', $quick)->value('id'));
+
+    // The parent's account is the family's: both group months and Adam's own bill.
+    $account = $this->getJson('/api/payer-account?guardian_id='.$this->parent)->assertOk();
+    expect(collect($account->json('lines'))->pluck('id')->all())->toContain($childLine)
+        ->and($account->json('lines'))->toHaveCount(3)
+        ->and($account->json('balance.0.due_minor'))->toBe(120000);
+
+    // One receipt on the parent covers the child's bill.
+    $receipt = acctCollect($this, ['guardian_id' => $this->parent, 'amount_minor' => 30000, 'line_ids' => [$childLine], 'apply_rest' => false]);
+    expect($receipt['payer']['id'])->toBe($this->parent)
+        ->and(acctLinePaid($this, $childLine))->toBe(30000)
+        ->and((int) acctTenant($this->academy, fn () => DB::table('invoices')->where('id', $quick)->value('amount_paid_minor')))->toBe(30000);
+
+    // Paid ahead: what is left over pays a bill raised on Bassel later, by itself.
+    acctCollect($this, ['guardian_id' => $this->parent, 'amount_minor' => 100000]);
+    $later = $this->postJson('/api/invoices/quick', ['student_id' => $this->bassel, 'amount_minor' => 10000, 'currency' => 'EGP', 'description' => 'Exam fee'])->assertCreated()->json('id');
+    expect((int) acctTenant($this->academy, fn () => DB::table('invoices')->where('id', $later)->value('amount_paid_minor')))->toBe(10000);
+    // Nothing owed, nothing held: the family is square.
+    expect($this->getJson('/api/payer-account?guardian_id='.$this->parent)->json('balance'))->toBe([]);
+
+    // Celine's family is another account: none of it moved.
+    expect($this->getJson('/api/payer-account?guardian_id='.$this->celineParent)->json('balance.0.due_minor'))->toBe(45000);
+});
+
 it('builds the group’s collection sheet: exact per member, partial payments and arrears included', function () {
     acctSwitch($this, true);
     $groupId = acctGroup($this, '2026-05-01');

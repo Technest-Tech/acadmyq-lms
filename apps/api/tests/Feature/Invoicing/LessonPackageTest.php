@@ -145,7 +145,9 @@ it('bills ON_START packages the moment they open', function () {
         ->and($invoice->kind)->toBe('MANUAL')
         ->and((int) $invoice->total_minor)->toBe(200000)
         ->and((string) $invoice->student_id)->toBe($this->student)
-        // A package belongs to one child, so it never folds into the shared guardian invoice.
+        // A package belongs to one child, so it never folds into the shared guardian invoice — and
+        // an academy without accounting keeps it addressed to the child (pinned: see the receipts
+        // case at the end of this file for where it moves).
         ->and($invoice->guardian_id)->toBeNull();
 });
 
@@ -1331,4 +1333,44 @@ it('lists every package with money still owed on it as due, open or finished, an
     $finished = $this->getJson('/api/packages?scope=finished')->assertOk()->json('packages');
     expect(array_column($finished, 'id'))->toBe([$first['package_id']])
         ->and($finished[0]['due'])->toBeFalse();
+});
+
+// ─── Whose bill, once the academy is on receipts ─────────────────────────────
+
+it('files a new package bill under the parent once the academy is on receipts, and still reads and reminds it', function () {
+    $this->asAcademy($this->academy, 'SUPER_ADMIN');
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['accounting']);
+    $this->clearTenantContext();
+
+    $package = ($this->openPackage)(1, 20000);
+    $this->asAcademy($this->academy);
+    $invoice = DB::table('invoices')->where('id', $package['invoice_id'])->first();
+    expect((string) $invoice->guardian_id)->toBe($this->guardian)
+        ->and($invoice->student_id)->toBeNull()
+        // The line still names the child it is for.
+        ->and((string) DB::table('invoice_line_items')->where('invoice_id', $invoice->id)->value('student_id'))->toBe($this->student);
+
+    Sanctum::actingAs($this->owner);
+    $row = collect($this->getJson('/api/packages')->assertOk()->json('packages'))->firstWhere('id', $package['package_id']);
+    expect($row['invoice_id'])->toBe($package['invoice_id'])->and($row['outstanding_minor'])->toBe(20000);
+    $this->postJson("/api/packages/{$package['package_id']}/remind", ['locale' => 'en'])
+        ->assertOk()->assertJsonPath('kind', 'PAYMENT')->assertJsonPath('phone', '+201009998887');
+
+    // Paying it from the package card (the invoice's own payer, now the parent) settles it.
+    $this->postJson("/api/invoices/{$package['invoice_id']}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+    $this->asAcademy($this->academy);
+    expect((string) DB::table('receipts')->value('guardian_id'))->toBe($this->guardian);
+    expect((int) DB::table('invoices')->where('id', $package['invoice_id'])->value('amount_paid_minor'))->toBe(20000);
+});
+
+it('keeps a package bill on the student where the academy bills each student, even on receipts', function () {
+    $this->asAcademy($this->academy, 'SUPER_ADMIN');
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['accounting']);
+    DB::table('academies')->where('id', $this->academy)->update(['invoice_grouping' => 'PER_STUDENT']);
+    $this->clearTenantContext();
+
+    $package = ($this->openPackage)(1, 20000);
+    $this->asAcademy($this->academy);
+    $invoice = DB::table('invoices')->where('id', $package['invoice_id'])->first();
+    expect((string) $invoice->student_id)->toBe($this->student)->and($invoice->guardian_id)->toBeNull();
 });

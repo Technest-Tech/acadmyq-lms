@@ -1686,12 +1686,19 @@ final class LessonPackages
         $period = Carbon::parse($periodDate);
         $total = array_sum(array_map(static fn (array $l): int => (int) $l['amount_minor'], $lines));
 
+        // An academy kept by receipts files the bill under whoever the student's bills go to — their
+        // guardian, unless it invoices each student — so a family's dues sit on one account. Every
+        // other academy keeps the package bill addressed to the child, as it always was.
+        [$guardianId, $payerStudentId] = Ledger::enabledFor($academyId)
+            ? app(Invoicing::class)->payerOf(DB::table('academies')->where('id', $academyId)->first(), $studentId)
+            : [null, $studentId];
+
         DB::table('invoices')->insert([
             'id' => $invoiceId,
             'academy_id' => $academyId,
             'kind' => 'MANUAL',
-            'guardian_id' => null,
-            'student_id' => $studentId,
+            'guardian_id' => $guardianId,
+            'student_id' => $payerStudentId,
             'period_year' => (int) $period->year,
             'period_month' => (int) $period->month,
             'status' => 'OPEN',

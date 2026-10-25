@@ -53,6 +53,18 @@ final class Ledger
         return in_array('accounting', $capabilities, true) && in_array('invoicing', $capabilities, true);
     }
 
+    /**
+     * Does a guardian's account hold the whole family? In an academy that bills families
+     * (PER_GUARDIAN), yes: the bills addressed to the guardian AND any addressed to one of their
+     * children (a package or a quick bill raised on the child, the out-of-hours lessons), and the
+     * receipts recorded on either. History keeps the addressee it was written with; only the
+     * account reads it as one. An academy billing each student keeps each student's own account.
+     */
+    public static function poolsFamily(string $academyId): bool
+    {
+        return (DB::table('academies')->where('id', $academyId)->value('invoice_grouping') ?? 'PER_GUARDIAN') !== 'PER_STUDENT';
+    }
+
     /** Is this academy's money kept by receipts right now (adopted)? Cheap — one column. */
     public static function keeps(string $academyId): bool
     {
@@ -350,7 +362,17 @@ final class Ledger
             return;
         }
 
-        $this->applyCredit((string) $invoice->academy_id, $this->payerOfInvoice($invoice), (string) $invoice->currency);
+        $academyId = (string) $invoice->academy_id;
+        $payer = $this->payerOfInvoice($invoice);
+        $this->applyCredit($academyId, $payer, (string) $invoice->currency);
+
+        // A bill addressed to a child is the family's: the parent's money pays it too.
+        if ($payer['student_id'] !== null && self::poolsFamily($academyId)) {
+            $guardianId = DB::table('students')->where('id', $payer['student_id'])->value('guardian_id');
+            if ($guardianId !== null) {
+                $this->applyCredit($academyId, ['guardian_id' => (string) $guardianId], (string) $invoice->currency);
+            }
+        }
     }
 
     // ── Reading ─────────────────────────────────────────────────────────────
@@ -460,7 +482,7 @@ final class Ledger
             ->where('i.academy_id', $academyId)
             ->where('i.status', '<>', 'VOID')
             ->where('li.amount_minor', '>', 0)
-            ->when($payer !== null, fn ($q) => $this->wherePayer($q, $payer))
+            ->when($payer !== null, fn ($q) => $this->wherePayer($q, $payer, $academyId))
             ->when($currency !== null, fn ($q) => $q->where('li.currency', $currency))
             ->when($invoiceId !== null, fn ($q) => $q->where('li.invoice_id', $invoiceId))
             ->orderBy('i.period_year')
@@ -477,11 +499,22 @@ final class Ledger
             ]);
     }
 
-    /** @param  array{guardian_id: ?string, student_id: ?string, payer_name: ?string}  $payer */
-    private function wherePayer($query, array $payer, string $alias = 'i')
+    /**
+     * The documents (invoices `i`, or receipts `r`) on the payer's account — a guardian's being the
+     * whole family's where the academy pools it (`poolsFamily`).
+     *
+     * @param  array{guardian_id: ?string, student_id: ?string, payer_name: ?string}  $payer
+     */
+    private function wherePayer($query, array $payer, string $academyId, string $alias = 'i')
     {
         if ($payer['guardian_id'] !== null) {
-            return $query->where("{$alias}.guardian_id", $payer['guardian_id']);
+            if (! self::poolsFamily($academyId)) {
+                return $query->where("{$alias}.guardian_id", $payer['guardian_id']);
+            }
+
+            return $query->where(fn ($q) => $q->where("{$alias}.guardian_id", $payer['guardian_id'])
+                ->orWhere(fn ($q) => $q->whereNull("{$alias}.guardian_id")
+                    ->whereIn("{$alias}.student_id", DB::table('students')->select('id')->where('guardian_id', $payer['guardian_id']))));
         }
         if ($payer['student_id'] !== null) {
             return $query->whereNull("{$alias}.guardian_id")->where("{$alias}.student_id", $payer['student_id']);
@@ -555,8 +588,7 @@ final class Ledger
             ->leftJoinSub($allocated, 'a', 'a.receipt_id', '=', 'r.id')
             ->where('r.academy_id', $academyId)
             ->whereNull('r.voided_at')
-            ->when($payer['guardian_id'] !== null, fn ($q) => $q->where('r.guardian_id', $payer['guardian_id']))
-            ->when($payer['guardian_id'] === null, fn ($q) => $q->whereNull('r.guardian_id')->where('r.student_id', $payer['student_id']))
+            ->tap(fn ($q) => $this->wherePayer($q, $payer, $academyId, 'r'))
             ->when($currency !== null, fn ($q) => $q->where('r.currency', $currency))
             ->whereRaw('r.amount_minor > coalesce(a.allocated, 0)')
             ->orderBy('r.received_on')
@@ -575,7 +607,7 @@ final class Ledger
         if ($invoiceId !== null) {
             $q->where('i.id', $invoiceId);
         } else {
-            $this->wherePayer($q, $payer);
+            $this->wherePayer($q, $payer, $academyId);
         }
         $q->orderBy('i.id')->lockForUpdate()->get(['i.id']);
     }

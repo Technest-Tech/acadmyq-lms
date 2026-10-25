@@ -173,6 +173,30 @@ it('lists who owes, aged, filtered by group, bucket and name', function () {
     expect($this->getJson("/api/accounting/arrears?group_id={$this->groupId}")->json('payers'))->toHaveCount(2);
 });
 
+it('shows a family as ONE payer, a bill addressed to a child folded into the parent’s row', function () {
+    apgPayments($this);
+    // A bill raised on Bassel himself (a package or a quick bill, addressed to the child before).
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/invoices/quick', ['student_id' => $this->bassel, 'amount_minor' => 30000, 'currency' => 'EGP', 'description' => 'Books'])->assertCreated();
+
+    $payers = collect($this->getJson('/api/accounting/arrears')->assertOk()->json('payers'));
+    expect($payers)->toHaveCount(2)
+        ->and($payers->pluck('kind')->unique()->all())->toBe(['GUARDIAN']);
+    $parent = $payers->firstWhere('id', $this->parent);
+    expect($parent['students'])->toBe(['Bassel'])
+        ->and($parent['balances'][0]['due_minor'])->toBe(100000);
+
+    $overview = $this->getJson('/api/accounting/overview?month=2026-06')->assertOk();
+    expect($overview->json('owed.0.payers'))->toBe(2)
+        ->and(collect($overview->json('top_debtors'))->firstWhere('id', $this->parent)['balances'][0]['due_minor'])->toBe(100000);
+
+    // The family's statement and its card carry the child's bill too.
+    $statement = $this->getJson("/api/accounting/statement?guardian_id={$this->parent}")->assertOk();
+    expect($statement->json('balance.0.due_minor'))->toBe(100000)
+        ->and($statement->json('currencies.0.closing_minor'))->toBe(100000);
+    expect($this->getJson("/api/accounting/family/{$this->parent}")->assertOk()->json('balance.0.due_minor'))->toBe(100000);
+});
+
 it('sends a payer a WhatsApp reminder of what they owe', function () {
     apgPayments($this);
 

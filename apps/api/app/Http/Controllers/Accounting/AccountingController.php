@@ -411,19 +411,32 @@ final class AccountingController extends Controller
         $to = $data['to'] ?? Carbon::now($tz)->format('Y-m-d');
         $from = $data['from'] ?? Carbon::parse($to)->subMonths(5)->startOfMonth()->format('Y-m-d');
 
+        // A family's statement is its whole account — bills addressed to a child included, and the
+        // receipts recorded on that child — exactly what Ledger::balance below sums.
+        $pool = $payer['guardian_id'] !== null && Ledger::poolsFamily($academyId);
+        $children = fn () => DB::table('students')->select('id')->where('guardian_id', $payer['guardian_id']);
+        $onAccount = function ($q, string $alias) use ($payer, $pool, $children) {
+            if ($payer['guardian_id'] === null) {
+                return $q->whereNull("{$alias}.guardian_id")->where("{$alias}.student_id", $payer['student_id']);
+            }
+
+            return $pool
+                ? $q->where(fn ($w) => $w->where("{$alias}.guardian_id", $payer['guardian_id'])
+                    ->orWhere(fn ($w) => $w->whereNull("{$alias}.guardian_id")->whereIn("{$alias}.student_id", $children())))
+                : $q->where("{$alias}.guardian_id", $payer['guardian_id']);
+        };
+
         $charges = $this->linesQuery($academyId)
-            ->when($payer['guardian_id'] !== null, fn ($q) => $q->where('i.guardian_id', $payer['guardian_id']))
-            ->when($payer['guardian_id'] === null, fn ($q) => $q->whereNull('i.guardian_id')->where('i.student_id', $payer['student_id']))
+            ->tap(fn ($q) => $onAccount($q, 'i'))
             ->leftJoin('students as st', 'st.id', '=', 'li.student_id')
             ->leftJoin('class_groups as cg', 'cg.id', '=', 'li.class_group_id')
             ->addSelect(['li.description', 'st.full_name as student_name', 'cg.name as group_name', 'i.public_token'])
             ->get();
 
-        $receipts = DB::table('receipts')
-            ->whereNull('voided_at')
-            ->when($payer['guardian_id'] !== null, fn ($q) => $q->where('guardian_id', $payer['guardian_id']))
-            ->when($payer['guardian_id'] === null, fn ($q) => $q->whereNull('guardian_id')->where('student_id', $payer['student_id']))
-            ->get(['id', 'number', 'received_on', 'amount_minor', 'currency', 'method', 'reference']);
+        $receipts = DB::table('receipts as r')
+            ->whereNull('r.voided_at')
+            ->tap(fn ($q) => $onAccount($q, 'r'))
+            ->get(['r.id', 'r.number', 'r.received_on', 'r.amount_minor', 'r.currency', 'r.method', 'r.reference']);
 
         $entries = [];
         foreach ($charges as $l) {
@@ -584,8 +597,16 @@ final class AccountingController extends Controller
     {
         $paid = DB::table('receipt_allocations')->selectRaw('invoice_line_id, sum(amount_minor) as paid')->groupBy('invoice_line_id');
 
+        // The account a line sits on: the guardian it is addressed to — or, where the academy bills
+        // families, the guardian of the child it is addressed to (a package or quick bill raised on
+        // the child), so a family is ONE payer however its bills were addressed (Ledger::poolsFamily).
+        $family = Ledger::poolsFamily($academyId)
+            ? 'coalesce(i.guardian_id, ps.guardian_id)'
+            : 'i.guardian_id';
+
         return DB::table('invoice_line_items as li')
             ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+            ->leftJoin('students as ps', 'ps.id', '=', 'i.student_id')
             ->leftJoinSub($paid, 'a', 'a.invoice_line_id', '=', 'li.id')
             ->where('i.academy_id', $academyId)
             ->where('i.status', '<>', 'VOID')
@@ -593,7 +614,8 @@ final class AccountingController extends Controller
             ->select([
                 'li.id', 'li.invoice_id', 'li.student_id', 'li.class_group_id', 'li.group_period', 'li.currency', 'li.amount_minor',
                 'li.list_amount_minor', 'li.discount_minor', 'li.discount_label',
-                'i.guardian_id', 'i.student_id as payer_student_id', 'i.payer_name',
+                DB::raw("{$family} as guardian_id"),
+                DB::raw("case when {$family} is null then i.student_id end as payer_student_id"), 'i.payer_name',
                 DB::raw('coalesce(a.paid, 0) as paid'),
                 DB::raw('coalesce(li.session_date, make_date(i.period_year::int, i.period_month::int, 1)) as due_date'),
             ]);
@@ -687,12 +709,15 @@ final class AccountingController extends Controller
 
         $last = collect();
         if ($guardianIds !== [] || $studentPayerIds !== []) {
-            $last = DB::table('receipts')
-                ->whereNull('voided_at')
-                ->where(fn ($q) => $q->whereIn('guardian_id', $guardianIds ?: ['00000000-0000-0000-0000-000000000000'])
-                    ->orWhereIn('student_id', $studentPayerIds ?: ['00000000-0000-0000-0000-000000000000']))
-                ->orderByDesc('received_on')->orderByDesc('created_at')->orderByDesc('number')
-                ->get(['guardian_id', 'student_id', 'id', 'number', 'received_on', 'amount_minor', 'currency'])
+            // A receipt recorded on a child counts as the family's where the academy bills families.
+            $family = Ledger::poolsFamily($this->academyId()) ? 'coalesce(r.guardian_id, s.guardian_id)' : 'r.guardian_id';
+            $last = DB::table('receipts as r')
+                ->leftJoin('students as s', 's.id', '=', 'r.student_id')
+                ->whereNull('r.voided_at')
+                ->where(fn ($q) => $q->whereIn(DB::raw($family), $guardianIds ?: ['00000000-0000-0000-0000-000000000000'])
+                    ->orWhereIn('r.student_id', $studentPayerIds ?: ['00000000-0000-0000-0000-000000000000']))
+                ->orderByDesc('r.received_on')->orderByDesc('r.created_at')->orderByDesc('r.number')
+                ->get([DB::raw("{$family} as guardian_id"), 'r.student_id', 'r.id', 'r.number', 'r.received_on', 'r.amount_minor', 'r.currency'])
                 ->unique(fn ($r) => $r->guardian_id !== null ? 'g:'.$r->guardian_id : 's:'.$r->student_id)
                 ->keyBy(fn ($r) => $r->guardian_id !== null ? 'g:'.$r->guardian_id : 's:'.$r->student_id);
         }
