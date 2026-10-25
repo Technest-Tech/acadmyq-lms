@@ -20,6 +20,7 @@ import { KhatamLattice } from "@/components/ornaments";
 import { StudentTimetable } from "@/components/scheduling/student-timetable";
 import { formatNameList } from "@/components/students/teacher-links-field";
 import { EnrollmentWizard } from "@/components/students/enrollment-wizard";
+import { SubscriptionsCard } from "@/components/students/subscriptions-card";
 import { FactCard } from "@/components/ui/profile-card";
 import { ScheduleTrialModal } from "@/components/students/schedule-trial-modal";
 import {
@@ -379,6 +380,9 @@ export function StudentProfile({ studentId }: { studentId: string }) {
       )}
 
       {tab === "subscription" && (
+        <div className="space-y-4">
+        {/* A centre's view of everything the student pays for — groups and private subscriptions. */}
+        <SubscriptionsCard studentId={studentId} studentName={data.student.full_name} onChanged={() => void refresh()} />
         <SubscriptionSection
           data={data}
           teachers={teachers}
@@ -394,6 +398,7 @@ export function StudentProfile({ studentId }: { studentId: string }) {
             can("schedule.read") ? () => setTab("schedule") : undefined
           }
         />
+        </div>
       )}
 
       {tab === "teacher" && (
