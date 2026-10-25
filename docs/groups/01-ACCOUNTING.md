@@ -530,3 +530,8 @@ the family card's "Add discount" offers them.
   without accounting), web `accounting-treasury.test.tsx` (picking a preset fills the form and sends
   `preset_id`; the presets tab adds in whole percent / minor units and retires; no editing without
   the capability).
+- **Fix the same day:** the desk could not find presets — none existed yet, so the family card hid
+  the picker, and only owner/manager could define one. Now the discount form always shows the
+  preset select (empty = "no presets yet" + a link to manage them), a typed discount can be saved
+  as a preset on the way ("also save it as a discount preset"), and managing presets is
+  `payment_settings.manage` **or** `receipt.void` — the accountant included, a supervisor never.

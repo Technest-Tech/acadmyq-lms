@@ -9593,7 +9593,10 @@
       "wasPrice": "instead of {list} · {discount} off ({label})",
       "openFamily": "Open the family",
       "preset": "Preset",
-      "presetExceptional": "Exceptional — type it in"
+      "presetExceptional": "Exceptional — type it in",
+      "noPresets": "No discount presets yet.",
+      "managePresets": "Manage discount presets",
+      "saveAsPreset": "Also save it as a discount preset, to pick next time"
     },
     "kind": {
       "CASH": "Cash drawer",

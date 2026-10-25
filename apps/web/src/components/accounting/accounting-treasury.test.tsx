@@ -307,6 +307,27 @@ describe("Discount presets", () => {
     await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p1", scope: "ALL", student_id: null, class_group_id: null }));
   });
 
+  it("offers the picker even with no presets yet, and saves a typed discount as a preset on the way", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    api.listDiscountPresets.mockResolvedValue({ presets: [], can_manage: true });
+    api.createDiscountPreset.mockResolvedValue({ preset: preset({ id: "p9", name: "Early payment", kind: "PERCENT", value: 500 }) });
+    api.addFamilyDiscount.mockResolvedValue({ id: "d4" });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    await userEvent.click(await screen.findByTestId("discount-add"));
+    const pick = await screen.findByTestId("discount-preset");
+    expect(within(pick).getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByText(ar.family.noPresets)).toBeTruthy();
+    expect(screen.getByTestId("discount-manage-presets")).toHaveAttribute("href", "/accounting/treasury?tab=discounts");
+
+    await userEvent.type(screen.getByTestId("discount-value"), "5");
+    await userEvent.type(screen.getByTestId("discount-label"), "Early payment");
+    await userEvent.click(screen.getByTestId("discount-save-preset"));
+    await userEvent.click(screen.getByTestId("discount-save"));
+    await waitFor(() => expect(api.createDiscountPreset).toHaveBeenCalledWith({ name: "Early payment", kind: "PERCENT", value: 5 }));
+    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p9", scope: "ALL", student_id: null, class_group_id: null }));
+  });
+
   it("lists the presets, adds one in whole percent, and retires one", async () => {
     api.listDiscountPresets.mockResolvedValue({ presets: [preset({ uses: 2 })], can_manage: true });
     api.createDiscountPreset.mockResolvedValue({ preset: preset({ id: "p3", name: "Scholarship", kind: "FIXED", value: 20000 }) });

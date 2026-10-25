@@ -20,8 +20,11 @@ use Illuminate\Validation\ValidationException;
  * made from one copies it and keeps `preset_id`. Retired with `is_active = false`, never deleted.
  *
  *   GET   /accounting/discount-presets           (invoice.read — the desk picks from them)
- *   POST  /accounting/discount-presets           (payment_settings.manage)
- *   PATCH /accounting/discount-presets/{id}      (payment_settings.manage)
+ *   POST  /accounting/discount-presets           (payment_settings.manage or receipt.void)
+ *   PATCH /accounting/discount-presets/{id}      (payment_settings.manage or receipt.void)
+ *
+ * Managing is the money desk's (owner, manager, accountant — `receipt.void` is the accountant's),
+ * never a supervisor's.
  *
  * Values travel like the family discount form's: PERCENT as a whole percent (1–100), FIXED in minor
  * units; stored and answered like `payer_discounts` (PERCENT in basis points).
@@ -41,13 +44,13 @@ final class DiscountPresetController extends Controller
 
         return response()->json([
             'presets' => $rows->map(fn ($p) => $this->present($p))->values()->all(),
-            'can_manage' => Gate::allows('payment_settings.manage'),
+            'can_manage' => self::canManage(),
         ]);
     }
 
     public function store(Request $request): JsonResponse
     {
-        Gate::authorize('payment_settings.manage');
+        abort_unless(self::canManage(), 403);
         $data = $this->validated($request, true);
         $ctx = app(AuthContext::class);
 
@@ -70,7 +73,7 @@ final class DiscountPresetController extends Controller
 
     public function update(Request $request, string $id): JsonResponse
     {
-        Gate::authorize('payment_settings.manage');
+        abort_unless(self::canManage(), 403);
         $current = DB::table('discount_presets')->where('id', $id)->first();
         if ($current === null) {
             abort(404, 'Preset not found.');
@@ -103,6 +106,11 @@ final class DiscountPresetController extends Controller
             before: ['name' => $current->name, 'kind' => $current->kind, 'value' => (int) $current->value, 'is_active' => (bool) $current->is_active]);
 
         return response()->json(['preset' => $this->present($this->row($id))]);
+    }
+
+    private static function canManage(): bool
+    {
+        return Gate::any(['payment_settings.manage', 'receipt.void']);
     }
 
     /** @return array<string, mixed> */

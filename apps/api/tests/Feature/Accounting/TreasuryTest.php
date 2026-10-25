@@ -341,6 +341,13 @@ it('keeps discount presets an admin defines once, and a discount made from one c
     $list = $this->getJson('/api/accounting/discount-presets')->assertOk();
     expect(array_column($list->json('presets'), 'name'))->toBe(['Scholarship', 'Sibling'])->and($list->json('can_manage'))->toBeTrue();
 
+    // The accountant runs the desk: they define presets too.
+    $accountant = $this->makeUser($this->academy, 'ACCOUNTANT', ['email' => 'acc-treasury@test.local']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($accountant);
+    expect($this->getJson('/api/accounting/discount-presets')->assertOk()->json('can_manage'))->toBeTrue();
+    $this->postJson('/api/accounting/discount-presets', ['name' => 'Early payment', 'kind' => 'PERCENT', 'value' => 5])->assertCreated();
+
     // A supervisor (no money) sees none of it.
     Sanctum::actingAs($this->supervisor);
     $this->getJson('/api/accounting/discount-presets')->assertForbidden();

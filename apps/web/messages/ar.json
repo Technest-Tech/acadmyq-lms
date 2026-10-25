@@ -9593,7 +9593,10 @@
       "wasPrice": "بدل {list} · خصم {discount} ({label})",
       "openFamily": "فتح الأسرة",
       "preset": "بند الخصم",
-      "presetExceptional": "استثنائي — اكتبه يدويًا"
+      "presetExceptional": "استثنائي — اكتبه يدويًا",
+      "noPresets": "لا توجد بنود خصم بعد.",
+      "managePresets": "إدارة بنود الخصم",
+      "saveAsPreset": "احفظه أيضًا كبند خصم لاختياره المرة القادمة"
     },
     "kind": {
       "CASH": "درج نقدي",

@@ -38,6 +38,7 @@ import {
   addFamilyNote,
   deleteFamilyNote,
   endFamilyDiscount,
+  createDiscountPreset,
   getFamilyAccount,
   listDiscountPresets,
   remindPayer,
@@ -448,7 +449,10 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
   const [groupId, setGroupId] = useState("");
   // A preset (بنود الخصم) fills kind, value and label; "" = exceptional, typed in.
   const [presets, setPresets] = useState<DiscountPreset[]>([]);
+  const [canManagePresets, setCanManagePresets] = useState(false);
   const [presetId, setPresetId] = useState("");
+  // Typed in, and kept as a preset for next time.
+  const [savePreset, setSavePreset] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
@@ -457,7 +461,10 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
   useEffect(() => {
     if (!adding) return;
     listDiscountPresets()
-      .then((r) => setPresets(r.presets.filter((p) => p.is_active)))
+      .then((r) => {
+        setPresets(r.presets.filter((p) => p.is_active));
+        setCanManagePresets(r.can_manage);
+      })
       .catch(() => setPresets([]));
   }, [adding]);
 
@@ -485,14 +492,15 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
     setError(null);
     try {
       const where = { scope, student_id: studentId || null, class_group_id: scope === "GROUP" && groupId ? groupId : null };
-      await addFamilyDiscount(
-        guardianId,
-        presetId !== ""
-          ? { preset_id: presetId, ...where }
-          : { kind, value: kind === "PERCENT" ? Math.round(valueNumber) : Math.round(valueNumber * 100), label: label.trim(), ...where },
-      );
+      const typed = { kind, value: kind === "PERCENT" ? Math.round(valueNumber) : Math.round(valueNumber * 100), label: label.trim() };
+      let fromPreset = presetId;
+      if (fromPreset === "" && savePreset && canManagePresets) {
+        fromPreset = (await createDiscountPreset({ name: typed.label, kind: typed.kind, value: typed.value })).preset.id;
+      }
+      await addFamilyDiscount(guardianId, fromPreset !== "" ? { preset_id: fromPreset, ...where } : { ...typed, ...where });
       setAdding(false);
       setPresetId("");
+      setSavePreset(false);
       setValue("");
       setLabel("");
       setScope("ALL");
@@ -536,7 +544,7 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
     >
       {adding && (
         <form onSubmit={(e) => void save(e)} className="bg-muted/30 mb-4 space-y-3 rounded-xl border p-3" data-testid="discount-form">
-          {presets.length > 0 && (
+          <div className="space-y-1">
             <label className="text-muted-foreground block text-xs">
               {t("family.preset")}
               <select className={cn(fieldClass, "mt-1")} value={presetId} onChange={(e) => pickPreset(e.target.value)} data-testid="discount-preset">
@@ -548,7 +556,15 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
                 ))}
               </select>
             </label>
-          )}
+            <p className="text-muted-foreground flex flex-wrap items-center gap-x-2 text-[11px]">
+              {presets.length === 0 && <span>{t("family.noPresets")}</span>}
+              {canManagePresets && (
+                <Link href="/accounting/treasury?tab=discounts" className="text-primary hover:underline" data-testid="discount-manage-presets">
+                  {t("family.managePresets")}
+                </Link>
+              )}
+            </p>
+          </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-muted-foreground text-xs">
               {t("family.discountKind.PERCENT")} / {t("family.discountKind.FIXED")}
@@ -600,6 +616,12 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
               </label>
             )}
           </div>
+          {presetId === "" && canManagePresets && (
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" className="size-4" checked={savePreset} onChange={(e) => setSavePreset(e.target.checked)} data-testid="discount-save-preset" />
+              {t("family.saveAsPreset")}
+            </label>
+          )}
           {error && <AlertBanner variant="error" message={error} />}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(false)} disabled={busy}>
