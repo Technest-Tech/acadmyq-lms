@@ -535,3 +535,22 @@ the family card's "Add discount" offers them.
   preset select (empty = "no presets yet" + a link to manage them), a typed discount can be saved
   as a preset on the way ("also save it as a discount preset"), and managing presets is
   `payment_settings.manage` **or** `receipt.void` — the accountant included, a supervisor never.
+
+## New student on groups only (`centre` + `groups`, 2026-10-25)
+
+The new-student form made a centre name an hourly price even under "No private subscription": that
+tile was the monthly branch with a relabel, and the monthly price was required. Now, for a client
+with `centre` + `groups` (and `group.manage`), the form reads top-down as the desk thinks:
+
+- **Group subscriptions first.** Each picked group is a row with its own "From" date (a class
+  nobody has attended yet defaults to its first lesson, else today; the old form joined every group
+  on the private subscription's start date), price summary and Remove. Under the list, always
+  visible and full width, a dashed "+ Add a group" / "+ Add another group" picker.
+- **Private subscription (optional)** below: "No private subscription" is a real third billing
+  state (`none`) — no subscription and no package are sent, the student is created REGULAR (the API
+  already allowed it; an open membership is enrolment) and joined to the groups. It needs at least
+  one group; otherwise the form asks for a group or a private subscription. "Subscription" opens the
+  package fields as before.
+- Every other academy sees the form exactly as before (monthly / package tiles, hourly price
+  required) — pinned by the existing `student-form.test.tsx` cases; new cases cover groups-only,
+  "no group picked" and group + subscription.

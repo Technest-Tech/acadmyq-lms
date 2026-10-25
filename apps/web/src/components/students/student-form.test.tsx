@@ -345,37 +345,72 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     expect(screen.getByTestId("billing-package").textContent).toContain(enMessages.students.form.billingPackage);
   });
 
-  it("enrols a centre's new student in the groups picked on the form, in the same save", async () => {
+  const centreGroups = () =>
     groupsApi.listGroups.mockResolvedValue({
       groups: [
-        { id: "g1", name: "English A1", teacher_name: "Miss Mona", pricing: { billing_mode: "MONTHLY", price_minor: 60000, currency: "EGP", charge_absent: false, prorate_join: true, month_minutes: 480, solo_billed_minutes: null } },
-        { id: "g2", name: "Math B2", teacher_name: "Mr Ali", pricing: null },
+        { id: "g1", name: "English A1", teacher_name: "Miss Mona", start_date: "2026-01-10", lessons: { held: 5 }, pricing: { billing_mode: "MONTHLY", price_minor: 60000, currency: "EGP", charge_absent: false, prorate_join: true, month_minutes: 480, solo_billed_minutes: null } },
+        { id: "g2", name: "Math B2", teacher_name: "Mr Ali", start_date: "2026-02-01", lessons: { held: 0 }, pricing: null },
       ],
       counts: {},
     });
+
+  it("enrols a centre's new student in groups only — no private subscription, no hourly price asked", async () => {
+    centreGroups();
     groupsApi.addGroupMembers.mockResolvedValue({ added: 1, group: {} });
     vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s9", guardianId: "g1" });
     const user = userEvent.setup();
     const { onCreated } = renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "groups", "centre"], extraPermissions: ["group.manage"] });
-    // Pass on the private subscription: groups only.
     await fillActiveStudent(user);
     await user.click(screen.getByTestId("billing-monthly"));
+    // Groups only: none of the private fields.
+    expect(screen.queryByLabelText(enMessages.students.subscription.priceHourly)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(enMessages.packages.form.hours)).not.toBeInTheDocument();
 
     const pick = await screen.findByTestId("group-subs-pick");
     await waitFor(() => expect(within(pick).getAllByRole("option").length).toBeGreaterThan(1));
+    expect(within(pick).getAllByRole("option")[0]!.textContent).toBe(enMessages.students.form.addGroup);
     await user.selectOptions(pick, "g1");
-    await user.selectOptions(pick, "g2");
+    // The next one is added from the same, always-visible control, which now says so.
+    expect(within(screen.getByTestId("group-subs-pick")).getAllByRole("option")[0]!.textContent).toBe(enMessages.students.form.addAnotherGroup);
+    await user.selectOptions(screen.getByTestId("group-subs-pick"), "g2");
     const list = screen.getByTestId("group-subs-list");
     expect(within(list).getByText("English A1")).toBeInTheDocument();
-    // The group's own price and hours show on its row.
     expect(within(list).getByText(/8/)).toBeInTheDocument();
+    // A class nobody has attended yet takes them from its first lesson.
+    expect(screen.getByTestId("group-sub-from-g2")).toHaveValue("2026-02-01");
 
-    await user.type(screen.getByLabelText(enMessages.students.subscription.priceHourly), "100");
     await user.click(screen.getByTestId("submit-student"));
     await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(api.createStudent).mock.calls[0]![0];
+    expect(payload).not.toHaveProperty("subscription");
+    expect(payload).not.toHaveProperty("package");
+    expect(payload.status).toBe("REGULAR");
     await waitFor(() => expect(groupsApi.addGroupMembers).toHaveBeenCalledTimes(2));
     expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g1", expect.objectContaining({ student_ids: ["s9"] }));
+    expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g2", { student_ids: ["s9"], joined_on: "2026-02-01" });
     expect(onCreated).toHaveBeenCalledWith("s9", expect.anything());
+  });
+
+  it("refuses a groups-only student with no group picked", async () => {
+    centreGroups();
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "groups", "centre"], extraPermissions: ["group.manage"] });
+    await fillActiveStudent(user);
+    await user.click(screen.getByTestId("billing-monthly"));
+    await user.click(screen.getByTestId("submit-student"));
+    expect(await screen.findByText(enMessages.students.form.groupOrPrivateRequired)).toBeInTheDocument();
+    expect(api.createStudent).not.toHaveBeenCalled();
+  });
+
+  it("still lets a centre add a group beside a private subscription", async () => {
+    centreGroups();
+    groupsApi.addGroupMembers.mockResolvedValue({ added: 1, group: {} });
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "groups", "centre"], extraPermissions: ["group.manage"] });
+    await fillActiveStudent(user);
+    // Starts on the subscription; the group list sits above it.
+    expect(screen.getByLabelText(enMessages.packages.form.hours)).toBeInTheDocument();
+    expect(await screen.findByTestId("group-subs")).toBeInTheDocument();
   });
 
   it("creates an active student straight onto a lesson package in one save", async () => {

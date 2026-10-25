@@ -1727,8 +1727,8 @@
       "billingSubscription": "Subscription",
       "billingSubscriptionHint": "A block of hours paid up front; lessons draw on it and it renews when it runs out.",
       "groupSubs": "Group subscriptions",
-      "groupSubsHint": "Joined from the start date; each group’s subscription is raised at once. Add as many as needed.",
-      "addGroup": "+ Add a group",
+      "groupSubsHint": "Pick every group the student joins — as many as needed. Each one is billed from the date beside it.",
+      "addGroup": "Add a group",
       "pickGroup": "Pick a group",
       "noGroups": "No active groups yet.",
       "removeGroup": "Remove",
@@ -1740,9 +1740,14 @@
       "groupJoinFailed": "The student was added, but enrolling in {names} failed. Add it from the student’s page.",
       "closeAfter": "Close",
       "noPrivate": "No private subscription",
-      "noPrivateHint": "Groups only. A private lesson, if any, is billed by the hour.",
+      "noPrivateHint": "Groups only. A private subscription can be added later from the student's page.",
       "ownPhones": "The student’s own numbers",
-      "ownPhonesHint": "Optional. Messages and bills go to the parent; add the student’s number only if they have a phone."
+      "ownPhonesHint": "Optional. Messages and bills go to the parent; add the student’s number only if they have a phone.",
+      "addAnotherGroup": "Add another group",
+      "groupFrom": "From",
+      "privateTitle": "Private subscription (optional)",
+      "groupsOnlyIntro": "Billed by their groups only.",
+      "groupOrPrivateRequired": "Pick at least one group, or choose a private subscription."
     },
     "subscription": {
       "title": "Subscription",
