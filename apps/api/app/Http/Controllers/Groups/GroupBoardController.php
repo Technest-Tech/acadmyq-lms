@@ -147,7 +147,7 @@ final class GroupBoardController extends Controller
         }
 
         $rows = $query->limit(2000)->get([
-            'm.id', 'm.group_id', 'm.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.price_minor',
+            'm.id', 'm.group_id', 'm.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.left_reason', 'm.price_minor',
             'st.full_name', 'st.deleted_at as student_deleted_at', 'gu.full_name as guardian_name',
             'g.name as group_name', 'g.level as group_level', 'g.teacher_id', 'g.timezone',
             'te.full_name as teacher_name',
@@ -187,6 +187,7 @@ final class GroupBoardController extends Controller
                 'joined_on' => Carbon::parse($r->joined_on)->format('Y-m-d'),
                 'left_on' => $r->left_on !== null ? Carbon::parse($r->left_on)->format('Y-m-d') : null,
                 'status' => (string) $r->status,
+                'left_reason' => $r->left_reason,
                 'attendance' => $a + ['rate' => $rate],
                 'recent' => $marks,
                 'absent_streak' => $streak,

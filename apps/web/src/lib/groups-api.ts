@@ -296,7 +296,7 @@ export function removeGroupMember(
 export function updateGroupMember(
   id: string,
   studentId: string,
-  input: { price_minor: number | null },
+  input: { price_minor?: number | null; joined_on?: string },
 ): Promise<{ group: GroupDetail }> {
   return apiFetch(`/api/groups/${id}/members/${studentId}`, { method: "PATCH", body: JSON.stringify(input) });
 }
@@ -405,6 +405,8 @@ export interface BoardMember {
   joined_on: string;
   left_on: string | null;
   status: "ACTIVE" | "LEFT";
+  /** Why they left: "PAUSED[: note]", "STOPPED[: note]" or free text ("Moved to A2"). */
+  left_reason: string | null;
   attendance: MemberAttendance;
   /** Newest first, at most five. */
   recent: GroupAttendanceStatus[];

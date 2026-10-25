@@ -1939,7 +1939,20 @@
       "remaining": "{hours} h left",
       "outstanding": "{amount} owed",
       "openGroup": "Open the group",
-      "openPackage": "Open the subscription"
+      "openPackage": "Open the subscription",
+      "edit": "Edit",
+      "end": "End",
+      "editGroupTitle": "{name} in {group}",
+      "endGroupTitle": "End {name}'s subscription to {group}",
+      "endGroupHint": "They stop being expected from this date. What was charged stays; attendance already saved stays.",
+      "tabJoinDate": "Join date",
+      "tabPrice": "Price",
+      "tabMove": "Move to another group",
+      "editPrivateTitle": "Edit {name}'s private subscription",
+      "endPrivateTitle": "End this private subscription",
+      "saved": "Subscription updated.",
+      "ended": "Subscription ended.",
+      "groupLoadFailed": "Couldn't load the group."
     }
   },
   "scheduling": {
@@ -2800,7 +2813,9 @@
       "reasonPlaceholder": "e.g. Student switched to monthly",
       "confirm": "Close package",
       "returnToMonthly": "Return {name} to monthly billing",
-      "returnToMonthlyHint": "Their next lessons bill on the monthly clock instead. Leave off if they are buying another block."
+      "returnToMonthlyHint": "Their next lessons bill on the monthly clock instead. Leave off if they are buying another block.",
+      "cancelHint": "Nothing was used from it — cancel it instead. Its unpaid bill is voided.",
+      "cancelConfirm": "Cancel subscription"
     },
     "toMonthly": {
       "title": "Switch to monthly billing",
@@ -2830,7 +2845,9 @@
       "returnFailed": "Could not move the student to monthly billing.",
       "reminderSent": "Reminder sent to {name} by WhatsApp.",
       "reminderReady": "Reminder opened in WhatsApp — press send there.",
-      "reminderFailed": "Could not send the reminder."
+      "reminderFailed": "Could not send the reminder.",
+      "cancelled": "Cancelled. Its unpaid bill was voided.",
+      "cancelFailed": "Could not cancel it."
     },
     "panel": {
       "title": "Lesson package",
@@ -6766,7 +6783,17 @@
       "useGroupPrice": "Use the group's price",
       "savePrice": "Save price",
       "priceSaved": "{name}'s price saved.",
-      "priceFailed": "Could not save the price."
+      "priceFailed": "Could not save the price.",
+      "leaveKinds": {
+        "PAUSED": "Paused for a while",
+        "STOPPED": "Stopped",
+        "OTHER": "Other"
+      },
+      "pausedHint": "A pause ends this group only. To resume, add them again — their other groups carry on.",
+      "leaveNote": "Note",
+      "joinDateHint": "Only while the group has held no lesson since. Charges already made keep their amount.",
+      "joinDateSave": "Save date",
+      "joinDateFailed": "Could not change the join date."
     },
     "overview": {
       "attendance": "Attendance",

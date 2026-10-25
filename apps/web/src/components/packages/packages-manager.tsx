@@ -13,6 +13,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useCapability } from "@/lib/capabilities";
+import { ClosePackageModal } from "@/components/packages/close-package-modal";
 import { EditPackageForm } from "@/components/packages/edit-package-form";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { OpenPackageForm } from "@/components/packages/open-package-form";
@@ -38,7 +39,6 @@ import {
   type LessonPackageSummary,
 } from "@/lib/api";
 import { formatMoney, formatNumber } from "@/lib/money";
-import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /** The three pages of the packages screen, each its own sidebar item. */
@@ -109,14 +109,6 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [remindingId, setRemindingId] = useState<string | null>(null);
-  const [closeReason, setCloseReason] = useState("");
-  /**
-   * Also put this student back on the monthly clock as the package closes. The only way out of
-   * package billing, deliberately sited here: closing is when an owner actually decides someone
-   * is done buying blocks, and keeping it on this screen is what makes /packages the whole story
-   * for both directions of the switch.
-   */
-  const [returnToMonthly, setReturnToMonthly] = useState(false);
   const [alert, setAlert] = useState<{
     variant: "success" | "error";
     message: string;
@@ -227,31 +219,6 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       .sort((a, b) => rank(a.row) - rank(b.row) || a.i - b.i)
       .map(({ row }) => row);
   }, [pageRows, query, view, tab, from, to, timezone, finishedDate]);
-
-  async function confirmClose(row: LessonPackageRow) {
-    setBusy(true);
-    try {
-      const result = await closeLessonPackage(
-        row.id,
-        closeReason.trim() || undefined,
-        returnToMonthly,
-      );
-      setModal({ kind: "closed" });
-      setCloseReason("");
-      setReturnToMonthly(false);
-      refresh();
-      showAlert(
-        "success",
-        result.returned_to_monthly
-          ? t("alerts.closedAndReturned")
-          : t("alerts.closed"),
-      );
-    } catch {
-      showAlert("error", t("alerts.closeFailed"));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   /**
    * A student whose block ran out, moved back to the monthly clock. The same close endpoint as
@@ -579,11 +546,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
               onRemind={() => void remind(row)}
               onOpenDetail={() => setModal({ kind: "detail", row })}
               onEdit={() => setModal({ kind: "edit", row })}
-              onClose={() => {
-                setCloseReason("");
-                setReturnToMonthly(false);
-                setModal({ kind: "close", row });
-              }}
+              onClose={() => setModal({ kind: "close", row })}
               onBillOverdraft={() => void billOverdraft(row)}
               onSyncLessons={() => void syncLessons(row)}
               onSendPayment={() => void sendPayment(row)}
@@ -659,80 +622,16 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       </Modal>
 
       {/* ── Close early ──────────────────────────────────────────────── */}
-      <Modal
-        open={modal.kind === "close"}
+      <ClosePackageModal
+        row={modal.kind === "close" ? modal.row : null}
         onClose={() => setModal({ kind: "closed" })}
-        title={t("close.title")}
-        description={t("close.description")}
-        size="sm"
-      >
-        {modal.kind === "close" && (
-          <div className="space-y-4">
-            <p className="text-muted-foreground text-sm">
-              {t("close.remaining", {
-                left: formatHours(modal.row.minutes_remaining, locale),
-              })}
-            </p>
-            {modal.row.bill_timing === "ON_COMPLETION" && (
-              <p className="rounded-xl bg-amber-500/10 px-3 py-2.5 text-xs font-medium text-amber-700 dark:text-amber-400">
-                {t("close.proRataNote")}
-              </p>
-            )}
-            <div className="space-y-1.5">
-              <label htmlFor="pkg-close-reason" className="text-sm font-medium">
-                {t("close.reason")}
-              </label>
-              <input
-                id="pkg-close-reason"
-                value={closeReason}
-                onChange={(e) => setCloseReason(e.target.value)}
-                placeholder={t("close.reasonPlaceholder")}
-                className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
-              />
-            </div>
-
-            {/* The way back to the monthly clock. Off by default: most closes are followed by the
-                next block, and silently moving someone between billing modes is the behaviour this
-                screen exists to stop. */}
-            <label
-              className="border-input hover:bg-muted/30 flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 text-sm transition-colors"
-              data-testid="return-to-monthly"
-            >
-              <input
-                type="checkbox"
-                className="mt-0.5 size-4 shrink-0"
-                checked={returnToMonthly}
-                onChange={(e) => setReturnToMonthly(e.target.checked)}
-              />
-              <span>
-                <span className="block font-medium">
-                  {t("close.returnToMonthly", { name: modal.row.student_name })}
-                </span>
-                <span className="text-muted-foreground/80 block text-[11px]">
-                  {t("close.returnToMonthlyHint")}
-                </span>
-              </span>
-            </label>
-            <div className="flex items-center justify-end gap-2 border-t pt-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setModal({ kind: "closed" })}
-                disabled={busy}
-              >
-                {t("actions.cancel")}
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => void confirmClose(modal.row)}
-                disabled={busy}
-              >
-                {t("close.confirm")}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
+        onDone={(message) => {
+          setModal({ kind: "closed" });
+          refresh();
+          showAlert("success", message);
+        }}
+        onError={(message) => showAlert("error", message)}
+      />
 
       {/* ── Out of hours → back to monthly ───────────────────────────── */}
       <Modal

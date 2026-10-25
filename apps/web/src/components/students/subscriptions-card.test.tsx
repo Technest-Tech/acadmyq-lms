@@ -7,38 +7,56 @@ import { SubscriptionsCard } from "./subscriptions-card";
 
 /**
  * The student's subscriptions card (centre mode): groups and private subscriptions on one card,
- * enrol in a group from it — and nothing at all for an academy without `centre`.
+ * enrol in a group from it, edit or end any open row — and nothing at all for an academy without
+ * `centre`.
  */
-const groupsApi = { listBoardMembers: vi.fn(), listGroups: vi.fn(), addGroupMembers: vi.fn() };
+const groupsApi = { listBoardMembers: vi.fn(), listGroups: vi.fn(), addGroupMembers: vi.fn(), getGroup: vi.fn(), updateGroupMember: vi.fn(), removeGroupMember: vi.fn() };
 vi.mock("@/lib/groups-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/groups-api")>()),
   listBoardMembers: (...a: unknown[]) => groupsApi.listBoardMembers(...a),
   listGroups: (...a: unknown[]) => groupsApi.listGroups(...a),
   addGroupMembers: (...a: unknown[]) => groupsApi.addGroupMembers(...a),
+  getGroup: (...a: unknown[]) => groupsApi.getGroup(...a),
+  updateGroupMember: (...a: unknown[]) => groupsApi.updateGroupMember(...a),
+  removeGroupMember: (...a: unknown[]) => groupsApi.removeGroupMember(...a),
 }));
 const listLessonPackages = vi.fn();
+const pkgApi = { closeLessonPackage: vi.fn(), cancelLessonPackage: vi.fn(), updateLessonPackage: vi.fn() };
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   listLessonPackages: (...a: unknown[]) => listLessonPackages(...a),
   listPackageStudents: () => Promise.resolve({ students: [] }),
+  closeLessonPackage: (...a: unknown[]) => pkgApi.closeLessonPackage(...a),
+  cancelLessonPackage: (...a: unknown[]) => pkgApi.cancelLessonPackage(...a),
+  updateLessonPackage: (...a: unknown[]) => pkgApi.updateLessonPackage(...a),
 }));
 
 const ar = arMessages.students.subscriptions;
+const arGroups = arMessages.groups.members;
 const perms = ["student.read", "group.read", "group.manage", "package.read", "package.manage"];
 const member = (over: Record<string, unknown> = {}) => ({
   id: "m1", group_id: "g1", group_name: "English A1", group_level: "A1", teacher_id: "t1", teacher_name: "Miss Mona", student_id: "s1", full_name: "Adam", guardian_name: null,
-  student_removed: false, joined_on: "2026-05-01", left_on: null, status: "ACTIVE", attendance: { present: 4, late: 0, absent: 0, excused: 0, marked: 4, rate: 1 }, recent: [], absent_streak: 0,
+  student_removed: false, joined_on: "2026-05-01", left_on: null, status: "ACTIVE", left_reason: null, attendance: { present: 4, late: 0, absent: 0, excused: 0, marked: 4, rate: 1 }, recent: [], absent_streak: 0,
   charge: { currency: "EGP", billed_minor: 45000, outstanding_minor: 45000 }, ...over,
 });
 const pkg = (over: Record<string, unknown> = {}) => ({
   id: "p1", student_id: "s1", student_name: "Adam", label: "10 hours with Ali", sequence_no: 1, status: "ACTIVE", bill_timing: "ON_START", minutes_total: 600, carried_over_minutes: 0, minutes_sold: 600,
   minutes_consumed: 150, minutes_remaining: 450, minutes_overdrawn: 0, lesson_count: 3, upcoming_lesson_count: 2, next_lesson_at: null, percent_used: 25, price_minor: 100000, hourly_rate_minor: 10000, currency: "EGP",
-  starts_on: "2026-06-01", expires_on: null, closed_at: null, closed_reason: null, invoice_id: "i1", invoice_status: "OPEN", invoice_token: null, invoice_total_minor: 100000, invoice_paid_minor: 100000, outstanding_minor: 0, paid_at: null, ...over,
+  starts_on: "2026-06-01", expires_on: null, closed_at: null, closed_reason: null, invoice_id: "i1", invoice_status: "OPEN", invoice_token: null, invoice_total_minor: 100000, invoice_paid_minor: 100000, outstanding_minor: 0, paid_at: null,
+  absorbed_overdraft_minutes: 0, auto_renew: true, ...over,
 });
+const groupDetail = {
+  id: "g1", name: "English A1", timezone: "Africa/Cairo", start_date: "2026-04-01", capacity: null, member_count: 1, state: "RUNNING",
+  pricing: { billing_mode: "MONTHLY", price_minor: 45000, currency: "EGP" },
+  members: [{ id: "m1", student_id: "s1", full_name: "Adam", guardian_name: null, joined_on: "2026-05-01", left_on: null, status: "ACTIVE", left_reason: null, student_removed: false, attendance: null, price_minor: null }],
+};
+const owner = () => makeSession("ACADEMY_OWNER", { permissions: [...perms, "student.set_price"], capabilities: ["invoicing", "groups", "packages", "centre"] });
 
 beforeEach(() => {
   Object.values(groupsApi).forEach((f) => f.mockReset());
   listLessonPackages.mockReset();
+  Object.values(pkgApi).forEach((f) => f.mockReset());
+  groupsApi.getGroup.mockResolvedValue({ group: groupDetail });
   groupsApi.listBoardMembers.mockResolvedValue({ members: [member()], thresholds: { streak: 3, low_rate: 0.6 }, sees_money: true });
   listLessonPackages.mockResolvedValue({ packages: [pkg()] });
 });
@@ -73,5 +91,76 @@ describe("SubscriptionsCard", () => {
     await userEvent.click(screen.getByTestId("subs-join-confirm"));
     // A class nobody has attended yet takes the student from its first lesson.
     await waitFor(() => expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g2", expect.objectContaining({ student_ids: ["s1"], joined_on: "2026-06-10" })));
+  });
+
+  it("edits a group membership: the join date opens on the row's own, and saves through the member endpoint", async () => {
+    groupsApi.updateGroupMember.mockResolvedValue({ group: groupDetail });
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+
+    const row = await screen.findByTestId("subs-group-g1");
+    await userEvent.click(within(row).getByTestId("subs-edit"));
+    await waitFor(() => expect(groupsApi.getGroup).toHaveBeenCalledWith("g1"));
+    const date = await screen.findByTestId("join-date");
+    expect(date).toHaveValue("2026-05-01");
+    // The price tab is there for whoever may price; the move tab always.
+    expect(screen.getByTestId("subs-tab-price")).toBeTruthy();
+    expect(screen.getByTestId("subs-tab-move")).toBeTruthy();
+
+    await userEvent.clear(date);
+    await userEvent.type(date, "2026-04-20");
+    await userEvent.click(screen.getByTestId("join-date-save"));
+    await waitFor(() => expect(groupsApi.updateGroupMember).toHaveBeenCalledWith("g1", "s1", { joined_on: "2026-04-20" }));
+    expect(await screen.findByText(ar.saved)).toBeTruthy();
+  });
+
+  it("ends one group — a pause with its date and a note — and shows it greyed with the reason", async () => {
+    groupsApi.removeGroupMember.mockResolvedValue({ group: groupDetail });
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+
+    await userEvent.click(within(await screen.findByTestId("subs-group-g1")).getByTestId("subs-end"));
+    const on = await screen.findByTestId("leave-on");
+    await userEvent.clear(on);
+    await userEvent.type(on, "2026-07-01");
+    await userEvent.selectOptions(screen.getByTestId("leave-kind"), "PAUSED");
+    await userEvent.type(screen.getByTestId("leave-note"), "travelling");
+    groupsApi.listBoardMembers.mockResolvedValue({
+      members: [member({ status: "LEFT", left_on: "2026-07-01", left_reason: "PAUSED: travelling" })], thresholds: { streak: 3, low_rate: 0.6 }, sees_money: true,
+    });
+    await userEvent.click(screen.getByRole("button", { name: arGroups.removeConfirm }));
+
+    await waitFor(() => expect(groupsApi.removeGroupMember).toHaveBeenCalledWith("g1", "s1", { left_on: "2026-07-01", reason: "PAUSED: travelling" }));
+    const row = await screen.findByTestId("subs-group-g1");
+    await waitFor(() => expect(row.textContent).toContain(`${arGroups.leaveKinds.PAUSED} — travelling`));
+    expect(within(row).queryByTestId("subs-end")).toBeNull();
+  });
+
+  it("edits a private subscription with the packages page's form, and ends it by closing — or cancelling one never used", async () => {
+    listLessonPackages.mockResolvedValue({ packages: [pkg(), pkg({ id: "p2", label: "Untouched", minutes_consumed: 0, minutes_remaining: 600 })] });
+    pkgApi.closeLessonPackage.mockResolvedValue({ ok: true, invoice_id: "i1", returned_to_monthly: false });
+    pkgApi.cancelLessonPackage.mockResolvedValue({ ok: true });
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+
+    await userEvent.click(within(await screen.findByTestId("subs-package-p1")).getByTestId("subs-edit"));
+    expect(await screen.findByDisplayValue("10 hours with Ali")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.cancel }));
+
+    // A used package closes (what was used is billed); there is no cancel for it.
+    await userEvent.click(within(screen.getByTestId("subs-package-p1")).getByTestId("subs-end"));
+    expect(screen.queryByTestId("pkg-cancel-instead")).toBeNull();
+    await userEvent.type(screen.getByLabelText(arMessages.packages.close.reason), "left the centre");
+    await userEvent.click(screen.getByTestId("pkg-close-confirm"));
+    await waitFor(() => expect(pkgApi.closeLessonPackage).toHaveBeenCalledWith("p1", "left the centre", false));
+
+    // One nothing was taken from can be cancelled instead.
+    await userEvent.click(within(await screen.findByTestId("subs-package-p2")).getByTestId("subs-end"));
+    await userEvent.click(await screen.findByTestId("pkg-cancel-confirm"));
+    await waitFor(() => expect(pkgApi.cancelLessonPackage).toHaveBeenCalledWith("p2", undefined));
+  });
+
+  it("offers no edit or end to whoever may not manage groups or packages", async () => {
+    render(withAuth(makeSession("SUPERVISOR", { permissions: ["student.read", "group.read", "package.read"], capabilities: ["invoicing", "groups", "packages", "centre"] }), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+    await screen.findByTestId("subs-group-g1");
+    expect(screen.queryByTestId("subs-edit")).toBeNull();
+    expect(screen.queryByTestId("subs-end")).toBeNull();
   });
 });

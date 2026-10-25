@@ -389,3 +389,34 @@ and needs a screenshot.
    selectable per group.
 3. **A member who leaves mid-month:** nothing back (today), or credit for the lessons left?
 4. Still open from 00-OVERVIEW: the default billing mode, and which teacher pay modes clients use.
+
+## Subscriptions you can edit and end (2026-10-25, `centre`)
+
+Every open row on the student profile's subscriptions card (`SubscriptionsCard`, `centre` only) has
+**Edit** and **End**, built from the screens that already own those records — no new forms:
+
+- **A group membership.** Edit opens the group page's own member forms (exported from
+  `group-members-panel.tsx`) in three tabs: *join date*, *price* (only for `student.set_price` on a
+  priced group) and *move to another group*. End is the group page's leave form, now with a reason
+  kind — **Paused** / **Stopped** / Other — and a note, stored in `left_reason` as `PAUSED: note`
+  (free text stays free text, e.g. "Moved to A2"); `leftReasonText()` says it in the reader's
+  language on both screens. A pause is "end this one membership": the other groups carry on, and
+  coming back is adding them again. There is still no paused state on a membership, by design.
+- **Join date** is new on the API: `PATCH /groups/{id}/members/{studentId}` takes `joined_on`
+  (and/or `price_minor`, which now needs `student.set_price` only when it is sent).
+  `ClassGroups::changeJoinDate` refuses (422) once the group has HELD a lesson since the earlier of
+  the two dates, so no saved sheet rests on it. An earlier date bills what the wider range now owes
+  (`GroupBilling::onJoinDateChanged` → joining's own idempotent rule; a member moved in is not billed
+  the move month twice); a later date leaves charges already raised as they are — money is never
+  rewritten. Both writes run in one nested transaction (a 422 commits the request otherwise).
+- **A private subscription.** Edit is `EditPackageForm` in a modal; End is the packages page's own
+  close modal, extracted to `ClosePackageModal` (the packages page renders the same component,
+  unchanged). On the card it also offers **Cancel** for a package nothing was used from
+  (`POST /packages/{id}/cancel`, which voids its untouched bill); a used one can only be closed,
+  which bills what was used.
+- `GET /group-members` rows now carry `left_reason`, so a former membership reads "Left 1 Jul ·
+  Paused — travelling".
+- Tests: `subscriptions-card.test.tsx` (edit opens with the row's join date and saves through the
+  member endpoint; ending sends the date + `PAUSED: note` and the row greys with the reason; package
+  edit/close/cancel; no buttons without `group.manage` / `package.manage`; nothing without
+  `centre`), `ClassGroupMoneyTest` ("corrects a join date while nothing was held since…").

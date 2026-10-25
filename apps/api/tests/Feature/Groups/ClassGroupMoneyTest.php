@@ -198,6 +198,31 @@ it('does not bill a moved student twice for the same month', function () {
     expect(groupLines($this, $to))->toHaveCount(0);
 });
 
+it('corrects a join date while nothing was held since: an earlier date bills the month it now covers, a held lesson locks it', function () {
+    // May's Mondays + Wednesdays: 4 6 11 13 18 20 25 27.
+    $groupId = moneyGroup($this, ['start_date' => '2026-05-01']);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Dina']], 'joined_on' => '2026-06-01'])->assertCreated();
+    expect(groupLines($this, $groupId)->pluck('group_period')->all())->toBe(['2026-06-01']);
+
+    // Entered a month late: she has been coming since May's first lesson.
+    $res = $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Dina']}", ['joined_on' => '2026-05-04'])->assertOk();
+    expect(collect($res->json('group.members'))->firstWhere('student_id', $this->kids['Dina'])['joined_on'])->toBe('2026-05-04');
+    $lines = groupLines($this, $groupId);
+    expect($lines->pluck('group_period')->all())->toBe(['2026-05-01', '2026-06-01']);
+    expect($lines->pluck('amount_minor')->map(fn ($a) => (int) $a)->all())->toBe([45000, 45000]);
+
+    // Once the group has held a lesson since, the date stays — and a price still saves on its own.
+    heldLesson($this, $groupId, '2026-06-15');
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Dina']}", ['joined_on' => '2026-06-17'])
+        ->assertStatus(422)->assertJsonValidationErrors('joined_on');
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Dina']}", ['price_minor' => 30000, 'joined_on' => '2026-06-17'])->assertStatus(422);
+    expect(asTenant($this->academy, fn () => DB::table('class_group_members')->where('group_id', $groupId)->value('price_minor')))->toBeNull();
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Dina']}", ['price_minor' => 30000])->assertOk();
+    expect(groupLines($this, $groupId))->toHaveCount(2);
+});
+
 it('does not bill a group without a price, and bills it the moment it gets one', function () {
     $groupId = moneyGroup($this, ['price_minor' => null, 'student_ids' => [$this->kids['Adam']]]);
     expect(groupLines($this, $groupId))->toHaveCount(0);

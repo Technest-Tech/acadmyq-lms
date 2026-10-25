@@ -260,6 +260,58 @@ final class ClassGroups
     }
 
     /**
+     * Correct the day an open membership started. Only while the group has held nothing since the
+     * earlier of the two dates, so no saved sheet, attendance or per-lesson charge rests on it. An
+     * earlier date bills what the wider range now owes (joining's own rule, idempotent); a charge
+     * already raised keeps its amount — money is never rewritten.
+     */
+    public function changeJoinDate(object $group, string $studentId, string $joinedOn, string $actorUserId, string $actorRole): void
+    {
+        $member = DB::table('class_group_members')
+            ->where('group_id', $group->id)->where('student_id', $studentId)->where('status', 'ACTIVE')
+            ->first();
+        if ($member === null) {
+            abort(404, 'This student is not in the group.');
+        }
+
+        $old = Carbon::parse($member->joined_on)->format('Y-m-d');
+        $new = max(Carbon::parse($joinedOn)->format('Y-m-d'), Carbon::parse($group->start_date)->format('Y-m-d'));
+        if ($new === $old) {
+            return;
+        }
+
+        $since = min($old, $new);
+        $held = DB::table('class_group_lessons')
+            ->where('group_id', $group->id)->where('status', 'HELD')
+            ->where('occurrence_local_date', '>=', $since)
+            ->exists();
+        if ($held) {
+            throw ValidationException::withMessages([
+                'joined_on' => ["A lesson was already held since {$since}, so the join date can no longer change. / عُقدت حصة بالفعل منذ {$since}، لذلك لا يمكن تغيير تاريخ الانضمام."],
+            ]);
+        }
+
+        // A member moved here already paid the month in the group they left (the move dates both
+        // halves the same day); the correction must not bill it a second time.
+        $movedFrom = DB::table('class_group_members')
+            ->where('student_id', $studentId)->where('group_id', '!=', $group->id)
+            ->where('status', 'LEFT')->where('left_on', $old)
+            ->where('left_reason', 'like', 'Moved to %')
+            ->value('group_id');
+
+        DB::table('class_group_members')->where('id', $member->id)->update([
+            'joined_on' => $new,
+            'updated_at' => now(),
+        ]);
+
+        Audit::log('class_group.member_join_date_changed', 'class_group', (string) $group->id, (string) $group->academy_id, $actorUserId, $actorRole,
+            after: ['student_id' => $studentId, 'joined_on' => $new],
+            before: ['joined_on' => $old]);
+
+        $this->billing->onJoinDateChanged(DB::table('class_groups')->where('id', $group->id)->first(), $studentId, $movedFrom !== null ? (string) $movedFrom : null);
+    }
+
+    /**
      * A student leaving the academy leaves every group they are in, from today (each group's own
      * calendar). Part of the student wind-down, so a removed student is never "expected" again.
      */

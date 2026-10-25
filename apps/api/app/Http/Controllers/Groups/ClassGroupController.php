@@ -393,14 +393,25 @@ final class ClassGroupController extends Controller
     /**
      * PATCH /api/groups/{id}/members/{studentId} — this member's own price (null = the group's): a
      * sibling discount, a scholarship. Forward only — a charge already raised keeps its price.
+     * And/or `joined_on`: correct when they started, while the group has held nothing since
+     * (`ClassGroups::changeJoinDate`).
      */
     public function updateMember(Request $request, string $id, string $studentId): JsonResponse
     {
         Gate::authorize('group.manage');
-        Gate::authorize('student.set_price');
 
         $group = $this->findGroup($id);
-        $data = $request->validate(['price_minor' => ['present', 'nullable', 'integer', 'min:0', 'max:1000000000000']]);
+        $data = $request->validate([
+            'price_minor' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000000000000'],
+            'joined_on' => ['sometimes', 'date_format:Y-m-d'],
+        ]);
+        $pricing = array_key_exists('price_minor', $data);
+        if (! $pricing && ! isset($data['joined_on'])) {
+            throw ValidationException::withMessages(['price_minor' => ['Nothing to change. / لا يوجد ما يتغير.']]);
+        }
+        if ($pricing) {
+            Gate::authorize('student.set_price');
+        }
 
         $member = DB::table('class_group_members')
             ->where('group_id', $id)->where('student_id', $studentId)->where('status', 'ACTIVE')->first();
@@ -408,14 +419,23 @@ final class ClassGroupController extends Controller
             abort(404, 'This student is not in the group.');
         }
 
-        DB::table('class_group_members')->where('id', $member->id)->update([
-            'price_minor' => $data['price_minor'],
-            'updated_at' => now(),
-        ]);
+        // A refused date must not leave the price half-saved (a 422 commits the request's writes).
+        DB::transaction(function () use ($data, $pricing, $member, $group, $id, $studentId): void {
+            if ($pricing) {
+                DB::table('class_group_members')->where('id', $member->id)->update([
+                    'price_minor' => $data['price_minor'],
+                    'updated_at' => now(),
+                ]);
 
-        Audit::log('class_group.member_price_changed', 'class_group', $id, (string) $group->academy_id, $this->ctx()->userId, $this->ctx()->role,
-            after: ['student_id' => $studentId, 'price_minor' => $data['price_minor']],
-            before: ['price_minor' => $member->price_minor !== null ? (int) $member->price_minor : null]);
+                Audit::log('class_group.member_price_changed', 'class_group', $id, (string) $group->academy_id, $this->ctx()->userId, $this->ctx()->role,
+                    after: ['student_id' => $studentId, 'price_minor' => $data['price_minor']],
+                    before: ['price_minor' => $member->price_minor !== null ? (int) $member->price_minor : null]);
+            }
+
+            if (isset($data['joined_on'])) {
+                $this->groups->changeJoinDate($group, $studentId, $data['joined_on'], $this->ctx()->userId, $this->ctx()->role);
+            }
+        });
 
         return response()->json(['group' => $this->detail($id)]);
     }

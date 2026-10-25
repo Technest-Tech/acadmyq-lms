@@ -78,7 +78,7 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
               ? t("members.since", { date: m.joined_on })
               : t("members.between", { from: m.joined_on, to: m.left_on ?? "" })}
             {m.guardian_name ? ` · ${m.guardian_name}` : ""}
-            {m.left_reason ? ` · ${m.left_reason}` : ""}
+            {m.left_reason ? ` · ${leftReasonText(m.left_reason, t)}` : ""}
             {m.price_minor !== null && group.pricing?.currency
               ? ` · ${t("members.ownPrice", { price: formatMoney({ amount: m.price_minor, currency: group.pricing.currency }, locale) })}`
               : ""}
@@ -321,7 +321,19 @@ export function AddMembersForm({
   );
 }
 
-function RemoveMemberForm({
+/** Why a member left: a pause and a stop are coded so every screen can say them in its language. */
+export const LEAVE_KINDS = ["PAUSED", "STOPPED", "OTHER"] as const;
+type LeaveKind = (typeof LEAVE_KINDS)[number];
+
+/** `left_reason` as written by the leave form ("PAUSED: travelling") or free text ("Moved to A2"). */
+export function leftReasonText(reason: string, t: ReturnType<typeof useTranslations>): string {
+  const coded = /^(PAUSED|STOPPED)(?::\s*([\s\S]*))?$/.exec(reason);
+  if (!coded) return reason;
+  const label = t(`members.leaveKinds.${coded[1]}`);
+  return coded[2] ? `${label} — ${coded[2]}` : label;
+}
+
+export function RemoveMemberForm({
   group,
   member,
   onCancel,
@@ -334,6 +346,7 @@ function RemoveMemberForm({
 }) {
   const t = useTranslations("groups");
   const [leftOn, setLeftOn] = useState(() => todayIn(group.timezone));
+  const [kind, setKind] = useState<LeaveKind>("STOPPED");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -341,8 +354,12 @@ function RemoveMemberForm({
   async function submit() {
     setBusy(true);
     setError(null);
+    const note = reason.trim();
     try {
-      const res = await removeGroupMember(group.id, member.student_id, { left_on: leftOn, reason: reason.trim() || null });
+      const res = await removeGroupMember(group.id, member.student_id, {
+        left_on: leftOn,
+        reason: kind === "OTHER" ? note || null : note ? `${kind}: ${note}` : kind,
+      });
       onSaved(res.group);
     } catch (err) {
       setError(apiErrorMessage(err, t("members.removeFailed")));
@@ -356,11 +373,22 @@ function RemoveMemberForm({
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
       <label className="block space-y-1.5">
         <span className="text-sm font-medium">{t("members.leftOn")}</span>
-        <input className={fieldClass} type="date" value={leftOn} min={member.joined_on} onChange={(e) => setLeftOn(e.target.value)} />
+        <input className={fieldClass} type="date" value={leftOn} min={member.joined_on} onChange={(e) => setLeftOn(e.target.value)} data-testid="leave-on" />
       </label>
       <label className="block space-y-1.5">
         <span className="text-sm font-medium">{t("lessons.reason")}</span>
-        <input className={fieldClass} value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder={t("members.reasonPlaceholder")} />
+        <select className={fieldClass} value={kind} onChange={(e) => setKind(e.target.value as LeaveKind)} data-testid="leave-kind">
+          {LEAVE_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {t(`members.leaveKinds.${k}`)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {kind === "PAUSED" && <p className="text-muted-foreground text-xs">{t("members.pausedHint")}</p>}
+      <label className="block space-y-1.5">
+        <span className="text-sm font-medium">{t("members.leaveNote")}</span>
+        <input className={fieldClass} value={reason} maxLength={280} onChange={(e) => setReason(e.target.value)} placeholder={t("members.reasonPlaceholder")} data-testid="leave-note" />
       </label>
       <div className="flex justify-end gap-2 border-t pt-4">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
@@ -374,7 +402,7 @@ function RemoveMemberForm({
   );
 }
 
-function MemberPriceForm({
+export function MemberPriceForm({
   group,
   member,
   onCancel,
@@ -427,7 +455,7 @@ function MemberPriceForm({
   );
 }
 
-function MoveMemberForm({
+export function MoveMemberForm({
   group,
   member,
   onCancel,
@@ -492,6 +520,59 @@ function MoveMemberForm({
         </Button>
         <Button type="button" disabled={busy || !target} onClick={() => void submit()}>
           {t("members.moveConfirm")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Correct the day a member started — the API allows it only while the group has held no lesson
+ * since the earlier of the two dates, and a charge already raised keeps its amount.
+ */
+export function JoinDateForm({
+  group,
+  member,
+  onCancel,
+  onSaved,
+}: {
+  group: GroupDetail;
+  member: GroupMember;
+  onCancel: () => void;
+  onSaved: (g: GroupDetail) => void;
+}) {
+  const t = useTranslations("groups");
+  const [joinedOn, setJoinedOn] = useState(member.joined_on);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await updateGroupMember(group.id, member.student_id, { joined_on: joinedOn });
+      onSaved(res.group);
+    } catch (err) {
+      setError(apiErrorMessage(err, t("members.joinDateFailed")));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
+      <label className="block space-y-1.5">
+        <span className="text-sm font-medium">{t("members.joinedOn")}</span>
+        <input className={fieldClass} type="date" value={joinedOn} min={group.start_date} onChange={(e) => setJoinedOn(e.target.value)} data-testid="join-date" />
+      </label>
+      <p className="text-muted-foreground text-xs">{t("members.joinDateHint")}</p>
+      <div className="flex justify-end gap-2 border-t pt-4">
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+          {t("form.cancel")}
+        </Button>
+        <Button type="button" disabled={busy || !joinedOn || joinedOn === member.joined_on} onClick={() => void submit()} data-testid="join-date-save">
+          {t("members.joinDateSave")}
         </Button>
       </div>
     </div>

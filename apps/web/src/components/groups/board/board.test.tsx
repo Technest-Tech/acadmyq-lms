@@ -72,6 +72,7 @@ function member(name: string, over: Partial<BoardMember> = {}): BoardMember {
     joined_on: "2026-09-01",
     left_on: null,
     status: "ACTIVE",
+    left_reason: null,
     attendance: { present: 4, late: 0, absent: 0, excused: 0, marked: 4, rate: 1 },
     recent: ["PRESENT", "PRESENT"],
     absent_streak: 0,

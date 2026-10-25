@@ -622,6 +622,15 @@ final class GroupBilling
         }
     }
 
+    /**
+     * A member's join date was corrected: bill what the new range owes and was never billed (never
+     * rewrite). Hours carried in from the group they left were carried on the move, not again.
+     */
+    public function onJoinDateChanged(object $group, string $studentId, ?string $movedFromGroup): void
+    {
+        $this->onMembersAdded($group, [$studentId], self::byHours($group) ? null : $movedFromGroup);
+    }
+
     /** The price or the mode changed: bill what is now owed and has not been billed (never rewrite). */
     public function onPricingChanged(object $group): void
     {
