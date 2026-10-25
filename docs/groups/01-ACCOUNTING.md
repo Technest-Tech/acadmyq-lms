@@ -457,3 +457,46 @@ raised on a student and the out-of-hours lessons. Fixed at both ends:
   covered by a parent receipt, credit pays a later child bill, the other family untouched),
   `LessonPackageTest` (new bill on the guardian on receipts and still read/reminded/paid; on the
   student in PER_STUDENT; the classic case pinned).
+
+## Renewal policy: renew freely, or pay first (2026-10-25)
+
+Per family, optional: **FREE** (the default — every academy's behaviour until now) or
+**PAY_FIRST** — no new group month and no new package while the previous charge is unpaid.
+
+- **Where it is set.** `guardians.renewal_policy` on the family card (a two-way switch under the
+  tiles; `invoice.mark_paid` to change, like discounts) and `students.renewal_policy` on the
+  student's subscriptions card (`centre` + `accounting`) for one student — a self-guardian, or a
+  single child. Either one saying PAY_FIRST holds that student; a family-wide pay first shows on
+  the student locked, with a link to the family's page. API: `PATCH
+  /accounting/family/{id}/renewal-policy`, `GET|PATCH /accounting/students/{id}/renewal-policy`
+  (`RenewalPolicyController`, behind `entitled:accounting`, audited
+  `accounting.renewal_policy_changed`).
+- **Only on receipts.** `RenewalPolicy::payingFirst` answers nothing for an academy not kept by
+  receipts (`Ledger::keeps`): only allocations say exactly which charge is paid. A classic academy
+  can't reach the switch and its renewals are untouched.
+- **Groups** (`GroupBilling`): a calendar month is not raised while an earlier line of that group is
+  owed (`RenewalPolicy::groupOwes` = line amount > its allocations); an hours group stops at the
+  next hour-month the same way. The first month on joining is never held. What was skipped is
+  remembered — `class_group_members.renewal_held_from`, the first month held back — and the group's
+  Accounts tab says "next month waits for payment" on that row (`awaiting_payment_since`).
+- **Packages** (`LessonPackages`): a block that runs out does not renew while one of the student's
+  package bills is owed — asked after the finished block's own bill exists, since ON_COMPLETION
+  raises it at that moment. The block is marked `renewal_held_at`; the bill was written as if
+  renewing, so any overdraft stays for the renewal to absorb. The package card says so
+  (`renewal_held`). A manual open is refused with a 422 that says why.
+- **Release.** Paying raises exactly what was held back, nothing older: `Ledger::record` (every
+  receipt, mark-paid included) and `recordGatewayPayment` call `RenewalPolicy::release` for the
+  payer's students → `GroupBilling::releaseHeld` (from `renewal_held_from` to today; a month still
+  owed holds again and re-marks itself) and `LessonPackages::releaseHeldRenewal` (renews the
+  latest block if it is still the latest, still renewable and nothing is owed). Relaxing the policy
+  to FREE releases too, and the nightly `BillGroupMonthsJob` releases held members before raising
+  the month, so a payment that arrived some other way is caught next night. A static guard stops a
+  release from re-entering itself through the credit it applies.
+- Migration `2026_10_25_000001_renewal_policy` (additive: two policy columns with checks, two
+  markers).
+- Tests: `ClassGroupMoneyTest` ("pay first: no new month while the last is unpaid…", "pay first, by
+  hours…"), `LessonPackageTest` ("pay first: a block that runs out waits…", "renews freely by
+  default, on receipts too"), `AccountingPagesTest` (policy endpoints: family vs child, the stricter
+  winning, audited, supervisor 403; 402 without accounting), web `accounting-treasury.test.tsx`
+  (family switch) and `subscriptions-card.test.tsx` (student switch; family-wide shown locked; no
+  fetch without accounting).

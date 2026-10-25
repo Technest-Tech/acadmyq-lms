@@ -26,6 +26,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MethodBadge, Panel, Tile, dayLabel, waLink } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
+import { RenewalPolicyControl } from "@/components/accounting/renewal-policy-control";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
@@ -39,6 +40,7 @@ import {
   endFamilyDiscount,
   getFamilyAccount,
   remindPayer,
+  setFamilyRenewalPolicy,
   type DiscountKind,
   type DiscountScope,
   type FamilyAccount,
@@ -200,6 +202,17 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
               hint={data.last_receipt ? t("family.lastPaid", { date: dayLabel(data.last_receipt.received_on, locale) }) : undefined}
             />
           ))}
+        </div>
+
+        <div className="mt-4 border-t pt-3">
+          <RenewalPolicyControl
+            value={data.family.renewal_policy ?? "FREE"}
+            canEdit={data.can_collect}
+            onChange={async (policy) => {
+              await setFamilyRenewalPolicy(guardianId, policy);
+              await load();
+            }}
+          />
         </div>
 
         {data.next_follow_up && (

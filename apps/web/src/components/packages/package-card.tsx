@@ -577,6 +577,16 @@ export function PackageCard({
             </p>
           ))}
 
+        {row.renewal_held && (
+          <p
+            className="mt-3 flex items-center gap-1.5 rounded-xl bg-amber-500/10 px-2.5 py-2 text-[11px] font-semibold text-amber-700 dark:text-amber-300"
+            data-testid="renewal-held"
+          >
+            <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
+            {t("card.renewalHeld")}
+          </p>
+        )}
+
         {/* What was taught after the block ran out. Those lessons are billed by the hour on the
             student's monthly invoice — a different page — so without this the card said "next
             lesson tomorrow" and nothing about where that lesson's money was going. */}

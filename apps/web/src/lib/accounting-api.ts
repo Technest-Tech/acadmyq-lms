@@ -226,6 +226,8 @@ export interface GroupAccountRow {
   /** Still owed from EARLIER months of this group. */
   arrears_minor: number;
   state: AccountState;
+  /** Pay first: their next month is held, since this date, until what they owe here is paid. */
+  awaiting_payment_since?: string | null;
   charges: { line_id: string; description: string; charge: string; period: string; amount_minor: number; paid_minor: number }[];
   /** What Collect pre-ticks: this month's unpaid lines, then older ones. */
   open_line_ids: string[];
@@ -479,8 +481,11 @@ export type FamilyEvent =
   | { kind: "BILL_SENT"; at: string; date: string; id: string; period: string; amount_minor: number; currency: string }
   | { kind: "NOTE"; at: string; date: string; id: string; body: string; follow_up_on: string | null; by: string | null; mine: boolean };
 
+/** Renew freely, or wait for the last charge to be paid before the next one opens. */
+export type RenewalPolicy = "FREE" | "PAY_FIRST";
+
 export interface FamilyAccount {
-  family: { id: string; name: string; phone: string | null };
+  family: { id: string; name: string; phone: string | null; renewal_policy?: RenewalPolicy };
   today: string;
   balance: { currency: string; due_minor: number; credit_minor: number; balance_minor: number; overdue_minor: number }[];
   paid_this_year: { currency: string; amount_minor: number }[];
@@ -504,6 +509,26 @@ export interface FamilyAccount {
 
 export function getFamilyAccount(guardianId: string): Promise<FamilyAccount> {
   return apiFetch(`/api/accounting/family/${guardianId}`);
+}
+
+export function setFamilyRenewalPolicy(guardianId: string, policy: RenewalPolicy): Promise<{ policy: RenewalPolicy }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/renewal-policy`, { method: "PATCH", body: JSON.stringify({ policy }) });
+}
+
+/** A student's own switch, their family's, and the one that applies (either saying pay first wins). */
+export interface StudentRenewalPolicy {
+  policy: RenewalPolicy;
+  family_policy: RenewalPolicy | null;
+  guardian_id: string | null;
+  effective: RenewalPolicy;
+}
+
+export function getStudentRenewalPolicy(studentId: string): Promise<StudentRenewalPolicy> {
+  return apiFetch(`/api/accounting/students/${studentId}/renewal-policy`);
+}
+
+export function setStudentRenewalPolicy(studentId: string, policy: RenewalPolicy): Promise<StudentRenewalPolicy> {
+  return apiFetch(`/api/accounting/students/${studentId}/renewal-policy`, { method: "PATCH", body: JSON.stringify({ policy }) });
 }
 
 export function addFamilyNote(guardianId: string, body: string, followUpOn?: string | null): Promise<{ id: string }> {

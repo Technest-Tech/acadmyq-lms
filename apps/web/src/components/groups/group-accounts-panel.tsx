@@ -272,6 +272,11 @@ function StudentCell({ row }: { row: GroupAccountRow }) {
         {row.member_status !== "ACTIVE" && <span className="text-muted-foreground ms-1.5 text-xs font-normal">({t("sheet.left")})</span>}
       </p>
       {row.payer.kind === "GUARDIAN" && row.payer.name && <p className="text-muted-foreground text-xs break-words">{t("sheet.paidBy", { name: row.payer.name })}</p>}
+      {row.awaiting_payment_since && (
+        <p className="mt-0.5 text-xs font-medium text-amber-700 dark:text-amber-300" data-testid={`awaiting-payment-${row.student_id}`}>
+          {t("sheet.awaitingPayment")}
+        </p>
+      )}
     </div>
   );
 }

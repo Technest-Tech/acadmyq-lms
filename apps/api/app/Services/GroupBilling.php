@@ -139,9 +139,20 @@ final class GroupBilling
 
         $added = 0;
         $label = Carbon::create($year, $month, 1)->locale('en')->translatedFormat('F Y');
+        $payFirst = RenewalPolicy::payingFirst((string) $group->academy_id, $members->pluck('student_id')->map(fn ($id) => (string) $id)->unique()->values()->all());
 
         foreach ($members as $m) {
             if ($skipBilledInGroup !== null && $this->hasMonthlyLine($skipBilledInGroup, (string) $m->student_id, $monthStart)) {
+                continue;
+            }
+
+            // Pay first: no new month while one before it on this group is still owed. The month
+            // held back is remembered, so paying raises it (RenewalPolicy::release).
+            if (isset($payFirst[(string) $m->student_id]) && RenewalPolicy::groupOwes((string) $group->id, (string) $m->student_id, $monthStart)) {
+                if (! $this->hasMonthlyLine((string) $group->id, (string) $m->student_id, $monthStart)) {
+                    $this->holdFrom((string) $group->id, (string) $m->student_id, $monthStart);
+                }
+
                 continue;
             }
 
@@ -221,6 +232,7 @@ final class GroupBilling
 
         $added = 0;
         $months = [];
+        $payFirst = RenewalPolicy::payingFirst((string) $group->academy_id, $members->keys()->map(fn ($id) => (string) $id)->all());
         foreach ($members as $studentId => $rows) {
             $state = $this->hourState($rows, $lessons, $bought[$studentId] ?? null, $from);
             $latest = $rows->sortByDesc(fn ($m) => Carbon::parse($m->joined_on)->format('Y-m-d'))->first();
@@ -237,6 +249,12 @@ final class GroupBilling
                 // first) — never later than today, so no bill lands in a month not yet begun.
                 $on = min($today, $this->dateMinutesReached($state['held'], $paid) ?? $state['start']);
                 $date = Carbon::parse($on);
+
+                // Pay first: the next month waits until the ones before it are paid (never the first).
+                if ($cycle > 0 && isset($payFirst[(string) $studentId]) && RenewalPolicy::groupOwes((string) $group->id, (string) $studentId)) {
+                    $this->holdFrom((string) $group->id, (string) $studentId, $on);
+                    break;
+                }
                 $cycle++;
 
                 $lineId = $this->invoicing->addGroupLine((string) $group->academy_id, (string) $studentId, (string) $group->currency, (int) $date->year, (int) $date->month, [
@@ -623,6 +641,46 @@ final class GroupBilling
     }
 
     /**
+     * Pay first let go (RenewalPolicy::release, the nightly run): raise what the hold skipped for
+     * these members — from the first month held back, never anything older (a suspension's months
+     * stay unbilled) — and hold again wherever an earlier charge is still owed.
+     *
+     * @param  list<string>  $studentIds
+     * @return int lines added
+     */
+    public function releaseHeld(object $group, array $studentIds): int
+    {
+        $heldFrom = DB::table('class_group_members')
+            ->where('group_id', $group->id)->whereIn('student_id', $studentIds)->where('status', 'ACTIVE')
+            ->whereNotNull('renewal_held_from')
+            ->pluck('renewal_held_from', 'student_id');
+        if ($heldFrom->isEmpty()) {
+            return 0;
+        }
+
+        // Cleared first: whatever is still owed holds again, and marks itself, as it is billed below.
+        DB::table('class_group_members')
+            ->where('group_id', $group->id)->whereIn('student_id', $heldFrom->keys()->all())->where('status', 'ACTIVE')
+            ->update(['renewal_held_from' => null, 'updated_at' => now()]);
+
+        if (self::byHours($group)) {
+            return $this->billHourMonths($group, $heldFrom->keys()->map(fn ($id) => (string) $id)->all());
+        }
+        if ($group->billing_mode !== self::MONTHLY) {
+            return 0;
+        }
+
+        $added = 0;
+        foreach ($heldFrom as $studentId => $from) {
+            foreach ($this->monthsSince((string) $from, (string) $group->timezone) as [$y, $m]) {
+                $added += $this->billMonth($group, $y, $m, [(string) $studentId]);
+            }
+        }
+
+        return $added;
+    }
+
+    /**
      * A member's join date was corrected: bill what the new range owes and was never billed (never
      * rewrite). Hours carried in from the group they left were carried on the move, not again.
      */
@@ -673,6 +731,16 @@ final class GroupBilling
             ->when($studentIds !== null, fn ($q) => $q->whereIn('m.student_id', $studentIds))
             ->orderBy('m.joined_on')
             ->get(['m.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.price_minor', 'm.carried_minutes']);
+    }
+
+    /** Remember the earliest charge pay-first held back for this member. */
+    private function holdFrom(string $groupId, string $studentId, string $date): void
+    {
+        DB::update(
+            "update class_group_members set renewal_held_from = least(coalesce(renewal_held_from, ?::date), ?::date)
+              where group_id = ? and student_id = ? and status = 'ACTIVE'",
+            [$date, $date, $groupId, $studentId],
+        );
     }
 
     private function hasMonthlyLine(string $groupId, string $studentId, string $monthStart): bool

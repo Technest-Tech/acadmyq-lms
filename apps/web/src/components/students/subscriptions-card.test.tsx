@@ -20,6 +20,12 @@ vi.mock("@/lib/groups-api", async (importOriginal) => ({
   updateGroupMember: (...a: unknown[]) => groupsApi.updateGroupMember(...a),
   removeGroupMember: (...a: unknown[]) => groupsApi.removeGroupMember(...a),
 }));
+const policyApi = { getStudentRenewalPolicy: vi.fn(), setStudentRenewalPolicy: vi.fn() };
+vi.mock("@/lib/accounting-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/accounting-api")>()),
+  getStudentRenewalPolicy: (...a: unknown[]) => policyApi.getStudentRenewalPolicy(...a),
+  setStudentRenewalPolicy: (...a: unknown[]) => policyApi.setStudentRenewalPolicy(...a),
+}));
 const listLessonPackages = vi.fn();
 const pkgApi = { closeLessonPackage: vi.fn(), cancelLessonPackage: vi.fn(), updateLessonPackage: vi.fn() };
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -56,6 +62,7 @@ beforeEach(() => {
   Object.values(groupsApi).forEach((f) => f.mockReset());
   listLessonPackages.mockReset();
   Object.values(pkgApi).forEach((f) => f.mockReset());
+  Object.values(policyApi).forEach((f) => f.mockReset());
   groupsApi.getGroup.mockResolvedValue({ group: groupDetail });
   groupsApi.listBoardMembers.mockResolvedValue({ members: [member()], thresholds: { streak: 3, low_rate: 0.6 }, sees_money: true });
   listLessonPackages.mockResolvedValue({ packages: [pkg()] });
@@ -162,5 +169,32 @@ describe("SubscriptionsCard", () => {
     await screen.findByTestId("subs-group-g1");
     expect(screen.queryByTestId("subs-edit")).toBeNull();
     expect(screen.queryByTestId("subs-end")).toBeNull();
+  });
+
+  it("sets this student's renewal policy where the academy is on receipts — and asks nothing elsewhere", async () => {
+    const { unmount } = render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+    await screen.findByTestId("subs-group-g1");
+    expect(policyApi.getStudentRenewalPolicy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("renewal-policy")).toBeNull();
+    unmount();
+
+    const withAccounting = makeSession("ACADEMY_OWNER", { permissions: [...perms, "invoice.read", "invoice.mark_paid"], capabilities: ["invoicing", "groups", "packages", "centre", "accounting"] });
+    policyApi.getStudentRenewalPolicy.mockResolvedValue({ policy: "FREE", family_policy: "FREE", guardian_id: "gd1", effective: "FREE" });
+    policyApi.setStudentRenewalPolicy.mockResolvedValue({ policy: "PAY_FIRST", family_policy: "FREE", guardian_id: "gd1", effective: "PAY_FIRST" });
+    render(withAuth(withAccounting, <SubscriptionsCard studentId="s1" studentName="Adam" />));
+    const control = await screen.findByTestId("renewal-policy");
+    await userEvent.click(within(control).getByTestId("renewal-PAY_FIRST"));
+    await waitFor(() => expect(policyApi.setStudentRenewalPolicy).toHaveBeenCalledWith("s1", "PAY_FIRST"));
+    await waitFor(() => expect(within(screen.getByTestId("renewal-policy")).getByTestId("renewal-PAY_FIRST")).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("shows a family-wide pay first as set, locked, pointing at the family's page", async () => {
+    const withAccounting = makeSession("ACADEMY_OWNER", { permissions: [...perms, "invoice.read", "invoice.mark_paid"], capabilities: ["invoicing", "groups", "packages", "centre", "accounting"] });
+    policyApi.getStudentRenewalPolicy.mockResolvedValue({ policy: "FREE", family_policy: "PAY_FIRST", guardian_id: "gd1", effective: "PAY_FIRST" });
+    render(withAuth(withAccounting, <SubscriptionsCard studentId="s1" studentName="Adam" />));
+    const control = await screen.findByTestId("renewal-policy");
+    expect(within(control).getByTestId("renewal-PAY_FIRST")).toHaveAttribute("aria-checked", "true");
+    expect(within(control).getByTestId("renewal-FREE")).toBeDisabled();
+    expect(within(control).getByRole("link", { name: arMessages.accounting.renewal.inherited })).toHaveAttribute("href", "/guardians/gd1");
   });
 });

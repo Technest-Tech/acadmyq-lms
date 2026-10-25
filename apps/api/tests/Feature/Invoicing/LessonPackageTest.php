@@ -1374,3 +1374,46 @@ it('keeps a package bill on the student where the academy bills each student, ev
     $invoice = DB::table('invoices')->where('id', $package['invoice_id'])->first();
     expect((string) $invoice->student_id)->toBe($this->student)->and($invoice->guardian_id)->toBeNull();
 });
+
+it('pay first: a block that runs out waits for its bill to be paid before the next opens, and opens itself on payment', function () {
+    $this->asAcademy($this->academy, 'SUPER_ADMIN');
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['accounting']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/accounting/family/{$this->guardian}/renewal-policy", ['policy' => 'PAY_FIRST'])->assertOk();
+
+    $first = ($this->openPackage)(1, 20000, autoRenew: true);
+    ($this->attend)(($this->lesson)(60));
+
+    // Ran out, unpaid: no second block — and the packages page says why.
+    $this->asAcademy($this->academy);
+    expect(DB::table('lesson_packages')->where('student_id', $this->student)->count())->toBe(1);
+    Sanctum::actingAs($this->owner);
+    $row = collect($this->getJson('/api/packages?scope=finished')->assertOk()->json('packages'))->firstWhere('id', $first['package_id']);
+    expect($row['renewal_held'])->toBeTrue();
+
+    // Opening one by hand is refused, with the reason.
+    $this->postJson('/api/packages', ['student_id' => $this->student, 'label' => '1 hour', 'hours' => 1, 'price_minor' => 20000])
+        ->assertStatus(422)->assertJsonValidationErrors('student_id');
+
+    // Paid: the renewal opens by itself, on the same terms.
+    $this->postJson("/api/invoices/{$first['invoice_id']}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+    $this->asAcademy($this->academy);
+    $next = DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+    expect($next)->not->toBeNull()
+        ->and((bool) $next->opened_automatically)->toBeTrue()
+        ->and((int) $next->minutes_total)->toBe(60)
+        ->and(DB::table('lesson_packages')->where('id', $first['package_id'])->value('renewal_held_at'))->toBeNull();
+});
+
+it('renews freely by default, on receipts too', function () {
+    $this->asAcademy($this->academy, 'SUPER_ADMIN');
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['accounting']);
+    $this->clearTenantContext();
+
+    ($this->openPackage)(1, 20000, autoRenew: true);
+    ($this->attend)(($this->lesson)(60));
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->count())->toBe(1);
+});

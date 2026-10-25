@@ -223,6 +223,59 @@ it('corrects a join date while nothing was held since: an earlier date bills the
     expect(groupLines($this, $groupId))->toHaveCount(2);
 });
 
+/** Accounting on (receipts know what is paid), and the two-children family set to pay first. */
+function payFirstFamily($test): void
+{
+    DB::statement("select set_config('app.current_academy_id', ?, true)", [$test->academy]);
+    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+    try {
+        app(ModuleBilling::class)->setDisabledFeatures($test->academy, 'MANAGEMENT', [], ['accounting']);
+    } finally {
+        DB::statement("select set_config('app.current_academy_id', '', true)");
+        DB::statement("select set_config('app.current_role', '', true)");
+    }
+    Sanctum::actingAs($test->owner);
+    $test->patchJson("/api/accounting/family/{$test->parent}/renewal-policy", ['policy' => 'PAY_FIRST'])->assertOk();
+}
+
+it('pay first: no new month while the last is unpaid, and paying raises it — a free family is billed as before', function () {
+    payFirstFamily($this);
+    // From 1 May: May and June are owed on joining.
+    $groupId = moneyGroup($this, ['start_date' => '2026-05-01', 'student_ids' => [$this->kids['Adam'], $this->kids['Celine']]]);
+
+    $periods = fn (string $kid) => groupLines($this, $groupId)->where('student_id', $this->kids[$kid])->pluck('group_period')->values()->all();
+    expect($periods('Adam'))->toBe(['2026-05-01'])
+        ->and($periods('Celine'))->toBe(['2026-05-01', '2026-06-01']);
+
+    Sanctum::actingAs($this->owner);
+    $row = collect($this->getJson("/api/groups/{$groupId}/accounts?month=2026-06")->assertOk()->json('rows'))->firstWhere('student_id', $this->kids['Adam']);
+    expect($row['awaiting_payment_since'])->toBe('2026-06-01');
+    // The nightly run holds it too.
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    expect($periods('Adam'))->toBe(['2026-05-01']);
+
+    // May is paid: June is raised at once, and nothing is held any more.
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 45000, 'method' => 'CASH'])->assertCreated();
+    expect($periods('Adam'))->toBe(['2026-05-01', '2026-06-01']);
+    $row = collect($this->getJson("/api/groups/{$groupId}/accounts?month=2026-06")->json('rows'))->firstWhere('student_id', $this->kids['Adam']);
+    expect($row['awaiting_payment_since'])->toBeNull();
+});
+
+it('pay first, by hours: no second month until the first is paid', function () {
+    payFirstFamily($this);
+    $groupId = moneyGroup($this, ['price_minor' => 30000, 'month_minutes' => 120, 'student_ids' => [$this->kids['Adam'], $this->kids['Celine']]]);
+
+    heldLesson($this, $groupId, '2026-06-01');
+    heldLesson($this, $groupId, '2026-06-03');
+    $cycles = fn (string $kid) => groupLines($this, $groupId)->where('student_id', $this->kids[$kid])->pluck('group_cycle')->map(fn ($c) => (int) $c)->values()->all();
+    // Both used their two hours: the free family's next month is up, the paying-first one waits.
+    expect($cycles('Celine'))->toBe([1, 2])->and($cycles('Adam'))->toBe([1]);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 30000, 'method' => 'CASH'])->assertCreated();
+    expect($cycles('Adam'))->toBe([1, 2]);
+});
+
 it('does not bill a group without a price, and bills it the moment it gets one', function () {
     $groupId = moneyGroup($this, ['price_minor' => null, 'student_ids' => [$this->kids['Adam']]]);
     expect(groupLines($this, $groupId))->toHaveCount(0);

@@ -66,6 +66,14 @@ final class BillGroupMonthsJob implements ShouldQueue
                         ->get();
 
                     foreach ($groups as $group) {
+                        // Pay first: anyone whose held month is now paid for gets it first.
+                        $held = DB::table('class_group_members')->where('group_id', $group->id)
+                            ->where('status', 'ACTIVE')->whereNotNull('renewal_held_from')
+                            ->pluck('student_id')->map(fn ($id) => (string) $id)->all();
+                        if ($held !== []) {
+                            $added += $billing->releaseHeld($group, $held);
+                        }
+
                         if (GroupBilling::byHours($group)) {
                             // A month of hours: catches up anyone whose next month is due.
                             $added += $billing->billHourMonths($group);

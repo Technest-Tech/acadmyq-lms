@@ -8026,6 +8026,8 @@ export interface LessonPackageRow {
    * owes a decision: open the next block or move them back to monthly.
    */
   awaiting_next_package: boolean;
+  /** Pay first: this block's renewal is waiting until the family's package bills are paid. */
+  renewal_held?: boolean;
   /** What has been taught since it ran out, billed by the hour outside any package. */
   gap: PackageGap | null;
   /**

@@ -63,7 +63,7 @@ final class GroupAccountsController extends Controller
             ->where('m.joined_on', '<=', $to)
             ->where(fn ($q) => $q->whereNull('m.left_on')->orWhere('m.left_on', '>', $from))
             ->orderBy('st.full_name')
-            ->get(['m.student_id', 'm.status', 'm.joined_on', 'm.left_on', 'm.price_minor', 'st.full_name', 'st.status as student_status',
+            ->get(['m.student_id', 'm.status', 'm.joined_on', 'm.left_on', 'm.price_minor', 'm.renewal_held_from', 'st.full_name', 'st.status as student_status',
                 'st.guardian_id', 'st.whatsapp_phone as student_phone', 'g.full_name as guardian_name', 'g.whatsapp_phone as guardian_phone']);
 
         // The last receipt that paid this group for each student.
@@ -137,6 +137,8 @@ final class GroupAccountsController extends Controller
                 'remaining_minor' => $remaining,
                 'arrears_minor' => $arrears,
                 'state' => $state,
+                // Pay first: their next month is held until what they owe here is paid (RenewalPolicy).
+                'awaiting_payment_since' => isset($m->renewal_held_from) && $m->renewal_held_from !== null ? Carbon::parse($m->renewal_held_from)->format('Y-m-d') : null,
                 'charges' => $monthLines->sortBy('group_period')->map(fn ($l) => [
                     'line_id' => (string) $l->id,
                     'description' => (string) $l->description,

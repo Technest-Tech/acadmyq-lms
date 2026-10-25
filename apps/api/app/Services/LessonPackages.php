@@ -724,6 +724,14 @@ final class LessonPackages
         }
 
         $academyId = (string) $student->academy_id;
+
+        // Pay first: a family that pays before it renews settles the last package bill first.
+        if (RenewalPolicy::paysFirst($academyId, $studentId) && RenewalPolicy::packagesOwe($studentId)) {
+            throw ValidationException::withMessages([
+                'student_id' => ['This family pays first: the last package bill must be paid before a new package opens. / هذه الأسرة تدفع أولًا: يجب سداد فاتورة الباقة السابقة قبل فتح باقة جديدة.'],
+            ]);
+        }
+
         $academy = DB::table('academies')->where('id', $academyId)->first();
         $minutesTotal = (int) $data['minutes_total'];
         $priceMinor = (int) $data['price_minor'];
@@ -1295,7 +1303,17 @@ final class LessonPackages
             'updated_at' => now(),
         ]);
 
-        $renewedId = $renews ? $this->renew($package, $actorUserId, $actorRole) : null;
+        // Pay first: the next block waits until the family's package bills are paid — asked now that
+        // this block's own bill exists (ON_COMPLETION raised it just above; credit may have paid it).
+        // The bill was written as if renewing, so a held overdraft stays for the renewal to absorb.
+        $held = $renews
+            && RenewalPolicy::paysFirst((string) $package->academy_id, (string) $package->student_id)
+            && RenewalPolicy::packagesOwe((string) $package->student_id);
+        if ($held) {
+            DB::table('lesson_packages')->where('id', $packageId)->update(['renewal_held_at' => now()]);
+        }
+
+        $renewedId = $renews && ! $held ? $this->renew($package, $actorUserId, $actorRole) : null;
 
         $this->notify(
             (string) $package->academy_id,
@@ -1322,11 +1340,38 @@ final class LessonPackages
             (string) $package->academy_id,
             $actorUserId,
             $actorRole,
-            after: ['reason' => $reason, 'invoice_id' => $invoiceId, 'renewed_package_id' => $renewedId],
+            after: ['reason' => $reason, 'invoice_id' => $invoiceId, 'renewed_package_id' => $renewedId, 'renewal_held' => $held],
             before: ['status' => (string) $package->status],
         );
 
         return ['package_id' => $packageId, 'invoice_id' => $invoiceId, 'renewed_package_id' => $renewedId];
+    }
+
+    /**
+     * Open the renewal pay-first held back, once the family's package bills are paid (or the policy
+     * was relaxed): the student's latest block, finished and waiting, still set to renew, nothing
+     * opened since. Returns the new package, or null when there is nothing (yet) to release.
+     */
+    public function releaseHeldRenewal(string $studentId, ?string $actorUserId, ?string $actorRole): ?string
+    {
+        $latest = DB::table('lesson_packages')->where('student_id', $studentId)->orderByDesc('sequence_no')->first();
+        if ($latest === null || $latest->renewal_held_at === null || $latest->status !== 'COMPLETED' || $this->activeFor($studentId) !== null) {
+            return null;
+        }
+        if (RenewalPolicy::paysFirst((string) $latest->academy_id, $studentId) && RenewalPolicy::packagesOwe($studentId)) {
+            return null;
+        }
+
+        DB::table('lesson_packages')->where('id', $latest->id)->update(['renewal_held_at' => null, 'updated_at' => now()]);
+        if (! $this->renewable($latest)) {
+            return null; // moved to monthly, removed, or renewal switched off meanwhile: nothing to open
+        }
+
+        $renewedId = $this->renew($latest, $actorUserId, $actorRole);
+        Audit::log('lesson_package.renewal_released', 'lesson_package', (string) $latest->id, (string) $latest->academy_id, $actorUserId, $actorRole,
+            after: ['renewed_package_id' => $renewedId]);
+
+        return $renewedId;
     }
 
     /**

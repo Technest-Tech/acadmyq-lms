@@ -41,7 +41,7 @@ final class FamilyAccountController extends Controller
     {
         Gate::authorize('invoice.read');
         $academyId = $this->academyId();
-        $guardian = DB::table('guardians')->where('id', $guardianId)->first(['id', 'full_name', 'whatsapp_phone']);
+        $guardian = DB::table('guardians')->where('id', $guardianId)->first(['id', 'full_name', 'whatsapp_phone', 'renewal_policy']);
         if ($guardian === null) {
             abort(404, 'Family not found.');
         }
@@ -221,7 +221,7 @@ final class FamilyAccountController extends Controller
         ksort($balance);
 
         return response()->json([
-            'family' => ['id' => (string) $guardian->id, 'name' => (string) $guardian->full_name, 'phone' => $guardian->whatsapp_phone],
+            'family' => ['id' => (string) $guardian->id, 'name' => (string) $guardian->full_name, 'phone' => $guardian->whatsapp_phone, 'renewal_policy' => (string) $guardian->renewal_policy],
             'today' => $today,
             'balance' => array_values($balance),
             'paid_this_year' => array_map(fn ($c, $a) => ['currency' => $c, 'amount_minor' => $a], array_keys($paidThisYear), array_values($paidThisYear)),

@@ -889,7 +889,7 @@ final class LessonPackageController extends Controller
                 'p.starts_on', 'p.expires_on', 'p.invoice_id', 'p.overdraft_invoice_id',
                 'p.closed_at', 'p.closed_reason', 'p.created_at',
                 'p.reminders_sent', 'p.last_reminded_at',
-                'p.auto_renew', 'p.opened_automatically', 'p.absorbed_overdraft_minutes', 'p.overdraft_absorbed_by',
+                'p.auto_renew', 'p.opened_automatically', 'p.renewal_held_at', 'p.absorbed_overdraft_minutes', 'p.overdraft_absorbed_by',
                 's.full_name as student_name',
                 'i.status as invoice_status', 'i.total_minor as invoice_total_minor',
                 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
@@ -1160,6 +1160,8 @@ final class LessonPackageController extends Controller
             // The student's latest block, finished, and they are still on package billing: the
             // owner owes a decision — open the next block or move them back to monthly.
             'awaiting_next_package' => $gap !== null,
+            // Pay first: this block's renewal waits until the family's package bills are paid.
+            'renewal_held' => $gap !== null && $row->renewal_held_at !== null,
             // What has been taught since it ran out, billed by the hour outside any package.
             'gap' => $gap !== null && $gap['lessons'] > 0 ? $gap : null,
             'follow_up' => $followUp,

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { dayLabel, todayLocal } from "@/components/accounting/accounting-ui";
+import { RenewalPolicyControl } from "@/components/accounting/renewal-policy-control";
 import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
@@ -16,6 +17,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { ProfileCard } from "@/components/ui/profile-card";
+import { getStudentRenewalPolicy, setStudentRenewalPolicy, type StudentRenewalPolicy } from "@/lib/accounting-api";
 import { listLessonPackages, type LessonPackageRow } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
 import { addGroupMembers, getGroup, listBoardMembers, listGroups, type BoardMember, type GroupDetail, type GroupRow } from "@/lib/groups-api";
@@ -54,6 +56,9 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   const { can } = useAuth();
   const manageGroups = can("group.manage");
   const managePackages = can("package.manage");
+  // Renewal policy lives with the money: only an academy on receipts knows what is paid.
+  const policyOn = useCapability("accounting") && can("invoice.read");
+  const [policy, setPolicy] = useState<StudentRenewalPolicy | null>(null);
   const groupsOn = useCapability("groups") && can("group.read");
   const packagesOn = useCapability("packages") && can("package.read");
   const [members, setMembers] = useState<BoardMember[] | null>(null);
@@ -79,6 +84,13 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!policyOn) return;
+    getStudentRenewalPolicy(studentId)
+      .then(setPolicy)
+      .catch(() => setPolicy(null));
+  }, [policyOn, studentId]);
 
   const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
   const active = (members ?? []).filter((m) => m.status === "ACTIVE");
@@ -121,6 +133,19 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
     >
       {error && <AlertBanner variant="error" message={error} />}
       {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
+      {policy && (
+        <div className="mb-3 rounded-xl border px-3 py-2.5">
+          <RenewalPolicyControl
+            value={policy.policy}
+            canEdit={can("invoice.mark_paid")}
+            inheritedFrom={policy.family_policy === "PAY_FIRST" ? policy.guardian_id : null}
+            onChange={async (next) => {
+              setPolicy(await setStudentRenewalPolicy(studentId, next));
+              void load();
+            }}
+          />
+        </div>
+      )}
       {!loaded && !error && <p className="text-muted-foreground py-4 text-center text-sm">{tp("loading")}</p>}
       {nothing && <p className="text-muted-foreground py-4 text-center text-sm">{t("subscriptions.empty")}</p>}
 

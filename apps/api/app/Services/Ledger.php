@@ -218,6 +218,9 @@ final class Ledger
             'source' => $receipt->source,
         ]);
 
+        // Money in may settle what a pay-first family's next group month or package waits on.
+        app(RenewalPolicy::class)->release($academyId, RenewalPolicy::studentsOf($payer), $opts['received_by'] ?? null, $opts['actor_role'] ?? null);
+
         return DB::table('receipts')->where('id', $receipt->id)->first();
     }
 
@@ -346,6 +349,8 @@ final class Ledger
                     'source' => self::SOURCE_GATEWAY,
                     'reference' => $reference,
                 ]);
+
+                app(RenewalPolicy::class)->release($academyId, RenewalPolicy::studentsOf($this->payerOfInvoice($invoice)), null, 'SUPER_ADMIN');
             });
         } finally {
             foreach ($previous as $key => $value) {

@@ -102,6 +102,8 @@ it('stays out of reach for an academy without accounting, whose old group pages 
         $this->getJson("/api/accounting/{$page}")->assertStatus(402);
     }
     $this->postJson('/api/accounting/arrears/remind', ['guardian_id' => $this->parent])->assertStatus(402);
+    $this->patchJson("/api/accounting/family/{$this->parent}/renewal-policy", ['policy' => 'PAY_FIRST'])->assertStatus(402);
+    $this->getJson("/api/accounting/students/{$this->adam}/renewal-policy")->assertStatus(402);
 
     // The classic group pages answer exactly as before, with no receipt-based figures.
     $board = $this->getJson('/api/group-payments?month=2026-06')->assertOk();
@@ -195,6 +197,31 @@ it('shows a family as ONE payer, a bill addressed to a child folded into the par
     expect($statement->json('balance.0.due_minor'))->toBe(100000)
         ->and($statement->json('currencies.0.closing_minor'))->toBe(100000);
     expect($this->getJson("/api/accounting/family/{$this->parent}")->assertOk()->json('balance.0.due_minor'))->toBe(100000);
+});
+
+it('sets a renewal policy on the family or on one child, audited, the stricter one winning', function () {
+    apgSwitchOn($this->academy);
+    Sanctum::actingAs($this->owner);
+
+    expect($this->getJson("/api/accounting/family/{$this->parent}")->json('family.renewal_policy'))->toBe('FREE');
+    $this->patchJson("/api/accounting/family/{$this->parent}/renewal-policy", ['policy' => 'SOMETIMES'])->assertStatus(422);
+    $this->patchJson("/api/accounting/family/{$this->parent}/renewal-policy", ['policy' => 'PAY_FIRST'])->assertOk()->assertJsonPath('policy', 'PAY_FIRST');
+    expect($this->getJson("/api/accounting/family/{$this->parent}")->json('family.renewal_policy'))->toBe('PAY_FIRST');
+
+    // The child's own switch is FREE, but the family's says pay first.
+    $this->getJson("/api/accounting/students/{$this->adam}/renewal-policy")->assertOk()
+        ->assertJson(['policy' => 'FREE', 'family_policy' => 'PAY_FIRST', 'guardian_id' => $this->parent, 'effective' => 'PAY_FIRST']);
+    // Celine alone pays first; her family does not.
+    $this->patchJson("/api/accounting/students/{$this->celine}/renewal-policy", ['policy' => 'PAY_FIRST'])->assertOk()
+        ->assertJson(['policy' => 'PAY_FIRST', 'family_policy' => 'FREE', 'effective' => 'PAY_FIRST']);
+
+    // A supervisor (no money) may not change it.
+    Sanctum::actingAs($this->supervisor);
+    $this->patchJson("/api/accounting/family/{$this->parent}/renewal-policy", ['policy' => 'FREE'])->assertForbidden();
+
+    DB::statement("select set_config('app.current_academy_id', ?, true)", [$this->academy]);
+    DB::statement("select set_config('app.current_role', 'ACADEMY_OWNER', true)");
+    expect(DB::table('audit_log')->where('action', 'accounting.renewal_policy_changed')->count())->toBe(2);
 });
 
 it('sends a payer a WhatsApp reminder of what they owe', function () {

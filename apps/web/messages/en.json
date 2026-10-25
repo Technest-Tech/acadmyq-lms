@@ -2695,7 +2695,8 @@
       "noReminders": "No reminder sent yet",
       "paidBadge": "Paid",
       "nothingDue": "Nothing due",
-      "paidOn": "Paid · {date}"
+      "paidOn": "Paid · {date}",
+      "renewalHeld": "Pay first: the next block opens by itself once the package bill is paid."
     },
     "actions": {
       "open": "Open a package",
@@ -9351,7 +9352,8 @@
       "arrearsLine": "Plus {amount} from earlier months",
       "left": "left the group",
       "paidBy": "Paid by {name}",
-      "noPayment": "No payment yet"
+      "noPayment": "No payment yet",
+      "awaitingPayment": "Next month waits for payment (pay first)"
     },
     "register": {
       "title": "Receipts",
@@ -9754,6 +9756,15 @@
           "groups": "Group collections"
         }
       }
+    },
+    "renewal": {
+      "label": "Renewal",
+      "FREE": "Renew freely",
+      "PAY_FIRST": "Pay first",
+      "freeHint": "A new group month or package opens even while the last one is unpaid.",
+      "payFirstHint": "No new group month or package until the last one is paid. Paying opens it.",
+      "inherited": "Set to pay first for the whole family — change it on the family's page.",
+      "failed": "Could not change the renewal policy."
     }
   },
   "doneBy": {

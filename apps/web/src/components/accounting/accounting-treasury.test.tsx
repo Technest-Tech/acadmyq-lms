@@ -31,6 +31,7 @@ const api = {
   addFamilyNote: vi.fn(),
   addFamilyDiscount: vi.fn(),
   endFamilyDiscount: vi.fn(),
+  setFamilyRenewalPolicy: vi.fn(),
 };
 const getPayout = vi.fn();
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -49,6 +50,7 @@ vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   addFamilyNote: (...a: unknown[]) => api.addFamilyNote(...a),
   addFamilyDiscount: (...a: unknown[]) => api.addFamilyDiscount(...a),
   endFamilyDiscount: (...a: unknown[]) => api.endFamilyDiscount(...a),
+  setFamilyRenewalPolicy: (...a: unknown[]) => api.setFamilyRenewalPolicy(...a),
 }));
 
 const ar = arMessages.accounting;
@@ -259,5 +261,19 @@ describe("Family card", () => {
 
     await userEvent.click(screen.getByTestId("discount-end-d1"));
     await waitFor(() => expect(api.endFamilyDiscount).toHaveBeenCalledWith("gd1", "d1"));
+  });
+
+  it("switches the family to pay first, and back", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    api.setFamilyRenewalPolicy.mockResolvedValue({ policy: "PAY_FIRST" });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    const control = await screen.findByTestId("renewal-policy");
+    expect(within(control).getByTestId("renewal-FREE")).toHaveAttribute("aria-checked", "true");
+    expect(control.textContent).toContain(ar.renewal.freeHint);
+    api.getFamilyAccount.mockResolvedValue({ ...family(), family: { ...family().family, renewal_policy: "PAY_FIRST" } });
+    await userEvent.click(within(control).getByTestId("renewal-PAY_FIRST"));
+    await waitFor(() => expect(api.setFamilyRenewalPolicy).toHaveBeenCalledWith("gd1", "PAY_FIRST"));
+    await waitFor(() => expect(within(screen.getByTestId("renewal-policy")).getByTestId("renewal-PAY_FIRST")).toHaveAttribute("aria-checked", "true"));
   });
 });
