@@ -225,7 +225,18 @@ function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { 
       <form id="join-group-form" onSubmit={(e) => void submit(e)} className="space-y-3">
         <label className="block text-sm font-medium">
           {t("subscriptions.pickGroup")}
-          <select className={cn(fieldClass, "mt-1.5")} value={groupId} onChange={(e) => setGroupId(e.target.value)} data-testid="subs-group-pick">
+          <select
+            className={cn(fieldClass, "mt-1.5")}
+            value={groupId}
+            onChange={(e) => {
+              const id = e.target.value;
+              setGroupId(id);
+              // A class nobody has attended yet takes the student from its first lesson.
+              const g = groups?.find((x) => x.id === id);
+              if (g) setJoinedOn(g.lessons.held === 0 ? g.start_date : todayLocal() < g.start_date ? g.start_date : todayLocal());
+            }}
+            data-testid="subs-group-pick"
+          >
             <option value="">{groups === null ? "…" : groups.length === 0 ? t("subscriptions.noGroups") : "—"}</option>
             {(groups ?? []).map((g) => (
               <option key={g.id} value={g.id}>

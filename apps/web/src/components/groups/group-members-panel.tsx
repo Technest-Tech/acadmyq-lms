@@ -233,8 +233,12 @@ export function AddMembersForm({
 }) {
   const t = useTranslations("groups");
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // A class nobody has attended yet takes a new student from its first lesson: the desk creates
+  // the group and adds the students the same day, and expects them on every lesson, the ones
+  // already on the calendar included. Once a lesson has been held, a newcomer joins today.
   const [joinedOn, setJoinedOn] = useState(() => {
     const today = todayIn(group.timezone);
+    if (group.lessons.held === 0) return group.start_date;
     return today < group.start_date ? group.start_date : today;
   });
   const [overCapacity, setOverCapacity] = useState(false);

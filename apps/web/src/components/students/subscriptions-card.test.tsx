@@ -52,7 +52,7 @@ describe("SubscriptionsCard", () => {
   });
 
   it("lists the student's groups and private subscriptions, and enrols them in another group", async () => {
-    groupsApi.listGroups.mockResolvedValue({ groups: [{ id: "g1", name: "English A1" }, { id: "g2", name: "Math B2", teacher_name: "Mr Ali" }], counts: {} });
+    groupsApi.listGroups.mockResolvedValue({ groups: [{ id: "g1", name: "English A1", start_date: "2026-05-01", lessons: { held: 3 } }, { id: "g2", name: "Math B2", teacher_name: "Mr Ali", start_date: "2026-06-10", lessons: { held: 0 } }], counts: {} });
     groupsApi.addGroupMembers.mockResolvedValue({ added: 1, group: {} });
     render(withAuth(makeSession("ACADEMY_OWNER", { permissions: perms, capabilities: ["invoicing", "groups", "packages", "centre"] }), <SubscriptionsCard studentId="s1" studentName="Adam" />));
 
@@ -71,6 +71,7 @@ describe("SubscriptionsCard", () => {
     expect(within(pick).queryByRole("option", { name: /English A1/ })).toBeNull();
     await userEvent.selectOptions(pick, "g2");
     await userEvent.click(screen.getByTestId("subs-join-confirm"));
-    await waitFor(() => expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g2", expect.objectContaining({ student_ids: ["s1"] })));
+    // A class nobody has attended yet takes the student from its first lesson.
+    await waitFor(() => expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g2", expect.objectContaining({ student_ids: ["s1"], joined_on: "2026-06-10" })));
   });
 });
