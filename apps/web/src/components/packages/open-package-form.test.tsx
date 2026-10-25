@@ -225,3 +225,38 @@ describe("OpenPackageForm", () => {
     expect(await screen.findByTestId("package-switch-note")).toHaveTextContent("Omar");
   });
 });
+
+describe("OpenPackageForm — a centre prices by the lesson", () => {
+  it("asks the lesson length and its price, works the total out from the hours, and sends that total", async () => {
+    render(
+      withAuth(
+        makeSession("ACADEMY_OWNER", { permissions: ["package.read", "package.manage"], capabilities: ["invoicing", "packages", "centre"] }),
+        <OpenPackageForm onSaved={() => {}} onCancel={() => {}} />,
+      ),
+    );
+    await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
+    await pickStudent("Sara");
+    // No total to type: it is worked out.
+    expect(screen.queryByLabelText(arMessages.packages.form.price)).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "10");
+    await userEvent.selectOptions(screen.getByTestId("pkg-lesson-unit"), "40");
+    const unitPrice = screen.getByTestId("pkg-lesson-unit-price");
+    await userEvent.clear(unitPrice);
+    await userEvent.type(unitPrice, "100");
+    // 10 hours of 40-minute lessons = 15 lessons × 100.
+    const readout = screen.getByTestId("pkg-lesson-total");
+    expect(readout.textContent).toContain("15");
+
+    await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.open }));
+    await waitFor(() => expect(openLessonPackage).toHaveBeenCalledWith(expect.objectContaining({ hours: 10, price_minor: 150000 })));
+  });
+
+  it("keeps the total-price field for an academy that is not a centre", async () => {
+    renderForm();
+    await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
+    await pickStudent("Sara");
+    expect(screen.getByLabelText(arMessages.packages.form.price)).toBeInTheDocument();
+    expect(screen.queryByTestId("pkg-lesson-unit")).not.toBeInTheDocument();
+  });
+});

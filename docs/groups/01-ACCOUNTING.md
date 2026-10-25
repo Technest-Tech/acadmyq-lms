@@ -554,3 +554,19 @@ with `centre` + `groups` (and `group.manage`), the form reads top-down as the de
 - Every other academy sees the form exactly as before (monthly / package tiles, hourly price
   required) — pinned by the existing `student-form.test.tsx` cases; new cases cover groups-only,
   "no group picked" and group + subscription.
+
+## Priced by the lesson (`centre`, 2026-10-25)
+
+A centre quotes "40 minutes for 100", not a block total. Under `centre` the price is asked per
+lesson and the total is worked out (`components/packages/lesson-price-fields.tsx`):
+
+- **Private subscription** (`PackageTermsFields` / `usePackageTerms` — packages page, new-student
+  form, subscriptions card, trial wizard): total hours + lesson length (60 / 40 / 45 / 30 / 90 / 120)
+  + price of one lesson → `price_minor = lesson price × hours×60 / length`, read back as "Total 1,500 —
+  15 lessons × 100". The API still receives the total; nothing is stored about the unit. The agreed
+  hourly rate, when known, suggests the lesson's price. Every other academy keeps the total-price
+  field (pinned).
+- **Group, monthly by hours** (group form): hours a month first, then lesson length (defaults to the
+  group's own lesson length) and the lesson's price → the month's price. An existing group opens with
+  its saved month price read back as a lesson price. A calendar-month group (no hours) keeps its
+  monthly price field; per-lesson and course groups are unchanged.

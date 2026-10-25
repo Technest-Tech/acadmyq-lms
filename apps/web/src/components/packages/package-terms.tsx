@@ -3,8 +3,10 @@
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { LessonPriceFields, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { Combobox } from "@/components/ui/combobox";
 import type { PackageBillTiming } from "@/lib/api";
+import { useCapability } from "@/lib/capabilities";
 import { CURRENCIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -56,6 +58,11 @@ export function usePackageTerms({
 } = {}) {
   const t = useTranslations("packages");
   const locale = useLocale();
+  // A centre quotes a lesson, not a block: "40 minutes for 100" × the hours bought = the total.
+  const perLesson = useCapability("centre");
+  const [unitMinutes, setUnitMinutes] = useState(60);
+  const [unitPrice, setUnitPriceRaw] = useState("");
+  const [unitPriceWasEdited, setUnitPriceWasEdited] = useState(false);
   const [hours, setHours] = useState("");
   const [price, setPriceRaw] = useState("");
   const [priceWasEdited, setPriceWasEdited] = useState(false);
@@ -72,7 +79,10 @@ export function usePackageTerms({
   const [autoRenew, setAutoRenew] = useState(true);
 
   const hoursNum = Number.parseFloat(hours);
-  const priceMinor = Math.round(Number.parseFloat(price || "0") * 100);
+  const totalMinutes = Number.isFinite(hoursNum) && hoursNum > 0 ? Math.round(hoursNum * 60) : 0;
+  const priceMinor = perLesson
+    ? totalFromLessonPrice(Math.round(Number.parseFloat((unitPrice || "0").replace(",", ".")) * 100), totalMinutes, unitMinutes)
+    : Math.round(Number.parseFloat(price || "0") * 100);
 
   /** The same deal read the other way round — what one hour of this package costs. */
   const hourlyRate = useMemo(() => {
@@ -84,7 +94,15 @@ export function usePackageTerms({
   useEffect(() => {
     setPriceRaw("");
     setPriceWasEdited(false);
+    setUnitPriceRaw("");
+    setUnitPriceWasEdited(false);
   }, [resetKey]);
+
+  // Per lesson, the agreed hourly rate suggests the lesson's price the same way, until edited.
+  useEffect(() => {
+    if (!perLesson || unitPriceWasEdited || defaultHourlyRateMinor <= 0) return;
+    setUnitPriceRaw(majorText(Math.round((defaultHourlyRateMinor * unitMinutes) / 60)));
+  }, [perLesson, unitMinutes, unitPriceWasEdited, defaultHourlyRateMinor, resetKey]);
 
   // The agreed currency is the default, not the ceiling: a package can be sold in another one (a
   // family paying in USD for a term abroad), so it seeds the field rather than fixing it.
@@ -138,6 +156,16 @@ export function usePackageTerms({
   }
 
   return {
+    perLesson,
+    unitMinutes,
+    setUnitMinutes,
+    unitPrice,
+    setUnitPrice: (value: string) => {
+      setUnitPriceRaw(value);
+      setUnitPriceWasEdited(true);
+    },
+    totalMinutes,
+    priceMinor,
     hours,
     setHours,
     price,
@@ -209,6 +237,7 @@ export function PackageTermsFields({
             className={inputClass}
           />
         </div>
+        {!terms.perLesson && (
         <div className="space-y-1.5">
           <label htmlFor={`${idPrefix}-price`} className="text-sm font-medium">
             {t("form.price")}
@@ -224,7 +253,20 @@ export function PackageTermsFields({
             className={inputClass}
           />
         </div>
+        )}
       </div>
+
+      {terms.perLesson && (
+        <LessonPriceFields
+          unitMinutes={terms.unitMinutes}
+          onUnitMinutes={terms.setUnitMinutes}
+          unitPrice={terms.unitPrice}
+          onUnitPrice={terms.setUnitPrice}
+          totalMinutes={terms.totalMinutes}
+          currency={terms.currency}
+          idPrefix={`${idPrefix}-lesson`}
+        />
+      )}
 
       {/* The currency the total is agreed in. It is a field and not a caption: the price, the
           derived hourly rate, the invoice and every later overdraft are all snapshotted in THIS
@@ -250,7 +292,7 @@ export function PackageTermsFields({
       </div>
 
       {/* The deal read back, in the unit the parent will quote at you. */}
-      {terms.hourlyRate !== null && terms.currency !== "" && (
+      {!terms.perLesson && terms.hourlyRate !== null && terms.currency !== "" && (
         <p
           className="bg-primary/[0.07] text-primary rounded-xl px-3 py-2.5 text-center text-sm font-semibold"
           data-testid="package-rate-readout"

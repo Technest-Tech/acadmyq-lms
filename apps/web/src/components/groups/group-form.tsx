@@ -22,7 +22,9 @@ import {
   type GroupSlot,
   type GroupTeacherPayMode,
 } from "@/lib/groups-api";
+import { LessonPriceFields, lessonPriceFromTotal, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
+import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 /** A typed major-unit amount ("450", "12.5") → integer minor units; "" → null. */
@@ -130,6 +132,15 @@ export function GroupForm({
   const [monthHours, setMonthHours] = useState(savedMonthMinutes != null ? hoursText(savedMonthMinutes) : "");
   // Hours group only: what a lesson counts against a student's hours when they are alone in it.
   const [soloMinutes, setSoloMinutes] = useState(group?.pricing?.solo_billed_minutes != null ? String(group.pricing.solo_billed_minutes) : "");
+  // A centre prices a month of hours by the lesson — "40 minutes for 100" × the month's hours — and
+  // the month's price is worked out (2026-10-25). The length starts at the group's own lesson length.
+  const centre = useCapability("centre");
+  const [lessonMinutes, setLessonMinutes] = useState(group?.slots[0]?.duration_minutes ?? 60);
+  const [lessonPrice, setLessonPrice] = useState(() => {
+    const total = group?.pricing?.price_minor ?? null;
+    const minutes = group?.pricing?.month_minutes ?? null;
+    return total != null && minutes != null ? majorText(lessonPriceFromTotal(total, minutes, group?.slots[0]?.duration_minutes ?? 60)) : "";
+  });
   const [payMode, setPayMode] = useState<GroupTeacherPayMode>(group?.teacher_pay?.mode ?? null);
   const [payAmount, setPayAmount] = useState(fromMinor(group?.teacher_pay?.amount_minor));
   // The amount was filled from the teacher's own hourly rate, not typed — so picking another
@@ -198,6 +209,7 @@ export function GroupForm({
     }
     if (capacity && (!Number.isInteger(Number(capacity)) || Number(capacity) < 1)) return t("form.errors.capacity");
     if (canPrice && price.trim() !== "" && (toMinor(price) ?? -1) < 0) return t("form.errors.price");
+    if (canPrice && byLesson() && lessonPrice.trim() !== "" && (toMinor(lessonPrice) ?? -1) < 0) return t("form.errors.price");
     if (canPrice && billingMode === "MONTHLY" && monthHours.trim() !== "" && monthMinutes() === null) {
       return t("form.errors.monthHours");
     }
@@ -210,6 +222,18 @@ export function GroupForm({
       if (Number.isNaN(pct) || pct < 0 || pct > 100) return t("form.errors.share");
     }
     return null;
+  }
+
+  /** A centre's month of hours, priced by the lesson. */
+  function byLesson(): boolean {
+    return centre && billingMode === "MONTHLY" && monthMinutes() !== null;
+  }
+
+  /** What a month costs: the typed price — or, priced by the lesson, the lesson × the month's hours. */
+  function priceMinor(): number | null {
+    if (!byLesson()) return toMinor(price);
+    const unit = toMinor(lessonPrice);
+    return unit === null ? null : totalFromLessonPrice(unit, monthMinutes() ?? 0, lessonMinutes);
   }
 
   /** The typed hours → minutes; null when empty or not a positive number. */
@@ -243,7 +267,7 @@ export function GroupForm({
       ...(canPrice
         ? {
             billing_mode: billingMode,
-            price_minor: toMinor(price),
+            price_minor: priceMinor(),
             currency: currency || null,
             charge_absent: billingMode === "PER_LESSON" && chargeAbsent,
             prorate_join: prorateJoin,
@@ -500,6 +524,52 @@ export function GroupForm({
               </button>
             ))}
           </div>
+          {centre && billingMode === "MONTHLY" ? (
+            <div className="space-y-3" data-testid="group-pricing-centre">
+              <Field label={t("money.monthHours")} icon={Clock} hint={monthHours.trim() ? t("money.monthHoursOnHint", { hours: monthHours.trim() }) : t("money.monthHoursHint")}>
+                <input
+                  className={cn(fieldClass, "sm:w-40")}
+                  inputMode="decimal"
+                  value={monthHours}
+                  onChange={(e) => setMonthHours(e.target.value)}
+                  placeholder={t("money.monthHoursPlaceholder")}
+                  data-testid="group-month-hours"
+                />
+              </Field>
+              {monthMinutes() !== null ? (
+                <LessonPriceFields
+                  unitMinutes={lessonMinutes}
+                  onUnitMinutes={setLessonMinutes}
+                  unitPrice={lessonPrice}
+                  onUnitPrice={setLessonPrice}
+                  totalMinutes={monthMinutes()}
+                  currency={currency}
+                  idPrefix="group-lesson"
+                />
+              ) : (
+                <Field label={t(`money.priceLabel.${billingMode}`)} hint={t("money.priceHint")}>
+                  <input
+                    className={fieldClass}
+                    inputMode="decimal"
+                    value={price}
+                    onChange={(e) => setPrice(e.target.value)}
+                    placeholder={t("money.pricePlaceholder")}
+                    data-testid="group-price"
+                  />
+                </Field>
+              )}
+              <Field label={t("money.currency")} hint={t("money.currencyHint")}>
+                <Combobox
+                  options={[{ value: "", label: t("money.academyCurrency") }, ...CURRENCIES.map((c) => ({ value: c.code, label: c.code, sublabel: c.name }))]}
+                  value={currency}
+                  onChange={setCurrency}
+                  placeholder={t("money.academyCurrency")}
+                  searchPlaceholder={t("form.search")}
+                />
+              </Field>
+            </div>
+          ) : (
+          <>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t(`money.priceLabel.${billingMode}`)} hint={t("money.priceHint")}>
               <input
@@ -532,6 +602,8 @@ export function GroupForm({
                 data-testid="group-month-hours"
               />
             </Field>
+          )}
+          </>
           )}
           {billingMode === "MONTHLY" && monthMinutes() !== null && (
             <Field label={t("money.soloMinutes")} icon={Users} hint={t("money.soloMinutesHint")}>

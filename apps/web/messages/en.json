@@ -2759,7 +2759,11 @@
       "labelAuto": "{hours} hours — {month}",
       "advanced": "Billing & dates",
       "advancedHint": "{timing} · starts {starts}",
-      "startsHint": "Lessons already taught since this date are pulled onto the package."
+      "startsHint": "Lessons already taught since this date are pulled onto the package.",
+      "lessonLength": "Lesson length",
+      "minutesOption": "{minutes} minutes",
+      "lessonPrice": "Price of a {minutes}-minute lesson",
+      "lessonTotal": "Total {total} — {lessons} lessons × {price}"
     },
     "detail": {
       "sold": "Bought",

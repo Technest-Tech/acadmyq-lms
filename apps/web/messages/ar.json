@@ -2759,7 +2759,11 @@
       "labelAuto": "{hours} ساعة — {month}",
       "advanced": "الفوترة والتواريخ",
       "advancedHint": "{timing} · تبدأ {starts}",
-      "startsHint": "الحصص التي أُعطيت منذ هذا التاريخ تُضاف إلى الباقة تلقائيًا."
+      "startsHint": "الحصص التي أُعطيت منذ هذا التاريخ تُضاف إلى الباقة تلقائيًا.",
+      "lessonLength": "مدة الحصة",
+      "minutesOption": "{minutes} دقيقة",
+      "lessonPrice": "سعر حصة {minutes} دقيقة",
+      "lessonTotal": "الإجمالي {total} — {lessons} حصة × {price}"
     },
     "detail": {
       "sold": "المشتراة",
