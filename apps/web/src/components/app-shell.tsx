@@ -753,6 +753,27 @@ const LMS_ONLY_KEYS = new Set<NavKey>([
 const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
 
 /** The unread pill. One component, because three hand-rolled copies drift. */
+/**
+ * A sidebar badge's heartbeat: fetch now and every minute — but only while this tab is on screen.
+ * Staff keep several tabs open, and each used to poll every badge forever; a hidden tab now asks
+ * nothing and catches up the moment it is looked at again. Returns the cleanup.
+ */
+function pollWhileVisible(refresh: () => void, ms = 60_000): () => void {
+  const visible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
+  refresh();
+  const id = setInterval(() => {
+    if (visible()) refresh();
+  }, ms);
+  const onVisibility = () => {
+    if (visible()) refresh();
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+  return () => {
+    clearInterval(id);
+    document.removeEventListener("visibilitychange", onVisibility);
+  };
+}
+
 function NavBadge({ count, label }: { count: number; label: string }) {
   return (
     <span
@@ -836,11 +857,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           setSrCount(s.studentReports);
         })
         .catch(() => {});
-    void refresh();
-    const id = setInterval(refresh, 60_000);
+    const stop = pollWhileVisible(refresh);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, [session, can, pathname]);
 
@@ -865,11 +885,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         .then((r) => alive && setAttnCount(r.count))
         .catch(() => {});
     };
-    refresh();
-    const id = setInterval(refresh, 60_000);
+    const stop = pollWhileVisible(refresh);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, [session, can, pathname]);
 
@@ -886,18 +905,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       getLessonPackageSummary()
         .then((s) => alive && setPkgCount(s.due))
         .catch(() => {});
-    void refresh();
-    const id = setInterval(refresh, 60_000);
+    const stop = pollWhileVisible(refresh);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, [session, can, pathname]);
 
   // Sales badge (docs/lms/10 §4): transfer receipts waiting on a human. Like the packages badge it
   // is DERIVED state, not "unread" — it clears when the client actually decides, not when they look.
   useEffect(() => {
-    if (session === null || !can("course_order.read")) {
+    if (session === null || !can("course_order.read") || !(capabilities?.includes("lms") ?? true)) {
       setSalesCount(0);
       return;
     }
@@ -906,13 +924,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       getCourseSalesSummary()
         .then((s) => alive && setSalesCount(s.stats.pending_receipts))
         .catch(() => {});
-    void refresh();
-    const id = setInterval(refresh, 60_000);
+    const stop = pollWhileVisible(refresh);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
-  }, [session, can, pathname]);
+  }, [session, can, capabilities, pathname]);
 
   // Bookings badge (docs/lms/13): requests nobody has picked up yet. Derived, like the sales badge —
   // it clears when someone moves the request to "contacted", not when they glance at the inbox.
@@ -926,11 +943,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       getBookingSummary()
         .then((s) => alive && setBookingCount(s.stats.new))
         .catch(() => {});
-    void refresh();
-    const id = setInterval(refresh, 60_000);
+    const stop = pollWhileVisible(refresh);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, [session, can, capabilities, pathname]);
 
@@ -946,11 +962,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       getTrialSummary()
         .then((s) => alive && setTrialCount(s.needs_decision ?? 0))
         .catch(() => {});
-    void refresh();
-    const id = setInterval(refresh, 60_000);
+    const stop = pollWhileVisible(refresh);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, [session, can, capabilities, pathname]);
 
@@ -966,11 +981,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       getGroupLessonsSummary()
         .then((s) => alive && setGroupOwedCount(s.owed ?? 0))
         .catch(() => {});
-    void refresh();
-    const id = setInterval(refresh, 60_000);
+    const stop = pollWhileVisible(refresh);
     return () => {
       alive = false;
-      clearInterval(id);
+      stop();
     };
   }, [session, can, capabilities, pathname]);
 

@@ -5,6 +5,7 @@ import { Amiri, Great_Vibes, Playfair_Display, Tajawal } from "next/font/google"
 import { headers } from "next/headers";
 import { THEME_INIT_SCRIPT, ThemeProvider } from "@/components/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
+import { Catalog } from "@/i18n/catalog";
 import { direction, type Locale } from "@/i18n/config";
 import { PATHNAME_HEADER } from "@/lib/request-headers";
 import "./globals.css";
@@ -95,19 +96,21 @@ export default async function RootLayout({
    * What the browser is handed.
    *
    * The application needs the whole catalogue: hundreds of client components read from every
-   * namespace in it. A MARKETING page reads exactly one — `locale`, for the language switch in the
-   * header and footer — and shipping the other ~300KB of JSON to a landing page is both dead weight
-   * on the metric that matters most there and a copy of the app's entire vocabulary (module names,
-   * feature labels, everything) embedded in a public sales page.
+   * namespace in it. It travels as a static client chunk (`ArCatalog` / `EnCatalog`), cached by the
+   * browser and Cloudflare's edge — handed over as a prop it was serialised into every page's HTML
+   * and re-downloaded from the origin on every full load (2026-10-25: the "system is slow" report).
+   *
+   * A MARKETING page reads exactly one namespace — `locale`, for the language switch in the header
+   * and footer — and shipping the rest to a landing page is both dead weight on the metric that
+   * matters most there and a copy of the app's entire vocabulary embedded in a public sales page.
    *
    * The pathname arrives as a header the middleware sets on every request. When it is absent for
-   * any reason the FULL catalogue is sent — the fail-safe direction, since a missing message breaks
+   * any reason the FULL catalogue is used — the fail-safe direction, since a missing message breaks
    * a screen while a surplus one merely costs bytes.
    */
   const pathname = (await headers()).get(PATHNAME_HEADER);
-  const all = await getMessages();
-  const messages =
-    pathname !== null && MARKETING_PATHS.has(pathname) ? { locale: all.locale } : all;
+  const marketing = pathname !== null && MARKETING_PATHS.has(pathname);
+  const all = marketing ? await getMessages() : null;
 
   return (
     <html
@@ -123,9 +126,15 @@ export default async function RootLayout({
       </head>
       <body className="antialiased">
         <ThemeProvider>
-          <NextIntlClientProvider locale={locale} messages={messages}>
-            <ToastProvider>{children}</ToastProvider>
-          </NextIntlClientProvider>
+          {all !== null ? (
+            <NextIntlClientProvider locale={locale} messages={{ locale: all.locale }}>
+              <ToastProvider>{children}</ToastProvider>
+            </NextIntlClientProvider>
+          ) : (
+            <Catalog locale={locale}>
+              <ToastProvider>{children}</ToastProvider>
+            </Catalog>
+          )}
         </ThemeProvider>
       </body>
     </html>

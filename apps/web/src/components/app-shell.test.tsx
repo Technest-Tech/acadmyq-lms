@@ -455,3 +455,40 @@ describe("AppShell — the Accounting section (docs/groups/01-ACCOUNTING.md)", (
     expect(screen.queryByTestId("header-collect")).toBeNull();
   });
 });
+
+describe("AppShell — badge polling", () => {
+  it("never asks for a module the academy does not have, and a hidden tab asks nothing", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const calls: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      calls.push(String(input instanceof Request ? input.url : input));
+      return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    try {
+      renderShell("ACADEMY_OWNER", {
+        capabilities: ["invoicing", "packages", "groups", "trials"],
+        permissions: ["student.read", "package.read", "course_order.read", "notification.read"],
+      });
+      await ready();
+      await vi.advanceTimersByTimeAsync(50);
+      // No LMS: the sales badge is never polled (it used to answer 402 every minute).
+      expect(calls.some((u) => u.includes("/api/courses/orders/summary"))).toBe(false);
+      expect(calls.some((u) => u.includes("/api/packages/summary"))).toBe(true);
+
+      Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+      calls.length = 0;
+      await vi.advanceTimersByTimeAsync(3 * 60_000);
+      expect(calls.filter((u) => u.includes("/summary") || u.includes("/count"))).toEqual([]);
+
+      // Back on screen: it catches up at once.
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(10);
+      expect(calls.some((u) => u.includes("/api/packages/summary"))).toBe(true);
+    } finally {
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+      fetchSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
