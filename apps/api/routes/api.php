@@ -42,6 +42,7 @@ use App\Http\Controllers\Groups\ClassGroupLessonController;
 use App\Http\Controllers\Groups\GroupBoardController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Accounting\AccountingController;
+use App\Http\Controllers\Accounting\DiscountPresetController;
 use App\Http\Controllers\Accounting\FamilyAccountController;
 use App\Http\Controllers\Accounting\ReceiptController;
 use App\Http\Controllers\Accounting\RenewalPolicyController;
@@ -1153,6 +1154,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::post('/accounting/family/{guardianId}/discounts', [FamilyAccountController::class, 'addDiscount'])->whereUuid('guardianId');
             Route::delete('/accounting/family/{guardianId}/discounts/{discountId}', [FamilyAccountController::class, 'endDiscount'])->whereUuid(['guardianId', 'discountId']);
             Route::patch('/accounting/family/{guardianId}/renewal-policy', [RenewalPolicyController::class, 'updateFamily'])->whereUuid('guardianId');
+            Route::get('/accounting/discount-presets', [DiscountPresetController::class, 'index']);
+            Route::post('/accounting/discount-presets', [DiscountPresetController::class, 'store']);
+            Route::patch('/accounting/discount-presets/{id}', [DiscountPresetController::class, 'update'])->whereUuid('id');
             Route::get('/accounting/students/{studentId}/renewal-policy', [RenewalPolicyController::class, 'showStudent'])->whereUuid('studentId');
             Route::patch('/accounting/students/{studentId}/renewal-policy', [RenewalPolicyController::class, 'updateStudent'])->whereUuid('studentId');
             // The treasury and the money out.

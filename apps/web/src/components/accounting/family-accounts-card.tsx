@@ -24,7 +24,7 @@ import {
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MethodBadge, Panel, Tile, dayLabel, waLink } from "@/components/accounting/accounting-ui";
+import { MethodBadge, Panel, Tile, dayLabel, toMajorText, waLink } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
 import { RenewalPolicyControl } from "@/components/accounting/renewal-policy-control";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
@@ -39,9 +39,11 @@ import {
   deleteFamilyNote,
   endFamilyDiscount,
   getFamilyAccount,
+  listDiscountPresets,
   remindPayer,
   setFamilyRenewalPolicy,
   type DiscountKind,
+  type DiscountPreset,
   type DiscountScope,
   type FamilyAccount,
   type FamilyCharge,
@@ -444,10 +446,29 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
   const [scope, setScope] = useState<DiscountScope>("ALL");
   const [studentId, setStudentId] = useState("");
   const [groupId, setGroupId] = useState("");
+  // A preset (بنود الخصم) fills kind, value and label; "" = exceptional, typed in.
+  const [presets, setPresets] = useState<DiscountPreset[]>([]);
+  const [presetId, setPresetId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
   const currency = data.balance[0]?.currency ?? data.charges[0]?.currency ?? "EGP";
+
+  useEffect(() => {
+    if (!adding) return;
+    listDiscountPresets()
+      .then((r) => setPresets(r.presets.filter((p) => p.is_active)))
+      .catch(() => setPresets([]));
+  }, [adding]);
+
+  function pickPreset(id: string) {
+    setPresetId(id);
+    const p = presets.find((x) => x.id === id);
+    if (!p) return;
+    setKind(p.kind);
+    setValue(p.kind === "PERCENT" ? String(p.value / 100) : toMajorText(p.value));
+    setLabel(p.name);
+  }
   const groups = useMemo(() => {
     const seen = new Map<string, string>();
     for (const c of data.children) for (const g of c.groups) seen.set(g.id, g.name);
@@ -455,7 +476,7 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
   }, [data.children]);
 
   const valueNumber = Number.parseFloat(value.replace(",", "."));
-  const valid = label.trim().length > 0 && Number.isFinite(valueNumber) && valueNumber > 0 && (kind !== "PERCENT" || valueNumber <= 100);
+  const valid = presetId !== "" || (label.trim().length > 0 && Number.isFinite(valueNumber) && valueNumber > 0 && (kind !== "PERCENT" || valueNumber <= 100));
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -463,15 +484,15 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
     setBusy(true);
     setError(null);
     try {
-      await addFamilyDiscount(guardianId, {
-        kind,
-        value: kind === "PERCENT" ? Math.round(valueNumber) : Math.round(valueNumber * 100),
-        label: label.trim(),
-        scope,
-        student_id: studentId || null,
-        class_group_id: scope === "GROUP" && groupId ? groupId : null,
-      });
+      const where = { scope, student_id: studentId || null, class_group_id: scope === "GROUP" && groupId ? groupId : null };
+      await addFamilyDiscount(
+        guardianId,
+        presetId !== ""
+          ? { preset_id: presetId, ...where }
+          : { kind, value: kind === "PERCENT" ? Math.round(valueNumber) : Math.round(valueNumber * 100), label: label.trim(), ...where },
+      );
       setAdding(false);
+      setPresetId("");
       setValue("");
       setLabel("");
       setScope("ALL");
@@ -515,21 +536,34 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
     >
       {adding && (
         <form onSubmit={(e) => void save(e)} className="bg-muted/30 mb-4 space-y-3 rounded-xl border p-3" data-testid="discount-form">
+          {presets.length > 0 && (
+            <label className="text-muted-foreground block text-xs">
+              {t("family.preset")}
+              <select className={cn(fieldClass, "mt-1")} value={presetId} onChange={(e) => pickPreset(e.target.value)} data-testid="discount-preset">
+                <option value="">{t("family.presetExceptional")}</option>
+                {presets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} · {p.kind === "PERCENT" ? `${p.value / 100}%` : money(p.value, currency)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-muted-foreground text-xs">
               {t("family.discountKind.PERCENT")} / {t("family.discountKind.FIXED")}
-              <select className={cn(fieldClass, "mt-1")} value={kind} onChange={(e) => setKind(e.target.value as DiscountKind)} data-testid="discount-kind">
+              <select className={cn(fieldClass, "mt-1")} value={kind} onChange={(e) => setKind(e.target.value as DiscountKind)} disabled={presetId !== ""} data-testid="discount-kind">
                 <option value="PERCENT">{t("family.discountKind.PERCENT")}</option>
                 <option value="FIXED">{t("family.discountKind.FIXED")}</option>
               </select>
             </label>
             <label className="text-muted-foreground text-xs">
               {kind === "PERCENT" ? t("family.discountValuePercent") : t("family.discountValueFixed")}
-              <input className={cn(fieldClass, "mt-1")} inputMode="decimal" dir="ltr" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "PERCENT" ? "10" : "100"} data-testid="discount-value" />
+              <input className={cn(fieldClass, "mt-1")} inputMode="decimal" dir="ltr" value={value} onChange={(e) => setValue(e.target.value)} placeholder={kind === "PERCENT" ? "10" : "100"} disabled={presetId !== ""} data-testid="discount-value" />
             </label>
             <label className="text-muted-foreground text-xs">
               {t("family.discountLabel")}
-              <input className={cn(fieldClass, "mt-1")} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t("family.discountLabelHint")} maxLength={80} data-testid="discount-label" />
+              <input className={cn(fieldClass, "mt-1")} value={label} onChange={(e) => setLabel(e.target.value)} placeholder={t("family.discountLabelHint")} maxLength={80} disabled={presetId !== ""} data-testid="discount-label" />
             </label>
             <label className="text-muted-foreground text-xs">
               {t("family.discountFor")}

@@ -6,6 +6,7 @@ import { makeSession, withAuth } from "@/test/auth";
 import type { ExpensesPage, FamilyAccount, TreasuryState } from "@/lib/accounting-api";
 import { AccountingExpensesScreen } from "./accounting-expenses";
 import { AccountingTreasuryScreen } from "./accounting-treasury";
+import { DiscountPresetsScreen } from "./discount-presets";
 import { FamilyAccountsCard } from "./family-accounts-card";
 
 /**
@@ -32,6 +33,9 @@ const api = {
   addFamilyDiscount: vi.fn(),
   endFamilyDiscount: vi.fn(),
   setFamilyRenewalPolicy: vi.fn(),
+  listDiscountPresets: vi.fn(),
+  createDiscountPreset: vi.fn(),
+  updateDiscountPreset: vi.fn(),
 };
 const getPayout = vi.fn();
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -51,6 +55,9 @@ vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   addFamilyDiscount: (...a: unknown[]) => api.addFamilyDiscount(...a),
   endFamilyDiscount: (...a: unknown[]) => api.endFamilyDiscount(...a),
   setFamilyRenewalPolicy: (...a: unknown[]) => api.setFamilyRenewalPolicy(...a),
+  listDiscountPresets: (...a: unknown[]) => api.listDiscountPresets(...a),
+  createDiscountPreset: (...a: unknown[]) => api.createDiscountPreset(...a),
+  updateDiscountPreset: (...a: unknown[]) => api.updateDiscountPreset(...a),
 }));
 
 const ar = arMessages.accounting;
@@ -60,6 +67,7 @@ const owner = (capabilities = ["invoicing", "groups", "accounting"]) =>
 beforeEach(() => {
   Object.values(api).forEach((f) => f.mockReset());
   getPayout.mockReset();
+  api.listDiscountPresets.mockResolvedValue({ presets: [], can_manage: true });
 });
 
 function treasury(over: Partial<TreasuryState> = {}): TreasuryState {
@@ -275,5 +283,54 @@ describe("Family card", () => {
     await userEvent.click(within(control).getByTestId("renewal-PAY_FIRST"));
     await waitFor(() => expect(api.setFamilyRenewalPolicy).toHaveBeenCalledWith("gd1", "PAY_FIRST"));
     await waitFor(() => expect(within(screen.getByTestId("renewal-policy")).getByTestId("renewal-PAY_FIRST")).toHaveAttribute("aria-checked", "true"));
+  });
+});
+
+const preset = (over: Record<string, unknown> = {}) => ({ id: "p1", name: "Sibling", kind: "PERCENT", value: 1000, notes: null, is_active: true, uses: 0, by: "Owner", ...over });
+
+describe("Discount presets", () => {
+  it("lets the family card pick a preset, which fills the form and is sent as the preset", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    api.listDiscountPresets.mockResolvedValue({ presets: [preset(), preset({ id: "p2", name: "Old one", is_active: false })], can_manage: true });
+    api.addFamilyDiscount.mockResolvedValue({ id: "d3" });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    await userEvent.click(await screen.findByTestId("discount-add"));
+    const pick = await screen.findByTestId("discount-preset");
+    // A retired preset is not offered.
+    expect(within(pick).queryByRole("option", { name: /Old one/ })).toBeNull();
+    await userEvent.selectOptions(pick, "p1");
+    expect(screen.getByTestId("discount-value")).toHaveValue("10");
+    expect(screen.getByTestId("discount-label")).toHaveValue("Sibling");
+    expect(screen.getByTestId("discount-kind")).toBeDisabled();
+    await userEvent.click(screen.getByTestId("discount-save"));
+    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p1", scope: "ALL", student_id: null, class_group_id: null }));
+  });
+
+  it("lists the presets, adds one in whole percent, and retires one", async () => {
+    api.listDiscountPresets.mockResolvedValue({ presets: [preset({ uses: 2 })], can_manage: true });
+    api.createDiscountPreset.mockResolvedValue({ preset: preset({ id: "p3", name: "Scholarship", kind: "FIXED", value: 20000 }) });
+    api.updateDiscountPreset.mockResolvedValue({ preset: preset({ is_active: false }) });
+    render(withAuth(owner(), <DiscountPresetsScreen />));
+
+    const row = await screen.findByTestId("preset-p1");
+    expect(row.textContent).toContain("10%");
+    await userEvent.click(screen.getByTestId("preset-add"));
+    await userEvent.type(screen.getByTestId("preset-name"), "Scholarship");
+    await userEvent.selectOptions(screen.getByTestId("preset-kind"), "FIXED");
+    await userEvent.type(screen.getByTestId("preset-value"), "200");
+    await userEvent.click(screen.getByTestId("preset-save"));
+    await waitFor(() => expect(api.createDiscountPreset).toHaveBeenCalledWith({ name: "Scholarship", kind: "FIXED", value: 20000, notes: null }));
+
+    await userEvent.click(screen.getByTestId("preset-toggle-p1"));
+    await waitFor(() => expect(api.updateDiscountPreset).toHaveBeenCalledWith("p1", { is_active: false }));
+  });
+
+  it("shows the list without the editing buttons to whoever may not manage it", async () => {
+    api.listDiscountPresets.mockResolvedValue({ presets: [preset()], can_manage: false });
+    render(withAuth(owner(), <DiscountPresetsScreen />));
+    await screen.findByTestId("preset-p1");
+    expect(screen.queryByTestId("preset-add")).toBeNull();
+    expect(screen.queryByTestId("preset-edit-p1")).toBeNull();
   });
 });

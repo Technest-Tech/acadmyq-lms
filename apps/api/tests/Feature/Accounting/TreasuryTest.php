@@ -311,6 +311,42 @@ it('takes a family discount off every charge raised from now on — percent and 
     expect($price($this->bassel, '2026-06-30')['discount_minor'])->toBe(4500);
 });
 
+it('keeps discount presets an admin defines once, and a discount made from one copies it and remembers it', function () {
+    Sanctum::actingAs($this->owner);
+    $this->getJson('/api/accounting/discount-presets')->assertStatus(402);
+    trsOn($this->academy);
+
+    $sibling = $this->postJson('/api/accounting/discount-presets', ['name' => 'Sibling', 'kind' => 'PERCENT', 'value' => 10, 'notes' => 'Second child onwards'])
+        ->assertCreated()->json('preset');
+    expect($sibling)->toMatchArray(['name' => 'Sibling', 'kind' => 'PERCENT', 'value' => 1000, 'notes' => 'Second child onwards', 'is_active' => true, 'uses' => 0]);
+    $this->postJson('/api/accounting/discount-presets', ['name' => 'Scholarship', 'kind' => 'FIXED', 'value' => 20000])->assertCreated();
+    $this->postJson('/api/accounting/discount-presets', ['name' => 'Too much', 'kind' => 'PERCENT', 'value' => 150])->assertStatus(422);
+    $this->postJson('/api/accounting/discount-presets', ['name' => '  ', 'kind' => 'FIXED', 'value' => 100])->assertStatus(422);
+
+    // The family card picks one: its kind, value and name, whatever else was sent.
+    $id = $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['preset_id' => $sibling['id'], 'kind' => 'FIXED', 'value' => 1, 'label' => 'typed'])
+        ->assertCreated()->json('id');
+    $discount = collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('id', $id);
+    expect($discount)->toMatchArray(['kind' => 'PERCENT', 'value' => 1000, 'label' => 'Sibling', 'preset_id' => $sibling['id']]);
+    // "Exceptional": typed in, no preset.
+    $typed = $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'FIXED', 'value' => 3000, 'label' => 'One-off'])->assertCreated()->json('id');
+    expect(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('id', $typed)['preset_id'])->toBeNull();
+
+    // Editing a preset never moves a discount already given; a retired one cannot be picked.
+    $this->patchJson("/api/accounting/discount-presets/{$sibling['id']}", ['kind' => 'PERCENT', 'value' => 15, 'is_active' => false])->assertOk()
+        ->assertJsonPath('preset.value', 1500)->assertJsonPath('preset.is_active', false)->assertJsonPath('preset.uses', 1);
+    expect(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('id', $id)['value'])->toBe(1000);
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['preset_id' => $sibling['id']])->assertStatus(422)->assertJsonValidationErrors('preset_id');
+
+    $list = $this->getJson('/api/accounting/discount-presets')->assertOk();
+    expect(array_column($list->json('presets'), 'name'))->toBe(['Scholarship', 'Sibling'])->and($list->json('can_manage'))->toBeTrue();
+
+    // A supervisor (no money) sees none of it.
+    Sanctum::actingAs($this->supervisor);
+    $this->getJson('/api/accounting/discount-presets')->assertForbidden();
+    $this->postJson('/api/accounting/discount-presets', ['name' => 'x', 'kind' => 'FIXED', 'value' => 100])->assertForbidden();
+});
+
 it('never discounts an academy that is not on receipts — its lines are written as they always were', function () {
     // The switch is off: the discount API is out of reach, and a raised charge carries no discount columns.
     Sanctum::actingAs($this->owner);

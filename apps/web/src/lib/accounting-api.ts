@@ -472,7 +472,35 @@ export interface FamilyDiscount {
   starts_on: string;
   ends_on: string | null;
   active: boolean;
+  /** The preset (بنود الخصم) it was made from; null = typed in. */
+  preset_id?: string | null;
   by: string | null;
+}
+
+/** A discount an admin defines once (بنود الخصم). Values as stored: PERCENT in basis points, FIXED in minor units. */
+export interface DiscountPreset {
+  id: string;
+  name: string;
+  kind: DiscountKind;
+  value: number;
+  notes: string | null;
+  is_active: boolean;
+  /** Discounts made from it. */
+  uses: number;
+  by: string | null;
+}
+
+export function listDiscountPresets(): Promise<{ presets: DiscountPreset[]; can_manage: boolean }> {
+  return apiFetch("/api/accounting/discount-presets");
+}
+
+/** `value`: a whole percent for PERCENT, minor units for FIXED — like the family discount form. */
+export function createDiscountPreset(input: { name: string; kind: DiscountKind; value: number; notes?: string | null }): Promise<{ preset: DiscountPreset }> {
+  return apiFetch("/api/accounting/discount-presets", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateDiscountPreset(id: string, input: { name?: string; kind?: DiscountKind; value?: number; notes?: string | null; is_active?: boolean }): Promise<{ preset: DiscountPreset }> {
+  return apiFetch(`/api/accounting/discount-presets/${id}`, { method: "PATCH", body: JSON.stringify(input) });
 }
 
 export type FamilyEvent =
@@ -542,7 +570,8 @@ export function deleteFamilyNote(guardianId: string, noteId: string): Promise<{ 
 /** PERCENT `value` is a whole percent (1–100) here; FIXED is minor units per charge. */
 export function addFamilyDiscount(
   guardianId: string,
-  input: { kind: DiscountKind; value: number; label: string; scope?: DiscountScope; student_id?: string | null; class_group_id?: string | null },
+  // With `preset_id` the preset brings kind, value and label; without one they are typed in.
+  input: { preset_id?: string | null; kind?: DiscountKind; value?: number; label?: string; scope?: DiscountScope; student_id?: string | null; class_group_id?: string | null },
 ): Promise<{ id: string }> {
   return apiFetch(`/api/accounting/family/${guardianId}/discounts`, { method: "POST", body: JSON.stringify(input) });
 }

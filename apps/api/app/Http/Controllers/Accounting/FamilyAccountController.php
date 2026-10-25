@@ -248,6 +248,7 @@ final class FamilyAccountController extends Controller
                 'starts_on' => Carbon::parse($d->starts_on)->format('Y-m-d'),
                 'ends_on' => $d->ends_on !== null ? Carbon::parse($d->ends_on)->format('Y-m-d') : null,
                 'active' => $d->ends_on === null || Carbon::parse($d->ends_on)->format('Y-m-d') > $today,
+                'preset_id' => isset($d->preset_id) && $d->preset_id !== null ? (string) $d->preset_id : null,
                 'by' => $d->created_by_name,
             ])->values()->all(),
             'timeline' => array_slice($timeline, 0, 150),
@@ -308,10 +309,12 @@ final class FamilyAccountController extends Controller
     {
         Gate::authorize('invoice.mark_paid');
         $data = $request->validate([
-            'kind' => ['required', Rule::in(['PERCENT', 'FIXED'])],
+            // A preset (بنود الخصم) brings its own kind, value and name; without one it is typed in.
+            'preset_id' => ['nullable', 'uuid'],
+            'kind' => ['required_without:preset_id', Rule::in(['PERCENT', 'FIXED'])],
             // PERCENT: whole percent (1–100); FIXED: minor units per charge.
-            'value' => ['required', 'integer', 'min:1', 'max:1000000000000'],
-            'label' => ['required', 'string', 'min:1', 'max:80'],
+            'value' => ['required_without:preset_id', 'integer', 'min:1', 'max:1000000000000'],
+            'label' => ['required_without:preset_id', 'string', 'min:1', 'max:80'],
             'scope' => ['sometimes', Rule::in(['ALL', 'GROUP', 'PRIVATE'])],
             'student_id' => ['nullable', 'uuid'],
             'class_group_id' => ['nullable', 'uuid'],
@@ -319,6 +322,17 @@ final class FamilyAccountController extends Controller
         ]);
         if (! DB::table('guardians')->where('id', $guardianId)->exists()) {
             throw ValidationException::withMessages(['guardian' => ['Unknown family. / أسرة غير معروفة.']]);
+        }
+        $presetId = $data['preset_id'] ?? null;
+        if ($presetId !== null) {
+            $preset = DB::table('discount_presets')->where('id', $presetId)->where('is_active', true)->first();
+            if ($preset === null) {
+                throw ValidationException::withMessages(['preset_id' => ['That discount preset is not available. / بند الخصم هذا غير متاح.']]);
+            }
+            // Stored like the form's input: a whole percent, or minor units.
+            $data['kind'] = (string) $preset->kind;
+            $data['value'] = $preset->kind === 'PERCENT' ? intdiv((int) $preset->value, 100) : (int) $preset->value;
+            $data['label'] = (string) $preset->name;
         }
         if ($data['kind'] === 'PERCENT' && (int) $data['value'] > 100) {
             throw ValidationException::withMessages(['value' => ['A percentage is 1–100. / النسبة من 1 إلى 100.']]);
@@ -345,12 +359,14 @@ final class FamilyAccountController extends Controller
             'scope' => $scope,
             'class_group_id' => $groupId,
             'starts_on' => $data['starts_on'] ?? $this->discounts->today($academyId),
+            'preset_id' => $presetId,
             'created_by' => $ctx->userId,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
         Audit::log('accounting.discount_added', 'guardian', $guardianId, $academyId, $ctx->userId, $ctx->role, after: [
             'discount' => $id, 'kind' => $data['kind'], 'value' => (int) $data['value'], 'label' => trim((string) $data['label']), 'scope' => $scope, 'student_id' => $studentId,
+            'preset_id' => $presetId,
         ]);
 
         return response()->json(['id' => $id], 201);

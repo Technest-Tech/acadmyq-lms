@@ -9591,7 +9591,9 @@
       "discountSaved": "Discount recorded. It applies to charges raised from today.",
       "discountFailed": "Couldn’t save the discount.",
       "wasPrice": "instead of {list} · {discount} off ({label})",
-      "openFamily": "Open the family"
+      "openFamily": "Open the family",
+      "preset": "Preset",
+      "presetExceptional": "Exceptional — type it in"
     },
     "kind": {
       "CASH": "Cash drawer",
@@ -9744,7 +9746,8 @@
         "tabs": {
           "accounts": "Accounts",
           "receipts": "Receipts",
-          "expenses": "Expenses"
+          "expenses": "Expenses",
+          "discounts": "Discount presets"
         }
       },
       "reports": {
@@ -9765,6 +9768,23 @@
       "payFirstHint": "No new group month or package until the last one is paid. Paying opens it.",
       "inherited": "Set to pay first for the whole family — change it on the family's page.",
       "failed": "Could not change the renewal policy."
+    },
+    "presets": {
+      "title": "Discount presets",
+      "hint": "The discounts you give over and over, defined once. The family card's Add discount offers them; changing or retiring one later never changes a discount already given.",
+      "add": "Add preset",
+      "name": "Name",
+      "notes": "Notes",
+      "save": "Save preset",
+      "edit": "Edit",
+      "retire": "Retire",
+      "restore": "Bring back",
+      "retired": "retired",
+      "uses": "{count, plural, =0 {not used yet} one {used once} other {used # times}}",
+      "empty": "No presets yet.",
+      "saved": "Preset saved.",
+      "failed": "Could not save the preset.",
+      "loadFailed": "Could not load the discount presets."
     }
   },
   "doneBy": {

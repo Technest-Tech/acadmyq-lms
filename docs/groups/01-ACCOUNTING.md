@@ -500,3 +500,33 @@ Per family, optional: **FREE** (the default — every academy's behaviour until 
   winning, audited, supervisor 403; 402 without accounting), web `accounting-treasury.test.tsx`
   (family switch) and `subscriptions-card.test.tsx` (student switch; family-wide shown locked; no
   fetch without accounting).
+
+## Discount presets — بنود الخصم (2026-10-25)
+
+An admin defines the academy's recurring discounts once — name, PERCENT or FIXED, value, notes — and
+the family card's "Add discount" offers them.
+
+- **Table** `discount_presets` (tenant RLS, the `payer_discounts` shape; PERCENT in basis points,
+  FIXED in minor units; `is_active` — retired, never deleted). `payer_discounts.preset_id` remembers
+  which preset a discount came from, for reporting later. Migration
+  `2026_10_25_000002_discount_presets` (additive; the hard-delete purge walks the new FK
+  leaves-first, `ClientDeleteTest` green).
+- **API** (`DiscountPresetController`, behind `entitled:accounting`): `GET
+  /accounting/discount-presets` (`invoice.read` — the desk picks from them; answers `can_manage`
+  and each preset's `uses`), `POST` / `PATCH …/{id}` (`payment_settings.manage`, an existing
+  FINANCIAL capability, so no new catalogue entry). Values go in like the family discount form's
+  (whole percent / minor units). Editing or retiring a preset never touches a discount already
+  given — a discount copies the preset's kind, value and name when it is made.
+- `POST /accounting/family/{id}/discounts` takes `preset_id`: the preset's kind, value and name win
+  over anything typed; a retired preset is refused (422). Without it the discount is typed in,
+  exactly as before ("exceptional").
+- **Screens:** a fourth tab on Treasury & expenses, **بنود الخصم** (`DiscountPresetsScreen`: list,
+  add, edit, retire / bring back; read-only without `payment_settings.manage`). The family card's
+  discount form gets a "Preset" select above the fields (only when active presets exist): picking
+  one fills kind / value / label and locks them; "Exceptional — type it in" keeps the free fields.
+- Tests: `TreasuryTest` ("keeps discount presets an admin defines once…": CRUD, validation, a
+  discount from a preset carries `preset_id` and the preset's label/value whatever was typed,
+  editing the preset leaves the discount alone, a retired preset refused, supervisor 403, 402
+  without accounting), web `accounting-treasury.test.tsx` (picking a preset fills the form and sends
+  `preset_id`; the presets tab adds in whole percent / minor units and retires; no editing without
+  the capability).
