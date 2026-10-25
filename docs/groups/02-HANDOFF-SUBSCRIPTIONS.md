@@ -1,5 +1,10 @@
 # Handoff: subscriptions you can edit, family-level dues, renewal policy, discount presets
 
+> **Status (2026-10-25): all four built and live** — 1 `bf6b301`, 2 `b436718`, 3 `fa68fb2`,
+> 4 `af62f80`. What was actually built, and where it differs from this brief, is in the "as built"
+> sections at the end of `01-ACCOUNTING.md` (notably: feature 2 pools a family in the ledger instead
+> of splitting receipts; renewal holds remember what they skipped).
+
 Written 2026-10-25 for the next agent. Read `docs/groups/00-OVERVIEW.md` and `01-ACCOUNTING.md`
 first, then the memory notes `accounting-receipts.md`, `group-classes.md`, `lesson-packages.md`,
 `prod-deploy-runbook.md`, `api-test-db-harness.md`, `api-test-plan-id-gotcha.md` in
