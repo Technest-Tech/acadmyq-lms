@@ -82,6 +82,7 @@ use App\Http\Controllers\PaymentSettingsController;
 use App\Http\Controllers\PayoutController;
 use App\Http\Controllers\PaypalOrderController;
 use App\Http\Controllers\People\GuardianController;
+use App\Http\Controllers\People\FamilyPayController;
 use App\Http\Controllers\People\GuardianPortalController;
 use App\Http\Controllers\People\StaffController;
 use App\Http\Controllers\People\StudentController;
@@ -190,6 +191,8 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::get('/rc/{token}', [ReceiptController::class, 'publicShow']);
     // The parent's page — one private link per family: children, lessons, reports, bills (read-only).
     Route::get('/p/{token}', [GuardianPortalController::class, 'publicShow']);
+    // One payment link per family: every child's due package bill and the total, on one page.
+    Route::get('/f/{token}', [FamilyPayController::class, 'publicShow']);
 
     // Public video join-by-link (archive/video-platform/docs/06 + 08-ROOM-ACCESS §2/§3). Role-separated
     // links: a guest/host/monitor token (/r/{token}) OR a readable per-academy slug
@@ -1201,6 +1204,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/packages', [LessonPackageController::class, 'index']);
         Route::get('/packages/summary', [LessonPackageController::class, 'summary']);
         Route::get('/packages/students', [LessonPackageController::class, 'students']);
+        // The family's one payment link (`/f/{token}`), made the first time it is sent.
+        Route::post('/packages/family/{guardianId}/pay-link', [FamilyPayController::class, 'issue']);
         Route::post('/packages', [LessonPackageController::class, 'store']);
         Route::get('/packages/{id}', [LessonPackageController::class, 'show']);
         Route::patch('/packages/{id}', [LessonPackageController::class, 'update']);

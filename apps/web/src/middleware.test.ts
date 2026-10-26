@@ -193,6 +193,13 @@ describe("subdomain routing", () => {
     expect((await run("skills.acadmyq.com", "/p/tok123")).rewrite).toBeNull();
     expect((await run("courses.skills.eg", "/p/tok123", "acadmyq.com", true)).rewrite).toBeNull();
   });
+
+  it("serves the family's one payment link on any client host", async () => {
+    resolveTenantSite.mockResolvedValue(LMS);
+
+    expect((await run("skills.acadmyq.com", "/f/tok123")).rewrite).toBeNull();
+    expect((await run("courses.skills.eg", "/f/tok123", "acadmyq.com", true)).rewrite).toBeNull();
+  });
 });
 
 /**

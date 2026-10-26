@@ -3035,15 +3035,26 @@
     "family": {
       "children": "{count, plural, one {Child: {names}} other {Children: {names}}}",
       "sendOne": "Send payment link",
-      "sendAll": "Send all {count} links in one message",
       "messageGreeting": "Hello {name},",
       "messageIntro": "Here is what is due for your children:",
-      "messageLine": "• {child} — {label}: {amount}",
+      "messageLine": "• {child} — {purpose} ({label}): {amount}",
       "messageTotal": "Total: {total}",
-      "messageOutro": "You can pay from each link. Thank you.",
       "totalLabel": "Due",
       "notBilled": "Not billed yet",
-      "reminded": "{count, plural, one {# reminder} other {# reminders}}"
+      "reminded": "{count, plural, one {# reminder} other {# reminders}}",
+      "sendFamilyLink": "One payment link for the family ({count})",
+      "messagePayAll": "Pay it all from one link:",
+      "messagePayOne": "Payment link:",
+      "lessonsTaken": "{count, plural, =0 {no lessons yet} one {{n} lesson taken} other {{n} lessons taken}}",
+      "linkFailed": "Could not prepare the link — try again."
+    },
+    "purpose": {
+      "NEW": "New subscription",
+      "RENEWAL": "Renewal",
+      "AUTO_RENEWAL": "Auto-renewal",
+      "USAGE": "Hours used",
+      "UNBILLED": "Used, not billed",
+      "OVERDRAFT": "Extra hours"
     }
   },
   "attendance": {

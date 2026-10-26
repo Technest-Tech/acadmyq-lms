@@ -595,7 +595,8 @@ function XpayCheckout({
 
 // ── Bank transfer ────────────────────────────────────────────────────────────
 
-function BankTransfer({
+/** The academy's transfer details for an amount — also the family page's way to pay several bills at once. */
+export function BankTransfer({
   config: c,
   amountMinor,
   currency,

@@ -560,9 +560,10 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
         )}
 
         {/* Due: the family is who pays — one compact card per parent, each child's package a line in
-            it, three across so a page of debts fits on a screen. */}
+            it. Masonry columns, not a grid: a one-child card stays short instead of stretching to the
+            height of a three-child card beside it. */}
         {view === "due" ? (
-          <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="columns-1 gap-3 md:columns-2 xl:columns-3">
             {groupDueByFamily(visible).map((family) => (
               <FamilyDueGroup
                 key={family.key}

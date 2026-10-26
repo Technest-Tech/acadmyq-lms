@@ -14,6 +14,7 @@ use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\PackagePurpose;
 use App\Support\StudentTeachers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -1169,6 +1170,8 @@ final class LessonPackageController extends Controller
                 'course' => $row->subject_course,
             ] : null,
             'label' => (string) $row->label,
+            // Why this block's money is owed — a new subscription, a renewal, the hours used… ({@see PackagePurpose}).
+            'purpose' => PackagePurpose::of($row),
             'sequence_no' => (int) $row->sequence_no,
             'status' => (string) $row->status,
             'bill_timing' => (string) $row->bill_timing,

@@ -80,13 +80,15 @@ export async function middleware(req: NextRequest) {
   // `/i/<token>` is the public invoice / payment page: payment messages link it on the academy's
   // own address, and it must render there whichever product that host serves — a course-platform
   // client's host would otherwise rewrite it into `/learn/<handle>/i/…`, a 404. `/rc/<token>` is
-  // the public payment receipt, linked from WhatsApp the same way, and `/p/<token>` the parent's page.
+  // the public payment receipt, linked from WhatsApp the same way, `/p/<token>` the parent's page and
+  // `/f/<token>` the family's one payment link.
   const routedAlready =
     url.pathname.startsWith("/learn/") ||
     url.pathname.startsWith("/api") ||
     url.pathname.startsWith("/i/") ||
     url.pathname.startsWith("/rc/") ||
-    url.pathname.startsWith("/p/");
+    url.pathname.startsWith("/p/") ||
+    url.pathname.startsWith("/f/");
 
   /**
    * Serve `handle`'s product on this host. Identical for both kinds of address — the only thing the

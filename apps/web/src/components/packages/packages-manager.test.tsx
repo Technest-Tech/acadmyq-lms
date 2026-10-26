@@ -22,6 +22,7 @@ const updateLessonPackage = vi.fn();
 const sendInvoicePaymentLink = vi.fn();
 const closeLessonPackage = vi.fn();
 const remindLessonPackage = vi.fn();
+const createFamilyPayLink = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
@@ -39,6 +40,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   remindLessonPackage: (id: string, locale: string) =>
     remindLessonPackage(id, locale),
   listPackageStudents: () => Promise.resolve({ students: [] }),
+  createFamilyPayLink: (id: string) => createFamilyPayLink(id),
 }));
 
 function pkg(overrides: Partial<LessonPackageRow> = {}): LessonPackageRow {
@@ -318,7 +320,7 @@ describe("PackagesManager", () => {
     expect(within(cards[0]!).getByTestId("mark-package-paid")).toBeInTheDocument();
   });
 
-  it("gathers siblings' due packages under their parent, totals them, and sends every link in one message", async () => {
+  it("gathers siblings' due packages under their parent, says what each is for, and sends ONE family link", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg({
@@ -330,6 +332,8 @@ describe("PackagesManager", () => {
           guardian_phone: "+20 100 111 2222",
           due: true,
           invoice_token: "tok-yusuf",
+          purpose: "NEW",
+          lesson_count: 0,
           outstanding_minor: 60000,
           created_at: "2026-09-01T00:00:00Z",
         }),
@@ -342,6 +346,8 @@ describe("PackagesManager", () => {
           guardian_phone: "+20 100 111 2222",
           due: true,
           invoice_token: "tok-maryam",
+          purpose: "AUTO_RENEWAL",
+          lesson_count: 8,
           outstanding_minor: 40000,
           created_at: "2026-09-05T00:00:00Z",
         }),
@@ -359,6 +365,7 @@ describe("PackagesManager", () => {
       ],
     });
     const open = vi.spyOn(window, "open").mockReturnValue(null);
+    createFamilyPayLink.mockResolvedValue({ url: "https://noor.acadmyq.com/f/fam-token" });
 
     renderManager(["invoice.send_link"], "due");
 
@@ -372,11 +379,19 @@ describe("PackagesManager", () => {
       formatMoney({ amount: 100000, currency: "EGP" }, "ar"),
     );
 
+    // What each bill is for, and the lessons behind it.
+    const purposes = within(hassan).getAllByTestId("due-package-purpose").map((p) => p.textContent);
+    expect(purposes).toEqual([arMessages.packages.purpose.NEW, arMessages.packages.purpose.AUTO_RENEWAL]);
+    expect(within(hassan).getAllByTestId("due-package-usage")[1]).toHaveTextContent("حُضرت");
+
     await userEvent.click(within(hassan).getByTestId("due-family-send"));
-    const url = decodeURIComponent(String(open.mock.calls[0]?.[0]));
+    await waitFor(() => expect(createFamilyPayLink).toHaveBeenCalledWith("g-hassan"));
+    await waitFor(() => expect(open.mock.calls.some((c) => String(c[0]).startsWith("https://wa.me/"))).toBe(true));
+    const url = decodeURIComponent(String(open.mock.calls.find((c) => String(c[0]).startsWith("https://wa.me/"))?.[0]));
     expect(url).toContain("https://wa.me/201001112222?text=");
-    expect(url).toContain("/i/tok-yusuf");
-    expect(url).toContain("/i/tok-maryam");
+    // One link for the whole family — not a link per child.
+    expect(url).toContain("https://noor.acadmyq.com/f/fam-token");
+    expect(url).not.toContain("/i/tok-");
     expect(url).toContain(formatMoney({ amount: 100000, currency: "EGP" }, "ar"));
     open.mockRestore();
   });

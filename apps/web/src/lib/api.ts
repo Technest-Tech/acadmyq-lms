@@ -8007,6 +8007,8 @@ export interface LessonPackageRow {
   guardian_id?: string | null;
   guardian_name?: string | null;
   guardian_phone?: string | null;
+  /** What this block's money is for — a new subscription, a renewal, the hours used… */
+  purpose?: PackagePurpose;
   label: string;
   sequence_no: number;
   status: PackageStatus;
@@ -8196,6 +8198,14 @@ export interface PackageAttachableLesson {
   currency: string | null;
   /** Its invoice has already been issued, so it cannot move onto a package as things stand. */
   locked: boolean;
+}
+
+/** Why a package's money is owed (App\Support\PackagePurpose). */
+export type PackagePurpose = "NEW" | "RENEWAL" | "AUTO_RENEWAL" | "USAGE" | "UNBILLED" | "OVERDRAFT";
+
+/** The family's one payment link (`/f/{token}`) — every child's due package bill on one page. */
+export function createFamilyPayLink(guardianId: string): Promise<{ url: string }> {
+  return apiFetch(`/api/packages/family/${guardianId}/pay-link`, { method: "POST" });
 }
 
 export function listLessonPackages(
