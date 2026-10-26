@@ -1,10 +1,7 @@
 "use client";
 
 import {
-  Banknote,
-  CalendarDays,
   CalendarRange,
-  Hash,
   Layers,
   Phone,
   Plus,
@@ -21,6 +18,7 @@ import {
   PackageTermsFields,
   usePackageTerms,
 } from "@/components/packages/package-terms";
+import { MonthlyTermsFields, useMonthlyTerms } from "@/components/students/monthly-terms";
 import {
   TeacherLinksField,
   toTeacherInputs,
@@ -147,10 +145,6 @@ function splitPhone(phone: string | null | undefined, fallbackCountry = "SA"): {
   return match
     ? { dialCountry: match.code, localNumber: phone.slice(match.dialCode.length) }
     : { dialCountry: fallbackCountry, localNumber: phone.replace(/[^\d]/g, "") };
-}
-
-function toMinor(val: string): number {
-  return Math.round(parseFloat(val || "0") * 100);
 }
 
 type Intent = "trial" | "enrolled";
@@ -297,13 +291,9 @@ export function StudentForm({
     setGroupPicks((prev) => [...prev, { id, joinedOn }]);
   }
 
-  // Monthly — hourly, matching the enrolment wizard's pricing step and the student-detail form.
-  const [price, setPrice] = useState("");
-  const [hours, setHours] = useState("");
-  const [currency, setCurrency] = useState(defaults.currency);
-  const [startDate, setStartDate] = useState(
-    () => new Date().toISOString().split("T")[0] ?? "",
-  );
+  // Monthly — lessons of a length, priced by the hour or the lesson, or free. The same fields as
+  // the enrolment wizard's pricing step and the profile's edit modal (they are one component).
+  const monthly = useMonthlyTerms({ defaultCurrency: defaults.currency });
 
   // Package — the same fields, defaults and suggestions as the packages screen, because they are
   // literally the same component. A new student has no agreed rate yet, so no total is suggested;
@@ -420,7 +410,7 @@ export function StudentForm({
       setError(t("form.groupOrPrivateRequired"));
       return false;
     }
-    if (showPackage && !onPackage && !groupsOnly && (!price.trim() || !startDate)) {
+    if (showPackage && !onPackage && !groupsOnly && !monthly.valid) {
       setError(t("form.packageRequired"));
       return false;
     }
@@ -458,19 +448,7 @@ export function StudentForm({
         // The package path opens the package in the same request, which also creates the
         // student's package-billing subscription — so it sends no `subscription` of its own.
         ...(showPackage && onPackage ? { package: terms.toPayload() } : {}),
-        ...(showPackage && !onPackage && !groupsOnly
-          ? {
-              subscription: {
-                // The package is always hourly here; derive a display label from the quota.
-                plan_label: hours ? `${hours} hrs/month` : "Hourly",
-                sessions_per_month: hours ? Number(hours) : null,
-                price_minor: toMinor(price),
-                currency: currency || undefined,
-                price_basis: "PER_HOUR" as const,
-                start_date: startDate,
-              },
-            }
-          : {}),
+        ...(showPackage && !onPackage && !groupsOnly ? { subscription: monthly.toPayload() } : {}),
       });
       // The groups: each enrolment is its own call; one that fails leaves the student made and
       // the form open to say which one, rather than losing the save.
@@ -901,61 +879,7 @@ export function StudentForm({
             {onPackage ? (
               <PackageTermsFields terms={terms} idPrefix="new-student-pkg" />
             ) : groupsOnly ? null : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label={t("subscription.priceHourly")} required>
-                <div className="relative">
-                  <Banknote className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
-                  <input
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    aria-label={t("subscription.priceHourly")}
-                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                    placeholder="0.00"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                  />
-                </div>
-              </Field>
-
-              <Field label={t("subscription.hoursPerMonth")}>
-                <div className="relative">
-                  <Hash className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
-                  <input
-                    type="number"
-                    min={0}
-                    aria-label={t("subscription.hoursPerMonth")}
-                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                    placeholder="8"
-                    value={hours}
-                    onChange={(e) => setHours(e.target.value)}
-                  />
-                </div>
-              </Field>
-
-              <Field label={t("subscription.currency")}>
-                <Combobox
-                  options={currencyOptions}
-                  value={currency}
-                  onChange={setCurrency}
-                  placeholder={t("form.currencyPlaceholder")}
-                  searchPlaceholder={t("form.searchCurrency")}
-                />
-              </Field>
-
-              <Field label={t("subscription.startDate")} required>
-                <div className="relative">
-                  <CalendarDays className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
-                  <input
-                    type="date"
-                    aria-label={t("subscription.startDate")}
-                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                  />
-                </div>
-              </Field>
-            </div>
+              <MonthlyTermsFields terms={monthly} idPrefix="new-student-monthly" />
             )}
           </div>
         ) : (

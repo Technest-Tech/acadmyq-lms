@@ -1157,7 +1157,8 @@
       "calendar": "Calendar",
       "punctuality": "Punctuality",
       "salary": "Salary",
-      "reports": "Reports"
+      "reports": "Reports",
+      "lessons": "Lessons"
     },
     "calendar": {
       "today": "Today",
@@ -1366,6 +1367,36 @@
       "summaryPerStudent": "Default {rate} / hr",
       "save": "Save pay",
       "saved": "Pay saved. Lessons already marked this month keep their old rate — open this month’s statement and press “Recalculate” to apply the new one."
+    },
+    "lessons": {
+      "title": "All lessons",
+      "subtitle": "Everything this teacher taught or will teach — mark, change or delete any lesson. Invoices and salaries follow automatically.",
+      "prev": "Previous month",
+      "next": "Next month",
+      "thisMonth": "This month",
+      "all": "All",
+      "upcoming": "Upcoming",
+      "recorded": "Recorded",
+      "pending": "Not marked",
+      "allHint": "Every lesson this month",
+      "upcomingHint": "Still ahead",
+      "recordedHint": "Outcome recorded",
+      "pendingHint": "Past, nobody marked it",
+      "empty": "No lessons in this view.",
+      "truncated": "This month holds more lessons than one page shows.",
+      "minutes": "{n} min",
+      "doneBy": "by {name}",
+      "record": "Mark",
+      "open": "Open",
+      "reschedule": "Move",
+      "undo": "Undo",
+      "delete": "Delete",
+      "deleteTitle": "Delete this lesson?",
+      "deleteBody": "The lesson on {when} is removed from the attendance page, the calendar and this list.",
+      "deleteMoney": "If it was charged or paid, it comes off the student's invoice (or back into their package) and off the teacher's salary.",
+      "deleteHint": "A lesson on a closed invoice or a finalized salary cannot be deleted.",
+      "deleteConfirm": "Delete lesson",
+      "deleteCancel": "Keep it"
     }
   },
   "settings": {
@@ -1585,7 +1616,8 @@
       "unassigned": "No teacher",
       "noSubscription": "No subscription",
       "sessionsPerMonth": "{n} / month",
-      "searchPlaceholder": "Search by name, parent or phone…"
+      "searchPlaceholder": "Search by name, parent or phone…",
+      "lessonsPerMonth": "{n} × {minutes} min / month"
     },
     "trialBadge": {
       "scheduled": "Trial Scheduled",
@@ -1615,7 +1647,8 @@
       "PER_SESSION": "Per session",
       "PER_MONTH": "Per month",
       "PER_HOUR": "Per hour",
-      "PER_PACKAGE": "Lesson package"
+      "PER_PACKAGE": "Lesson package",
+      "FREE": "Free"
     },
     "newModal": {
       "description": "Save as a trial, or create them active with their package right away"
@@ -1712,7 +1745,7 @@
       "intentActive": "Active student",
       "intentActiveHint": "Saved as a regular learner, with their billing — monthly or a package — set right here.",
       "packageHint": "The rate this student is billed at, and the monthly hours it covers.",
-      "packageRequired": "Enter an hourly price and a start date for an active student.",
+      "packageRequired": "Enter a price and a start date for an active student, or tick “Free student”.",
       "packageNoRights": "You may not set prices, so this student is created without billing — someone who can price adds it from their profile.",
       "guardianMode": "Student type",
       "guardianModeFamily": "Family",
@@ -1722,11 +1755,11 @@
       "createEnrolled": "Add student",
       "billingTitle": "How is this student billed?",
       "billingMonthly": "Monthly billing",
-      "billingMonthlyHint": "An hourly rate; lessons collect on one invoice a month.",
+      "billingMonthlyHint": "Priced by the hour or the lesson — or free; lessons collect on one invoice a month.",
       "billingPackage": "Lesson package",
       "billingPackageHint": "Sell a block of hours up front; lessons burn the balance.",
       "billingPackageIntro": "The package opens as you save — it's on the Packages page straight away, billed and ready for the first lesson.",
-      "packageTermsRequired": "Enter the package hours, a total price, a currency and a name.",
+      "packageTermsRequired": "Enter the lessons (or hours), a price, a currency and a name.",
       "savedWithPackage": "Student added, and their package is open on the Packages page.",
       "teachers": "Teachers",
       "billingSubscription": "Subscription",
@@ -1971,6 +2004,28 @@
       "deleted": "Subscription deleted.",
       "deletedCredited": "Subscription deleted. {amount} already paid toward it is now the family's credit.",
       "deleteFailed": "Couldn't delete the subscription."
+    },
+    "monthly": {
+      "lessons": "Lessons a month",
+      "free": "Free student",
+      "freeHint": "Lessons are recorded and the teacher is paid as usual — no invoices are ever raised.",
+      "freeReadout": "Free — no invoices",
+      "priceUnit": "Price per",
+      "per": {
+        "hour": "Hour",
+        "lesson": "Lesson"
+      },
+      "priceLesson": "Price of a {minutes}-minute lesson",
+      "readoutLessons": "{lessons, plural, one {# lesson} other {# lessons}} × {minutes} min = {hours}",
+      "readoutLesson": "{price} a lesson",
+      "readoutHour": "{price} an hour",
+      "readoutMonth": "About {total} a month",
+      "readoutNote": "Each lesson bills by its actual length, so the month is an estimate.",
+      "figure": "{lessons} × {minutes} min",
+      "planLessons": "{lessons} × {minutes} min / month",
+      "planFree": "Free",
+      "planFreeLessons": "Free · {shape}",
+      "planHourly": "Hourly"
     }
   },
   "scheduling": {
@@ -2776,7 +2831,10 @@
       "lessonLength": "Lesson length",
       "minutesOption": "{minutes} minutes",
       "lessonPrice": "Price of a {minutes}-minute lesson",
-      "lessonTotal": "Total {total} — {lessons} lessons × {price}"
+      "lessonTotal": "Total {total} — {lessons} lessons × {price}",
+      "lessons": "Lessons",
+      "labelAutoLessons": "{lessons} × {minutes} min — {month}",
+      "lessonsReadout": "{lessons, plural, one {# lesson} other {# lessons}} × {minutes} min = {hours} · {lesson} a lesson · {hour} an hour"
     },
     "detail": {
       "sold": "Bought",
@@ -3111,6 +3169,14 @@
     "trialSession": "trial session",
     "trialSessions": "trial sessions",
     "tilesHint": "Pick a tile to narrow the list below — pick it again to see everything.",
+    "scope": {
+      "label": "Whose lessons",
+      "mine": "My lessons",
+      "all": "All lessons",
+      "mineHint": "Lessons of the students you added.",
+      "allHint": "Every lesson in the academy, whoever added the student.",
+      "seeAll": "See all lessons"
+    },
     "overdueTitle": "Held-up Lessons",
     "overdueSubtitle": "These lessons ended over {hours} hours ago and still have no outcome recorded. Oldest first — they will not appear in the day, week or month below unless you happen to be on their date.",
     "overdueSubtitleTeacher": "You have not recorded an outcome for these lessons yet, and they ended over {hours} hours ago. Oldest first.",
@@ -7009,7 +7075,7 @@
     "presets": {
       "supervisor": {
         "name": "Supervisor",
-        "description": "Runs the academy day to day. No money, no statistics.",
+        "description": "Runs the academy day to day and enrols people with their prices. No invoices, payroll or statistics.",
         "hint": "Starts a role holding everything a supervisor gets — untick anything they should not manage."
       },
       "manager": {
@@ -7062,7 +7128,7 @@
     },
     "systemRoleHint": {
       "STAFF": "Sees students and the schedule, changes nothing",
-      "SUPERVISOR": "Runs the day: students, teachers, lessons and attendance — no money, no statistics",
+      "SUPERVISOR": "Runs the day: adds students, families and teachers in full (prices and pay included), lessons and attendance — no invoices, payroll or statistics",
       "ACADEMY_OWNER": "The academy's owner — everything",
       "MANAGER": "The whole academy like the owner: operations, money and statistics",
       "ACCOUNTANT": "Invoices, packages, payroll and prices; sees students and lessons read-only",
@@ -7362,6 +7428,10 @@
         "label": "Deactivate teachers",
         "desc": "Archive a teacher without deleting their history"
       },
+      "teacher_create_login": {
+        "label": "Give teachers a login",
+        "desc": "Create the sign-in for a teacher who has none yet — resetting an existing one stays with whoever hands out logins"
+      },
       "schedule_read": {
         "label": "View schedule",
         "desc": "See the class calendar"
@@ -7565,6 +7635,10 @@
       "session_revert_attendance": {
         "label": "Undo attendance",
         "desc": "Put a marked lesson back to scheduled to fix a mistake"
+      },
+      "session_delete": {
+        "label": "Delete lessons",
+        "desc": "Remove a lesson entirely — off the invoice and the teacher's salary"
       },
       "session_free": {
         "label": "Make lessons free",

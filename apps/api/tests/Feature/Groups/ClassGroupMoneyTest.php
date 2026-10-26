@@ -572,15 +572,20 @@ it('leaves invoices and statements that still close and finalize', function () {
     });
 });
 
-it('keeps prices away from a supervisor', function () {
+it('keeps prices away from a role that may not price, and shows them to the supervisor', function () {
     $groupId = moneyGroup($this, ['teacher_pay_mode' => 'PER_LESSON', 'teacher_pay_minor' => 9000]);
 
-    Sanctum::actingAs($this->supervisor);
+    // The front desk reads the group, never its price or the teacher's pay.
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-money@test.local']));
     $group = $this->getJson("/api/groups/{$groupId}")->assertOk()->json('group');
     expect($group['pricing'])->toBeNull();
     expect($group['teacher_pay'])->toBeNull();
 
-    $this->patchJson("/api/groups/{$groupId}", ['price_minor' => 1])->assertForbidden();
+    // The supervisor enrols people with their prices — groups included.
+    Sanctum::actingAs($this->supervisor);
+    $group = $this->getJson("/api/groups/{$groupId}")->assertOk()->json('group');
+    expect($group['pricing']['price_minor'])->toBe(45000);
+    expect($group['teacher_pay']['amount_minor'])->toBe(9000);
     $this->patchJson("/api/groups/{$groupId}", ['name' => 'Renamed by supervisor'])->assertOk();
 
     Sanctum::actingAs($this->owner);

@@ -16,9 +16,10 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /**
  * The teacher's sign-in login (email + password). When the teacher has no login yet this creates
  * one (both fields required); otherwise it changes the email and/or resets the password directly.
- * Gated by teacher.update AND user.invite (the server Gate is the real control): re-issuing someone's
- * credentials is handing out a login, so a supervisor — who edits teachers but holds no login
- * authority — does not see this section at all.
+ * Gated by teacher.update plus (the server Gate is the real control): teacher.create_login to give a
+ * teacher with no login their first one, user.invite to change an existing one. Re-issuing someone's
+ * credentials is taking over an account they already use, so a supervisor — who adds teachers and
+ * their first login, but holds no login authority — sees this only while the teacher has none.
  */
 export function TeacherLoginSection({
   teacherId,
@@ -41,9 +42,9 @@ export function TeacherLoginSection({
     text: string;
   } | null>(null);
 
-  if (!can("teacher.update") || !can("user.invite")) return null;
-
   const creating = !login.has_login;
+  if (!can("teacher.update") || !can(creating ? "teacher.create_login" : "user.invite")) return null;
+
   const emailTrim = email.trim().toLowerCase();
   const emailChanged = emailTrim !== (login.email ?? "").toLowerCase();
   const emailValid = EMAIL_RE.test(emailTrim);

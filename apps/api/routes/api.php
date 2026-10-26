@@ -839,6 +839,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/sessions', [SessionController::class, 'store']);
     Route::post('/sessions/{id}/reschedule', [SessionController::class, 'reschedule']);
     Route::post('/sessions/{id}/cancel', [SessionController::class, 'cancel']);
+    // Take a lesson off the books (session.delete): money reversed, the row kept hidden.
+    Route::delete('/sessions/{id}', [SessionController::class, 'destroy']);
 
     Route::get('/calendar', [CalendarController::class, 'index']);
 

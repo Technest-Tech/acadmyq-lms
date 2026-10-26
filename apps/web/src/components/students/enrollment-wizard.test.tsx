@@ -105,7 +105,7 @@ describe("EnrollmentWizard billing step", () => {
     await user.click(await screen.findByTestId("enroll-billing-package"));
 
     await user.type(
-      screen.getByLabelText(enMessages.packages.form.hours),
+      screen.getByLabelText(enMessages.packages.form.lessons),
       "10",
     );
     await user.type(
@@ -154,7 +154,7 @@ describe("EnrollmentWizard billing step", () => {
       "true",
     );
     expect(
-      screen.queryByLabelText(enMessages.packages.form.hours),
+      screen.queryByLabelText(enMessages.packages.form.lessons),
     ).not.toBeInTheDocument();
   });
 });

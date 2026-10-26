@@ -18,9 +18,18 @@ import { listTeamActors, type TeamActor } from "@/lib/api";
  * read leaves it empty too — the column still shows names, only the filter stays hidden.
  */
 export function useTeamActors(): TeamActor[] {
+  return useTeamActorsState().actors;
+}
+
+/**
+ * {@link useTeamActors} plus whether the read has settled (succeeded or failed), for a screen that
+ * must not render one shape and then jump to another once the team is known.
+ */
+export function useTeamActorsState(): { actors: TeamActor[]; loaded: boolean } {
   const { session } = useAuth();
   const enabled = !!session && session.role !== "TEACHER";
   const [actors, setActors] = useState<TeamActor[]>([]);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -29,13 +38,16 @@ export function useTeamActors(): TeamActor[] {
       .then((r) => {
         if (live) setActors(r.actors);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (live) setLoaded(true);
+      });
     return () => {
       live = false;
     };
   }, [enabled]);
 
-  return enabled ? actors : [];
+  return enabled ? { actors, loaded } : { actors: [], loaded: true };
 }
 
 /** A switched-off login is still listed — their past work is theirs — but says so. */

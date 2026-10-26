@@ -1,19 +1,16 @@
 "use client";
 
 import {
-  Banknote,
-  CalendarDays,
   CalendarRange,
   Check,
   Clock,
-  Hash,
   Layers,
   Plus,
   Sparkles,
   Trash2,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import {
   countPastLessons,
@@ -24,6 +21,7 @@ import {
   PackageTermsFields,
   usePackageTerms,
 } from "@/components/packages/package-terms";
+import { MonthlyTermsFields, useMonthlyTerms } from "@/components/students/monthly-terms";
 import { ChoiceCard } from "@/components/students/student-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -40,7 +38,6 @@ import {
   type ScheduleSlot,
   type TeacherRow,
 } from "@/lib/api";
-import { CURRENCIES } from "@/lib/countries";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
@@ -67,10 +64,6 @@ function Field({
       {children}
     </div>
   );
-}
-
-function toMinor(val: string): number {
-  return Math.round(parseFloat(val || "0") * 100);
 }
 
 // ── Step indicator ─────────────────────────────────────────────────────────────
@@ -177,21 +170,8 @@ export function EnrollmentWizard({
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
 
-  // Pricing step — always hourly, matching the student-detail subscription form.
-  const [sessions, setSessions] = useState("");
-  const [price, setPrice] = useState("");
-  const [currency, setCurrency] = useState(defaults.currency);
-  const [startDate, setStartDate] = useState(
-    () => new Date().toISOString().split("T")[0] ?? "",
-  );
-
-  const subCurrencyOptions = useMemo(
-    () => [
-      { value: "", label: t("form.none"), sublabel: "—" },
-      ...CURRENCIES.map((c) => ({ value: c.code, label: c.code, sublabel: c.name })),
-    ],
-    [t],
-  );
+  // Pricing step — the same monthly fields as the new-student form and the profile's edit modal.
+  const monthly = useMonthlyTerms({ defaultCurrency: defaults.currency });
 
   useEffect(() => {
     void listTeachers({ pageSize: 50, filter: { status: "active" } })
@@ -233,6 +213,8 @@ export function EnrollmentWizard({
           })),
         });
       }
+      // The timetable just typed already says how long a lesson is; the price step starts there.
+      if (slots[0]) monthly.setUnitMinutes(slots[0].duration_minutes);
       // Without pricing rights there is no second step to advance to — the schedule IS the job.
       if (canPrice) setStep(1);
       else onCompleted();
@@ -260,16 +242,8 @@ export function EnrollmentWizard({
         onCompleted({ packageOpened: true });
         return;
       }
-      if (withPricing && price && startDate) {
-        await setSubscription(studentId, {
-          // The package is always hourly now; derive a display label from the quota.
-          plan_label: sessions ? `${sessions} hrs/month` : "Hourly",
-          sessions_per_month: sessions ? Number(sessions) : null,
-          price_minor: toMinor(price),
-          currency: currency || undefined,
-          price_basis: "PER_HOUR",
-          start_date: startDate,
-        });
+      if (withPricing && monthly.valid) {
+        await setSubscription(studentId, monthly.toPayload());
         // REGULAR is the billable state, so it is only reachable once an active subscription
         // exists (the API enforces this). Skipping pricing leaves the student in their current
         // trial status — re-open the wizard with pricing to enrol them as a regular learner.
@@ -283,7 +257,7 @@ export function EnrollmentWizard({
     }
   }
 
-  const hasPricing = onPackage ? terms.valid : Boolean(price && startDate);
+  const hasPricing = onPackage ? terms.valid : monthly.valid;
 
   // ── Step 1: Schedule & Teacher ─────────────────────────────────────────────
   const scheduleStep = (
@@ -436,56 +410,7 @@ export function EnrollmentWizard({
       {onPackage ? (
         <PackageTermsFields terms={terms} idPrefix="enroll-pkg" />
       ) : (
-      <div className="grid grid-cols-2 gap-3">
-        <Field label={t("subscription.priceHourly")}>
-          <div className="relative">
-            <Banknote className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="number"
-              step="0.01"
-              className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-              placeholder="0.00"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-            />
-          </div>
-        </Field>
-
-        <Field label={t("subscription.hoursPerMonth")}>
-          <div className="relative">
-            <Hash className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="number"
-              className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-              placeholder="8"
-              value={sessions}
-              onChange={(e) => setSessions(e.target.value)}
-            />
-          </div>
-        </Field>
-
-        <Field label={t("subscription.currency")}>
-          <Combobox
-            options={subCurrencyOptions}
-            value={currency}
-            onChange={setCurrency}
-            placeholder={t("form.currencyPlaceholder")}
-            searchPlaceholder={t("form.searchCurrency")}
-          />
-        </Field>
-
-        <Field label={t("subscription.startDate")}>
-          <div className="relative">
-            <CalendarDays className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="date"
-              className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-        </Field>
-      </div>
+        <MonthlyTermsFields terms={monthly} idPrefix="enroll-monthly" />
       )}
     </div>
   );

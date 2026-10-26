@@ -93,7 +93,7 @@ describe("OpenPackageForm", () => {
     await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
 
     await pickStudent("Sara");
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "16");
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "16");
 
     // 16 hours at the student's USD 20/hour is USD 320. The old `price !== ""` guard froze
     // the suggestion after the first digit and produced USD 20 total (USD 1.25/hour).
@@ -108,13 +108,13 @@ describe("OpenPackageForm", () => {
     await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
 
     await pickStudent("Sara");
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "10");
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "10");
 
     const total = screen.getByLabelText(arMessages.packages.form.price);
     await userEvent.clear(total);
     await userEvent.type(total, "175");
-    await userEvent.clear(screen.getByLabelText(arMessages.packages.form.hours));
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "12");
+    await userEvent.clear(screen.getByLabelText(arMessages.packages.form.lessons));
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "12");
 
     expect(total).toHaveValue(175);
   });
@@ -124,7 +124,7 @@ describe("OpenPackageForm", () => {
     await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
 
     await pickStudent("Sara");
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "10");
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "10");
 
     await userEvent.click(
       screen.getByRole("button", { name: arMessages.packages.actions.open }),
@@ -143,15 +143,15 @@ describe("OpenPackageForm", () => {
     await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
 
     await pickStudent("Sara");
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "20");
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "20");
 
     const name = screen.getByLabelText(arMessages.packages.form.label);
     await waitFor(() => expect((name as HTMLInputElement).value).toContain("20"));
 
     await userEvent.clear(name);
     await userEvent.type(name, "Autumn term");
-    await userEvent.clear(screen.getByLabelText(arMessages.packages.form.hours));
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "30");
+    await userEvent.clear(screen.getByLabelText(arMessages.packages.form.lessons));
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "30");
 
     expect(name).toHaveValue("Autumn term");
   });
@@ -166,7 +166,7 @@ describe("OpenPackageForm", () => {
 
     // The switch never blocks the sale — it is a consequence stated, not a gate. With the block
     // itself filled in, the form is as ready to save for a monthly student as for any other.
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "10");
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "10");
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: arMessages.packages.actions.open }),
@@ -188,7 +188,7 @@ describe("OpenPackageForm", () => {
     await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
 
     await pickStudent("Omar");
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "10");
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "10");
     await userEvent.click(
       screen.getByRole("button", { name: arMessages.packages.actions.open }),
     );
@@ -217,6 +217,28 @@ describe("OpenPackageForm", () => {
     await userEvent.click(screen.getByTestId("package-advanced-toggle"));
 
     expect(screen.getByText(arMessages.packages.form.carryOver)).toBeInTheDocument();
+  });
+
+  // 8 lessons of 40 minutes is 5h20m — not a whole or half hour, so it could not be typed before.
+  it("counts the block in lessons of a length and sends the exact minutes", async () => {
+    renderForm();
+    await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
+
+    await pickStudent("Sara");
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "8");
+    await userEvent.selectOptions(screen.getByTestId("pkg-count-length"), "40");
+
+    // USD 20/hour × 5h20m.
+    await waitFor(() =>
+      expect(screen.getByLabelText(arMessages.packages.form.price)).toHaveValue(106.67),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: arMessages.packages.actions.open }),
+    );
+    await waitFor(() => expect(openLessonPackage).toHaveBeenCalled());
+    const sent = openLessonPackage.mock.lastCall?.[0] as { hours: number; price_minor: number };
+    expect(Math.round(sent.hours * 60)).toBe(320);
+    expect(sent.price_minor).toBe(10667);
   });
 
   it("pre-selects the student a deep link from their profile named", async () => {

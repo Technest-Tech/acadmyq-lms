@@ -39,7 +39,8 @@ export function EditPackageForm({
   const locale = useLocale();
 
   const [label, setLabel] = useState(row.label);
-  const [hours, setHours] = useState((row.minutes_total / 60).toString());
+  // Two decimals are exact enough to land back on the same minute (8 × 40 min reads 5.33).
+  const [hours, setHours] = useState(String(Math.round((row.minutes_total / 60) * 100) / 100));
   const [price, setPrice] = useState((row.price_minor / 100).toFixed(2));
   const [expiresOn, setExpiresOn] = useState(row.expires_on ?? "");
   const [autoRenew, setAutoRenew] = useState(row.auto_renew);
@@ -131,7 +132,7 @@ export function EditPackageForm({
             id="pkg-edit-hours"
             type="number"
             min="0.5"
-            step="0.5"
+            step="any"
             value={hours}
             onChange={(e) => setHours(e.target.value)}
             className={inputBase}

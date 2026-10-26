@@ -35,7 +35,7 @@ const TEACHER: api.TeacherRow = {
   created_at: "",
 };
 
-function renderCard(role: "ACADEMY_OWNER" | "ACCOUNTANT" | "STAFF" | "SUPERVISOR" = "ACADEMY_OWNER") {
+function renderCard(role: "ACADEMY_OWNER" | "ACCOUNTANT" | "STAFF" | "CUSTOMER_SERVICE" = "ACADEMY_OWNER") {
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
       <AuthContext.Provider value={authValue(makeSession(role))}>
@@ -118,7 +118,7 @@ describe("TeacherPayCard", () => {
   // Pay is teacher.set_pay's: without it the API redacts the rates, so there is no card at all —
   // a supervisor edits the teacher, never what they earn.
   it("is not there without teacher.set_pay", async () => {
-    renderCard("SUPERVISOR");
+    renderCard("CUSTOMER_SERVICE");
     await waitFor(() => expect(screen.queryByTestId("teacher-pay")).not.toBeInTheDocument());
     expect(api.getTeacher).not.toHaveBeenCalled();
   });

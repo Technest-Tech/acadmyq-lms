@@ -139,3 +139,16 @@ it('keeps a supervisor from re-issuing a teacher\'s credentials', function () {
     // …but not take over their login.
     $this->patchJson("/api/teachers/{$this->teacher}/login", ['password' => 'mine-now-12345'])->assertStatus(403);
 });
+
+it('lets a supervisor give a teacher with no login their first one', function () {
+    $supervisor = $this->makeUser($this->academy, 'SUPERVISOR', ['email' => 'sup-first@test.local']);
+    Sanctum::actingAs($supervisor);
+
+    // Nobody signs in with this account yet, so creating it hands over nothing (teacher.create_login)…
+    $this->patchJson("/api/teachers/{$this->teacher}/login", [
+        'email' => 'first-login@test.local', 'password' => 'secret-pass-123',
+    ])->assertStatus(201);
+
+    // …while re-issuing it once the teacher uses it is still user.invite, the owner's.
+    $this->patchJson("/api/teachers/{$this->teacher}/login", ['password' => 'mine-now-12345'])->assertStatus(403);
+});

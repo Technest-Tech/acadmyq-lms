@@ -27,8 +27,12 @@ export interface OverdueState {
  * `refreshKey` is any value the caller bumps when a lesson may have been marked (closing the
  * attendance popup, saving a reschedule) — the list re-reads and a lesson that just got its
  * outcome drops out of it.
+ *
+ * `mine` narrows it to the lessons of students the caller added (the attendance page's "My
+ * lessons" tab); `null` means the page does not know yet which tab it is on, so nothing is read
+ * until it does — rather than showing everyone's backlog and then snapping to the caller's.
  */
-export function useOverdueLessons(refreshKey: unknown = 0): OverdueState {
+export function useOverdueLessons(refreshKey: unknown = 0, mine: boolean | null = false): OverdueState {
   const [sessions, setSessions] = useState<OverdueSession[]>([]);
   const [count, setCount] = useState(0);
   const [truncated, setTruncated] = useState(false);
@@ -39,9 +43,10 @@ export function useOverdueLessons(refreshKey: unknown = 0): OverdueState {
   const reload = useCallback(() => setTick((n) => n + 1), []);
 
   useEffect(() => {
+    if (mine === null) return;
     let alive = true;
     setLoading(true);
-    getOverdueSessions()
+    getOverdueSessions({ mine })
       .then((r) => {
         if (!alive) return;
         setSessions(r.sessions);
@@ -62,7 +67,7 @@ export function useOverdueLessons(refreshKey: unknown = 0): OverdueState {
     return () => {
       alive = false;
     };
-  }, [refreshKey, tick]);
+  }, [refreshKey, tick, mine]);
 
   return { sessions, count, truncated, graceHours, loading, reload };
 }

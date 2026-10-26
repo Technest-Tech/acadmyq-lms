@@ -66,6 +66,21 @@ final class DoneBy
     }
 
     /**
+     * Keep only the rows whose `$action` audit entry (their creation) was made by `$userId` — the
+     * same answer {@see joinCreator()} reads, as a filter. A supervisor's "my lessons" is the
+     * lessons of the students they added; a row the system created belongs to nobody.
+     */
+    public static function createdBy(Builder $query, string $userId, string $entityType, string $action, string $idColumn, string $academyColumn): Builder
+    {
+        return $query->whereExists(fn (Builder $q) => $q->from('audit_log as dbm')
+            ->whereColumn('dbm.academy_id', $academyColumn)
+            ->where('dbm.entity_type', $entityType)
+            ->whereColumn('dbm.entity_id', $idColumn)
+            ->where('dbm.action', $action)
+            ->where('dbm.actor_user_id', $userId));
+    }
+
+    /**
      * The academy's team logins — owners, supervisors, every staff and custom role — for the
      * "Done by" filter. A switched-off login stays on the list: their past work is still theirs
      * to filter by. One entry per person even when they hold two roles.

@@ -31,6 +31,9 @@ use Illuminate\Validation\ValidationException;
  */
 final class Invoicing implements BillingHook
 {
+    /** subscriptions.price_basis of a student taught for nothing — never billed. */
+    public const FREE = 'FREE';
+
     public function __construct(private readonly LessonPackages $packages) {}
 
     // -------------------------------------------------------------------------
@@ -74,6 +77,14 @@ final class Invoicing implements BillingHook
             return;
         }
 
+        // A free student is taught, marked and paid for to the teacher like anyone else, but never
+        // billed. Returning BEFORE an invoice is opened is the point: a 0.00 line would still open
+        // a 0.00 bill every month, and that bill would be sent to the family and listed as unpaid.
+        $subscription = $this->getActiveSubscription((string) $session->student_id);
+        if ($subscription !== null && $subscription->price_basis === self::FREE) {
+            return;
+        }
+
         $tz = $academy->timezone ?: 'UTC';
         $local = Carbon::parse($session->scheduled_at_utc)->setTimezone($tz);
         $year = (int) $local->year;
@@ -96,7 +107,6 @@ final class Invoicing implements BillingHook
         // absorbs it as customer acquisition). The line is still recorded — at zero — so the
         // trial appears on the invoice as "Free trial" rather than vanishing silently.
         $isFreeTrial = $this->isFreeTrial((string) $session->id);
-        $subscription = $this->getActiveSubscription((string) $session->student_id);
         $amountMinor = $isFreeTrial
             ? 0
             : ($subscription !== null
@@ -579,6 +589,11 @@ final class Invoicing implements BillingHook
 
         $subscription = $this->getActiveSubscription($studentId);
         $currency = $subscription?->currency ?? (string) $academy->default_currency;
+
+        // A free student owes nothing, so there is nothing to bill ahead either.
+        if ($subscription !== null && $subscription->price_basis === self::FREE) {
+            return ['currency' => $currency, 'total_minor' => 0, 'count' => 0, 'price_basis' => self::FREE, 'has_subscription' => true, 'lines' => []];
+        }
 
         // Window: [start-of-day(start_date) .. end-of-month] expressed in the academy timezone,
         // converted to UTC for the scheduled_at_utc comparison.

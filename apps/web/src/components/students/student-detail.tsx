@@ -7,7 +7,6 @@ import {
   CalendarPlus,
   Check,
   GraduationCap,
-  Hash,
   History,
   Layers,
   MapPin,
@@ -29,6 +28,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { GuardianForm } from "@/components/guardians/guardian-form";
 import { TeacherTimetables } from "@/components/scheduling/schedule-editor";
+import { MonthlyTermsFields, useMonthlyTerms } from "@/components/students/monthly-terms";
 import { SubscriptionsCard } from "@/components/students/subscriptions-card";
 import { DetailRow, ProfileCard } from "@/components/ui/profile-card";
 import { AlertBanner } from "@/components/ui/alert";
@@ -1123,6 +1123,7 @@ export function SubscriptionSection({
   const isHourly =
     sub?.price_basis === "PER_HOUR" || sub?.price_basis === "PER_PACKAGE";
   const isPackaged = sub?.price_basis === "PER_PACKAGE";
+  const isFree = sub?.price_basis === "FREE";
 
   const [showSet, setShowSet] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1136,12 +1137,13 @@ export function SubscriptionSection({
    */
   const [basis, setBasis] = useState<"PER_HOUR" | "PER_PACKAGE">("PER_HOUR");
 
-  const [sessions, setSessions] = useState("");
   const [price, setPrice] = useState("");
   // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
   const defaults = useAcademyDefaults();
   const [currency, setCurrency] = useState(defaults.currency);
   const [startDate, setStartDate] = useState("");
+  // Everyone not on packages edits the monthly terms — lessons of a length, a price, or free.
+  const monthly = useMonthlyTerms({ defaultCurrency: defaults.currency });
 
   // Correcting a mistyped rate must also fix the bills it already produced; a real rate change
   // must not. Only the person editing knows which this is, so they choose — and the preview tells
@@ -1167,13 +1169,11 @@ export function SubscriptionSection({
 
   function openForm() {
     if (sub) {
-      setSessions(
-        sub.sessions_per_month != null ? String(sub.sessions_per_month) : "",
-      );
       setPrice((sub.price_minor / 100).toString());
       setCurrency(sub.currency);
       setStartDate(sub.start_date);
       setBasis(sub.price_basis === "PER_PACKAGE" ? "PER_PACKAGE" : "PER_HOUR");
+      monthly.load(sub);
     }
     setRepriceOpen(false);
     setPreview(null);
@@ -1187,23 +1187,22 @@ export function SubscriptionSection({
     setSaving(true);
     try {
       const packaged = basis === "PER_PACKAGE";
-      const res = await setSubscription(studentId, {
-        // The rate is always hourly now; derive a display label from the clock and the quota.
-        plan_label: packaged
-          ? t("subscription.modePackage")
-          : sessions
-            ? `${sessions} hrs/month`
-            : "Hourly",
-        // A monthly quota means nothing once the boundary is "N hours bought" rather than a month.
-        sessions_per_month: packaged || !sessions ? null : Number(sessions),
-        price_minor: toMinor(price),
-        currency: currency || undefined,
-        price_basis: basis,
-        start_date: startDate,
-        // Repricing walks the OPEN monthly invoices, of which a package student has none — the
-        // toggle is hidden in that mode, and this keeps it off even if state lingered.
-        reprice_open: packaged ? false : repriceOpen,
-      });
+      const res = await setSubscription(
+        studentId,
+        packaged
+          ? {
+              plan_label: t("subscription.modePackage"),
+              // A monthly quota means nothing once the boundary is "N hours bought" rather than a month.
+              sessions_per_month: null,
+              price_minor: toMinor(price),
+              currency: currency || undefined,
+              price_basis: basis,
+              start_date: startDate,
+              // Repricing walks the OPEN monthly invoices, of which a package student has none.
+              reprice_open: false,
+            }
+          : { ...monthly.toPayload(), reprice_open: repriceOpen },
+      );
       setShowSet(false);
       onChanged(
         res.repriced.sessions > 0
@@ -1299,7 +1298,9 @@ export function SubscriptionSection({
               <span data-testid="subscription-price">
                 {/* Blanked by the API for a role that may not see rates — the card still shows
                     the plan, the quota and the start date, which are not money. */}
-                {sub.price_minor != null && sub.currency
+                {isFree
+                  ? t("basis.FREE")
+                  : sub.price_minor != null && sub.currency
                   ? formatMoney(
                       { amount: sub.price_minor, currency: sub.currency },
                       locale,
@@ -1312,15 +1313,21 @@ export function SubscriptionSection({
                 </span>
               )}
             </Figure>
+            {/* With a lesson length on file the count is lessons ("8 × 40 min"); before lengths were
+                recorded an hourly plan's count was hours. */}
             <Figure
               label={
-                isHourly
+                isHourly && sub.lesson_minutes == null
                   ? t("subscription.hoursPerMonth")
                   : t("subscription.sessionsPerMonth")
               }
             >
-              {sub.sessions_per_month ?? (
+              {sub.sessions_per_month == null ? (
                 <span className="text-muted-foreground/40">—</span>
+              ) : sub.lesson_minutes != null ? (
+                t("monthly.figure", { lessons: sub.sessions_per_month, minutes: sub.lesson_minutes })
+              ) : (
+                sub.sessions_per_month
               )}
             </Figure>
             <Figure label={t("subscription.startDate")}>
@@ -1416,6 +1423,7 @@ export function SubscriptionSection({
             </p>
           )}
 
+          {basis === "PER_PACKAGE" ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label={t("subscription.priceHourly")}>
               <div className="relative">
@@ -1431,23 +1439,7 @@ export function SubscriptionSection({
               </div>
             </Field>
 
-            {/* A monthly quota is meaningless once the boundary is "N hours bought", so it is
-                absent rather than disabled — a greyed-out field still invites a question. */}
-            {basis === "PER_HOUR" && (
-              <Field label={t("subscription.hoursPerMonth")}>
-                <div className="relative">
-                  <Hash className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
-                  <input
-                    type="number"
-                    aria-label={t("subscription.hoursPerMonth")}
-                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                    value={sessions}
-                    onChange={(e) => setSessions(e.target.value)}
-                  />
-                </div>
-              </Field>
-            )}
-
+            {/* No monthly quota: it is meaningless once the boundary is "N hours bought". */}
             <Field label={t("subscription.currency")}>
               <Combobox
                 options={CURRENCY_OPTIONS}
@@ -1471,6 +1463,9 @@ export function SubscriptionSection({
               </div>
             </Field>
           </div>
+          ) : (
+            <MonthlyTermsFields terms={monthly} idPrefix="sub-edit" />
+          )}
 
           {/* Only offered when there is something to correct: sessions already billed onto an
               invoice that is still open. Nothing billed yet → the new rate applies anyway. */}

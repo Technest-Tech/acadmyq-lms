@@ -13,6 +13,7 @@ use App\Services\Invoicing;
 use App\Services\LessonPackages;
 use App\Services\SessionDurationCorrection;
 use App\Support\Audit;
+use App\Support\DoneBy;
 use App\Support\ReportFields;
 use App\Support\StudentTeachers;
 use Illuminate\Database\Query\Builder;
@@ -105,6 +106,21 @@ final class SessionController extends Controller
             ->leftJoin('users as dbu', 'dbu.id', '=', 'se.outcome_set_by')
             ->addSelect(['se.outcome_set_by as done_by_user_id', 'dbu.full_name as done_by_name'])
             ->selectRaw('coalesce(se.outcome_set_by = te.user_id, false) as done_by_teacher');
+    }
+
+    /**
+     * `?mine=1` — the attendance page's "My lessons" tab: only the lessons of students the CALLER
+     * added. An academy running several supervisors splits its students between them, and each
+     * one works their own list; "All lessons" (no flag) is the whole academy as before. Who added
+     * a student is read from its `student.create` audit entry, the same answer as the students
+     * list's "Done by" column. Applies to the overdue list too, so the panel above the worklist
+     * follows the same tab.
+     */
+    private function scopeToCallersStudents(Request $request, Builder $query): void
+    {
+        if (filter_var($request->query('mine', false), FILTER_VALIDATE_BOOLEAN)) {
+            DoneBy::createdBy($query, (string) $this->ctx()->userId, 'student', 'student.create', 'se.student_id', 'se.academy_id');
+        }
     }
 
     /** Present a row's timestamps as UTC ISO strings (the joins above add `followed_at`/`teacher_joined_at`). */
@@ -318,6 +334,51 @@ final class SessionController extends Controller
             after: ['status' => $result['status'], 'cancelled_by' => $data['cancelled_by'], 'reason' => $data['reason'] ?? null, 'charge_student' => $billOverride, 'pay_teacher' => $teacherOverride]);
 
         return response()->json(['ok' => true, 'status' => $result['status'], 'billed' => $result['billed']]);
+    }
+
+    /**
+     * DELETE /api/sessions/{id} — take a lesson off the books entirely: it was never meant to be.
+     *
+     * The row is kept as a tombstone rather than removed, for two reasons. A generated lesson that
+     * disappeared would simply be generated again on the next nightly roll, because its timetable
+     * still implies it; and a row other records point at (its report, the audit trail) must not
+     * vanish from under them. So the lesson becomes a cancellation that charges nobody and pays
+     * nobody — through {@see AttendanceService}, the same path every other outcome takes, so a
+     * marked lesson's invoice line, package minutes and payout accrual are all reversed — and is
+     * then hidden from every planning surface, the way a removed student's lessons are.
+     *
+     * The money guards are the service's: a lesson on a CLOSED invoice or a FINALIZED payout is
+     * refused, exactly as undoing its attendance would be. A moved lesson (RESCHEDULED) carries
+     * no money and its replacement is a separate row, so it is only hidden.
+     */
+    public function destroy(AttendanceService $service, string $sessionId): JsonResponse
+    {
+        Gate::authorize('session.delete');
+
+        $session = $this->findOwnedSession($sessionId);
+        $prevStatus = (string) $session->status;
+
+        if ($prevStatus !== SessionStatus::Rescheduled->value) {
+            $service->record($session, SessionStatus::CancelledByTeacher, 'Deleted / حُذفت', $this->ctx()->userId, $this->ctx()->role, false, false);
+        }
+
+        DB::table('sessions')->where('id', $sessionId)->update(['hidden_at' => now(), 'updated_at' => now()]);
+
+        // A request to cancel or free a lesson that no longer exists has nothing left to decide.
+        DB::table('session_cancellation_requests')
+            ->where('session_id', $sessionId)->where('status', 'PENDING')
+            ->update([
+                'status' => 'REJECTED',
+                'decided_by_user_id' => $this->ctx()->userId,
+                'decided_at' => now(),
+                'decision_note' => 'Lesson deleted',
+                'updated_at' => now(),
+            ]);
+
+        Audit::log('session.deleted', 'session', $sessionId, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role,
+            before: ['status' => $prevStatus, 'billed' => (bool) $session->billed, 'paid_to_teacher' => (bool) $session->paid_to_teacher]);
+
+        return response()->json(['ok' => true]);
     }
 
     /**
@@ -578,9 +639,10 @@ final class SessionController extends Controller
      * carries `pending_cancel_type`/`pending_free` and the page says who is actually holding it up.
      *
      * Oldest first: the longest-forgotten lesson is the one to deal with first. A Teacher sees only
-     * their own (§3.6); RLS keeps every caller inside their academy. session.read.
+     * their own (§3.6); RLS keeps every caller inside their academy. `?mine=1` narrows it to the
+     * caller's own students ({@see scopeToCallersStudents()}). session.read.
      */
-    public function overdue(): JsonResponse
+    public function overdue(Request $request): JsonResponse
     {
         Gate::authorize('session.read');
 
@@ -599,6 +661,7 @@ final class SessionController extends Controller
             }
             $base->where('se.teacher_id', $ownTeacherId);
         }
+        $this->scopeToCallersStudents($request, $base);
 
         // Count before the cap so a truncated list still reports the true size of the backlog.
         $count = (int) (clone $base)->count();
@@ -649,8 +712,9 @@ final class SessionController extends Controller
      * The window is whatever the page asks for: a single local day, or the week/month the user
      * picked, which is why the row cap below is sized for a busy month rather than a day. Unlike
      * pendingAttendance this is NOT restricted to past SCHEDULED rows, so a trial booked for later
-     * today shows up immediately. Supports teacher, status and trial-only filters; a TEACHER is
-     * still row-scoped to their own sessions (§3.6).
+     * today shows up immediately. Supports teacher, status, trial-only and "my students"
+     * ({@see scopeToCallersStudents()}) filters; a TEACHER is still row-scoped to their own
+     * sessions (§3.6).
      */
     public function day(Request $request): JsonResponse
     {
@@ -665,6 +729,7 @@ final class SessionController extends Controller
                 'CANCELLED_BY_TEACHER', 'CANCELLED_BY_STUDENT', 'RESCHEDULED',
             ])],
             'trial_only' => ['sometimes'],
+            'mine' => ['sometimes'],
         ]);
 
         $from = Carbon::parse($data['from'])->utc()->format('Y-m-d H:i:sP');
@@ -710,6 +775,7 @@ final class SessionController extends Controller
         if (filter_var($data['trial_only'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
             $query->whereIn('st.status', ['TRIAL', 'TRIAL_BOOKED']);
         }
+        $this->scopeToCallersStudents($request, $query);
 
         if ($this->ctx()->role === 'TEACHER') {
             $ownTeacherId = $this->callerTeacherId();

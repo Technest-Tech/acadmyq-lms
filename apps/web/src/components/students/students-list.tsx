@@ -344,6 +344,11 @@ export function StudentsList({
           render: (r) =>
             r.price_minor != null && r.price_currency ? (
               <div className="text-end leading-tight">
+                {r.price_basis === "FREE" ? (
+                  <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                    {t("basis.FREE")}
+                  </span>
+                ) : (
                 <div className="font-semibold tabular-nums">
                   {formatMoney(
                     { amount: r.price_minor, currency: r.price_currency },
@@ -355,9 +360,12 @@ export function StudentsList({
                     ] ?? ""}
                   </span>
                 </div>
+                )}
                 {r.sessions_per_month != null && (
                   <div className="text-muted-foreground text-[10px] tabular-nums">
-                    {t("list.sessionsPerMonth", { n: r.sessions_per_month })}
+                    {r.lesson_minutes != null
+                      ? t("list.lessonsPerMonth", { n: r.sessions_per_month, minutes: r.lesson_minutes })
+                      : t("list.sessionsPerMonth", { n: r.sessions_per_month })}
                   </div>
                 )}
               </div>

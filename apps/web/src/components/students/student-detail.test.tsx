@@ -15,6 +15,8 @@ vi.mock("@/lib/api", async (importActual) => ({
   reassignTeacher: vi.fn(),
   setStudentTeachers: vi.fn(),
   getStudentSchedule: vi.fn(),
+  getRepricePreview: vi.fn(),
+  setSubscription: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -108,10 +110,12 @@ function setup(links: (typeof ONE)[] = [ONE]) {
   });
 }
 
-function renderDetail() {
+function renderDetail(permissions?: string[]) {
+  const session = makeSession("ACADEMY_OWNER");
+  if (permissions) session.permissions = [...session.permissions, ...permissions];
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <AuthContext.Provider value={authValue(makeSession("ACADEMY_OWNER"))}>
+      <AuthContext.Provider value={authValue(session)}>
         <StudentDetail studentId="s1" onBack={vi.fn()} />
       </AuthContext.Provider>
     </NextIntlClientProvider>,
@@ -136,6 +140,45 @@ describe("StudentDetail (Sprint 4 §5.2/5.3)", () => {
     expect(
       within(screen.getByTestId("teacher-history")).getByText("Teacher One"),
     ).toBeInTheDocument();
+  });
+
+  it("shows a free student as free, counts the month in lessons, and edits it as it is", async () => {
+    vi.mocked(api.getStudent).mockResolvedValue({
+      ...(await api.getStudent("s1")),
+      subscription: {
+        id: "sub1",
+        price_minor: 0,
+        currency: "EGP",
+        price_basis: "FREE",
+        plan_label: "Free · 8 × 40 min / month",
+        sessions_per_month: 8,
+        lesson_minutes: 40,
+        start_date: "2026-06-01",
+      },
+    });
+    vi.mocked(api.getRepricePreview).mockResolvedValue({ sessions: 0, invoices: 0 });
+    vi.mocked(api.setSubscription).mockResolvedValue({ subscriptionId: "sub2", repriced: { sessions: 0, invoices: 0 } });
+    const user = userEvent.setup();
+    renderDetail(["student.set_price"]);
+
+    expect(await screen.findByTestId("subscription-price")).toHaveTextContent("Free");
+    expect(screen.getByTestId("subscription-card")).toHaveTextContent("8 × 40 min");
+
+    await user.click(screen.getByTestId("toggle-set-subscription"));
+    expect(within(screen.getByTestId("sub-edit-free")).getByRole("checkbox")).toBeChecked();
+    expect(screen.getByLabelText(enMessages.students.monthly.lessons)).toHaveValue(8);
+    expect(screen.getByTestId("sub-edit-length")).toHaveValue("40");
+
+    // Turning "free" off asks for the price again, and saves an ordinary hourly subscription.
+    await user.click(within(screen.getByTestId("sub-edit-free")).getByRole("checkbox"));
+    await user.type(screen.getByLabelText("Hourly rate"), "90");
+    await user.click(screen.getByTestId("save-subscription"));
+    await waitFor(() =>
+      expect(api.setSubscription).toHaveBeenCalledWith(
+        "s1",
+        expect.objectContaining({ price_basis: "PER_HOUR", price_minor: 9000, sessions_per_month: 8, lesson_minutes: 40 }),
+      ),
+    );
   });
 
   it("reassigns the teacher (history-preserving close+open)", async () => {

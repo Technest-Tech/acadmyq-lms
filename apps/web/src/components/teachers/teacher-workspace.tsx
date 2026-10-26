@@ -9,6 +9,7 @@ import {
   Clock,
   FileText,
   GraduationCap,
+  ListChecks,
   MessageCircle,
   User,
   Users,
@@ -22,6 +23,7 @@ import { useAuth } from "@/components/auth-provider";
 import { KhatamLattice } from "@/components/ornaments";
 import { TeacherCalendar } from "@/components/teachers/teacher-calendar";
 import { TeacherDetail } from "@/components/teachers/teacher-detail";
+import { TeacherLessons } from "@/components/teachers/teacher-lessons";
 import { usePaySummary } from "@/components/teachers/teacher-pay-editor";
 import { TeacherPunctuality } from "@/components/teachers/teacher-punctuality";
 import { TeacherReports } from "@/components/teachers/teacher-reports";
@@ -31,7 +33,7 @@ import { FactCard } from "@/components/ui/profile-card";
 import { getTeacher, type TeacherRow, type TeacherStudent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type Tab = "profile" | "calendar" | "punctuality" | "salary" | "reports";
+type Tab = "profile" | "lessons" | "calendar" | "punctuality" | "salary" | "reports";
 
 /** Total teaching hours a week, from the availability windows. */
 function weeklyHours(windows: { start_local: string; end_local: string }[]): number {
@@ -77,6 +79,8 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
 
   const tabs: { key: Tab; icon: ComponentType<{ className?: string }>; show: boolean }[] = [
     { key: "profile", icon: User, show: true },
+    // Every lesson of this teacher, past and ahead, with the attendance page's own actions.
+    { key: "lessons", icon: ListChecks, show: can("session.read") },
     { key: "calendar", icon: CalendarDays, show: can("schedule.read") },
     // When the teacher pressed Enter on each lesson — the workspace itself is teacher.read.
     { key: "punctuality", icon: AlarmClock, show: can("teacher.read") },
@@ -220,6 +224,8 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
           onDeactivated={() => router.push("/teachers")}
         />
       )}
+
+      {tab === "lessons" && <TeacherLessons teacherId={teacherId} />}
 
       {tab === "calendar" && (
         <TeacherCalendar

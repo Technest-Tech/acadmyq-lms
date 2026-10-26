@@ -3,12 +3,14 @@
 import { ChevronDown, RefreshCw } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { LessonCountFields, lessonCountOf } from "@/components/packages/lesson-count-fields";
 import { LessonPriceFields, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { Combobox } from "@/components/ui/combobox";
 import type { PackageBillTiming } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
 import { CURRENCIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
+import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 const TIMINGS: PackageBillTiming[] = ["ON_START", "ON_COMPLETION"];
@@ -64,6 +66,9 @@ export function usePackageTerms({
   const [unitPrice, setUnitPriceRaw] = useState("");
   const [unitPriceWasEdited, setUnitPriceWasEdited] = useState(false);
   const [hours, setHours] = useState("");
+  // Everyone but a centre counts the block in lessons of a length (`unitMinutes`): "8 lessons of
+  // 40 minutes" is 5h20m, which nobody could type as a whole or half number of hours.
+  const [lessons, setLessons] = useState("");
   const [price, setPriceRaw] = useState("");
   const [priceWasEdited, setPriceWasEdited] = useState(false);
   const [label, setLabelRaw] = useState("");
@@ -78,7 +83,12 @@ export function usePackageTerms({
   // owner chases money rather than remembering to sell the next block.
   const [autoRenew, setAutoRenew] = useState(true);
 
-  const hoursNum = Number.parseFloat(hours);
+  const lessonCount = lessonCountOf(lessons);
+  const hoursNum = perLesson
+    ? Number.parseFloat(hours)
+    : lessonCount !== null
+      ? (lessonCount * unitMinutes) / 60
+      : Number.NaN;
   const totalMinutes = Number.isFinite(hoursNum) && hoursNum > 0 ? Math.round(hoursNum * 60) : 0;
   const priceMinor = perLesson
     ? totalFromLessonPrice(Math.round(Number.parseFloat((unitPrice || "0").replace(",", ".")) * 100), totalMinutes, unitMinutes)
@@ -124,16 +134,16 @@ export function usePackageTerms({
   // anyway. It stays a real field: the first keystroke in it ends the suggestion for good.
   useEffect(() => {
     if (labelWasEdited || !Number.isFinite(hoursNum) || hoursNum <= 0) return;
+    const month = new Date(`${startsOn}T00:00:00`).toLocaleDateString(locale, {
+      month: "long",
+      year: "numeric",
+    });
     setLabelRaw(
-      t("form.labelAuto", {
-        hours: hoursNum,
-        month: new Date(`${startsOn}T00:00:00`).toLocaleDateString(locale, {
-          month: "long",
-          year: "numeric",
-        }),
-      }),
+      lessonCount !== null && !perLesson
+        ? t("form.labelAutoLessons", { lessons: lessonCount, minutes: unitMinutes, month })
+        : t("form.labelAuto", { hours: hoursNum, month }),
     );
-  }, [hoursNum, startsOn, labelWasEdited, locale, t]);
+  }, [hoursNum, lessonCount, unitMinutes, perLesson, startsOn, labelWasEdited, locale, t]);
 
   const valid =
     currency !== "" &&
@@ -168,6 +178,9 @@ export function usePackageTerms({
     priceMinor,
     hours,
     setHours,
+    lessons,
+    setLessons,
+    lessonCount,
     price,
     setPrice: (value: string) => {
       setPriceRaw(value);
@@ -221,7 +234,18 @@ export function PackageTermsFields({
 
   return (
     <div className="space-y-4">
+      {!terms.perLesson && (
+        <LessonCountFields
+          lessons={terms.lessons}
+          onLessons={terms.setLessons}
+          unitMinutes={terms.unitMinutes}
+          onUnitMinutes={terms.setUnitMinutes}
+          lessonsLabel={t("form.lessons")}
+          idPrefix={`${idPrefix}-count`}
+        />
+      )}
       <div className="grid grid-cols-2 gap-3">
+        {terms.perLesson ? (
         <div className="space-y-1.5">
           <label htmlFor={`${idPrefix}-hours`} className="text-sm font-medium">
             {t("form.hours")}
@@ -237,7 +261,7 @@ export function PackageTermsFields({
             className={inputClass}
           />
         </div>
-        {!terms.perLesson && (
+        ) : (
         <div className="space-y-1.5">
           <label htmlFor={`${idPrefix}-price`} className="text-sm font-medium">
             {t("form.price")}
@@ -291,17 +315,19 @@ export function PackageTermsFields({
           )}
       </div>
 
-      {/* The deal read back, in the unit the parent will quote at you. */}
-      {!terms.perLesson && terms.hourlyRate !== null && terms.currency !== "" && (
+      {/* The deal read back, in the units the parent will quote at you: the hours the lessons add
+          up to, one lesson's price and the hour's. */}
+      {!terms.perLesson && terms.hourlyRate !== null && terms.lessonCount !== null && terms.currency !== "" && (
         <p
           className="bg-primary/[0.07] text-primary rounded-xl px-3 py-2.5 text-center text-sm font-semibold"
           data-testid="package-rate-readout"
         >
-          {t("form.derivedRate", {
-            rate: formatMoney(
-              { amount: terms.hourlyRate, currency: terms.currency },
-              locale,
-            ),
+          {t("form.lessonsReadout", {
+            lessons: terms.lessonCount,
+            minutes: terms.unitMinutes,
+            hours: formatHours(terms.totalMinutes, locale),
+            lesson: formatMoney({ amount: Math.round(terms.priceMinor / terms.lessonCount), currency: terms.currency }, locale),
+            hour: formatMoney({ amount: terms.hourlyRate, currency: terms.currency }, locale),
           })}
         </p>
       )}

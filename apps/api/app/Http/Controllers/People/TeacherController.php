@@ -148,11 +148,10 @@ final class TeacherController extends Controller
         $teacherId = (string) Str::uuid();
         $userId = null;
 
-        // Optional teacher login. Owner-only sub-action — guarded by the same caps as Sprint 3
-        // owner provisioning, so a role without them cannot mint users via this path.
+        // Optional teacher login: a brand-new account for a brand-new teacher, always role TEACHER.
+        // teacher.create_login (owner, manager, supervisor) — it cannot take over anyone's login.
         if (($data['create_login'] ?? false) === true) {
-            Gate::authorize('user.invite');
-            Gate::authorize('role.assign');
+            Gate::authorize('teacher.create_login');
             $userId = $this->provisionLogin($academyId, $data['full_name'], strtolower((string) $data['email']), $data['password'] ?? null);
         }
 
@@ -280,9 +279,9 @@ final class TeacherController extends Controller
      * PATCH /api/teachers/{id}/login — set or change a teacher's sign-in login (email + password).
      *
      * A teacher's login is optional. When one does NOT exist yet, this provisions it (email +
-     * password both required) — an owner-only sub-action guarded by the same caps as creating a
-     * teacher login on the create form (user.invite + role.assign). When one DOES exist, it updates
-     * the email and/or password directly (at least one required), mirroring the academy-owner editor.
+     * password both required) — teacher.create_login, the same capability as creating a teacher
+     * login on the create form. When one DOES exist, it updates the email and/or password directly
+     * (at least one required, user.invite), mirroring the academy-owner editor.
      */
     public function updateLogin(Request $request, string $id): JsonResponse
     {
@@ -303,9 +302,10 @@ final class TeacherController extends Controller
         ]);
 
         if ($creating) {
-            // Minting a new login is the same authority as provisioning one on the create form.
-            Gate::authorize('user.invite');
-            Gate::authorize('role.assign');
+            // A teacher with no sign-in yet gets their first one: the same authority as ticking
+            // "create login" on the add-teacher form. Nobody uses this account yet, so it hands
+            // over nothing — unlike re-issuing an existing one, below.
+            Gate::authorize('teacher.create_login');
 
             $userId = $this->provisionLogin($academyId, (string) $teacher->full_name, strtolower((string) $data['email']), (string) $data['password']);
             DB::table('teachers')->where('id', $id)->update(['user_id' => $userId, 'updated_at' => now()]);

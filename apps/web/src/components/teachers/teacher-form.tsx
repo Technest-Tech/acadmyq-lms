@@ -73,6 +73,9 @@ export function TeacherForm({
   // Setting pay is teacher.set_pay's. Without it the teacher is added at the "nothing chosen" pay
   // (hourly, zero) and the owner or accountant sets it on the Salary tab.
   const canPay = can("teacher.set_pay");
+  // A new teacher's first sign-in (teacher.create_login). Without it the teacher is added with no
+  // login and whoever holds it gives them one from the teacher's file.
+  const canCreateLogin = can("teacher.create_login");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -123,9 +126,9 @@ export function TeacherForm({
         ...(canPay ? payDraftToInput(pay) : { pay_type: "HOURLY", session_rate_minor: 0 }),
         meeting_url: meetingUrl.trim() || null,
         availability,
-        create_login: createLogin,
-        email: createLogin ? email : null,
-        password: createLogin ? password : null,
+        create_login: canCreateLogin && createLogin,
+        email: canCreateLogin && createLogin ? email : null,
+        password: canCreateLogin && createLogin ? password : null,
       };
       const res = await createTeacher(input);
       onCreated(res.teacherId, fullName);
@@ -230,63 +233,65 @@ export function TeacherForm({
         <AvailabilityEditor value={availability} onChange={setAvailability} />
       </Field>
 
-      <div className="rounded-xl border bg-muted/20 p-3">
-        <label className="flex items-center gap-2.5 text-sm">
-          <input
-            type="checkbox"
-            checked={createLogin}
-            onChange={(e) => setCreateLogin(e.target.checked)}
-            data-testid="create-login"
-            className="size-4 rounded border-input accent-primary"
-          />
-          <span className="font-medium">{t("form.createLogin")}</span>
-        </label>
-        {createLogin && (
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <Field label={t("form.email")} required>
-              <div className="relative">
-                <AtSign className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type="email"
-                  aria-label={t("form.email")}
-                  className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required={createLogin}
-                />
-              </div>
-            </Field>
-            <Field label={t("form.password")} required>
-              <div className="relative">
-                <KeyRound className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  aria-label={t("form.password")}
-                  className={cn(inputBase, "py-2.5 ps-10 pe-10")}
-                  placeholder={t("form.passwordHint")}
-                  value={password}
-                  minLength={8}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required={createLogin}
-                  data-testid="teacher-password"
-                />
-                <button
-                  type="button"
-                  aria-label={showPassword ? t("form.hidePassword") : t("form.showPassword")}
-                  className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  onClick={() => setShowPassword((v) => !v)}
-                >
-                  {showPassword ? (
-                    <EyeOff className="size-4" />
-                  ) : (
-                    <Eye className="size-4" />
-                  )}
-                </button>
-              </div>
-            </Field>
-          </div>
-        )}
-      </div>
+      {canCreateLogin && (
+        <div className="rounded-xl border bg-muted/20 p-3">
+          <label className="flex items-center gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              checked={createLogin}
+              onChange={(e) => setCreateLogin(e.target.checked)}
+              data-testid="create-login"
+              className="size-4 rounded border-input accent-primary"
+            />
+            <span className="font-medium">{t("form.createLogin")}</span>
+          </label>
+          {createLogin && (
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label={t("form.email")} required>
+                <div className="relative">
+                  <AtSign className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="email"
+                    aria-label={t("form.email")}
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required={createLogin}
+                  />
+                </div>
+              </Field>
+              <Field label={t("form.password")} required>
+                <div className="relative">
+                  <KeyRound className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    aria-label={t("form.password")}
+                    className={cn(inputBase, "py-2.5 ps-10 pe-10")}
+                    placeholder={t("form.passwordHint")}
+                    value={password}
+                    minLength={8}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required={createLogin}
+                    data-testid="teacher-password"
+                  />
+                  <button
+                    type="button"
+                    aria-label={showPassword ? t("form.hidePassword") : t("form.showPassword")}
+                    className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowPassword((v) => !v)}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="size-4" />
+                    ) : (
+                      <Eye className="size-4" />
+                    )}
+                  </button>
+                </div>
+              </Field>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex justify-end gap-2 border-t pt-4">
         <Button type="button" variant="outline" size="sm" onClick={onCancel}>

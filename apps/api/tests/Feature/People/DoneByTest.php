@@ -108,3 +108,34 @@ it('lists the team for the filter, without teachers, and keeps it from teachers'
     Sanctum::actingAs($this->teacherUser);
     $this->getJson('/api/team/actors')->assertForbidden();
 });
+
+it('narrows the attendance list and the held-up lessons to the students the caller added', function () {
+    $teacher = $this->createTeacher($this->academy);
+    Sanctum::actingAs($this->supA);
+    $mine = (string) $this->postJson('/api/students', ['full_name' => 'Added By A', 'guardian_id' => $this->guardian])->assertCreated()->json('studentId');
+    Sanctum::actingAs($this->supB);
+    $theirs = (string) $this->postJson('/api/students', ['full_name' => 'Added By B', 'guardian_id' => $this->guardian])->assertCreated()->json('studentId');
+    // A student nobody on the team added (an import, a fixture) is nobody's.
+    $imported = $this->createStudent($this->academy, $this->guardian);
+
+    // 06:00 ended long before the 4-hour grace ran out at 12:00, so each is also held up.
+    $mineLesson = $this->createSession($this->academy, $mine, $teacher, ['scheduled_at_utc' => '2026-06-11 06:00:00+00', 'status' => 'SCHEDULED']);
+    $theirLesson = $this->createSession($this->academy, $theirs, $teacher, ['scheduled_at_utc' => '2026-06-11 06:00:00+00', 'status' => 'SCHEDULED']);
+    $importedLesson = $this->createSession($this->academy, $imported, $teacher, ['scheduled_at_utc' => '2026-06-11 06:00:00+00', 'status' => 'SCHEDULED']);
+
+    $window = 'from=2026-06-11T00:00:00Z&to=2026-06-12T00:00:00Z';
+    Sanctum::actingAs($this->supA);
+
+    $ids = fn (string $url) => collect($this->getJson($url)->assertOk()->json('sessions'))->pluck('id')->sort()->values()->all();
+    $all = collect([$mineLesson, $theirLesson, $importedLesson])->sort()->values()->all();
+
+    expect($ids("/api/sessions/day?{$window}&mine=1"))->toBe([$mineLesson])
+        ->and($ids("/api/sessions/day?{$window}"))->toBe($all)
+        ->and($ids('/api/sessions/overdue?mine=1'))->toBe([$mineLesson])
+        ->and($this->getJson('/api/sessions/overdue?mine=1')->json('count'))->toBe(1)
+        ->and($ids('/api/sessions/overdue'))->toBe($all);
+
+    // The flag is always the CALLER's students — the other supervisor sees their own.
+    Sanctum::actingAs($this->supB);
+    expect($ids("/api/sessions/day?{$window}&mine=1"))->toBe([$theirLesson]);
+});

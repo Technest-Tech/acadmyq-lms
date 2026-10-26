@@ -3115,6 +3115,8 @@ export interface StudentRow {
   price_basis: string | null;
   plan_label: string | null;
   sessions_per_month: number | null;
+  /** Length of one lesson; when set, `sessions_per_month` counts lessons (else hours). */
+  lesson_minutes?: number | null;
   start_date: string | null;
   subscription_status: string | null;
   /** The first of the student's teachers (oldest link); null when they have none. */
@@ -3151,14 +3153,17 @@ export interface StudentTeacherInput {
 export interface SubscriptionInput {
   plan_label: string;
   sessions_per_month?: number | null;
+  /** Length of one lesson — with it, `sessions_per_month` is the number of lessons a month. */
+  lesson_minutes?: number | null;
   price_minor: number;
   currency?: string | null;
   /**
    * PER_PACKAGE switches the student onto the hour-block billing mode (docs/lesson-packages):
    * the monthly invoice stops running for them and `price_minor` becomes the DEFAULT hourly
    * rate used to pre-fill their next package. The two clocks are mutually exclusive.
+   * FREE: lessons are recorded and paid to the teacher, but no invoice is ever opened.
    */
-  price_basis?: "PER_SESSION" | "PER_MONTH" | "PER_HOUR" | "PER_PACKAGE";
+  price_basis?: "PER_SESSION" | "PER_MONTH" | "PER_HOUR" | "PER_PACKAGE" | "FREE";
   start_date: string;
   /**
    * Also re-price the sessions already billed onto this student's OPEN invoices at the new
@@ -3234,6 +3239,7 @@ export interface StudentDetail {
         price_basis: string;
         plan_label: string;
         sessions_per_month: number | null;
+        lesson_minutes?: number | null;
         start_date: string;
       })
     | null;
@@ -3855,6 +3861,15 @@ export function revertAttendance(sessionId: string): Promise<{
   });
 }
 
+/**
+ * DELETE /api/sessions/{id} — take a lesson off the books (session.delete). Its invoice line and
+ * payout line are reversed and it disappears from every lesson list; a closed invoice or a
+ * finalized payout refuses it, exactly as undoing its attendance would.
+ */
+export function deleteSession(sessionId: string): Promise<{ ok: true }> {
+  return apiFetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+}
+
 export function putSessionReport(
   sessionId: string,
   values: Record<string, unknown>,
@@ -3970,11 +3985,14 @@ export function getSessionsByDay(params: {
   teacher_id?: string;
   status?: string;
   trial_only?: boolean;
+  /** "My lessons": only the lessons of students the caller added. */
+  mine?: boolean;
 }): Promise<{ sessions: DaySession[]; truncated?: boolean }> {
   const qs = new URLSearchParams({ from: params.from, to: params.to });
   if (params.teacher_id) qs.set("teacher_id", params.teacher_id);
   if (params.status) qs.set("status", params.status);
   if (params.trial_only) qs.set("trial_only", "1");
+  if (params.mine) qs.set("mine", "1");
   return apiFetch(`/api/sessions/day?${qs.toString()}`);
 }
 
@@ -3991,13 +4009,13 @@ export interface OverdueSession extends DaySession {
  * forgotten three weeks ago is exactly the one this must surface. `count` is the true size of the
  * backlog even when the row list was capped (`truncated`).
  */
-export function getOverdueSessions(): Promise<{
+export function getOverdueSessions(params: { mine?: boolean } = {}): Promise<{
   sessions: OverdueSession[];
   count: number;
   truncated: boolean;
   grace_hours: number;
 }> {
-  return apiFetch("/api/sessions/overdue");
+  return apiFetch(params.mine ? "/api/sessions/overdue?mine=1" : "/api/sessions/overdue");
 }
 
 // ── Supervision statistics (GET /api/supervision/stats) ─────────────────────────────────────

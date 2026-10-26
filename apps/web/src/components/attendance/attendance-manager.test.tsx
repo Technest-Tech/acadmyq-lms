@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthContext } from "@/components/auth-provider";
-import type { Session } from "@/lib/api";
+import type { Session, TeamActor } from "@/lib/api";
 import { authValue, makeSession } from "@/test/auth";
 import enMessages from "../../../messages/en.json";
 import { AttendanceManager } from "./attendance-manager";
@@ -100,6 +100,8 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     // The page writes the day it is showing into the URL, and jsdom keeps that between tests —
     // so reset it, or a deep-link test leaks its day into every test that follows.
     window.history.replaceState(null, "", "/attendance");
+    // The My / All lessons tab is remembered per login in localStorage; start every test fresh.
+    window.localStorage.clear();
     vi.mocked(api.listTeamActors).mockResolvedValue({ actors: [] });
     vi.mocked(api.listTeachers).mockResolvedValue({
       rows: [],
@@ -182,6 +184,73 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     await screen.findByTestId("day-list");
     await waitFor(() => expect(api.listTeamActors).toHaveBeenCalled());
     expect(screen.queryByTestId("done-by-filter")).not.toBeInTheDocument();
+  });
+
+  describe("حصصي / كل الحصص", () => {
+    const twoSupervisors = {
+      actors: [
+        { id: "own", name: "Owner", role: "ACADEMY_OWNER", role_name: null, is_active: true },
+        { id: "u1", name: "Test User", role: "SUPERVISOR", role_name: null, is_active: true },
+        { id: "u2", name: "Mona", role: "SUPERVISOR", role_name: null, is_active: true },
+      ],
+    };
+    const supervisor = () => makeSession("SUPERVISOR", { permissions: ["session.read"] });
+
+    it("opens a supervisor on the lessons of the students they added, the whole academy one tab away", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.listTeamActors).mockResolvedValue(twoSupervisors);
+      vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
+      renderManager(supervisor());
+
+      await screen.findByTestId("day-list");
+      expect(screen.getByTestId("scope-mine").getAttribute("aria-selected")).toBe("true");
+      // Nothing is read before the team is known, so the first and only load is already "mine" —
+      // never everyone's lessons snapping to the supervisor's own.
+      expect(api.getSessionsByDay).toHaveBeenCalledTimes(1);
+      expect(api.getSessionsByDay).toHaveBeenCalledWith(expect.objectContaining({ mine: true }));
+
+      await user.click(screen.getByTestId("scope-all"));
+      await waitFor(() =>
+        expect(api.getSessionsByDay).toHaveBeenLastCalledWith(expect.objectContaining({ mine: false })),
+      );
+      expect(screen.getByTestId("scope-all").getAttribute("aria-selected")).toBe("true");
+      // Remembered for this login on this browser.
+      expect(window.localStorage.getItem("attendance.scope.u1")).toBe("all");
+    });
+
+    it("offers the whole academy from an empty My lessons", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.listTeamActors).mockResolvedValue(twoSupervisors);
+      vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [] });
+      renderManager(supervisor());
+
+      await user.click(await screen.findByTestId("scope-empty-all"));
+      await waitFor(() =>
+        expect(api.getSessionsByDay).toHaveBeenLastCalledWith(expect.objectContaining({ mine: false })),
+      );
+    });
+
+    it("never splits the owner's page", async () => {
+      vi.mocked(api.listTeamActors).mockResolvedValue(twoSupervisors);
+      vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
+      renderManager();
+
+      await screen.findByTestId("day-list");
+      expect(screen.queryByTestId("lesson-scope")).not.toBeInTheDocument();
+      expect(api.getSessionsByDay).toHaveBeenCalledWith(expect.objectContaining({ mine: false }));
+    });
+
+    it("leaves a sole supervisor on the whole academy", async () => {
+      // The second supervisor's login is switched off: only one is left running students.
+      const [owner, me, other] = twoSupervisors.actors as [TeamActor, TeamActor, TeamActor];
+      vi.mocked(api.listTeamActors).mockResolvedValue({ actors: [owner, me, { ...other, is_active: false }] });
+      vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
+      renderManager(supervisor());
+
+      await screen.findByTestId("day-list");
+      expect(screen.queryByTestId("lesson-scope")).not.toBeInTheDocument();
+      expect(api.getSessionsByDay).toHaveBeenCalledWith(expect.objectContaining({ mine: false }));
+    });
   });
 
   it("shows the empty state when nothing matches the day's filters", async () => {

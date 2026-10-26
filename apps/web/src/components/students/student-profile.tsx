@@ -242,14 +242,16 @@ export function StudentProfile({ studentId }: { studentId: string }) {
           tone="violet"
           muted={!sub}
           value={
-            sub
-              ? formatMoney(
-                  { amount: sub.price_minor, currency: sub.currency },
-                  locale,
-                )
-              : t("list.noSubscription")
+            !sub
+              ? t("list.noSubscription")
+              : sub.price_basis === "FREE"
+                ? t("basis.FREE")
+                : formatMoney(
+                    { amount: sub.price_minor, currency: sub.currency },
+                    locale,
+                  )
           }
-          sub={sub ? t(`basis.${sub.price_basis}`) : undefined}
+          sub={sub && sub.price_basis !== "FREE" ? t(`basis.${sub.price_basis}`) : undefined}
         />
         <FactCard
           icon={Users}

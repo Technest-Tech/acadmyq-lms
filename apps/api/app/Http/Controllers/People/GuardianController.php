@@ -134,7 +134,7 @@ final class GuardianController extends Controller
     /**
      * GET /api/guardians/{id} — the family file: the billing contact, and every child with the
      * details you would otherwise open four student profiles to read (teacher, plan, rate,
-     * lifecycle status). Money is blanked for a role that may not price (SUPERVISOR/STAFF), the
+     * lifecycle status). Money is blanked for a role that may not price (STAFF, CUSTOMER_SERVICE), the
      * same redaction the students list applies — the keys stay present and null so a redacted
      * child never reads as "no subscription".
      */

@@ -40,6 +40,7 @@ const PERMISSIONS_BY_ROLE: Record<SystemRole, string[]> = {
     "staff.set_salary",
     "session.bill_override",
     "settings.manage",
+    "teacher.create_login",
   ],
   // The whole academy, like the owner — an employee the owner can switch off.
   MANAGER: [
@@ -65,13 +66,17 @@ const PERMISSIONS_BY_ROLE: Record<SystemRole, string[]> = {
   ],
   // The front desk: students, families, trials, timetables — no money.
   CUSTOMER_SERVICE: ["student.read", "student.create", "guardian.read", "schedule.read", "session.read"],
-  // The academy minus the money and minus delegation (PermissionCatalog::roleMap).
+  // The academy minus invoices, payroll and delegation (PermissionCatalog::roleMap) — but with the
+  // price and pay of the people it enrols, and a new teacher's first login.
   SUPERVISOR: [
     "guardian.read",
     "student.read",
     "student.update",
+    "student.set_price",
     "teacher.read",
     "teacher.update",
+    "teacher.set_pay",
+    "teacher.create_login",
     "schedule.read",
     "session.read",
     "session.mark_attendance",

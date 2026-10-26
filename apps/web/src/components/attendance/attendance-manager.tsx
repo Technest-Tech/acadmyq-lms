@@ -17,6 +17,8 @@ import {
   Search,
   Sparkles,
   Undo2,
+  UserCheck,
+  Users,
   UserX,
   X,
 } from "lucide-react";
@@ -45,7 +47,7 @@ import { RescheduleModal } from "@/components/attendance/reschedule-modal";
 import { RevertOutcomeDialog } from "@/components/attendance/revert-outcome-dialog";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
-import { actorLabel, DoneByCell, useTeamActors } from "@/components/team/done-by";
+import { actorLabel, DoneByCell, useTeamActorsState } from "@/components/team/done-by";
 import {
   addDays,
   addMonths,
@@ -158,6 +160,29 @@ const ENTER_EARLY_HORIZON_MINUTES = 180;
 /** The "Done by" filter value for lessons their own teacher marked (not a team login id). */
 const DONE_BY_TEACHER = "teacher";
 
+/** حصصي / كل الحصص — the lessons of the students this login added, or the whole academy's. */
+type LessonScope = "mine" | "all";
+
+const LESSON_SCOPES: { key: LessonScope; icon: typeof Users }[] = [
+  { key: "mine", icon: UserCheck },
+  { key: "all", icon: Users },
+];
+
+/** Where a login's last tab is remembered, per browser — one key per user, so a shared desk computer keeps each supervisor's own. */
+function scopeKey(userId: string): string {
+  return `attendance.scope.${userId}`;
+}
+
+/** The tab a login left the page on; "mine" until they pick otherwise. */
+function readScope(userId: string | undefined): LessonScope {
+  if (!userId) return "mine";
+  try {
+    return window.localStorage.getItem(scopeKey(userId)) === "all" ? "all" : "mine";
+  } catch {
+    return "mine";
+  }
+}
+
 export function AttendanceManager({ header }: { header?: React.ReactNode } = {}) {
   const t = useTranslations("attendance");
   const tSched = useTranslations("scheduling");
@@ -193,7 +218,34 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
 
   const [sessions, setSessions] = useState<DaySession[] | null>(null);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
-  const actors = useTeamActors();
+  const { actors, loaded: actorsLoaded } = useTeamActorsState();
+  /**
+   * حصصي / كل الحصص. An academy that runs several supervisors splits its students between them —
+   * each one enrols their own and follows their lessons — so a supervisor's page opens on the
+   * lessons of the students THEY added, with the whole academy one tab away. Offered to a team
+   * login (never the owner, who runs everything, nor a teacher, who only has their own) once the
+   * academy has more than one such login; with a single supervisor "mine" and "all" are the same
+   * job. `mine` is null until the team is known, and nothing loads until then.
+   */
+  const isTeamLogin =
+    !!auth && !isTeacher && auth.role !== "ACADEMY_OWNER" && auth.role !== "SUPER_ADMIN";
+  const scopeOffered =
+    isTeamLogin && actors.filter((a) => a.is_active && a.role !== "ACADEMY_OWNER").length > 1;
+  const [scope, setScope] = useState<LessonScope>(() => readScope(auth?.user.id));
+  const mine: boolean | null = !isTeamLogin
+    ? false
+    : !actorsLoaded
+      ? null
+      : scopeOffered && scope === "mine";
+  function chooseScope(next: LessonScope) {
+    setScope(next);
+    if (!auth) return;
+    try {
+      window.localStorage.setItem(scopeKey(auth.user.id), next);
+    } catch {
+      // Private window / blocked storage: the tab still switches, it just is not remembered.
+    }
+  }
   // Who marked a lesson only needs telling apart once more than one person runs the academy.
   const showDoneByFilter = !isTeacher && actors.length > 1;
   const [error, setError] = useState<string | null>(null);
@@ -226,7 +278,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
 
   // الحصص المعلقة — lessons already past their grace window with no outcome. Deliberately NOT tied
   // to the period on screen: the whole point is that they were left behind by it.
-  const overdue = useOverdueLessons();
+  const overdue = useOverdueLessons(0, mine);
 
   const timeFmt = useMemo(
     () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
@@ -272,6 +324,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   const reqSeq = useRef(0);
 
   const load = useCallback(async () => {
+    if (mine === null) return; // the tab is not known yet
     const seq = ++reqSeq.current;
     setSessions(null);
     setStatusOverrides({});
@@ -289,6 +342,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
         from,
         to,
         teacher_id: teacherId || undefined,
+        mine,
       });
       if (seq !== reqSeq.current) return; // superseded
       setSessions(res.sessions);
@@ -297,7 +351,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
       if (seq !== reqSeq.current) return; // superseded
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [date, range, teacherId]);
+  }, [date, range, teacherId, mine]);
 
   useEffect(() => {
     void load();
@@ -535,6 +589,42 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
       />
 
       {header}
+
+      {/* ── حصصي / كل الحصص ─────────────────────────────────────────────
+          Above everything it narrows: the held-up panel, the counts and the list all follow it. */}
+      {scopeOffered && (
+        <div className="space-y-1.5">
+          <div
+            role="tablist"
+            aria-label={t("scope.label")}
+            data-testid="lesson-scope"
+            className="bg-muted/60 inline-flex items-center gap-0.5 rounded-xl p-1"
+          >
+            {LESSON_SCOPES.map(({ key, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={scope === key}
+                data-testid={`scope-${key}`}
+                onClick={() => chooseScope(key)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors",
+                  scope === key
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Icon className="size-4" aria-hidden />
+                {t(`scope.${key}`)}
+              </button>
+            ))}
+          </div>
+          <p className="text-muted-foreground text-xs">
+            {t(scope === "mine" ? "scope.mineHint" : "scope.allHint")}
+          </p>
+        </div>
+      )}
 
       {/* ── الحصص المعلقة / Held-up lessons ───────────────────────────────
           Sits ABOVE the period navigator on purpose: it is the only block on the page that is not
@@ -912,6 +1002,19 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
             <p className="text-sm font-medium">
               {multiDay ? t("periodNone") : t("dayNone")}
             </p>
+            {mine && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-3 gap-1"
+                data-testid="scope-empty-all"
+                onClick={() => chooseScope("all")}
+              >
+                <Users className="size-3.5" />
+                {t("scope.seeAll")}
+              </Button>
+            )}
             {hasActiveFilters && (
               <Button
                 type="button"

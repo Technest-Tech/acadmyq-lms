@@ -32,6 +32,12 @@ final class PermissionCatalog
         // student.update: running the teachers is day-to-day work, their pay is money. Without it
         // the rates are redacted from the teacher list and file and every pay field is refused.
         'teacher.set_pay',
+        // Give a teacher who has no sign-in yet their FIRST one (on the add-teacher form, or later
+        // from their file). Split off user.invite + role.assign so whoever adds teachers can hand
+        // them a working login without also holding login authority over everyone: re-issuing an
+        // EXISTING teacher's email or password is taking over an account someone already uses,
+        // and stays user.invite.
+        'teacher.create_login',
         'guardian.read', 'guardian.create', 'guardian.update',
         'student.read', 'student.create', 'student.update', 'student.deactivate',
         // Set or change what a student PAYS. Split off `student.update` deliberately: editing a
@@ -53,6 +59,10 @@ final class PermissionCatalog
         // SCHEDULED). Deliberately NOT held by a TEACHER: reverting reverses the invoice line and
         // the payout accrual, and would let them undo a cancellation the owner had just approved.
         'session.revert_attendance',
+        // Delete a lesson outright: it becomes a cancellation that charges and pays nobody (money
+        // reversed through the same path as an undo) and disappears from every lesson list. Not a
+        // TEACHER's, for the same reason as undoing attendance.
+        'session.delete',
         // Mark a lesson FREE. Like a cancellation, the per-academy billing decision (charge the
         // student? pay the teacher?) is made in a popup, and a TEACHER cannot apply it directly —
         // they raise a request (session.free_request) the OWNER approves (session.free_approve).
@@ -180,11 +190,11 @@ final class PermissionCatalog
     public const AREAS = [
         ['key' => 'students', 'kind' => 'operations', 'view' => ['student.read'], 'manage' => ['student.create', 'student.update', 'student.deactivate']],
         ['key' => 'guardians', 'kind' => 'operations', 'view' => ['guardian.read'], 'manage' => ['guardian.create', 'guardian.update']],
-        ['key' => 'teachers', 'kind' => 'operations', 'view' => ['teacher.read'], 'manage' => ['teacher.create', 'teacher.update', 'teacher.deactivate']],
+        ['key' => 'teachers', 'kind' => 'operations', 'view' => ['teacher.read'], 'manage' => ['teacher.create', 'teacher.update', 'teacher.deactivate', 'teacher.create_login']],
         ['key' => 'schedules', 'kind' => 'operations', 'view' => ['schedule.read'], 'manage' => ['schedule.manage']],
         ['key' => 'lessons', 'kind' => 'operations', 'view' => ['session.read'], 'manage' => [
             'session.mark_attendance', 'session.write_report', 'session.create', 'session.reschedule',
-            'session.cancel', 'session.cancel_approve', 'session.revert_attendance', 'session.free', 'session.free_approve',
+            'session.cancel', 'session.cancel_approve', 'session.revert_attendance', 'session.delete', 'session.free', 'session.free_approve',
         ]],
         ['key' => 'groups', 'kind' => 'operations', 'view' => ['group.read'], 'manage' => ['group.manage']],
         ['key' => 'supervision', 'kind' => 'operations', 'view' => [], 'manage' => ['session.follow']],
@@ -299,6 +309,23 @@ final class PermissionCatalog
     ];
 
     /**
+     * The money fields of the people a SUPERVISOR enrols, handed back on top of the subtraction.
+     *
+     * The supervisor adds students, families and teachers, and a record without its price is not
+     * complete: the student form's whole billing block (monthly price, package, subscriptions)
+     * sits behind student.set_price + package.manage, and a teacher's rates behind teacher.set_pay.
+     * Academies kept asking for supervisors who set students up end to end (Lingo built a custom
+     * role for exactly this, 2026-10-25), so the built-in role now does. Invoices, receipts,
+     * payroll and the treasury stay withheld — the supervisor names the price, the money desk
+     * collects it.
+     */
+    private const SUPERVISOR_MONEY_INCLUDES = [
+        'student.set_price',
+        'package.read', 'package.manage',
+        'teacher.set_pay',
+    ];
+
+    /**
      * Built-in roles every academy can hand to an employee from the team page, weakest first —
      * the shared starting points (the owner narrows one into a custom role when none fits).
      * ACADEMY_OWNER and TEACHER are not on it: an owner is the client, a teacher is made on the
@@ -316,7 +343,7 @@ final class PermissionCatalog
         $academyScoped = [
             'user.invite', 'role.assign', 'role.manage',
             'teacher.read', 'teacher.create', 'teacher.update', 'teacher.deactivate',
-            'teacher.set_pay',
+            'teacher.set_pay', 'teacher.create_login',
             'guardian.read', 'guardian.create', 'guardian.update',
             'student.read', 'student.create', 'student.update', 'student.deactivate',
             'student.set_price',
@@ -328,6 +355,8 @@ final class PermissionCatalog
             // financial: recording the outcome is what MOVES the money and it is already
             // supervisor-held, so undoing a mis-marked lesson stays with the same people.
             'session.revert_attendance',
+            // Delete a lesson (money reversed, row hidden) — the same people who can undo one.
+            'session.delete',
             // Mark free directly (with the billing popup) + approve teachers' free requests.
             'session.free', 'session.free_approve',
             'session.bill_override',
@@ -362,7 +391,7 @@ final class PermissionCatalog
         return [
             // The whole academy MINUS the money. A supervisor runs students, teachers, schedules,
             // attendance, trials, reports, quality and the classroom — everything the academy does
-            // day to day — and never sees an invoice, a salary, the profit, or what a student pays.
+            // day to day — and never sees an invoice, a payment, a payroll run or the profit.
             //
             // Subtracted rather than listed, so the promise stays true as the product grows: a new
             // operational capability reaches supervisors the moment an owner gets it, while a new
@@ -372,11 +401,12 @@ final class PermissionCatalog
             //
             // Statistics are withheld too ({@see STATISTICS}): the performance dashboards are the
             // owner's scorecard of the academy, the supervisors included.
-            'SUPERVISOR' => array_values(array_diff(
-                $academyScoped,
-                self::FINANCIAL,
-                self::STATISTICS,
-                self::SUPERVISOR_EXCLUDES,
+            //
+            // The one exception is the price on the people they enrol ({@see
+            // SUPERVISOR_MONEY_INCLUDES}): a student's rate and package, a teacher's pay.
+            'SUPERVISOR' => array_values(array_merge(
+                array_diff($academyScoped, self::FINANCIAL, self::STATISTICS, self::SUPERVISOR_EXCLUDES),
+                self::SUPERVISOR_MONEY_INCLUDES,
             )),
             // The owner's right hand: the whole academy, money and statistics included. A second
             // ACADEMY_OWNER would be the client itself; a manager is an employee the owner can

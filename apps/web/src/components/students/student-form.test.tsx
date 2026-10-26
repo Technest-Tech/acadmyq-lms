@@ -252,7 +252,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
     await user.click(screen.getByTestId("intent-enrolled"));
     await user.type(screen.getByLabelText("Hourly rate"), "150");
-    await user.type(screen.getByLabelText("Hours / month"), "8");
+    await user.type(screen.getByLabelText(enMessages.students.monthly.lessons), "8");
     await user.click(screen.getByRole("button", { name: "Add student" }));
 
     await waitFor(() =>
@@ -266,8 +266,76 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
         subscription: expect.objectContaining({
           price_minor: 15000,
           sessions_per_month: 8,
+          lesson_minutes: 60,
           price_basis: "PER_HOUR",
         }),
+      }),
+    );
+  });
+
+  // The desk counts "8 lessons of 40 minutes" — 5.33 hours, which the old whole-hours field refused.
+  it("takes a month as lessons of a length, priced by the lesson, and saves the hourly rate", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+
+    await user.type(screen.getByLabelText("Full name"), "Yusuf");
+    await user.click(screen.getByTestId("guardian-select"));
+    await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
+    await user.click(screen.getByTestId("intent-enrolled"));
+    await user.type(screen.getByLabelText(enMessages.students.monthly.lessons), "8");
+    await user.selectOptions(screen.getByTestId("new-student-monthly-length"), "40");
+    await user.click(screen.getByTestId("new-student-monthly-unit-lesson"));
+    await user.type(screen.getByLabelText("Price of a 40-minute lesson"), "50");
+
+    // 8 × 40 min = 5h 20m; 50 a lesson is 75 an hour and about 400 a month.
+    expect(screen.getByTestId("new-student-monthly-readout")).toHaveTextContent("5h 20m");
+    expect(screen.getByTestId("new-student-monthly-readout")).toHaveTextContent("400");
+
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalled());
+    expect(api.createStudent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subscription: expect.objectContaining({
+          sessions_per_month: 8,
+          lesson_minutes: 40,
+          price_minor: 7500,
+          price_basis: "PER_HOUR",
+        }),
+      }),
+    );
+  });
+
+  it("restates the typed price when the unit is switched, never changing the deal", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+    await user.click(screen.getByTestId("intent-enrolled"));
+    await user.selectOptions(screen.getByTestId("new-student-monthly-length"), "30");
+    await user.type(screen.getByLabelText("Hourly rate"), "100");
+    await user.click(screen.getByTestId("new-student-monthly-unit-lesson"));
+    expect(screen.getByLabelText("Price of a 30-minute lesson")).toHaveValue(50);
+  });
+
+  it("enrols a free student: no price asked, nothing billed, lessons still counted", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+
+    await user.type(screen.getByLabelText("Full name"), "Yusuf");
+    await user.click(screen.getByTestId("guardian-select"));
+    await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
+    await user.click(screen.getByTestId("intent-enrolled"));
+    await user.click(within(screen.getByTestId("new-student-monthly-free")).getByRole("checkbox"));
+    expect(screen.queryByLabelText("Hourly rate")).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText(enMessages.students.monthly.lessons), "8");
+
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalled());
+    expect(api.createStudent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "REGULAR",
+        subscription: expect.objectContaining({ price_basis: "FREE", price_minor: 0, sessions_per_month: 8 }),
       }),
     );
   });
@@ -285,7 +353,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     await user.click(screen.getByRole("button", { name: "Add student" }));
 
     expect(
-      await screen.findByText(/Enter an hourly price and a start date/i),
+      await screen.findByText(enMessages.students.form.packageRequired),
     ).toBeInTheDocument();
     expect(api.createStudent).not.toHaveBeenCalled();
   });
@@ -341,7 +409,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     const user = userEvent.setup();
     renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"] });
     await fillActiveStudent(user);
-    expect(screen.queryByLabelText(enMessages.packages.form.hours)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(enMessages.packages.form.lessons)).not.toBeInTheDocument();
     expect(screen.getByTestId("billing-package").textContent).toContain(enMessages.students.form.billingPackage);
   });
 
@@ -426,9 +494,9 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
 
     await user.click(screen.getByTestId("billing-package"));
     // The monthly quota is not a package field; the package's own fields replace it.
-    expect(screen.queryByLabelText("Hours / month")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(enMessages.students.monthly.lessons)).not.toBeInTheDocument();
 
-    await user.type(screen.getByLabelText(enMessages.packages.form.hours), "20");
+    await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "20");
     await user.type(screen.getByLabelText(enMessages.packages.form.price), "4000");
     await user.click(screen.getByRole("button", { name: "Add student" }));
 

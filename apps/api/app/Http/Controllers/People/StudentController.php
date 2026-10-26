@@ -41,7 +41,8 @@ final class StudentController extends Controller
 {
     use InteractsWithPeople;
 
-    private const PRICE_BASES = ['PER_SESSION', 'PER_MONTH', 'PER_HOUR', 'PER_PACKAGE'];
+    /** FREE: taught and recorded, never billed — its price is always written as 0. */
+    private const PRICE_BASES = ['PER_SESSION', 'PER_MONTH', 'PER_HOUR', 'PER_PACKAGE', 'FREE'];
 
     private const SUB_STATUSES = ['ACTIVE', 'PAUSED', 'ENDED'];
 
@@ -540,6 +541,9 @@ final class StudentController extends Controller
             $after['price_basis'] = $data['price_basis'];
             $before['price_basis'] = $sub->price_basis;
         }
+        if (($data['price_basis'] ?? $sub->price_basis) === 'FREE') {
+            $after['price_minor'] = 0;
+        }
 
         // Forward-only: start_date is untouched, so already-closed invoices (Sprint 7) are never
         // back-dated (R-INV-3, decision §3.2). Only future billing sees the new price.
@@ -767,7 +771,8 @@ final class StudentController extends Controller
 
     /**
      * May the caller see what a student PAYS? The same capability that lets them change it —
-     * a role denied repricing (SUPERVISOR) is denied the rate itself, not just the button.
+     * a role denied repricing (STAFF, the ACCOUNTANT-less front desk) is denied the rate itself,
+     * not just the button.
      */
     private function seesPricing(): bool
     {
@@ -811,7 +816,7 @@ final class StudentController extends Controller
                 's.guardian_id', 's.deleted_at', 's.created_at',
                 'g.full_name as guardian_name', 'g.whatsapp_phone as guardian_phone',
                 'sub.id as subscription_id', 'sub.price_minor', 'sub.currency as price_currency',
-                'sub.price_basis', 'sub.plan_label', 'sub.sessions_per_month',
+                'sub.price_basis', 'sub.plan_label', 'sub.sessions_per_month', 'sub.lesson_minutes',
                 'sub.start_date', 'sub.status as subscription_status',
                 'sta.teacher_id', 'sta.teacher_name', 'sta.teachers',
             ]);
@@ -911,6 +916,11 @@ final class StudentController extends Controller
                 ->update(['status' => 'ENDED', 'updated_at' => now()]);
         }
 
+        // A free student has no rate, whatever the form sent along with the choice.
+        if (($data['price_basis'] ?? null) === 'FREE') {
+            $data['price_minor'] = 0;
+        }
+
         $subId = (string) Str::uuid();
         DB::table('subscriptions')->insert([
             'id' => $subId,
@@ -918,6 +928,7 @@ final class StudentController extends Controller
             'student_id' => $studentId,
             'plan_label' => $data['plan_label'],
             'sessions_per_month' => $data['sessions_per_month'] ?? null,
+            'lesson_minutes' => $data['lesson_minutes'] ?? null,
             'price_minor' => $data['price_minor'],
             'currency' => strtoupper($data['currency'] ?? $this->academyDefaultCurrency($academyId)),
             'price_basis' => $data['price_basis'] ?? 'PER_SESSION',
@@ -1209,6 +1220,7 @@ final class StudentController extends Controller
         $validator = validator($payload, [
             'plan_label' => ['required', 'string', 'max:255'],
             'sessions_per_month' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000'],
+            'lesson_minutes' => ['sometimes', 'nullable', 'integer', 'min:5', 'max:600'],
             'price_minor' => ['required', 'integer', 'min:0'],
             'currency' => ['sometimes', 'nullable', 'string', 'size:3'],
             'price_basis' => ['sometimes', Rule::in(self::PRICE_BASES)],
@@ -1229,6 +1241,7 @@ final class StudentController extends Controller
         return [
             "{$prefix}plan_label" => ['required_with:subscription', 'string', 'max:255'],
             "{$prefix}sessions_per_month" => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000'],
+            "{$prefix}lesson_minutes" => ['sometimes', 'nullable', 'integer', 'min:5', 'max:600'],
             "{$prefix}price_minor" => ['required_with:subscription', 'integer', 'min:0'],
             "{$prefix}currency" => ['sometimes', 'nullable', 'string', 'size:3'],
             "{$prefix}price_basis" => ['sometimes', Rule::in(self::PRICE_BASES)],

@@ -183,8 +183,9 @@ it('blanks a child\'s money for a role that may not price', function () {
         ],
     ])->assertCreated();
 
-    $supervisor = $this->makeUser($this->academy, 'SUPERVISOR', ['email' => 'supervisor-family@test.local']);
-    Sanctum::actingAs($supervisor);
+    // A role that may not price (the front desk) reads the family, not the money.
+    $frontDesk = $this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-family@test.local']);
+    Sanctum::actingAs($frontDesk);
 
     $child = $this->getJson("/api/guardians/{$guardianId}")->assertOk()->json('children.0');
     // Present and null — "not your business", never "no subscription".

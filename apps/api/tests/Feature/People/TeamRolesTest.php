@@ -31,6 +31,7 @@ beforeEach(function () {
     $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-team@test.local']);
     $this->supervisor = $this->makeUser($this->academy, 'SUPERVISOR', ['email' => 'sup-team@test.local']);
     $this->accountant = $this->makeUser($this->academy, 'ACCOUNTANT', ['email' => 'acc-team@test.local']);
+    $this->frontDesk = $this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-team@test.local']);
 
     $this->teacher = $this->createTeacher($this->academy, [
         'full_name' => 'Rate Teacher', 'session_rate_minor' => 12000, 'currency' => 'EGP',
@@ -60,8 +61,10 @@ it('files every academy capability under exactly one builder section', function 
 it('draws the shared roles where the owner expects them', function () {
     $map = PermissionCatalog::roleMap();
 
-    // Supervisor: the day-to-day, never money, statistics or the academy's switches.
-    expect(array_intersect($map['SUPERVISOR'], PermissionCatalog::FINANCIAL))->toBe([])
+    // Supervisor: the day-to-day, enrolling people with their prices — never the money desk,
+    // statistics or the academy's switches.
+    expect(array_values(array_intersect($map['SUPERVISOR'], PermissionCatalog::FINANCIAL)))
+        ->toEqualCanonicalizing(['student.set_price', 'package.read', 'package.manage', 'teacher.set_pay'])
         ->and(array_intersect($map['SUPERVISOR'], PermissionCatalog::STATISTICS))->toBe([])
         ->and($map['SUPERVISOR'])->not->toContain('settings.manage')->toContain('session.follow');
 
@@ -87,7 +90,7 @@ it('draws the shared roles where the owner expects them', function () {
 
 // ── Teacher pay ──────────────────────────────────────────────────────────────
 
-it('blanks teacher pay for a supervisor and keeps it for the owner and the accountant', function () {
+it('blanks teacher pay for the front desk and keeps it for the owner, the accountant and the supervisor', function () {
     Sanctum::actingAs($this->owner);
     $row = collect($this->getJson('/api/teachers')->assertOk()->json('rows'))->firstWhere('id', $this->teacher);
     expect($row['session_rate_minor'])->toBe(12000);
@@ -95,7 +98,11 @@ it('blanks teacher pay for a supervisor and keeps it for the owner and the accou
     Sanctum::actingAs($this->accountant);
     $this->getJson("/api/teachers/{$this->teacher}")->assertOk()->assertJsonPath('teacher.session_rate_minor', 12000);
 
+    // The supervisor adds teachers with their pay, so they read it too.
     Sanctum::actingAs($this->supervisor);
+    $this->getJson("/api/teachers/{$this->teacher}")->assertOk()->assertJsonPath('teacher.session_rate_minor', 12000);
+
+    Sanctum::actingAs($this->frontDesk);
     $row = collect($this->getJson('/api/teachers')->assertOk()->json('rows'))->firstWhere('id', $this->teacher);
     expect($row)->toHaveKey('session_rate_minor')
         ->and($row['session_rate_minor'])->toBeNull()
@@ -120,8 +127,24 @@ it('lets the accountant set a teacher pay without the power to edit the teacher'
     expect((int) DB::table('teachers')->where('id', $this->teacher)->value('session_rate_minor'))->toBe(15000);
 });
 
-it('lets a supervisor run a teacher but not set their pay', function () {
+it('lets a supervisor run a teacher and set their pay', function () {
     Sanctum::actingAs($this->supervisor);
+
+    $this->patchJson("/api/teachers/{$this->teacher}", ['full_name' => 'Renamed Teacher'])->assertOk();
+    $this->patchJson("/api/teachers/{$this->teacher}", ['session_rate_minor' => 15000, 'pay_type' => 'HOURLY'])->assertOk();
+    $this->postJson('/api/teachers', ['full_name' => 'Priced Hire', 'session_rate_minor' => 15000])->assertCreated();
+
+    $this->asAcademy($this->academy);
+    expect((int) DB::table('teachers')->where('id', $this->teacher)->value('session_rate_minor'))->toBe(15000)
+        ->and((int) DB::table('teachers')->where('full_name', 'Priced Hire')->value('session_rate_minor'))->toBe(15000);
+});
+
+it('keeps teacher pay from a role that edits teachers without the right', function () {
+    Sanctum::actingAs($this->owner);
+    $code = $this->postJson('/api/roles', [
+        'name' => 'Teacher desk', 'permissions' => ['teacher.read', 'teacher.create', 'teacher.update'],
+    ])->assertCreated()->json('code');
+    Sanctum::actingAs($this->makeUser($this->academy, $code, ['email' => 'teacher-desk@test.local']));
 
     $this->patchJson("/api/teachers/{$this->teacher}", ['full_name' => 'Renamed Teacher'])->assertOk();
     $this->patchJson("/api/teachers/{$this->teacher}", ['session_rate_minor' => 99900])->assertForbidden();
@@ -215,7 +238,7 @@ it('shows a supervisor the quality judgement but not what it docked', function (
     ])->assertForbidden();
 });
 
-it('keeps package billing alerts out of a supervisor inbox', function () {
+it('keeps package billing alerts out of an inbox that cannot read packages', function () {
     $this->asAcademy($this->academy);
     foreach (['PACKAGES', 'REPORTS'] as $category) {
         DB::table('notifications')->insert([
@@ -234,7 +257,16 @@ it('keeps package billing alerts out of a supervisor inbox', function () {
     expect(collect($this->getJson('/api/notifications')->assertOk()->json('notifications'))->pluck('category')->all())
         ->toContain('PACKAGES');
 
+    // The supervisor runs packages now, so their alerts are theirs too.
     Sanctum::actingAs($this->supervisor);
+    expect(collect($this->getJson('/api/notifications')->assertOk()->json('notifications'))->pluck('category')->all())
+        ->toContain('PACKAGES');
+
+    Sanctum::actingAs($this->owner);
+    $code = $this->postJson('/api/roles', [
+        'name' => 'Inbox only', 'permissions' => ['notification.read', 'session.read'],
+    ])->assertCreated()->json('code');
+    Sanctum::actingAs($this->makeUser($this->academy, $code, ['email' => 'inbox-team@test.local']));
     $res = $this->getJson('/api/notifications')->assertOk();
     expect(collect($res->json('notifications'))->pluck('category')->all())->not->toContain('PACKAGES');
     $this->getJson('/api/notifications/summary')->assertOk()->assertJsonPath('packages', 0);
