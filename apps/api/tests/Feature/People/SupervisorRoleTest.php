@@ -293,3 +293,54 @@ it('opens Settings for a supervisor to the course list, not the academy switches
     $this->putJson('/api/academy/settings', ['teacher_can_reschedule' => false])->assertForbidden();
     $this->patchJson('/api/academy', ['name' => 'Renamed'])->assertForbidden();
 });
+
+// ── Custom supervisor roles, every academy ───────────────────────────────────
+
+it('brings a custom supervisor role up to enrolling in full, and leaves other custom roles alone', function () {
+    $this->asAcademy($this->academy);
+    $permIds = DB::table('permissions')->pluck('id', 'code');
+    $mk = function (string $name, array $codes) use ($permIds): string {
+        $id = (string) Str::uuid();
+        DB::table('academy_roles')->insert([
+            'id' => $id, 'academy_id' => $this->academy, 'code' => 'CR_'.str_replace('-', '', $id), 'name' => $name,
+            'is_active' => true, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        foreach ($codes as $c) {
+            DB::table('academy_role_permissions')->insert(['academy_id' => $this->academy, 'role_id' => $id, 'permission_id' => $permIds[$c]]);
+        }
+
+        return $id;
+    };
+    $floor = ['student.read', 'student.create', 'student.update', 'guardian.read', 'guardian.create', 'guardian.update',
+        'teacher.read', 'teacher.create', 'teacher.update', 'schedule.read', 'session.read'];
+    // A snapshot of the old supervisor preset: adds students and teachers, but not their money.
+    $supervisorRole = $mk('مشرف الحلقات', $floor);
+    // A front desk that adds students on purpose without pricing them.
+    $deskRole = $mk('Front desk', ['student.read', 'student.create', 'guardian.read', 'guardian.create']);
+    $this->clearTenantContext();
+
+    (require database_path('migrations/2026_10_27_000001_custom_supervisors_enrol_in_full.php'))->up();
+
+    $this->asAcademy($this->academy);
+    $codes = fn (string $roleId) => DB::table('academy_role_permissions as rp')
+        ->join('permissions as p', 'p.id', '=', 'rp.permission_id')->where('rp.role_id', $roleId)->pluck('p.code')->all();
+    expect($codes($supervisorRole))
+        ->toContain('student.set_price')->toContain('package.manage')->toContain('package.read')
+        ->toContain('teacher.set_pay')->toContain('teacher.create_login')
+        ->not->toContain('invoice.read')->not->toContain('payout.read');
+    expect($codes($deskRole))->not->toContain('student.set_price');
+    expect(DB::table('audit_log')->where('action', 'role.update')->where('entity_id', $supervisorRole)->exists())->toBeTrue();
+
+    // And a supervisor on that role can now add a student with their price, and a teacher with pay.
+    $roleCode = DB::table('academy_roles')->where('id', $supervisorRole)->value('code');
+    $this->clearTenantContext();
+    $user = $this->makeUser($this->academy, $roleCode, ['email' => 'custom-sup-'.uniqid().'@test.local']);
+    Sanctum::actingAs($user);
+
+    $this->postJson('/api/students', [
+        'full_name' => 'Priced Kid',
+        'guardian_id' => $this->guardian,
+        'subscription' => ['plan_label' => 'Hourly', 'price_minor' => 40000, 'currency' => 'EGP', 'price_basis' => 'PER_HOUR', 'start_date' => '2026-09-01'],
+    ])->assertCreated();
+    $this->postJson('/api/teachers', ['full_name' => 'Paid Teacher', 'session_rate_minor' => 12000])->assertCreated();
+});
