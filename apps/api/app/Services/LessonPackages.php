@@ -1253,6 +1253,151 @@ final class LessonPackages
     }
 
     /**
+     * The student's packages a new hourly rate could still re-price: open or finished, with nothing
+     * paid toward them. Each says what it costs now; `blocked` names the ones that cannot move and
+     * why — money already paid on the bill, or a bill that also carries another package's hours.
+     *
+     * @return array{packages: list<array<string,mixed>>, blocked: list<array<string,mixed>>}
+     */
+    public function unpaidForReprice(string $studentId): array
+    {
+        $rows = DB::table('lesson_packages as p')
+            ->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')
+            ->where('p.student_id', $studentId)
+            ->whereIn('p.status', ['ACTIVE', 'COMPLETED'])
+            ->orderBy('p.sequence_no')
+            ->get(['p.*', 'i.status as invoice_status', 'i.amount_paid_minor as invoice_paid_minor', 'i.total_minor as invoice_total_minor']);
+
+        $packages = [];
+        $blocked = [];
+        foreach ($rows as $p) {
+            $summary = [
+                'id' => (string) $p->id,
+                'sequence_no' => (int) $p->sequence_no,
+                'label' => (string) $p->label,
+                'status' => (string) $p->status,
+                'minutes_total' => (int) $p->minutes_total,
+                'price_minor' => (int) $p->price_minor,
+                'hourly_rate_minor' => (int) $p->hourly_rate_minor,
+                'currency' => (string) $p->currency,
+            ];
+            if ($p->invoice_id === null) {
+                // Not billed yet (pay at the end, or used and never billed): the bill it gets later
+                // is priced from the package, so the package is all there is to move. A finished
+                // one with nothing used owes nothing.
+                if ((string) $p->status === 'ACTIVE' || (int) $p->minutes_consumed > 0) {
+                    $packages[] = $summary;
+                }
+
+                continue;
+            }
+            if (! in_array((string) $p->invoice_status, ['OPEN', 'CLOSED'], true)) {
+                continue; // paid, part-paid or void: settled, not due
+            }
+            if ((int) $p->invoice_paid_minor > 0) {
+                $blocked[] = $summary + ['reason' => 'PARTLY_PAID'];
+
+                continue;
+            }
+            if (DB::table('lesson_packages')->where('overdraft_invoice_id', $p->invoice_id)->where('id', '!=', $p->id)->exists()) {
+                $blocked[] = $summary + ['reason' => 'SHARED_BILL'];
+
+                continue;
+            }
+            $packages[] = $summary;
+        }
+
+        return ['packages' => $packages, 'blocked' => $blocked];
+    }
+
+    /**
+     * Move a student's unpaid packages to a new hourly rate — the "also the old due packages" answer
+     * when their rate changes. Each package becomes rate × its hours, and its bill follows:
+     *
+     *   • an OPEN bill is re-priced in place — every line scaled by the same new ÷ old price, a
+     *     family discount scaled with it, the total recomputed from the lines;
+     *   • a CLOSED bill cannot change (the database freezes its totals once the month closed), so it
+     *     is voided and the same lines are raised again at the new price, on a fresh bill for the
+     *     package's own month — the link the family had now shows "void", the package points at the
+     *     new one;
+     *   • no bill yet → only the package moves; the bill it gets later is priced from it.
+     *
+     * Only what {@see unpaidForReprice()} allows: nothing paid on it, a bill that is its alone.
+     *
+     * @return list<array{id:string, sequence_no:int, before_minor:int, after_minor:int}>
+     */
+    public function repriceUnpaid(string $studentId, int $hourlyRate, ?string $actorUserId, ?string $actorRole): array
+    {
+        $done = [];
+        foreach ($this->unpaidForReprice($studentId)['packages'] as $candidate) {
+            $package = DB::table('lesson_packages')->where('id', $candidate['id'])->first();
+            if ($package === null || (int) $package->hourly_rate_minor === $hourlyRate) {
+                continue;
+            }
+
+            $oldPrice = (int) $package->price_minor;
+            $newPrice = (int) round($hourlyRate * (int) $package->minutes_total / 60);
+
+            DB::transaction(function () use ($package, $hourlyRate, $oldPrice, $newPrice, $actorUserId, $actorRole): void {
+                $invoiceId = $package->invoice_id !== null ? (string) $package->invoice_id : null;
+                $newInvoiceId = $invoiceId;
+
+                if ($invoiceId !== null && $oldPrice > 0) {
+                    $invoice = DB::table('invoices')->where('id', $invoiceId)->lockForUpdate()->first();
+                    $lines = DB::table('invoice_line_items')->where('invoice_id', $invoiceId)->orderBy('created_at')->get();
+                    $scale = static fn (?int $minor): ?int => $minor === null ? null : (int) round($minor * $newPrice / $oldPrice);
+
+                    if ((string) $invoice->status === 'OPEN') {
+                        foreach ($lines as $line) {
+                            $list = $scale($line->list_amount_minor !== null ? (int) $line->list_amount_minor : null);
+                            $discount = (int) $scale((int) $line->discount_minor);
+                            DB::table('invoice_line_items')->where('id', $line->id)->update([
+                                'amount_minor' => $list !== null ? $list - $discount : $scale((int) $line->amount_minor),
+                                'list_amount_minor' => $list,
+                                'discount_minor' => $discount,
+                            ]);
+                        }
+                        $total = (int) DB::table('invoice_line_items')->where('invoice_id', $invoiceId)->sum('amount_minor');
+                        DB::table('invoices')->where('id', $invoiceId)->update(['subtotal_minor' => $total, 'total_minor' => $total, 'updated_at' => now()]);
+                        app(Ledger::class)->afterLinesChanged($invoiceId);
+                    } else {
+                        DB::table('invoices')->where('id', $invoiceId)->update(['status' => 'VOID', 'updated_at' => now()]);
+                        // raiseInvoice() takes each charge before any family discount and applies it again.
+                        $newInvoiceId = $this->raiseInvoice(
+                            (string) $package->academy_id,
+                            (string) $package->student_id,
+                            (string) $package->currency,
+                            $lines->map(fn ($line) => [
+                                'description' => (string) $line->description,
+                                'amount_minor' => (int) $scale((int) ($line->list_amount_minor ?? $line->amount_minor)),
+                            ])->all(),
+                            (string) $package->starts_on,
+                            $actorUserId,
+                            $actorRole,
+                        );
+                        DB::table('lesson_packages')->where('overdraft_invoice_id', $invoiceId)->update(['overdraft_invoice_id' => $newInvoiceId, 'updated_at' => now()]);
+                    }
+                }
+
+                DB::table('lesson_packages')->where('id', $package->id)->update([
+                    'price_minor' => $newPrice,
+                    'hourly_rate_minor' => $hourlyRate,
+                    'invoice_id' => $newInvoiceId,
+                    'updated_at' => now(),
+                ]);
+
+                Audit::log('lesson_package.repriced', 'lesson_package', (string) $package->id, (string) $package->academy_id, $actorUserId, $actorRole,
+                    after: ['price_minor' => $newPrice, 'hourly_rate_minor' => $hourlyRate, 'invoice_id' => $newInvoiceId],
+                    before: ['price_minor' => $oldPrice, 'hourly_rate_minor' => (int) $package->hourly_rate_minor, 'invoice_id' => $package->invoice_id]);
+            });
+
+            $done[] = ['id' => (string) $package->id, 'sequence_no' => (int) $package->sequence_no, 'before_minor' => $oldPrice, 'after_minor' => $newPrice];
+        }
+
+        return $done;
+    }
+
+    /**
      * Park new terms for the NEXT block: kept on the running one as `next_terms`, holding only what
      * differs from it, and read by {@see renew()}. Merged over anything already parked, so two edits
      * in a row both count; terms equal to the running block's drop out (and none left = null).

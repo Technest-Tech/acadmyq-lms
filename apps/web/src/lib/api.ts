@@ -3172,12 +3172,32 @@ export interface SubscriptionInput {
    * paid invoices are never touched.
    */
   reprice_open?: boolean;
+  /**
+   * A package student's new hourly rate also re-prices their UNPAID packages and those bills (the
+   * rate form asks "the old due packages too, or new ones only?"). Off = new packages only.
+   */
+  reprice_packages?: boolean;
 }
 
 /** What a reprice would recalculate (GET /api/students/{id}/subscription/reprice-preview). */
 export interface RepricePreview {
   sessions: number;
   invoices: number;
+  /** A package student's unpaid blocks a new hourly rate could re-price (package.manage only). */
+  packages?: RepriceablePackage[];
+  /** Unpaid blocks that cannot move — money already paid on the bill, or a bill shared with another. */
+  packages_blocked?: Array<RepriceablePackage & { reason: "PARTLY_PAID" | "SHARED_BILL" }>;
+}
+
+export interface RepriceablePackage {
+  id: string;
+  sequence_no: number;
+  label: string;
+  status: string;
+  minutes_total: number;
+  price_minor: number;
+  hourly_rate_minor: number;
+  currency: string;
 }
 
 export interface StudentInput {
@@ -3322,7 +3342,11 @@ export function deleteStudent(
 export function setSubscription(
   studentId: string,
   input: SubscriptionInput,
-): Promise<{ subscriptionId: string; repriced: RepricePreview }> {
+): Promise<{
+  subscriptionId: string;
+  repriced: RepricePreview;
+  repriced_packages?: Array<{ id: string; sequence_no: number; before_minor: number; after_minor: number }>;
+}> {
   return apiFetch(`/api/students/${studentId}/subscription`, {
     method: "PUT",
     body: JSON.stringify(input),

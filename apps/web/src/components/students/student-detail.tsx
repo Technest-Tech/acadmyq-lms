@@ -1150,6 +1150,8 @@ export function SubscriptionSection({
   // them exactly what is at stake before they do.
   const [repriceOpen, setRepriceOpen] = useState(false);
   const [preview, setPreview] = useState<RepricePreview | null>(null);
+  // A package student's new rate: the old unpaid packages too, or new packages only? Asked, never assumed.
+  const [repricePackages, setRepricePackages] = useState<boolean | null>(null);
 
   // Whether the student has a weekly timetable (drives the no-timetable indicator).
   const [hasSchedule, setHasSchedule] = useState<boolean | null>(null);
@@ -1176,12 +1178,18 @@ export function SubscriptionSection({
       monthly.load(sub);
     }
     setRepriceOpen(false);
+    setRepricePackages(null);
     setPreview(null);
     void getRepricePreview(studentId)
       .then(setPreview)
       .catch(() => {});
     setShowSet(true);
   }
+
+  // Only when the rate actually moves on a package student who still owes on a block.
+  const duePackages = preview?.packages ?? [];
+  const askPackages =
+    basis === "PER_PACKAGE" && duePackages.length > 0 && sub !== null && toMinor(price) !== sub.price_minor;
 
   async function save() {
     setSaving(true);
@@ -1200,12 +1208,16 @@ export function SubscriptionSection({
               start_date: startDate,
               // Repricing walks the OPEN monthly invoices, of which a package student has none.
               reprice_open: false,
+              reprice_packages: askPackages && repricePackages === true,
             }
           : { ...monthly.toPayload(), reprice_open: repriceOpen },
       );
       setShowSet(false);
+      const moved = res.repriced_packages ?? [];
       onChanged(
-        res.repriced.sessions > 0
+        moved.length > 0
+          ? t("subscription.repricedPackages", { count: moved.length })
+          : res.repriced.sessions > 0
           ? t("subscription.savedRepriced", {
               sessions: res.repriced.sessions,
               invoices: res.repriced.invoices,
@@ -1386,7 +1398,7 @@ export function SubscriptionSection({
             <Button
               type="button"
               size="sm"
-              disabled={saving}
+              disabled={saving || (askPackages && repricePackages === null)}
               onClick={() => void save()}
               data-testid="save-subscription"
               className="gap-1.5"
@@ -1465,6 +1477,63 @@ export function SubscriptionSection({
           </div>
           ) : (
             <MonthlyTermsFields terms={monthly} idPrefix="sub-edit" />
+          )}
+
+          {/* A package student's new rate and the blocks still owed at the old one: those too, or
+              only the packages opened from now on? Each answer shows exactly what it does. */}
+          {askPackages && (
+            <fieldset className="space-y-2" data-testid="reprice-packages-question">
+              <legend className="mb-1 text-sm font-medium">{t("subscription.repricePackages.question")}</legend>
+              <ul className="bg-muted/40 space-y-1 rounded-xl px-3 py-2 text-xs">
+                {duePackages.map((p) => (
+                  <li key={p.id} className="flex items-center justify-between gap-2" data-testid="reprice-package-line">
+                    <span className="min-w-0 truncate">
+                      {t("subscription.repricePackages.packageNo", { n: p.sequence_no })} · {p.label}
+                    </span>
+                    <span className="shrink-0 font-semibold tabular-nums">
+                      {formatMoney({ amount: p.price_minor, currency: p.currency }, locale)} →{" "}
+                      {formatMoney(
+                        { amount: Math.round((toMinor(price) * p.minutes_total) / 60), currency: p.currency },
+                        locale,
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {[true, false].map((option) => (
+                <label
+                  key={String(option)}
+                  className={cn(
+                    "flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors",
+                    repricePackages === option ? "border-primary bg-primary/5" : "hover:bg-muted/50",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="reprice-packages"
+                    checked={repricePackages === option}
+                    onChange={() => setRepricePackages(option)}
+                    className="accent-primary mt-0.5"
+                    data-testid={option ? "reprice-packages-yes" : "reprice-packages-no"}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">
+                      {t(option ? "subscription.repricePackages.yesTitle" : "subscription.repricePackages.noTitle")}
+                    </span>
+                    <span className="text-muted-foreground block text-xs">
+                      {t(option ? "subscription.repricePackages.yesBody" : "subscription.repricePackages.noBody")}
+                    </span>
+                  </span>
+                </label>
+              ))}
+              {(preview?.packages_blocked ?? []).length > 0 && (
+                <p className="text-muted-foreground text-[11px]">
+                  {t("subscription.repricePackages.blocked", {
+                    packages: (preview?.packages_blocked ?? []).map((p) => `#${p.sequence_no}`).join("، "),
+                  })}
+                </p>
+              )}
+            </fieldset>
           )}
 
           {/* Only offered when there is something to correct: sessions already billed onto an

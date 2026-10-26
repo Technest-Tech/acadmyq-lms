@@ -13,6 +13,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
@@ -366,6 +367,84 @@ it('parks for the next block even when this block\'s bill is already paid', func
     $this->patchJson("/api/packages/{$package['package_id']}", ['price_minor' => 90000, 'applies_to' => 'NEXT'])
         ->assertOk()
         ->assertJsonPath('next_terms', ['price_minor' => 90000]);
+});
+
+// ─── A new hourly rate and the packages already owed ─────────────────────────
+
+/** The rate form's save for a package student: 300/hour, asking (or not) to re-price the unpaid blocks. */
+function newPackageRate($test, int $rateMinor, bool $repricePackages): TestResponse
+{
+    Sanctum::actingAs($test->owner);
+
+    return $test->putJson("/api/students/{$test->student}/subscription", [
+        'plan_label' => 'Hours package',
+        'sessions_per_month' => null,
+        'price_minor' => $rateMinor,
+        'currency' => 'EGP',
+        'price_basis' => 'PER_PACKAGE',
+        'start_date' => '2026-01-01',
+        'reprice_packages' => $repricePackages,
+    ])->assertOk();
+}
+
+it('leaves an unpaid package alone when the new rate is for new packages only', function () {
+    $package = ($this->openPackage)(4, 80000);
+
+    newPackageRate($this, 30000, repricePackages: false)->assertJsonPath('repriced_packages', []);
+
+    $this->asAcademy($this->academy);
+    $row = ($this->packageRow)($package['package_id']);
+    expect((int) $row->price_minor)->toBe(80000)
+        ->and((int) DB::table('invoices')->where('id', $row->invoice_id)->value('total_minor'))->toBe(80000);
+});
+
+it('re-prices an unpaid package and its open bill at the new rate when asked', function () {
+    $package = ($this->openPackage)(4, 80000);
+    Sanctum::actingAs($this->owner);
+    // The form is told, before saving, which blocks a new rate would move.
+    $preview = $this->getJson("/api/students/{$this->student}/subscription/reprice-preview")->assertOk();
+    expect(collect($preview->json('packages'))->pluck('id')->all())->toBe([$package['package_id']]);
+
+    newPackageRate($this, 30000, repricePackages: true)
+        ->assertJsonPath('repriced_packages.0.before_minor', 80000)
+        ->assertJsonPath('repriced_packages.0.after_minor', 120000);
+
+    $this->asAcademy($this->academy);
+    $row = ($this->packageRow)($package['package_id']);
+    expect((int) $row->price_minor)->toBe(120000)
+        ->and((int) $row->hourly_rate_minor)->toBe(30000)
+        ->and((string) $row->invoice_id)->toBe((string) $package['invoice_id'])
+        ->and((int) DB::table('invoices')->where('id', $row->invoice_id)->value('total_minor'))->toBe(120000)
+        ->and((int) DB::table('invoice_line_items')->where('invoice_id', $row->invoice_id)->sum('amount_minor'))->toBe(120000);
+});
+
+it('re-raises a closed unpaid package bill at the new rate, voiding the frozen one', function () {
+    $package = ($this->openPackage)(4, 80000);
+    $this->asAcademy($this->academy);
+    // The month closed: the bill's totals are frozen by the database.
+    DB::table('invoices')->where('id', $package['invoice_id'])->update(['status' => 'CLOSED', 'closed_at' => now()]);
+    $this->clearTenantContext();
+
+    newPackageRate($this, 30000, repricePackages: true)->assertJsonPath('repriced_packages.0.after_minor', 120000);
+
+    $this->asAcademy($this->academy);
+    $row = ($this->packageRow)($package['package_id']);
+    expect(DB::table('invoices')->where('id', $package['invoice_id'])->value('status'))->toBe('VOID')
+        ->and((string) $row->invoice_id)->not->toBe((string) $package['invoice_id'])
+        ->and(DB::table('invoices')->where('id', $row->invoice_id)->value('status'))->toBe('OPEN')
+        ->and((int) DB::table('invoices')->where('id', $row->invoice_id)->value('total_minor'))->toBe(120000);
+});
+
+it('never re-prices a package with money already paid toward its bill', function () {
+    $package = ($this->openPackage)(4, 80000);
+    $this->asAcademy($this->academy);
+    DB::table('invoices')->where('id', $package['invoice_id'])->update(['amount_paid_minor' => 10000, 'status' => 'PARTIALLY_PAID']);
+    $this->clearTenantContext();
+
+    newPackageRate($this, 30000, repricePackages: true)->assertJsonPath('repriced_packages', []);
+
+    $this->asAcademy($this->academy);
+    expect((int) ($this->packageRow)($package['package_id'])->price_minor)->toBe(80000);
 });
 
 it('cancels an unused renewal: its bill is voided and the overdraft goes back to be billed', function () {

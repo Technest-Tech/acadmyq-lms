@@ -1851,7 +1851,17 @@
       "perSessionShort": "/session",
       "modePackage": "Lesson package",
       "onPackages": "On package billing",
-      "onPackagesHint": "The hours are the clock. Open, close and bill blocks on the packages page — the rate here is the default for the next one."
+      "onPackagesHint": "The hours are the clock. Open, close and bill blocks on the packages page — the rate here is the default for the next one.",
+      "repricedPackages": "Saved — {count, plural, one {# unpaid package} other {# unpaid packages}} and their bills moved to the new rate.",
+      "repricePackages": {
+        "question": "There are unpaid packages at the old rate — update them too?",
+        "packageNo": "Package #{n}",
+        "yesTitle": "Yes, update the old due packages too",
+        "yesBody": "The packages above and their bills move to the new rate. A closed bill is voided and re-raised.",
+        "noTitle": "No, the new rate is for new packages only",
+        "noBody": "The packages above keep their old price; the new rate starts with the next package opened.",
+        "blocked": "Won’t change: {packages} — part already paid, or the bill is shared with another package."
+      }
     },
     "teacher": {
       "title": "Teacher",

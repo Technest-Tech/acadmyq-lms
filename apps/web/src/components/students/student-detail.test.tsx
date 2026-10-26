@@ -181,6 +181,58 @@ describe("StudentDetail (Sprint 4 §5.2/5.3)", () => {
     );
   });
 
+  it("asks whether a package student's new rate also re-prices the packages still owed", async () => {
+    vi.mocked(api.getStudent).mockResolvedValue({
+      ...(await api.getStudent("s1")),
+      subscription: {
+        id: "sub1",
+        price_minor: 650,
+        currency: "EGP",
+        price_basis: "PER_PACKAGE",
+        plan_label: "Hours package",
+        sessions_per_month: null,
+        start_date: "2026-06-01",
+      },
+    });
+    vi.mocked(api.getRepricePreview).mockResolvedValue({
+      sessions: 0,
+      invoices: 0,
+      packages: [
+        { id: "p2", sequence_no: 2, label: "6 hours", status: "COMPLETED", minutes_total: 360, price_minor: 3600, hourly_rate_minor: 600, currency: "EGP" },
+      ],
+    });
+    vi.mocked(api.setSubscription).mockResolvedValue({
+      subscriptionId: "sub2",
+      repriced: { sessions: 0, invoices: 0 },
+      repriced_packages: [{ id: "p2", sequence_no: 2, before_minor: 3600, after_minor: 10980 }],
+    });
+    const user = userEvent.setup();
+    renderDetail(["student.set_price", "package.manage"]);
+
+    await user.click(await screen.findByTestId("toggle-set-subscription"));
+    const rate = screen.getByLabelText(enMessages.students.subscription.priceHourly);
+    // Same rate → nothing to ask.
+    expect(screen.queryByTestId("reprice-packages-question")).toBeNull();
+
+    await user.clear(rate);
+    await user.type(rate, "18.3");
+
+    // The old due package, and what it would become at 18.30/hour for its 6 hours.
+    const line = await screen.findByTestId("reprice-package-line");
+    expect(line).toHaveTextContent("36");
+    expect(line).toHaveTextContent("109.8");
+    expect(screen.getByTestId("save-subscription")).toBeDisabled();
+
+    await user.click(screen.getByTestId("reprice-packages-yes"));
+    await user.click(screen.getByTestId("save-subscription"));
+    await waitFor(() =>
+      expect(api.setSubscription).toHaveBeenCalledWith(
+        "s1",
+        expect.objectContaining({ price_basis: "PER_PACKAGE", price_minor: 1830, reprice_packages: true }),
+      ),
+    );
+  });
+
   it("reassigns the teacher (history-preserving close+open)", async () => {
     renderDetail();
     await screen.findByTestId("current-teacher");

@@ -499,6 +499,7 @@ final class StudentController extends Controller
         return response()->json([
             'subscriptionId' => $subId,
             'repriced' => $this->maybeRepriceOpenInvoices($request, $id, $academyId, $subId),
+            'repriced_packages' => $this->maybeRepricePackages($request, $id, $data['price_basis'] ?? null, (int) ($data['price_minor'] ?? 0)),
         ], 200);
     }
 
@@ -511,7 +512,13 @@ final class StudentController extends Controller
     {
         Gate::authorize('student.set_price');
 
-        return response()->json(app(Invoicing::class)->previewOpenInvoiceReprice($id));
+        $packages = app(LessonPackages::class)->unpaidForReprice($id);
+
+        return response()->json(app(Invoicing::class)->previewOpenInvoiceReprice($id) + [
+            // A package student's unpaid blocks a new hourly rate could re-price (the rate form asks).
+            'packages' => Gate::allows('package.manage') ? $packages['packages'] : [],
+            'packages_blocked' => Gate::allows('package.manage') ? $packages['blocked'] : [],
+        ]);
     }
 
     /** PATCH /api/students/{id}/subscription/price — change price (audited, future-only). */
@@ -553,7 +560,26 @@ final class StudentController extends Controller
         return response()->json([
             'ok' => true,
             'repriced' => $this->maybeRepriceOpenInvoices($request, $id, $academyId, (string) $sub->id),
+            'repriced_packages' => $this->maybeRepricePackages($request, $id, $after['price_basis'] ?? $sub->price_basis, (int) $after['price_minor']),
         ]);
+    }
+
+    /**
+     * Opt-in, like {@see maybeRepriceOpenInvoices()}: a package student's new hourly rate re-prices
+     * their UNPAID packages and those packages' bills only when the caller says so (`reprice_packages`)
+     * — the rate form asks "also the old due packages, or only new ones?". Otherwise the new rate
+     * only prices blocks opened from now on.
+     *
+     * @return list<array{id:string, sequence_no:int, before_minor:int, after_minor:int}>
+     */
+    private function maybeRepricePackages(Request $request, string $studentId, ?string $basis, int $hourlyRate): array
+    {
+        if (! $request->boolean('reprice_packages') || $basis !== LessonPackages::BASIS || $hourlyRate <= 0) {
+            return [];
+        }
+        Gate::authorize('package.manage');
+
+        return app(LessonPackages::class)->repriceUnpaid($studentId, $hourlyRate, $this->ctx()->userId, $this->ctx()->role);
     }
 
     /**
