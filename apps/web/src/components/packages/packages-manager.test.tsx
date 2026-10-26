@@ -306,7 +306,7 @@ describe("PackagesManager", () => {
 
     renderManager(["invoice.mark_paid"], "due");
 
-    const cards = await screen.findAllByTestId("package-card");
+    const cards = await screen.findAllByTestId("due-package-row");
     expect(cards.map((c) => within(c).getByRole("button", { name: /Sara|Mona/ }).textContent)).toEqual([
       "Sara",
       "Mona",
@@ -314,7 +314,7 @@ describe("PackagesManager", () => {
     // Arabic dual: "باقتان" carries the two, no digit needed.
     expect(screen.getByTestId("due-count")).toHaveTextContent("باقتان بانتظار الدفع");
     expect(screen.getByText(/5,500|٥٬٥٠٠/)).toBeInTheDocument();
-    // Each card leads with Mark as paid.
+    // Each line leads with Mark as paid.
     expect(within(cards[0]!).getByTestId("mark-package-paid")).toBeInTheDocument();
   });
 
@@ -366,7 +366,7 @@ describe("PackagesManager", () => {
     expect(families.map((f) => f.textContent)).toEqual(["Hassan", "Ali"]);
 
     const hassan = screen.getByTestId("due-family-g-hassan");
-    expect(within(hassan).getAllByTestId("package-card")).toHaveLength(2);
+    expect(within(hassan).getAllByTestId("due-package-row")).toHaveLength(2);
     expect(hassan).toHaveTextContent("Yusuf، Maryam");
     expect(within(hassan).getByTestId("due-family-total").textContent).toContain(
       formatMoney({ amount: 100000, currency: "EGP" }, "ar"),

@@ -81,29 +81,9 @@ export function isPackagePaid(row: LessonPackageRow): boolean {
   );
 }
 
-/** A compact operational card: balance, lesson count, dates and collection actions. */
-export function PackageCard({
-  row,
-  timezone,
-  onOpenDetail,
-  onEdit,
-  onClose,
-  onBillOverdraft,
-  onSyncLessons,
-  onSendPayment,
-  onMarkPaid,
-  onRenew,
-  onReturnToMonthly,
-  onRemind,
-  canManage,
-  canSendInvoice,
-  canMarkPaid,
-  syncing,
-  sendingPayment,
-  reminding,
-}: {
+/** Everything a package's actions need from the page around it — the card and the Due page's rows. */
+export interface PackageActionProps {
   row: LessonPackageRow;
-  timezone: string;
   onOpenDetail: () => void;
   onEdit: () => void;
   onClose: () => void;
@@ -123,10 +103,13 @@ export function PackageCard({
   syncing: boolean;
   sendingPayment: boolean;
   reminding: boolean;
-}) {
+}
+
+/** A compact operational card: balance, lesson count, dates and collection actions. */
+export function PackageCard(props: PackageActionProps & { timezone: string }) {
+  const { row, timezone, onOpenDetail } = props;
   const t = useTranslations("packages");
   const locale = useLocale();
-  const [copied, setCopied] = useState(false);
 
   const isActive = row.status === "ACTIVE";
   const low = isActive && row.minutes_remaining <= 60;
@@ -143,145 +126,8 @@ export function PackageCard({
   // Something to remind the payer about: money due on this block, or a finished block with no
   // next one. The reminder history shows whenever there is one, even once it is settled.
   const remindable = owes || row.awaiting_next_package;
-  const strandedOverdraft = hasStrandedOverdraft(row);
   // The package before this one, by number — what a renewal and an absorbed overdraft came from.
   const previousNo = row.sequence_no - 1;
-  const invoiceUrl = useInvoiceUrl();
-  const paymentUrl = row.invoice_token !== null ? invoiceUrl(row.invoice_token) : null;
-
-  async function copyPaymentLink() {
-    if (paymentUrl === null) return;
-    await navigator.clipboard.writeText(paymentUrl);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
-  }
-
-  /**
-   * Every action this card offers, in the order they matter for THIS package's state. The first
-   * two are buttons; the rest sit behind "⋯". It used to be up to eleven buttons at once, which
-   * buried the one that mattered (collect what's owed) among the ones that almost never do (sync,
-   * copy link). A finished package is a payment to collect, so "Mark as paid" leads, and once it
-   * is paid the receipt does.
-   */
-  const actions: CardAction[] = [];
-  const add = (when: boolean, action: CardAction) => {
-    if (when) actions.push(action);
-  };
-  const hasInvoice = row.invoice_id !== null;
-
-  add(canMarkPaid && hasInvoice && owes, {
-    key: "markPaid",
-    icon: BadgeCheck,
-    label: t("actions.markPaid"),
-    onClick: onMarkPaid,
-    testId: "mark-package-paid",
-  });
-  add(canSendInvoice && remindable, {
-    key: "remind",
-    icon: reminding ? Loader2 : BellRing,
-    label: t("actions.remind"),
-    onClick: onRemind,
-    disabled: reminding,
-    spin: reminding,
-    testId: "remind-package",
-  });
-  add(row.payment_proof_url !== null, {
-    key: "viewProof",
-    icon: FileImage,
-    label: t("actions.viewProof"),
-    external: `${apiBase()}${row.payment_proof_url}`,
-    testId: "package-receipt",
-  });
-  add(canManage && row.awaiting_next_package, {
-    key: "renew",
-    icon: Plus,
-    label: t("actions.renew"),
-    onClick: onRenew,
-    testId: "renew-package",
-  });
-  add(true, {
-    key: "viewLessons",
-    icon: BookOpenCheck,
-    label: t("actions.viewLessons"),
-    onClick: onOpenDetail,
-  });
-  add(hasInvoice, {
-    key: "viewInvoice",
-    icon: Receipt,
-    label: t("actions.viewInvoice"),
-    href: `/invoices?id=${row.invoice_id}`,
-  });
-  add(canSendInvoice && hasInvoice && !owes, {
-    key: "sendPaymentPaid",
-    icon: sendingPayment ? Loader2 : MessageCircle,
-    label: t("actions.sendPayment"),
-    onClick: onSendPayment,
-    disabled: sendingPayment,
-    spin: sendingPayment,
-  });
-  if (paymentUrl !== null) {
-    actions.push(
-      {
-        key: "paymentLink",
-        icon: ExternalLink,
-        label: t("actions.paymentLink"),
-        external: paymentUrl,
-      },
-      {
-        key: "copyLink",
-        icon: Copy,
-        label: t("actions.copyLink"),
-        onClick: () => void copyPaymentLink(),
-      },
-    );
-  }
-  if (canManage && isActive) {
-    actions.push(
-      {
-        key: "edit",
-        icon: Pencil,
-        label: t("actions.edit"),
-        onClick: onEdit,
-        testId: "edit-package",
-      },
-      {
-        key: "sync",
-        icon: syncing ? Loader2 : RefreshCw,
-        label: t("actions.syncLessons"),
-        onClick: onSyncLessons,
-        disabled: syncing,
-        spin: syncing,
-      },
-      {
-        key: "close",
-        icon: Link2,
-        label: t("actions.close"),
-        onClick: onClose,
-        testId: "close-package",
-      },
-    );
-  }
-  add(canManage && row.awaiting_next_package, {
-    key: "toMonthly",
-    icon: ArrowLeftRight,
-    label: t("actions.toMonthly"),
-    onClick: onReturnToMonthly,
-    testId: "package-to-monthly",
-  });
-  // Extra hours are normally taken off the NEXT package, so there is nothing to bill. This is
-  // only for the dead end where no next package will ever come (the student went monthly, or
-  // the renewal was cancelled) — last in the menu, never a headline button.
-  add(canManage && !isActive && strandedOverdraft && !row.awaiting_next_package, {
-    key: "billOverdraft",
-    icon: AlertTriangle,
-    label: t("actions.billOverdraft"),
-    onClick: onBillOverdraft,
-    danger: true,
-    testId: "bill-overdraft",
-  });
-
-  const featured = actions.slice(0, 2);
-  const overflow = actions.slice(2);
 
   return (
     <article
@@ -660,41 +506,215 @@ export function PackageCard({
           </p>
         )}
 
-        <div className="mt-auto flex items-stretch gap-1.5 border-t pt-3">
-          {featured.map((action, i) => (
-            <ActionChip
-              key={action.key}
-              action={action}
-              tone={action.danger ? "danger" : i === 0 ? "primary" : "neutral"}
-            />
-          ))}
-          {overflow.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger>
-                <button
-                  type="button"
-                  aria-label={copied ? t("actions.copied") : t("actions.more")}
-                  title={copied ? t("actions.copied") : t("actions.more")}
-                  data-testid="package-card-menu"
-                  className={cn(actionClass(), "w-9 shrink-0 px-0")}
-                >
-                  {copied ? (
-                    <Check className="size-4 text-emerald-600" aria-hidden />
-                  ) : (
-                    <MoreHorizontal className="size-4" aria-hidden />
-                  )}
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                {overflow.map((action) => (
-                  <MenuAction key={action.key} action={action} />
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
+        <PackageActions {...props} className="mt-auto border-t pt-3" />
       </div>
     </article>
+  );
+}
+
+/**
+ * A package's actions, in the order they matter for its state: the first `featuredCount` as
+ * buttons, the rest behind "⋯". Shared by the full card and the Due page's compact rows, so the two
+ * can never offer different things for the same package.
+ */
+export function PackageActions({
+  featuredCount = 2,
+  className,
+  row,
+  onOpenDetail,
+  onEdit,
+  onClose,
+  onBillOverdraft,
+  onSyncLessons,
+  onSendPayment,
+  onMarkPaid,
+  onRenew,
+  onReturnToMonthly,
+  onRemind,
+  canManage,
+  canSendInvoice,
+  canMarkPaid,
+  syncing,
+  sendingPayment,
+  reminding,
+}: PackageActionProps & { featuredCount?: number; className?: string }) {
+  const t = useTranslations("packages");
+  const [copied, setCopied] = useState(false);
+  const isActive = row.status === "ACTIVE";
+  const owes = row.outstanding_minor > 0;
+  const remindable = owes || row.awaiting_next_package;
+  const strandedOverdraft = hasStrandedOverdraft(row);
+  const invoiceUrl = useInvoiceUrl();
+  const paymentUrl = row.invoice_token !== null ? invoiceUrl(row.invoice_token) : null;
+
+  async function copyPaymentLink() {
+    if (paymentUrl === null) return;
+    await navigator.clipboard.writeText(paymentUrl);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  }
+
+  /**
+   * Every action this card offers, in the order they matter for THIS package's state. The first
+   * two are buttons; the rest sit behind "⋯". It used to be up to eleven buttons at once, which
+   * buried the one that mattered (collect what's owed) among the ones that almost never do (sync,
+   * copy link). A finished package is a payment to collect, so "Mark as paid" leads, and once it
+   * is paid the receipt does.
+   */
+  const actions: CardAction[] = [];
+  const add = (when: boolean, action: CardAction) => {
+    if (when) actions.push(action);
+  };
+  const hasInvoice = row.invoice_id !== null;
+
+  add(canMarkPaid && hasInvoice && owes, {
+    key: "markPaid",
+    icon: BadgeCheck,
+    label: t("actions.markPaid"),
+    onClick: onMarkPaid,
+    testId: "mark-package-paid",
+  });
+  add(canSendInvoice && remindable, {
+    key: "remind",
+    icon: reminding ? Loader2 : BellRing,
+    label: t("actions.remind"),
+    onClick: onRemind,
+    disabled: reminding,
+    spin: reminding,
+    testId: "remind-package",
+  });
+  add(row.payment_proof_url !== null, {
+    key: "viewProof",
+    icon: FileImage,
+    label: t("actions.viewProof"),
+    external: `${apiBase()}${row.payment_proof_url}`,
+    testId: "package-receipt",
+  });
+  add(canManage && row.awaiting_next_package, {
+    key: "renew",
+    icon: Plus,
+    label: t("actions.renew"),
+    onClick: onRenew,
+    testId: "renew-package",
+  });
+  add(true, {
+    key: "viewLessons",
+    icon: BookOpenCheck,
+    label: t("actions.viewLessons"),
+    onClick: onOpenDetail,
+  });
+  add(hasInvoice, {
+    key: "viewInvoice",
+    icon: Receipt,
+    label: t("actions.viewInvoice"),
+    href: `/invoices?id=${row.invoice_id}`,
+  });
+  add(canSendInvoice && hasInvoice && !owes, {
+    key: "sendPaymentPaid",
+    icon: sendingPayment ? Loader2 : MessageCircle,
+    label: t("actions.sendPayment"),
+    onClick: onSendPayment,
+    disabled: sendingPayment,
+    spin: sendingPayment,
+  });
+  if (paymentUrl !== null) {
+    actions.push(
+      {
+        key: "paymentLink",
+        icon: ExternalLink,
+        label: t("actions.paymentLink"),
+        external: paymentUrl,
+      },
+      {
+        key: "copyLink",
+        icon: Copy,
+        label: t("actions.copyLink"),
+        onClick: () => void copyPaymentLink(),
+      },
+    );
+  }
+  if (canManage && isActive) {
+    actions.push(
+      {
+        key: "edit",
+        icon: Pencil,
+        label: t("actions.edit"),
+        onClick: onEdit,
+        testId: "edit-package",
+      },
+      {
+        key: "sync",
+        icon: syncing ? Loader2 : RefreshCw,
+        label: t("actions.syncLessons"),
+        onClick: onSyncLessons,
+        disabled: syncing,
+        spin: syncing,
+      },
+      {
+        key: "close",
+        icon: Link2,
+        label: t("actions.close"),
+        onClick: onClose,
+        testId: "close-package",
+      },
+    );
+  }
+  add(canManage && row.awaiting_next_package, {
+    key: "toMonthly",
+    icon: ArrowLeftRight,
+    label: t("actions.toMonthly"),
+    onClick: onReturnToMonthly,
+    testId: "package-to-monthly",
+  });
+  // Extra hours are normally taken off the NEXT package, so there is nothing to bill. This is
+  // only for the dead end where no next package will ever come (the student went monthly, or
+  // the renewal was cancelled) — last in the menu, never a headline button.
+  add(canManage && !isActive && strandedOverdraft && !row.awaiting_next_package, {
+    key: "billOverdraft",
+    icon: AlertTriangle,
+    label: t("actions.billOverdraft"),
+    onClick: onBillOverdraft,
+    danger: true,
+    testId: "bill-overdraft",
+  });
+
+  const featured = actions.slice(0, featuredCount);
+  const overflow = actions.slice(featuredCount);
+
+  return (
+    <div className={cn("flex items-stretch gap-1.5", className)}>
+      {featured.map((action, i) => (
+        <ActionChip
+          key={action.key}
+          action={action}
+          tone={action.danger ? "danger" : i === 0 ? "primary" : "neutral"}
+        />
+      ))}
+      {overflow.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger>
+            <button
+              type="button"
+              aria-label={copied ? t("actions.copied") : t("actions.more")}
+              title={copied ? t("actions.copied") : t("actions.more")}
+              data-testid="package-card-menu"
+              className={cn(actionClass(), "w-9 shrink-0 px-0")}
+            >
+              {copied ? (
+                <Check className="size-4 text-emerald-600" aria-hidden />
+              ) : (
+                <MoreHorizontal className="size-4" aria-hidden />
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            {overflow.map((action) => (
+              <MenuAction key={action.key} action={action} />
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
   );
 }
 

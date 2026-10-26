@@ -1,11 +1,13 @@
 "use client";
 
-import { CircleDollarSign, MessageSquare, Users } from "lucide-react";
+import { AlertTriangle, BellRing, MessageSquare } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
-import { Button } from "@/components/ui/button";
+import { PackageActions, type PackageActionProps } from "@/components/packages/package-card";
 import type { LessonPackageRow } from "@/lib/api";
-import { formatMoney } from "@/lib/money";
+import { formatMoney, formatNumber } from "@/lib/money";
+import { formatDateTime, formatHours } from "@/lib/time";
+import { cn } from "@/lib/utils";
 
 /** One family on the Due page: a parent and every package their children still owe on. */
 export interface DueFamily {
@@ -52,24 +54,39 @@ function owed(rows: LessonPackageRow[]): { currency: string; amount_minor: numbe
   return [...by.entries()].map(([currency, amount_minor]) => ({ currency, amount_minor }));
 }
 
+function initials(name: string): string {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0] ?? "")
+      .join("")
+      .toUpperCase() || "?"
+  );
+}
+
 /**
- * A family's card on the Due page: the parent's name, their children, what the family owes in
- * total, and one WhatsApp message carrying every child's payment link. Each package keeps its own
- * bill — paying a link still marks exactly that package paid — the family just hears about them
- * together. The packages' own cards sit inside, actions and all.
+ * A family's card on the Due page — sized to sit three across, not to fill the page. The parent's
+ * name and what the family owes in total lead; each child's package is one line under it (name,
+ * package, amount, the leading action and "⋯" — the same actions the full card offers); one
+ * WhatsApp message at the foot carries every child's payment link. Each package keeps its own
+ * bill, so paying a link still marks exactly that package paid.
  */
 export function FamilyDueGroup({
   family,
+  timezone,
   canSendInvoice,
+  actionProps,
   onMessageOpened,
-  children,
 }: {
   family: DueFamily;
+  timezone: string;
   canSendInvoice: boolean;
+  actionProps: (row: LessonPackageRow) => PackageActionProps;
   onMessageOpened: () => void;
-  children: React.ReactNode;
 }) {
-  const t = useTranslations("packages.family");
+  const t = useTranslations("packages");
   const locale = useLocale();
   const invoiceUrl = useInvoiceUrl();
   const totals = owed(family.rows);
@@ -78,16 +95,16 @@ export function FamilyDueGroup({
 
   function sendFamilyMessage() {
     const lines = [
-      t("messageGreeting", { name: family.name }),
-      t("messageIntro"),
+      t("family.messageGreeting", { name: family.name }),
+      t("family.messageIntro"),
       "",
       ...payable.flatMap((r) => [
-        t("messageLine", { child: r.student_name, label: r.label, amount: money(r.outstanding_minor, r.currency) }),
+        t("family.messageLine", { child: r.student_name, label: r.label, amount: money(r.outstanding_minor, r.currency) }),
         invoiceUrl(r.invoice_token as string),
       ]),
       "",
-      t("messageTotal", { total: owed(payable).map((o) => money(o.amount_minor, o.currency)).join(" + ") }),
-      t("messageOutro"),
+      t("family.messageTotal", { total: owed(payable).map((o) => money(o.amount_minor, o.currency)).join(" + ") }),
+      t("family.messageOutro"),
     ];
     const text = encodeURIComponent(lines.join("\n"));
     const digits = (family.phone ?? "").replace(/\D+/g, "");
@@ -96,42 +113,142 @@ export function FamilyDueGroup({
   }
 
   return (
-    <section className="bg-card overflow-hidden rounded-2xl border shadow-sm" data-testid={`due-family-${family.key}`}>
-      <div className="flex flex-col gap-3 border-b bg-rose-500/[0.04] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
-            <Users className="size-5" aria-hidden />
-          </span>
-          <div className="min-w-0">
-            <p className="text-muted-foreground text-xs font-medium">{t("guardian")}</p>
-            <h3 className="font-semibold break-words" data-testid="due-family-name">
-              {family.name}
-            </h3>
-            <p className="text-muted-foreground mt-0.5 text-sm break-words">
-              {t("children", { count: family.children.length, names: family.children.join("، ") })}
-            </p>
-          </div>
+    <article
+      className="bg-card flex min-w-0 flex-col overflow-hidden rounded-2xl border border-rose-200/70 shadow-sm dark:border-rose-900/50"
+      data-testid={`due-family-${family.key}`}
+    >
+      <header className="flex items-start gap-3 bg-gradient-to-br from-rose-500/[0.09] via-rose-500/[0.03] to-transparent px-4 py-3">
+        <span
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-rose-600 text-xs font-bold text-white shadow-sm"
+          aria-hidden
+        >
+          {initials(family.name)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-sm font-bold" data-testid="due-family-name" title={family.name}>
+            {family.name}
+          </h3>
+          <p className="text-muted-foreground truncate text-xs" title={family.children.join("، ")}>
+            {t("family.children", { count: family.children.length, names: family.children.join("، ") })}
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {totals.map((o) => (
-            <span
-              key={o.currency}
-              className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 px-3 py-1 text-xs font-bold text-white tabular-nums shadow-sm"
-              data-testid="due-family-total"
-            >
-              <CircleDollarSign className="size-3.5" aria-hidden />
-              {t("total", { amount: money(o.amount_minor, o.currency) })}
-            </span>
-          ))}
-          {canSendInvoice && payable.length > 0 && (
-            <Button type="button" size="sm" variant="outline" onClick={sendFamilyMessage} data-testid="due-family-send">
-              <MessageSquare className="size-3.5" aria-hidden />
-              {payable.length > 1 ? t("sendAll", { count: payable.length }) : t("sendOne")}
-            </Button>
+        <div className="shrink-0 text-end">
+          <p className="text-muted-foreground text-[10px] font-medium">{t("family.totalLabel")}</p>
+          {totals.length === 0 ? (
+            <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{t("family.notBilled")}</p>
+          ) : (
+            totals.map((o) => (
+              <p
+                key={o.currency}
+                className="text-base leading-tight font-extrabold text-rose-600 tabular-nums dark:text-rose-400"
+                data-testid="due-family-total"
+              >
+                {money(o.amount_minor, o.currency)}
+              </p>
+            ))
           )}
         </div>
+      </header>
+
+      <ul className="flex-1 divide-y border-t">
+        {family.rows.map((row) => (
+          <DueRow key={row.id} row={row} timezone={timezone} actions={actionProps(row)} />
+        ))}
+      </ul>
+
+      {canSendInvoice && payable.length > 0 && (
+        <button
+          type="button"
+          onClick={sendFamilyMessage}
+          className="text-primary hover:bg-primary/5 flex items-center justify-center gap-1.5 border-t px-3 py-2 text-xs font-semibold transition-colors"
+          data-testid="due-family-send"
+        >
+          <MessageSquare className="size-3.5" aria-hidden />
+          {payable.length > 1 ? t("family.sendAll", { count: payable.length }) : t("family.sendOne")}
+        </button>
+      )}
+    </article>
+  );
+}
+
+/** One child's package inside a family card: who, which block, what it owes, and what to do. */
+function DueRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: string; actions: PackageActionProps }) {
+  const t = useTranslations("packages");
+  const locale = useLocale();
+  const owes = row.outstanding_minor > 0;
+  const unbilled = row.invoice_id === null && row.minutes_consumed > 0;
+  const days = Math.max(0, Math.floor((Date.now() - new Date(row.created_at).getTime()) / 86_400_000));
+
+  return (
+    <li className="px-4 py-2.5" data-testid="due-package-row">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={actions.onOpenDetail}
+            className="hover:text-primary block max-w-full truncate text-start text-sm font-semibold transition-colors"
+          >
+            {row.student_name}
+          </button>
+          <div className="text-muted-foreground mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px]">
+            <span className="bg-foreground text-background shrink-0 rounded px-1 py-px text-[10px] font-extrabold tabular-nums">
+              #{formatNumber(row.sequence_no, locale)}
+            </span>
+            <span className="truncate">{row.label}</span>
+            {row.subject && (
+              <span className="shrink-0 rounded bg-violet-500/10 px-1 py-px text-[10px] font-semibold text-violet-700 dark:text-violet-300">
+                {row.subject.course ?? row.subject.teacher_name}
+              </span>
+            )}
+            <span className="shrink-0">
+              · {t(`status.${row.status}`)}
+              {row.status === "ACTIVE" && ` ${formatNumber(row.percent_used, locale)}%`}
+            </span>
+          </div>
+        </div>
+        <div className="shrink-0 text-end">
+          <p
+            className={cn(
+              "text-sm font-bold tabular-nums",
+              owes ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400",
+            )}
+          >
+            {owes
+              ? formatMoney({ amount: row.outstanding_minor, currency: row.currency }, locale)
+              : unbilled
+                ? t("family.notBilled")
+                : t("card.overdrawn", { over: formatHours(row.minutes_overdrawn, locale) })}
+          </p>
+          <p className="text-muted-foreground text-[10px]">
+            {new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day")}
+          </p>
+        </div>
       </div>
-      <div className="grid grid-cols-1 items-stretch gap-3 p-3 sm:grid-cols-2 xl:grid-cols-4">{children}</div>
-    </section>
+
+      <div className="mt-1.5 flex items-center justify-between gap-2">
+        <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-[10px]">
+          {row.reminders_sent > 0 && row.last_reminded_at !== null && (
+            <span
+              className="inline-flex min-w-0 items-center gap-1 text-sky-700 dark:text-sky-300"
+              title={t("card.reminders", {
+                count: row.reminders_sent,
+                n: formatNumber(row.reminders_sent, locale),
+                date: formatDateTime(row.last_reminded_at, timezone, locale),
+              })}
+            >
+              <BellRing className="size-3 shrink-0" aria-hidden />
+              <span className="truncate">{t("family.reminded", { count: row.reminders_sent })}</span>
+            </span>
+          )}
+          {row.gap !== null && (
+            <span className="inline-flex min-w-0 items-center gap-1 font-semibold text-rose-600 dark:text-rose-400" title={t("card.gapTitle")}>
+              <AlertTriangle className="size-3 shrink-0" aria-hidden />
+              <span className="truncate">{t("card.gapTitle")}</span>
+            </span>
+          )}
+        </div>
+        <PackageActions {...actions} featuredCount={1} className="shrink-0" />
+      </div>
+    </li>
   );
 }

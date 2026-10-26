@@ -3033,16 +3033,17 @@
     },
     "emptyDue": "لا مستحقات. كل الباقات مدفوعة.",
     "family": {
-      "guardian": "ولي الأمر",
       "children": "{count, plural, one {الابن: {names}} other {الأبناء: {names}}}",
-      "total": "المستحق {amount}",
       "sendOne": "إرسال رابط الدفع",
       "sendAll": "إرسال الروابط ({count}) في رسالة واحدة",
       "messageGreeting": "السلام عليكم {name}،",
       "messageIntro": "هذه المبالغ المستحقة على أبنائكم:",
       "messageLine": "• {child} — {label}: {amount}",
       "messageTotal": "الإجمالي: {total}",
-      "messageOutro": "يمكنكم الدفع من رابط كل واحد. شكرًا لكم."
+      "messageOutro": "يمكنكم الدفع من رابط كل واحد. شكرًا لكم.",
+      "totalLabel": "المستحق",
+      "notBilled": "بلا فاتورة بعد",
+      "reminded": "{count, plural, one {تذكير واحد} two {تذكيران} few {# تذكيرات} many {# تذكيرًا} other {# تذكير}}"
     }
   },
   "attendance": {

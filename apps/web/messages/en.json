@@ -3033,16 +3033,17 @@
     },
     "emptyDue": "Nothing due. Every package is paid for.",
     "family": {
-      "guardian": "Guardian",
       "children": "{count, plural, one {Child: {names}} other {Children: {names}}}",
-      "total": "Due {amount}",
       "sendOne": "Send payment link",
       "sendAll": "Send all {count} links in one message",
       "messageGreeting": "Hello {name},",
       "messageIntro": "Here is what is due for your children:",
       "messageLine": "• {child} — {label}: {amount}",
       "messageTotal": "Total: {total}",
-      "messageOutro": "You can pay from each link. Thank you."
+      "messageOutro": "You can pay from each link. Thank you.",
+      "totalLabel": "Due",
+      "notBilled": "Not billed yet",
+      "reminded": "{count, plural, one {# reminder} other {# reminders}}"
     }
   },
   "attendance": {

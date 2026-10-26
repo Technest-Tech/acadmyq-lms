@@ -21,6 +21,7 @@ import { OpenPackageForm } from "@/components/packages/open-package-form";
 import {
   isPackagePaid,
   PackageCard,
+  type PackageActionProps,
 } from "@/components/packages/package-card";
 import { PackageDetail } from "@/components/packages/package-detail";
 import { AlertBanner } from "@/components/ui/alert";
@@ -347,29 +348,26 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
     }
   }
 
-  const renderCard = (row: LessonPackageRow) => (
-    <PackageCard
-      key={row.id}
-      row={row}
-      timezone={timezone}
-      canManage={canManage}
-      canSendInvoice={canSendInvoice}
-      canMarkPaid={canMarkPaid}
-      syncing={syncingId === row.id}
-      sendingPayment={sendingId === row.id}
-      reminding={remindingId === row.id}
-      onRemind={() => void remind(row)}
-      onOpenDetail={() => setModal({ kind: "detail", row })}
-      onEdit={() => setModal({ kind: "edit", row })}
-      onClose={() => setModal({ kind: "close", row })}
-      onBillOverdraft={() => void billOverdraft(row)}
-      onSyncLessons={() => void syncLessons(row)}
-      onSendPayment={() => void sendPayment(row)}
-      onMarkPaid={() => setModal({ kind: "markPaid", row })}
-      onRenew={() => setModal({ kind: "open", studentId: row.student_id })}
-      onReturnToMonthly={() => setModal({ kind: "toMonthly", row })}
-    />
-  );
+  /** What a package's actions need from this page — the full card and the Due page's rows alike. */
+  const actionProps = (row: LessonPackageRow): PackageActionProps => ({
+    row,
+    canManage,
+    canSendInvoice,
+    canMarkPaid,
+    syncing: syncingId === row.id,
+    sendingPayment: sendingId === row.id,
+    reminding: remindingId === row.id,
+    onRemind: () => void remind(row),
+    onOpenDetail: () => setModal({ kind: "detail", row }),
+    onEdit: () => setModal({ kind: "edit", row }),
+    onClose: () => setModal({ kind: "close", row }),
+    onBillOverdraft: () => void billOverdraft(row),
+    onSyncLessons: () => void syncLessons(row),
+    onSendPayment: () => void sendPayment(row),
+    onMarkPaid: () => setModal({ kind: "markPaid", row }),
+    onRenew: () => setModal({ kind: "open", studentId: row.student_id }),
+    onReturnToMonthly: () => setModal({ kind: "toMonthly", row }),
+  });
 
   return (
     <div className="space-y-5">
@@ -561,23 +559,26 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           </p>
         )}
 
-        {/* Due: the family is who pays, so a parent's children sit under one card with the total. */}
+        {/* Due: the family is who pays — one compact card per parent, each child's package a line in
+            it, three across so a page of debts fits on a screen. */}
         {view === "due" ? (
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-2 xl:grid-cols-3">
             {groupDueByFamily(visible).map((family) => (
               <FamilyDueGroup
                 key={family.key}
                 family={family}
+                timezone={timezone}
                 canSendInvoice={canSendInvoice}
+                actionProps={actionProps}
                 onMessageOpened={() => showAlert("success", t("alerts.paymentReady"))}
-              >
-                {family.rows.map(renderCard)}
-              </FamilyDueGroup>
+              />
             ))}
           </div>
         ) : (
           <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {visible.map(renderCard)}
+            {visible.map((row) => (
+              <PackageCard key={row.id} timezone={timezone} {...actionProps(row)} />
+            ))}
           </div>
         )}
       </div>
