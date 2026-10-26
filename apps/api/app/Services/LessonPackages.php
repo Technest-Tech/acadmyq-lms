@@ -1120,11 +1120,24 @@ final class LessonPackages
      * refuses rather than let the package and the bill quietly disagree. While the invoice is
      * still OPEN and untouched, its package line moves with the package.
      *
+     * `$nextOnly` answers the question the edit form asks when the block renews itself: do the new
+     * label / hours / price apply to THIS block (and so, through the renewal, to the next ones), or
+     * only from the next renewal? Next-only parks them in `next_terms` ({@see setNextTerms()}): the
+     * running block and its bill are left exactly as they are, so none of the bill's edges apply.
+     * The expiry and the renewal switch are always about this block.
+     *
      * @param  array{label?:string, minutes_total?:int, price_minor?:int, expires_on?:?string, auto_renew?:bool}  $changes
-     * @return array{changed: list<string>, invoice_id: ?string}
+     * @return array{changed: list<string>, invoice_id: ?string, next_terms?: ?array<string,mixed>}
      */
-    public function edit(string $packageId, array $changes, ?string $actorUserId, ?string $actorRole): array
+    public function edit(string $packageId, array $changes, ?string $actorUserId, ?string $actorRole, bool $nextOnly = false): array
     {
+        if ($nextOnly) {
+            $terms = array_intersect_key($changes, array_flip(['label', 'minutes_total', 'price_minor']));
+            $result = $this->edit($packageId, array_diff_key($changes, $terms), $actorUserId, $actorRole);
+
+            return $result + ['next_terms' => $this->setNextTerms($packageId, $terms, $actorUserId, $actorRole)];
+        }
+
         $package = DB::table('lesson_packages')->where('id', $packageId)->first();
 
         if ($package === null) {
@@ -1219,7 +1232,10 @@ final class LessonPackages
                 );
             }
 
-            DB::table('lesson_packages')->where('id', $packageId)->update($after + ['updated_at' => now()]);
+            // New terms on this block are the terms the renewal copies — anything parked for "the
+            // next one" is superseded by them.
+            $termsMoved = array_intersect_key($after, array_flip(['label', 'minutes_total', 'price_minor'])) !== [];
+            DB::table('lesson_packages')->where('id', $packageId)->update($after + ['updated_at' => now()] + ($termsMoved ? ['next_terms' => null] : []));
 
             Audit::log(
                 'lesson_package.edited',
@@ -1234,6 +1250,41 @@ final class LessonPackages
         });
 
         return ['changed' => array_keys($after), 'invoice_id' => $invoiceId];
+    }
+
+    /**
+     * Park new terms for the NEXT block: kept on the running one as `next_terms`, holding only what
+     * differs from it, and read by {@see renew()}. Merged over anything already parked, so two edits
+     * in a row both count; terms equal to the running block's drop out (and none left = null).
+     *
+     * @param  array{label?:string, minutes_total?:int, price_minor?:int}  $terms
+     * @return ?array<string,mixed> what is parked now
+     */
+    private function setNextTerms(string $packageId, array $terms, ?string $actorUserId, ?string $actorRole): ?array
+    {
+        $package = DB::table('lesson_packages')->where('id', $packageId)->first();
+        if ($package === null) {
+            return null;
+        }
+
+        $before = $package->next_terms !== null ? (array) json_decode((string) $package->next_terms, true) : [];
+        $next = array_merge($before, array_map(fn ($v) => is_string($v) ? trim($v) : (int) $v, $terms));
+        $next = array_filter($next, fn ($v, $k) => (string) $v !== (string) $package->{$k}, ARRAY_FILTER_USE_BOTH);
+        if (isset($next['minutes_total']) && (int) $next['minutes_total'] < 30) {
+            throw ValidationException::withMessages(['hours' => ['A package is at least half an hour. / الباقة نصف ساعة على الأقل.']]);
+        }
+        $next = $next === [] ? null : $next;
+
+        if ($next !== ($before === [] ? null : $before)) {
+            DB::table('lesson_packages')->where('id', $packageId)->update([
+                'next_terms' => $next === null ? null : json_encode($next),
+                'updated_at' => now(),
+            ]);
+            Audit::log('lesson_package.next_terms_set', 'lesson_package', $packageId, (string) $package->academy_id, $actorUserId, $actorRole,
+                after: ['next_terms' => $next], before: ['next_terms' => $before === [] ? null : $before]);
+        }
+
+        return $next;
     }
 
     /**
@@ -1497,7 +1548,8 @@ final class LessonPackages
 
     /**
      * Open the next block on the finished one's terms — same label, hours, price, currency and
-     * billing moment, from today, for the same length of validity if it had one. It goes through
+     * billing moment, from today, for the same length of validity if it had one — unless new terms
+     * were parked for it ({@see setNextTerms()}), which win for label, hours and price. It goes through
      * {@see open()} like any other package, so it is billed, numbered and flagged exactly as if
      * the owner had opened it by hand; the only differences are that it says it was automatic and
      * skips the backdated-lesson import (it opens the instant the last one ran out).
@@ -1513,13 +1565,15 @@ final class LessonPackages
             $expiresOn = Carbon::parse($startsOn)->addDays($days)->toDateString();
         }
 
+        $next = $finished->next_terms !== null ? (array) json_decode((string) $finished->next_terms, true) : [];
+
         return $this->open([
             'student_id' => (string) $finished->student_id,
             // The same subject: a Maths block renews as Maths.
             'teacher_id' => $finished->teacher_id !== null ? (string) $finished->teacher_id : null,
-            'label' => (string) $finished->label,
-            'minutes_total' => (int) $finished->minutes_total,
-            'price_minor' => (int) $finished->price_minor,
+            'label' => (string) ($next['label'] ?? $finished->label),
+            'minutes_total' => (int) ($next['minutes_total'] ?? $finished->minutes_total),
+            'price_minor' => (int) ($next['price_minor'] ?? $finished->price_minor),
             'currency' => (string) $finished->currency,
             'bill_timing' => (string) $finished->bill_timing,
             'starts_on' => $startsOn,

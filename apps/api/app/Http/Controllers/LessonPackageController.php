@@ -442,6 +442,8 @@ final class LessonPackageController extends Controller
             'price_minor' => ['sometimes', 'integer', 'min:0'],
             'expires_on' => ['sometimes', 'nullable', 'date'],
             'auto_renew' => ['sometimes', 'boolean'],
+            // The edit form's question: this block (and so the next ones), or the next renewal only.
+            'applies_to' => ['sometimes', Rule::in(['CURRENT', 'NEXT'])],
         ]);
 
         $changes = [];
@@ -462,7 +464,7 @@ final class LessonPackageController extends Controller
         }
 
         $ctx = app(AuthContext::class);
-        $result = app(LessonPackages::class)->edit($id, $changes, $ctx->userId, $ctx->role);
+        $result = app(LessonPackages::class)->edit($id, $changes, $ctx->userId, $ctx->role, ($validated['applies_to'] ?? 'CURRENT') === 'NEXT');
 
         return response()->json(['ok' => true] + $result);
     }
@@ -929,7 +931,7 @@ final class LessonPackageController extends Controller
                 'p.starts_on', 'p.expires_on', 'p.invoice_id', 'p.overdraft_invoice_id',
                 'p.closed_at', 'p.closed_reason', 'p.created_at',
                 'p.reminders_sent', 'p.last_reminded_at',
-                'p.auto_renew', 'p.opened_automatically', 'p.renewal_held_at', 'p.absorbed_overdraft_minutes', 'p.overdraft_absorbed_by',
+                'p.auto_renew', 'p.opened_automatically', 'p.next_terms', 'p.renewal_held_at', 'p.absorbed_overdraft_minutes', 'p.overdraft_absorbed_by',
                 'p.teacher_id as subject_teacher_id', 'p.course as subject_course', 'st.full_name as subject_teacher_name',
                 's.full_name as student_name',
                 'g.id as guardian_id', 'g.full_name as guardian_name', 'g.whatsapp_phone as guardian_phone',
@@ -1212,6 +1214,8 @@ final class LessonPackageController extends Controller
             // How many of THIS block's used minutes were the previous block's last lesson running over.
             'absorbed_overdraft_minutes' => (int) $row->absorbed_overdraft_minutes,
             'auto_renew' => (bool) $row->auto_renew,
+            // New label / hours / price parked for the next renewal; null = it renews as it is.
+            'next_terms' => $row->next_terms !== null ? json_decode((string) $row->next_terms, true) : null,
             'opened_automatically' => (bool) $row->opened_automatically,
             // The student's latest block, finished, and they are still on package billing: the
             // owner owes a decision — open the next block or move them back to monthly.

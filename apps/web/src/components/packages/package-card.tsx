@@ -105,6 +105,20 @@ export interface PackageActionProps {
   reminding: boolean;
 }
 
+/**
+ * What the next renewal will be, where new terms were parked for it ("from the next renewal only"):
+ * label · hours · price, each falling back to the running block's. Null when it renews as it is.
+ */
+export function nextTermsText(row: LessonPackageRow, locale: string): string | null {
+  const next = row.next_terms;
+  if (!next) return null;
+  return [
+    next.label ?? row.label,
+    formatHours(next.minutes_total ?? row.minutes_total, locale),
+    formatMoney({ amount: next.price_minor ?? row.price_minor, currency: row.currency }, locale),
+  ].join(" · ");
+}
+
 /** A compact operational card: balance, lesson count, dates and collection actions. */
 export function PackageCard(props: PackageActionProps & { timezone: string }) {
   const { row, timezone, onOpenDetail } = props;
@@ -329,6 +343,14 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
               {row.auto_renew
                 ? t("card.autoRenewNext", { n: row.sequence_no + 1 })
                 : t("card.autoRenewOff")}
+            </p>
+          )}
+          {isActive && row.auto_renew && nextTermsText(row, locale) !== null && (
+            <p
+              className="mt-1 rounded-lg bg-sky-500/10 px-2 py-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300"
+              data-testid="package-next-terms"
+            >
+              {t("card.nextTerms", { terms: nextTermsText(row, locale) ?? "" })}
             </p>
           )}
         </div>

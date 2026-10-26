@@ -8055,6 +8055,8 @@ export interface LessonPackageRow {
   absorbed_overdraft_minutes: number;
   /** Opens the next package on the same terms when this one runs out. */
   auto_renew: boolean;
+  /** New terms parked for the next renewal (only what differs); null = it renews as it is. */
+  next_terms?: PackageNextTerms | null;
   /** This package was opened by the renewal, not by hand. */
   opened_automatically: boolean;
   /**
@@ -8200,6 +8202,13 @@ export interface PackageAttachableLesson {
   locked: boolean;
 }
 
+/** What the next automatic renewal will be, where it differs from the running block. */
+export interface PackageNextTerms {
+  label?: string;
+  minutes_total?: number;
+  price_minor?: number;
+}
+
 /** Why a package's money is owed (App\Support\PackagePurpose). */
 export type PackagePurpose = "NEW" | "RENEWAL" | "AUTO_RENEWAL" | "USAGE" | "UNBILLED" | "OVERDRAFT";
 
@@ -8303,8 +8312,10 @@ export function updateLessonPackage(
     price_minor?: number;
     expires_on?: string | null;
     auto_renew?: boolean;
+    /** The new label / hours / price: this block (and so the next ones), or the next renewal only. */
+    applies_to?: "CURRENT" | "NEXT";
   },
-): Promise<{ ok: boolean; changed: string[]; invoice_id: string | null }> {
+): Promise<{ ok: boolean; changed: string[]; invoice_id: string | null; next_terms?: PackageNextTerms | null }> {
   return apiFetch(`/api/packages/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),

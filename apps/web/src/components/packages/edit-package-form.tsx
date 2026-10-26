@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
+import { nextTermsText } from "@/components/packages/package-card";
 import { AutoRenewField } from "@/components/packages/package-terms";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,10 @@ import {
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
 import { formatHours } from "@/lib/time";
+import { cn } from "@/lib/utils";
+
+/** Where new terms land: this block (and so, through the renewal, the next ones) or the next renewal only. */
+type AppliesTo = "CURRENT" | "NEXT";
 
 const inputBase =
   "border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3";
@@ -44,6 +49,8 @@ export function EditPackageForm({
   const [price, setPrice] = useState((row.price_minor / 100).toFixed(2));
   const [expiresOn, setExpiresOn] = useState(row.expires_on ?? "");
   const [autoRenew, setAutoRenew] = useState(row.auto_renew);
+  // Asked, never assumed, whenever the terms move on a block that renews itself.
+  const [appliesTo, setAppliesTo] = useState<AppliesTo | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,15 +70,25 @@ export function EditPackageForm({
     0,
     row.minutes_consumed - row.carried_over_minutes,
   );
+  const termsChanged =
+    label.trim() !== row.label ||
+    (Number.isFinite(hoursNum) && Math.round(hoursNum * 60) !== row.minutes_total) ||
+    priceMinor !== row.price_minor;
+  // The question only exists when there IS a next block: one that renews itself.
+  const askScope = termsChanged && autoRenew;
+  const nextOnly = askScope && appliesTo === "NEXT";
+  // The floor is about THIS block — new terms for the next one start from zero.
   const tooSmall =
-    Number.isFinite(hoursNum) && Math.round(hoursNum * 60) <= minutesFloor;
+    !nextOnly && Number.isFinite(hoursNum) && Math.round(hoursNum * 60) <= minutesFloor;
 
   const valid =
     label.trim() !== "" &&
     Number.isFinite(hoursNum) &&
     hoursNum >= 0.5 &&
     priceMinor >= 0 &&
-    !tooSmall;
+    !tooSmall &&
+    (!askScope || appliesTo !== null);
+  const parked = nextTermsText(row, locale);
 
   async function save() {
     setBusy(true);
@@ -83,8 +100,9 @@ export function EditPackageForm({
         price_minor: priceMinor,
         expires_on: expiresOn === "" ? null : expiresOn,
         auto_renew: autoRenew,
+        ...(askScope && appliesTo !== null ? { applies_to: appliesTo } : {}),
       });
-      onSaved(t("alerts.edited"));
+      onSaved(nextOnly ? t("alerts.nextTermsSaved") : t("alerts.edited"));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -100,6 +118,13 @@ export function EditPackageForm({
           message={error}
           onDismiss={() => setError(null)}
         />
+      )}
+
+      {/* Terms already waiting for the next block, so a second edit starts from what is known. */}
+      {parked !== null && (
+        <p className="rounded-xl bg-sky-500/10 px-3 py-2.5 text-xs font-medium text-sky-700 dark:text-sky-300" data-testid="edit-parked-terms">
+          {t("card.nextTerms", { terms: parked })}
+        </p>
       )}
 
       {/* What is already spent, stated before the fields that must respect it. */}
@@ -193,8 +218,40 @@ export function EditPackageForm({
       {/* Turning it off is how a family that is stopping does not get a next block opened. */}
       <AutoRenewField checked={autoRenew} onChange={setAutoRenew} />
 
+      {/* New terms on a block that renews: this one too, or only from the next renewal? */}
+      {askScope && (
+        <fieldset className="space-y-2" data-testid="edit-applies-to">
+          <legend className="mb-1 text-sm font-medium">{t("edit.appliesTo.question")}</legend>
+          {(["CURRENT", "NEXT"] as const).map((option) => (
+            <label
+              key={option}
+              className={cn(
+                "flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors",
+                appliesTo === option ? "border-primary bg-primary/5" : "hover:bg-muted/50",
+              )}
+            >
+              <input
+                type="radio"
+                name="pkg-applies-to"
+                value={option}
+                checked={appliesTo === option}
+                onChange={() => setAppliesTo(option)}
+                className="accent-primary mt-0.5"
+                data-testid={`edit-applies-${option.toLowerCase()}`}
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">{t(`edit.appliesTo.${option}.title`)}</span>
+                <span className="text-muted-foreground block text-xs">
+                  {t(`edit.appliesTo.${option}.body`, { n: row.sequence_no, next: row.sequence_no + 1 })}
+                </span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+
       {/* The bill is the hard edge, and it is cheaper to say so here than to be refused on save. */}
-      {row.invoice_id !== null && (
+      {row.invoice_id !== null && !nextOnly && (
         <p className="rounded-xl bg-amber-500/10 px-3 py-2.5 text-xs font-medium text-amber-700 dark:text-amber-400">
           {t("edit.billNote")}
         </p>

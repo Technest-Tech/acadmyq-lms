@@ -2812,7 +2812,8 @@
       "paidBadge": "Paid",
       "nothingDue": "Nothing due",
       "paidOn": "Paid · {date}",
-      "renewalHeld": "Pay first: the next block opens by itself once the package bill is paid."
+      "renewalHeld": "Pay first: the next block opens by itself once the package bill is paid.",
+      "nextTerms": "Next renewal: {terms}"
     },
     "actions": {
       "open": "Open a package",
@@ -2937,7 +2938,18 @@
       "description": "Correct terms that were entered wrong. What has already been taught stays as it is.",
       "consumed": "{used} already used across {lessons, plural, =0 {no lessons} one {one lesson} other {# lessons}}.",
       "tooSmall": "This package has already used {used}. Close it instead of shrinking it to what was taught.",
-      "billNote": "This package has already been billed. While that invoice is still open and unpaid it is corrected along with the package; once anything has been paid, the price can only be changed on the invoice itself."
+      "billNote": "This package has already been billed. While that invoice is still open and unpaid it is corrected along with the package; once anything has been paid, the price can only be changed on the invoice itself.",
+      "appliesTo": {
+        "question": "Apply this change to…",
+        "CURRENT": {
+          "title": "This package and the next ones",
+          "body": "Package #{n} and its bill change now, and the next renewal uses the new terms."
+        },
+        "NEXT": {
+          "title": "New packages only",
+          "body": "Package #{n} and its bill stay as they are; the new terms start with package #{next} when it renews."
+        }
+      }
     },
     "close": {
       "title": "Close this package early",
@@ -2982,7 +2994,8 @@
       "reminderReady": "Reminder opened in WhatsApp — press send there.",
       "reminderFailed": "Could not send the reminder.",
       "cancelled": "Cancelled. Its unpaid bill was voided.",
-      "cancelFailed": "Could not cancel it."
+      "cancelFailed": "Could not cancel it.",
+      "nextTermsSaved": "Saved — the new terms start with the next renewal; the current package and its bill are unchanged."
     },
     "panel": {
       "title": "Lesson package",

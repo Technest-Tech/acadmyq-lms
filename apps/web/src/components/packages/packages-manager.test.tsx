@@ -662,11 +662,62 @@ describe("PackagesManager", () => {
 
     await userEvent.clear(price);
     await userEvent.type(price, "3600");
+    await userEvent.click(screen.getByTestId("edit-applies-current"));
     await userEvent.click(screen.getByTestId("save-package-edit"));
 
     expect(updateLessonPackage).toHaveBeenCalledWith(
       "p1",
-      expect.objectContaining({ hours: 20, price_minor: 360000 }),
+      expect.objectContaining({ hours: 20, price_minor: 360000, applies_to: "CURRENT" }),
+    );
+  });
+
+  // A renewing block's new terms: asked, never assumed — this one too, or the next renewal only.
+  it("asks whether new terms apply to this package or only from the next renewal", async () => {
+    listLessonPackages.mockResolvedValue({ packages: [pkg()] });
+    renderManager();
+
+    await openCardMenu();
+    await userEvent.click(await screen.findByTestId("edit-package"));
+    expect(screen.queryByTestId("edit-applies-to")).toBeNull();
+
+    const price = await screen.findByLabelText(arMessages.packages.form.price);
+    await userEvent.clear(price);
+    await userEvent.type(price, "4500");
+
+    // The question appears, and nothing saves until it is answered.
+    expect(await screen.findByTestId("edit-applies-to")).toBeInTheDocument();
+    expect(screen.getByTestId("save-package-edit")).toBeDisabled();
+
+    await userEvent.click(screen.getByTestId("edit-applies-next"));
+    await userEvent.click(screen.getByTestId("save-package-edit"));
+
+    expect(updateLessonPackage).toHaveBeenCalledWith(
+      "p1",
+      expect.objectContaining({ price_minor: 450000, applies_to: "NEXT" }),
+    );
+  });
+
+  it("does not ask for a package that does not renew — there is no next one", async () => {
+    listLessonPackages.mockResolvedValue({ packages: [pkg({ auto_renew: false })] });
+    renderManager();
+
+    await openCardMenu();
+    await userEvent.click(await screen.findByTestId("edit-package"));
+    const price = await screen.findByLabelText(arMessages.packages.form.price);
+    await userEvent.clear(price);
+    await userEvent.type(price, "4500");
+
+    expect(screen.queryByTestId("edit-applies-to")).toBeNull();
+    await userEvent.click(screen.getByTestId("save-package-edit"));
+    expect(updateLessonPackage).toHaveBeenCalledWith("p1", expect.not.objectContaining({ applies_to: expect.anything() }));
+  });
+
+  it("shows the terms waiting for the next renewal on the card", async () => {
+    listLessonPackages.mockResolvedValue({ packages: [pkg({ next_terms: { price_minor: 450000 } })] });
+    renderManager();
+
+    expect((await screen.findByTestId("package-next-terms")).textContent).toContain(
+      formatMoney({ amount: 450000, currency: "EGP" }, "ar"),
     );
   });
 

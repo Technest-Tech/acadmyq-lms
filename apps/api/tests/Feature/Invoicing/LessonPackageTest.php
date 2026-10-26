@@ -303,6 +303,71 @@ it('turns renewal off from the edit form', function () {
     expect((bool) ($this->packageRow)($package['package_id'])->auto_renew)->toBeFalse();
 });
 
+it('parks new terms for the next renewal only: the running block and its bill stay as they are', function () {
+    $package = ($this->openPackage)(1, 20000, autoRenew: true);
+    Sanctum::actingAs($this->owner);
+
+    $res = $this->patchJson("/api/packages/{$package['package_id']}", [
+        'label' => '2 hours',
+        'hours' => 2,
+        'price_minor' => 30000,
+        'applies_to' => 'NEXT',
+    ])->assertOk();
+    expect($res->json('changed'))->toBe([])
+        ->and($res->json('next_terms'))->toBe(['label' => '2 hours', 'minutes_total' => 120, 'price_minor' => 30000]);
+
+    $this->asAcademy($this->academy);
+    $now = ($this->packageRow)($package['package_id']);
+    expect((int) $now->price_minor)->toBe(20000)
+        ->and((int) $now->minutes_total)->toBe(60)
+        ->and((int) DB::table('invoices')->where('id', $now->invoice_id)->value('total_minor'))->toBe(20000);
+
+    // The list says what the next block will be.
+    Sanctum::actingAs($this->owner);
+    expect($this->getJson('/api/packages?scope=open')->assertOk()->json('packages.0.next_terms.price_minor'))->toBe(30000);
+
+    // It runs out → the renewal opens on the parked terms.
+    ($this->attend)(($this->lesson)(60));
+    $this->asAcademy($this->academy);
+    $next = DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+    expect($next->label)->toBe('2 hours')
+        ->and((int) $next->minutes_total)->toBe(120)
+        ->and((int) $next->price_minor)->toBe(30000)
+        ->and($next->next_terms)->toBeNull()
+        ->and((int) DB::table('invoices')->where('id', $next->invoice_id)->value('total_minor'))->toBe(30000);
+});
+
+it('applies an edit to the running block when asked, which also drops terms parked for the next one', function () {
+    $package = ($this->openPackage)(4, 80000, autoRenew: true);
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/packages/{$package['package_id']}", ['price_minor' => 90000, 'applies_to' => 'NEXT'])->assertOk();
+
+    $this->patchJson("/api/packages/{$package['package_id']}", ['price_minor' => 85000, 'applies_to' => 'CURRENT'])
+        ->assertOk()
+        ->assertJsonPath('changed', ['price_minor', 'hourly_rate_minor']);
+
+    $this->asAcademy($this->academy);
+    $row = ($this->packageRow)($package['package_id']);
+    expect((int) $row->price_minor)->toBe(85000)
+        ->and($row->next_terms)->toBeNull()
+        ->and((int) DB::table('invoices')->where('id', $row->invoice_id)->value('total_minor'))->toBe(85000);
+});
+
+it('parks for the next block even when this block\'s bill is already paid', function () {
+    $package = ($this->openPackage)(4, 80000, autoRenew: true);
+    Sanctum::actingAs($this->owner);
+    $this->asAcademy($this->academy);
+    $invoiceId = ($this->packageRow)($package['package_id'])->invoice_id;
+    $this->clearTenantContext();
+    $this->postJson("/api/invoices/{$invoiceId}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+
+    // On the running block a paid bill refuses a new price; for the next one it does not matter.
+    $this->patchJson("/api/packages/{$package['package_id']}", ['price_minor' => 90000])->assertUnprocessable();
+    $this->patchJson("/api/packages/{$package['package_id']}", ['price_minor' => 90000, 'applies_to' => 'NEXT'])
+        ->assertOk()
+        ->assertJsonPath('next_terms', ['price_minor' => 90000]);
+});
+
 it('cancels an unused renewal: its bill is voided and the overdraft goes back to be billed', function () {
     $first = ($this->openPackage)(1, 20000, autoRenew: true);
     ($this->attend)(($this->lesson)(90));
