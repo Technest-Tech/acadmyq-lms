@@ -570,3 +570,33 @@ lesson and the total is worked out (`components/packages/lesson-price-fields.tsx
   group's own lesson length) and the lesson's price → the month's price. An existing group opens with
   its saved month price read back as a lesson price. A calendar-month group (no hours) keeps its
   monthly price field; per-lesson and course groups are unchanged.
+
+## One private subscription per subject (`centre`, 2026-10-26)
+
+A centre's student takes Maths with one teacher and English with another and pays each block
+separately. A lesson package may now be tied to a subject — the student's teacher for it
+(`student_teacher_assignments`):
+
+- **Schema** (`2026_10_26_300001_package_subject_teacher`): `lesson_packages.teacher_id` (null =
+  untied, "any of the student's lessons" — every package before this, every Quran academy's) and
+  `course` (the subject's name when sold, for display). The unique rule is now one open package per
+  (student, scope): `lesson_packages_one_active_per_scope` replaces `…_one_active_per_student`, so the
+  untied scope is still at most one.
+- **Which block a lesson spends** (`LessonPackages::forLesson`): the one tied to its TIMETABLE's
+  teacher (a substitute taking a Maths lesson still spends Maths hours; no timetable → the lesson's
+  own teacher), else the untied one, else none → billed by the hour as before.
+- **Everything per scope:** the duplicate check, carry-over, the absorbed overdraft, the overdraft
+  rolled onto the next bill, renewal (a Maths block renews as Maths), pay-first holds and their
+  release, importing past lessons (a tied block takes only its subject's lessons), "out of hours"
+  (the latest block of its own subject; only that subject's lessons count), the sessions list's
+  covering block. Removing a student closes every open block. The unpaid-predecessor alert stays
+  per student (it is a warning to the desk).
+- **Who may tie one:** only an academy with `centre`, and only to a teacher the student is taking a
+  subject with now (422 otherwise). Every other academy keeps exactly one block per student.
+- **Screens:** the open-subscription form (packages page, student subscriptions card) gets a
+  "Subject" picker once the student has subjects — "any lesson" or one of their subjects, each marked
+  "(open)" when it already holds a block; it starts on a free subject. Cards and the subscriptions
+  card show the subject. The new-student form's first subscription stays untied (it covers every
+  lesson); per-subject ones are added from the student's page.
+- Tests: `LessonPackageTest` ("a centre sells one subscription per subject…", "keeps one subscription
+  per student where the academy is not a centre"), web `open-package-form.test.tsx`.

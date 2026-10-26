@@ -575,9 +575,12 @@ final class SessionController extends Controller
         }
 
         $localDate = $at->copy()->setTimezone($tz)->format('Y-m-d');
+        // A block tied to a subject governs only that subject's lessons.
+        $teacherId = app(LessonPackages::class)->lessonTeacher($session);
 
         return DB::table('lesson_packages')
             ->where('student_id', $session->student_id)
+            ->where(fn ($q) => $q->whereNull('teacher_id')->when($teacherId !== null, fn ($w) => $w->orWhere('teacher_id', $teacherId)))
             ->whereIn('status', ['ACTIVE', 'COMPLETED'])
             ->where('starts_on', '<=', $localDate)
             ->where(fn ($q) => $q->whereNull('expires_on')->orWhere('expires_on', '>=', $localDate))

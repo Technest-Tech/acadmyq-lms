@@ -75,10 +75,14 @@ final class RenewalPolicy
             ->exists();
     }
 
-    /** Money still owed on one of this student's package bills. */
-    public static function packagesOwe(string $studentId): bool
+    /**
+     * Money still owed on one of this student's package bills — in one subject's scope (the
+     * subject's teacher, or the untied blocks when null: every package an academy that never ties
+     * one has).
+     */
+    public static function packagesOwe(string $studentId, ?string $teacherId = null): bool
     {
-        return DB::table('lesson_packages as p')
+        return LessonPackages::inScope(DB::table('lesson_packages as p'), $teacherId, 'p.teacher_id')
             ->join('invoices as i', 'i.id', '=', 'p.invoice_id')
             ->where('p.student_id', $studentId)
             ->where('i.status', '<>', 'VOID')

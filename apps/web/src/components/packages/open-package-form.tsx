@@ -16,6 +16,7 @@ import {
   openLessonPackage,
   type PackageStudent,
 } from "@/lib/api";
+import { useCapability } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 
 /**
@@ -49,6 +50,9 @@ export function OpenPackageForm({
   const [students, setStudents] = useState<PackageStudent[] | null>(null);
   const [studentId, setStudentId] = useState(initialStudentId ?? "");
   const [carryOver, setCarryOver] = useState(false);
+  // A centre sells one subscription per subject: tied to the student's teacher for it ("" = any lesson).
+  const centre = useCapability("centre");
+  const [subjectId, setSubjectId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,7 +98,10 @@ export function OpenPackageForm({
     [students, t, locale],
   );
 
-  const alreadyOpen = student?.active_package_id != null;
+  const subjects = centre ? (student?.subjects ?? []) : [];
+  const openSubjects = new Set(student?.open_subjects ?? []);
+  const alreadyOpen =
+    student !== null && (subjectId === "" ? student.active_package_id != null : openSubjects.has(subjectId));
   /** Saving will also move this student onto package billing. Said out loud, before they commit. */
   const willSwitch = student !== null && !student.on_package_billing;
   const canCarryOver =
@@ -110,6 +117,7 @@ export function OpenPackageForm({
         student_id: studentId,
         ...terms.toPayload(),
         carry_over: canCarryOver && carryOver,
+        ...(subjectId !== "" ? { teacher_id: subjectId } : {}),
       });
 
       const opened =
@@ -160,6 +168,12 @@ export function OpenPackageForm({
           onChange={(id) => {
             setStudentId(id);
             setCarryOver(false);
+            // The "any lesson" subscription already open: start on their first subject still free.
+            const picked = students?.find((s) => s.id === id);
+            const free = centre && picked?.active_package_id != null
+              ? (picked.subjects ?? []).find((sub) => !(picked.open_subjects ?? []).includes(sub.teacher_id))
+              : undefined;
+            setSubjectId(free?.teacher_id ?? "");
           }}
           placeholder={t("form.studentPlaceholder")}
           searchPlaceholder={t("form.searchStudent")}
@@ -172,13 +186,40 @@ export function OpenPackageForm({
         )}
       </div>
 
+      {subjects.length > 0 && (
+        <div className="space-y-1.5">
+          <label htmlFor="package-subject" className="text-sm font-medium">
+            {t("form.subject")}
+          </label>
+          <select
+            id="package-subject"
+            className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3"
+            value={subjectId}
+            onChange={(e) => setSubjectId(e.target.value)}
+            data-testid="package-subject"
+          >
+            <option value="">
+              {t("form.subjectAny")}
+              {student?.active_package_id != null ? ` ${t("form.subjectOpen")}` : ""}
+            </option>
+            {subjects.map((sub) => (
+              <option key={sub.teacher_id} value={sub.teacher_id}>
+                {[sub.course, sub.teacher_name].filter(Boolean).join(" · ")}
+                {openSubjects.has(sub.teacher_id) ? ` ${t("form.subjectOpen")}` : ""}
+              </option>
+            ))}
+          </select>
+          <p className="text-muted-foreground text-[11px]">{t("form.subjectHint")}</p>
+        </div>
+      )}
+
       {alreadyOpen && (
         <p
           className="bg-destructive/8 text-destructive flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs font-medium"
           data-testid="package-already-open"
         >
           <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
-          {t("form.alreadyOpen")}
+          {subjectId === "" ? t("form.alreadyOpen") : t("form.alreadyOpenSubject")}
         </p>
       )}
 

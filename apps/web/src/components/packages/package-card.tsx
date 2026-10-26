@@ -349,6 +349,15 @@ export function PackageCard({
               <span className="text-muted-foreground min-w-0 truncate text-xs">
                 {row.label}
               </span>
+              {/* A centre's block for one subject: which one, at a glance. */}
+              {row.subject && (
+                <span
+                  className="shrink-0 rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300"
+                  data-testid="package-subject"
+                >
+                  {[row.subject.course, row.subject.teacher_name].filter(Boolean).join(" · ")}
+                </span>
+              )}
             </div>
           </div>
           {paidUp ? (

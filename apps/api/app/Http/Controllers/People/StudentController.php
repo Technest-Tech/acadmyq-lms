@@ -1053,22 +1053,23 @@ final class StudentController extends Controller
     private function closeOpenPackage(string $studentId): ?string
     {
         $packages = app(LessonPackages::class);
-        $package = $packages->activeFor($studentId);
-        if ($package === null) {
-            return null;
-        }
-
         $ctx = $this->ctx();
-        // Minutes absorbed from the previous block's last lesson are not this package's own use.
-        if ((int) $package->minutes_consumed - (int) $package->absorbed_overdraft_minutes === 0) {
-            $packages->cancel((string) $package->id, 'STUDENT_REMOVED', $ctx->userId, $ctx->role);
+        $outcome = null;
+        // Every open block — a centre's student may hold one per subject.
+        while (($package = $packages->anyActiveFor($studentId)) !== null) {
+            // Minutes absorbed from the previous block's last lesson are not this package's own use.
+            if ((int) $package->minutes_consumed - (int) $package->absorbed_overdraft_minutes === 0) {
+                $packages->cancel((string) $package->id, 'STUDENT_REMOVED', $ctx->userId, $ctx->role);
+                $outcome ??= 'CANCELLED';
 
-            return 'CANCELLED';
+                continue;
+            }
+
+            $packages->complete((string) $package->id, 'STUDENT_REMOVED', $ctx->userId, $ctx->role);
+            $outcome = 'COMPLETED';
         }
 
-        $packages->complete((string) $package->id, 'STUDENT_REMOVED', $ctx->userId, $ctx->role);
-
-        return 'COMPLETED';
+        return $outcome;
     }
 
     /**

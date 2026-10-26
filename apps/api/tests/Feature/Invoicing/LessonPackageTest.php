@@ -1417,3 +1417,68 @@ it('renews freely by default, on receipts too', function () {
     $this->asAcademy($this->academy);
     expect(DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->count())->toBe(1);
 });
+
+// ─── A centre: one subscription per subject ──────────────────────────────────
+
+it('a centre sells one subscription per subject: each lesson draws from its own subject\'s block', function () {
+    $this->asAcademy($this->academy, 'SUPER_ADMIN');
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['centre']);
+    $this->clearTenantContext();
+
+    // Maths with the existing teacher, English with another; a third teacher has no block.
+    $english = $this->createTeacher($this->academy, ['full_name' => 'Mr English']);
+    $other = $this->createTeacher($this->academy, ['full_name' => 'Ms Other']);
+    $this->asAcademy($this->academy);
+    foreach ([[$this->teacher, 'Maths'], [$english, 'English']] as [$teacher, $course]) {
+        DB::table('student_teacher_assignments')->insert(['academy_id' => $this->academy, 'student_id' => $this->student, 'teacher_id' => $teacher, 'course' => $course, 'started_at' => now()]);
+    }
+
+    $open = function (string $teacherId, float $hours) {
+        $this->asAcademy($this->academy);
+
+        return app(LessonPackages::class)->open([
+            'student_id' => $this->student, 'teacher_id' => $teacherId, 'label' => "{$hours} hours", 'minutes_total' => (int) round($hours * 60),
+            'price_minor' => 20000, 'currency' => 'EGP', 'bill_timing' => 'ON_START', 'starts_on' => '2026-06-01', 'auto_renew' => false,
+        ], (string) $this->owner->id, 'ACADEMY_OWNER');
+    };
+    $maths = $open($this->teacher, 2);
+    $eng = $open($english, 1);
+
+    // Two open blocks, each with its subject; a second Maths block is refused.
+    expect(fn () => $open($this->teacher, 1))->toThrow(ValidationException::class);
+    Sanctum::actingAs($this->owner);
+    $rows = collect($this->getJson("/api/packages?student_id={$this->student}")->assertOk()->json('packages'))->keyBy('id');
+    expect($rows[$maths['package_id']]['subject'])->toMatchArray(['teacher_id' => $this->teacher, 'course' => 'Maths'])
+        ->and($rows[$eng['package_id']]['subject']['course'])->toBe('English');
+
+    // A Maths lesson spends Maths hours; an English one spends English hours (and runs it out).
+    ($this->attend)(($this->lesson)(60));
+    ($this->attend)($this->createSession($this->academy, $this->student, $english, ['scheduled_at_utc' => '2026-06-03 10:00:00+00', 'duration_minutes' => 60, 'status' => 'SCHEDULED']));
+    expect((int) ($this->packageRow)($maths['package_id'])->minutes_consumed)->toBe(60)
+        ->and(($this->packageRow)($eng['package_id'])->status)->toBe('COMPLETED');
+
+    // A lesson with a teacher who has no block (and nothing untied) bills by the hour, as before.
+    $loose = $this->createSession($this->academy, $this->student, $other, ['scheduled_at_utc' => '2026-06-04 10:00:00+00', 'duration_minutes' => 60, 'status' => 'SCHEDULED']);
+    ($this->attend)($loose);
+    $this->asAcademy($this->academy);
+    expect(DB::table('lesson_package_credits')->where('session_id', $loose)->exists())->toBeFalse()
+        ->and((int) ($this->packageRow)($maths['package_id'])->minutes_consumed)->toBe(60);
+
+    // The picker knows the student's subjects and which already hold an open block.
+    $picker = collect($this->getJson('/api/packages/students')->assertOk()->json('students'))->firstWhere('id', $this->student);
+    expect(collect($picker['subjects'])->pluck('course')->sort()->values()->all())->toBe(['English', 'Maths'])
+        ->and($picker['open_subjects'])->toBe([$this->teacher]);
+});
+
+it('keeps one subscription per student where the academy is not a centre', function () {
+    $this->asAcademy($this->academy);
+    DB::table('student_teacher_assignments')->insert(['academy_id' => $this->academy, 'student_id' => $this->student, 'teacher_id' => $this->teacher, 'course' => 'Quran', 'started_at' => now()]);
+
+    expect(fn () => app(LessonPackages::class)->open([
+        'student_id' => $this->student, 'teacher_id' => $this->teacher, 'label' => '2 hours', 'minutes_total' => 120,
+        'price_minor' => 20000, 'currency' => 'EGP', 'starts_on' => '2026-06-01',
+    ], (string) $this->owner->id, 'ACADEMY_OWNER'))->toThrow(ValidationException::class);
+
+    ($this->openPackage)(1, 20000);
+    expect(fn () => ($this->openPackage)(1, 20000))->toThrow(ValidationException::class);
+});

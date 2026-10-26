@@ -282,3 +282,49 @@ describe("OpenPackageForm — a centre prices by the lesson", () => {
     expect(screen.queryByTestId("pkg-lesson-unit")).not.toBeInTheDocument();
   });
 });
+
+describe("OpenPackageForm — a centre sells one subscription per subject", () => {
+  const centreSession = () =>
+    makeSession("ACADEMY_OWNER", { permissions: ["package.read", "package.manage"], capabilities: ["invoicing", "packages", "centre"] });
+  const LAYLA = {
+    ...SARA,
+    id: "s3",
+    full_name: "Layla",
+    // "Any lesson" is already open, and so is Maths — English is the one still free.
+    active_package_id: "p-any",
+    subjects: [
+      { teacher_id: "t-maths", teacher_name: "Ms Rahma", course: "Maths" },
+      { teacher_id: "t-eng", teacher_name: "Mr Ali", course: "English" },
+    ],
+    open_subjects: ["t-maths"],
+  };
+
+  it("offers the student's subjects, starts on the free one, and ties the subscription to its teacher", async () => {
+    listPackageStudents.mockResolvedValue({ students: [LAYLA] });
+    render(withAuth(centreSession(), <OpenPackageForm onSaved={() => {}} onCancel={() => {}} />));
+    await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
+    await pickStudent("Layla");
+
+    const subject = screen.getByTestId("package-subject");
+    expect(subject).toHaveValue("t-eng");
+    expect(screen.queryByTestId("package-already-open")).toBeNull();
+    // Maths already has one: picking it says so and blocks the save.
+    await userEvent.selectOptions(subject, "t-maths");
+    expect(screen.getByTestId("package-already-open").textContent).toContain(arMessages.packages.form.alreadyOpenSubject);
+    await userEvent.selectOptions(subject, "t-eng");
+
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "8");
+    await userEvent.type(screen.getByTestId("pkg-lesson-unit-price"), "100");
+    await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.open }));
+    await waitFor(() => expect(openLessonPackage).toHaveBeenCalledWith(expect.objectContaining({ teacher_id: "t-eng", hours: 8 })));
+  });
+
+  it("shows no subject picker to an academy that is not a centre", async () => {
+    listPackageStudents.mockResolvedValue({ students: [LAYLA] });
+    renderForm();
+    await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
+    await pickStudent("Layla");
+    expect(screen.queryByTestId("package-subject")).toBeNull();
+    expect(screen.getByTestId("package-already-open")).toBeInTheDocument();
+  });
+});

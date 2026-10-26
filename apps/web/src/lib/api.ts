@@ -8044,6 +8044,8 @@ export interface LessonPackageRow {
    * owes a decision: open the next block or move them back to monthly.
    */
   awaiting_next_package: boolean;
+  /** A centre's block for one subject; null = any of the student's lessons. */
+  subject?: PackageSubject | null;
   /** Pay first: this block's renewal is waiting until the family's package bills are paid. */
   renewal_held?: boolean;
   /** What has been taught since it ran out, billed by the hour outside any package. */
@@ -8131,6 +8133,17 @@ export interface PackageStudent {
   on_package_billing: boolean;
   active_package_id: string | null;
   active_package_label: string | null;
+  /** A centre: the student's subjects (their teacher for each) — a subscription can be tied to one. */
+  subjects?: PackageSubject[];
+  /** The subjects (teacher ids) already holding an open subscription. */
+  open_subjects?: string[];
+}
+
+/** One of the student's subjects: the teacher they take it with, and its name. */
+export interface PackageSubject {
+  teacher_id: string;
+  teacher_name: string | null;
+  course: string | null;
 }
 
 /** Why a lesson can no longer be moved: its bill went out, or its payroll was finalized. */
@@ -8228,6 +8241,8 @@ export function openLessonPackage(input: {
   expires_on?: string | null;
   carry_over?: boolean;
   auto_renew?: boolean;
+  /** A centre's subscription for one subject (its teacher); omitted = any of the student's lessons. */
+  teacher_id?: string | null;
 }): Promise<{
   id: string;
   invoice_id: string | null;

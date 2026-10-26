@@ -259,8 +259,10 @@ final class LessonPackageController extends Controller
                     ->where('sub.status', '=', 'ACTIVE')
                     ->whereNull('sub.deleted_at');
             })
+            // The untied open block only: with blocks per subject a student may hold several, and
+            // they are listed under `open_subjects` instead of multiplying the row.
             ->leftJoin('lesson_packages as p', function ($join): void {
-                $join->on('p.student_id', '=', 's.id')->where('p.status', '=', 'ACTIVE');
+                $join->on('p.student_id', '=', 's.id')->where('p.status', '=', 'ACTIVE')->whereNull('p.teacher_id');
             })
             ->whereNull('s.deleted_at')
             ->orderBy('s.full_name')
@@ -282,10 +284,34 @@ final class LessonPackageController extends Controller
                     ->limit(1),
                 'last_package_rate_minor',
             )
-            ->get()
+            ->get();
+
+        // Each student's subjects (the teachers they take one with) and the subjects already holding
+        // an open block — what a centre's "subscription for a subject" picker offers.
+        $ids = $rows->pluck('id')->all();
+        $subjects = DB::table('student_teacher_assignments as a')
+            ->join('teachers as t', 't.id', '=', 'a.teacher_id')
+            ->whereIn('a.student_id', $ids ?: ['00000000-0000-0000-0000-000000000000'])
+            ->whereNull('a.ended_at')
+            ->orderBy('t.full_name')
+            ->get(['a.student_id', 'a.teacher_id', 't.full_name as teacher_name', 'a.course'])
+            ->groupBy(fn ($a) => (string) $a->student_id);
+        $openScopes = DB::table('lesson_packages')
+            ->whereIn('student_id', $ids ?: ['00000000-0000-0000-0000-000000000000'])
+            ->where('status', 'ACTIVE')->whereNotNull('teacher_id')
+            ->get(['student_id', 'teacher_id'])
+            ->groupBy(fn ($p) => (string) $p->student_id);
+
+        $rows = $rows
             ->map(fn ($row) => [
                 'id' => (string) $row->id,
                 'full_name' => (string) $row->full_name,
+                'subjects' => ($subjects[(string) $row->id] ?? collect())->map(fn ($a) => [
+                    'teacher_id' => (string) $a->teacher_id,
+                    'teacher_name' => $a->teacher_name,
+                    'course' => $a->course,
+                ])->values()->all(),
+                'open_subjects' => ($openScopes[(string) $row->id] ?? collect())->pluck('teacher_id')->map(fn ($v) => (string) $v)->values()->all(),
                 'currency' => (string) ($row->currency ?? $this->academyCurrency()),
                 // Only an hourly figure pre-fills a package sensibly. A PER_MONTH or PER_SESSION
                 // price is a different unit, so it is reported as zero rather than multiplied by
@@ -358,12 +384,15 @@ final class LessonPackageController extends Controller
             'expires_on' => ['sometimes', 'nullable', 'date', 'after_or_equal:starts_on'],
             'carry_over' => ['sometimes', 'boolean'],
             'auto_renew' => ['sometimes', 'boolean'],
+            // A centre's subscription for one subject: the student's teacher for it (null = any lesson).
+            'teacher_id' => ['sometimes', 'nullable', 'uuid'],
         ]);
 
         $ctx = app(AuthContext::class);
 
         $result = app(LessonPackages::class)->open([
             'student_id' => (string) $validated['student_id'],
+            'teacher_id' => $validated['teacher_id'] ?? null,
             'label' => (string) $validated['label'],
             'minutes_total' => (int) round(((float) $validated['hours']) * 60),
             'price_minor' => (int) $validated['price_minor'],
@@ -882,6 +911,7 @@ final class LessonPackageController extends Controller
         return DB::table('lesson_packages as p')
             ->join('students as s', 's.id', '=', 'p.student_id')
             ->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')
+            ->leftJoin('teachers as st', 'st.id', '=', 'p.teacher_id')
             ->select([
                 'p.id', 'p.student_id', 'p.label', 'p.minutes_total', 'p.minutes_consumed',
                 'p.carried_over_minutes', 'p.minutes_overdrawn', 'p.price_minor', 'p.currency',
@@ -890,6 +920,7 @@ final class LessonPackageController extends Controller
                 'p.closed_at', 'p.closed_reason', 'p.created_at',
                 'p.reminders_sent', 'p.last_reminded_at',
                 'p.auto_renew', 'p.opened_automatically', 'p.renewal_held_at', 'p.absorbed_overdraft_minutes', 'p.overdraft_absorbed_by',
+                'p.teacher_id as subject_teacher_id', 'p.course as subject_course', 'st.full_name as subject_teacher_name',
                 's.full_name as student_name',
                 'i.status as invoice_status', 'i.total_minor as invoice_total_minor',
                 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
@@ -959,7 +990,8 @@ final class LessonPackageController extends Controller
             ->whereNotExists(fn ($q) => $q->select(DB::raw(1))
                 ->from('lesson_packages as later')
                 ->whereColumn('later.student_id', 'p.student_id')
-                ->whereColumn('later.sequence_no', '>', 'p.sequence_no'))
+                ->whereColumn('later.sequence_no', '>', 'p.sequence_no')
+                ->whereRaw('later.teacher_id is not distinct from p.teacher_id'))
             ->whereExists(fn ($q) => $q->select(DB::raw(1))
                 ->from('subscriptions as sub')
                 ->whereColumn('sub.student_id', 'p.student_id')
@@ -982,9 +1014,11 @@ final class LessonPackageController extends Controller
         $lines = DB::table('invoice_line_items as li')
             ->join('lesson_packages as p', 'p.student_id', '=', 'li.student_id')
             ->join('sessions as sess', 'sess.id', '=', 'li.session_id')
+            ->leftJoin('schedules as gsch', 'gsch.id', '=', 'sess.schedule_id')
             ->leftJoin('lesson_package_credits as credit', 'credit.session_id', '=', 'li.session_id')
             ->leftJoin('session_reports as report', 'report.session_id', '=', 'li.session_id')
             ->whereIn('p.id', $candidates)
+            ->whereRaw('(p.teacher_id is null or coalesce(gsch.teacher_id, sess.teacher_id) = p.teacher_id)')
             ->whereNull('credit.id')
             ->whereColumn('li.created_at', '>=', 'p.closed_at')
             ->whereRaw("coalesce((report.values->>'is_free_trial')::boolean, false) = false")
@@ -1115,6 +1149,12 @@ final class LessonPackageController extends Controller
             'id' => (string) $row->id,
             'student_id' => (string) $row->student_id,
             'student_name' => (string) $row->student_name,
+            // A centre's block for one subject (null = any of the student's lessons).
+            'subject' => $row->subject_teacher_id !== null ? [
+                'teacher_id' => (string) $row->subject_teacher_id,
+                'teacher_name' => $row->subject_teacher_name,
+                'course' => $row->subject_course,
+            ] : null,
             'label' => (string) $row->label,
             'sequence_no' => (int) $row->sequence_no,
             'status' => (string) $row->status,

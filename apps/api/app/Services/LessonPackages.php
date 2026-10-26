@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Services\PayerDiscounts;
 use App\Payroll\PayoutHook;
 use App\Support\Audit;
+use App\Support\Entitlement;
 use App\Support\PublicInvoiceToken;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -58,13 +59,57 @@ final class LessonPackages
         return $this->activeSubscriptionBasis($studentId) === self::BASIS;
     }
 
-    /** The student's one open package, or null when they have none. */
-    public function activeFor(string $studentId): ?object
+    /**
+     * The student's open package in one scope: tied to a subject's teacher (`$teacherId`), or the
+     * untied one (null) — "any of the student's lessons", which is every package an academy that
+     * never ties one has. One open package per (student, scope); null when there is none.
+     */
+    public function activeFor(string $studentId, ?string $teacherId = null): ?object
     {
-        return DB::table('lesson_packages')
-            ->where('student_id', $studentId)
-            ->where('status', 'ACTIVE')
+        return self::inScope(DB::table('lesson_packages')->where('student_id', $studentId)->where('status', 'ACTIVE'), $teacherId)
             ->first();
+    }
+
+    /** Any open package the student holds, in any scope. */
+    public function anyActiveFor(string $studentId): ?object
+    {
+        return DB::table('lesson_packages')->where('student_id', $studentId)->where('status', 'ACTIVE')->orderBy('sequence_no')->first();
+    }
+
+    /**
+     * The package a lesson draws from: the one tied to its teacher's subject, else the untied one.
+     * The teacher is the TIMETABLE's (the student's teacher for that subject), so a substitute
+     * taking a Maths lesson still spends Maths hours; a lesson with no timetable falls back to its
+     * own teacher.
+     */
+    public function forLesson(object $session): ?object
+    {
+        $teacherId = $this->lessonTeacher($session);
+        if ($teacherId !== null) {
+            $tied = $this->activeFor((string) $session->student_id, $teacherId);
+            if ($tied !== null) {
+                return $tied;
+            }
+        }
+
+        return $this->activeFor((string) $session->student_id);
+    }
+
+    /** Whose subject a lesson is: its timetable's teacher, else its own. */
+    public function lessonTeacher(object $session): ?string
+    {
+        $scheduleTeacher = isset($session->schedule_id) && $session->schedule_id !== null
+            ? DB::table('schedules')->where('id', $session->schedule_id)->value('teacher_id')
+            : null;
+        $teacher = $scheduleTeacher ?? ($session->teacher_id ?? null);
+
+        return $teacher !== null ? (string) $teacher : null;
+    }
+
+    /** Narrow a lesson_packages query to one scope (`teacher_id`, or untied when null). */
+    public static function inScope($query, ?string $teacherId, string $column = 'teacher_id')
+    {
+        return $teacherId === null ? $query->whereNull($column) : $query->where($column, $teacherId);
     }
 
     /**
@@ -212,7 +257,7 @@ final class LessonPackages
      */
     public function returnToMonthly(string $studentId, string $academyId, ?string $actorUserId, ?string $actorRole): bool
     {
-        if ($this->activeFor($studentId) !== null) {
+        if ($this->anyActiveFor($studentId) !== null) {
             throw ValidationException::withMessages([
                 'student_id' => ['Close the open package before returning this student to monthly billing. / أغلق الباقة المفتوحة قبل إعادة الطالب إلى الفوترة الشهرية.'],
             ]);
@@ -264,7 +309,7 @@ final class LessonPackages
             return false;
         }
 
-        $package = $this->activeFor($studentId);
+        $package = $this->forLesson($session);
 
         if ($package === null) {
             // Anchored to the block that ran out, not to the student. The dedupe index allows one
@@ -416,7 +461,7 @@ final class LessonPackages
             // taught from stays, and this block takes its minutes back without re-opening.
             $reopen = $package->status === 'COMPLETED' && $package->closed_reason === 'EXHAUSTED';
             if ($reopen) {
-                $next = $this->activeFor((string) $package->student_id);
+                $next = $this->activeFor((string) $package->student_id, $package->teacher_id !== null ? (string) $package->teacher_id : null);
                 if ($next !== null && (string) $next->id !== (string) $package->id) {
                     if ((bool) $next->opened_automatically && (int) $next->minutes_consumed <= (int) $next->absorbed_overdraft_minutes) {
                         $this->cancel((string) $next->id, 'RENEWAL_UNDONE', null, null);
@@ -717,16 +762,39 @@ final class LessonPackages
             ]);
         }
 
-        if ($this->activeFor($studentId) !== null) {
+        $academyId = (string) $student->academy_id;
+
+        // Tied to a subject: the teacher must be one the student is taking a subject with now, and
+        // only a centre sells per subject (every other academy keeps one block per student).
+        $teacherId = ($data['teacher_id'] ?? null) !== null && $data['teacher_id'] !== '' ? (string) $data['teacher_id'] : null;
+        $course = null;
+        if ($teacherId !== null) {
+            if (! in_array('centre', Entitlement::resolve($academyId)['capabilities'], true)) {
+                throw ValidationException::withMessages([
+                    'teacher_id' => ['A subscription per subject is for centres. / الاشتراك لكل مادة متاح للمراكز فقط.'],
+                ]);
+            }
+            $link = DB::table('student_teacher_assignments')
+                ->where('student_id', $studentId)->where('teacher_id', $teacherId)->whereNull('ended_at')
+                ->first(['course']);
+            if ($link === null) {
+                throw ValidationException::withMessages([
+                    'teacher_id' => ['This student is not taking a subject with that teacher. / الطالب لا يدرس مادة مع هذا المعلم.'],
+                ]);
+            }
+            $course = $link->course !== null && trim((string) $link->course) !== '' ? trim((string) $link->course) : null;
+        }
+
+        if ($this->activeFor($studentId, $teacherId) !== null) {
             throw ValidationException::withMessages([
-                'student_id' => ['This student already has an open package. Close it before opening another. / لدى هذا الطالب باقة مفتوحة بالفعل. أغلقها قبل فتح باقة جديدة.'],
+                'student_id' => [$teacherId === null
+                    ? 'This student already has an open package. Close it before opening another. / لدى هذا الطالب باقة مفتوحة بالفعل. أغلقها قبل فتح باقة جديدة.'
+                    : 'This student already has an open subscription for that subject. / لدى الطالب اشتراك مفتوح لهذه المادة بالفعل.'],
             ]);
         }
 
-        $academyId = (string) $student->academy_id;
-
         // Pay first: a family that pays before it renews settles the last package bill first.
-        if (RenewalPolicy::paysFirst($academyId, $studentId) && RenewalPolicy::packagesOwe($studentId)) {
+        if (RenewalPolicy::paysFirst($academyId, $studentId) && RenewalPolicy::packagesOwe($studentId, $teacherId)) {
             throw ValidationException::withMessages([
                 'student_id' => ['This family pays first: the last package bill must be paid before a new package opens. / هذه الأسرة تدفع أولًا: يجب سداد فاتورة الباقة السابقة قبل فتح باقة جديدة.'],
             ]);
@@ -739,7 +807,7 @@ final class LessonPackages
         $billTiming = (string) ($data['bill_timing'] ?? $academy->package_bill_timing ?? 'ON_START');
         $startsOn = (string) ($data['starts_on'] ?? Carbon::now($academy->timezone ?: 'UTC')->toDateString());
 
-        $previous = $this->latestClosedFor($studentId);
+        $previous = $this->latestClosedFor($studentId, $teacherId);
 
         // Carry-over is deliberately an explicit choice, never automatic: unused minutes are the
         // academy's money to forgive or keep, and silently moving them is how disputes start.
@@ -766,13 +834,15 @@ final class LessonPackages
         $packageId = (string) Str::uuid();
         $sequenceNo = ((int) DB::table('lesson_packages')->where('student_id', $studentId)->max('sequence_no')) + 1;
 
-        $absorbFrom = $this->absorbableOverdraft($studentId, $minutesTotal + $carried);
+        $absorbFrom = $this->absorbableOverdraft($studentId, $minutesTotal + $carried, $teacherId);
         $absorbed = $absorbFrom !== null ? (int) $absorbFrom->minutes_overdrawn : 0;
 
         DB::table('lesson_packages')->insert([
             'id' => $packageId,
             'academy_id' => $academyId,
             'student_id' => $studentId,
+            'teacher_id' => $teacherId,
+            'course' => $course,
             'label' => (string) $data['label'],
             'minutes_total' => $minutesTotal,
             // The previous block's last lesson ran past its end; those minutes are this block's.
@@ -823,7 +893,7 @@ final class LessonPackages
 
             // Roll the previous package's unbilled overdraft onto this bill. Its own invoice was
             // raised (and possibly paid) up front and is immutable — the debt has to travel.
-            $overdraft = $this->pendingOverdraft($studentId, $currency);
+            $overdraft = $this->pendingOverdraft($studentId, $currency, $teacherId);
             if ($overdraft !== null) {
                 $lines[] = [
                     'description' => $overdraft['description'],
@@ -857,6 +927,7 @@ final class LessonPackages
             $actorRole,
             after: [
                 'student_id' => $studentId,
+                'teacher_id' => $teacherId,
                 'minutes_total' => $minutesTotal,
                 'carried_over_minutes' => $carried,
                 'absorbed_overdraft_minutes' => $absorbed,
@@ -939,6 +1010,10 @@ final class LessonPackages
             ->leftJoin('lesson_package_credits as credit', 'credit.session_id', '=', 'sess.id')
             ->leftJoin('session_reports as report', 'report.session_id', '=', 'sess.id')
             ->where('sess.student_id', $package->student_id)
+            // A block tied to a subject takes only that subject's lessons (the timetable's teacher).
+            ->when($package->teacher_id !== null, fn ($q) => $q
+                ->leftJoin('schedules as sch', 'sch.id', '=', 'sess.schedule_id')
+                ->whereRaw('coalesce(sch.teacher_id, sess.teacher_id) = ?', [(string) $package->teacher_id]))
             ->where('sess.billed', true)
             ->whereBetween('sess.scheduled_at_utc', [$from, $through])
             ->whereNull('credit.id')
@@ -1308,7 +1383,7 @@ final class LessonPackages
         // The bill was written as if renewing, so a held overdraft stays for the renewal to absorb.
         $held = $renews
             && RenewalPolicy::paysFirst((string) $package->academy_id, (string) $package->student_id)
-            && RenewalPolicy::packagesOwe((string) $package->student_id);
+            && RenewalPolicy::packagesOwe((string) $package->student_id, $package->teacher_id !== null ? (string) $package->teacher_id : null);
         if ($held) {
             DB::table('lesson_packages')->where('id', $packageId)->update(['renewal_held_at' => now()]);
         }
@@ -1354,11 +1429,22 @@ final class LessonPackages
      */
     public function releaseHeldRenewal(string $studentId, ?string $actorUserId, ?string $actorRole): ?string
     {
-        $latest = DB::table('lesson_packages')->where('student_id', $studentId)->orderByDesc('sequence_no')->first();
-        if ($latest === null || $latest->renewal_held_at === null || $latest->status !== 'COMPLETED' || $this->activeFor($studentId) !== null) {
+        // One subject at a time: each held block is the latest of its own scope.
+        $renewed = null;
+        foreach (DB::table('lesson_packages')->where('student_id', $studentId)->whereNotNull('renewal_held_at')->get(['teacher_id']) as $held) {
+            $renewed = $this->releaseHeldRenewalIn($studentId, $held->teacher_id !== null ? (string) $held->teacher_id : null, $actorUserId, $actorRole) ?? $renewed;
+        }
+
+        return $renewed;
+    }
+
+    private function releaseHeldRenewalIn(string $studentId, ?string $teacherId, ?string $actorUserId, ?string $actorRole): ?string
+    {
+        $latest = self::inScope(DB::table('lesson_packages')->where('student_id', $studentId), $teacherId)->orderByDesc('sequence_no')->first();
+        if ($latest === null || $latest->renewal_held_at === null || $latest->status !== 'COMPLETED' || $this->activeFor($studentId, $teacherId) !== null) {
             return null;
         }
-        if (RenewalPolicy::paysFirst((string) $latest->academy_id, $studentId) && RenewalPolicy::packagesOwe($studentId)) {
+        if (RenewalPolicy::paysFirst((string) $latest->academy_id, $studentId) && RenewalPolicy::packagesOwe($studentId, $teacherId)) {
             return null;
         }
 
@@ -1406,6 +1492,8 @@ final class LessonPackages
 
         return $this->open([
             'student_id' => (string) $finished->student_id,
+            // The same subject: a Maths block renews as Maths.
+            'teacher_id' => $finished->teacher_id !== null ? (string) $finished->teacher_id : null,
             'label' => (string) $finished->label,
             'minutes_total' => (int) $finished->minutes_total,
             'price_minor' => (int) $finished->price_minor,
@@ -1585,12 +1673,10 @@ final class LessonPackages
         return (string) (DB::table('students')->where('id', $studentId)->value('full_name') ?? '');
     }
 
-    /** The student's most recently closed package (the one a carry-over would come from). */
-    private function latestClosedFor(string $studentId): ?object
+    /** The student's most recently closed package in a scope (the one a carry-over would come from). */
+    private function latestClosedFor(string $studentId, ?string $teacherId = null): ?object
     {
-        return DB::table('lesson_packages')
-            ->where('student_id', $studentId)
-            ->where('status', 'COMPLETED')
+        return self::inScope(DB::table('lesson_packages')->where('student_id', $studentId)->where('status', 'COMPLETED'), $teacherId)
             ->orderByDesc('sequence_no')
             ->first();
     }
@@ -1623,9 +1709,9 @@ final class LessonPackages
      *
      * @return array{package_id:string, description:string, amount_minor:int}|null
      */
-    private function pendingOverdraft(string $studentId, string $currency): ?array
+    private function pendingOverdraft(string $studentId, string $currency, ?string $teacherId = null): ?array
     {
-        $package = DB::table('lesson_packages')
+        $package = self::inScope(DB::table('lesson_packages'), $teacherId)
             ->where('student_id', $studentId)
             ->where('status', 'COMPLETED')
             ->where('bill_timing', 'ON_START')
@@ -1655,9 +1741,9 @@ final class LessonPackages
      * block born already empty would close the moment it opened. That rare case keeps the old
      * money path ({@see pendingOverdraft()}).
      */
-    private function absorbableOverdraft(string $studentId, int $capacity): ?object
+    private function absorbableOverdraft(string $studentId, int $capacity, ?string $teacherId = null): ?object
     {
-        $last = $this->latestClosedFor($studentId);
+        $last = $this->latestClosedFor($studentId, $teacherId);
 
         if ($last === null
             || (int) $last->minutes_overdrawn <= 0

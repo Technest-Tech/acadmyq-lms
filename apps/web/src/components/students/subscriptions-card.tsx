@@ -200,9 +200,12 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                       </Link>
                       <p className="text-muted-foreground text-xs">
                         {[
+                          p.subject ? [p.subject.course, p.subject.teacher_name].filter(Boolean).join(" · ") : null,
                           t("subscriptions.since", { date: dayLabel(p.starts_on, locale) }),
                           p.status === "ACTIVE" ? t("subscriptions.remaining", { hours: (p.minutes_remaining / 60).toLocaleString(locale, { maximumFractionDigits: 1 }) }) : tp(`status.${p.status}`),
-                        ].join(" · ")}
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1.5 text-end text-xs">

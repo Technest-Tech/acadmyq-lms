@@ -2834,7 +2834,12 @@
       "lessonTotal": "الإجمالي {total} — {lessons} حصة × {price}",
       "lessons": "عدد الحصص",
       "labelAutoLessons": "{lessons} × {minutes} د — {month}",
-      "lessonsReadout": "{lessons, plural, one {حصة واحدة} two {حصتان} few {# حصص} many {# حصة} other {# حصة}} × {minutes} د = {hours} · الحصة بـ {lesson} · الساعة بـ {hour}"
+      "lessonsReadout": "{lessons, plural, one {حصة واحدة} two {حصتان} few {# حصص} many {# حصة} other {# حصة}} × {minutes} د = {hours} · الحصة بـ {lesson} · الساعة بـ {hour}",
+      "subject": "المادة",
+      "subjectAny": "كل الحصص — بدون مادة محددة",
+      "subjectOpen": "(مفتوح)",
+      "subjectHint": "حصص معلم هذه المادة تُخصم من هذا الاشتراك، ويمكن للطالب أن يكون له اشتراك لكل مادة.",
+      "alreadyOpenSubject": "لدى الطالب اشتراك مفتوح لهذه المادة بالفعل. اختر مادة أخرى أو أغلق ذلك الاشتراك أولًا."
     },
     "detail": {
       "sold": "المشتراة",

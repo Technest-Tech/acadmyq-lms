@@ -2834,7 +2834,12 @@
       "lessonTotal": "Total {total} — {lessons} lessons × {price}",
       "lessons": "Lessons",
       "labelAutoLessons": "{lessons} × {minutes} min — {month}",
-      "lessonsReadout": "{lessons, plural, one {# lesson} other {# lessons}} × {minutes} min = {hours} · {lesson} a lesson · {hour} an hour"
+      "lessonsReadout": "{lessons, plural, one {# lesson} other {# lessons}} × {minutes} min = {hours} · {lesson} a lesson · {hour} an hour",
+      "subject": "Subject",
+      "subjectAny": "Any lesson — no particular subject",
+      "subjectOpen": "(open)",
+      "subjectHint": "Lessons with this subject's teacher draw from this subscription; a student can hold one per subject.",
+      "alreadyOpenSubject": "This student already has an open subscription for this subject. Pick another subject, or close that one first."
     },
     "detail": {
       "sold": "Bought",
