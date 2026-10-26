@@ -1,6 +1,7 @@
 "use client";
 
-import { CalendarCheck2, CheckCircle2, Link2Off, Video } from "lucide-react";
+import { CalendarCheck2, CheckCircle2, ClipboardCheck, Link2Off, Users, Video } from "lucide-react";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@/components/attendance/enter-lesson-button";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { getSessionsByDay, type DaySession } from "@/lib/api";
+import { listBoardLessons, type BoardLesson } from "@/lib/groups-api";
 import { cn } from "@/lib/utils";
 
 /** Today's local-day window as ISO instants — the API takes the browser's own day bounds. */
@@ -27,12 +29,17 @@ function todayWindow(): { from: string; to: string } {
  * lesson, lights up on its own when the time comes, and opens the teacher's meeting link.
  *
  * Renders nothing until the day has lessons: a teacher with a free day is not shown an empty card.
+ *
+ * `groups` (the academy runs group classes and the teacher may read them) adds the day's group
+ * lessons they teach, each with the way to its attendance sheet — a teacher who only teaches groups
+ * used to get no card at all.
  */
-export function MyLessonsToday() {
+export function MyLessonsToday({ groups = false }: { groups?: boolean }) {
   const t = useTranslations("dashboard.today");
   const locale = useLocale();
   const now = useNow();
   const [lessons, setLessons] = useState<DaySession[] | null>(null);
+  const [groupLessons, setGroupLessons] = useState<BoardLesson[]>([]);
   // A press shows on its row at once; the API row carries it from the next load on.
   const [entered, setEntered] = useState<Record<string, string>>({});
 
@@ -42,15 +49,23 @@ export function MyLessonsToday() {
       .catch(() => setLessons([]));
   }, []);
 
+  useEffect(() => {
+    if (!groups) return;
+    // Today in the academy's calendar, scoped to this teacher by the API.
+    listBoardLessons({ view: "day" })
+      .then((r) => setGroupLessons(r.lessons.filter((l) => l.status !== "CANCELLED")))
+      .catch(() => setGroupLessons([]));
+  }, [groups]);
+
   const timeFmt = useMemo(
     () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
     [locale],
   );
 
-  if (lessons === null || lessons.length === 0) return null;
+  if (lessons === null || lessons.length + groupLessons.length === 0) return null;
 
   // One link per teacher, so every row carries the same one — or none.
-  const noLink = lessons.every((l) => !l.meeting_url);
+  const noLink = lessons.length > 0 && lessons.every((l) => !l.meeting_url);
 
   return (
     <section
@@ -70,7 +85,7 @@ export function MyLessonsToday() {
           </div>
         </div>
         <span className="bg-muted text-muted-foreground rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums">
-          {lessons.length}
+          {lessons.length + groupLessons.length}
         </span>
       </div>
 
@@ -126,6 +141,43 @@ export function MyLessonsToday() {
                 now={now}
                 onEntered={(at) => setEntered((m) => ({ ...m, [l.id]: at }))}
               />
+            </li>
+          );
+        })}
+        {groupLessons.map((g) => {
+          const start = new Date(g.scheduled_at_utc);
+          const end = new Date(start.getTime() + g.duration_minutes * 60_000);
+          const held = g.status === "HELD";
+          return (
+            <li
+              key={`g-${g.id}`}
+              data-testid="my-group-lesson"
+              className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3 py-2.5", held && "opacity-70")}
+            >
+              <span className="w-24 shrink-0 text-sm font-semibold tabular-nums" dir="ltr">
+                {timeFmt.format(start)}–{timeFmt.format(end)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                  <Users className="text-muted-foreground size-3.5 shrink-0" aria-hidden />
+                  {g.group.name}
+                </p>
+                <p className="text-muted-foreground text-[11px]">
+                  {held
+                    ? t("groupHeld", { present: (g.counts?.present ?? 0) + (g.counts?.late ?? 0), expected: g.counts?.expected ?? 0 })
+                    : t("groupExpected", { expected: g.counts?.expected ?? 0 })}
+                </p>
+              </div>
+              <Link
+                href={`/groups/${g.group_id}`}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
+                  held ? "text-muted-foreground hover:bg-muted" : "border-primary/40 text-primary hover:bg-primary/5",
+                )}
+              >
+                <ClipboardCheck className="size-3.5" aria-hidden />
+                {held ? t("groupOpen") : t("groupMark")}
+              </Link>
             </li>
           );
         })}

@@ -23,6 +23,7 @@ import {
   TrendingDown,
   TrendingUp,
   Users,
+  ChevronRight,
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -33,6 +34,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FollowControl, type FollowInfo } from "@/components/attendance/follow-control";
 import { useAuth } from "@/components/auth-provider";
 import { MyLessonsToday } from "@/components/dashboard/my-lessons-today";
+import { useCapability } from "@/lib/capabilities";
+import { groupLessonsAsSessions } from "@/lib/group-calendar";
+import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { SubscriptionBanner } from "@/components/dashboard/subscription-banner";
 import { MyQualityPanel } from "@/components/quality/my-quality-panel";
 import {
@@ -813,6 +817,10 @@ export function AcademyDashboard() {
   const [studentsTotal, setStudentsTotal] = useState<number | null>(null);
   const [teachersTotal, setTeachersTotal] = useState<number | null>(null);
   const [pending, setPending] = useState<PendingSession[] | null>(null);
+  // Group classes (an academy running them, a user who may read them): their lessons count in the
+  // week and the month like any lesson, and a sheet still owed is attendance still pending.
+  const groupsOn = useCapability("groups") && can("group.read");
+  const [groupOwed, setGroupOwed] = useState(0);
   // A fresh "Following" click shows on its row at once; the API row catches up on the next load.
   const [followed, setFollowed] = useState<Record<string, FollowInfo>>({});
   const [followError, setFollowError] = useState<string | null>(null);
@@ -894,12 +902,15 @@ export function AcademyDashboard() {
       const fromM = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
       const toM = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
       getCalendar({ from: fromM, to: toM })
-        .then((r) => setMonthSessions(r.sessions))
+        .then((r) => setMonthSessions([...r.sessions, ...groupLessonsAsSessions(r.group_lessons ?? [])]))
         .catch(() => setMonthSessions([]))
         .finally(() => setLdMonth(false));
 
       const { from, to } = getCurrentWeek();
-      getCalendar({ from, to }).then((r) => setWeekSessions(r.sessions)).catch(() => setWeekSessions([])).finally(() => setLdWeek(false));
+      getCalendar({ from, to })
+        .then((r) => setWeekSessions([...r.sessions, ...groupLessonsAsSessions(r.group_lessons ?? [])]))
+        .catch(() => setWeekSessions([]))
+        .finally(() => setLdWeek(false));
     } else {
       setLdMonth(false);
       setLdWeek(false);
@@ -955,8 +966,12 @@ export function AcademyDashboard() {
       setLdProfit(false);
     }
 
+    if (groupsOn) {
+      getGroupLessonsSummary().then((r) => setGroupOwed(r.owed ?? 0)).catch(() => setGroupOwed(0));
+    }
+
     getEntitlements().then(setEntitlements).catch(() => {}).finally(() => setLdPlan(false));
-  }, [can]);
+  }, [can, groupsOn]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -967,7 +982,7 @@ export function AcademyDashboard() {
   }, [load]);
 
   // Derived values
-  const pendingCount = pending?.length ?? 0;
+  const pendingCount = (pending?.length ?? 0) + groupOwed;
   const openInvoices = invoiceSummary?.counts.OPEN ?? 0;
   const bucket = invoiceSummary?.money[0];
   const collectionRate = bucket?.billed_minor
@@ -1176,7 +1191,7 @@ export function AcademyDashboard() {
       {/* ── Today's lessons (teacher) ──
           The teacher's own day with an Enter button per lesson — it opens their meeting link when
           the lesson opens, and the press is what their punctuality is measured by. */}
-      {isTeacher && <MyLessonsToday />}
+      {isTeacher && <MyLessonsToday groups={groupsOn} />}
 
       {/* ── Key metrics ── */}
       <section className="space-y-3">
@@ -1565,8 +1580,22 @@ export function AcademyDashboard() {
                         <Sk className="h-6 w-14 rounded-lg" />
                       </div>
                     ))
-                  ) : pending && pending.length > 0 ? (
-                    pending.slice(0, 5).map((s) => (
+                  ) : pendingCount > 0 ? (
+                    <>
+                    {groupOwed > 0 && (
+                      <Link
+                        href="/groups/lessons"
+                        className="flex items-center justify-between gap-3 rounded-xl border border-amber-300/60 bg-amber-500/5 px-4 py-3 text-sm font-medium transition-colors hover:bg-amber-500/10"
+                        data-testid="pending-group-sheets"
+                      >
+                        <span className="flex items-center gap-2">
+                          <Users className="h-4 w-4 text-amber-600" />
+                          {t("pending.groupSheets", { count: groupOwed })}
+                        </span>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground rtl:rotate-180" />
+                      </Link>
+                    )}
+                    {(pending ?? []).slice(0, 5).map((s) => (
                       <PendingRow
                         key={s.id}
                         session={s}
@@ -1581,7 +1610,8 @@ export function AcademyDashboard() {
                         onFollowed={(info) => setFollowed((m) => ({ ...m, [s.id]: info }))}
                         onFollowError={setFollowError}
                       />
-                    ))
+                    ))}
+                    </>
                   ) : (
                     <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed bg-muted/20 py-12 text-center">
                       <CheckCircle2 className="h-10 w-10 text-emerald-400" />

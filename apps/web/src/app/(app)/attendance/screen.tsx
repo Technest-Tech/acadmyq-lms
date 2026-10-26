@@ -24,7 +24,10 @@ export function AttendanceScreen() {
   const t = useTranslations("attendance");
   const { can } = useAuth();
   const groups = useCapability("groups") && can("group.read");
-  const [view, setView] = useState<View>("private");
+  // A centre runs on groups: it opens on them (a teacher who only teaches groups used to land on
+  // an empty private list). Everyone else opens on private lessons, as before.
+  const centre = useCapability("centre");
+  const [view, setView] = useState<View>(centre && groups ? "groups" : "private");
 
   if (!can("session.read")) {
     return <p className="text-muted-foreground text-sm">{t("noPermission")}</p>;

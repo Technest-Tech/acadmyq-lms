@@ -15,6 +15,12 @@ vi.mock("@/lib/api", async (importActual) => ({
 
 import * as api from "@/lib/api";
 
+const listBoardLessons = vi.fn();
+vi.mock("@/lib/groups-api", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/groups-api")>()),
+  listBoardLessons: (...a: unknown[]) => listBoardLessons(...a),
+}));
+
 const row = (id: string, at: string, extra: Partial<api.DaySession> = {}): api.DaySession => ({
   id,
   student_id: `st-${id}`,
@@ -78,5 +84,31 @@ describe("MyLessonsToday", () => {
 
     await vi.waitFor(() => expect(api.getSessionsByDay).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("shows a group teacher their group lessons of the day, each with the way to its sheet — with no private lesson at all", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [] } as never);
+    listBoardLessons.mockResolvedValue({
+      view: "day", from: "2026-09-26", to: "2026-09-26", timezone: "Africa/Cairo",
+      lessons: [
+        { id: "l1", group_id: "g1", status: "SCHEDULED", scheduled_at_utc: "2026-09-26T15:00:00Z", duration_minutes: 40, counts: { present: 0, late: 0, absent: 0, excused: 0, marked: 0, expected: 6 }, group: { id: "g1", name: "Grade3 English", level: null, timezone: "Africa/Cairo", mode: "OFFLINE", location: null } },
+        { id: "l2", group_id: "g2", status: "CANCELLED", scheduled_at_utc: "2026-09-26T17:00:00Z", duration_minutes: 40, counts: null, group: { id: "g2", name: "Cancelled one", level: null, timezone: "Africa/Cairo", mode: "OFFLINE", location: null } },
+      ],
+    });
+    render(wrap(<MyLessonsToday groups />));
+
+    const row = await screen.findByTestId("my-group-lesson");
+    expect(row.textContent).toContain("Grade3 English");
+    expect(within(row).getByRole("link", { name: enMessages.dashboard.today.groupMark })).toHaveAttribute("href", "/groups/g1");
+    expect(screen.queryByText("Cancelled one")).toBeNull();
+    expect(listBoardLessons).toHaveBeenCalledWith({ view: "day" });
+  });
+
+  it("asks nothing about groups where the academy has none", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [] } as never);
+    const { container } = render(wrap(<MyLessonsToday />));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(listBoardLessons).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="my-lessons-today"]')).toBeNull();
   });
 });

@@ -148,7 +148,10 @@ final class CalendarController extends Controller
             ->orderBy('l.scheduled_at_utc')->orderBy('l.id');
 
         if ($this->ctx()->role === 'TEACHER') {
-            $query->where('l.teacher_id', (string) $this->callerTeacherId());
+            // Their own lessons, and every lesson of a group they lead (a substitute's included) —
+            // the same rule as the group lessons board.
+            $me = (string) $this->callerTeacherId();
+            $query->where(fn ($q) => $q->where('l.teacher_id', $me)->orWhere('g.teacher_id', $me));
         } elseif (! empty($data['teacherId'])) {
             $query->where('l.teacher_id', $data['teacherId']);
         }

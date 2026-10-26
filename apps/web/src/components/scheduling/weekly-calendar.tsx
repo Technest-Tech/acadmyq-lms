@@ -41,6 +41,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import { buttonVariants } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { groupLessonsAsSessions } from "@/lib/group-calendar";
 import { cn } from "@/lib/utils";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -333,25 +334,7 @@ export function WeeklyCalendar({
    * attended, cancelled as cancelled). `s.group` is what tells the views it is not a session.
    */
   const groupEvents = useMemo<CalendarSession[]>(
-    () =>
-      groupLessons.map((gl) => ({
-        id: gl.id,
-        student_id: "",
-        teacher_id: gl.teacher_id,
-        schedule_id: null,
-        scheduled_at_utc: gl.scheduled_at_utc,
-        duration_minutes: gl.duration_minutes,
-        status: (gl.status === "HELD"
-          ? "ATTENDED"
-          : gl.status === "CANCELLED"
-            ? "CANCELLED_BY_TEACHER"
-            : "SCHEDULED") as SessionStatus,
-        status_reason: gl.cancel_reason,
-        original_session_id: null,
-        student_name: `${gl.group_name} (${gl.member_count})`,
-        teacher_name: gl.teacher_name,
-        group: gl,
-      })),
+    () => groupLessonsAsSessions(groupLessons),
     [groupLessons],
   );
 

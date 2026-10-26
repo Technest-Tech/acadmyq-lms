@@ -6,6 +6,8 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Support\Audit;
+use App\Support\AuthContext;
+use App\Support\TeacherStudents;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -38,11 +40,10 @@ final class StudentProgressReportController extends Controller
 
         $teacherId = $this->requireCallerTeacherId();
 
-        $students = DB::table('student_teacher_assignments as a')
-            ->join('students as s', 's.id', '=', 'a.student_id')
-            ->where('a.teacher_id', $teacherId)
-            ->whereNull('a.ended_at')
+        // Their private students and, where the academy runs groups, their groups' members.
+        $students = DB::table('students as s')
             ->whereNull('s.deleted_at')
+            ->tap(fn ($q) => TeacherStudents::scope($q, (string) $teacherId, (string) app(AuthContext::class)->academyId))
             ->orderBy('s.full_name')
             ->get(['s.id', 's.full_name']);
 
@@ -92,11 +93,7 @@ final class StudentProgressReportController extends Controller
         ]);
 
         // The student must be currently assigned to this teacher (RLS already pins the academy).
-        $assigned = DB::table('student_teacher_assignments')
-            ->where('teacher_id', $teacherId)
-            ->where('student_id', $data['student_id'])
-            ->whereNull('ended_at')
-            ->exists();
+        $assigned = TeacherStudents::teaches((string) $teacherId, (string) $data['student_id'], (string) app(AuthContext::class)->academyId);
         if (! $assigned) {
             throw ValidationException::withMessages([
                 'student_id' => ['That student is not assigned to you. / هذا الطالب غير مُسند إليك.'],

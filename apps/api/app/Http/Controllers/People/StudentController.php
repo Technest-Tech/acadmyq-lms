@@ -17,6 +17,7 @@ use App\Support\Entitlement;
 use App\Support\Phone;
 use App\Support\StudentStatus;
 use App\Support\StudentTeachers;
+use App\Support\TeacherStudents;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -825,13 +826,8 @@ final class StudentController extends Controller
         }
 
         $teacherId = DB::table('teachers')->where('user_id', $ctx->userId)->value('id');
-        $query->whereExists(function ($q) use ($teacherId): void {
-            $q->select(DB::raw(1))
-                ->from('student_teacher_assignments as ta')
-                ->whereColumn('ta.student_id', 's.id')
-                ->whereNull('ta.ended_at')
-                ->where('ta.teacher_id', $teacherId);
-        });
+        // Private assignments — and, where the academy runs groups, the members of their groups.
+        TeacherStudents::scope($query, $teacherId !== null ? (string) $teacherId : null, (string) $ctx->academyId);
     }
 
     /** A teacher may only read a student they currently teach; others fall through (owner/admin). */
@@ -843,13 +839,7 @@ final class StudentController extends Controller
         }
 
         $teacherId = DB::table('teachers')->where('user_id', $ctx->userId)->value('id');
-        $teaches = $teacherId !== null && DB::table('student_teacher_assignments')
-            ->where('student_id', $studentId)
-            ->where('teacher_id', $teacherId)
-            ->whereNull('ended_at')
-            ->exists();
-
-        if (! $teaches) {
+        if (! TeacherStudents::teaches($teacherId !== null ? (string) $teacherId : null, $studentId, (string) $ctx->academyId)) {
             abort(403, 'You may only view your own students.');
         }
     }

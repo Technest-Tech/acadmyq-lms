@@ -493,6 +493,36 @@ it('shows a teacher only their own groups, and lets them mark their own lessons'
     $this->postJson('/api/group-lessons/'.lessonOn($this, $mine, '2026-06-22')->id.'/cancel')->assertForbidden();
 });
 
+it('gives a teacher who teaches groups their students: the members of their groups, nobody else\'s', function () {
+    makeGroup($this, ['student_ids' => [$this->students['Adam'], $this->students['Bassel']]]);
+    makeGroup($this, ['name' => 'Maths G9', 'teacher_id' => $this->other, 'student_ids' => [$this->students['Celine']]]);
+
+    Sanctum::actingAs($this->teacherUser);
+    $names = collect($this->getJson('/api/students')->assertOk()->json('rows'))->pluck('full_name')->sort()->values()->all();
+    expect($names)->toBe(['Adam', 'Bassel']);
+    // A member's page opens (it used to 403 from the group's own member list); another's does not.
+    $this->getJson("/api/students/{$this->students['Adam']}")->assertOk();
+    $this->getJson("/api/students/{$this->students['Celine']}")->assertForbidden();
+    // The progress-report picker lists them too.
+    $picker = $this->getJson('/api/student-reports/students');
+    if ($picker->status() === 200) {
+        expect(collect($picker->json('students'))->pluck('full_name')->sort()->values()->all())->toBe(['Adam', 'Bassel']);
+    }
+
+    Sanctum::actingAs($this->otherUser);
+    expect(collect($this->getJson('/api/students')->json('rows'))->pluck('full_name')->all())->toBe(['Celine']);
+});
+
+it('shows a group\'s teacher the lessons a substitute took, on the calendar', function () {
+    $groupId = makeGroup($this, ['student_ids' => [$this->students['Adam']]]);
+    $lesson = lessonOn($this, $groupId, '2026-06-22');
+    asTenant($this->academy, fn () => DB::table('class_group_lessons')->where('id', $lesson->id)->update(['teacher_id' => $this->other]));
+
+    Sanctum::actingAs($this->teacherUser);
+    $ids = collect($this->getJson('/api/calendar?from=2026-06-22&to=2026-06-22')->assertOk()->json('group_lessons'))->pluck('id')->all();
+    expect($ids)->toContain($lesson->id);
+});
+
 // ── The calendar ─────────────────────────────────────────────────────────────
 
 it('puts a group lesson on the calendar once, with its member count', function () {

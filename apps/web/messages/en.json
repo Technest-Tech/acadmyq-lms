@@ -58,7 +58,11 @@
       "subtitle": "Enter opens {minutes} minutes before each lesson and takes you to your meeting room.",
       "noLink": "You have no meeting link yet — ask the academy to add it, then Enter will open it.",
       "enteredAt": "Entered at {time}",
-      "ended": "Ended"
+      "ended": "Ended",
+      "groupHeld": "{present} of {expected} came",
+      "groupExpected": "{expected} students expected",
+      "groupOpen": "Open",
+      "groupMark": "Take attendance"
     },
     "empty": {
       "noData": "No data available yet"
@@ -103,7 +107,8 @@
       "title": "Pending Lessons",
       "viewAll": "View all",
       "allClear": "All caught up!",
-      "noSessions": "No lessons pending attendance"
+      "noSessions": "No lessons pending attendance",
+      "groupSheets": "{count, plural, one {# group lesson} other {# group lessons}} without an attendance sheet"
     },
     "actions": {
       "title": "Quick Actions",
