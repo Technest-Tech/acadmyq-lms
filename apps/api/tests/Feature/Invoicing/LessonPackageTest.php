@@ -1482,3 +1482,36 @@ it('keeps one subscription per student where the academy is not a centre', funct
     ($this->openPackage)(1, 20000);
     expect(fn () => ($this->openPackage)(1, 20000))->toThrow(ValidationException::class);
 });
+
+it('a centre adds a subscription for a subject the student is only now starting: the subject link is made with it', function () {
+    $this->asAcademy($this->academy, 'SUPER_ADMIN');
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['centre']);
+    $this->clearTenantContext();
+    $maths = $this->createTeacher($this->academy, ['full_name' => 'Ms Rahma']);
+    ($this->openPackage)(1, 20000); // the "any lesson" block, as a group-only centre has today
+
+    Sanctum::actingAs($this->owner);
+    $body = ['student_id' => $this->student, 'label' => 'Maths', 'hours' => 8, 'price_minor' => 80000, 'teacher_id' => $maths];
+    // Not one of the student's subjects yet, and not asked to make it one: refused, nothing written.
+    $this->postJson('/api/packages', $body)->assertStatus(422)->assertJsonValidationErrors('teacher_id');
+
+    $res = $this->postJson('/api/packages', $body + ['new_subject' => true, 'course' => 'Maths'])->assertCreated();
+    $this->asAcademy($this->academy);
+    $link = DB::table('student_teacher_assignments')->where('student_id', $this->student)->where('teacher_id', $maths)->whereNull('ended_at')->first();
+    expect($link)->not->toBeNull()->and($link->course)->toBe('Maths');
+    $tied = DB::table('lesson_packages')->where('id', $res->json('id'))->first();
+    expect((string) $tied->teacher_id)->toBe($maths)->and($tied->course)->toBe('Maths');
+    expect(DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->count())->toBe(2);
+
+    // A second Maths block is refused — and the refusal leaves no stray link behind.
+    $english = $this->createTeacher($this->academy, ['full_name' => 'Mr Ali']);
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/packages', $body + ['new_subject' => true, 'course' => 'Maths'])->assertStatus(422);
+    $this->asAcademy($this->academy);
+    expect(DB::table('student_teacher_assignments')->where('student_id', $this->student)->whereNull('ended_at')->count())->toBe(1);
+    // English as a new subject opens a third block.
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/packages', ['student_id' => $this->student, 'label' => 'English', 'hours' => 4, 'price_minor' => 40000, 'teacher_id' => $english, 'new_subject' => true, 'course' => 'English'])->assertCreated();
+    $this->asAcademy($this->academy);
+    expect(DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->count())->toBe(3);
+});

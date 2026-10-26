@@ -600,3 +600,10 @@ separately. A lesson package may now be tied to a subject — the student's teac
   lesson); per-subject ones are added from the student's page.
 - Tests: `LessonPackageTest` ("a centre sells one subscription per subject…", "keeps one subscription
   per student where the academy is not a centre"), web `open-package-form.test.tsx`.
+- **Fix the same day — a subject the student is only now starting.** Lingo's students had no
+  teacher/subject links at all (groups only, no private timetables), so the picker had nothing to
+  offer and a second subscription was refused. The picker now shows for every centre student with
+  "+ New subject…": a subject name and a teacher; saving opens the block tied to that teacher and makes
+  the student↔teacher↔subject link with it (`new_subject` + `course` on `POST /packages`, written only
+  after every check passes; the controller wraps the open in one transaction). A student whose "any
+  lesson" block is open and who has no free subject starts on "+ New subject…".

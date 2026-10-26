@@ -2882,7 +2882,13 @@
       "subjectAny": "Any lesson — no particular subject",
       "subjectOpen": "(open)",
       "subjectHint": "Lessons with this subject's teacher draw from this subscription; a student can hold one per subject.",
-      "alreadyOpenSubject": "This student already has an open subscription for this subject. Pick another subject, or close that one first."
+      "alreadyOpenSubject": "This student already has an open subscription for this subject. Pick another subject, or close that one first.",
+      "subjectNew": "+ New subject…",
+      "subjectName": "Subject",
+      "subjectNamePlaceholder": "e.g. Maths",
+      "subjectTeacher": "Teacher",
+      "subjectTeacherPick": "Choose the teacher",
+      "subjectNewHint": "The student is linked to this teacher for this subject as the subscription opens; their lessons with that teacher draw from it."
     },
     "detail": {
       "sold": "Bought",

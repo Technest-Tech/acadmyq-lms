@@ -777,12 +777,21 @@ final class LessonPackages
             $link = DB::table('student_teacher_assignments')
                 ->where('student_id', $studentId)->where('teacher_id', $teacherId)->whereNull('ended_at')
                 ->first(['course']);
-            if ($link === null) {
+            // A subject new to this student (`new_subject`): the link is made with the block — the
+            // desk sells "Maths with Ms Rahma" before any timetable exists. Written further down,
+            // once every check has passed.
+            $newSubject = $link === null && ($data['new_subject'] ?? false) === true;
+            if ($link === null && ! $newSubject) {
                 throw ValidationException::withMessages([
                     'teacher_id' => ['This student is not taking a subject with that teacher. / الطالب لا يدرس مادة مع هذا المعلم.'],
                 ]);
             }
-            $course = $link->course !== null && trim((string) $link->course) !== '' ? trim((string) $link->course) : null;
+            if ($newSubject && ! DB::table('teachers')->where('id', $teacherId)->whereNull('deleted_at')->exists()) {
+                throw ValidationException::withMessages(['teacher_id' => ['Unknown or inactive teacher. / معلم غير موجود أو غير نشط.']]);
+            }
+            $course = $newSubject
+                ? (trim((string) ($data['course'] ?? '')) !== '' ? mb_substr(trim((string) $data['course']), 0, 80) : null)
+                : ($link->course !== null && trim((string) $link->course) !== '' ? trim((string) $link->course) : null);
         }
 
         if ($this->activeFor($studentId, $teacherId) !== null) {
@@ -814,6 +823,20 @@ final class LessonPackages
         $carried = 0;
         if (($data['carry_over'] ?? false) === true && $previous !== null) {
             $carried = $this->remainingMinutes($previous);
+        }
+
+        if ($teacherId !== null && ($newSubject ?? false)) {
+            DB::table('student_teacher_assignments')->insert([
+                'id' => (string) Str::uuid(),
+                'academy_id' => $academyId,
+                'student_id' => $studentId,
+                'teacher_id' => $teacherId,
+                'course' => $course,
+                'started_at' => now(),
+                'ended_at' => null,
+            ]);
+            Audit::log('student.teacher_added', 'student', $studentId, $academyId, $actorUserId, $actorRole,
+                after: ['teacher_id' => $teacherId, 'course' => $course, 'effective_date' => now()->toDateString(), 'with_package' => true]);
         }
 
         // Selling a block IS putting this student on the hour clock. Doing it here, before the

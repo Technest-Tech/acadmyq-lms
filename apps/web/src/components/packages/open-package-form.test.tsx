@@ -18,11 +18,13 @@ import { OpenPackageForm } from "./open-package-form";
 
 const listPackageStudents = vi.fn();
 const openLessonPackage = vi.fn();
+const listTeachers = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   listPackageStudents: () => listPackageStudents(),
   openLessonPackage: (input: unknown) => openLessonPackage(input),
+  listTeachers: (...a: unknown[]) => listTeachers(...a),
 }));
 
 const SARA = {
@@ -326,5 +328,26 @@ describe("OpenPackageForm — a centre sells one subscription per subject", () =
     await pickStudent("Layla");
     expect(screen.queryByTestId("package-subject")).toBeNull();
     expect(screen.getByTestId("package-already-open")).toBeInTheDocument();
+  });
+
+  it("for a student with no subjects yet and the 'any lesson' one open, starts on a new subject: name + teacher", async () => {
+    const NOUR = { ...SARA, id: "s4", full_name: "Nour", active_package_id: "p-any", subjects: [], open_subjects: [] };
+    listPackageStudents.mockResolvedValue({ students: [NOUR] });
+    listTeachers.mockResolvedValue({ rows: [{ id: "t-maths", full_name: "Ms Rahma" }], total: 1, page: 1, pageSize: 200 });
+    render(withAuth(centreSession(), <OpenPackageForm initialStudentId="s4" onSaved={() => {}} onCancel={() => {}} />));
+
+    await waitFor(() => expect(screen.getByTestId("package-subject")).toHaveValue("__new__"));
+    expect(screen.queryByTestId("package-already-open")).toBeNull();
+    await userEvent.type(screen.getByTestId("package-new-course"), "Maths");
+    const teacher = screen.getByTestId("package-new-teacher");
+    await waitFor(() => expect(within(teacher).getAllByRole("option").length).toBe(2));
+    await userEvent.selectOptions(teacher, "t-maths");
+
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "8");
+    await userEvent.type(screen.getByTestId("pkg-lesson-unit-price"), "100");
+    await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.open }));
+    await waitFor(() =>
+      expect(openLessonPackage).toHaveBeenCalledWith(expect.objectContaining({ teacher_id: "t-maths", new_subject: true, course: "Maths", hours: 8 })),
+    );
   });
 });

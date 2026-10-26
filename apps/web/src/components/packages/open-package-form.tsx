@@ -13,8 +13,10 @@ import { Combobox } from "@/components/ui/combobox";
 import {
   ApiError,
   listPackageStudents,
+  listTeachers,
   openLessonPackage,
   type PackageStudent,
+  type TeacherRow,
 } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
@@ -53,6 +55,34 @@ export function OpenPackageForm({
   // A centre sells one subscription per subject: tied to the student's teacher for it ("" = any lesson).
   const centre = useCapability("centre");
   const [subjectId, setSubjectId] = useState("");
+  // A subject new to the student: its teacher and its name, linked to them as the block opens.
+  const NEW = "__new__";
+  const [teachers, setTeachers] = useState<TeacherRow[] | null>(null);
+  const [newTeacherId, setNewTeacherId] = useState("");
+  const [newCourse, setNewCourse] = useState("");
+
+  /**
+   * Where the subject picker starts: "any lesson" — unless that one is already open, then their
+   * first subject still free, else a new subject (a centre's second subscription is a subject).
+   */
+  function defaultSubject(picked: PackageStudent | undefined): string {
+    if (!centre || picked?.active_package_id == null) return "";
+    const free = (picked.subjects ?? []).find((sub) => !(picked.open_subjects ?? []).includes(sub.teacher_id));
+    return free?.teacher_id ?? NEW;
+  }
+
+  // Opened from a student's page: the student is chosen already, so start where a pick would.
+  useEffect(() => {
+    if (initialStudentId && students !== null) setSubjectId(defaultSubject(students.find((s) => s.id === initialStudentId)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students]);
+
+  useEffect(() => {
+    if (!centre || subjectId !== NEW || teachers !== null) return;
+    void listTeachers({ pageSize: 200, filter: { status: "active" } })
+      .then((r) => setTeachers(r.rows))
+      .catch(() => setTeachers([]));
+  }, [centre, subjectId, teachers]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,14 +130,17 @@ export function OpenPackageForm({
 
   const subjects = centre ? (student?.subjects ?? []) : [];
   const openSubjects = new Set(student?.open_subjects ?? []);
+  // The teacher the block is tied to: a subject they already take, or the one picked as new.
+  const tiedTeacher = subjectId === NEW ? newTeacherId : subjectId;
   const alreadyOpen =
-    student !== null && (subjectId === "" ? student.active_package_id != null : openSubjects.has(subjectId));
+    student !== null && (tiedTeacher === "" ? subjectId !== NEW && student.active_package_id != null : openSubjects.has(tiedTeacher));
+  const newSubjectReady = subjectId !== NEW || (newTeacherId !== "" && newCourse.trim() !== "");
   /** Saving will also move this student onto package billing. Said out loud, before they commit. */
   const willSwitch = student !== null && !student.on_package_billing;
   const canCarryOver =
     student !== null && (studentsWithHistory?.has(student.id) ?? false);
 
-  const valid = studentId !== "" && terms.valid && !alreadyOpen;
+  const valid = studentId !== "" && terms.valid && !alreadyOpen && newSubjectReady;
 
   async function save() {
     setBusy(true);
@@ -117,7 +150,9 @@ export function OpenPackageForm({
         student_id: studentId,
         ...terms.toPayload(),
         carry_over: canCarryOver && carryOver,
-        ...(subjectId !== "" ? { teacher_id: subjectId } : {}),
+        ...(tiedTeacher !== "" ? { teacher_id: tiedTeacher } : {}),
+        // Picked as new and not already one of theirs: the link is made with the block.
+        ...(subjectId === NEW && !subjects.some((sub) => sub.teacher_id === newTeacherId) ? { new_subject: true, course: newCourse.trim() } : {}),
       });
 
       const opened =
@@ -168,12 +203,9 @@ export function OpenPackageForm({
           onChange={(id) => {
             setStudentId(id);
             setCarryOver(false);
-            // The "any lesson" subscription already open: start on their first subject still free.
-            const picked = students?.find((s) => s.id === id);
-            const free = centre && picked?.active_package_id != null
-              ? (picked.subjects ?? []).find((sub) => !(picked.open_subjects ?? []).includes(sub.teacher_id))
-              : undefined;
-            setSubjectId(free?.teacher_id ?? "");
+            setSubjectId(defaultSubject(students?.find((s) => s.id === id)));
+            setNewTeacherId("");
+            setNewCourse("");
           }}
           placeholder={t("form.studentPlaceholder")}
           searchPlaceholder={t("form.searchStudent")}
@@ -186,7 +218,7 @@ export function OpenPackageForm({
         )}
       </div>
 
-      {subjects.length > 0 && (
+      {centre && student !== null && (
         <div className="space-y-1.5">
           <label htmlFor="package-subject" className="text-sm font-medium">
             {t("form.subject")}
@@ -208,8 +240,41 @@ export function OpenPackageForm({
                 {openSubjects.has(sub.teacher_id) ? ` ${t("form.subjectOpen")}` : ""}
               </option>
             ))}
+            <option value={NEW}>{t("form.subjectNew")}</option>
           </select>
-          <p className="text-muted-foreground text-[11px]">{t("form.subjectHint")}</p>
+          {subjectId === NEW && (
+            <div className="grid grid-cols-1 gap-2 rounded-xl border border-dashed p-3 sm:grid-cols-2" data-testid="package-new-subject">
+              <label className="text-muted-foreground text-xs">
+                {t("form.subjectName")}
+                <input
+                  className="border-input bg-background focus:border-primary focus:ring-primary/15 mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-3"
+                  value={newCourse}
+                  onChange={(e) => setNewCourse(e.target.value)}
+                  maxLength={80}
+                  placeholder={t("form.subjectNamePlaceholder")}
+                  data-testid="package-new-course"
+                />
+              </label>
+              <label className="text-muted-foreground text-xs">
+                {t("form.subjectTeacher")}
+                <select
+                  className="border-input bg-background focus:border-primary focus:ring-primary/15 mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-3"
+                  value={newTeacherId}
+                  onChange={(e) => setNewTeacherId(e.target.value)}
+                  data-testid="package-new-teacher"
+                >
+                  <option value="">{teachers === null ? "…" : t("form.subjectTeacherPick")}</option>
+                  {(teachers ?? []).map((tc) => (
+                    <option key={tc.id} value={tc.id}>
+                      {tc.full_name}
+                      {openSubjects.has(tc.id) ? ` ${t("form.subjectOpen")}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+          <p className="text-muted-foreground text-[11px]">{subjectId === NEW ? t("form.subjectNewHint") : t("form.subjectHint")}</p>
         </div>
       )}
 

@@ -385,15 +385,21 @@ final class LessonPackageController extends Controller
             'expires_on' => ['sometimes', 'nullable', 'date', 'after_or_equal:starts_on'],
             'carry_over' => ['sometimes', 'boolean'],
             'auto_renew' => ['sometimes', 'boolean'],
-            // A centre's subscription for one subject: the student's teacher for it (null = any lesson).
+            // A centre's subscription for one subject: the student's teacher for it (null = any lesson)
+            // — or, with `new_subject`, a teacher and subject name the student is starting now.
             'teacher_id' => ['sometimes', 'nullable', 'uuid'],
+            'new_subject' => ['sometimes', 'boolean'],
+            'course' => ['sometimes', 'nullable', 'string', 'max:80'],
         ]);
 
         $ctx = app(AuthContext::class);
 
-        $result = app(LessonPackages::class)->open([
+        // One unit: a refusal half-way must not leave a new subject link (or anything) behind.
+        $result = DB::transaction(fn () => app(LessonPackages::class)->open([
             'student_id' => (string) $validated['student_id'],
             'teacher_id' => $validated['teacher_id'] ?? null,
+            'new_subject' => (bool) ($validated['new_subject'] ?? false),
+            'course' => $validated['course'] ?? null,
             'label' => (string) $validated['label'],
             'minutes_total' => (int) round(((float) $validated['hours']) * 60),
             'price_minor' => (int) $validated['price_minor'],
@@ -403,7 +409,7 @@ final class LessonPackageController extends Controller
             'expires_on' => $validated['expires_on'] ?? null,
             'carry_over' => (bool) ($validated['carry_over'] ?? false),
             'auto_renew' => (bool) ($validated['auto_renew'] ?? true),
-        ], $ctx->userId, $ctx->role);
+        ], $ctx->userId, $ctx->role));
 
         return response()->json([
             'id' => $result['package_id'],
