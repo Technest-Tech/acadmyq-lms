@@ -701,6 +701,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/guardians/{id}', [GuardianController::class, 'show']);
     Route::patch('/guardians/{id}', [GuardianController::class, 'update']);
     Route::post('/guardians/{id}/deactivate', [GuardianController::class, 'deactivate']);
+    Route::delete('/guardians/{id}', [GuardianController::class, 'destroy']);
     Route::post('/guardians/{id}/reactivate', [GuardianController::class, 'reactivate']);
     // A family paused for a while, and the way back (docs/groups/01-ACCOUNTING.md).
     Route::post('/guardians/{id}/suspend', [GuardianController::class, 'suspend']);

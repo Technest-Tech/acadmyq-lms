@@ -225,3 +225,46 @@ it('reactivates a deactivated guardian', function () {
     // Already active — nothing to undo.
     $this->postJson("/api/guardians/{$guardianId}/reactivate")->assertNotFound();
 });
+
+// ── Deleting a parent ────────────────────────────────────────────────────────
+
+it('deletes a parent with no children straight away, and can bring them back', function () {
+    Sanctum::actingAs($this->owner);
+    $guardianId = familyGuardian('Empty Family', '+201000000120');
+
+    $this->deleteJson("/api/guardians/{$guardianId}")->assertOk()->assertJsonPath('removed_children', 0);
+
+    expect(collect($this->getJson('/api/guardians')->json('rows'))->pluck('id'))->not->toContain($guardianId);
+    $this->postJson("/api/guardians/{$guardianId}/reactivate")->assertOk();
+});
+
+it('refuses to delete a parent with active children unless told to take them too, then removes them all', function () {
+    Sanctum::actingAs($this->owner);
+    $guardianId = familyGuardian('Hassan Family', '+201000000121');
+    $yusuf = $this->createStudent($this->academy, $guardianId, ['full_name' => 'Yusuf']);
+    $maryam = $this->createStudent($this->academy, $guardianId, ['full_name' => 'Maryam']);
+    $this->clearTenantContext();
+
+    $this->deleteJson("/api/guardians/{$guardianId}")->assertUnprocessable();
+
+    $this->deleteJson("/api/guardians/{$guardianId}", ['with_children' => true])
+        ->assertOk()
+        ->assertJsonPath('removed_children', 2);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('guardians')->where('id', $guardianId)->value('deleted_at'))->not->toBeNull()
+        ->and(DB::table('students')->whereIn('id', [$yusuf, $maryam])->whereNull('deleted_at')->count())->toBe(0)
+        ->and(DB::table('audit_log')->where('action', 'student.delete')->whereIn('entity_id', [$yusuf, $maryam])->count())->toBe(2);
+});
+
+it('lets only a role that may remove students take the children with the parent', function () {
+    $supportUser = $this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'cs-family-'.uniqid().'@test.local']);
+    Sanctum::actingAs($this->owner);
+    $guardianId = familyGuardian('Guarded Family', '+201000000122');
+    $this->createStudent($this->academy, $guardianId);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($supportUser);
+    $res = $this->deleteJson("/api/guardians/{$guardianId}", ['with_children' => true]);
+    expect($res->status())->toBeIn([403]);
+});

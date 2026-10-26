@@ -245,6 +245,45 @@ final class GuardianController extends Controller
     }
 
     /**
+     * DELETE /api/guardians/{id} — remove a parent from the academy. With children still active it
+     * refuses unless the caller says `with_children` (the confirm names them): then each child is
+     * removed exactly as deleting a student does — billing, timetable and unmarked lessons wound
+     * down, record soft-deleted — and the parent with them. Nothing is erased: bills, receipts and
+     * lesson history stay, and parent and children can each be restored.
+     */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('guardian.update');
+
+        $guardian = DB::table('guardians')->where('id', $id)->whereNull('deleted_at')->first();
+        if ($guardian === null) {
+            abort(404, 'Guardian not found.');
+        }
+
+        $children = DB::table('students')->where('guardian_id', $id)->whereNull('deleted_at')->get();
+        if ($children->isNotEmpty()) {
+            if (! $request->boolean('with_children')) {
+                abort(422, 'This parent still has active children. Confirm removing them too. / لولي الأمر أبناء نشطون — أكّد حذفهم معه.');
+            }
+            Gate::authorize('student.deactivate');
+        }
+
+        $academyId = $this->currentAcademyId();
+        DB::transaction(function () use ($id, $academyId, $children): void {
+            $students = app(StudentController::class);
+            foreach ($children as $child) {
+                $students->removeFromAcademy((string) $child->id, $academyId, $child);
+            }
+
+            DB::table('guardians')->where('id', $id)->update(['deleted_at' => now(), 'updated_at' => now()]);
+            Audit::log('guardian.delete', 'guardian', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['deleted_at' => now()->toIso8601String(), 'recoverable' => true, 'removed_children' => $children->pluck('id')->map(fn ($c) => (string) $c)->all()]);
+        });
+
+        return response()->json(['ok' => true, 'removed_children' => $children->count()]);
+    }
+
+    /**
      * POST /api/guardians/{id}/suspend — pause the whole family for a while, without deactivating
      * anyone. The children's active timetables are switched off and flagged, their future untouched
      * lessons are taken back off the calendar, and no group month is raised on them while it lasts.

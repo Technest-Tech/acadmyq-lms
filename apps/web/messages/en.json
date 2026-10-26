@@ -1126,7 +1126,15 @@
       "resume": "Resume",
       "resumeDesc": "The family is paused. Resuming brings the children’s timetables and lessons back from today.",
       "suspendedOk": "The family is paused.",
-      "resumedOk": "The family is active again."
+      "resumedOk": "The family is active again.",
+      "delete": "Delete parent",
+      "deleteDesc": "Removes them, and their children, from your lists — bills and lesson history stay, and they can be restored.",
+      "deleteWithChildren": "{count, plural, one {Their child goes} other {Their children go}} with them: {names}",
+      "deleteConfirmTitle": "Delete {name}?",
+      "deleteConfirmBody": "The parent disappears from your lists. Bills, receipts and lesson history are not erased, and they can be reactivated later.",
+      "deleteChildrenTick": "Also delete {count, plural, one {their child} other {their # children}}",
+      "deleteChildrenHint": "Their timetables stop, packages close and unmarked lessons are cancelled — exactly as deleting each student.",
+      "deleteYes": "Yes, delete"
     }
   },
   "teachers": {
@@ -3069,7 +3077,9 @@
       "messagePayAll": "Pay it all from one link:",
       "messagePayOne": "Payment link:",
       "lessonsTaken": "{count, plural, =0 {no lessons yet} one {{n} lesson taken} other {{n} lessons taken}}",
-      "linkFailed": "Could not prepare the link — try again."
+      "linkFailed": "Could not prepare the link — try again.",
+      "nothingDue": "All paid",
+      "left": "{left} left of {total}"
     },
     "purpose": {
       "NEW": "New subscription",

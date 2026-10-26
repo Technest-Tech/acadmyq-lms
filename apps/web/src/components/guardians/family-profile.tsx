@@ -40,7 +40,7 @@ import { FamilyAccountsCard } from "@/components/accounting/family-accounts-card
 import { ParentPortalCard } from "@/components/guardians/parent-portal-card";
 import {
   ApiError,
-  deactivateGuardian,
+  deleteGuardian,
   getGuardian,
   listStudents,
   reactivateGuardian,
@@ -467,6 +467,9 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState<"none" | "add" | "deactivate">("none");
+  // Deleting a parent with children takes the children too — ticked by hand, never assumed.
+  const [alsoChildren, setAlsoChildren] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   /**
    * Adding a child is one flow with two ways in: enrol someone new, or move a student who is
@@ -958,36 +961,42 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
       {canEdit && isActive && (
         <ProfileCard
           icon={ShieldAlert}
-          title={t("detail.deactivate")}
-          description={t("detail.dangerDesc")}
+          title={t("detail.delete")}
+          description={t("detail.deleteDesc")}
           tone="danger"
           className="border-destructive/25"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            {/* The server refuses while a student still hangs off this parent — say so BEFORE
-                the click rather than as an error after it. */}
+            {/* Children go with the parent — said BEFORE the click, with their names. Removing a
+                child needs student.deactivate, so a role without it is told rather than refused. */}
             <p
               className={cn(
                 "min-w-0 text-xs",
-                activeChildren > 0
-                  ? "text-destructive font-medium"
-                  : "text-muted-foreground",
+                activeChildren > 0 ? "text-destructive font-medium" : "text-muted-foreground",
               )}
             >
-              {activeChildren > 0
-                ? t("detail.deactivateBlockedCount", { count: activeChildren })
-                : t("detail.deactivateSafe")}
+              {activeChildren === 0
+                ? t("detail.deactivateSafe")
+                : can("student.deactivate")
+                  ? t("detail.deleteWithChildren", {
+                      count: activeChildren,
+                      names: children.filter((c) => c.deleted_at == null).map((c) => c.full_name).join("، "),
+                    })
+                  : t("detail.deactivateBlockedCount", { count: activeChildren })}
             </p>
             <Button
               type="button"
               variant="destructive"
               size="sm"
-              disabled={activeChildren > 0}
-              onClick={() => setModal("deactivate")}
+              disabled={activeChildren > 0 && !can("student.deactivate")}
+              onClick={() => {
+                setAlsoChildren(false);
+                setModal("deactivate");
+              }}
               data-testid="deactivate-guardian"
               className="shrink-0"
             >
-              {t("detail.deactivate")}
+              {t("detail.delete")}
             </Button>
           </div>
         </ProfileCard>
@@ -1127,7 +1136,7 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
       <Modal
         open={modal === "deactivate"}
         onClose={() => setModal("none")}
-        title={t("detail.deactivateConfirmTitle")}
+        title={t("detail.deleteConfirmTitle", { name: guardian.full_name })}
         size="sm"
         footer={
           <>
@@ -1144,27 +1153,55 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
               variant="destructive"
               size="sm"
               data-testid="confirm-deactivate-guardian"
+              disabled={deleting || (activeChildren > 0 && !alsoChildren)}
               onClick={async () => {
                 setError(null);
+                setDeleting(true);
                 try {
-                  await deactivateGuardian(guardianId);
+                  await deleteGuardian(guardianId, activeChildren > 0 && alsoChildren);
                   router.push("/guardians");
                 } catch (err) {
-                  setError(
-                    err instanceof ApiError
-                      ? t("detail.deactivateBlocked")
-                      : String(err),
-                  );
+                  setError(err instanceof ApiError ? err.message : String(err));
                   setModal("none");
+                } finally {
+                  setDeleting(false);
                 }
               }}
             >
-              {t("detail.deactivateYes")}
+              {t("detail.deleteYes")}
             </Button>
           </>
         }
       >
-        <p className="text-sm">{t("detail.deactivateConfirmBody")}</p>
+        <div className="space-y-3 text-sm">
+          <p>{t("detail.deleteConfirmBody")}</p>
+          {activeChildren > 0 && (
+            <label
+              className="border-destructive/30 bg-destructive/5 flex cursor-pointer items-start gap-2.5 rounded-xl border p-3"
+              data-testid="delete-guardian-children"
+            >
+              <input
+                type="checkbox"
+                checked={alsoChildren}
+                onChange={(e) => setAlsoChildren(e.target.checked)}
+                className="accent-destructive mt-0.5"
+              />
+              <span>
+                <span className="block font-semibold">
+                  {t("detail.deleteChildrenTick", { count: activeChildren })}
+                </span>
+                <span className="text-muted-foreground block text-xs">
+                  {children
+                    .filter((c) => c.deleted_at == null)
+                    .map((c) => c.full_name)
+                    .join("، ")}
+                  {" — "}
+                  {t("detail.deleteChildrenHint")}
+                </span>
+              </span>
+            </label>
+          )}
+        </div>
       </Modal>
     </div>
   );

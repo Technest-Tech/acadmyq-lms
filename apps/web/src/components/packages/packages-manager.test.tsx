@@ -504,9 +504,12 @@ describe("PackagesManager", () => {
 
     const card = await screen.findByTestId("package-card");
 
-    expect(card).toHaveTextContent(arMessages.packages.card.totalHours);
-    expect(card).toHaveTextContent(arMessages.packages.card.lessonsUsed);
+    // The subscription in one line each: what is left of what was bought, the price and the hourly
+    // rate, when it started, lessons taken, and whether it renews.
     expect(card).toHaveTextContent(arMessages.packages.card.startDate);
+    expect(card).toHaveTextContent("حُضرت");
+    expect(card.textContent).toContain("/ساعة");
+    expect(within(card).getByTestId("package-auto-renew-note")).toBeInTheDocument();
 
     // Paid up, so collecting is not the card's job right now: the payment actions are one tap
     // away behind the menu rather than sitting on the card.
@@ -521,6 +524,23 @@ describe("PackagesManager", () => {
         name: arMessages.packages.actions.sendPayment,
       }),
     ).toBeInTheDocument();
+  });
+
+  it("gathers a family's open packages under the parent, each with its subscription details", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({ id: "p-y", student_id: "s-y", student_name: "Yusuf", guardian_id: "g-h", guardian_name: "Hassan", purpose: "NEW" }),
+        pkg({ id: "p-m", student_id: "s-m", student_name: "Maryam", guardian_id: "g-h", guardian_name: "Hassan", purpose: "AUTO_RENEWAL" }),
+      ],
+    });
+    renderManager();
+
+    const family = await screen.findByTestId("due-family-g-h");
+    expect(within(family).getByTestId("due-family-name")).toHaveTextContent("Hassan");
+    expect(within(family).getAllByTestId("package-card")).toHaveLength(2);
+    // Both blocks are paid up front: the family reads as settled.
+    expect(within(family).getByTestId("family-paid-up")).toHaveTextContent(arMessages.packages.family.nothingDue);
+    expect(family).toHaveTextContent(arMessages.packages.purpose.AUTO_RENEWAL);
   });
 
   it("shows only open packages on the open page", async () => {

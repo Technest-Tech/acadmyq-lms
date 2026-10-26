@@ -2131,6 +2131,17 @@ export function updateGuardian(
   });
 }
 
+/**
+ * Remove a parent (soft-delete, restorable). With active children it needs `withChildren`: each
+ * child is removed exactly as deleting a student does, and the parent with them.
+ */
+export function deleteGuardian(id: string, withChildren: boolean): Promise<{ ok: boolean; removed_children: number }> {
+  return apiFetch(`/api/guardians/${id}`, {
+    method: "DELETE",
+    body: JSON.stringify({ with_children: withChildren }),
+  });
+}
+
 export function deactivateGuardian(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/guardians/${id}/deactivate`, { method: "POST" });
 }

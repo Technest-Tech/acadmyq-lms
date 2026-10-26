@@ -559,14 +559,15 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           </p>
         )}
 
-        {/* Due: the family is who pays — one compact card per parent, each child's package a line in
-            it. Masonry columns, not a grid: a one-child card stays short instead of stretching to the
-            height of a three-child card beside it. */}
-        {view === "due" ? (
+        {/* Due and Open: the family is who pays — one compact card per parent, each child's package a
+            line in it (Open's line carries the whole subscription). Masonry columns, not a grid: a
+            one-child card stays short instead of stretching to the height of a three-child card. */}
+        {view === "due" || view === "open" ? (
           <div className="columns-1 gap-3 md:columns-2 xl:columns-3">
             {groupDueByFamily(visible).map((family) => (
               <FamilyDueGroup
                 key={family.key}
+                view={view}
                 family={family}
                 timezone={timezone}
                 canSendInvoice={canSendInvoice}

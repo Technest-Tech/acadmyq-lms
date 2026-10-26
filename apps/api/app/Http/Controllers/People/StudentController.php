@@ -422,6 +422,22 @@ final class StudentController extends Controller
             abort(404, 'Student not found.');
         }
 
+        $this->removeFromAcademy($id, $academyId, $student);
+
+        return response()->json([
+            'ok' => true,
+            'recoverable' => true,
+            'message' => 'Student removed from your academy. The record and its history are retained and can be restored.',
+        ]);
+    }
+
+    /**
+     * The removal itself, shared with deleting a whole family (GuardianController::destroy): wind
+     * the student's billing, timetable and lessons down, then soft-delete them — recoverable, history
+     * kept. The caller has already authorised it.
+     */
+    public function removeFromAcademy(string $id, string $academyId, object $student): void
+    {
         $now = now();
         DB::transaction(function () use ($id, $academyId, $now, $student): void {
             $wound = $this->endActiveBilling($id, $now);
@@ -446,12 +462,6 @@ final class StudentController extends Controller
                 ],
                 before: ['status' => $student->status]);
         });
-
-        return response()->json([
-            'ok' => true,
-            'recoverable' => true,
-            'message' => 'Student removed from your academy. The record and its history are retained and can be restored.',
-        ]);
     }
 
     /**

@@ -1,10 +1,22 @@
 "use client";
 
-import { AlertTriangle, BellRing, Check, Copy, Link2, Loader2, MessageSquare } from "lucide-react";
+import {
+  AlertTriangle,
+  BadgeCheck,
+  BellRing,
+  CalendarClock,
+  Check,
+  Copy,
+  Link2,
+  Loader2,
+  MessageSquare,
+  RefreshCw,
+  Wallet,
+} from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
-import { PackageActions, type PackageActionProps } from "@/components/packages/package-card";
+import { nextTermsText, PackageActions, type PackageActionProps } from "@/components/packages/package-card";
 import { createFamilyPayLink, type LessonPackageRow, type PackagePurpose } from "@/lib/api";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { formatDateTime, formatHours } from "@/lib/time";
@@ -90,12 +102,15 @@ const PURPOSE_TONE: Record<PackagePurpose, string> = {
  */
 export function FamilyDueGroup({
   family,
+  view = "due",
   timezone,
   canSendInvoice,
   actionProps,
   onMessageOpened,
 }: {
   family: DueFamily;
+  /** Due: a line per debt. Open: a fuller line per running block — balance, price, lessons, renewal. */
+  view?: "due" | "open";
   timezone: string;
   canSendInvoice: boolean;
   actionProps: (row: LessonPackageRow) => PackageActionProps;
@@ -176,7 +191,10 @@ export function FamilyDueGroup({
 
   return (
     <article
-      className="bg-card mb-3 min-w-0 break-inside-avoid overflow-hidden rounded-2xl border border-rose-200/70 shadow-sm dark:border-rose-900/50"
+      className={cn(
+        "bg-card mb-3 min-w-0 break-inside-avoid overflow-hidden rounded-2xl border shadow-sm",
+        view === "due" || totals.length > 0 ? "border-rose-200/70 dark:border-rose-900/50" : "border-emerald-200/70 dark:border-emerald-900/50",
+      )}
       data-testid={`due-family-${family.key}`}
     >
       <header className="flex items-start gap-3 bg-gradient-to-br from-rose-500/[0.09] via-rose-500/[0.03] to-transparent px-4 py-3">
@@ -196,7 +214,12 @@ export function FamilyDueGroup({
         </div>
         <div className="shrink-0 text-end">
           <p className="text-muted-foreground text-[10px] font-medium">{t("family.totalLabel")}</p>
-          {totals.length === 0 ? (
+          {totals.length === 0 && view === "open" ? (
+            <p className="inline-flex items-center gap-1 text-sm font-bold text-emerald-600 dark:text-emerald-400" data-testid="family-paid-up">
+              <BadgeCheck className="size-3.5" aria-hidden />
+              {t("family.nothingDue")}
+            </p>
+          ) : totals.length === 0 ? (
             <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{t("family.notBilled")}</p>
           ) : (
             totals.map((o) => (
@@ -214,7 +237,11 @@ export function FamilyDueGroup({
 
       <ul className="divide-y border-t">
         {family.rows.map((row) => (
-          <DueRow key={row.id} row={row} timezone={timezone} actions={actionProps(row)} />
+          view === "open" ? (
+            <OpenRow key={row.id} row={row} timezone={timezone} actions={actionProps(row)} />
+          ) : (
+            <DueRow key={row.id} row={row} timezone={timezone} actions={actionProps(row)} />
+          )
         ))}
       </ul>
 
@@ -337,6 +364,161 @@ function DueRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: s
         </p>
         <PackageActions {...actions} featuredCount={1} className="shrink-0" />
       </div>
+    </li>
+  );
+}
+
+/**
+ * One child's RUNNING block inside a family card — the subscription, not just the debt: what it is
+ * for, how much is left (bar + hours), what it costs (total and per hour), lessons taken and coming,
+ * the next lesson, when it ends and whether it renews (and on what terms), and whether it is paid.
+ */
+function OpenRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: string; actions: PackageActionProps }) {
+  const t = useTranslations("packages");
+  const locale = useLocale();
+  const purpose = row.purpose ?? "NEW";
+  const owes = row.outstanding_minor > 0;
+  const low = row.minutes_remaining <= 60;
+  const paid = row.invoice_id !== null && !owes;
+  const money = (amount: number) => formatMoney({ amount, currency: row.currency }, locale);
+  const next = nextTermsText(row, locale);
+
+  return (
+    <li
+      className={cn("space-y-2 px-4 py-3", row.previous_unpaid !== null && "border-s-4 border-s-fuchsia-400")}
+      data-testid="package-card"
+      data-previous-unpaid={row.previous_unpaid !== null || undefined}
+    >
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={actions.onOpenDetail}
+            className="hover:text-primary block max-w-full truncate text-start text-sm font-semibold transition-colors"
+          >
+            {row.student_name}
+          </button>
+          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px]">
+            <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-bold", PURPOSE_TONE[purpose])}>
+              {t(`purpose.${purpose}`)}
+            </span>
+            <span className="text-muted-foreground font-semibold tabular-nums">#{formatNumber(row.sequence_no, locale)}</span>
+            <span className="text-muted-foreground truncate">{row.label}</span>
+            {row.subject && (
+              <span className="rounded bg-violet-500/10 px-1 py-px text-[10px] font-semibold text-violet-700 dark:text-violet-300">
+                {[row.subject.course, row.subject.teacher_name].filter(Boolean).join(" · ")}
+              </span>
+            )}
+          </div>
+        </div>
+        {/* Paid or not — the question a family's card is opened for. */}
+        <span
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums",
+            owes
+              ? "bg-rose-500/12 text-rose-700 dark:text-rose-300"
+              : paid
+                ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+                : "bg-muted text-muted-foreground",
+          )}
+          data-testid="open-package-payment"
+        >
+          {owes ? (
+            t("card.amountDue", { amount: money(row.outstanding_minor) })
+          ) : paid ? (
+            <>
+              <BadgeCheck className="size-3" aria-hidden />
+              {t("card.paidBadge")}
+            </>
+          ) : (
+            t("card.notBilledYet")
+          )}
+        </span>
+      </div>
+
+      {/* The balance: what is left of what was bought. */}
+      <div>
+        <div className="mb-1 flex items-center justify-between text-[11px]">
+          <span className={cn("font-semibold", low ? "text-amber-600 dark:text-amber-400" : "text-foreground")}>
+            {t("family.left", { left: formatHours(row.minutes_remaining, locale), total: formatHours(row.minutes_sold, locale) })}
+          </span>
+          <span className="text-muted-foreground tabular-nums">{formatNumber(row.percent_used, locale)}%</span>
+        </div>
+        <div className="bg-muted h-1.5 overflow-hidden rounded-full">
+          <div
+            className={cn("h-full rounded-full", low ? "bg-amber-500" : "bg-primary")}
+            style={{ width: `${Math.min(100, row.percent_used)}%` }}
+          />
+        </div>
+      </div>
+
+      <dl className="text-muted-foreground grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+        <div className="flex min-w-0 items-center gap-1">
+          <Wallet className="size-3 shrink-0" aria-hidden />
+          <span className="truncate">
+            <span className="text-foreground font-semibold tabular-nums">{money(row.price_minor)}</span>
+            {" · "}
+            {t("card.perHour", { amount: money(row.hourly_rate_minor) })}
+          </span>
+        </div>
+        <div className="truncate">
+          {t("card.startDate")}:{" "}
+          {new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${row.starts_on}T00:00:00Z`))}
+        </div>
+        <div className="truncate">
+          {t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}
+          {row.upcoming_lesson_count > 0 && ` · ${t("card.upcomingCount", { count: row.upcoming_lesson_count })}`}
+        </div>
+        <div className="flex min-w-0 items-center gap-1">
+          <CalendarClock className="size-3 shrink-0" aria-hidden />
+          <span className="truncate">
+            {row.next_lesson_at === null ? t("card.noneScheduled") : formatDateTime(row.next_lesson_at, timezone, locale)}
+          </span>
+        </div>
+        <div className="flex min-w-0 items-center gap-1">
+          <RefreshCw className="size-3 shrink-0" aria-hidden />
+          <span
+            className="truncate"
+            data-testid="package-auto-renew-note"
+            title={row.auto_renew ? t("card.autoRenewNext", { n: row.sequence_no + 1 }) : t("card.autoRenewOff")}
+          >
+            {row.auto_renew ? t("card.autoRenewNext", { n: row.sequence_no + 1 }) : t("card.autoRenewOff")}
+            {row.expires_on !== null &&
+              ` · ${t("card.endsOn", {
+                date: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${row.expires_on}T00:00:00Z`)),
+              })}`}
+          </span>
+        </div>
+      </dl>
+
+      {/* Said in words, not only colour: an earlier block still unpaid, new terms waiting for the renewal. */}
+      {row.previous_unpaid !== null && (
+        <p
+          className="flex items-center gap-1 rounded-lg bg-fuchsia-500/10 px-2 py-1 text-[11px] font-semibold text-fuchsia-700 dark:text-fuchsia-300"
+          data-testid="previous-unpaid"
+        >
+          <AlertTriangle className="size-3 shrink-0" aria-hidden />
+          {t("card.previousUnpaidTitle", { count: row.previous_unpaid.packages })}
+          {" ("}
+          {row.previous_unpaid.sequence_nos.map((n) => `#${n}`).join(locale.startsWith("ar") ? "، " : ", ")}
+          {") · "}
+          {row.previous_unpaid.amounts.map((a) => formatMoney({ amount: a.amount_minor, currency: a.currency }, locale)).join(" + ")}
+        </p>
+      )}
+      {(row.opened_automatically || row.absorbed_overdraft_minutes > 0) && (
+        <p className="rounded-lg bg-sky-500/10 px-2 py-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300" data-testid="package-renewed">
+          {row.opened_automatically && t("card.autoOpened", { previous: row.sequence_no - 1 })}
+          {row.absorbed_overdraft_minutes > 0 &&
+            ` ${t("card.absorbedFromPrevious", { over: formatHours(row.absorbed_overdraft_minutes, locale), previous: row.sequence_no - 1 })}`}
+        </p>
+      )}
+      {row.auto_renew && next !== null && (
+        <p className="rounded-lg bg-sky-500/10 px-2 py-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300" data-testid="package-next-terms">
+          {t("card.nextTerms", { terms: next })}
+        </p>
+      )}
+
+      <PackageActions {...actions} className="justify-end" />
     </li>
   );
 }

@@ -15,7 +15,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/api")>()),
   getGuardian: vi.fn(),
   updateGuardian: vi.fn(),
-  deactivateGuardian: vi.fn(),
+  deleteGuardian: vi.fn(),
   reactivateGuardian: vi.fn(),
   updateStudent: vi.fn(),
   listStudents: vi.fn(),
@@ -69,8 +69,8 @@ const OWNER_CAPS = [
 ];
 
 /** `student.set_price` is the capability that decides whether a child's rate is rendered. */
-function renderProfile({ price = true }: { price?: boolean } = {}) {
-  const permissions = price ? [...OWNER_CAPS, "student.set_price"] : OWNER_CAPS;
+function renderProfile({ price = true, only }: { price?: boolean; only?: string[] } = {}) {
+  const permissions = only ?? (price ? [...OWNER_CAPS, "student.set_price"] : OWNER_CAPS);
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
       <AuthContext.Provider
@@ -270,14 +270,30 @@ describe("FamilyProfile", () => {
     );
   });
 
-  it("blocks deactivation while the family still has active students", async () => {
+  it("deletes a parent with their children only once the children are ticked too", async () => {
+    vi.mocked(api.deleteGuardian).mockResolvedValue({ ok: true, removed_children: 2 });
     renderProfile();
+    await screen.findByTestId("family-profile");
+    const user = userEvent.setup();
+
+    // The children are named before the click.
+    expect(screen.getByText(/with them:/i)).toBeInTheDocument();
+    await user.click(screen.getByTestId("deactivate-guardian"));
+
+    const confirm = screen.getByTestId("confirm-deactivate-guardian");
+    expect(confirm).toBeDisabled();
+    await user.click(within(screen.getByTestId("delete-guardian-children")).getByRole("checkbox"));
+    await user.click(confirm);
+
+    await waitFor(() => expect(api.deleteGuardian).toHaveBeenCalledWith("g1", true));
+  });
+
+  it("does not offer to take the children for a role that may not remove students", async () => {
+    renderProfile({ only: OWNER_CAPS.filter((c) => c !== "student.deactivate") });
     await screen.findByTestId("family-profile");
 
     expect(screen.getByTestId("deactivate-guardian")).toBeDisabled();
-    expect(
-      screen.getByText(/deactivate 2 active students first/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/deactivate 2 active students first/i)).toBeInTheDocument();
   });
 
   it("offers the way back on a deactivated parent", async () => {
