@@ -395,6 +395,7 @@ export function CrmManager() {
             onChanged={refresh}
             onMove={(lead, status) => void requestMove(lead, status)}
             onBookTrial={(lead) => setModal({ kind: "trial", lead })}
+            onDelete={(lead) => setModal({ kind: "delete", lead })}
           />
         )}
       </Modal>

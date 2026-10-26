@@ -9,6 +9,7 @@ import {
   Send,
   StickyNote,
   Sparkles,
+  Trash2,
   UserPlus,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
@@ -49,6 +50,7 @@ export function LeadDetail({
   onChanged,
   onMove,
   onBookTrial,
+  onDelete,
 }: {
   leadId: string;
   canManage: boolean;
@@ -57,6 +59,8 @@ export function LeadDetail({
   onChanged: () => void;
   onMove: (lead: LeadRow, status: LeadStatus) => void;
   onBookTrial: (lead: LeadRow) => void;
+  /** Ask to delete this lead (the manager's confirm, which replaces this modal). */
+  onDelete?: (lead: LeadRow) => void;
 }) {
   const t = useTranslations("crm");
   const locale = useLocale();
@@ -156,19 +160,34 @@ export function LeadDetail({
             )}
           </div>
         </div>
-        {wa && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => window.open(wa, "_blank", "noopener")}
-            className="gap-1.5"
-            data-testid="crm-detail-whatsapp"
-          >
-            <MessageCircle className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
-            {t("whatsapp")}
-          </Button>
-        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {wa && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(wa, "_blank", "noopener")}
+              className="gap-1.5"
+              data-testid="crm-detail-whatsapp"
+            >
+              <MessageCircle className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+              {t("whatsapp")}
+            </Button>
+          )}
+          {canManage && onDelete && (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => onDelete(lead)}
+              className="gap-1.5"
+              data-testid="crm-detail-delete"
+            >
+              <Trash2 className="size-4" aria-hidden />
+              {t("board.delete")}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* ── Converted lock note ────────────────────────────────────────── */}
