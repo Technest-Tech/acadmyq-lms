@@ -312,6 +312,86 @@ final class ClassGroups
     }
 
     /**
+     * Why an open membership cannot be undone as a mistake — null when it can. Undoing is for a
+     * student added to the wrong group: nothing of it may have happened yet (no saved attendance,
+     * no hours carried in from another group) and none of its charges may sit on a bill that has
+     * left OPEN (a closed bill never changes). Money already put toward its charges is not lost: the
+     * allocations go with the line, and the receipt's money is the family's credit again.
+     * Anything else is ENDED, not deleted.
+     */
+    public function undoRefusal(object $member): ?string
+    {
+        if ((int) ($member->carried_minutes ?? 0) !== 0) {
+            return 'moved';
+        }
+        $attended = DB::table('class_group_attendance as a')
+            ->join('class_group_lessons as l', 'l.id', '=', 'a.lesson_id')
+            ->where('l.group_id', $member->group_id)->where('a.student_id', $member->student_id)
+            ->where('l.occurrence_local_date', '>=', $member->joined_on)
+            ->exists();
+        if ($attended) {
+            return 'attended';
+        }
+        $settled = DB::table('invoice_line_items as li')
+            ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+            ->where('li.class_group_id', $member->group_id)->where('li.student_id', $member->student_id)
+            ->where('li.group_period', '>=', $member->joined_on)
+            ->where('i.status', '<>', 'OPEN')
+            ->exists();
+
+        return $settled ? 'closed' : null;
+    }
+
+    /**
+     * Undo an enrolment made by mistake: the membership goes, with the charges it raised (taken back
+     * off their still-open bill). Only while `undoRefusal()` finds nothing that happened — otherwise
+     * a 422 that says to end it instead. One transaction: a refused line leaves everything as it was.
+     */
+    public function undoMembership(object $group, string $studentId, string $actorUserId, string $actorRole): int
+    {
+        return DB::transaction(function () use ($group, $studentId, $actorUserId, $actorRole): int {
+            $member = DB::table('class_group_members')
+                ->where('group_id', $group->id)->where('student_id', $studentId)->where('status', 'ACTIVE')
+                ->lockForUpdate()->first();
+            if ($member === null) {
+                abort(404, 'This student is not in the group.');
+            }
+
+            $refusal = $this->undoRefusal($member);
+            if ($refusal !== null) {
+                throw ValidationException::withMessages(['membership' => [match ($refusal) {
+                    'attended' => 'Attendance is already saved for this student here — end the subscription instead. / تم تسجيل حضور لهذا الطالب هنا — أنهِ الاشتراك بدلًا من حذفه.',
+                    'closed' => 'A charge of this subscription is on a closed bill — end it instead. / رسوم هذا الاشتراك على فاتورة مقفلة — أنهِه بدلًا من حذفه.',
+                    default => 'This student was moved here with their hours — move them back instead. / نُقل الطالب إلى هنا بساعاته — انقله مرة أخرى بدلًا من الحذف.',
+                }]]);
+            }
+
+            $lines = DB::table('invoice_line_items')
+                ->where('class_group_id', $group->id)->where('student_id', $studentId)
+                ->where('group_period', '>=', $member->joined_on)
+                ->get();
+            // What was already paid toward them goes back to the payer as credit (cascade).
+            $credited = (int) DB::table('receipt_allocations')->whereIn('invoice_line_id', $lines->pluck('id')->all())->sum('amount_minor');
+            $months = [];
+            foreach ($lines as $line) {
+                app(Invoicing::class)->removeGroupLine($line);
+                $d = Carbon::parse($line->group_period);
+                $months[$d->format('Y-m')] = [(int) $d->year, (int) $d->month];
+            }
+            DB::table('class_group_members')->where('id', $member->id)->delete();
+            foreach ($months as [$y, $m]) {
+                $this->payroll->syncRevenueShare($group, $y, $m);
+            }
+
+            Audit::log('class_group.member_undone', 'class_group', (string) $group->id, (string) $group->academy_id, $actorUserId, $actorRole,
+                before: ['student_id' => $studentId, 'joined_on' => Carbon::parse($member->joined_on)->format('Y-m-d'), 'charges_removed' => $lines->count(),
+                    'amount_minor' => (int) $lines->sum('amount_minor'), 'credited_minor' => $credited]);
+
+            return $credited;
+        });
+    }
+
+    /**
      * A student leaving the academy leaves every group they are in, from today (each group's own
      * calendar). Part of the student wind-down, so a removed student is never "expected" again.
      */

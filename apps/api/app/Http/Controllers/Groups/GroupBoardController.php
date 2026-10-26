@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Groups;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Groups\Concerns\InteractsWithClassGroups;
+use App\Services\ClassGroups;
 use App\Services\Ledger;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
@@ -147,7 +148,7 @@ final class GroupBoardController extends Controller
         }
 
         $rows = $query->limit(2000)->get([
-            'm.id', 'm.group_id', 'm.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.left_reason', 'm.price_minor',
+            'm.id', 'm.group_id', 'm.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.left_reason', 'm.price_minor', 'm.carried_minutes',
             'st.full_name', 'st.deleted_at as student_deleted_at', 'gu.full_name as guardian_name',
             'g.name as group_name', 'g.level as group_level', 'g.teacher_id', 'g.timezone',
             'te.full_name as teacher_name',
@@ -157,6 +158,10 @@ final class GroupBoardController extends Controller
         $stats = $this->attendanceByPair($pairs->pluck(0)->unique()->values()->all());
         $recent = $this->recentMarks($pairs->pluck(0)->unique()->values()->all());
         $charges = $seesMoney ? $this->monthCharges($pairs->pluck(0)->unique()->values()->all()) : [];
+
+        // One student's memberships (the subscriptions card): can each still be undone as a mistake?
+        // Only then — a few queries a row would be too many for the whole board.
+        $groupsService = ! empty($data['student_id']) && Gate::allows('group.manage') ? app(ClassGroups::class) : null;
 
         $out = [];
         foreach ($rows as $r) {
@@ -188,6 +193,7 @@ final class GroupBoardController extends Controller
                 'left_on' => $r->left_on !== null ? Carbon::parse($r->left_on)->format('Y-m-d') : null,
                 'status' => (string) $r->status,
                 'left_reason' => $r->left_reason,
+                'deletable' => $groupsService !== null && $r->status === 'ACTIVE' ? $groupsService->undoRefusal($r) === null : null,
                 'attendance' => $a + ['rate' => $rate],
                 'recent' => $marks,
                 'absent_streak' => $streak,

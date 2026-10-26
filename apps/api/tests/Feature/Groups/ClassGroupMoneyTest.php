@@ -276,6 +276,30 @@ it('pay first, by hours: no second month until the first is paid', function () {
     expect($cycles('Adam'))->toBe([1, 2]);
 });
 
+it('undoes a student added to the wrong group: the membership and its unpaid charge go — not once attendance is saved', function () {
+    $right = moneyGroup($this, ['name' => 'English A2']);
+    $wrong = moneyGroup($this);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/groups/{$wrong}/members", ['student_ids' => [$this->kids['Adam']], 'joined_on' => '2026-06-01'])->assertCreated();
+    expect(groupLines($this, $wrong))->toHaveCount(1);
+    $row = collect($this->getJson("/api/group-members?student_id={$this->kids['Adam']}&status=ALL")->assertOk()->json('members'))->first();
+    expect($row['deletable'])->toBeTrue();
+
+    $this->postJson("/api/groups/{$wrong}/members/{$this->kids['Adam']}/undo")->assertOk()->assertJsonPath('credited_minor', 0);
+    expect(groupLines($this, $wrong))->toHaveCount(0);
+    expect(asTenant($this->academy, fn () => DB::table('class_group_members')->where('group_id', $wrong)->count()))->toBe(0);
+    // The invoice it sat on is back to what it was.
+    expect((int) asTenant($this->academy, fn () => DB::table('invoices')->where('guardian_id', $this->parent)->where('kind', 'AUTO')->sum('total_minor')))->toBe(0);
+
+    // In the right group, a saved sheet makes it history: end it, never delete it.
+    $this->postJson("/api/groups/{$right}/members", ['student_ids' => [$this->kids['Adam']], 'joined_on' => '2026-06-01'])->assertCreated();
+    heldLesson($this, $right, '2026-06-15');
+    expect(collect($this->getJson("/api/group-members?student_id={$this->kids['Adam']}")->json('members'))->first()['deletable'])->toBeFalse();
+    $this->postJson("/api/groups/{$right}/members/{$this->kids['Adam']}/undo")->assertStatus(422)->assertJsonValidationErrors('membership');
+    expect(groupLines($this, $right))->toHaveCount(1);
+});
+
 it('does not bill a group without a price, and bills it the moment it gets one', function () {
     $groupId = moneyGroup($this, ['price_minor' => null, 'student_ids' => [$this->kids['Adam']]]);
     expect(groupLines($this, $groupId))->toHaveCount(0);

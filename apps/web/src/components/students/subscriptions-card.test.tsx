@@ -10,7 +10,7 @@ import { SubscriptionsCard } from "./subscriptions-card";
  * enrol in a group from it, edit or end any open row — and nothing at all for an academy without
  * `centre`.
  */
-const groupsApi = { listBoardMembers: vi.fn(), listGroups: vi.fn(), addGroupMembers: vi.fn(), getGroup: vi.fn(), updateGroupMember: vi.fn(), removeGroupMember: vi.fn() };
+const groupsApi = { listBoardMembers: vi.fn(), listGroups: vi.fn(), addGroupMembers: vi.fn(), getGroup: vi.fn(), updateGroupMember: vi.fn(), removeGroupMember: vi.fn(), undoGroupMember: vi.fn() };
 vi.mock("@/lib/groups-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/groups-api")>()),
   listBoardMembers: (...a: unknown[]) => groupsApi.listBoardMembers(...a),
@@ -19,6 +19,7 @@ vi.mock("@/lib/groups-api", async (importOriginal) => ({
   getGroup: (...a: unknown[]) => groupsApi.getGroup(...a),
   updateGroupMember: (...a: unknown[]) => groupsApi.updateGroupMember(...a),
   removeGroupMember: (...a: unknown[]) => groupsApi.removeGroupMember(...a),
+  undoGroupMember: (...a: unknown[]) => groupsApi.undoGroupMember(...a),
 }));
 const policyApi = { getStudentRenewalPolicy: vi.fn(), setStudentRenewalPolicy: vi.fn() };
 vi.mock("@/lib/accounting-api", async (importOriginal) => ({
@@ -196,5 +197,21 @@ describe("SubscriptionsCard", () => {
     expect(within(control).getByTestId("renewal-PAY_FIRST")).toHaveAttribute("aria-checked", "true");
     expect(within(control).getByTestId("renewal-FREE")).toBeDisabled();
     expect(within(control).getByRole("link", { name: arMessages.accounting.renewal.inherited })).toHaveAttribute("href", "/guardians/gd1");
+  });
+
+  it("offers Delete only on a group subscription that can still be undone, and deletes it", async () => {
+    groupsApi.listBoardMembers.mockResolvedValue({
+      members: [member({ deletable: true }), member({ id: "m2", group_id: "g2", group_name: "Math B2", deletable: false })],
+      thresholds: { streak: 3, low_rate: 0.6 }, sees_money: true,
+    });
+    groupsApi.undoGroupMember.mockResolvedValue({ group: groupDetail, credited_minor: 0 });
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+
+    const wrong = await screen.findByTestId("subs-group-g1");
+    expect(within(screen.getByTestId("subs-group-g2")).queryByTestId("subs-delete")).toBeNull();
+    await userEvent.click(within(wrong).getByTestId("subs-delete"));
+    await userEvent.click(await screen.findByTestId("subs-delete-confirm"));
+    await waitFor(() => expect(groupsApi.undoGroupMember).toHaveBeenCalledWith("g1", "s1"));
+    expect(await screen.findByText(ar.deleted)).toBeTruthy();
   });
 });

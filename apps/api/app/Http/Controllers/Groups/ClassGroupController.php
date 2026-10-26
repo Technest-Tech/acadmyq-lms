@@ -360,6 +360,22 @@ final class ClassGroupController extends Controller
     }
 
     /**
+     * POST /api/groups/{id}/members/{studentId}/undo — the student was added by mistake: the
+     * membership is deleted with the charges it raised (still-open bill only; anything already paid
+     * toward them is the family's credit again). Refused (422) once attendance is saved, a charge
+     * sits on a closed bill, or the student was moved here with hours — those are ENDED instead.
+     */
+    public function undoMember(string $id, string $studentId): JsonResponse
+    {
+        Gate::authorize('group.manage');
+
+        $group = $this->findGroup($id);
+        $credited = $this->groups->undoMembership($group, $studentId, $this->ctx()->userId, $this->ctx()->role);
+
+        return response()->json(['group' => $this->detail($id), 'credited_minor' => $credited]);
+    }
+
+    /**
      * POST /api/groups/{id}/members/{studentId}/move — leave this group and join another on the
      * same day. Both halves or neither: a refused join (the other group is full) undoes the leave.
      */

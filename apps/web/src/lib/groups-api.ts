@@ -305,6 +305,11 @@ export function getGroupMoney(id: string, month?: string): Promise<GroupMoney> {
   return apiFetch(`/api/groups/${id}/money${month ? `?month=${month}` : ""}`);
 }
 
+/** A student added by mistake: the membership and its unpaid charges go (`credited_minor` = paid money now credit). */
+export function undoGroupMember(id: string, studentId: string): Promise<{ group: GroupDetail; credited_minor: number }> {
+  return apiFetch(`/api/groups/${id}/members/${studentId}/undo`, { method: "POST" });
+}
+
 export function moveGroupMember(
   id: string,
   studentId: string,
@@ -407,6 +412,8 @@ export interface BoardMember {
   status: "ACTIVE" | "LEFT";
   /** Why they left: "PAUSED[: note]", "STOPPED[: note]" or free text ("Moved to A2"). */
   left_reason: string | null;
+  /** Listed for one student: true when it can still be undone as a mistake (nothing held, no closed bill). */
+  deletable?: boolean | null;
   attendance: MemberAttendance;
   /** Newest first, at most five. */
   recent: GroupAttendanceStatus[];

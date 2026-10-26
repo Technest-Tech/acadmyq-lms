@@ -1957,7 +1957,15 @@
       "endPrivateTitle": "End this private subscription",
       "saved": "Subscription updated.",
       "ended": "Subscription ended.",
-      "groupLoadFailed": "Couldn't load the group."
+      "groupLoadFailed": "Couldn't load the group.",
+      "delete": "Delete",
+      "deleteTitle": "Delete {name}'s subscription to {group}?",
+      "deleteHint": "For a student added to the wrong group: the subscription disappears with its unpaid charges. It is only offered while no attendance has been saved and its bill is still open — otherwise end it.",
+      "deleteConfirm": "Delete subscription",
+      "keep": "Keep it",
+      "deleted": "Subscription deleted.",
+      "deletedCredited": "Subscription deleted. {amount} already paid toward it is now the family's credit.",
+      "deleteFailed": "Couldn't delete the subscription."
     }
   },
   "scheduling": {

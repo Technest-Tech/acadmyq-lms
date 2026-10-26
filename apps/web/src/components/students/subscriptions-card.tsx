@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers, Loader2, Pencil, Plus, Receipt, Square } from "lucide-react";
+import { Layers, Loader2, Pencil, Plus, Receipt, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -20,7 +20,7 @@ import { ProfileCard } from "@/components/ui/profile-card";
 import { getStudentRenewalPolicy, setStudentRenewalPolicy, type StudentRenewalPolicy } from "@/lib/accounting-api";
 import { listLessonPackages, type LessonPackageRow } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
-import { addGroupMembers, getGroup, listBoardMembers, listGroups, type BoardMember, type GroupDetail, type GroupRow } from "@/lib/groups-api";
+import { addGroupMembers, getGroup, listBoardMembers, listGroups, undoGroupMember, type BoardMember, type GroupDetail, type GroupRow } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -45,7 +45,7 @@ export function SubscriptionsCard({ studentId, studentName, onChanged }: { stude
 type Action =
   | { kind: "join" }
   | { kind: "package" }
-  | { kind: "groupEdit" | "groupEnd"; member: BoardMember }
+  | { kind: "groupEdit" | "groupEnd" | "groupDelete"; member: BoardMember }
   | { kind: "pkgEdit" | "pkgEnd"; row: LessonPackageRow };
 
 function Subscriptions({ studentId, studentName, onChanged }: { studentId: string; studentName: string; onChanged?: () => void }) {
@@ -176,7 +176,11 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                         <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">{t("subscriptions.outstanding", { amount: money(m.charge.outstanding_minor, m.charge.currency) })}</span>
                       )}
                       {m.status === "ACTIVE" && manageGroups && (
-                        <RowActions onEdit={() => setModal({ kind: "groupEdit", member: m })} onEnd={() => setModal({ kind: "groupEnd", member: m })} />
+                        <RowActions
+                          onEdit={() => setModal({ kind: "groupEdit", member: m })}
+                          onEnd={() => setModal({ kind: "groupEnd", member: m })}
+                          onDelete={m.deletable ? () => setModal({ kind: "groupDelete", member: m }) : undefined}
+                        />
                       )}
                     </div>
                   </li>
@@ -229,6 +233,9 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
           onDone={(msg) => done(msg)}
         />
       )}
+      {modal?.kind === "groupDelete" && (
+        <DeleteMembershipModal member={modal.member} studentName={studentName} onClose={() => setModal(null)} onDone={(msg) => done(msg)} />
+      )}
       <Modal open={modal?.kind === "pkgEdit"} onClose={() => setModal(null)} title={t("subscriptions.editPrivateTitle", { name: studentName })} description={tp("edit.description")} size="md">
         {modal?.kind === "pkgEdit" && <EditPackageForm row={modal.row} onSaved={(msg) => done(msg)} onCancel={() => setModal(null)} />}
       </Modal>
@@ -237,10 +244,10 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   );
 }
 
-function RowActions({ onEdit, onEnd }: { onEdit: () => void; onEnd: () => void }) {
+function RowActions({ onEdit, onEnd, onDelete }: { onEdit: () => void; onEnd: () => void; onDelete?: () => void }) {
   const t = useTranslations("students");
   return (
-    <div className="flex gap-1">
+    <div className="flex flex-wrap justify-end gap-1">
       <Button type="button" size="xs" variant="ghost" className="gap-1" onClick={onEdit} data-testid="subs-edit">
         <Pencil className="size-3" aria-hidden />
         {t("subscriptions.edit")}
@@ -249,7 +256,60 @@ function RowActions({ onEdit, onEnd }: { onEdit: () => void; onEnd: () => void }
         <Square className="size-3" aria-hidden />
         {t("subscriptions.end")}
       </Button>
+      {onDelete && (
+        <Button type="button" size="xs" variant="ghost" className="text-destructive gap-1" onClick={onDelete} data-testid="subs-delete">
+          <Trash2 className="size-3" aria-hidden />
+          {t("subscriptions.delete")}
+        </Button>
+      )}
     </div>
+  );
+}
+
+/** Undo a group enrolment made by mistake — only offered while nothing of it has happened. */
+function DeleteMembershipModal({ member, studentName, onClose, onDone }: { member: BoardMember; studentName: string; onClose: () => void; onDone: (message: string) => void }) {
+  const t = useTranslations("students");
+  const locale = useLocale();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await undoGroupMember(member.group_id, member.student_id);
+      onDone(
+        res.credited_minor > 0 && member.charge
+          ? t("subscriptions.deletedCredited", { amount: formatMoney({ amount: res.credited_minor, currency: member.charge.currency }, locale) })
+          : t("subscriptions.deleted"),
+      );
+    } catch (err) {
+      setError(apiErrorMessage(err, t("subscriptions.deleteFailed")));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t("subscriptions.deleteTitle", { name: studentName, group: member.group_name })}
+      size="sm"
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+            {t("subscriptions.keep")}
+          </Button>
+          <Button type="button" variant="destructive" onClick={() => void confirm()} disabled={busy} data-testid="subs-delete-confirm">
+            {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+            {t("subscriptions.deleteConfirm")}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-muted-foreground text-sm">{t("subscriptions.deleteHint")}</p>
+      {error && <AlertBanner variant="error" message={error} />}
+    </Modal>
   );
 }
 

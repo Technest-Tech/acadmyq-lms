@@ -885,6 +885,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::delete('/groups/{id}/members/{studentId}', [ClassGroupController::class, 'removeMember'])->whereUuid(['id', 'studentId']);
         Route::patch('/groups/{id}/members/{studentId}', [ClassGroupController::class, 'updateMember'])->whereUuid(['id', 'studentId']);
         Route::post('/groups/{id}/members/{studentId}/move', [ClassGroupController::class, 'moveMember'])->whereUuid(['id', 'studentId']);
+        Route::post('/groups/{id}/members/{studentId}/undo', [ClassGroupController::class, 'undoMember'])->whereUuid(['id', 'studentId']);
         // The group's month in money (docs/groups §Money): charges, paid/outstanding, teacher cost.
         Route::get('/groups/{id}/money', [ClassGroupController::class, 'money'])->whereUuid(['id']);
         Route::get('/groups/{id}/lessons', [ClassGroupController::class, 'lessons'])->whereUuid(['id']);
