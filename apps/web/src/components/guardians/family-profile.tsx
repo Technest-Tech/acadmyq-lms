@@ -37,6 +37,7 @@ import { Modal } from "@/components/ui/modal";
 import { HeroBadge, PageHero } from "@/components/ui/page-hero";
 import { FactCard, ProfileCard } from "@/components/ui/profile-card";
 import { FamilyAccountsCard } from "@/components/accounting/family-accounts-card";
+import { ParentPortalCard } from "@/components/guardians/parent-portal-card";
 import {
   ApiError,
   deactivateGuardian,
@@ -784,6 +785,9 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
           </ul>
         )}
       </ProfileCard>
+
+      {/* ── The family's private page (`/p/{token}`), sent to the parent on WhatsApp ── */}
+      <ParentPortalCard guardianId={guardianId} active={isActive} />
 
       {/* ── The family's money (accounting academies only; renders nothing otherwise) ── */}
       <FamilyAccountsCard guardianId={guardianId} />

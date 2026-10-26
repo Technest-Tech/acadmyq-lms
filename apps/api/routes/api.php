@@ -82,6 +82,7 @@ use App\Http\Controllers\PaymentSettingsController;
 use App\Http\Controllers\PayoutController;
 use App\Http\Controllers\PaypalOrderController;
 use App\Http\Controllers\People\GuardianController;
+use App\Http\Controllers\People\GuardianPortalController;
 use App\Http\Controllers\People\StaffController;
 use App\Http\Controllers\People\StudentController;
 use App\Http\Controllers\People\TeacherController;
@@ -187,6 +188,8 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::get('/i/{token}', [InvoiceController::class, 'publicShow']);
     // The public payment receipt (docs/groups/01-ACCOUNTING.md) — `/rc/`, since `/r/` is a room link.
     Route::get('/rc/{token}', [ReceiptController::class, 'publicShow']);
+    // The parent's page — one private link per family: children, lessons, reports, bills (read-only).
+    Route::get('/p/{token}', [GuardianPortalController::class, 'publicShow']);
 
     // Public video join-by-link (archive/video-platform/docs/06 + 08-ROOM-ACCESS §2/§3). Role-separated
     // links: a guest/host/monitor token (/r/{token}) OR a readable per-academy slug
@@ -699,6 +702,11 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // A family paused for a while, and the way back (docs/groups/01-ACCOUNTING.md).
     Route::post('/guardians/{id}/suspend', [GuardianController::class, 'suspend']);
     Route::post('/guardians/{id}/resume', [GuardianController::class, 'resume']);
+    // The family's private page link (`/p/{token}`): read, make / replace, switch off, WhatsApp it.
+    Route::get('/guardians/{id}/portal', [GuardianPortalController::class, 'show']);
+    Route::post('/guardians/{id}/portal', [GuardianPortalController::class, 'issue']);
+    Route::delete('/guardians/{id}/portal', [GuardianPortalController::class, 'revoke']);
+    Route::post('/guardians/{id}/portal/send', [GuardianPortalController::class, 'send']);
 
     Route::get('/students', [StudentController::class, 'index']);
     Route::post('/students', [StudentController::class, 'store']);
@@ -1122,6 +1130,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::middleware('entitled:invoicing')->group(function () {
         Route::get('/invoices', [InvoiceController::class, 'index']);
         Route::get('/invoices/summary', [InvoiceController::class, 'summary']);
+        Route::get('/invoices/follow-up', [InvoiceController::class, 'followUp']);
         Route::get('/invoices/advance-quote', [InvoiceController::class, 'advanceQuote']);
         Route::post('/invoices', [InvoiceController::class, 'store']);
         Route::post('/invoices/advance', [InvoiceController::class, 'storeAdvance']);

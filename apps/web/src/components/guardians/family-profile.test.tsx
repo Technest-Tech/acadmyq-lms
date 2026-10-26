@@ -24,6 +24,14 @@ vi.mock("@/lib/api", async (importActual) => ({
   createStudent: vi.fn(),
 }));
 
+// The parent-page card on the profile fetches its link on mount.
+vi.mock("@/lib/portal-api", () => ({
+  getPortalLink: vi.fn(() => Promise.resolve({ url: null, issued_at: null })),
+  issuePortalLink: vi.fn(),
+  revokePortalLink: vi.fn(),
+  sendPortalLink: vi.fn(),
+}));
+
 import * as api from "@/lib/api";
 
 function child(overrides: Partial<api.GuardianChild> = {}): api.GuardianChild {

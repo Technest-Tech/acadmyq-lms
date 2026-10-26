@@ -945,6 +945,30 @@
     "comfortable": "Comfortable rows",
     "showing": "{from}–{to} of {total}"
   },
+  "parentPortal": {
+    "title": "Parent page",
+    "description": "A private link where the parent follows their children — lessons, reports and invoices — with no account and no password.",
+    "empty": "No link has been made for this family yet. Send it on WhatsApp and it is made for you.",
+    "create": "Just make the link",
+    "send": "Send on WhatsApp",
+    "copy": "Copy",
+    "copied": "Link copied",
+    "open": "Open page",
+    "issuedAt": "Made {date}",
+    "rotate": "Replace link",
+    "rotateConfirm": "The old link stops working at once on the family's phone. Sure?",
+    "rotated": "New link made — send it to the family.",
+    "revoke": "Turn off page",
+    "revokeConfirm": "The link stops working and the page won't open for anyone. Sure?",
+    "revoked": "Parent page turned off.",
+    "confirm": "Yes",
+    "cancel": "Cancel",
+    "sent": "Link sent to {phone}",
+    "noPhone": "This family has no WhatsApp number — copy the link and send it yourself.",
+    "failed": "That didn't work — please try again.",
+    "inactive": "Reactivate the family to use the parent page.",
+    "private": "The link is the key to the page — send it to the parent only."
+  },
   "guardians": {
     "title": "Parents",
     "subtitle": "Families, who the academy bills, and every student they sponsor",
@@ -2643,7 +2667,7 @@
       "manual": "Manual bills"
     },
     "manualSectionTitle": "Custom bills",
-    "manualListHint": "Bill anyone in seconds — pick a student or type a name, and share the payment link.",
+    "manualListHint": "Bill anyone in seconds — pick a student or a guardian, or type a name, and share the payment link.",
     "manualNew": "New bill",
     "manualEmpty": "No manual bills yet.",
     "manualTitle": "New manual bill",
@@ -2674,7 +2698,7 @@
     "panelManualHint": "Raised by hand for anything outside the lesson billing",
     "quick": {
       "title": "New bill",
-      "subtitle": "Pick a student or type a name, set the amount, and get a payment link.",
+      "subtitle": "Pick a student or a guardian, or type a name, set the amount, and get a payment link.",
       "payer": "Bill to",
       "mode_student": "Student",
       "mode_name": "Type a name",
@@ -2684,7 +2708,7 @@
       "amount": "Amount",
       "descriptionPlaceholder": "e.g. Summer workshop fee",
       "create": "Create payment link",
-      "validation": "Choose a student or type a name, then add an amount and a description.",
+      "validation": "Choose a student or a guardian, or type a name, then add an amount and a description.",
       "doneTitle": "Payment link ready",
       "doneSubtitle": "Share it with the payer — they can see the bill and pay from it.",
       "created": "Bill created",
@@ -2697,8 +2721,27 @@
       "packageBillNote": "Package #{n} already has a bill of {amount} waiting. Send that link instead of making a second bill — the package is marked paid the moment it is settled.",
       "usePackageBill": "Use the package bill",
       "packageBillTitle": "Package bill",
-      "packageBillDue": "Still due on the package"
-    }
+      "packageBillDue": "Still due on the package",
+      "mode_guardian": "Guardian",
+      "guardianSelect": "Select a guardian…",
+      "guardianSearch": "Search a guardian or one of their children…",
+      "guardianLoading": "Loading guardians…",
+      "children": "Children ({n})",
+      "noChildren": "This guardian has no active children."
+    },
+    "colGuardian": "Guardian",
+    "colChildren": "Children",
+    "colCreated": "Created",
+    "payerTyped": "Typed name",
+    "createdOn": "Created {date}",
+    "followUpRow": "Unpaid · {ago}",
+    "followUpTitle": "{count, plural, one {# custom bill is} other {# custom bills are}} still unpaid more than a day after being raised",
+    "followUpHint": "Contact the family and follow up — the alert clears the moment the bill is paid.",
+    "followUpShowOnly": "Show only these",
+    "followUpShowAll": "Show all bills",
+    "followUpColumn": "Needs follow-up",
+    "followUpYes": "Yes",
+    "followUpDetail": "Unpaid more than a day after it was raised — follow it up with the family."
   },
   "packages": {
     "title": "Lesson Packages",
@@ -2982,7 +3025,19 @@
         "subtitle": "Subscriptions that ran out, and what was paid on them."
       }
     },
-    "emptyDue": "Nothing due. Every package is paid for."
+    "emptyDue": "Nothing due. Every package is paid for.",
+    "family": {
+      "guardian": "Guardian",
+      "children": "{count, plural, one {Child: {names}} other {Children: {names}}}",
+      "total": "Due {amount}",
+      "sendOne": "Send payment link",
+      "sendAll": "Send all {count} links in one message",
+      "messageGreeting": "Hello {name},",
+      "messageIntro": "Here is what is due for your children:",
+      "messageLine": "• {child} — {label}: {amount}",
+      "messageTotal": "Total: {total}",
+      "messageOutro": "You can pay from each link. Thank you."
+    }
   },
   "attendance": {
     "title": "Attendance & report",

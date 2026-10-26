@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertTriangle,
   FilePlus2,
   ListChecks,
   Lock,
@@ -26,6 +27,7 @@ import {
 } from "@/components/ui/data-table";
 import {
   apiFetch,
+  getInvoiceFollowUp,
   getInvoiceSummary,
   toQueryString,
   type DataTableQuery,
@@ -51,6 +53,12 @@ export interface InvoiceRow {
   currency: string;
   public_token: string;
   created_at: string;
+  /** The family the bill belongs to — the parent even when it is addressed to one child; null for a typed name. */
+  guardian_name: string | null;
+  /** The children the bill is for (its lines' students, else the family's active children). */
+  children: string[];
+  /** A hand-made bill still unpaid a day after it was raised (GET /api/invoices/follow-up). */
+  needs_follow_up: boolean;
 }
 
 // ── Status badge ───────────────────────────────────────────────────────────────
@@ -216,25 +224,68 @@ function avatarTone(name: string): string {
   return AVATAR_TONES[h % AVATAR_TONES.length]!;
 }
 
+/** The bill reads as the family's: the parent's name, even on a bill addressed to one child. */
+function payerLabel(row: InvoiceRow): string {
+  return row.guardian_name ?? row.payer_name;
+}
+
 function PayerCell({ row }: { row: InvoiceRow }) {
   const t = useTranslations("invoices");
+  const name = payerLabel(row);
   return (
     <div className="flex items-center gap-3">
       <span
         className={cn(
           "flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm",
-          avatarTone(row.payer_name),
+          avatarTone(name),
         )}
         aria-hidden
       >
-        {initials(row.payer_name)}
+        {initials(name)}
       </span>
       <div className="flex min-w-0 flex-col">
-        <span className="truncate font-medium">{row.payer_name}</span>
+        <span className="truncate font-medium">{name}</span>
         <span className="text-muted-foreground text-xs">
-          {t(row.payer_type === "GUARDIAN" ? "payerGuardian" : "payerStudent")}
+          {t(row.guardian_name !== null ? "payerGuardian" : "payerTyped")}
         </span>
       </div>
+    </div>
+  );
+}
+
+function ChildrenCell({ row }: { row: InvoiceRow }) {
+  if (row.children.length === 0) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div className="flex max-w-64 flex-wrap gap-1" data-testid={`invoice-children-${row.id}`}>
+      {row.children.map((name) => (
+        <span key={name} className="bg-muted/60 rounded-full px-2 py-0.5 text-xs font-medium">
+          {name}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** When a hand-made bill was raised — and, a day on and still unpaid, a red "follow up" under it. */
+function CreatedCell({ row }: { row: InvoiceRow }) {
+  const t = useTranslations("invoices");
+  const locale = useLocale();
+  const created = new Date(row.created_at);
+  const days = Math.max(1, Math.floor((Date.now() - created.getTime()) / 86_400_000));
+  return (
+    <div className="flex flex-col">
+      <span className={cn("tabular-nums", row.needs_follow_up ? "font-medium text-red-700 dark:text-red-400" : "text-muted-foreground")}>
+        {new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(created)}
+      </span>
+      {row.needs_follow_up && (
+        <span
+          className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-400"
+          data-testid={`invoice-follow-up-${row.id}`}
+        >
+          <AlertTriangle className="size-3" aria-hidden />
+          {t("followUpRow", { ago: new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day") })}
+        </span>
+      )}
     </div>
   );
 }
@@ -242,8 +293,9 @@ function PayerCell({ row }: { row: InvoiceRow }) {
 // ── Shared list columns ──────────────────────────────────────────────────────
 
 /** The invoice table columns, shared by both tabs. Row click + the row-actions
- *  cluster handle opening / acting on a bill, so there is no inline action column. */
-function useInvoiceColumns(): ColumnDef<InvoiceRow>[] {
+ *  cluster handle opening / acting on a bill, so there is no inline action column.
+ *  The manual tab adds when each bill was raised (its follow-up clock). */
+function useInvoiceColumns({ manual = false }: { manual?: boolean } = {}): ColumnDef<InvoiceRow>[] {
   const t = useTranslations("invoices");
   const locale = useLocale();
   const monthFmt = useMemo(
@@ -254,10 +306,25 @@ function useInvoiceColumns(): ColumnDef<InvoiceRow>[] {
   return [
     {
       key: "payer",
-      header: t("colStudent"),
+      header: t("colGuardian"),
       sortKey: "payer_name",
       render: (row) => <PayerCell row={row} />,
     },
+    {
+      key: "children",
+      header: t("colChildren"),
+      render: (row) => <ChildrenCell row={row} />,
+    },
+    ...(manual
+      ? [
+          {
+            key: "created",
+            header: t("colCreated"),
+            sortKey: "created_at",
+            render: (row: InvoiceRow) => <CreatedCell row={row} />,
+          },
+        ]
+      : []),
     {
       key: "period",
       header: t("colPeriod"),
@@ -324,7 +391,7 @@ function useInvoiceColumns(): ColumnDef<InvoiceRow>[] {
 }
 
 /** Export columns for the invoice list — flat values (no badges), shared by both tabs. */
-function useInvoiceExportColumns(): ExcelColumn<InvoiceRow>[] {
+function useInvoiceExportColumns({ manual = false }: { manual?: boolean } = {}): ExcelColumn<InvoiceRow>[] {
   const t = useTranslations("invoices");
   const locale = useLocale();
   const monthFmt = useMemo(
@@ -333,12 +400,22 @@ function useInvoiceExportColumns(): ExcelColumn<InvoiceRow>[] {
   );
 
   return [
-    { header: t("colPayer"), value: (row) => row.payer_name, width: 26 },
-    {
-      header: t("payerType"),
-      value: (row) =>
-        t(row.payer_type === "GUARDIAN" ? "payerGuardian" : "payerStudent"),
-    },
+    { header: t("colGuardian"), value: (row) => payerLabel(row), width: 26 },
+    { header: t("colChildren"), value: (row) => row.children.join("، "), width: 30 },
+    ...(manual
+      ? [
+          {
+            header: t("colCreated"),
+            value: (row: InvoiceRow) =>
+              new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(new Date(row.created_at)),
+            width: 22,
+          },
+          {
+            header: t("followUpColumn"),
+            value: (row: InvoiceRow) => (row.needs_follow_up ? t("followUpYes") : ""),
+          },
+        ]
+      : []),
     {
       header: t("colPeriod"),
       value: (row) =>
@@ -583,7 +660,14 @@ function AutomaticTab() {
 
 // ── Manual invoices tab (create + list operator-driven bills, kind=MANUAL) ────────
 
-function ManualTab() {
+function ManualTab({
+  followUpCount,
+  onChanged,
+}: {
+  /** Hand-made bills unpaid a day after they were raised (owned by the screen — the tab shows it too). */
+  followUpCount: number;
+  onChanged: () => void;
+}) {
   const t = useTranslations("invoices");
   const locale = useLocale();
   const { can } = useAuth();
@@ -592,12 +676,21 @@ function ManualTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   const [summary, setSummary] = useState<InvoiceSummary | null>(null);
+  const [followUpOnly, setFollowUpOnly] = useState(false);
 
-  const refreshAll = useCallback(() => setRefreshToken((n) => n + 1), []);
+  const refreshAll = useCallback(() => {
+    setRefreshToken((n) => n + 1);
+    onChanged();
+  }, [onChanged]);
   // Stable: the modal holds text inputs, and a fresh onClose each render steals their focus.
   const closeCreate = useCallback(() => setCreateOpen(false), []);
-  const columns = useInvoiceColumns();
-  const exportColumns = useInvoiceExportColumns();
+  const columns = useInvoiceColumns({ manual: true });
+  const exportColumns = useInvoiceExportColumns({ manual: true });
+
+  // Nothing left to chase ⇒ the "only these" view has nothing to show either.
+  useEffect(() => {
+    if (followUpCount === 0) setFollowUpOnly(false);
+  }, [followUpCount]);
 
   // Manual-only summary, refreshed alongside the list after every mutation.
   useEffect(() => {
@@ -623,11 +716,11 @@ function ManualTab() {
     (q: DataTableQuery): Promise<ListResult<InvoiceRow>> => {
       const merged: DataTableQuery = {
         ...q,
-        filter: { ...(q.filter ?? {}), kind: "MANUAL" },
+        filter: { ...(q.filter ?? {}), kind: "MANUAL", ...(followUpOnly ? { follow_up: "1" } : {}) },
       };
       return apiFetch(`/api/invoices${toQueryString(merged)}`);
     },
-    [],
+    [followUpOnly],
   );
 
   return (
@@ -654,6 +747,35 @@ function ManualTab() {
           </Button>
         )}
       </div>
+
+      {/* Bills a day old and still unpaid — someone has to chase them. */}
+      {followUpCount > 0 && (
+        <div
+          className="flex flex-col gap-3 rounded-2xl border border-red-300 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-red-900/60 dark:bg-red-950/30"
+          role="alert"
+          data-testid="manual-follow-up-alert"
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-red-600 dark:text-red-400" aria-hidden />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-red-800 dark:text-red-200">
+                {t("followUpTitle", { count: followUpCount })}
+              </p>
+              <p className="text-sm text-red-700/90 dark:text-red-300/90">{t("followUpHint")}</p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant={followUpOnly ? "outline" : "destructive"}
+            className="shrink-0"
+            onClick={() => setFollowUpOnly((v) => !v)}
+            data-testid="manual-follow-up-toggle"
+          >
+            {followUpOnly ? t("followUpShowAll") : t("followUpShowOnly")}
+          </Button>
+        </div>
+      )}
 
       <SummaryCards summary={summary} locale={locale} />
 
@@ -686,8 +808,9 @@ function ManualTab() {
           getRowId={(row) => row.id}
           searchable
           filters={[STATUS_FILTER_OPTIONS(t)]}
-          defaultSort="-period"
+          defaultSort="-created_at"
           onRowClick={(row) => setSelectedId(row.id)}
+          rowClassName={(row) => (row.needs_follow_up ? "bg-red-50/70 dark:bg-red-950/20" : undefined)}
           rowActions={(row) => (
             <InvoiceRowActions
               row={row}
@@ -746,8 +869,23 @@ export function InvoicesScreen() {
   const t = useTranslations("invoices");
   const { can } = useAuth();
   const [tab, setTab] = useState<Tab>("auto");
+  const [followUpCount, setFollowUpCount] = useState(0);
+  const [followUpToken, setFollowUpToken] = useState(0);
+  const refreshFollowUp = useCallback(() => setFollowUpToken((n) => n + 1), []);
+  const canRead = can("invoice.read");
 
-  if (!can("invoice.read")) {
+  useEffect(() => {
+    if (!canRead) return;
+    let cancelled = false;
+    getInvoiceFollowUp()
+      .then((r) => !cancelled && setFollowUpCount(r.count))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [canRead, followUpToken, tab]);
+
+  if (!canRead) {
     return <p className="text-muted-foreground text-sm">{t("noPermission")}</p>;
   }
 
@@ -792,13 +930,22 @@ export function InvoicesScreen() {
               )}
               <Icon className="size-4" aria-hidden />
               <span>{t(`tabs.${key}`)}</span>
+              {key === "manual" && followUpCount > 0 && (
+                <span
+                  className="bg-destructive inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold text-white tabular-nums"
+                  aria-label={t("followUpTitle", { count: followUpCount })}
+                  data-testid="manual-tab-follow-up"
+                >
+                  {followUpCount > 99 ? "99+" : followUpCount}
+                </span>
+              )}
             </button>
           );
         })}
       </div>
 
       <div role="tabpanel" aria-label={t(`tabs.${tab}`)}>
-        {tab === "auto" ? <AutomaticTab /> : <ManualTab />}
+        {tab === "auto" ? <AutomaticTab /> : <ManualTab followUpCount={followUpCount} onChanged={refreshFollowUp} />}
       </div>
     </div>
   );

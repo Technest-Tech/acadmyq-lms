@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, ExternalLink, Link2, Loader2, MessageSquare, Send } from "lucide-react";
+import { CheckCircle2, ExternalLink, Link2, Loader2, MessageSquare, Send, Users } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { CopyButton, waLink } from "@/components/invoices/invoice-detail-modal";
@@ -13,8 +13,10 @@ import {
   ApiError,
   createQuickBill,
   getAcademyProfile,
+  listGuardians,
   listLessonPackages,
   listStudents,
+  type GuardianRow,
   type LessonPackageRow,
   sendInvoicePaymentLink,
   type InvoiceSendLinkResult,
@@ -23,7 +25,17 @@ import { formatMoney } from "@/lib/money";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
-type PayerMode = "student" | "name";
+type PayerMode = "student" | "guardian" | "name";
+
+/** Every family, page by page — the list endpoint caps a page at 100, and a parent must never be cut off. */
+async function allGuardians(): Promise<GuardianRow[]> {
+  const out: GuardianRow[] = [];
+  for (let page = 1; ; page++) {
+    const res = await listGuardians({ page, pageSize: 100, sort: "name" });
+    out.push(...res.rows);
+    if (res.rows.length === 0 || out.length >= res.total) return out;
+  }
+}
 
 /** Common currencies offered in the form (ISO 4217). The student's own currency is added if missing. */
 const CURRENCIES = ["EGP", "SAR", "AED", "USD", "EUR", "GBP", "JOD", "KWD", "QAR", "BHD", "OMR", "TRY"];
@@ -48,9 +60,10 @@ export interface QuickBillModalProps {
 }
 
 /**
- * The basic custom bill: pick a student OR type a name, then amount + currency + description, and
- * get the payment link straight away (on the academy's own address). The bill is an OPEN manual
- * invoice for the current month, so it is payable the moment the link is shared.
+ * The basic custom bill: pick a student, a guardian (the family's bill — their children are listed
+ * under the pick) OR type a name, then amount + currency + description, and get the payment link
+ * straight away (on the academy's own address). The bill is an OPEN manual invoice for the current
+ * month, so it is payable the moment the link is shared.
  */
 export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillModalProps) {
   const t = useTranslations("invoices.quick");
@@ -71,6 +84,9 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
   const [defaultCurrency, setDefaultCurrency] = useState("EGP");
 
   const [studentId, setStudentId] = useState("");
+  // Families load the first time the guardian tab is opened — most bills never need them.
+  const [guardians, setGuardians] = useState<GuardianRow[] | null>(null);
+  const [guardianId, setGuardianId] = useState("");
   const [payerName, setPayerName] = useState("");
   const [amount, setAmount] = useState("");
   // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
@@ -113,32 +129,59 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
     };
   }, [open]);
 
-  // Picking a student pre-fills their billing currency; it stays editable.
+  useEffect(() => {
+    if (!open || mode !== "guardian" || guardians !== null) return;
+    let cancelled = false;
+    void allGuardians()
+      .then((rows) => !cancelled && setGuardians(rows))
+      .catch(() => !cancelled && setGuardians([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [open, mode, guardians]);
+
+  const guardian = guardians?.find((g) => g.id === guardianId) ?? null;
+  const children = guardian?.children ?? [];
+  // A child's name finds their parent: the picker searches the sublabel too.
+  const guardianOptions: ComboboxOption[] = (guardians ?? []).map((g) => ({
+    value: g.id,
+    label: g.full_name,
+    sublabel: (g.children ?? []).map((c) => c.full_name).join("، ") || undefined,
+  }));
+
+  // Picking a student (or a family) pre-fills their billing currency; it stays editable.
   useEffect(() => {
     const c = studentCurrency[studentId];
     if (studentId && c) setCurrency(c);
   }, [studentId, studentCurrency]);
+  useEffect(() => {
+    if (guardian?.currency) setCurrency(guardian.currency);
+  }, [guardian]);
 
-  // Does this student already have a package bill waiting? (A role without package.read simply
-  // never sees the note.)
+  // Does this student — or any child of this family — already have a package bill waiting? (A role
+  // without package.read simply never sees the note.)
+  const checkIds = mode === "student" ? (studentId ? [studentId] : []) : mode === "guardian" ? children.map((c) => c.id) : [];
+  const checkKey = checkIds.join(",");
   useEffect(() => {
     setDuePackage(null);
-    if (!open || mode !== "student" || studentId === "") return;
+    if (!open || checkKey === "") return;
     let cancelled = false;
-    void listLessonPackages({ student_id: studentId, scope: "due" })
-      .then((res) => {
+    void Promise.all(checkKey.split(",").map((id) => listLessonPackages({ student_id: id, scope: "due" })))
+      .then((all) => {
         if (cancelled) return;
-        setDuePackage(res.packages.find((p) => p.invoice_token !== null && p.outstanding_minor > 0) ?? null);
+        const due = all.flatMap((res) => res.packages);
+        setDuePackage(due.find((p) => p.invoice_token !== null && p.outstanding_minor > 0) ?? null);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [open, mode, studentId]);
+  }, [open, checkKey]);
 
   const reset = useCallback(() => {
     setMode("student");
     setStudentId("");
+    setGuardianId("");
     setPayerName("");
     setAmount("");
     setCurrency(defaultCurrency);
@@ -155,7 +198,8 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
   }, [submitting, sending, reset, onClose]);
 
   const amountMinor = toMinor(amount);
-  const payerOk = mode === "student" ? studentId !== "" : payerName.trim().length > 0;
+  const payerOk =
+    mode === "student" ? studentId !== "" : mode === "guardian" ? guardianId !== "" : payerName.trim().length > 0;
   const canSubmit = payerOk && amountMinor > 0 && currency !== "" && description.trim().length > 0;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -169,7 +213,11 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
     try {
       const base = { amount_minor: amountMinor, currency, description: description.trim() };
       const res = await createQuickBill(
-        mode === "student" ? { ...base, student_id: studentId } : { ...base, payer_name: payerName.trim() },
+        mode === "student"
+          ? { ...base, student_id: studentId }
+          : mode === "guardian"
+            ? { ...base, guardian_id: guardianId }
+            : { ...base, payer_name: payerName.trim() },
       );
       setCreated({ id: res.id, url: res.url, totalMinor: amountMinor, currency });
       onCreated(res.id);
@@ -307,11 +355,11 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
       }
     >
       <form id="quick-bill-form" onSubmit={(e) => void handleSubmit(e)} className="space-y-4" noValidate>
-        {/* Who pays: a listed student, or a name typed by hand */}
+        {/* Who pays: a listed student, a family, or a name typed by hand */}
         <div>
           <label className={labelClass}>{t("payer")}</label>
           <div role="tablist" aria-label={t("payer")} className="mb-2 flex gap-1 rounded-xl border bg-muted/40 p-1">
-            {(["student", "name"] as const).map((m) => (
+            {(["student", "guardian", "name"] as const).map((m) => (
               <button
                 key={m}
                 type="button"
@@ -343,6 +391,37 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
               disabled={submitting}
               data-testid="quick-student"
             />
+          ) : mode === "guardian" ? (
+            <>
+              <Combobox
+                options={guardianOptions}
+                value={guardianId}
+                onChange={setGuardianId}
+                placeholder={guardians === null ? t("guardianLoading") : t("guardianSelect")}
+                searchPlaceholder={t("guardianSearch")}
+                disabled={submitting || guardians === null}
+                data-testid="quick-guardian"
+              />
+              {guardian !== null && (
+                <div className="bg-muted/30 mt-2 rounded-xl border p-3" data-testid="quick-guardian-children">
+                  <p className="text-muted-foreground mb-2 flex items-center gap-1.5 text-xs font-medium">
+                    <Users className="size-3.5" aria-hidden />
+                    {t("children", { n: children.length })}
+                  </p>
+                  {children.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">{t("noChildren")}</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {children.map((c) => (
+                        <span key={c.id} className="bg-card rounded-full border px-2.5 py-0.5 text-sm">
+                          {c.full_name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           ) : (
             <input
               type="text"

@@ -6,6 +6,7 @@ import { makeSession, withAuth } from "@/test/auth";
 import { QuickBillModal } from "@/components/invoices/quick-bill-modal";
 
 const listLessonPackages = vi.fn();
+const createQuickBill = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
@@ -14,8 +15,24 @@ vi.mock("@/lib/api", async (importOriginal) => ({
       rows: [{ id: "s1", full_name: "مسك", price_currency: "OMR" }],
       total: 1,
     }),
+  listGuardians: () =>
+    Promise.resolve({
+      rows: [
+        {
+          id: "g1",
+          full_name: "حسن محمود",
+          currency: "SAR",
+          children: [
+            { id: "c1", full_name: "يوسف", status: "ACTIVE" },
+            { id: "c2", full_name: "مريم", status: "ACTIVE" },
+          ],
+        },
+      ],
+      total: 1,
+    }),
   getAcademyProfile: () => Promise.resolve({ academy: { default_currency: "OMR" } }),
   listLessonPackages: (...args: unknown[]) => listLessonPackages(...args),
+  createQuickBill: (...args: unknown[]) => createQuickBill(...args),
 }));
 
 function renderModal() {
@@ -74,5 +91,42 @@ describe("QuickBillModal — a package's own bill comes first", () => {
 
     await waitFor(() => expect(listLessonPackages).toHaveBeenCalled());
     expect(screen.queryByTestId("quick-package-due")).toBeNull();
+  });
+});
+
+describe("QuickBillModal — billing a family", () => {
+  it("lists every child under the picked guardian and bills the guardian", async () => {
+    listLessonPackages.mockResolvedValue({ packages: [] });
+    createQuickBill.mockResolvedValue({ id: "inv-g", url: "https://x.test/i/tok" });
+
+    renderModal();
+    await userEvent.click(screen.getByTestId("quick-mode-guardian"));
+    // A child's name finds the parent.
+    await userEvent.click(await screen.findByTestId("quick-guardian"));
+    await userEvent.type(screen.getByPlaceholderText(arMessages.invoices.quick.guardianSearch), "مريم");
+    await userEvent.click(await screen.findByText("حسن محمود"));
+
+    const box = await screen.findByTestId("quick-guardian-children");
+    expect(box.textContent).toContain("يوسف");
+    expect(box.textContent).toContain("مريم");
+    // Every child's packages are checked for a bill already waiting.
+    await waitFor(() => expect(listLessonPackages).toHaveBeenCalledWith({ student_id: "c2", scope: "due" }));
+    expect(listLessonPackages).toHaveBeenCalledWith({ student_id: "c1", scope: "due" });
+    // The family's own currency is pre-filled.
+    expect((screen.getByTestId("quick-currency") as HTMLSelectElement).value).toBe("SAR");
+
+    await userEvent.type(screen.getByTestId("quick-amount"), "40");
+    await userEvent.type(screen.getByTestId("quick-description"), "كتب");
+    await userEvent.click(screen.getByRole("button", { name: arMessages.invoices.quick.create }));
+
+    await waitFor(() =>
+      expect(createQuickBill).toHaveBeenCalledWith({
+        amount_minor: 4000,
+        currency: "SAR",
+        description: "كتب",
+        guardian_id: "g1",
+      }),
+    );
+    expect(await screen.findByTestId("quick-bill-link")).toBeInTheDocument();
   });
 });

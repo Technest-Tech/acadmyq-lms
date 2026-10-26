@@ -58,6 +58,12 @@ export interface InvoiceDetail {
   sent_at: string | null;
   sent_channel: string | null;
   created_at: string;
+  /** The family the bill belongs to — the parent even when it is addressed to one child. */
+  guardian_name?: string | null;
+  /** The children the bill is for. */
+  children?: string[];
+  /** A hand-made bill still unpaid a day after it was raised. */
+  needs_follow_up?: boolean;
 }
 
 interface InvoiceDetailResponse {
@@ -514,14 +520,32 @@ export function InvoiceDetailModal({
             <div className="bg-muted/40 flex flex-wrap items-center justify-between gap-4 rounded-xl border p-4">
               <div className="min-w-0">
                 <p className="text-muted-foreground text-xs font-medium">
-                  {t("colPayer")}
+                  {t(invoice.guardian_name ? "colGuardian" : "colPayer")}
                 </p>
                 <p className="truncate text-base font-semibold">
-                  {invoice.payer_name}
+                  {invoice.guardian_name ?? invoice.payer_name}
                 </p>
                 {invoice.payer_phone && (
                   <p className="text-muted-foreground mt-0.5 font-mono text-xs">
                     <bdi dir="ltr">{invoice.payer_phone}</bdi>
+                  </p>
+                )}
+                {(invoice.children?.length ?? 0) > 0 && (
+                  <p className="mt-1.5 text-sm" data-testid="invoice-detail-children">
+                    <span className="text-muted-foreground">{t("colChildren")}: </span>
+                    <span className="font-medium">{invoice.children!.join("، ")}</span>
+                  </p>
+                )}
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {t("createdOn", {
+                    date: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(
+                      new Date(invoice.created_at),
+                    ),
+                  })}
+                </p>
+                {invoice.needs_follow_up && (
+                  <p className="mt-1 text-xs font-semibold text-red-600 dark:text-red-400" data-testid="invoice-detail-follow-up">
+                    {t("followUpDetail")}
                   </p>
                 )}
               </div>

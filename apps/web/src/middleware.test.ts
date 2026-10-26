@@ -186,6 +186,13 @@ describe("subdomain routing", () => {
     expect((await run("skills.acadmyq.com", "/i/tok123")).rewrite).toBeNull();
     expect((await run("courses.skills.eg", "/i/tok123", "acadmyq.com", true)).rewrite).toBeNull();
   });
+
+  it("serves the parent's page on any client host — the family link lives there too", async () => {
+    resolveTenantSite.mockResolvedValue(LMS);
+
+    expect((await run("skills.acadmyq.com", "/p/tok123")).rewrite).toBeNull();
+    expect((await run("courses.skills.eg", "/p/tok123", "acadmyq.com", true)).rewrite).toBeNull();
+  });
 });
 
 /**

@@ -4371,6 +4371,14 @@ export function getInvoiceSummary(
   return apiFetch(`/api/invoices/summary${s ? `?${s}` : ""}`);
 }
 
+/**
+ * Hand-made bills still unpaid a day after they were raised (GET /api/invoices/follow-up) — the
+ * sidebar's red badge and the custom-bills tab's alert. `grace_hours` is the server's own rule.
+ */
+export function getInvoiceFollowUp(): Promise<{ count: number; grace_hours: number }> {
+  return apiFetch("/api/invoices/follow-up");
+}
+
 /** Close every OPEN invoice for the caller's academy in the given period. */
 export function closeInvoicePeriod(
   year: number,
@@ -4402,12 +4410,16 @@ export interface ManualInvoiceInput {
 }
 
 /** Create a MANUAL itemized invoice (OPEN draft). Returns the new invoice id. */
-/** The basic custom bill: a listed student OR a typed name, one amount, one line. */
+/** The basic custom bill: a listed student, a guardian (the family's bill) OR a typed name, one amount, one line. */
 export type QuickBillInput = {
   amount_minor: number;
   currency: string;
   description: string;
-} & ({ student_id: string; payer_name?: never } | { payer_name: string; student_id?: never });
+} & (
+  | { student_id: string; guardian_id?: never; payer_name?: never }
+  | { guardian_id: string; student_id?: never; payer_name?: never }
+  | { payer_name: string; student_id?: never; guardian_id?: never }
+);
 
 /** Create a quick custom bill; answers with its pay link on the academy's own address. */
 export function createQuickBill(input: QuickBillInput): Promise<{ id: string; url: string }> {
@@ -7991,6 +8003,10 @@ export interface LessonPackageRow {
   id: string;
   student_id: string;
   student_name: string;
+  /** The student's family — the Due page gathers a parent's children under one card. */
+  guardian_id?: string | null;
+  guardian_name?: string | null;
+  guardian_phone?: string | null;
   label: string;
   sequence_no: number;
   status: PackageStatus;

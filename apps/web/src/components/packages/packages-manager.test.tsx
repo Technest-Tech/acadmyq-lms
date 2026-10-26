@@ -281,6 +281,7 @@ describe("PackagesManager", () => {
         // Opened today, paid up front, not yet paid: due on day one.
         pkg({
           id: "p-open",
+          student_id: "s-mona",
           student_name: "Mona",
           due: true,
           outstanding_minor: 400000,
@@ -290,6 +291,7 @@ describe("PackagesManager", () => {
         // Finished and still unpaid.
         pkg({
           id: "p-old",
+          student_id: "s-sara",
           student_name: "Sara",
           status: "COMPLETED",
           due: true,
@@ -314,6 +316,69 @@ describe("PackagesManager", () => {
     expect(screen.getByText(/5,500|٥٬٥٠٠/)).toBeInTheDocument();
     // Each card leads with Mark as paid.
     expect(within(cards[0]!).getByTestId("mark-package-paid")).toBeInTheDocument();
+  });
+
+  it("gathers siblings' due packages under their parent, totals them, and sends every link in one message", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          id: "p-yusuf",
+          student_id: "s-yusuf",
+          student_name: "Yusuf",
+          guardian_id: "g-hassan",
+          guardian_name: "Hassan",
+          guardian_phone: "+20 100 111 2222",
+          due: true,
+          invoice_token: "tok-yusuf",
+          outstanding_minor: 60000,
+          created_at: "2026-09-01T00:00:00Z",
+        }),
+        pkg({
+          id: "p-maryam",
+          student_id: "s-maryam",
+          student_name: "Maryam",
+          guardian_id: "g-hassan",
+          guardian_name: "Hassan",
+          guardian_phone: "+20 100 111 2222",
+          due: true,
+          invoice_token: "tok-maryam",
+          outstanding_minor: 40000,
+          created_at: "2026-09-05T00:00:00Z",
+        }),
+        // Another family, alone under its own parent.
+        pkg({
+          id: "p-sara",
+          student_id: "s-sara",
+          student_name: "Sara",
+          guardian_id: "g-ali",
+          guardian_name: "Ali",
+          due: true,
+          outstanding_minor: 10000,
+          created_at: "2026-10-01T00:00:00Z",
+        }),
+      ],
+    });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+    renderManager(["invoice.send_link"], "due");
+
+    const families = await screen.findAllByTestId("due-family-name");
+    expect(families.map((f) => f.textContent)).toEqual(["Hassan", "Ali"]);
+
+    const hassan = screen.getByTestId("due-family-g-hassan");
+    expect(within(hassan).getAllByTestId("package-card")).toHaveLength(2);
+    expect(hassan).toHaveTextContent("Yusuf، Maryam");
+    expect(within(hassan).getByTestId("due-family-total").textContent).toContain(
+      formatMoney({ amount: 100000, currency: "EGP" }, "ar"),
+    );
+
+    await userEvent.click(within(hassan).getByTestId("due-family-send"));
+    const url = decodeURIComponent(String(open.mock.calls[0]?.[0]));
+    expect(url).toContain("https://wa.me/201001112222?text=");
+    expect(url).toContain("/i/tok-yusuf");
+    expect(url).toContain("/i/tok-maryam");
+    expect(url).toContain(formatMoney({ amount: 100000, currency: "EGP" }, "ar"));
+    open.mockRestore();
   });
 
   it("marks a package the renewal opened, with the minutes it took from the last block", async () => {

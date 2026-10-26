@@ -29,14 +29,57 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 final class InvoiceController extends Controller
 {
+    /** A hand-made bill still unpaid this long after it was raised is flagged for follow-up. */
+    public const FOLLOW_UP_HOURS = 24;
+
+    /**
+     * The bill needs chasing: a hand-made one (quick, itemized or advance) still owing money
+     * {@see FOLLOW_UP_HOURS} after it was raised. A package's own bill is MANUAL too, but the
+     * due-packages page and its badge already chase those, so they are left out here rather than
+     * counted twice. Its one binding is {@see followUpCutoff()}.
+     */
+    private const FOLLOW_UP_SQL = <<<'SQL'
+        (inv.kind = 'MANUAL'
+         and inv.status in ('OPEN', 'CLOSED', 'PARTIALLY_PAID')
+         and inv.total_minor > inv.amount_paid_minor
+         and inv.created_at < cast(? as timestamptz)
+         and not exists (select 1 from lesson_packages lp where lp.invoice_id = inv.id)
+         and not exists (select 1 from lesson_packages lp where lp.overdraft_invoice_id = inv.id))
+        SQL;
+
+    /**
+     * The children a bill is for, as a JSON array of names: the students on its lines; failing
+     * that (a family bill with no per-child line), the guardian's active children; failing that,
+     * the student the bill is addressed to.
+     */
+    private const CHILDREN_SQL = <<<'SQL'
+        coalesce(
+          (select json_agg(distinct cs.full_name order by cs.full_name)
+             from invoice_line_items li join students cs on cs.id = li.student_id
+            where li.invoice_id = inv.id),
+          (select json_agg(cs.full_name order by cs.full_name)
+             from students cs where cs.guardian_id = inv.guardian_id and cs.deleted_at is null),
+          case when s.id is not null then json_build_array(s.full_name) end,
+          '[]'::json
+        )
+        SQL;
+
+    /** A bill raised before this instant is past its grace — on the app clock, with its offset. */
+    private static function followUpCutoff(): string
+    {
+        return now()->subHours(self::FOLLOW_UP_HOURS)->toIso8601String();
+    }
+
     // -------------------------------------------------------------------------
     // GET /api/invoices
     // -------------------------------------------------------------------------
 
     /**
-     * Paginated invoice list with optional filters (status, period, payer_type).
+     * Paginated invoice list with optional filters (status, period, payer_type, follow_up).
      * Joins guardian/student full_name as payer_name so the frontend never has to
-     * request two endpoints.
+     * request two endpoints, plus the family it belongs to: `guardian_name` is the parent even
+     * when the bill is addressed to one child (a package student, a per-student academy), and
+     * `children` names the students it is for.
      */
     public function index(Request $request): JsonResponse
     {
@@ -45,6 +88,7 @@ final class InvoiceController extends Controller
         $query = DB::table('invoices as inv')
             ->leftJoin('guardians as g', 'g.id', '=', 'inv.guardian_id')
             ->leftJoin('students as s', 's.id', '=', 'inv.student_id')
+            ->leftJoin('guardians as sg', 'sg.id', '=', 's.guardian_id')
             ->select([
                 'inv.id',
                 'inv.kind',
@@ -61,13 +105,45 @@ final class InvoiceController extends Controller
                 'inv.closed_at',
                 'inv.paid_at',
                 'inv.public_token',
-            ]);
+                'inv.created_at',
+                DB::raw('coalesce(g.full_name, sg.full_name) as guardian_name'),
+                DB::raw(self::CHILDREN_SQL.' as children'),
+            ])
+            ->selectRaw(self::FOLLOW_UP_SQL.' as needs_follow_up', [self::followUpCutoff()]);
+
+        // A bill is most often looked up by a child's name ("Yusuf's bill"), which a column search
+        // cannot reach when the bill is the family's — so this replaces DataTable's own search.
+        $search = trim((string) $request->query('search', ''));
+        if ($search !== '') {
+            $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search).'%';
+            $query->where(function ($q) use ($like): void {
+                $q->where('g.full_name', 'ilike', $like)
+                    ->orWhere('s.full_name', 'ilike', $like)
+                    ->orWhere('sg.full_name', 'ilike', $like)
+                    ->orWhere('inv.payer_name', 'ilike', $like)
+                    ->orWhereExists(fn ($e) => $e->selectRaw('1')
+                        ->from('invoice_line_items as sli')
+                        ->join('students as ss', 'ss.id', '=', 'sli.student_id')
+                        ->whereColumn('sli.invoice_id', 'inv.id')
+                        ->where('ss.full_name', 'ilike', $like))
+                    ->orWhereExists(fn ($e) => $e->selectRaw('1')
+                        ->from('students as gs')
+                        ->whereColumn('gs.guardian_id', 'inv.guardian_id')
+                        ->whereNull('gs.deleted_at')
+                        ->where('gs.full_name', 'ilike', $like));
+            });
+        }
 
         $result = DataTable::paginate($query, $request, [
-            'searchable' => ['g.full_name', 's.full_name', 'inv.payer_name'],
+            'searchable' => [],
             'filters' => [
                 'status' => fn ($q, $v) => $q->where('inv.status', $v),
                 'kind' => fn ($q, $v) => $q->where('inv.kind', $v),
+                'follow_up' => function ($q, $v): void {
+                    if ((string) $v === '1') {
+                        $q->whereRaw(self::FOLLOW_UP_SQL, [self::followUpCutoff()]);
+                    }
+                },
                 'period_year' => fn ($q, $v) => $q->where('inv.period_year', (int) $v),
                 'period_month' => fn ($q, $v) => $q->where('inv.period_month', (int) $v),
                 'payer_type' => function ($q, $v): void {
@@ -79,6 +155,7 @@ final class InvoiceController extends Controller
                 },
             ],
             'sortable' => [
+                'payer_name' => DB::raw('coalesce(g.full_name, sg.full_name, s.full_name, inv.payer_name)'),
                 'period' => DB::raw('inv.period_year * 100 + inv.period_month'),
                 'period_year' => 'inv.period_year',
                 'period_month' => 'inv.period_month',
@@ -91,10 +168,34 @@ final class InvoiceController extends Controller
         ]);
 
         return response()->json([
-            'rows' => $result['rows'],
+            'rows' => $result['rows']->map(function ($r) {
+                $r->children = json_decode((string) $r->children, true) ?: [];
+                $r->needs_follow_up = (bool) $r->needs_follow_up;
+
+                return $r;
+            }),
             'total' => $result['total'],
             'page' => $result['page'],
             'pageSize' => $result['pageSize'],
+        ]);
+    }
+
+    // -------------------------------------------------------------------------
+    // GET /api/invoices/follow-up
+    // -------------------------------------------------------------------------
+
+    /**
+     * How many hand-made bills are still unpaid a day after they were raised — the sidebar's red
+     * badge and the custom-bills tab's alert. Derived live, like the due-packages badge: it clears
+     * when the money arrives, not when someone looks.
+     */
+    public function followUp(): JsonResponse
+    {
+        Gate::authorize('invoice.read');
+
+        return response()->json([
+            'count' => DB::table('invoices as inv')->whereRaw(self::FOLLOW_UP_SQL, [self::followUpCutoff()])->count(),
+            'grace_hours' => self::FOLLOW_UP_HOURS,
         ]);
     }
 
@@ -185,18 +286,20 @@ final class InvoiceController extends Controller
     // -------------------------------------------------------------------------
 
     /**
-     * The basic custom bill: a student picked from the list OR a name typed by hand, one amount,
-     * one currency, one description. Billed to the current month (academy timezone) as an OPEN
-     * MANUAL invoice — already payable — and answered with its public link on the academy's own
-     * address, so the operator can copy or send it immediately.
+     * The basic custom bill: a student picked from the list, a guardian (the bill is the family's —
+     * every child under them) OR a name typed by hand, one amount, one currency, one description.
+     * Billed to the current month (academy timezone) as an OPEN MANUAL invoice — already payable —
+     * and answered with its public link on the academy's own address, so the operator can copy or
+     * send it immediately.
      */
     public function storeQuick(Request $request): JsonResponse
     {
         Gate::authorize('invoice.create');
 
         $validated = $request->validate([
-            'student_id' => ['nullable', 'uuid', 'required_without:payer_name'],
-            'payer_name' => ['nullable', 'string', 'max:120', 'required_without:student_id'],
+            'student_id' => ['nullable', 'uuid', 'required_without_all:guardian_id,payer_name'],
+            'guardian_id' => ['nullable', 'uuid', 'required_without_all:student_id,payer_name'],
+            'payer_name' => ['nullable', 'string', 'max:120', 'required_without_all:student_id,guardian_id'],
             'amount_minor' => ['required', 'integer', 'min:1'],
             'currency' => ['required', 'string', 'size:3'],
             'description' => ['required', 'string', 'max:500'],
@@ -206,6 +309,7 @@ final class InvoiceController extends Controller
         $academyId = (string) $ctx->academyId;
 
         $studentId = null;
+        $guardianId = null;
         $payerName = null;
         if (! empty($validated['student_id'])) {
             // RLS scopes the lookup, so another academy's student is simply not found.
@@ -214,6 +318,12 @@ final class InvoiceController extends Controller
                 abort(422, 'Student not found.');
             }
             $studentId = (string) $found;
+        } elseif (! empty($validated['guardian_id'])) {
+            $found = DB::table('guardians')->where('id', $validated['guardian_id'])->value('id');
+            if ($found === null) {
+                abort(422, 'Guardian not found.');
+            }
+            $guardianId = (string) $found;
         } else {
             $payerName = trim((string) $validated['payer_name']);
             if ($payerName === '') {
@@ -226,7 +336,7 @@ final class InvoiceController extends Controller
 
         $invoiceId = app(Invoicing::class)->createManualInvoice(
             $academyId,
-            null,
+            $guardianId,
             $studentId,
             (int) $today->year,
             (int) $today->month,
@@ -402,6 +512,7 @@ final class InvoiceController extends Controller
         $invoice = DB::table('invoices as inv')
             ->leftJoin('guardians as g', 'g.id', '=', 'inv.guardian_id')
             ->leftJoin('students as s', 's.id', '=', 'inv.student_id')
+            ->leftJoin('guardians as sg', 'sg.id', '=', 's.guardian_id')
             ->where('inv.id', $id)
             ->select([
                 'inv.id',
@@ -427,12 +538,18 @@ final class InvoiceController extends Controller
                 DB::raw('coalesce(g.full_name, s.full_name, inv.payer_name) as payer_name'),
                 DB::raw("case when inv.guardian_id is not null then 'GUARDIAN' else 'STUDENT' end as payer_type"),
                 DB::raw('coalesce(g.whatsapp_phone, s.whatsapp_phone) as payer_phone'),
+                DB::raw('coalesce(g.full_name, sg.full_name) as guardian_name'),
+                DB::raw(self::CHILDREN_SQL.' as children'),
             ])
+            ->selectRaw(self::FOLLOW_UP_SQL.' as needs_follow_up', [self::followUpCutoff()])
             ->first();
 
         if ($invoice === null) {
             abort(404, 'Invoice not found.');
         }
+
+        $invoice->children = json_decode((string) $invoice->children, true) ?: [];
+        $invoice->needs_follow_up = (bool) $invoice->needs_follow_up;
 
         $lineItems = DB::table('invoice_line_items as li')
             ->leftJoin('students as s', 's.id', '=', 'li.student_id')

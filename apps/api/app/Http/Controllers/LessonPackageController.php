@@ -80,7 +80,8 @@ final class LessonPackageController extends Controller
         }
 
         if (($validated['q'] ?? null) !== null && trim((string) $validated['q']) !== '') {
-            $query->where('s.full_name', 'ilike', '%'.trim((string) $validated['q']).'%');
+            $like = '%'.trim((string) $validated['q']).'%';
+            $query->where(fn ($q) => $q->where('s.full_name', 'ilike', $like)->orWhere('g.full_name', 'ilike', $like));
         }
 
         $rows = $query
@@ -910,6 +911,8 @@ final class LessonPackageController extends Controller
     {
         return DB::table('lesson_packages as p')
             ->join('students as s', 's.id', '=', 'p.student_id')
+            // The family it belongs to — the Due page gathers a parent's children under one card.
+            ->leftJoin('guardians as g', 'g.id', '=', 's.guardian_id')
             ->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')
             ->leftJoin('teachers as st', 'st.id', '=', 'p.teacher_id')
             ->select([
@@ -922,6 +925,7 @@ final class LessonPackageController extends Controller
                 'p.auto_renew', 'p.opened_automatically', 'p.renewal_held_at', 'p.absorbed_overdraft_minutes', 'p.overdraft_absorbed_by',
                 'p.teacher_id as subject_teacher_id', 'p.course as subject_course', 'st.full_name as subject_teacher_name',
                 's.full_name as student_name',
+                'g.id as guardian_id', 'g.full_name as guardian_name', 'g.whatsapp_phone as guardian_phone',
                 'i.status as invoice_status', 'i.total_minor as invoice_total_minor',
                 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
                 'i.paid_at as invoice_paid_at',
@@ -1149,6 +1153,9 @@ final class LessonPackageController extends Controller
             'id' => (string) $row->id,
             'student_id' => (string) $row->student_id,
             'student_name' => (string) $row->student_name,
+            'guardian_id' => $row->guardian_id !== null ? (string) $row->guardian_id : null,
+            'guardian_name' => $row->guardian_name,
+            'guardian_phone' => $row->guardian_phone,
             // A centre's block for one subject (null = any of the student's lessons).
             'subject' => $row->subject_teacher_id !== null ? [
                 'teacher_id' => (string) $row->subject_teacher_id,

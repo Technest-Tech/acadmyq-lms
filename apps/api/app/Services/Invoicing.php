@@ -513,8 +513,10 @@ final class Invoicing implements BillingHook
             'subtotal_minor' => $total,
             'total_minor' => $total,
             'public_token' => PublicInvoiceToken::forAcademyId($academyId),
-            'created_at' => now(),
-            'updated_at' => now(),
+            // With its offset: a naive bind is read in the DB's own zone and lands hours early,
+            // and this instant is shown as the bill's date and starts its follow-up clock.
+            'created_at' => now()->toIso8601String(),
+            'updated_at' => now()->toIso8601String(),
         ]);
 
         foreach ($lines as $line) {
@@ -673,8 +675,8 @@ final class Invoicing implements BillingHook
             'subtotal_minor' => $total,
             'total_minor' => $total,
             'public_token' => PublicInvoiceToken::forAcademyId($academyId),
-            'created_at' => now(),
-            'updated_at' => now(),
+            'created_at' => now()->toIso8601String(),
+            'updated_at' => now()->toIso8601String(),
         ]);
 
         $sessionIds = [];

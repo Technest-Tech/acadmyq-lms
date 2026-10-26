@@ -15,6 +15,7 @@ import { useAuth } from "@/components/auth-provider";
 import { useCapability } from "@/lib/capabilities";
 import { ClosePackageModal } from "@/components/packages/close-package-modal";
 import { EditPackageForm } from "@/components/packages/edit-package-form";
+import { FamilyDueGroup, groupDueByFamily } from "@/components/packages/family-due-group";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { OpenPackageForm } from "@/components/packages/open-package-form";
 import {
@@ -189,7 +190,12 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const matched = pageRows.filter((r) => {
-      if (needle !== "" && !r.student_name.toLowerCase().includes(needle)) {
+      // A family is looked up by the parent's name as often as by a child's.
+      if (
+        needle !== "" &&
+        !r.student_name.toLowerCase().includes(needle) &&
+        !(r.guardian_name ?? "").toLowerCase().includes(needle)
+      ) {
         return false;
       }
       if (view !== "finished") return true;
@@ -340,6 +346,30 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       setRemindingId(null);
     }
   }
+
+  const renderCard = (row: LessonPackageRow) => (
+    <PackageCard
+      key={row.id}
+      row={row}
+      timezone={timezone}
+      canManage={canManage}
+      canSendInvoice={canSendInvoice}
+      canMarkPaid={canMarkPaid}
+      syncing={syncingId === row.id}
+      sendingPayment={sendingId === row.id}
+      reminding={remindingId === row.id}
+      onRemind={() => void remind(row)}
+      onOpenDetail={() => setModal({ kind: "detail", row })}
+      onEdit={() => setModal({ kind: "edit", row })}
+      onClose={() => setModal({ kind: "close", row })}
+      onBillOverdraft={() => void billOverdraft(row)}
+      onSyncLessons={() => void syncLessons(row)}
+      onSendPayment={() => void sendPayment(row)}
+      onMarkPaid={() => setModal({ kind: "markPaid", row })}
+      onRenew={() => setModal({ kind: "open", studentId: row.student_id })}
+      onReturnToMonthly={() => setModal({ kind: "toMonthly", row })}
+    />
+  );
 
   return (
     <div className="space-y-5">
@@ -531,33 +561,25 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           </p>
         )}
 
-        <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {visible.map((row) => (
-            <PackageCard
-              key={row.id}
-              row={row}
-              timezone={timezone}
-              canManage={canManage}
-              canSendInvoice={canSendInvoice}
-              canMarkPaid={canMarkPaid}
-              syncing={syncingId === row.id}
-              sendingPayment={sendingId === row.id}
-              reminding={remindingId === row.id}
-              onRemind={() => void remind(row)}
-              onOpenDetail={() => setModal({ kind: "detail", row })}
-              onEdit={() => setModal({ kind: "edit", row })}
-              onClose={() => setModal({ kind: "close", row })}
-              onBillOverdraft={() => void billOverdraft(row)}
-              onSyncLessons={() => void syncLessons(row)}
-              onSendPayment={() => void sendPayment(row)}
-              onMarkPaid={() => setModal({ kind: "markPaid", row })}
-              onRenew={() =>
-                setModal({ kind: "open", studentId: row.student_id })
-              }
-              onReturnToMonthly={() => setModal({ kind: "toMonthly", row })}
-            />
-          ))}
-        </div>
+        {/* Due: the family is who pays, so a parent's children sit under one card with the total. */}
+        {view === "due" ? (
+          <div className="space-y-3">
+            {groupDueByFamily(visible).map((family) => (
+              <FamilyDueGroup
+                key={family.key}
+                family={family}
+                canSendInvoice={canSendInvoice}
+                onMessageOpened={() => showAlert("success", t("alerts.paymentReady"))}
+              >
+                {family.rows.map(renderCard)}
+              </FamilyDueGroup>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {visible.map(renderCard)}
+          </div>
+        )}
       </div>
 
       {/* ── Open ─────────────────────────────────────────────────────── */}

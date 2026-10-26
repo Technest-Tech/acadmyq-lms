@@ -137,9 +137,11 @@
  *  - `.client-door` — a management client's own sign-in at `<handle>.<root>` (docs/lms/02). It is
  *    the client's front door, not staff chrome, so it always reads light and always looks the same
  *    to everyone at that academy.
+ *  - `.parent-page` — a family's private page (`/p/<token>`), opened from WhatsApp on a parent's phone.
  */
 .learn-site,
-.client-door {
+.client-door,
+.parent-page {
   color-scheme: light;
   overflow-x: clip;
   --background: oklch(0.982 0.004 248);

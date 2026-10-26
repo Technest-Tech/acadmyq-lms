@@ -80,6 +80,7 @@ import {
   getBookingSummary,
   getCourseSalesSummary,
   getDaySessionCount,
+  getInvoiceFollowUp,
   getLessonPackageSummary,
   getNotificationsSummary,
   getTrialSummary,
@@ -803,6 +804,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [bookingCount, setBookingCount] = useState(0);
   const [trialCount, setTrialCount] = useState(0);
   const [groupOwedCount, setGroupOwedCount] = useState(0);
+  const [invoiceFollowUpCount, setInvoiceFollowUpCount] = useState(0);
   // Which sidebar dropdowns are open. Closed by default — only a click opens or closes one.
   const [openParents, setOpenParents] = useState<Set<NavKey>>(() => new Set());
   // The academy's resolved plan capabilities, used to lock nav items the plan doesn't include.
@@ -988,6 +990,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [session, can, capabilities, pathname]);
 
+  // Custom bills a day old and still unpaid. Derived like the packages badge — it clears when the
+  // money arrives, not when someone looks.
+  useEffect(() => {
+    if (session === null || !can("invoice.read") || !(capabilities?.includes("invoicing") ?? true)) {
+      setInvoiceFollowUpCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () =>
+      getInvoiceFollowUp()
+        .then((s) => alive && setInvoiceFollowUpCount(s.count))
+        .catch(() => {});
+    const stop = pollWhileVisible(refresh);
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, [session, can, capabilities, pathname]);
+
   useEffect(() => {
     applyBranding(loadBranding());
   }, []);
@@ -1135,6 +1156,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return {
         count: attnCount,
         label: `${attnCount} sessions awaiting attendance today`,
+      };
+    }
+    if (key === "invoices" && invoiceFollowUpCount > 0) {
+      return {
+        count: invoiceFollowUpCount,
+        label: `${invoiceFollowUpCount} custom bills unpaid for over a day`,
       };
     }
     if (key === "packagesDue" && pkgCount > 0) {
