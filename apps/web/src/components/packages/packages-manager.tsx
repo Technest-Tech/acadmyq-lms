@@ -24,6 +24,7 @@ import {
   type PackageActionProps,
 } from "@/components/packages/package-card";
 import { PackageDetail } from "@/components/packages/package-detail";
+import { isPackageBillPaid, PaidPackageCard, paidAmount } from "@/components/packages/paid-package-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -163,20 +164,27 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
     if (variant === "success") setTimeout(() => setAlert(null), 4500);
   }
 
+  /** Due's Paid tab: packages whose bill is settled, so the admin can see what came in and how. */
+  const duePaid = view === "due" && tab === "paid";
+  const dueCount = useMemo(() => (rows ?? []).filter((r) => r.due).length, [rows]);
+  const billPaidCount = useMemo(() => (rows ?? []).filter(isPackageBillPaid).length, [rows]);
+
   /** This page's packages, before search and filter. */
   const pageRows = useMemo(
     () =>
       (rows ?? []).filter((r) =>
         view === "due"
-          ? r.due
+          ? tab === "paid"
+            ? isPackageBillPaid(r)
+            : r.due
           : view === "open"
             ? r.status === "ACTIVE"
             : r.status !== "ACTIVE",
       ),
-    [rows, view],
+    [rows, view, tab],
   );
-  const paidCount = pageRows.filter(isPackagePaid).length;
-  const unpaidCount = pageRows.length - paidCount;
+  const paidCount = view === "due" ? billPaidCount : pageRows.filter(isPackagePaid).length;
+  const unpaidCount = view === "due" ? dueCount : pageRows.length - paidCount;
   const previousUnpaidCount = pageRows.filter(
     (r) => r.previous_unpaid !== null,
   ).length;
@@ -199,13 +207,13 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       ) {
         return false;
       }
-      if (view !== "finished") return true;
-      if (isPackagePaid(r) !== (tab === "paid")) return false;
+      if (view !== "finished" && !duePaid) return true;
+      if (view === "finished" && isPackagePaid(r) !== (tab === "paid")) return false;
       const day = localDay(finishedDate(r), timezone);
       return (from === "" || day >= from) && (to === "" || day <= to);
     });
 
-    if (view === "finished") {
+    if (view === "finished" || duePaid) {
       // Most recent first: the latest to finish, or the latest to be paid.
       return [...matched].sort((a, b) =>
         finishedDate(b).localeCompare(finishedDate(a)),
@@ -225,7 +233,17 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       .map((row, i) => ({ row, i }))
       .sort((a, b) => rank(a.row) - rank(b.row) || a.i - b.i)
       .map(({ row }) => row);
-  }, [pageRows, query, view, tab, from, to, timezone, finishedDate]);
+  }, [pageRows, query, view, tab, duePaid, from, to, timezone, finishedDate]);
+
+  /** What the Paid tab's packages brought in, per currency — never summed across them. */
+  const collected = useMemo(() => {
+    if (!duePaid) return [];
+    const by = new Map<string, number>();
+    for (const r of visible) {
+      by.set(r.currency, (by.get(r.currency) ?? 0) + paidAmount(r));
+    }
+    return [...by.entries()].map(([currency, amount_minor]) => ({ currency, amount_minor }));
+  }, [duePaid, visible]);
 
   /**
    * A student whose block ran out, moved back to the monthly clock. The same close endpoint as
@@ -403,10 +421,11 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
                 data-testid="due-count"
               >
                 <AlertTriangle className="size-3.5" aria-hidden />
-                {t("hero.due", { count: pageRows.length })}
+                {t("hero.due", { count: dueCount })}
               </span>
             )}
             {view === "due" &&
+              !duePaid &&
               (summary?.dueAmounts ?? []).map((a) => (
                 <HeroPill key={a.currency}>
                   <CircleDollarSign className="size-3.5" aria-hidden />
@@ -418,6 +437,14 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
                   })}
                 </HeroPill>
               ))}
+            {collected.map((c) => (
+              <HeroPill key={`collected-${c.currency}`}>
+                <CircleDollarSign className="size-3.5" aria-hidden />
+                {t("hero.collected", {
+                  amount: formatMoney({ amount: c.amount_minor, currency: c.currency }, locale),
+                })}
+              </HeroPill>
+            ))}
             {/* What finished packages still owe — the one number the old stat tiles carried that
                 this page still needs, per currency and never summed across them. */}
             {view === "finished" &&
@@ -468,7 +495,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
             aria-label={t("searchPlaceholder")}
             className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full max-w-xs rounded-xl border px-3 py-2 text-sm outline-none transition-colors focus:ring-3"
           />
-          {view === "finished" && (
+          {(view === "finished" || view === "due") && (
             <div className="bg-muted/50 flex gap-1 rounded-xl p-1">
               {(["unpaid", "paid"] as const).map((key) => (
                 <button
@@ -486,7 +513,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
                       : "text-muted-foreground hover:bg-background",
                   )}
                 >
-                  {t(`finishedTab.${key}`, {
+                  {t(view === "due" ? `dueTab.${key}` : `finishedTab.${key}`, {
                     count: formatNumber(
                       key === "paid" ? paidCount : unpaidCount,
                       locale,
@@ -498,7 +525,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           )}
         </div>
 
-        {view === "finished" && (
+        {(view === "finished" || duePaid) && (
           <div className="flex flex-wrap items-end gap-2" data-testid="finished-dates">
             <label className="space-y-1 text-xs">
               <span className="text-muted-foreground block font-medium">
@@ -547,7 +574,11 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
 
         {rows !== null && visible.length === 0 && (
           <p className="text-muted-foreground rounded-2xl border border-dashed p-8 text-center text-sm">
-            {view === "due"
+            {duePaid
+              ? from !== "" || to !== ""
+                ? t("emptyRange")
+                : t("emptyPaid")
+              : view === "due"
               ? t("emptyDue")
               : view === "open"
                 ? t("emptyOpen")
@@ -562,7 +593,18 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
         {/* Due and Open: the family is who pays — one compact card per parent, each child's package a
             line in it (Open's line carries the whole subscription). Masonry columns, not a grid: a
             one-child card stays short instead of stretching to the height of a three-child card. */}
-        {view === "due" || view === "open" ? (
+        {duePaid ? (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {visible.map((row) => (
+              <PaidPackageCard
+                key={row.id}
+                row={row}
+                timezone={timezone}
+                onOpenDetail={() => setModal({ kind: "detail", row })}
+              />
+            ))}
+          </div>
+        ) : view === "due" || view === "open" ? (
           <div className="columns-1 gap-3 md:columns-2 xl:columns-3">
             {groupDueByFamily(visible).map((family) => (
               <FamilyDueGroup

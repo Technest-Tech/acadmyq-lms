@@ -8034,6 +8034,22 @@ export type PackageBillTiming = "ON_START" | "ON_COMPLETION";
  * much is left" and "how far past the end the last lesson went" are two different facts, and a
  * single signed number reads wrong on a progress bar.
  */
+/** A receipt that paid (part of) a package bill — what it put on THIS bill, not its whole amount. */
+export interface PackageReceipt {
+  id: string;
+  number: string;
+  amount_minor: number;
+  currency: string;
+  method: string;
+  reference: string | null;
+  note: string | null;
+  source: string;
+  received_on: string;
+  received_by_name: string | null;
+  proof_url: string | null;
+  public_url: string;
+}
+
 export interface LessonPackageRow {
   id: string;
   student_id: string;
@@ -8080,6 +8096,8 @@ export interface LessonPackageRow {
   payment_reason: string | null;
   payment_reference: string | null;
   payment_proof_url: string | null;
+  /** Receipts that paid this bill (accounting academies), newest first; empty elsewhere. */
+  receipts?: PackageReceipt[];
   overdraft_billed: boolean;
   /**
    * The number (#) of the next package that took this one's overdraft as already-used minutes —

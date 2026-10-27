@@ -884,3 +884,63 @@ describe("PackagesManager", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("Due packages — Paid tab", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getLessonPackageSummary.mockResolvedValue(summary);
+  });
+
+  it("lists paid packages with each receipt's details, newest paid first, and leaves due ones out", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({ id: "p-due", student_name: "Mona", due: true, outstanding_minor: 100000, invoice_paid_minor: 0 }),
+        pkg({
+          id: "p-old",
+          student_name: "Omar",
+          invoice_status: "PAID",
+          paid_at: "2026-10-01T10:00:00Z",
+          payment_method: "CASH",
+          payment_reference: "OLD-1",
+        }),
+        pkg({
+          id: "p-new",
+          student_name: "Sara",
+          paid_at: "2026-10-20T10:00:00Z",
+          receipts: [
+            {
+              id: "r1",
+              number: "R-000007",
+              amount_minor: 400000,
+              currency: "EGP",
+              method: "BANK_TRANSFER",
+              reference: "TRX-99",
+              note: "paid by the father",
+              source: "MANUAL",
+              received_on: "2026-10-20",
+              received_by_name: "Ahmed",
+              proof_url: "/api/receipts/r1/proof",
+              public_url: "https://noor.academiq.test/rc/tok",
+            },
+          ],
+        }),
+        // A void bill is not a payment.
+        pkg({ id: "p-void", student_name: "Void", invoice_status: "VOID", invoice_paid_minor: 0 }),
+      ],
+    });
+
+    renderManager(["invoice.mark_paid"], "due");
+    await userEvent.click(await screen.findByTestId("finished-tab-paid"));
+
+    const cards = await screen.findAllByTestId("paid-package");
+    expect(cards.map((c) => within(c).getByText(/Sara|Omar/).textContent)).toEqual(["Sara", "Omar"]);
+    expect(within(cards[0]!).getByText(/R-000007/)).toBeInTheDocument();
+    expect(within(cards[0]!).getByTestId("paid-reference")).toHaveTextContent("TRX-99");
+    expect(within(cards[0]!).getByText("paid by the father")).toBeInTheDocument();
+    expect(within(cards[0]!).getByTestId("paid-receipt")).toHaveAttribute("href", "https://noor.academiq.test/rc/tok");
+    // A classic bill: the payment written on the bill itself.
+    expect(within(cards[1]!).getByTestId("paid-reference")).toHaveTextContent("OLD-1");
+    expect(screen.queryByText("Mona")).not.toBeInTheDocument();
+    expect(screen.queryByText("Void")).not.toBeInTheDocument();
+  });
+});

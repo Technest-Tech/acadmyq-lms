@@ -97,9 +97,10 @@ final class LessonPackageController extends Controller
         $previous = $this->previousUnpaidFor(
             $rows->where('status', 'ACTIVE')->pluck('student_id')->map(fn ($id) => (string) $id)->all(),
         );
+        $receipts = $this->receiptsFor($rows->where('invoice_paid_minor', '>', 0)->pluck('invoice_id')->filter()->all());
 
         return response()->json([
-            'packages' => $rows->map(fn ($row) => $this->present($row, $gaps, $previous)),
+            'packages' => $rows->map(fn ($row) => $this->present($row, $gaps, $previous, $receipts)),
         ]);
     }
 
@@ -359,6 +360,7 @@ final class LessonPackageController extends Controller
                 $row,
                 $this->gapsFor([$id]),
                 $row->status === 'ACTIVE' ? $this->previousUnpaidFor([(string) $row->student_id]) : [],
+                $row->invoice_id !== null ? $this->receiptsFor([(string) $row->invoice_id]) : [],
             ),
             'credits' => $this->creditsFor($id),
         ]);
@@ -1122,15 +1124,67 @@ final class LessonPackageController extends Controller
     }
 
     /**
+     * The receipts that paid each package bill, newest first — on an academy kept by receipts
+     * (docs/groups/01-ACCOUNTING.md) "mark paid" writes a receipt and leaves the invoice's own
+     * payment columns empty, so this is where the method, reference, proof and number live. A
+     * voided receipt paid nothing and is left out. `amount_minor` is what the receipt put on THIS
+     * bill, not the receipt's whole amount (one receipt can pay several children's bills).
+     *
+     * @param  list<string>  $invoiceIds
+     * @return array<string, list<array<string,mixed>>>
+     */
+    private function receiptsFor(array $invoiceIds): array
+    {
+        $invoiceIds = array_values(array_unique(array_map('strval', $invoiceIds)));
+        if ($invoiceIds === []) {
+            return [];
+        }
+
+        $academyId = app(AuthContext::class)->academyId;
+        $rows = DB::table('receipt_allocations as ra')
+            ->join('receipts as r', 'r.id', '=', 'ra.receipt_id')
+            ->leftJoin('users as u', 'u.id', '=', 'r.received_by')
+            ->whereIn('ra.invoice_id', $invoiceIds)
+            ->whereNull('r.voided_at')
+            ->groupBy('ra.invoice_id', 'r.id', 'u.full_name')
+            ->orderByDesc('r.received_on')->orderByDesc('r.created_at')
+            ->selectRaw('ra.invoice_id, r.id, r.number, r.currency, r.method, r.reference, r.note, r.source,
+                r.received_on, r.proof_path, r.public_token, u.full_name as received_by_name,
+                sum(ra.amount_minor) as amount_minor')
+            ->get();
+
+        $out = [];
+        foreach ($rows as $r) {
+            $out[(string) $r->invoice_id][] = [
+                'id' => (string) $r->id,
+                'number' => (string) $r->number,
+                'amount_minor' => (int) $r->amount_minor,
+                'currency' => trim((string) $r->currency),
+                'method' => (string) $r->method,
+                'reference' => $r->reference !== null ? (string) $r->reference : null,
+                'note' => $r->note !== null ? (string) $r->note : null,
+                'source' => (string) $r->source,
+                'received_on' => (string) $r->received_on,
+                'received_by_name' => $r->received_by_name !== null ? (string) $r->received_by_name : null,
+                'proof_url' => $r->proof_path !== null ? "/api/receipts/{$r->id}/proof" : null,
+                'public_url' => AcademyUrl::receipt($academyId, (string) $r->public_token),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * Shape one row for the client. `minutes_remaining` is clamped at zero and the overdraw is
      * reported separately — "how much is left" and "how far past the end we went" are two
      * different questions and collapsing them into one signed number reads wrong on a progress bar.
      *
      * @param  array<string, array{lessons:int, minutes:int, amounts:list<array{currency:string, amount_minor:int}>}>  $gaps  {@see gapsFor()}
      * @param  array<string, array{packages:int, sequence_nos:list<int>, amounts:list<array{currency:string, amount_minor:int}>}>  $previous  {@see previousUnpaidFor()}
+     * @param  array<string, list<array<string,mixed>>>  $receipts  {@see receiptsFor()}
      * @return array<string,mixed>
      */
-    private function present(object $row, array $gaps = [], array $previous = []): array
+    private function present(object $row, array $gaps = [], array $previous = [], array $receipts = []): array
     {
         $gap = $gaps[(string) $row->id] ?? null;
         $isActive = (string) $row->status === 'ACTIVE';
@@ -1208,6 +1262,8 @@ final class LessonPackageController extends Controller
             'payment_proof_url' => $row->payment_proof_path !== null
                 ? "/api/invoices/{$row->invoice_id}/payment-proof"
                 : null,
+            // Receipts that paid this bill — accounting academies only; empty elsewhere.
+            'receipts' => $row->invoice_id !== null ? ($receipts[(string) $row->invoice_id] ?? []) : [],
             'overdraft_billed' => $row->overdraft_invoice_id !== null,
             // The package # whose first minutes paid for this block's overdraft, instead of a bill.
             'overdraft_absorbed_into' => $row->overdraft_absorbed_into !== null ? (int) $row->overdraft_absorbed_into : null,

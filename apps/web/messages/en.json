@@ -2773,7 +2773,8 @@
       "previousUnpaid": "{count, plural, one {# opened over an unpaid package} other {# opened over unpaid packages}}",
       "followUp": "{count, plural, =0 {All paid} one {# not paid} other {# not paid}}",
       "outstanding": "{amount} still due",
-      "due": "{count, plural, =0 {Nothing due} one {# package awaiting payment} other {# packages awaiting payment}}"
+      "due": "{count, plural, =0 {Nothing due} one {# package awaiting payment} other {# packages awaiting payment}}",
+      "collected": "{amount} received"
     },
     "status": {
       "ACTIVE": "Open",
@@ -3039,6 +3040,32 @@
       }
     },
     "emptyOpen": "No open packages right now.",
+    "dueTab": {
+      "unpaid": "Due ({count})",
+      "paid": "Paid ({count})"
+    },
+    "paid": {
+      "paidAt": "Paid on",
+      "methodLabel": "Method",
+      "reference": "Reference",
+      "note": "Note",
+      "noReceipt": "No receipt attached",
+      "receipt": "Receipt {number}",
+      "receivedBy": "Received by",
+      "openReceipt": "Open receipt",
+      "proof": "Proof",
+      "method": {
+        "CASH": "Cash",
+        "BANK_TRANSFER": "Bank transfer",
+        "PAYPAL": "PayPal",
+        "XPAY": "Card (XPay)",
+        "GATEWAY": "Card",
+        "INSTAPAY": "InstaPay",
+        "WALLET": "Mobile wallet",
+        "CARD": "Card",
+        "OTHER": "Other"
+      }
+    },
     "finishedTab": {
       "unpaid": "Not paid ({count})",
       "paid": "Paid ({count})"

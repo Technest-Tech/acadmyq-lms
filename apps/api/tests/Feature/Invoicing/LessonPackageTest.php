@@ -1507,6 +1507,40 @@ it('files a new package bill under the parent once the academy is on receipts, a
     expect((int) DB::table('invoices')->where('id', $package['invoice_id'])->value('amount_paid_minor'))->toBe(20000);
 });
 
+it('shows the receipt that paid a package bill on the package row, for the Paid tab', function () {
+    $this->asAcademy($this->academy, 'SUPER_ADMIN');
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['accounting']);
+    $this->clearTenantContext();
+
+    $package = ($this->openPackage)(1, 20000);
+    Sanctum::actingAs($this->owner);
+
+    // Unpaid: no receipts yet.
+    $row = collect($this->getJson('/api/packages')->assertOk()->json('packages'))->firstWhere('id', $package['package_id']);
+    expect($row['receipts'])->toBe([]);
+
+    $this->postJson("/api/invoices/{$package['invoice_id']}/mark-paid", [
+        'payment_method' => 'CASH',
+        'payment_reference' => 'DESK-42',
+        'payment_reason' => 'paid at the desk',
+    ])->assertOk();
+
+    // On receipts the payment's details live on the receipt, so the row carries it.
+    $row = collect($this->getJson('/api/packages')->assertOk()->json('packages'))->firstWhere('id', $package['package_id']);
+    expect($row['outstanding_minor'])->toBe(0)
+        ->and($row['receipts'])->toHaveCount(1)
+        ->and($row['receipts'][0]['amount_minor'])->toBe(20000)
+        ->and($row['receipts'][0]['method'])->toBe('CASH')
+        ->and($row['receipts'][0]['reference'])->toBe('DESK-42')
+        ->and($row['receipts'][0]['note'])->toBe('paid at the desk')
+        ->and($row['receipts'][0]['number'])->toStartWith('R-')
+        ->and($row['receipts'][0]['public_url'])->toContain('/rc/');
+
+    // The single-package read carries them too.
+    $this->getJson("/api/packages/{$package['package_id']}")->assertOk()
+        ->assertJsonPath('package.receipts.0.reference', 'DESK-42');
+});
+
 it('keeps a package bill on the student where the academy bills each student, even on receipts', function () {
     $this->asAcademy($this->academy, 'SUPER_ADMIN');
     app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['accounting']);
