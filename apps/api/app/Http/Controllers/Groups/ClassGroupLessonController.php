@@ -87,6 +87,20 @@ final class ClassGroupLessonController extends Controller
         return response()->json($this->payload($this->reload($id)));
     }
 
+    /**
+     * POST /api/group-lessons/{id}/students/{studentId}/remove — take one student off this lesson
+     * (in the group by mistake, moved away): not expected, not marked, not charged. Reverting the
+     * sheet brings them back.
+     */
+    public function removeStudent(string $id, string $studentId): JsonResponse
+    {
+        Gate::authorize('group.manage');
+
+        $this->groups->removeFromLesson($this->findLesson($id), $studentId, $this->ctx()->userId, $this->ctx()->role);
+
+        return response()->json($this->payload($this->reload($id)));
+    }
+
     /** POST /api/group-lessons/{id}/cancel — the whole class is off for this lesson. */
     public function cancel(Request $request, string $id): JsonResponse
     {

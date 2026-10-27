@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCheck, MessageSquareText, Video } from "lucide-react";
+import { CheckCheck, MessageSquareText, UserX, Video } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -17,6 +17,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   getGroupLesson,
+  removeFromGroupLesson,
   saveGroupAttendance,
   type GroupAttendanceStatus,
   type GroupLessonSheet,
@@ -32,6 +33,9 @@ type Row = { status: GroupAttendanceStatus; note: string; showNote: boolean };
  *
  * A lesson that has not started cannot be marked; an owner can tick "record anyway" for a sheet
  * filled in ahead (the server enforces the same rule and audits the override).
+ *
+ * A group manager can take one student off this lesson only (added by mistake, moved away): they
+ * leave the sheet, its charge and the teacher's count at once. Undoing the sheet brings them back.
  */
 export function AttendanceSheet({
   lessonId,
@@ -44,7 +48,8 @@ export function AttendanceSheet({
 }) {
   const t = useTranslations("groups");
   const locale = useLocale();
-  const { session } = useAuth();
+  const { session, can } = useAuth();
+  const canRemove = can("group.manage");
   const isOwner = session?.role === "ACADEMY_OWNER" || session?.role === "SUPER_ADMIN";
 
   const [sheet, setSheet] = useState<GroupLessonSheet | null>(null);
@@ -54,6 +59,7 @@ export function AttendanceSheet({
   const [override, setOverride] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -104,6 +110,26 @@ export function AttendanceSheet({
     setRows((prev) =>
       Object.fromEntries(Object.entries(prev).map(([id, r]) => [id, { ...r, status: "PRESENT" as const }])),
     );
+  }
+
+  async function remove(studentId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await removeFromGroupLesson(lessonId, studentId);
+      setSheet(res);
+      // Unsaved taps on everyone else stay as they were.
+      setRows((prev) => {
+        const next = { ...prev };
+        delete next[studentId];
+        return next;
+      });
+      setConfirmRemove(null);
+    } catch (err) {
+      setError(apiErrorMessage(err, t("sheet.removeFailed")));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function save() {
@@ -216,8 +242,41 @@ export function AttendanceSheet({
                       >
                         <MessageSquareText className="size-3.5" />
                       </Button>
+                      {canRemove && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={t("sheet.removeFromLesson")}
+                          title={t("sheet.removeFromLesson")}
+                          onClick={() => setConfirmRemove(r.student_id)}
+                          data-testid={`sheet-remove-${r.student_id}`}
+                        >
+                          <UserX className="size-3.5" />
+                        </Button>
+                      )}
                     </div>
                   </div>
+                  {confirmRemove === r.student_id && (
+                    <div className="flex flex-col gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+                      <p>{t("sheet.removeAsk", { name: r.full_name })}</p>
+                      <div className="flex shrink-0 justify-end gap-1.5">
+                        <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmRemove(null)} disabled={busy}>
+                          {t("sheet.removeNo")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => void remove(r.student_id)}
+                          disabled={busy}
+                          data-testid={`sheet-remove-confirm-${r.student_id}`}
+                        >
+                          {t("sheet.removeYes")}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   {row.showNote && (
                     <input
                       className="border-input bg-background h-9 w-full rounded-lg border px-3 text-sm outline-none"

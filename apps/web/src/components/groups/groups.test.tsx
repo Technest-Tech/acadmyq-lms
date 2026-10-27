@@ -18,6 +18,7 @@ import { GroupsManager } from "./groups-manager";
 const listGroups = vi.fn();
 const getGroupLesson = vi.fn();
 const saveGroupAttendance = vi.fn();
+const removeFromGroupLesson = vi.fn();
 const listGroupLessons = vi.fn();
 const createGroup = vi.fn();
 
@@ -26,6 +27,7 @@ vi.mock("@/lib/groups-api", async (importOriginal) => ({
   listGroups: (p: unknown) => listGroups(p),
   getGroupLesson: (id: string) => getGroupLesson(id),
   saveGroupAttendance: (id: string, input: unknown) => saveGroupAttendance(id, input),
+  removeFromGroupLesson: (id: string, studentId: string) => removeFromGroupLesson(id, studentId),
   listGroupLessons: (id: string, p: unknown) => listGroupLessons(id, p),
   createGroup: (input: unknown) => createGroup(input),
 }));
@@ -223,6 +225,41 @@ describe("AttendanceSheet — everyone present, tap the exceptions", () => {
 
     await waitFor(() => expect(saveGroupAttendance).toHaveBeenCalled());
     expect(saveGroupAttendance.mock.calls[0]![1].override_timing).toBe(true);
+  });
+
+  it("takes a student off this lesson after asking, and keeps the unsaved taps on the others", async () => {
+    getGroupLesson.mockResolvedValue(sheet(-1));
+    const without = sheet(-1);
+    without.roster = without.roster.filter((r) => r.student_id !== "s-dina");
+    removeFromGroupLesson.mockResolvedValue(without);
+    const user = userEvent.setup();
+
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.read", "group.manage", "session.mark_attendance"] }),
+      <AttendanceSheet lessonId="l1" onSaved={() => {}} onCancel={() => {}} />));
+
+    await screen.findByTestId("attendance-sheet");
+    await user.click(screen.getByTestId("mark-s-omar-ABSENT"));
+    await user.click(screen.getByTestId("sheet-remove-s-dina"));
+    expect(removeFromGroupLesson).not.toHaveBeenCalled(); // asks first
+    await user.click(screen.getByTestId("sheet-remove-confirm-s-dina"));
+
+    await waitFor(() => expect(removeFromGroupLesson).toHaveBeenCalledWith("l1", "s-dina"));
+    await waitFor(() => expect(screen.queryByTestId("sheet-row-s-dina")).not.toBeInTheDocument());
+    expect(screen.getByTestId("mark-s-omar-ABSENT")).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByTestId("sheet-save"));
+    await waitFor(() => expect(saveGroupAttendance).toHaveBeenCalled());
+    expect(saveGroupAttendance.mock.calls[0]![1].entries.map((e: { student_id: string }) => e.student_id)).toEqual(["s-adam", "s-omar"]);
+  });
+
+  it("offers no removal to someone who only marks", async () => {
+    getGroupLesson.mockResolvedValue(sheet(-1));
+
+    render(withAuth(makeSession("TEACHER", { permissions: ["group.read", "session.mark_attendance"] }),
+      <AttendanceSheet lessonId="l1" onSaved={() => {}} onCancel={() => {}} />));
+
+    await screen.findByTestId("attendance-sheet");
+    expect(screen.queryByTestId("sheet-remove-s-dina")).not.toBeInTheDocument();
   });
 });
 

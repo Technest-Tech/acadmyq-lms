@@ -147,7 +147,9 @@ trait InteractsWithClassGroups
                   where m.group_id = l.group_id
                     and m.joined_on <= l.occurrence_local_date
                     and (m.left_on is null or m.left_on > l.occurrence_local_date)
-                    and st.deleted_at is null) as members
+                    and st.deleted_at is null
+                    and not exists (select 1 from class_group_lesson_removals r
+                                     where r.lesson_id = l.id and r.student_id = m.student_id)) as members
             SQL)
             ->get();
 

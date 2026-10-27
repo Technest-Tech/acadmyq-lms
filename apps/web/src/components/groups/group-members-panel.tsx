@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRightLeft, ChevronDown, Tag, UserMinus, UserPlus } from "lucide-react";
+import { ArrowRightLeft, CalendarDays, ChevronDown, Tag, UserMinus, UserPlus } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
@@ -30,7 +30,8 @@ type ModalState =
   | { kind: "add" }
   | { kind: "remove"; member: GroupMember }
   | { kind: "move"; member: GroupMember }
-  | { kind: "price"; member: GroupMember };
+  | { kind: "price"; member: GroupMember }
+  | { kind: "joinDate"; member: GroupMember };
 
 /**
  * Who is in the group. A membership is a date range: adding someone from a date makes them
@@ -113,6 +114,17 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
                   <Tag className="size-4" />
                 </Button>
               )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={t("members.changeJoinDate")}
+                title={t("members.changeJoinDate")}
+                onClick={() => setModal({ kind: "joinDate", member: m })}
+                data-testid={`member-join-date-${m.student_id}`}
+              >
+                <CalendarDays className="size-4" />
+              </Button>
               <Button type="button" variant="ghost" size="icon-sm" aria-label={t("members.move")} onClick={() => setModal({ kind: "move", member: m })}>
                 <ArrowRightLeft className="size-4" />
               </Button>
@@ -204,6 +216,21 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
             member={modal.member}
             onCancel={() => setModal({ kind: "closed" })}
             onSaved={(g) => changed(g, t("members.priceSaved", { name: modal.member.full_name }))}
+          />
+        )}
+      </Modal>
+
+      <Modal
+        open={modal.kind === "joinDate"}
+        onClose={() => setModal({ kind: "closed" })}
+        title={t("members.joinDateTitle", { name: modal.kind === "joinDate" ? modal.member.full_name : "" })}
+      >
+        {modal.kind === "joinDate" && (
+          <JoinDateForm
+            group={group}
+            member={modal.member}
+            onCancel={() => setModal({ kind: "closed" })}
+            onSaved={(g) => changed(g, t("members.joinDateSaved", { name: modal.member.full_name }))}
           />
         )}
       </Modal>

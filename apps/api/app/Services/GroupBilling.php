@@ -366,7 +366,11 @@ final class GroupBilling
             Carbon::parse($m->joined_on)->format('Y-m-d'),
             $m->left_on !== null ? Carbon::parse($m->left_on)->format('Y-m-d') : null,
         ])->all();
-        $mine = $lessons->filter(function ($l) use ($ranges): bool {
+        $studentId = (string) $memberships->first()->student_id;
+        $mine = $lessons->filter(function ($l) use ($ranges, $studentId): bool {
+            if (in_array($studentId, $l->removed, true)) {
+                return false; // taken off that lesson: it used none of their hours
+            }
             foreach ($ranges as [$joined, $left]) {
                 if ($joined <= $l->date && ($left === null || $l->date < $left)) {
                     return true;
@@ -389,9 +393,9 @@ final class GroupBilling
 
     /**
      * The group's lessons an hours month is counted in — held and still to come, never cancelled,
-     * from the date the hours rule took over — oldest first.
+     * from the date the hours rule took over — oldest first — with who was taken off each one.
      *
-     * @return Collection<int, object{date:string, minutes:int, held:bool}>
+     * @return Collection<int, object{date:string, minutes:int, held:bool, removed:list<string>}>
      */
     private function countedLessons(object $group): Collection
     {
@@ -399,8 +403,13 @@ final class GroupBilling
         $solo = isset($group->solo_billed_minutes) && $group->solo_billed_minutes !== null ? (int) $group->solo_billed_minutes : null;
         $ranges = $solo === null ? collect() : DB::table('class_group_members')
             ->where('group_id', $group->id)
-            ->get(['joined_on', 'left_on'])
-            ->map(fn ($m) => [Carbon::parse($m->joined_on)->format('Y-m-d'), $m->left_on !== null ? Carbon::parse($m->left_on)->format('Y-m-d') : null]);
+            ->get(['student_id', 'joined_on', 'left_on'])
+            ->map(fn ($m) => [Carbon::parse($m->joined_on)->format('Y-m-d'), $m->left_on !== null ? Carbon::parse($m->left_on)->format('Y-m-d') : null, (string) $m->student_id]);
+        $removals = DB::table('class_group_lesson_removals')
+            ->where('group_id', $group->id)
+            ->get(['lesson_id', 'student_id'])
+            ->groupBy(fn ($r) => (string) $r->lesson_id)
+            ->map(fn ($rows) => $rows->pluck('student_id')->map(fn ($id) => (string) $id)->all());
 
         return DB::table('class_group_lessons')
             ->where('group_id', $group->id)
@@ -408,18 +417,22 @@ final class GroupBilling
             ->when($from !== null, fn ($q) => $q->where('occurrence_local_date', '>=', $from))
             ->orderBy('occurrence_local_date')
             ->orderBy('scheduled_at_utc')
-            ->get(['occurrence_local_date', 'duration_minutes', 'status'])
-            ->map(function ($l) use ($solo, $ranges) {
+            ->get(['id', 'occurrence_local_date', 'duration_minutes', 'status'])
+            ->map(function ($l) use ($solo, $ranges, $removals) {
                 $date = Carbon::parse($l->occurrence_local_date)->format('Y-m-d');
+                $removed = $removals->get((string) $l->id, []);
                 // The solo rule: a lesson with exactly one member on its roster counts at the solo
                 // length against their hours. The roster is the memberships covering that date —
-                // the same half-open range the sheet expects a student on.
-                $onRoster = $solo === null ? 0 : $ranges->filter(fn ($r) => $r[0] <= $date && ($r[1] === null || $date < $r[1]))->count();
+                // the same half-open range the sheet expects a student on — less who was taken off.
+                $onRoster = $solo === null ? 0 : $ranges
+                    ->filter(fn ($r) => $r[0] <= $date && ($r[1] === null || $date < $r[1]) && ! in_array($r[2], $removed, true))
+                    ->count();
 
                 return (object) [
                     'date' => $date,
                     'minutes' => $solo !== null && $onRoster === 1 ? $solo : (int) $l->duration_minutes,
                     'held' => $l->status === 'HELD',
+                    'removed' => $removed,
                 ];
             });
     }

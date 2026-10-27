@@ -360,6 +360,11 @@ export function revertGroupLesson(id: string): Promise<GroupLessonSheet> {
   return apiFetch(`/api/group-lessons/${id}/attendance/revert`, { method: "POST" });
 }
 
+/** Take one student off this lesson only (in the group by mistake, moved away). Reverting the sheet brings them back. */
+export function removeFromGroupLesson(id: string, studentId: string): Promise<GroupLessonSheet> {
+  return apiFetch(`/api/group-lessons/${id}/students/${studentId}/remove`, { method: "POST" });
+}
+
 export function cancelGroupLesson(id: string, reason?: string | null): Promise<GroupLessonSheet> {
   return apiFetch(`/api/group-lessons/${id}/cancel`, {
     method: "POST",

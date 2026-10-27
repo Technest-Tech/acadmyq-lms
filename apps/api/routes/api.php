@@ -907,6 +907,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/group-lessons/{id}', [ClassGroupLessonController::class, 'show'])->whereUuid(['id']);
         Route::post('/group-lessons/{id}/attendance', [ClassGroupLessonController::class, 'attendance'])->whereUuid(['id']);
         Route::post('/group-lessons/{id}/attendance/revert', [ClassGroupLessonController::class, 'revert'])->whereUuid(['id']);
+        Route::post('/group-lessons/{id}/students/{studentId}/remove', [ClassGroupLessonController::class, 'removeStudent'])->whereUuid(['id', 'studentId']);
         Route::post('/group-lessons/{id}/cancel', [ClassGroupLessonController::class, 'cancel'])->whereUuid(['id']);
         Route::post('/group-lessons/{id}/reschedule', [ClassGroupLessonController::class, 'reschedule'])->whereUuid(['id']);
     });

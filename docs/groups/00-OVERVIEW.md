@@ -123,6 +123,17 @@ was taught), `homework` and `notes`, and moves the lesson to HELD.
   at once, by construction, because there is one row.
 - **Reschedule** moves one lesson (`moved_at` set, so the generator never drags it back).
 - **Extra lesson** (حصة تعويض): an ad-hoc lesson with no slot.
+- **Removing a student from one lesson** (group.manage, 2026-10-27, asked by lingo): a student in
+  the group by mistake or moved away still sits on the lessons their membership covers, and on
+  any sheet already saved with them. `POST /group-lessons/{id}/students/{studentId}/remove` writes
+  a `class_group_lesson_removals` row (the roster would bring a covering member straight back
+  otherwise) and deletes their mark, then re-syncs the money: no per-lesson charge, no
+  PER_STUDENT pay, and no minutes used from an hours month (`countedLessons` carries `removed`,
+  also used by the solo rule). The lesson's `expected` count leaves them out. **Revert** clears
+  the lesson's removals with its sheet, and that is the only way back.
+- **Join date** can move as long as no HELD lesson lies between the old and the new date (a lesson
+  after both had the student either way). The group's Students tab has the button (it was only
+  on the student profile before).
 
 A TEACHER sees and marks only their own groups' lessons. They hold `session.mark_attendance`
 already; group access adds `group.read` (row-scoped to their groups).

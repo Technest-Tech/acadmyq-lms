@@ -260,8 +260,8 @@ final class ClassGroups
     }
 
     /**
-     * Correct the day an open membership started. Only while the group has held nothing since the
-     * earlier of the two dates, so no saved sheet, attendance or per-lesson charge rests on it. An
+     * Correct the day an open membership started. Only while the group has held nothing between the
+     * two dates, so no saved sheet, attendance or per-lesson charge rests on it. An
      * earlier date bills what the wider range now owes (joining's own rule, idempotent); a charge
      * already raised keeps its amount — money is never rewritten.
      */
@@ -280,14 +280,17 @@ final class ClassGroups
             return;
         }
 
+        // Only a lesson held BETWEEN the two dates rests on the change (a lesson on or after both
+        // had them either way).
         $since = min($old, $new);
         $held = DB::table('class_group_lessons')
             ->where('group_id', $group->id)->where('status', 'HELD')
             ->where('occurrence_local_date', '>=', $since)
+            ->where('occurrence_local_date', '<', max($old, $new))
             ->exists();
         if ($held) {
             throw ValidationException::withMessages([
-                'joined_on' => ["A lesson was already held since {$since}, so the join date can no longer change. / عُقدت حصة بالفعل منذ {$since}، لذلك لا يمكن تغيير تاريخ الانضمام."],
+                'joined_on' => ["A lesson was already held between {$since} and ".max($old, $new).', so the join date cannot move across it. / عُقدت حصة بالفعل بين '.$since.' و'.max($old, $new).'، لذلك لا يمكن نقل تاريخ الانضمام عبرها.'],
             ]);
         }
 
@@ -420,13 +423,15 @@ final class ClassGroups
 
     /**
      * Who the lesson expects, with what the sheet says about each of them (status null = not
-     * marked yet). Members covering the lesson's date, plus anyone already on its sheet.
+     * marked yet). Members covering the lesson's date, plus anyone already on its sheet — less
+     * anyone taken off this one lesson (`removeFromLesson`).
      *
      * @return Collection<int, object{student_id:string, full_name:string, status:?string, note:?string, member:bool}>
      */
     public function roster(object $lesson): Collection
     {
         $date = Carbon::parse($lesson->occurrence_local_date)->format('Y-m-d');
+        $removed = DB::table('class_group_lesson_removals')->where('lesson_id', $lesson->id)->pluck('student_id')->all();
 
         $members = DB::table('class_group_members as m')
             ->join('students as st', 'st.id', '=', 'm.student_id')
@@ -434,6 +439,7 @@ final class ClassGroups
             ->where('m.joined_on', '<=', $date)
             ->where(fn ($q) => $q->whereNull('m.left_on')->orWhere('m.left_on', '>', $date))
             ->whereNull('st.deleted_at')
+            ->whereNotIn('m.student_id', $removed)
             ->get(['m.student_id', 'st.full_name']);
 
         $marked = DB::table('class_group_attendance as a')
@@ -557,7 +563,41 @@ final class ClassGroups
             before: ['status' => $lesson->status]);
     }
 
-    /** Put a held or cancelled lesson back to SCHEDULED and clear its sheet. */
+    /**
+     * Take one student off one lesson — added to the group by mistake, moved away, never meant to
+     * be in it. Remembered (the roster would bring a covering member straight back otherwise), their
+     * mark goes, and the money follows the sheet as on any save: no charge, no pay, no hours used.
+     * A charge on a closed bill refuses it and nothing changes.
+     */
+    public function removeFromLesson(object $lesson, string $studentId, string $actorUserId, string $actorRole): void
+    {
+        DB::transaction(function () use ($lesson, $studentId, $actorUserId, $actorRole): void {
+            if ($this->roster($lesson)->firstWhere('student_id', $studentId) === null) {
+                abort(404, 'This student is not on this lesson.');
+            }
+
+            $mark = DB::table('class_group_attendance')->where('lesson_id', $lesson->id)->where('student_id', $studentId)->value('status');
+
+            DB::table('class_group_lesson_removals')->insert([
+                'id' => (string) Str::uuid(),
+                'academy_id' => (string) $lesson->academy_id,
+                'lesson_id' => (string) $lesson->id,
+                'group_id' => (string) $lesson->group_id,
+                'student_id' => $studentId,
+                'removed_by' => $this->userOrNull($actorUserId),
+                'created_at' => now(),
+            ]);
+            DB::table('class_group_attendance')->where('lesson_id', $lesson->id)->where('student_id', $studentId)->delete();
+
+            $this->syncMoney((string) $lesson->id);
+
+            Audit::log('class_group_lesson.student_removed', 'class_group_lesson', (string) $lesson->id, (string) $lesson->academy_id, $actorUserId, $actorRole,
+                after: ['student_id' => $studentId, 'group_id' => (string) $lesson->group_id],
+                before: ['status' => $mark]);
+        });
+    }
+
+    /** Put a held or cancelled lesson back to SCHEDULED and clear its sheet (and who was taken off it). */
     public function revert(object $lesson, string $actorUserId, string $actorRole): void
     {
         DB::transaction(fn () => $this->undoSheet($lesson, $actorUserId, $actorRole));
@@ -572,6 +612,7 @@ final class ClassGroups
         }
 
         $cleared = DB::table('class_group_attendance')->where('lesson_id', $lesson->id)->delete();
+        $restored = DB::table('class_group_lesson_removals')->where('lesson_id', $lesson->id)->delete();
 
         DB::table('class_group_lessons')->where('id', $lesson->id)->update([
             'status' => 'SCHEDULED',
@@ -584,7 +625,7 @@ final class ClassGroups
         $this->syncMoney($lesson->id);
 
         Audit::log('class_group_lesson.reverted', 'class_group_lesson', (string) $lesson->id, (string) $lesson->academy_id, $actorUserId, $actorRole,
-            after: ['status' => 'SCHEDULED', 'cleared_rows' => $cleared],
+            after: ['status' => 'SCHEDULED', 'cleared_rows' => $cleared, 'restored_students' => $restored],
             before: ['status' => $lesson->status, 'cancel_reason' => $lesson->cancel_reason]);
     }
 

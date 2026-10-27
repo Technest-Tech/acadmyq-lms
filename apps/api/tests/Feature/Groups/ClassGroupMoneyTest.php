@@ -659,3 +659,101 @@ it('by hours: a student alone in the class is counted the solo length, while the
     // 90 + 60 = 150 > 120: the second month was raised by that lesson.
     expect($adam['hour_month'])->toBe(['months' => 2, 'bought_minutes' => 240, 'used_minutes' => 150]);
 });
+
+// ── One student off one lesson ───────────────────────────────────────────────
+
+it('moves a join date when no held lesson lies between the two dates, even after one was held', function () {
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);
+    heldLesson($this, $groupId, '2026-06-01');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Dina']], 'joined_on' => '2026-06-24'])->assertCreated();
+    // Entered for the 24th, but she starts today: the lesson held on the 1st is before both dates.
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Dina']}", ['joined_on' => '2026-06-17'])->assertOk();
+    expect(collect(lessonSheet($this, lessonOn($this, $groupId, '2026-06-17')->id))->pluck('student_id'))->toContain($this->kids['Dina']);
+
+    // Across a held lesson it still refuses.
+    heldLesson($this, $groupId, '2026-06-15');
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Dina']}", ['joined_on' => '2026-06-15'])
+        ->assertStatus(422)->assertJsonValidationErrors('joined_on');
+});
+
+if (! function_exists('lessonSheet')) {
+    function lessonSheet($test, string $lessonId): array
+    {
+        Sanctum::actingAs($test->owner);
+
+        return $test->getJson("/api/group-lessons/{$lessonId}")->assertOk()->json('roster');
+    }
+}
+
+it('takes a student off one held lesson: no mark, no charge, no pay — a re-save keeps them off, reverting brings them back', function () {
+    $groupId = moneyGroup($this, ['billing_mode' => 'PER_LESSON', 'price_minor' => 8000,
+        'teacher_pay_mode' => 'PER_STUDENT', 'teacher_pay_minor' => 1500,
+        'student_ids' => [$this->kids['Adam'], $this->kids['Bassel'], $this->kids['Celine']]]);
+    $lesson = heldLesson($this, $groupId, '2026-06-15', [['student_id' => $this->kids['Celine'], 'status' => 'ABSENT']]);
+    expect(groupLines($this, $groupId))->toHaveCount(2);
+    expect((int) groupPayLines($this, $groupId)->first()->amount_minor)->toBe(3000);
+
+    Sanctum::actingAs($this->owner);
+    $res = $this->postJson("/api/group-lessons/{$lesson->id}/students/{$this->kids['Bassel']}/remove")->assertOk();
+    expect(collect($res->json('roster'))->pluck('student_id')->all())->not->toContain($this->kids['Bassel']);
+    expect($res->json('lesson.counts.expected'))->toBe(2);
+    expect(groupLines($this, $groupId)->pluck('student_id')->all())->toBe([$this->kids['Adam']]);
+    expect((int) groupPayLines($this, $groupId)->first()->amount_minor)->toBe(1500);
+    expect(asTenant($this->academy, fn () => DB::table('class_group_attendance')->where('lesson_id', $lesson->id)->where('student_id', $this->kids['Bassel'])->exists()))->toBeFalse();
+
+    // Editing the sheet again does not bring them back, and sending them is refused.
+    heldLesson($this, $groupId, '2026-06-15');
+    expect(collect(lessonSheet($this, $lesson->id))->pluck('student_id')->all())->not->toContain($this->kids['Bassel']);
+    $this->postJson("/api/group-lessons/{$lesson->id}/attendance", ['entries' => [['student_id' => $this->kids['Bassel'], 'status' => 'PRESENT']]])->assertStatus(422);
+    // Already off: nothing to take off.
+    $this->postJson("/api/group-lessons/{$lesson->id}/students/{$this->kids['Bassel']}/remove")->assertNotFound();
+    // Other lessons still expect them.
+    expect(collect(lessonSheet($this, lessonOn($this, $groupId, '2026-06-17')->id))->pluck('student_id'))->toContain($this->kids['Bassel']);
+
+    // Reverting the sheet is the way back.
+    $this->postJson("/api/group-lessons/{$lesson->id}/attendance/revert")->assertOk();
+    expect(collect(lessonSheet($this, $lesson->id))->pluck('student_id'))->toContain($this->kids['Bassel']);
+});
+
+it('takes a former member off a sheet they are still on', function () {
+    $groupId = moneyGroup($this, ['billing_mode' => 'PER_LESSON', 'price_minor' => 8000,
+        'student_ids' => [$this->kids['Adam'], $this->kids['Bassel']]]);
+    $lesson = heldLesson($this, $groupId, '2026-06-15');
+
+    // Left the group from the 1st — the saved sheet still shows them, as a former member.
+    asTenant($this->academy, fn () => DB::table('class_group_members')->where('group_id', $groupId)->where('student_id', $this->kids['Bassel'])
+        ->update(['status' => 'LEFT', 'left_on' => '2026-06-01']));
+    $row = collect(lessonSheet($this, $lesson->id))->firstWhere('student_id', $this->kids['Bassel']);
+    expect($row['member'])->toBeFalse();
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/group-lessons/{$lesson->id}/students/{$this->kids['Bassel']}/remove")->assertOk();
+    expect(collect(lessonSheet($this, $lesson->id))->pluck('student_id')->all())->toBe([$this->kids['Adam']]);
+    expect(groupLines($this, $groupId)->pluck('student_id')->all())->toBe([$this->kids['Adam']]);
+});
+
+it('by hours: a lesson a student was taken off uses none of their hours', function () {
+    $groupId = moneyGroup($this, ['price_minor' => 30000, 'month_minutes' => 120, 'student_ids' => [$this->kids['Adam'], $this->kids['Bassel']]]);
+    $lesson = heldLesson($this, $groupId, '2026-06-01');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/group-lessons/{$lesson->id}/students/{$this->kids['Adam']}/remove")->assertOk();
+    heldLesson($this, $groupId, '2026-06-03');
+
+    $members = collect($this->getJson("/api/groups/{$groupId}")->assertOk()->json('group.members'))->keyBy('student_id');
+    expect($members[$this->kids['Adam']]['hour_month']['used_minutes'])->toBe(60);
+    expect($members[$this->kids['Bassel']]['hour_month']['used_minutes'])->toBe(120);
+    // Bassel used his two hours up (month 2 raised); Adam has one left.
+    expect(groupLines($this, $groupId)->where('student_id', $this->kids['Adam']))->toHaveCount(1);
+    expect(groupLines($this, $groupId)->where('student_id', $this->kids['Bassel']))->toHaveCount(2);
+});
+
+it('only a group manager takes a student off a lesson', function () {
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);
+    $lesson = heldLesson($this, $groupId, '2026-06-15');
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson("/api/group-lessons/{$lesson->id}/students/{$this->kids['Adam']}/remove")->assertForbidden();
+});
