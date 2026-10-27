@@ -538,3 +538,38 @@ it('lists the login role next to each employee', function () {
     $rows = collect($this->getJson('/api/staff')->assertOk()->json('rows'));
     expect($rows->firstWhere('full_name', 'Login Person')['login_role'])->toBe('SUPERVISOR');
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// Tenant isolation: `staff` once had RLS enabled but not forced, and the app role that owns the
+// table skipped it — every academy saw, edited and deactivated every other academy's employees.
+// ────────────────────────────────────────────────────────────────────────────
+
+it('never shows, edits or deactivates another academy’s employees', function () {
+    $other = $this->createAcademy(overrides: ['default_currency' => 'EGP']);
+    $this->asSuperAdmin();
+    DB::table('academies')->where('id', $other)->update([
+        'plan_id' => DB::table('academies')->where('id', $this->academy)->value('plan_id'),
+    ]);
+    $this->clearTenantContext();
+    $otherOwner = $this->makeUser($other, 'ACADEMY_OWNER', ['email' => 'owner-other-staff@test.local']);
+
+    Sanctum::actingAs($otherOwner);
+    $theirs = $this->postJson('/api/staff', ['full_name' => 'Their Accountant', 'department' => 'ACCOUNTING', 'salary_minor' => 900000, 'currency' => 'EGP'])
+        ->assertCreated()->json('staffId');
+
+    Sanctum::actingAs($this->owner);
+    $mine = $this->postJson('/api/staff', ['full_name' => 'My Receptionist', 'department' => 'RECEPTION'])->assertCreated()->json('staffId');
+
+    $names = collect($this->getJson('/api/staff?filter[status]=all')->assertOk()->json('rows'))->pluck('full_name')->all();
+    expect($names)->toContain('My Receptionist')->not->toContain('Their Accountant');
+    $this->getJson("/api/staff/{$theirs}")->assertNotFound();
+    $this->patchJson("/api/staff/{$theirs}", ['full_name' => 'Renamed'])->assertNotFound();
+    $this->postJson("/api/staff/{$theirs}/deactivate")->assertNotFound();
+
+    $this->enterAcademyAsSuperAdmin($other);
+    $row = DB::table('staff')->where('id', $theirs)->first();
+    $this->clearTenantContext();
+    expect($row->full_name)->toBe('Their Accountant');
+    expect($row->deleted_at)->toBeNull();
+    expect($mine)->not->toBe($theirs);
+});

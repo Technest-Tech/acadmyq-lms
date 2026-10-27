@@ -89,6 +89,19 @@ it('covers every academy_id-bearing table with the standard tenant_isolation pol
     expect(tenantScopedTables())->toContain('academy_addons');
 });
 
+// A policy alone is not enough: the app's role OWNS these tables, and an owner skips a policy that
+// is not forced. `staff` shipped enabled-but-not-forced and leaked every academy's employees to
+// every other academy for months (2026_10_27_200001).
+it('forces RLS on every academy_id-bearing table, so the owning app role cannot skip it', function () {
+    $unforced = collect(tenantScopedTables())->filter(function (string $table): bool {
+        $rel = DB::selectOne('select relrowsecurity, relforcerowsecurity from pg_class where relname = ? and relkind = ?', [$table, 'r']);
+
+        return ! ($rel->relrowsecurity && $rel->relforcerowsecurity);
+    })->values()->all();
+
+    expect($unforced)->toBe([], 'tenant tables without forced RLS: '.implode(', ', $unforced));
+});
+
 it('fails the coverage gate when a tenant table is added without the standard policy (TC-9.12)', function () {
     // A throwaway tenant table with academy_id but NO policy — proves the gate actually bites.
     DB::statement('create table _throwaway_tenant (id uuid primary key, academy_id uuid not null)');
