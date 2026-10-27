@@ -5,6 +5,7 @@ import {
   CalendarClock,
   MessageCircle,
   MoreHorizontal,
+  Pencil,
   Trash2,
   UserPlus,
 } from "lucide-react";
@@ -48,6 +49,7 @@ export function LeadBoard({
   onMove,
   onBookTrial,
   onConvert,
+  onEdit,
   onDelete,
 }: {
   refreshToken: number;
@@ -56,6 +58,7 @@ export function LeadBoard({
   onMove: (lead: LeadRow, status: LeadStatus) => void;
   onBookTrial: (lead: LeadRow) => void;
   onConvert: (lead: LeadRow) => void;
+  onEdit: (lead: LeadRow) => void;
   onDelete: (lead: LeadRow) => void;
 }) {
   const t = useTranslations("crm");
@@ -165,6 +168,7 @@ export function LeadBoard({
                     onMove={onMove}
                     onBookTrial={onBookTrial}
                     onConvert={onConvert}
+                    onEdit={onEdit}
                     onDelete={onDelete}
                   />
                 ))
@@ -187,6 +191,7 @@ function LeadCard({
   onMove,
   onBookTrial,
   onConvert,
+  onEdit,
   onDelete,
 }: {
   lead: LeadRow;
@@ -196,6 +201,7 @@ function LeadCard({
   onMove: (lead: LeadRow, status: LeadStatus) => void;
   onBookTrial: (lead: LeadRow) => void;
   onConvert: (lead: LeadRow) => void;
+  onEdit: (lead: LeadRow) => void;
   onDelete: (lead: LeadRow) => void;
 }) {
   const t = useTranslations("crm");
@@ -254,6 +260,12 @@ function LeadCard({
               <DropdownMenuItem onClick={() => window.open(wa, "_blank", "noopener")}>
                 <MessageCircle aria-hidden />
                 {t("whatsapp")}
+              </DropdownMenuItem>
+            )}
+            {canManage && !converted && (
+              <DropdownMenuItem onClick={() => onEdit(lead)}>
+                <Pencil aria-hidden />
+                {t("board.edit")}
               </DropdownMenuItem>
             )}
             {canManage && !converted && (

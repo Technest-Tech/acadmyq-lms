@@ -11,6 +11,8 @@ import {
   createLead,
   LEAD_SOURCES,
   listSpecializations,
+  updateLead,
+  type LeadRow,
   type LeadSource,
 } from "@/lib/api";
 import { COUNTRIES } from "@/lib/countries";
@@ -51,14 +53,33 @@ const dialOptions: ComboboxOption[] = COUNTRIES.map((c) => ({
 }));
 
 /**
+ * A stored number split back into the picker's two halves. The longest matching dial code wins, so
+ * "+971…" is the Emirates and not a "+97" that does not exist; no match keeps the academy default.
+ */
+function splitPhone(phone: string | null, fallback: string): { country: string; local: string } {
+  if (!phone) return { country: fallback, local: "" };
+  const match = COUNTRIES.filter((c) => phone.startsWith(c.dialCode)).sort(
+    (a, b) => b.dialCode.length - a.dialCode.length,
+  )[0];
+  return match
+    ? { country: match.code, local: phone.slice(match.dialCode.length).replace(/\D/g, "") }
+    : { country: fallback, local: phone.replace(/\D/g, "") };
+}
+
+/**
  * Capture a new lead in one small screen: who, how to reach them, where they came from,
  * what they want, and when to call back. The source is a row of big tappable chips (not a
  * dropdown) because the sales desk fills this in mid-phone-call.
+ *
+ * Given a `lead`, the same screen corrects it after it was added — prefilled, saved as an edit. The
+ * first-note box is creation-only: later notes go on the timeline, where they keep their date.
  */
 export function LeadForm({
+  lead,
   onCreated,
   onCancel,
 }: {
+  lead?: LeadRow;
   onCreated: () => void;
   onCancel: () => void;
 }) {
@@ -66,14 +87,15 @@ export function LeadForm({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const [fullName, setFullName] = useState("");
+  const [fullName, setFullName] = useState(lead?.full_name ?? "");
   // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
   const defaults = useAcademyDefaults();
-  const [dialCountry, setDialCountry] = useState(defaults.dialCountry);
-  const [localNumber, setLocalNumber] = useState("");
-  const [source, setSource] = useState<LeadSource>("WHATSAPP");
-  const [interestedIn, setInterestedIn] = useState("");
-  const [followUpAt, setFollowUpAt] = useState("");
+  const [initialPhone] = useState(() => splitPhone(lead?.whatsapp_phone ?? null, defaults.dialCountry));
+  const [dialCountry, setDialCountry] = useState(initialPhone.country);
+  const [localNumber, setLocalNumber] = useState(initialPhone.local);
+  const [source, setSource] = useState<LeadSource>(lead?.source ?? "WHATSAPP");
+  const [interestedIn, setInterestedIn] = useState(lead?.interested_in ?? "");
+  const [followUpAt, setFollowUpAt] = useState(lead?.follow_up_at ?? "");
   const [note, setNote] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
 
@@ -98,14 +120,21 @@ export function LeadForm({
     setBusy(true);
     setError(null);
     try {
-      await createLead({
+      // An untouched number goes back exactly as stored — a split that guessed wrong can't rewrite it.
+      const phoneUntouched =
+        lead !== undefined && dialCountry === initialPhone.country && localNumber === initialPhone.local;
+      const details = {
         full_name: fullName.trim(),
-        whatsapp_phone: buildPhone(),
+        whatsapp_phone: phoneUntouched ? lead.whatsapp_phone : buildPhone(),
         source,
         interested_in: interestedIn.trim() || null,
         follow_up_at: followUpAt || null,
-        note: note.trim() || null,
-      });
+      };
+      if (lead) {
+        await updateLead(lead.id, details);
+      } else {
+        await createLead({ ...details, note: note.trim() || null });
+      }
       onCreated();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -219,6 +248,7 @@ export function LeadForm({
         </Field>
       </div>
 
+      {!lead && (
       <Field label={t("form.note")}>
         <div className="relative">
           <StickyNote className="text-muted-foreground pointer-events-none absolute start-3.5 top-3 size-4" />
@@ -234,6 +264,7 @@ export function LeadForm({
           />
         </div>
       </Field>
+      )}
 
       {/* ── Footer ─────────────────────────────────────────────────────── */}
       <div className="mt-2 flex items-center justify-between gap-2 border-t pt-4">
@@ -251,7 +282,7 @@ export function LeadForm({
           {busy && (
             <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
           )}
-          {t("form.save")}
+          {lead ? t("form.saveChanges") : t("form.save")}
         </Button>
       </div>
     </div>

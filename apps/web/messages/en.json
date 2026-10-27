@@ -6426,6 +6426,7 @@
       "overdue": "Overdue"
     },
     "board": {
+      "edit": "Edit",
       "emptyColumn": "No leads here",
       "loadFailed": "Couldn't load the board — try refreshing the page.",
       "cardMenu": "Lead actions",
@@ -6444,6 +6445,7 @@
       "dueOverdue": "Overdue"
     },
     "table": {
+      "edit": "Edit lead",
       "name": "Name",
       "phone": "WhatsApp",
       "source": "Source",
@@ -6463,6 +6465,7 @@
       "noInterest": "No interest recorded"
     },
     "form": {
+      "saveChanges": "Save changes",
       "title": "New lead",
       "description": "Who's interested? A name is enough to start.",
       "name": "Full name",
@@ -6482,6 +6485,8 @@
       "cancel": "Cancel"
     },
     "detail": {
+      "editTitle": "Edit lead details",
+      "edit": "Edit",
       "title": "Lead",
       "status": "Status",
       "followUp": "Follow up on",

@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, MessageCircle, Trash2, UserPlus, Users } from "lucide-react";
+import { CalendarClock, MessageCircle, Pencil, Trash2, UserPlus, Users } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import {
   FollowUpChip,
@@ -35,6 +35,7 @@ export function LeadsTable({
   onMove,
   onBookTrial,
   onConvert,
+  onEdit,
   onDelete,
 }: {
   refreshToken: number;
@@ -45,6 +46,7 @@ export function LeadsTable({
   onMove: (lead: LeadRow, status: LeadStatus) => void;
   onBookTrial: (lead: LeadRow) => void;
   onConvert: (lead: LeadRow) => void;
+  onEdit: (lead: LeadRow) => void;
   onDelete: (lead: LeadRow) => void;
 }) {
   const t = useTranslations("crm");
@@ -231,6 +233,18 @@ export function LeadsTable({
                       </option>
                     ))}
                   </select>
+                )}
+                {row.converted_student_id === null && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => onEdit(row)}
+                    aria-label={t("table.edit")}
+                    data-testid="crm-row-edit"
+                  >
+                    <Pencil className="size-3.5" aria-hidden />
+                  </Button>
                 )}
                 <Button
                   type="button"

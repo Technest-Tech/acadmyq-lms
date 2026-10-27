@@ -25,9 +25,13 @@ const lead: LeadRow = {
   trial_notes: null,
 };
 
+const updateLead = vi.fn(() => Promise.resolve({ ok: true, changed: [] as string[] }));
+
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getLead: () => Promise.resolve({ lead, activities: [], today: "2026-10-26" }),
+  listSpecializations: () => Promise.resolve({ specializations: [] }),
+  updateLead: (...args: unknown[]) => updateLead(...(args as [])),
 }));
 
 function renderDetail(canManage: boolean, onDelete = vi.fn()) {
@@ -62,5 +66,41 @@ describe("LeadDetail — delete from the lead itself", () => {
 
     await screen.findByText("Omar Ali");
     expect(screen.queryByTestId("crm-detail-delete")).toBeNull();
+  });
+});
+
+describe("LeadDetail — edit after adding", () => {
+  it("opens the lead's details prefilled and saves the corrections as an edit", async () => {
+    renderDetail(true);
+
+    await userEvent.click(await screen.findByTestId("crm-detail-edit"));
+    const name = await screen.findByTestId("crm-form-name");
+    expect(name).toHaveValue("Omar Ali");
+    // The stored number is split back into country + local digits.
+    expect(screen.getByTestId("crm-form-phone")).toHaveValue("1000000000");
+    // The first-note box is for new leads only.
+    expect(screen.queryByTestId("crm-form-note")).toBeNull();
+
+    await userEvent.clear(name);
+    await userEvent.type(name, "Omar Ali Hassan");
+    await userEvent.click(screen.getByTestId("crm-source-FACEBOOK"));
+    await userEvent.click(screen.getByTestId("crm-form-save"));
+
+    expect(updateLead).toHaveBeenCalledWith("l1", {
+      full_name: "Omar Ali Hassan",
+      // Untouched, so sent back exactly as stored.
+      whatsapp_phone: "+201000000000",
+      source: "FACEBOOK",
+      interested_in: null,
+      follow_up_at: null,
+    });
+    expect(await screen.findByTestId("crm-lead-detail")).toBeInTheDocument();
+  });
+
+  it("offers no edit on a read-only role", async () => {
+    renderDetail(false);
+
+    await screen.findByText("Omar Ali");
+    expect(screen.queryByTestId("crm-detail-edit")).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Lock,
   MessageCircle,
+  Pencil,
   Send,
   StickyNote,
   Sparkles,
@@ -22,6 +23,7 @@ import {
   TrialChip,
   waLink,
 } from "@/components/crm/lead-badges";
+import { LeadForm } from "@/components/crm/lead-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,9 +53,12 @@ export function LeadDetail({
   onMove,
   onBookTrial,
   onDelete,
+  startEditing = false,
 }: {
   leadId: string;
   canManage: boolean;
+  /** Open straight on the edit form (the board's / table's "Edit"). */
+  startEditing?: boolean;
   /** Bump from the manager after a move/convert so the open modal re-reads the lead. */
   refreshToken: number;
   onChanged: () => void;
@@ -72,6 +77,8 @@ export function LeadDetail({
   const [note, setNote] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
   const [followUpBusy, setFollowUpBusy] = useState(false);
+  const [editing, setEditing] = useState(startEditing);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,7 +95,7 @@ export function LeadDetail({
     return () => {
       cancelled = true;
     };
-  }, [leadId, refreshToken]);
+  }, [leadId, refreshToken, reload]);
 
   async function saveFollowUp(value: string) {
     if (!lead) return;
@@ -139,6 +146,24 @@ export function LeadDetail({
   const closed = isClosed(lead.status);
   const editable = canManage && !converted;
 
+  // Correcting the details happens right here, in place of the view — never a second modal on top.
+  if (editing && editable) {
+    return (
+      <div className="space-y-4" data-testid="crm-lead-edit">
+        <h3 className="text-lg font-bold">{t("detail.editTitle")}</h3>
+        <LeadForm
+          lead={lead}
+          onCancel={() => setEditing(false)}
+          onCreated={() => {
+            setEditing(false);
+            setReload((n) => n + 1);
+            onChanged();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5" data-testid="crm-lead-detail">
       {error && (
@@ -172,6 +197,19 @@ export function LeadDetail({
             >
               <MessageCircle className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
               {t("whatsapp")}
+            </Button>
+          )}
+          {editable && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setEditing(true)}
+              className="gap-1.5"
+              data-testid="crm-detail-edit"
+            >
+              <Pencil className="size-4" aria-hidden />
+              {t("detail.edit")}
             </Button>
           )}
           {canManage && onDelete && (

@@ -41,7 +41,7 @@ type ViewKey = "board" | "list";
 type ModalState =
   | { kind: "closed" }
   | { kind: "create" }
-  | { kind: "detail"; leadId: string }
+  | { kind: "detail"; leadId: string; edit?: boolean }
   | { kind: "trial"; lead: LeadRow }
   | { kind: "convert"; lead: LeadRow }
   | { kind: "lost"; lead: LeadRow }
@@ -345,6 +345,7 @@ export function CrmManager() {
           onMove={(lead, status) => void requestMove(lead, status)}
           onBookTrial={(lead) => setModal({ kind: "trial", lead })}
           onConvert={(lead) => setModal({ kind: "convert", lead })}
+          onEdit={(lead) => setModal({ kind: "detail", leadId: lead.id, edit: true })}
           onDelete={(lead) => setModal({ kind: "delete", lead })}
         />
       ) : (
@@ -356,6 +357,7 @@ export function CrmManager() {
           onMove={(lead, status) => void requestMove(lead, status)}
           onBookTrial={(lead) => setModal({ kind: "trial", lead })}
           onConvert={(lead) => setModal({ kind: "convert", lead })}
+          onEdit={(lead) => setModal({ kind: "detail", leadId: lead.id, edit: true })}
           onDelete={(lead) => setModal({ kind: "delete", lead })}
         />
       )}
@@ -389,7 +391,9 @@ export function CrmManager() {
       >
         {modal.kind === "detail" && (
           <LeadDetail
+            key={`${modal.leadId}-${modal.edit === true}`}
             leadId={modal.leadId}
+            startEditing={modal.edit === true}
             canManage={canManage}
             refreshToken={refreshToken}
             onChanged={refresh}
