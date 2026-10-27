@@ -29,6 +29,36 @@ final class XpayClient
     private const TIMEOUT_SECONDS = 15;
 
     /**
+     * ISO 4217 exponents that are NOT 2. The platform stores every currency as ×100 (MoneyMinorUnits),
+     * but XPay reads an amount in the currency's REAL minor unit — so 13.000 OMR stored as 1300 went
+     * out as 1300 baisa = 1.300 OMR, and the payer was charged a tenth (alrayan, 2026-10-27).
+     */
+    private const EXPONENTS = [
+        'BHD' => 3, 'IQD' => 3, 'JOD' => 3, 'KWD' => 3, 'LYD' => 3, 'OMR' => 3, 'TND' => 3,
+        'JPY' => 0, 'KRW' => 0, 'VND' => 0, 'CLP' => 0, 'ISK' => 0, 'UGX' => 0, 'XAF' => 0, 'XOF' => 0,
+    ];
+
+    /** Platform minor units (always ×100) → the amount XPay expects for this currency. */
+    public static function toGatewayMinor(int $platformMinor, string $currency): int
+    {
+        $exponent = self::EXPONENTS[strtoupper($currency)] ?? 2;
+
+        return $exponent >= 2
+            ? $platformMinor * 10 ** ($exponent - 2)
+            : intdiv($platformMinor, 10 ** (2 - $exponent));
+    }
+
+    /** An amount XPay reports for this currency → platform minor units (always ×100). */
+    public static function fromGatewayMinor(int $gatewayMinor, string $currency): int
+    {
+        $exponent = self::EXPONENTS[strtoupper($currency)] ?? 2;
+
+        return $exponent >= 2
+            ? intdiv($gatewayMinor, 10 ** ($exponent - 2))
+            : $gatewayMinor * 10 ** (2 - $exponent);
+    }
+
+    /**
      * Create a hosted Checkout Session and return the decoded object (its `url` is where the payer
      * goes next). `$idempotencyKey` makes a retried create resolve to the same session instead of
      * opening a second one — see docs.xpay.app/en/integrate/idempotency.

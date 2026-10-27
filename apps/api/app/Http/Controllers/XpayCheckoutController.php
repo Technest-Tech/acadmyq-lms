@@ -71,7 +71,8 @@ final class XpayCheckoutController extends Controller
                     // amount, so there is nothing to reuse across sessions.
                     'priceData' => [
                         'currency' => strtoupper((string) $cfg['currency']),
-                        'unitAmount' => $amountMinor,   // XPay takes minor units, same as total_minor
+                        // XPay takes the currency's REAL minor unit (baisa for OMR), not our ×100.
+                        'unitAmount' => XpayClient::toGatewayMinor($amountMinor, (string) $cfg['currency']),
                         'productData' => [
                             'name' => $this->lineItemName($cfg),
                         ],

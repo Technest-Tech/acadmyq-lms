@@ -95,12 +95,15 @@ final class XpayFulfillment
      */
     public static function customerFacingTotalMinor(array $session): ?int
     {
+        // XPay reports in the currency's real minor unit; we compare in platform ×100 units.
+        $currency = self::customerFacingCurrency($session);
+
         $presentment = $session['presentmentDetails'] ?? null;
         if (is_array($presentment) && isset($presentment['amountTotal'])) {
-            return (int) $presentment['amountTotal'];
+            return XpayClient::fromGatewayMinor((int) $presentment['amountTotal'], $currency);
         }
 
-        return isset($session['amountTotal']) ? (int) $session['amountTotal'] : null;
+        return isset($session['amountTotal']) ? XpayClient::fromGatewayMinor((int) $session['amountTotal'], $currency) : null;
     }
 
     /** Currency matching customerFacingTotalMinor(), so the stored pair is always self-consistent. */
