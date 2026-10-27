@@ -7,6 +7,7 @@ import {
   CalendarClock,
   FileText,
   GraduationCap,
+  History,
   Hourglass,
   Layers,
   Loader2,
@@ -35,6 +36,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   addFamilyDiscount,
+  applyFamilyDiscountToExisting,
   addFamilyNote,
   deleteFamilyNote,
   endFamilyDiscount,
@@ -43,6 +45,7 @@ import {
   listDiscountPresets,
   remindPayer,
   setFamilyRenewalPolicy,
+  type DiscountApplied,
   type DiscountKind,
   type DiscountPreset,
   type DiscountScope,
@@ -434,8 +437,9 @@ function TimelineItem({
 /**
  * The family's discounts (docs/groups/01-ACCOUNTING.md, F2): each one a percentage or a fixed
  * amount off every charge — for the whole family or one child, on everything or only group /
- * private charges — with the reason and who gave it. They apply to charges raised from today;
- * ending one stops it today and leaves what it already took on the lines it touched.
+ * private charges — with the reason and who gave it. They apply to charges raised from today and,
+ * unless unticked, to what is already on the family's open bills too (a paid charge turns into
+ * credit); ending one stops it today and leaves what it already took on the lines it touched.
  */
 function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: FamilyAccount; guardianId: string; onChanged: () => void; onNotice: (m: string | null) => void }) {
   const t = useTranslations("accounting");
@@ -453,6 +457,8 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
   const [presetId, setPresetId] = useState("");
   // Typed in, and kept as a preset for next time.
   const [savePreset, setSavePreset] = useState(false);
+  // On by default: a family given a discount expects it on this month's bill, not only the next.
+  const [applyExisting, setApplyExisting] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
@@ -491,13 +497,13 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
     setBusy(true);
     setError(null);
     try {
-      const where = { scope, student_id: studentId || null, class_group_id: scope === "GROUP" && groupId ? groupId : null };
+      const where = { scope, student_id: studentId || null, class_group_id: scope === "GROUP" && groupId ? groupId : null, apply_to_existing: applyExisting };
       const typed = { kind, value: kind === "PERCENT" ? Math.round(valueNumber) : Math.round(valueNumber * 100), label: label.trim() };
       let fromPreset = presetId;
       if (fromPreset === "" && savePreset && canManagePresets) {
         fromPreset = (await createDiscountPreset({ name: typed.label, kind: typed.kind, value: typed.value })).preset.id;
       }
-      await addFamilyDiscount(guardianId, fromPreset !== "" ? { preset_id: fromPreset, ...where } : { ...typed, ...where });
+      const res = await addFamilyDiscount(guardianId, fromPreset !== "" ? { preset_id: fromPreset, ...where } : { ...typed, ...where });
       setAdding(false);
       setPresetId("");
       setSavePreset(false);
@@ -506,12 +512,25 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
       setScope("ALL");
       setStudentId("");
       setGroupId("");
-      onNotice(t("family.discountSaved"));
+      setApplyExisting(true);
+      onNotice(res.applied && res.applied.lines > 0 ? appliedText(res.applied) : t("family.discountSaved"));
       onChanged();
     } catch (err) {
       setError(apiErrorMessage(err, t("family.discountFailed")));
     } finally {
       setBusy(false);
+    }
+  }
+
+  const appliedText = (a: DiscountApplied) => t("family.discountApplied", { count: a.lines, amount: money(a.discount_minor, currency) });
+
+  async function applyToExisting(id: string) {
+    try {
+      const { applied } = await applyFamilyDiscountToExisting(guardianId, id);
+      onNotice(applied.lines > 0 ? appliedText(applied) : t("family.discountNothingToApply"));
+      onChanged();
+    } catch (err) {
+      onNotice(apiErrorMessage(err, t("family.discountFailed")));
     }
   }
 
@@ -616,6 +635,13 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
               </label>
             )}
           </div>
+          <label className="flex items-start gap-2 text-xs">
+            <input type="checkbox" className="mt-0.5 size-4" checked={applyExisting} onChange={(e) => setApplyExisting(e.target.checked)} data-testid="discount-apply-existing" />
+            <span>
+              {t("family.applyToExisting")}
+              <span className="text-muted-foreground block text-[11px]">{t("family.applyToExistingHint")}</span>
+            </span>
+          </label>
           {presetId === "" && canManagePresets && (
             <label className="flex items-center gap-2 text-xs">
               <input type="checkbox" className="size-4" checked={savePreset} onChange={(e) => setSavePreset(e.target.checked)} data-testid="discount-save-preset" />
@@ -652,10 +678,16 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
                 </p>
               </div>
               {d.active && data.can_collect && (
-                <Button type="button" size="xs" variant="ghost" className="text-destructive gap-1" onClick={() => void end(d.id)} title={t("family.endDiscountHint")} data-testid={`discount-end-${d.id}`}>
-                  <Ban className="size-3.5" aria-hidden />
-                  {t("family.endDiscount")}
-                </Button>
+                <div className="flex flex-wrap gap-1">
+                  <Button type="button" size="xs" variant="ghost" className="gap-1" onClick={() => void applyToExisting(d.id)} title={t("family.applyToExistingHint")} data-testid={`discount-apply-${d.id}`}>
+                    <History className="size-3.5" aria-hidden />
+                    {t("family.applyToExistingShort")}
+                  </Button>
+                  <Button type="button" size="xs" variant="ghost" className="text-destructive gap-1" onClick={() => void end(d.id)} title={t("family.endDiscountHint")} data-testid={`discount-end-${d.id}`}>
+                    <Ban className="size-3.5" aria-hidden />
+                    {t("family.endDiscount")}
+                  </Button>
+                </div>
               )}
             </li>
           ))}

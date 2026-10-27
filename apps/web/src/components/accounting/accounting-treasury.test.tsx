@@ -31,6 +31,7 @@ const api = {
   getFamilyAccount: vi.fn(),
   addFamilyNote: vi.fn(),
   addFamilyDiscount: vi.fn(),
+  applyFamilyDiscountToExisting: vi.fn(),
   endFamilyDiscount: vi.fn(),
   setFamilyRenewalPolicy: vi.fn(),
   listDiscountPresets: vi.fn(),
@@ -53,6 +54,7 @@ vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   getFamilyAccount: (...a: unknown[]) => api.getFamilyAccount(...a),
   addFamilyNote: (...a: unknown[]) => api.addFamilyNote(...a),
   addFamilyDiscount: (...a: unknown[]) => api.addFamilyDiscount(...a),
+  applyFamilyDiscountToExisting: (...a: unknown[]) => api.applyFamilyDiscountToExisting(...a),
   endFamilyDiscount: (...a: unknown[]) => api.endFamilyDiscount(...a),
   setFamilyRenewalPolicy: (...a: unknown[]) => api.setFamilyRenewalPolicy(...a),
   listDiscountPresets: (...a: unknown[]) => api.listDiscountPresets(...a),
@@ -265,10 +267,39 @@ describe("Family card", () => {
     await userEvent.selectOptions(screen.getByTestId("discount-scope"), "GROUP");
     await userEvent.click(screen.getByTestId("discount-save"));
     // A fixed amount goes up in minor units; a percentage would go as a whole percent.
-    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { kind: "FIXED", value: 5000, label: "Scholarship", scope: "GROUP", student_id: "s1", class_group_id: null }));
+    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { kind: "FIXED", value: 5000, label: "Scholarship", scope: "GROUP", student_id: "s1", class_group_id: null, apply_to_existing: true }));
 
     await userEvent.click(screen.getByTestId("discount-end-d1"));
     await waitFor(() => expect(api.endFamilyDiscount).toHaveBeenCalledWith("gd1", "d1"));
+  });
+
+  it("takes a discount off the charges already billed — by default for a new one, on demand for an old one", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    api.addFamilyDiscount.mockResolvedValue({ id: "d2", applied: { lines: 3, discount_minor: 13500 } });
+    api.applyFamilyDiscountToExisting.mockResolvedValue({ applied: { lines: 0, discount_minor: 0 } });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    await userEvent.click(await screen.findByTestId("discount-add"));
+    expect(screen.getByTestId("discount-apply-existing")).toBeChecked();
+    await userEvent.type(screen.getByTestId("discount-value"), "10");
+    await userEvent.type(screen.getByTestId("discount-label"), "Sibling");
+    await userEvent.click(screen.getByTestId("discount-save"));
+    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", expect.objectContaining({ kind: "PERCENT", value: 10, apply_to_existing: true })));
+    // The notice says how many charges moved.
+    expect(await screen.findByText(/3/)).toBeTruthy();
+
+    // Unticked, nothing already billed moves.
+    await userEvent.click(await screen.findByTestId("discount-add"));
+    await userEvent.click(screen.getByTestId("discount-apply-existing"));
+    await userEvent.type(screen.getByTestId("discount-value"), "5");
+    await userEvent.type(screen.getByTestId("discount-label"), "Late");
+    await userEvent.click(screen.getByTestId("discount-save"));
+    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenLastCalledWith("gd1", expect.objectContaining({ apply_to_existing: false })));
+
+    // An existing discount is applied from its row.
+    await userEvent.click(screen.getByTestId("discount-apply-d1"));
+    await waitFor(() => expect(api.applyFamilyDiscountToExisting).toHaveBeenCalledWith("gd1", "d1"));
+    expect(await screen.findByText(ar.family.discountNothingToApply)).toBeTruthy();
   });
 
   it("switches the family to pay first, and back", async () => {
@@ -304,7 +335,7 @@ describe("Discount presets", () => {
     expect(screen.getByTestId("discount-label")).toHaveValue("Sibling");
     expect(screen.getByTestId("discount-kind")).toBeDisabled();
     await userEvent.click(screen.getByTestId("discount-save"));
-    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p1", scope: "ALL", student_id: null, class_group_id: null }));
+    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p1", scope: "ALL", student_id: null, class_group_id: null, apply_to_existing: true }));
   });
 
   it("offers the picker even with no presets yet, and saves a typed discount as a preset on the way", async () => {
@@ -325,7 +356,7 @@ describe("Discount presets", () => {
     await userEvent.click(screen.getByTestId("discount-save-preset"));
     await userEvent.click(screen.getByTestId("discount-save"));
     await waitFor(() => expect(api.createDiscountPreset).toHaveBeenCalledWith({ name: "Early payment", kind: "PERCENT", value: 5 }));
-    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p9", scope: "ALL", student_id: null, class_group_id: null }));
+    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p9", scope: "ALL", student_id: null, class_group_id: null, apply_to_existing: true }));
   });
 
   it("lists the presets, adds one in whole percent, and retires one", async () => {

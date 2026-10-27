@@ -300,6 +300,17 @@ questions. The sidebar now has four pages, laid out by question, and nothing cha
   are written byte for byte as before (pinned in TreasuryTest). API: `POST/DELETE
   /accounting/family/{guardianId}/discounts`; the family card lists them, adds and ends them; the
   statement and the family card show "was 450 · 45 off (Sibling)".
+- **…and, when asked, on what is already billed (2026-10-27, lingo).** A family given a discount
+  expected it on this month's bill too. `PayerDiscounts::applyToExisting()` re-prices every line
+  of the family (or the child) still on an OPEN bill and in the discount's reach — group charges,
+  private lessons, package bills (`lesson_packages.invoice_id`); never a hand-typed bill — from its
+  list price under every discount standing on its date, and moves the discount's `starts_on` back to
+  the earliest such line so a late mark in that month prices the same. A paid line keeps the money:
+  `trg_invoice_line_repriced` trims its allocations and the excess is credit that `afterLinesChanged`
+  puts on the next open charge. Group revenue shares are re-synced. A closed bill never moves.
+  Idempotent. API: `apply_to_existing` on the POST (the form's checkbox, ticked by default) and
+  `POST /accounting/family/{guardianId}/discounts/{id}/apply-existing` (the row's button; 422 once
+  ended).
 - **A picture of the proof is required for anything but cash** (`POST /receipts`: InstaPay,
   wallet, bank, card). Cash has no receipt to photograph. The Collect screen will not submit
   without it; the API refuses too (422).

@@ -567,13 +567,25 @@ export function deleteFamilyNote(guardianId: string, noteId: string): Promise<{ 
   return apiFetch(`/api/accounting/family/${guardianId}/notes/${noteId}`, { method: "DELETE" });
 }
 
+/** What taking a discount off the charges already on open bills moved. */
+export interface DiscountApplied {
+  lines: number;
+  discount_minor: number;
+}
+
 /** PERCENT `value` is a whole percent (1–100) here; FIXED is minor units per charge. */
 export function addFamilyDiscount(
   guardianId: string,
   // With `preset_id` the preset brings kind, value and label; without one they are typed in.
-  input: { preset_id?: string | null; kind?: DiscountKind; value?: number; label?: string; scope?: DiscountScope; student_id?: string | null; class_group_id?: string | null },
-): Promise<{ id: string }> {
+  // `apply_to_existing` also takes it off what is already on the family's open bills.
+  input: { preset_id?: string | null; kind?: DiscountKind; value?: number; label?: string; scope?: DiscountScope; student_id?: string | null; class_group_id?: string | null; apply_to_existing?: boolean },
+): Promise<{ id: string; applied?: DiscountApplied }> {
   return apiFetch(`/api/accounting/family/${guardianId}/discounts`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** A discount given earlier also comes off the charges already on open bills; paid ones turn into credit. */
+export function applyFamilyDiscountToExisting(guardianId: string, discountId: string): Promise<{ applied: DiscountApplied }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/discounts/${discountId}/apply-existing`, { method: "POST" });
 }
 
 /** Ends it today; what it already took off stays on those charges. */

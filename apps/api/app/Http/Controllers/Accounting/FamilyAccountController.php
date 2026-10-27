@@ -302,8 +302,9 @@ final class FamilyAccountController extends Controller
 
     /**
      * POST /api/accounting/family/{guardianId}/discounts — a standing discount for the family (or one
-     * child): a percentage or a fixed amount off each charge, from today, until it is ended. It is
-     * applied to charges raised from now on; nothing already billed moves.
+     * child): a percentage or a fixed amount off each charge, from today, until it is ended. With
+     * `apply_to_existing` it also comes off the charges already on the family's open bills
+     * ({@see PayerDiscounts::applyToExisting()}); without it, nothing already billed moves.
      */
     public function addDiscount(Request $request, string $guardianId): JsonResponse
     {
@@ -319,6 +320,7 @@ final class FamilyAccountController extends Controller
             'student_id' => ['nullable', 'uuid'],
             'class_group_id' => ['nullable', 'uuid'],
             'starts_on' => ['nullable', 'date_format:Y-m-d'],
+            'apply_to_existing' => ['sometimes', 'boolean'],
         ]);
         if (! DB::table('guardians')->where('id', $guardianId)->exists()) {
             throw ValidationException::withMessages(['guardian' => ['Unknown family. / أسرة غير معروفة.']]);
@@ -368,21 +370,31 @@ final class FamilyAccountController extends Controller
             'discount' => $id, 'kind' => $data['kind'], 'value' => (int) $data['value'], 'label' => trim((string) $data['label']), 'scope' => $scope, 'student_id' => $studentId,
             'preset_id' => $presetId,
         ]);
+        $applied = ($data['apply_to_existing'] ?? false) ? $this->applied($guardianId, $id) : ['lines' => 0, 'discount_minor' => 0];
 
-        return response()->json(['id' => $id], 201);
+        return response()->json(['id' => $id, 'applied' => $applied], 201);
+    }
+
+    /**
+     * POST /api/accounting/family/{guardianId}/discounts/{id}/apply-existing — a discount given
+     * earlier also comes off the charges already on the family's open bills. Safe to repeat.
+     */
+    public function applyDiscountToExisting(string $guardianId, string $discountId): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $d = $this->familyDiscount($guardianId, $discountId);
+        if ($d->ends_on !== null && Carbon::parse($d->ends_on)->format('Y-m-d') <= $this->discounts->today($this->academyId())) {
+            throw ValidationException::withMessages(['discount' => ['This discount has ended. / هذا الخصم منتهٍ.']]);
+        }
+
+        return response()->json(['applied' => $this->applied($guardianId, $discountId)]);
     }
 
     /** DELETE /api/accounting/family/{guardianId}/discounts/{id} — ends it today. What it already took stays. */
     public function endDiscount(string $guardianId, string $discountId): JsonResponse
     {
         Gate::authorize('invoice.mark_paid');
-        $childIds = DB::table('students')->where('guardian_id', $guardianId)->pluck('id')->map(fn ($v) => (string) $v)->all();
-        $d = DB::table('payer_discounts')->where('id', $discountId)
-            ->where(fn ($q) => $q->where('guardian_id', $guardianId)->orWhereIn('student_id', $childIds ?: ['00000000-0000-0000-0000-000000000000']))
-            ->first();
-        if ($d === null) {
-            abort(404, 'Discount not found.');
-        }
+        $d = $this->familyDiscount($guardianId, $discountId);
         $ctx = app(AuthContext::class);
         $today = $this->discounts->today($this->academyId());
         if ($d->ends_on === null || Carbon::parse($d->ends_on)->format('Y-m-d') > $today) {
@@ -396,6 +408,31 @@ final class FamilyAccountController extends Controller
         Audit::log('accounting.discount_ended', 'guardian', $guardianId, $this->academyId(), $ctx->userId, $ctx->role, before: ['discount' => $discountId, 'label' => $d->label]);
 
         return response()->json(['ok' => true]);
+    }
+
+    /** Runs the reprice and leaves a trace of what it moved. */
+    private function applied(string $guardianId, string $discountId): array
+    {
+        $ctx = app(AuthContext::class);
+        $applied = $this->discounts->applyToExisting($this->academyId(), $discountId);
+        if ($applied['lines'] > 0) {
+            Audit::log('accounting.discount_applied_to_existing', 'guardian', $guardianId, $this->academyId(), $ctx->userId, $ctx->role, after: ['discount' => $discountId] + $applied);
+        }
+
+        return $applied;
+    }
+
+    private function familyDiscount(string $guardianId, string $discountId): object
+    {
+        $childIds = DB::table('students')->where('guardian_id', $guardianId)->pluck('id')->map(fn ($v) => (string) $v)->all();
+        $d = DB::table('payer_discounts')->where('id', $discountId)
+            ->where(fn ($q) => $q->where('guardian_id', $guardianId)->orWhereIn('student_id', $childIds ?: ['00000000-0000-0000-0000-000000000000']))
+            ->first();
+        if ($d === null) {
+            abort(404, 'Discount not found.');
+        }
+
+        return $d;
     }
 
     private function academyId(): string

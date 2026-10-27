@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Jobs\BillGroupMonthsJob;
 use App\Services\GroupBilling;
+use App\Services\Invoicing;
 use App\Services\ModuleBilling;
 use App\Services\PayerDiscounts;
 use Database\Seeders\DemoAcademySeeder;
@@ -309,6 +310,49 @@ it('takes a family discount off every charge raised from now on — percent and 
     expect($price($this->bassel, '2026-08-01'))->toMatchArray(['amount_minor' => 45000, 'discount_minor' => 0, 'discount_label' => null]);
     // And the day before it ended, it still counted.
     expect($price($this->bassel, '2026-06-30')['discount_minor'])->toBe(4500);
+});
+
+it('takes a discount off the charges already on open bills when asked — paid ones turn into credit, closed bills never move', function () {
+    trsOn($this->academy);
+    Sanctum::actingAs($this->owner);
+    $line = fn (string $student, string $period) => trsTenant($this->academy, fn () => DB::table('invoice_line_items')->where('class_group_id', $this->groupId)->where('student_id', $student)->where('group_period', $period)->first());
+    // May and June are billed (4 × 450); May is paid in full.
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 90000, 'method' => 'CASH'])->assertCreated();
+
+    // 10 % for the family, back over what is already billed: every charge is now 405.
+    $res = $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'PERCENT', 'value' => 10, 'label' => 'Sibling', 'apply_to_existing' => true])->assertCreated();
+    expect($res->json('applied'))->toBe(['lines' => 4, 'discount_minor' => 18000]);
+    foreach ([$this->adam, $this->bassel] as $kid) {
+        foreach (['2026-05-01', '2026-06-01'] as $period) {
+            expect((int) $line($kid, $period)->amount_minor)->toBe(40500)->and($line($kid, $period)->discount_label)->toBe('Sibling');
+        }
+    }
+    // May's 90 overpaid became credit and went onto June: 4 × 405 − 900 still owed.
+    $card = $this->getJson("/api/accounting/family/{$this->parent}")->assertOk();
+    expect($card->json('balance.0.due_minor'))->toBe(72000);
+    $sibling = collect($card->json('discounts'))->firstWhere('label', 'Sibling');
+    expect($sibling['starts_on'])->toBe('2026-05-01');
+    // Invoice totals follow their lines.
+    $june = $line($this->adam, '2026-06-01');
+    expect((int) trsTenant($this->academy, fn () => DB::table('invoices')->where('id', $june->invoice_id)->value('total_minor')))->toBe(81000);
+    // Asking again moves nothing.
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts/{$sibling['id']}/apply-existing")->assertOk()->assertJsonPath('applied.lines', 0);
+
+    // A discount given without the flag leaves billed charges alone; applied later it skips a closed bill.
+    $scholarship = $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'FIXED', 'value' => 5000, 'label' => 'Scholarship', 'student_id' => $this->adam, 'scope' => 'GROUP'])
+        ->assertCreated()->assertJsonPath('applied.lines', 0)->json('id');
+    expect((int) $line($this->adam, '2026-06-01')->amount_minor)->toBe(40500);
+    $may = $line($this->adam, '2026-05-01');
+    trsTenant($this->academy, fn () => app(Invoicing::class)->closeInvoice((string) $may->invoice_id, $this->academy, (string) $this->owner->id, 'ACADEMY_OWNER'));
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts/{$scholarship}/apply-existing")->assertOk()
+        ->assertJsonPath('applied', ['lines' => 1, 'discount_minor' => 5000]);
+    expect((int) $line($this->adam, '2026-05-01')->amount_minor)->toBe(40500);
+    expect((int) $line($this->adam, '2026-06-01')->amount_minor)->toBe(35500)->and($line($this->adam, '2026-06-01')->discount_label)->toBe('Sibling + Scholarship');
+    expect((int) $line($this->bassel, '2026-06-01')->amount_minor)->toBe(40500);
+
+    // An ended discount is not re-applied.
+    $this->deleteJson("/api/accounting/family/{$this->parent}/discounts/{$sibling['id']}")->assertOk();
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts/{$sibling['id']}/apply-existing")->assertStatus(422);
 });
 
 it('keeps discount presets an admin defines once, and a discount made from one copies it and remembers it', function () {
