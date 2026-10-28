@@ -4091,6 +4091,10 @@ export interface OverdueSession extends DaySession {
   /** True when a teacher-raised cancellation OR free request is awaiting the owner's approval —
    *  the lesson is stuck on the owner, not on the teacher's marking. */
   pending_approval: boolean;
+  /** The supervisor who added the student — who answers for the lesson, since nobody marked it.
+   *  null for a student no team login added (an import, a fixture). */
+  added_by_user_id?: string | null;
+  added_by_name?: string | null;
 }
 
 /**

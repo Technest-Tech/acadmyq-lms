@@ -68,6 +68,7 @@ function Harness({
       onOpen={onOpen}
       onReschedule={onReschedule}
       isTeacher={isTeacher}
+      showSupervisorFilter={!isTeacher}
       canFollow={false}
       onError={vi.fn()}
     />
@@ -301,11 +302,40 @@ describe("OverdueLessonsBoard (الحصص المعلقة)", () => {
     expect(groups[0]).toHaveTextContent("Shaykh");
   });
 
+  // "Done by" on a held-up lesson would always be empty — nobody marked it. The column names the
+  // supervisor who added the student instead, and the filter narrows to their students.
+  it("names each lesson's supervisor and filters by them", async () => {
+    const user = userEvent.setup();
+    renderBoard(
+      state({
+        sessions: [
+          row({ id: "se1", student_name: "Mona's", added_by_user_id: "u1", added_by_name: "Mona" }),
+          row({ id: "se2", student_name: "Also Mona's", added_by_user_id: "u1", added_by_name: "Mona" }),
+          row({ id: "se3", student_name: "Imported", added_by_user_id: null, added_by_name: null }),
+        ],
+        count: 3,
+      }),
+    );
+
+    expect(table().getAllByText("Mona")).toHaveLength(2);
+
+    // The heaviest supervisor first; students nobody added come last.
+    const options = within(screen.getByTestId("overdue-supervisor")).getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["Everyone", "Mona (2)", "No supervisor (1)"]);
+
+    await user.selectOptions(screen.getByTestId("overdue-supervisor"), "none");
+    expect(table().getAllByTestId("overdue-row")).toHaveLength(1);
+    expect(table().getByText("Imported")).toBeInTheDocument();
+    // The tiles follow the supervisor, as they follow the teacher.
+    expect(screen.getByTestId("segment-overdue-all")).toHaveTextContent("1");
+  });
+
   // A teacher's backlog is all theirs — the teacher cuts would only ever show one name.
   it("drops the teacher filter and grouping for a teacher", () => {
     renderBoard(state(), { isTeacher: true });
 
     expect(screen.queryByTestId("overdue-teacher")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("overdue-supervisor")).not.toBeInTheDocument();
     expect(screen.queryByTestId("overdue-group-teacher")).not.toBeInTheDocument();
   });
 });

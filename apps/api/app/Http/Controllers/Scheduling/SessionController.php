@@ -688,6 +688,10 @@ final class SessionController extends Controller
             ->orderBy('se.scheduled_at_utc')->orderBy('se.id')
             ->limit(self::OVERDUE_LIMIT);
         $this->joinFirstFollowUp($listing);
+        // Nobody marked a held-up lesson, so "who marked it" is always empty here. The person who
+        // answers for it is the supervisor who added the student — the same answer the "My
+        // lessons" tab narrows by — and the page shows and filters by them.
+        DoneBy::joinCreator($listing, 'student', 'student.create', 'se.student_id', 'se.academy_id');
 
         $rows = $listing
             ->get()

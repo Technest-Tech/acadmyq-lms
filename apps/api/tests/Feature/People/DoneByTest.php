@@ -139,3 +139,22 @@ it('narrows the attendance list and the held-up lessons to the students the call
     Sanctum::actingAs($this->supB);
     expect($ids("/api/sessions/day?{$window}&mine=1"))->toBe([$theirLesson]);
 });
+
+it('names the supervisor who added the student on every held-up lesson', function () {
+    $teacher = $this->createTeacher($this->academy);
+    Sanctum::actingAs($this->supA);
+    $byA = (string) $this->postJson('/api/students', ['full_name' => 'Added By A', 'guardian_id' => $this->guardian])->assertCreated()->json('studentId');
+    $imported = $this->createStudent($this->academy, $this->guardian);
+
+    // Both ended long before the 4-hour grace ran out at 12:00, so both are held up.
+    $aLesson = $this->createSession($this->academy, $byA, $teacher, ['scheduled_at_utc' => '2026-06-11 06:00:00+00', 'status' => 'SCHEDULED']);
+    $importedLesson = $this->createSession($this->academy, $imported, $teacher, ['scheduled_at_utc' => '2026-06-11 06:30:00+00', 'status' => 'SCHEDULED']);
+
+    Sanctum::actingAs($this->owner);
+    $rows = collect($this->getJson('/api/sessions/overdue')->assertOk()->json('sessions'))->keyBy('id');
+
+    expect($rows[$aLesson]['added_by_name'])->toBe('Supervisor A')
+        ->and($rows[$aLesson]['added_by_user_id'])->toBe((string) $this->supA->id)
+        // A student nobody on the team added answers to nobody.
+        ->and($rows[$importedLesson]['added_by_user_id'])->toBeNull();
+});

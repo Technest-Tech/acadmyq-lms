@@ -707,6 +707,8 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
           onOpen={openSession}
           onReschedule={canReschedule ? setRescheduling : undefined}
           isTeacher={isTeacher}
+          // Under "My lessons" every row is already the caller's own students.
+          showSupervisorFilter={showDoneByFilter && !mine}
           canFollow={canFollow}
           onError={setError}
           onSeeAll={mine ? () => chooseScope("all") : undefined}

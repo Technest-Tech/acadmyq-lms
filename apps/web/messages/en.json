@@ -3390,7 +3390,7 @@
       "age7": "Over a week",
       "age30": "Over a month",
       "groupBy": "Group by",
-      "groupDay": "Day",
+      "groupDay": "Date",
       "groupTeacher": "Teacher",
       "colLesson": "Lesson",
       "colHolder": "Held up by",
@@ -3398,7 +3398,12 @@
       "emptyTitle": "No held-up lessons",
       "emptyBody": "Every lesson that ended more than {hours} hours ago has its outcome recorded.",
       "noMatch": "No held-up lessons match these filters.",
-      "truncated": "Showing the oldest {shown} of {total} — the filters and counts cover those."
+      "truncated": "Showing the oldest {shown} of {total} — the filters and counts cover those.",
+      "supervisor": "Supervisor",
+      "supervisorHint": "The team member who added the student — who answers for this lesson.",
+      "noSupervisor": "No supervisor",
+      "listSubtitleDate": "Oldest first, under the date each lesson was on — record an outcome on each.",
+      "listSubtitleTeacher": "Under each teacher, whoever owes the most first — record an outcome on each."
     }
   },
   "payroll": {

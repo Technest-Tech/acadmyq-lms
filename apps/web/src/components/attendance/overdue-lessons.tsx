@@ -18,6 +18,9 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { FollowControl, type FollowInfo } from "@/components/attendance/follow-control";
+import { StatusBadge } from "@/components/attendance/status-badge";
+import { DoneByCell } from "@/components/team/done-by";
+import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { SegmentTile } from "@/components/ui/segment-tile";
 import { getOverdueSessions, type OverdueSession } from "@/lib/api";
@@ -97,20 +100,26 @@ const WEEK = 7;
 
 const DAY_MS = 86_400_000;
 
+/** The supervisor filter's value for students no team login added (imports, old fixtures). */
+const NO_SUPERVISOR = "none";
+
 export interface OverdueFilters {
   search: string;
   teacherId: string;
+  /** The supervisor who added the student — a team login id, or NO_SUPERVISOR. */
+  supervisorId: string;
   holder: OverdueHolder;
   /** Minimum days since the lesson ended; 0 = any. */
   age: number;
   trialOnly: boolean;
-  /** How the list is bucketed: by the lesson's day, or by the teacher who owes it. */
+  /** How the list is bucketed: by the lesson's date, or by the teacher who owes it. */
   group: "day" | "teacher";
 }
 
 export const EMPTY_OVERDUE_FILTERS: OverdueFilters = {
   search: "",
   teacherId: "",
+  supervisorId: "",
   holder: "",
   age: 0,
   trialOnly: false,
@@ -142,12 +151,16 @@ const selectClass =
  *
  * It used to be a red strip above the period navigator showing five rows; with a real backlog
  * that strip was the busiest thing on the page and the hardest to work. Here it gets the same
- * tools the period list has — tiles that are filters, search, teacher, age, trials — plus the cut
- * that matters most for chasing: who the lesson is waiting on, and, grouped by teacher, who owes
- * the most.
+ * tools the period list has — tiles that are filters, search, teacher, supervisor, trials — plus
+ * the cuts that matter for chasing: who the lesson is waiting on, how late it is, and, grouped by
+ * teacher, who owes the most.
  *
- * Every count describes the backlog under the teacher filter only, never the search box or the
- * toggles, so a tile keeps meaning "this many" while the list below it narrows.
+ * "Done by" on the period list is who MARKED a lesson; a held-up lesson has nobody there by
+ * definition. Its column is the supervisor who added the student instead — the person who
+ * answers for it, and the same answer the "My lessons" tab narrows by.
+ *
+ * Every count describes the backlog under the teacher and supervisor filters only, never the
+ * search box or the toggles, so a tile keeps meaning "this many" while the list below it narrows.
  */
 export function OverdueLessonsBoard({
   state,
@@ -156,6 +169,7 @@ export function OverdueLessonsBoard({
   onOpen,
   onReschedule,
   isTeacher,
+  showSupervisorFilter,
   canFollow,
   onError,
   onSeeAll,
@@ -170,6 +184,8 @@ export function OverdueLessonsBoard({
   onReschedule?: (s: OverdueSession) => void;
   /** A teacher sees their OWN backlog, so the copy addresses them and the teacher cuts go. */
   isTeacher: boolean;
+  /** Offer the supervisor filter — only once more than one person runs the academy. */
+  showSupervisorFilter: boolean;
   canFollow: boolean;
   onError: (message: string) => void;
   /** Offered on an empty "My lessons" backlog: the rest of the academy may still owe some. */
@@ -179,6 +195,7 @@ export function OverdueLessonsBoard({
   const tb = useTranslations("attendance.overdueBoard");
   const tSched = useTranslations("scheduling");
   const tDt = useTranslations("datatable");
+  const tDone = useTranslations("doneBy");
   const locale = useLocale();
   const [followOverrides, setFollowOverrides] = useState<Record<string, FollowInfo>>({});
   const [exporting, setExporting] = useState(false);
@@ -211,21 +228,41 @@ export function OverdueLessonsBoard({
     return Array.from(map.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [state.sessions]);
 
-  /** The backlog the tiles count: everything, or one teacher's share of it. */
+  /** Supervisors whose students owe at least one lesson, the heaviest first; nobody's last. */
+  const supervisorCounts = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; count: number }>();
+    for (const s of state.sessions) {
+      const id = s.added_by_user_id ?? NO_SUPERVISOR;
+      const row = map.get(id);
+      if (row) row.count++;
+      else map.set(id, { id, name: s.added_by_name ?? "—", count: 1 });
+    }
+    return Array.from(map.values()).sort(
+      (a, b) =>
+        Number(a.id === NO_SUPERVISOR) - Number(b.id === NO_SUPERVISOR) ||
+        b.count - a.count ||
+        a.name.localeCompare(b.name),
+    );
+  }, [state.sessions]);
+
+  /** The backlog the tiles count: everything, or one teacher's / one supervisor's share of it. */
   const base = useMemo(
     () =>
-      filters.teacherId
-        ? state.sessions.filter((s) => s.teacher_id === filters.teacherId)
-        : state.sessions,
-    [state.sessions, filters.teacherId],
+      state.sessions.filter(
+        (s) =>
+          (!filters.teacherId || s.teacher_id === filters.teacherId) &&
+          (!filters.supervisorId ||
+            (s.added_by_user_id ?? NO_SUPERVISOR) === filters.supervisorId),
+      ),
+    [state.sessions, filters.teacherId, filters.supervisorId],
   );
 
   const approvalCount = base.filter((s) => s.pending_approval).length;
   const markingCount = base.length - approvalCount;
   const weekCount = base.filter((s) => lateDays(s) >= WEEK).length;
-  // The server's count is the true backlog even when it capped the rows; under a teacher filter
-  // only the rows can say how many are that teacher's.
-  const totalCount = filters.teacherId ? base.length : state.count;
+  // The server's count is the true backlog even when it capped the rows; under a teacher or
+  // supervisor filter only the rows can say how many are theirs.
+  const totalCount = filters.teacherId || filters.supervisorId ? base.length : state.count;
   const share = (n: number) => (base.length > 0 ? Math.round((n / base.length) * 100) : null);
 
   const rows = useMemo(() => {
@@ -278,6 +315,7 @@ export function OverdueLessonsBoard({
   const hasActiveFilters = !!(
     filters.search ||
     filters.teacherId ||
+    filters.supervisorId ||
     filters.holder ||
     filters.age ||
     filters.trialOnly
@@ -291,7 +329,10 @@ export function OverdueLessonsBoard({
     followOverrides[s.id] ??
     (s.followed_at ? { followed_at: s.followed_at, followed_by_name: s.followed_by_name ?? null } : null);
 
-  /** Day grouping already says the date, so the row only needs the time. */
+  /** Columns in the desktop table — the Teacher and Supervisor columns are not a teacher's. */
+  const colCount = 5 + (isTeacher ? 0 : 2);
+
+  /** Date grouping already says the date, so the row only needs the time. */
   const lessonStamp = (s: OverdueSession) => {
     const at = new Date(s.scheduled_at_utc);
     return byTeacher ? `${dayFmt.format(at)} · ${timeFmt.format(at)}` : timeFmt.format(at);
@@ -322,6 +363,15 @@ export function OverdueLessonsBoard({
           value: (s) => tb(s.pending_approval ? "holderApproval" : "holderMarking"),
           width: 18,
         },
+        ...(!isTeacher
+          ? [
+              {
+                header: tb("supervisor"),
+                value: (s: OverdueSession) => s.added_by_name ?? "",
+                width: 22,
+              } satisfies ExcelColumn<OverdueSession>,
+            ]
+          : []),
         { header: t("trial"), value: (s) => (isTrial(s) ? t("trial") : "") },
       ];
       await exportRowsToExcel({
@@ -338,13 +388,29 @@ export function OverdueLessonsBoard({
     }
   }
 
-  /** The chip that says what the lesson is stuck on — the owner's approval, or nobody's mark. */
+  /**
+   * The status cell: the same pending badge as the period table, then what the lesson is stuck
+   * on — the owner's approval, or nobody's mark and for how long.
+   */
+  function statusCell(s: OverdueSession) {
+    return (
+      <>
+        <StatusBadge status={s.status} className="shrink-0" />
+        {holderChip(s)}
+      </>
+    );
+  }
+
   function holderChip(s: OverdueSession) {
     // A pending cancellation/free request means the teacher already acted and the OWNER owes an
     // approval — chasing the teacher for it would be chasing the wrong person.
     if (s.pending_approval) {
       return (
-        <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+        <span
+          data-testid="awaiting-approval"
+          title={t("awaitingApprovalHint")}
+          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+        >
           <Clock className="size-2.5" aria-hidden />
           {t("awaitingApproval")}
         </span>
@@ -393,7 +459,6 @@ export function OverdueLessonsBoard({
           type="button"
           size="xs"
           data-testid="overdue-record"
-          className="shrink-0 border-transparent bg-rose-600 text-white hover:bg-rose-700"
           onClick={(e) => {
             e.stopPropagation();
             onOpen(s);
@@ -533,6 +598,27 @@ export function OverdueLessonsBoard({
           </div>
         )}
 
+        {/* Supervisor — whose students the lessons are, each with how many are held up. */}
+        {showSupervisorFilter && (
+          <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
+            <label className="text-muted-foreground text-xs font-medium">{tb("supervisor")}</label>
+            <select
+              aria-label={tb("supervisor")}
+              data-testid="overdue-supervisor"
+              value={filters.supervisorId}
+              onChange={(e) => set({ supervisorId: e.target.value })}
+              className={selectClass}
+            >
+              <option value="">{tDone("everyone")}</option>
+              {supervisorCounts.map((sc) => (
+                <option key={sc.id} value={sc.id}>
+                  {sc.id === NO_SUPERVISOR ? tb("noSupervisor") : sc.name} ({sc.count})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
           <label className="text-muted-foreground text-xs font-medium">{tb("holder")}</label>
           <select
@@ -598,35 +684,31 @@ export function OverdueLessonsBoard({
       </div>
 
       {state.truncated && (
-        <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-2.5 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
-          {tb("truncated", { shown: state.sessions.length, total: state.count })}
-        </p>
+        <AlertBanner
+          variant="info"
+          message={tb("truncated", { shown: state.sessions.length, total: state.count })}
+        />
       )}
 
-      {/* ── The worklist ───────────────────────────────────────────────── */}
-      <div
-        className="bg-card overflow-hidden rounded-2xl border border-rose-200 shadow-sm dark:border-rose-900/50"
-        data-testid="overdue-list"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rose-200 bg-rose-50/60 px-4 py-3 sm:px-5 dark:border-rose-900/50 dark:bg-rose-950/20">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-rose-900 dark:text-rose-100">
-            <AlarmClock className="size-4 text-rose-600 dark:text-rose-400" aria-hidden />
-            {t("overdueTitle")}
-            <span
-              data-testid="overdue-count"
-              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[11px] font-bold tabular-nums text-white"
-            >
-              {rows.length.toLocaleString()}
-            </span>
-          </h2>
-
+      {/* ── The worklist ───────────────────────────────────────────────────
+          Drawn exactly like the period table — same columns, same rows, same actions — so the two
+          tabs read as one page. What differs is only what a held-up lesson needs: the status says
+          how late it is, and "Supervisor" names who answers for it. */}
+      <div className="bg-card overflow-hidden rounded-2xl border shadow-sm" data-testid="overdue-list">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3.5 sm:px-5">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold">{t("overdueTitle")}</h2>
+            <p className="text-muted-foreground text-xs">
+              {tb(byTeacher ? "listSubtitleTeacher" : "listSubtitleDate")}
+            </p>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* Day or teacher — the second is how a backlog gets chased, one phone call each. */}
+            {/* Date or teacher — the second is how a backlog gets chased, one phone call each. */}
             {!isTeacher && (
               <div
                 role="group"
                 aria-label={tb("groupBy")}
-                className="bg-background/70 inline-flex items-center gap-0.5 rounded-xl border p-0.5"
+                className="bg-muted/60 inline-flex items-center gap-0.5 rounded-xl p-0.5"
               >
                 {(["day", "teacher"] as const).map((g) => (
                   <button
@@ -636,9 +718,9 @@ export function OverdueLessonsBoard({
                     aria-pressed={filters.group === g}
                     onClick={() => set({ group: g })}
                     className={cn(
-                      "rounded-lg px-3 py-1 text-xs font-semibold transition-colors",
+                      "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
                       filters.group === g
-                        ? "bg-rose-600 text-white shadow-sm"
+                        ? "bg-background text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground",
                     )}
                   >
@@ -648,22 +730,30 @@ export function OverdueLessonsBoard({
               </div>
             )}
             {rows.length > 0 && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void handleExport()}
-                disabled={exporting}
-                className="gap-1.5"
-                data-testid="overdue-export"
-              >
-                {exporting ? (
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <FileSpreadsheet className="size-3.5" aria-hidden />
-                )}
-                {tDt("export")}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleExport()}
+                  disabled={exporting}
+                  className="gap-1.5"
+                  data-testid="overdue-export"
+                >
+                  {exporting ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <FileSpreadsheet className="size-3.5" aria-hidden />
+                  )}
+                  {tDt("export")}
+                </Button>
+                <span
+                  data-testid="overdue-count"
+                  className="text-muted-foreground bg-muted rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums"
+                >
+                  {rows.length}
+                </span>
+              </>
             )}
           </div>
         </div>
@@ -677,15 +767,20 @@ export function OverdueLessonsBoard({
           <div className="divide-y" data-testid="overdue-loading">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4 px-5 py-4" aria-hidden>
-                <div className="bg-muted h-4 w-20 animate-pulse rounded" />
+                <div className="bg-muted h-4 w-14 animate-pulse rounded" />
                 <div className="bg-muted h-4 flex-1 animate-pulse rounded" />
-                <div className="bg-muted h-6 w-24 animate-pulse rounded-full" />
+                <div className="bg-muted h-4 w-28 animate-pulse rounded" />
+                <div className="bg-muted h-4 w-16 animate-pulse rounded" />
+                <div className="bg-muted h-6 w-20 animate-pulse rounded-full" />
                 <div className="bg-muted h-7 w-16 animate-pulse rounded-lg" />
               </div>
             ))}
           </div>
         ) : rows.length === 0 ? (
-          <div className="flex flex-col items-center px-5 py-12 text-center" data-testid="overdue-no-match">
+          <div className="flex flex-col items-center px-5 py-14 text-center" data-testid="overdue-no-match">
+            <div className="bg-muted mb-3 flex size-12 items-center justify-center rounded-full">
+              <AlarmClock className="text-muted-foreground size-5" aria-hidden />
+            </div>
             <p className="text-sm font-medium">{tb("noMatch")}</p>
             {hasActiveFilters && (
               <Button type="button" variant="ghost" size="sm" className="mt-3 gap-1" onClick={clearFilters}>
@@ -702,12 +797,12 @@ export function OverdueLessonsBoard({
                 <thead>
                   <tr className="bg-muted/30 border-b">
                     <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
-                      {byTeacher ? tb("colLesson") : t("colTime")}
+                      {t("colTime")}
                     </th>
                     <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
                       {t("colStudent")}
                     </th>
-                    {!isTeacher && !byTeacher && (
+                    {!isTeacher && (
                       <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
                         {t("teacher")}
                       </th>
@@ -716,8 +811,16 @@ export function OverdueLessonsBoard({
                       {t("colDuration")}
                     </th>
                     <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
-                      {tb("colHolder")}
+                      {t("status")}
                     </th>
+                    {!isTeacher && (
+                      <th
+                        title={tb("supervisorHint")}
+                        className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide"
+                      >
+                        {tb("supervisor")}
+                      </th>
+                    )}
                     <th className="px-5 py-3" />
                   </tr>
                 </thead>
@@ -727,13 +830,11 @@ export function OverdueLessonsBoard({
                       <tr className="bg-muted/40" data-testid="overdue-group" data-group={g.key}>
                         <th
                           scope="colgroup"
-                          colSpan={!isTeacher && !byTeacher ? 6 : 5}
+                          colSpan={colCount}
                           className="text-muted-foreground px-5 py-2 text-start text-xs font-semibold"
                         >
                           {g.label}
-                          <span className="ms-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600/10 px-1.5 text-[10px] font-bold tabular-nums text-rose-700 dark:text-rose-300">
-                            {g.rows.length}
-                          </span>
+                          <span className="ms-2 font-normal tabular-nums opacity-70">{g.rows.length}</span>
                         </th>
                       </tr>
                       {g.rows.map((s) => (
@@ -743,30 +844,51 @@ export function OverdueLessonsBoard({
                           onClick={() => onOpen(s)}
                           className="hover:bg-muted/30 cursor-pointer transition-colors"
                         >
+                          {/* Time + status dot */}
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-2">
-                              <span className="size-2 shrink-0 rounded-full bg-rose-500" aria-hidden />
+                              <span
+                                className={cn(
+                                  "size-2 shrink-0 rounded-full",
+                                  s.pending_approval ? "bg-amber-500" : "bg-rose-500",
+                                )}
+                                aria-hidden
+                              />
                               <span className="font-medium tabular-nums">{lessonStamp(s)}</span>
                             </div>
                           </td>
+
+                          {/* Student + trial badge */}
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-2">
                               <span className="font-medium">{s.student_name ?? "—"}</span>
-                              {isTrial(s) && (
-                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                                  <Sparkles className="size-2.5" aria-hidden />
-                                  {t("trial")}
-                                </span>
-                              )}
+                              {isTrial(s) && <TrialBadge label={t("trial")} />}
                             </div>
                           </td>
-                          {!isTeacher && !byTeacher && (
+
+                          {!isTeacher && (
                             <td className="text-muted-foreground px-5 py-3.5">{s.teacher_name ?? "—"}</td>
                           )}
-                          <td className="text-muted-foreground px-5 py-3.5 tabular-nums">
-                            {s.duration_minutes} {t("min")}
+
+                          <td className="text-muted-foreground px-5 py-3.5">
+                            <div className="flex items-center gap-1">
+                              <Clock className="size-3.5 shrink-0 opacity-60" aria-hidden />
+                              <span className="tabular-nums">
+                                {s.duration_minutes} {t("min")}
+                              </span>
+                            </div>
                           </td>
-                          <td className="px-5 py-3.5">{holderChip(s)}</td>
+
+                          <td className="px-5 py-3.5">
+                            <div className="flex flex-wrap items-center gap-1.5">{statusCell(s)}</div>
+                          </td>
+
+                          {!isTeacher && (
+                            <td className="px-5 py-3.5">
+                              <DoneByCell name={s.added_by_name} />
+                            </td>
+                          )}
+
                           <td className="px-5 py-3.5 text-end">
                             <div className="flex items-center justify-end gap-2">{actions(s)}</div>
                           </td>
@@ -785,7 +907,7 @@ export function OverdueLessonsBoard({
                   <li
                     data-testid="overdue-group"
                     data-group={g.key}
-                    className="bg-muted/40 text-muted-foreground px-4 py-2 text-xs font-semibold"
+                    className="bg-muted/40 text-muted-foreground px-5 py-2 text-xs font-semibold"
                   >
                     {g.label}
                     <span className="ms-2 font-normal tabular-nums opacity-70">{g.rows.length}</span>
@@ -794,28 +916,36 @@ export function OverdueLessonsBoard({
                     <li
                       key={s.id}
                       data-testid="overdue-card"
-                      className="hover:bg-muted/30 cursor-pointer px-4 py-3.5 transition-colors"
+                      className="hover:bg-muted/30 cursor-pointer px-4 py-4 transition-colors"
                       onClick={() => onOpen(s)}
                     >
                       <div className="mb-2 flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                "size-2 shrink-0 rounded-full",
+                                s.pending_approval ? "bg-amber-500" : "bg-rose-500",
+                              )}
+                              aria-hidden
+                            />
                             <p className="truncate font-semibold">{s.student_name ?? "—"}</p>
-                            {isTrial(s) && (
-                              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                                <Sparkles className="size-2.5" aria-hidden />
-                                {t("trial")}
-                              </span>
-                            )}
+                            {isTrial(s) && <TrialBadge label={t("trial")} />}
                           </div>
                           <p className="text-muted-foreground mt-0.5 text-xs">
-                            {!isTeacher && !byTeacher && s.teacher_name ? `${s.teacher_name} · ` : ""}
+                            {!isTeacher && s.teacher_name ? `${s.teacher_name} · ` : ""}
                             {lessonStamp(s)}
                             {" · "}
                             {s.duration_minutes} {t("min")}
                           </p>
+                          {!isTeacher && s.added_by_name && (
+                            <div className="text-muted-foreground mt-1 flex min-w-0 items-center gap-1 text-xs">
+                              <span className="shrink-0">{tb("supervisor")}:</span>
+                              <DoneByCell name={s.added_by_name} />
+                            </div>
+                          )}
                         </div>
-                        {holderChip(s)}
+                        <div className="flex shrink-0 flex-col items-end gap-1">{statusCell(s)}</div>
                       </div>
                       <div className="flex flex-wrap items-center justify-end gap-2">{actions(s)}</div>
                     </li>
@@ -823,21 +953,34 @@ export function OverdueLessonsBoard({
                 </Fragment>
               ))}
             </ul>
-
-            <div className="border-t px-5 py-3">
-              <p className="text-muted-foreground text-xs">
-                {rows.length} {rows.length === 1 ? t("sessionsShownOne") : t("sessionsShown")}
-                {rows.length !== totalCount && (
-                  <>
-                    {" · "}
-                    {totalCount} {t("sessionsTotal")}
-                  </>
-                )}
-              </p>
-            </div>
           </>
+        )}
+
+        {/* Table footer: lesson count */}
+        {!firstLoad && rows.length > 0 && (
+          <div className="border-t px-5 py-3">
+            <p className="text-muted-foreground text-xs">
+              {rows.length} {rows.length === 1 ? t("sessionsShownOne") : t("sessionsShown")}
+              {rows.length !== totalCount && (
+                <>
+                  {" · "}
+                  {totalCount} {t("sessionsTotal")}
+                </>
+              )}
+            </p>
+          </div>
         )}
       </div>
     </div>
+  );
+}
+
+/** The amber "Trial" pill — the same one the period table puts beside a trial student. */
+function TrialBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+      <Sparkles className="size-2.5" aria-hidden />
+      {label}
+    </span>
   );
 }
