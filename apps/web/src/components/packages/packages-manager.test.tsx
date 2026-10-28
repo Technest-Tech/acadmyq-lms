@@ -666,7 +666,7 @@ describe("PackagesManager", () => {
   });
 
   // Editing is a correction of the terms, so the form opens seeded with what the package
-  // currently says and sends hours (not minutes) back — the unit the academy sells in.
+  // currently says — in the open form's fields, lessons of a length — and sends hours back.
   it("corrects an open package's terms from the card", async () => {
     listLessonPackages.mockResolvedValue({ packages: [pkg()] });
     renderManager();
@@ -676,9 +676,8 @@ describe("PackagesManager", () => {
 
     const price = await screen.findByLabelText(arMessages.packages.form.price);
     expect(price).toHaveValue(4000);
-    expect(screen.getByLabelText(arMessages.packages.form.hours)).toHaveValue(
-      20,
-    );
+    expect(screen.getByLabelText(arMessages.packages.form.lessons)).toHaveValue(20);
+    expect(screen.getByTestId("pkg-edit-count-length")).toHaveValue("60");
 
     await userEvent.clear(price);
     await userEvent.type(price, "3600");
@@ -750,13 +749,27 @@ describe("PackagesManager", () => {
     await openCardMenu();
     await userEvent.click(await screen.findByTestId("edit-package"));
 
-    const hours = await screen.findByLabelText(arMessages.packages.form.hours);
-    await userEvent.clear(hours);
-    await userEvent.type(hours, "10");
+    const lessons = await screen.findByLabelText(arMessages.packages.form.lessons);
+    await userEvent.clear(lessons);
+    await userEvent.type(lessons, "10");
 
     expect(await screen.findByTestId("package-too-small")).toBeInTheDocument();
     expect(screen.getByTestId("save-package-edit")).toBeDisabled();
     expect(updateLessonPackage).not.toHaveBeenCalled();
+  });
+
+  // The size is stored in minutes only; the auto-written label says how it was sold.
+  it("reads a block back as the lessons of a length it was sold as", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [pkg({ label: "12 × 40 د — أكتوبر 2026", minutes_total: 480 })],
+    });
+    renderManager();
+
+    await openCardMenu();
+    await userEvent.click(await screen.findByTestId("edit-package"));
+
+    expect(await screen.findByLabelText(arMessages.packages.form.lessons)).toHaveValue(12);
+    expect(screen.getByTestId("pkg-edit-count-length")).toHaveValue("40");
   });
 
   /**
