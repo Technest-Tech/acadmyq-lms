@@ -1179,7 +1179,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::post('/accounting/family/{guardianId}/notes', [FamilyAccountController::class, 'addNote'])->whereUuid('guardianId');
             Route::delete('/accounting/family/{guardianId}/notes/{noteId}', [FamilyAccountController::class, 'deleteNote'])->whereUuid(['guardianId', 'noteId']);
             Route::post('/accounting/family/{guardianId}/discounts', [FamilyAccountController::class, 'addDiscount'])->whereUuid('guardianId');
-            Route::delete('/accounting/family/{guardianId}/discounts/{discountId}', [FamilyAccountController::class, 'endDiscount'])->whereUuid(['guardianId', 'discountId']);
+            Route::post('/accounting/family/{guardianId}/discounts/{discountId}/end', [FamilyAccountController::class, 'endDiscount'])->whereUuid(['guardianId', 'discountId']);
+            Route::delete('/accounting/family/{guardianId}/discounts/{discountId}', [FamilyAccountController::class, 'cancelDiscount'])->whereUuid(['guardianId', 'discountId']);
             Route::post('/accounting/family/{guardianId}/discounts/{discountId}/apply-existing', [FamilyAccountController::class, 'applyDiscountToExisting'])->whereUuid(['guardianId', 'discountId']);
             Route::patch('/accounting/family/{guardianId}/renewal-policy', [RenewalPolicyController::class, 'updateFamily'])->whereUuid('guardianId');
             Route::get('/accounting/discount-presets', [DiscountPresetController::class, 'index']);

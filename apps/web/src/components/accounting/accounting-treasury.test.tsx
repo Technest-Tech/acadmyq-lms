@@ -45,6 +45,7 @@ const api = {
   addFamilyDiscount: vi.fn(),
   applyFamilyDiscountToExisting: vi.fn(),
   endFamilyDiscount: vi.fn(),
+  cancelFamilyDiscount: vi.fn(),
   setFamilyRenewalPolicy: vi.fn(),
   listDiscountPresets: vi.fn(),
   createDiscountPreset: vi.fn(),
@@ -77,6 +78,7 @@ vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   addFamilyDiscount: (...a: unknown[]) => api.addFamilyDiscount(...a),
   applyFamilyDiscountToExisting: (...a: unknown[]) => api.applyFamilyDiscountToExisting(...a),
   endFamilyDiscount: (...a: unknown[]) => api.endFamilyDiscount(...a),
+  cancelFamilyDiscount: (...a: unknown[]) => api.cancelFamilyDiscount(...a),
   setFamilyRenewalPolicy: (...a: unknown[]) => api.setFamilyRenewalPolicy(...a),
   listDiscountPresets: (...a: unknown[]) => api.listDiscountPresets(...a),
   createDiscountPreset: (...a: unknown[]) => api.createDiscountPreset(...a),
@@ -382,14 +384,38 @@ function family(): FamilyAccount {
     last_receipt: null,
     next_follow_up: { date: "2026-06-18", body: "Will pay Thursday" },
     children: [
-      { id: "s1", name: "Adam", status: "REGULAR", groups: [{ id: "g1", name: "English A1", teacher_name: "Miss Mona", billing_mode: "MONTHLY", price_minor: 45000, currency: "EGP", joined_on: "2026-05-01" }], private: null, due: [{ currency: "EGP", due_minor: 45000 }] },
-      { id: "s2", name: "Bassel", status: "REGULAR", groups: [], private: { plan_label: "8 lessons", price_minor: 10000, currency: "EGP", price_basis: "PER_SESSION", teachers: ["Mr Ali"] }, due: [] },
+      {
+        id: "s1",
+        name: "Adam",
+        status: "REGULAR",
+        groups: [
+          { id: "g1", name: "English A1", teacher_name: "Miss Mona", billing_mode: "MONTHLY", price_minor: 45000, currency: "EGP", joined_on: "2026-05-01" },
+          { id: "g2", name: "Maths B", teacher_name: "Mr Ali", billing_mode: "MONTHLY", price_minor: 30000, currency: "EGP", joined_on: "2026-05-01" },
+          { id: "g3", name: "Science", teacher_name: "Mr Ali", billing_mode: "MONTHLY", price_minor: 30000, currency: "EGP", joined_on: "2026-05-01" },
+        ],
+        private: null,
+        private_subscriptions: [],
+        due: [{ currency: "EGP", due_minor: 45000 }],
+      },
+      {
+        id: "s2",
+        name: "Bassel",
+        status: "REGULAR",
+        groups: [],
+        private: { plan_label: "8 lessons", price_minor: 10000, currency: "EGP", price_basis: "PER_SESSION", teachers: ["Mr Ali"] },
+        private_subscriptions: [
+          { teacher_id: null, teacher_name: null, course: null },
+          { teacher_id: "t1", teacher_name: "Mr Ali", course: "Maths" },
+          { teacher_id: "t2", teacher_name: "Ms Huda", course: "English" },
+        ],
+        due: [],
+      },
     ],
     charges: [
       { id: "l1", invoice_id: "i1", source: "GROUP", group_name: "English A1", description: "English A1 — June 2026", student_id: "s1", student_name: "Adam", date: "2026-06-01", period: "2026-06", amount_minor: 40500, list_amount_minor: 45000, discount_minor: 4500, discount_label: "Sibling", paid_minor: 0, remaining_minor: 40500, currency: "EGP", payer_kind: "GUARDIAN", payer_id: "gd1" },
       { id: "l2", invoice_id: "i1", source: "PRIVATE", group_name: null, description: "Lesson 2026-06-02", student_id: "s2", student_name: "Bassel", date: "2026-06-02", period: "2026-06", amount_minor: 10000, list_amount_minor: null, discount_minor: 0, discount_label: null, paid_minor: 0, remaining_minor: 10000, currency: "EGP", payer_kind: "GUARDIAN", payer_id: "gd1" },
     ],
-    discounts: [{ id: "d1", kind: "PERCENT", value: 1000, label: "Sibling", scope: "ALL", student_id: null, student_name: null, class_group_id: null, group_name: null, starts_on: "2026-06-01", ends_on: null, active: true, by: "Owner" }],
+    discounts: [{ id: "d1", kind: "PERCENT", value: 1000, label: "Sibling", scope: "ALL", student_id: null, student_name: null, targets: [], starts_on: "2026-06-01", ends_on: null, active: true, cancelled: false, by: "Owner" }],
     timeline: [{ kind: "NOTE", at: "2026-06-17T10:00:00Z", date: "2026-06-17", id: "n1", body: "Will pay Thursday", follow_up_on: "2026-06-18", by: "Owner", mine: true }],
     can_collect: true,
     can_remind: true,
@@ -444,10 +470,100 @@ describe("Family card", () => {
     await userEvent.selectOptions(screen.getByTestId("discount-scope"), "GROUP");
     await userEvent.click(screen.getByTestId("discount-save"));
     // A fixed amount goes up in minor units; a percentage would go as a whole percent.
-    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { kind: "FIXED", value: 5000, label: "Scholarship", scope: "GROUP", student_id: "s1", class_group_id: null, apply_to_existing: true }));
+    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { kind: "FIXED", value: 5000, label: "Scholarship", scope: "GROUP", student_id: "s1", apply_to_existing: true }));
+  });
 
+  it("puts one discount on several groups and private subscriptions — only the chosen child's", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    api.addFamilyDiscount.mockResolvedValue({ id: "d2" });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    await userEvent.click(await screen.findByTestId("discount-add"));
+    await userEvent.type(screen.getByTestId("discount-value"), "10");
+    await userEvent.type(screen.getByTestId("discount-label"), "Two subjects");
+    await userEvent.selectOptions(screen.getByTestId("discount-scope"), "PICK");
+    // Nothing ticked yet: it cannot be saved.
+    expect(screen.getByTestId("discount-save")).toBeDisabled();
+    const list = screen.getByTestId("discount-targets");
+    // Every child's groups and private subscriptions, each subject on its own.
+    expect(within(list).getByText(/English A1/)).toBeTruthy();
+    expect(within(list).getByText("Bassel — Maths · Mr Ali")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("discount-target-g:g1"));
+    await userEvent.click(screen.getByTestId("discount-target-g:g2"));
+    await userEvent.click(screen.getByTestId("discount-target-p:s2:t1"));
+    await userEvent.click(screen.getByTestId("discount-target-p:s2:t2"));
+    await userEvent.click(screen.getByTestId("discount-save"));
+    await waitFor(() =>
+      expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", {
+        kind: "PERCENT",
+        value: 10,
+        label: "Two subjects",
+        scope: "ALL",
+        student_id: null,
+        targets: [
+          { class_group_id: "g1", student_id: null, teacher_id: null },
+          { class_group_id: "g2", student_id: null, teacher_id: null },
+          { class_group_id: null, student_id: "s2", teacher_id: "t1" },
+          { class_group_id: null, student_id: "s2", teacher_id: "t2" },
+        ],
+        apply_to_existing: true,
+      }),
+    );
+
+    // One child chosen: only their groups are offered, and a tick on the other child's drops out.
+    await userEvent.click(await screen.findByTestId("discount-add"));
+    await userEvent.type(screen.getByTestId("discount-value"), "5");
+    await userEvent.type(screen.getByTestId("discount-label"), "Adam only");
+    await userEvent.selectOptions(screen.getByTestId("discount-scope"), "PICK");
+    await userEvent.click(screen.getByTestId("discount-target-p:s2:"));
+    await userEvent.selectOptions(screen.getByTestId("discount-student"), "s1");
+    expect(screen.queryByTestId("discount-target-p:s2:")).toBeNull();
+    expect(screen.getByTestId("discount-save")).toBeDisabled();
+    await userEvent.click(screen.getByTestId("discount-target-g:g3"));
+    await userEvent.click(screen.getByTestId("discount-save"));
+    await waitFor(() =>
+      expect(api.addFamilyDiscount).toHaveBeenLastCalledWith("gd1", expect.objectContaining({ student_id: "s1", targets: [{ class_group_id: "g3", student_id: null, teacher_id: null }] })),
+    );
+  });
+
+  it("ends a discount from a day, or cancels it outright — and says what came off the open bills", async () => {
+    const withTargets = family();
+    withTargets.discounts = [
+      withTargets.discounts[0]!,
+      {
+        id: "d2", kind: "FIXED", value: 5000, label: "Old", scope: "GROUP", student_id: "s1", student_name: "Adam", starts_on: "2026-05-01", ends_on: "2026-06-10", active: false, cancelled: false, by: "Owner",
+        targets: [{ class_group_id: "g1", group_name: "English A1", student_id: null, student_name: null, teacher_id: null, teacher_name: null }, { class_group_id: "g2", group_name: "Maths B", student_id: null, student_name: null, teacher_id: null, teacher_name: null }],
+      },
+      { id: "d3", kind: "FIXED", value: 1000, label: "Gone", scope: "ALL", student_id: null, student_name: null, targets: [], starts_on: "2026-05-01", ends_on: "2026-05-01", active: false, cancelled: true, by: "Owner" },
+    ];
+    api.getFamilyAccount.mockResolvedValue(withTargets);
+    api.endFamilyDiscount.mockResolvedValue({ removed: { lines: 2, amount_minor: 9000 } });
+    api.cancelFamilyDiscount.mockResolvedValue({ removed: { lines: 0, amount_minor: 0 } });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    // A discount on chosen groups names them.
+    expect((await screen.findByTestId("discount-d2")).textContent).toContain("English A1، Maths B");
+    expect(screen.getByTestId("discount-d3").textContent).toContain(ar.family.cancelled);
+    // An ended one can still be cancelled (off the open bills from before its end); a cancelled one, nothing.
+    expect(screen.queryByTestId("discount-end-d2")).toBeNull();
+    expect(screen.getByTestId("discount-cancel-d2")).toBeTruthy();
+    expect(screen.queryByTestId("discount-cancel-d3")).toBeNull();
+
+    // End: from today unless another day is picked.
     await userEvent.click(screen.getByTestId("discount-end-d1"));
-    await waitFor(() => expect(api.endFamilyDiscount).toHaveBeenCalledWith("gd1", "d1"));
+    expect(screen.getByTestId("discount-ends-on-d1")).toHaveValue("2026-06-17");
+    await userEvent.clear(screen.getByTestId("discount-ends-on-d1"));
+    await userEvent.type(screen.getByTestId("discount-ends-on-d1"), "2026-06-01");
+    await userEvent.click(screen.getByTestId("discount-confirm-d1"));
+    await waitFor(() => expect(api.endFamilyDiscount).toHaveBeenCalledWith("gd1", "d1", "2026-06-01"));
+    expect(await screen.findByText(new RegExp(ar.family.discountRemoved.split("{count")[0]!.trim()))).toBeTruthy();
+
+    // Cancel asks first, then goes.
+    await userEvent.click(screen.getByTestId("discount-cancel-d2"));
+    expect(screen.getByTestId("discount-closing-d2").textContent).toContain(ar.family.cancelDiscountHint);
+    await userEvent.click(screen.getByTestId("discount-confirm-d2"));
+    await waitFor(() => expect(api.cancelFamilyDiscount).toHaveBeenCalledWith("gd1", "d2"));
+    expect(await screen.findByText(ar.family.discountNothingToRemove)).toBeTruthy();
   });
 
   it("takes a discount off the charges already billed — by default for a new one, on demand for an old one", async () => {
@@ -512,7 +628,7 @@ describe("Discount presets", () => {
     expect(screen.getByTestId("discount-label")).toHaveValue("Sibling");
     expect(screen.getByTestId("discount-kind")).toBeDisabled();
     await userEvent.click(screen.getByTestId("discount-save"));
-    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p1", scope: "ALL", student_id: null, class_group_id: null, apply_to_existing: true }));
+    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p1", scope: "ALL", student_id: null, apply_to_existing: true }));
   });
 
   it("offers the picker even with no presets yet, and saves a typed discount as a preset on the way", async () => {
@@ -533,7 +649,7 @@ describe("Discount presets", () => {
     await userEvent.click(screen.getByTestId("discount-save-preset"));
     await userEvent.click(screen.getByTestId("discount-save"));
     await waitFor(() => expect(api.createDiscountPreset).toHaveBeenCalledWith({ name: "Early payment", kind: "PERCENT", value: 5 }));
-    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p9", scope: "ALL", student_id: null, class_group_id: null, apply_to_existing: true }));
+    await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { preset_id: "p9", scope: "ALL", student_id: null, apply_to_existing: true }));
   });
 
   it("lists the presets, adds one in whole percent, and retires one", async () => {

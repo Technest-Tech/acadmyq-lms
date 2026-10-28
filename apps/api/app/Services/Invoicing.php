@@ -117,7 +117,7 @@ final class Invoicing implements BillingHook
             : $this->buildDescription($session, $academy);
         $sessionDate = $local->format('Y-m-d');
         // A family's standing discount comes off here; the net is what the line has always carried.
-        $priced = app(PayerDiscounts::class)->apply((string) $session->academy_id, (string) $session->student_id, PayerDiscounts::SCOPE_PRIVATE, null, $amountMinor, $sessionDate);
+        $priced = app(PayerDiscounts::class)->apply((string) $session->academy_id, (string) $session->student_id, PayerDiscounts::SCOPE_PRIVATE, null, $amountMinor, $sessionDate, fn () => $this->packages->lessonTeacher($session));
         $amountMinor = $priced['amount_minor'];
 
         // insertOrIgnore is the concurrency backstop for the unique (invoice_id, session_id)

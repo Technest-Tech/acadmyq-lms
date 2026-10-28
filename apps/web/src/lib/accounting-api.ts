@@ -458,6 +458,19 @@ export interface FamilyCharge {
 export type DiscountKind = "PERCENT" | "FIXED";
 export type DiscountScope = "ALL" | "GROUP" | "PRIVATE";
 
+/**
+ * What a discount is put on: a group (`class_group_id`), or one child's private subscription
+ * (`student_id`; with `teacher_id` only that subject's, without it every private charge of the child).
+ */
+export interface DiscountTarget {
+  class_group_id: string | null;
+  group_name?: string | null;
+  student_id: string | null;
+  student_name?: string | null;
+  teacher_id: string | null;
+  teacher_name?: string | null;
+}
+
 /** A standing discount on a family's (or one child's) charges. PERCENT `value` is basis points; FIXED is minor units per charge. */
 export interface FamilyDiscount {
   id: string;
@@ -467,11 +480,13 @@ export interface FamilyDiscount {
   scope: DiscountScope;
   student_id: string | null;
   student_name: string | null;
-  class_group_id: string | null;
-  group_name: string | null;
+  /** The groups and private subscriptions it is on; empty = every charge in its scope. */
+  targets: DiscountTarget[];
   starts_on: string;
   ends_on: string | null;
   active: boolean;
+  /** Taken back outright — off every open charge, as if never given. */
+  cancelled: boolean;
   /** The preset (بنود الخصم) it was made from; null = typed in. */
   preset_id?: string | null;
   by: string | null;
@@ -525,6 +540,8 @@ export interface FamilyAccount {
     status: string;
     groups: { id: string; name: string; teacher_name: string | null; billing_mode: string; price_minor: number | null; currency: string | null; joined_on: string }[];
     private: { plan_label: string; price_minor: number; currency: string; price_basis: string; teachers: string[] } | null;
+    /** The private subscriptions a discount can be put on: `teacher_id` null = all of the child's private lessons, else one subject's block. */
+    private_subscriptions?: { teacher_id: string | null; teacher_name: string | null; course: string | null }[];
     due: { currency: string; due_minor: number }[];
   }[];
   charges: FamilyCharge[];
@@ -578,7 +595,17 @@ export function addFamilyDiscount(
   guardianId: string,
   // With `preset_id` the preset brings kind, value and label; without one they are typed in.
   // `apply_to_existing` also takes it off what is already on the family's open bills.
-  input: { preset_id?: string | null; kind?: DiscountKind; value?: number; label?: string; scope?: DiscountScope; student_id?: string | null; class_group_id?: string | null; apply_to_existing?: boolean },
+  // `targets` puts it on chosen groups / private subscriptions only; the scope then follows them.
+  input: {
+    preset_id?: string | null;
+    kind?: DiscountKind;
+    value?: number;
+    label?: string;
+    scope?: DiscountScope;
+    student_id?: string | null;
+    targets?: Pick<DiscountTarget, "class_group_id" | "student_id" | "teacher_id">[];
+    apply_to_existing?: boolean;
+  },
 ): Promise<{ id: string; applied?: DiscountApplied }> {
   return apiFetch(`/api/accounting/family/${guardianId}/discounts`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -588,8 +615,19 @@ export function applyFamilyDiscountToExisting(guardianId: string, discountId: st
   return apiFetch(`/api/accounting/family/${guardianId}/discounts/${discountId}/apply-existing`, { method: "POST" });
 }
 
-/** Ends it today; what it already took off stays on those charges. */
-export function endFamilyDiscount(guardianId: string, discountId: string): Promise<{ ok: boolean }> {
+/** What ending or cancelling a discount gave back: charges on open bills now at full price, and how much more is owed. */
+export interface DiscountRemoved {
+  lines: number;
+  amount_minor: number;
+}
+
+/** Ends it from a day (today by default): charges from then on, open bills included, go back to full price. */
+export function endFamilyDiscount(guardianId: string, discountId: string, endsOn?: string): Promise<{ removed: DiscountRemoved }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/discounts/${discountId}/end`, { method: "POST", body: JSON.stringify({ ends_on: endsOn || null }) });
+}
+
+/** Cancels it outright: off every charge still on an open bill, as if never given. */
+export function cancelFamilyDiscount(guardianId: string, discountId: string): Promise<{ removed: DiscountRemoved }> {
   return apiFetch(`/api/accounting/family/${guardianId}/discounts/${discountId}`, { method: "DELETE" });
 }
 

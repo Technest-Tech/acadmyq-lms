@@ -924,7 +924,7 @@ final class LessonPackages
                 ];
             }
 
-            $invoiceId = $this->raiseInvoice($academyId, $studentId, $currency, $lines, $startsOn, $actorUserId, $actorRole);
+            $invoiceId = $this->raiseInvoice($academyId, $studentId, $currency, $lines, $startsOn, $actorUserId, $actorRole, $teacherId);
 
             if ($overdraft !== null) {
                 DB::table('lesson_packages')->where('id', $overdraft['package_id'])->update([
@@ -1374,6 +1374,7 @@ final class LessonPackages
                             (string) $package->starts_on,
                             $actorUserId,
                             $actorRole,
+                            $package->teacher_id !== null ? (string) $package->teacher_id : null,
                         );
                         DB::table('lesson_packages')->where('overdraft_invoice_id', $invoiceId)->update(['overdraft_invoice_id' => $newInvoiceId, 'updated_at' => now()]);
                     }
@@ -1580,6 +1581,7 @@ final class LessonPackages
                     (string) $package->starts_on,
                     $actorUserId,
                     $actorRole,
+                    $package->teacher_id !== null ? (string) $package->teacher_id : null,
                 );
             }
         }
@@ -1826,6 +1828,7 @@ final class LessonPackages
             (string) ($package->closed_at ?? $package->starts_on),
             $actorUserId,
             $actorRole,
+            $package->teacher_id !== null ? (string) $package->teacher_id : null,
         );
 
         DB::table('lesson_packages')->where('id', $packageId)->update([
@@ -2025,6 +2028,7 @@ final class LessonPackages
      * per-lesson breakdown lives on the package page, where it belongs.
      *
      * @param  list<array{description:string, amount_minor:int}>  $lines
+     * @param  ?string  $teacherId  the package's subject teacher (null = untied), for a discount on one subscription
      */
     private function raiseInvoice(
         string $academyId,
@@ -2034,6 +2038,7 @@ final class LessonPackages
         string $periodDate,
         ?string $actorUserId,
         ?string $actorRole,
+        ?string $teacherId = null,
     ): string {
         $invoiceId = (string) Str::uuid();
         $period = Carbon::parse($periodDate);
@@ -2066,7 +2071,7 @@ final class LessonPackages
         $discounted = 0;
         foreach ($lines as $line) {
             // A family's standing discount on private lessons comes off a package too.
-            $priced = app(PayerDiscounts::class)->apply($academyId, $studentId, PayerDiscounts::SCOPE_PRIVATE, null, (int) $line['amount_minor'], $period->toDateString());
+            $priced = app(PayerDiscounts::class)->apply($academyId, $studentId, PayerDiscounts::SCOPE_PRIVATE, null, (int) $line['amount_minor'], $period->toDateString(), $teacherId);
             DB::table('invoice_line_items')->insert([
                 'id' => (string) Str::uuid(),
                 'academy_id' => $academyId,

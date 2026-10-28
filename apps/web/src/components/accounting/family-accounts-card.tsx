@@ -39,6 +39,7 @@ import {
   applyFamilyDiscountToExisting,
   addFamilyNote,
   deleteFamilyNote,
+  cancelFamilyDiscount,
   endFamilyDiscount,
   createDiscountPreset,
   getFamilyAccount,
@@ -49,6 +50,7 @@ import {
   type DiscountKind,
   type DiscountPreset,
   type DiscountScope,
+  type DiscountTarget,
   type FamilyAccount,
   type FamilyCharge,
   type FamilyDiscount,
@@ -434,12 +436,21 @@ function TimelineItem({
   );
 }
 
+/** One pick in the discount form's list: a group, or one child's private subscription. */
+interface TargetOption {
+  key: string;
+  kind: "GROUP" | "PRIVATE";
+  label: string;
+  target: Pick<DiscountTarget, "class_group_id" | "student_id" | "teacher_id">;
+}
+
 /**
  * The family's discounts (docs/groups/01-ACCOUNTING.md, F2): each one a percentage or a fixed
- * amount off every charge — for the whole family or one child, on everything or only group /
- * private charges — with the reason and who gave it. They apply to charges raised from today and,
- * unless unticked, to what is already on the family's open bills too (a paid charge turns into
- * credit); ending one stops it today and leaves what it already took on the lines it touched.
+ * amount off every charge — for the whole family or one child, on everything, every group, every
+ * private lesson, or chosen groups and private subscriptions (any number of each) — with the reason
+ * and who gave it. They apply to charges raised from today and, unless unticked, to what is already
+ * on the family's open bills too (a paid charge turns into credit). Ending one stops it from a day
+ * and cancelling takes it back outright; either way it comes off the open bills it no longer covers.
  */
 function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: FamilyAccount; guardianId: string; onChanged: () => void; onNotice: (m: string | null) => void }) {
   const t = useTranslations("accounting");
@@ -448,9 +459,10 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
   const [kind, setKind] = useState<DiscountKind>("PERCENT");
   const [value, setValue] = useState("");
   const [label, setLabel] = useState("");
-  const [scope, setScope] = useState<DiscountScope>("ALL");
+  // PICK = only the groups / private subscriptions ticked in `picked`.
+  const [scope, setScope] = useState<DiscountScope | "PICK">("ALL");
+  const [picked, setPicked] = useState<string[]>([]);
   const [studentId, setStudentId] = useState("");
-  const [groupId, setGroupId] = useState("");
   // A preset (بنود الخصم) fills kind, value and label; "" = exceptional, typed in.
   const [presets, setPresets] = useState<DiscountPreset[]>([]);
   const [canManagePresets, setCanManagePresets] = useState(false);
@@ -461,6 +473,10 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
   const [applyExisting, setApplyExisting] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The row whose End / Cancel is being confirmed, and the day an End takes effect.
+  const [closing, setClosing] = useState<{ id: string; mode: "end" | "cancel" } | null>(null);
+  const [endsOn, setEndsOn] = useState(data.today);
+  const [closingBusy, setClosingBusy] = useState(false);
   const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
   const currency = data.balance[0]?.currency ?? data.charges[0]?.currency ?? "EGP";
 
@@ -482,14 +498,44 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
     setValue(p.kind === "PERCENT" ? String(p.value / 100) : toMajorText(p.value));
     setLabel(p.name);
   }
-  const groups = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const c of data.children) for (const g of c.groups) seen.set(g.id, g.name);
-    return [...seen.entries()];
-  }, [data.children]);
+
+  // What the discount can be put on, for the chosen child (or every child): each group, and each
+  // private subscription — all of a child's private lessons, or one subject's block.
+  const options = useMemo<TargetOption[]>(() => {
+    const kids = data.children.filter((c) => !studentId || c.id === studentId);
+    const groups = new Map<string, { name: string; kids: string[] }>();
+    for (const c of kids) {
+      for (const g of c.groups) {
+        const entry = groups.get(g.id) ?? { name: g.name, kids: [] };
+        entry.kids.push(c.name);
+        groups.set(g.id, entry);
+      }
+    }
+    const out: TargetOption[] = [...groups.entries()].map(([id, g]) => ({
+      key: `g:${id}`,
+      kind: "GROUP",
+      label: studentId ? g.name : `${g.name} — ${g.kids.join(", ")}`,
+      target: { class_group_id: id, student_id: null, teacher_id: null },
+    }));
+    for (const c of kids) {
+      for (const p of c.private_subscriptions ?? []) {
+        out.push({
+          key: `p:${c.id}:${p.teacher_id ?? ""}`,
+          kind: "PRIVATE",
+          label: p.teacher_id === null ? t("family.discountPrivateAll", { name: c.name }) : `${c.name} — ${[p.course, p.teacher_name].filter(Boolean).join(" · ")}`,
+          target: { class_group_id: null, student_id: c.id, teacher_id: p.teacher_id },
+        });
+      }
+    }
+    return out;
+  }, [data.children, studentId, t]);
+  // A tick on another child's group or subscription drops out when the child changes.
+  const pickedOptions = options.filter((o) => picked.includes(o.key));
 
   const valueNumber = Number.parseFloat(value.replace(",", "."));
-  const valid = presetId !== "" || (label.trim().length > 0 && Number.isFinite(valueNumber) && valueNumber > 0 && (kind !== "PERCENT" || valueNumber <= 100));
+  const valid =
+    (presetId !== "" || (label.trim().length > 0 && Number.isFinite(valueNumber) && valueNumber > 0 && (kind !== "PERCENT" || valueNumber <= 100))) &&
+    (scope !== "PICK" || pickedOptions.length > 0);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -497,7 +543,12 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
     setBusy(true);
     setError(null);
     try {
-      const where = { scope, student_id: studentId || null, class_group_id: scope === "GROUP" && groupId ? groupId : null, apply_to_existing: applyExisting };
+      const where = {
+        scope: scope === "PICK" ? ("ALL" as const) : scope,
+        student_id: studentId || null,
+        ...(scope === "PICK" ? { targets: pickedOptions.map((o) => o.target) } : {}),
+        apply_to_existing: applyExisting,
+      };
       const typed = { kind, value: kind === "PERCENT" ? Math.round(valueNumber) : Math.round(valueNumber * 100), label: label.trim() };
       let fromPreset = presetId;
       if (fromPreset === "" && savePreset && canManagePresets) {
@@ -510,8 +561,8 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
       setValue("");
       setLabel("");
       setScope("ALL");
+      setPicked([]);
       setStudentId("");
-      setGroupId("");
       setApplyExisting(true);
       onNotice(res.applied && res.applied.lines > 0 ? appliedText(res.applied) : t("family.discountSaved"));
       onChanged();
@@ -534,17 +585,36 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
     }
   }
 
-  async function end(id: string) {
+  function startClosing(id: string, mode: "end" | "cancel") {
+    setClosing({ id, mode });
+    setEndsOn(data.today);
+  }
+
+  async function confirmClosing() {
+    if (!closing) return;
+    setClosingBusy(true);
     try {
-      await endFamilyDiscount(guardianId, id);
+      const { removed } = closing.mode === "end" ? await endFamilyDiscount(guardianId, closing.id, endsOn) : await cancelFamilyDiscount(guardianId, closing.id);
+      setClosing(null);
+      onNotice(removed.lines > 0 ? t("family.discountRemoved", { count: removed.lines, amount: money(removed.amount_minor, currency) }) : t("family.discountNothingToRemove"));
       onChanged();
     } catch (err) {
       onNotice(apiErrorMessage(err, t("family.discountFailed")));
+    } finally {
+      setClosingBusy(false);
     }
   }
 
   const describe = (d: FamilyDiscount) =>
     d.kind === "PERCENT" ? `${d.value / 100}%` : money(d.value, currency);
+  const targetLabel = (x: DiscountTarget) =>
+    x.class_group_id !== null
+      ? (x.group_name ?? "")
+      : x.teacher_id === null
+        ? t("family.discountPrivateAll", { name: x.student_name ?? "" })
+        : [x.student_name, x.teacher_name].filter(Boolean).join(" — ");
+  const reach = (d: FamilyDiscount) =>
+    d.targets.length > 0 ? d.targets.map(targetLabel).join("، ") : d.scope === "ALL" ? null : t(`family.discountScope.${d.scope}`);
 
   return (
     <Panel
@@ -611,30 +681,49 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
                 ))}
               </select>
             </label>
-            <label className="text-muted-foreground text-xs">
+            <label className="text-muted-foreground text-xs sm:col-span-2">
               {t("family.source.ALL")}
-              <select className={cn(fieldClass, "mt-1")} value={scope} onChange={(e) => setScope(e.target.value as DiscountScope)} data-testid="discount-scope">
-                {(["ALL", "GROUP", "PRIVATE"] as DiscountScope[]).map((s) => (
+              <select className={cn(fieldClass, "mt-1")} value={scope} onChange={(e) => setScope(e.target.value as DiscountScope | "PICK")} data-testid="discount-scope">
+                {(["ALL", "GROUP", "PRIVATE", "PICK"] as const).map((s) => (
                   <option key={s} value={s}>
                     {t(`family.discountScope.${s}`)}
                   </option>
                 ))}
               </select>
             </label>
-            {scope === "GROUP" && groups.length > 0 && (
-              <label className="text-muted-foreground text-xs">
-                {t("arrears.group")}
-                <select className={cn(fieldClass, "mt-1")} value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-                  <option value="">{t("family.discountGroupAny")}</option>
-                  {groups.map(([id, name]) => (
-                    <option key={id} value={id}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
           </div>
+          {scope === "PICK" && (
+            <fieldset className="space-y-2 rounded-lg border p-2" data-testid="discount-targets">
+              <legend className="text-muted-foreground px-1 text-xs">{t("family.discountPick")}</legend>
+              {options.length === 0 ? (
+                <p className="text-muted-foreground text-xs">{t("family.discountNoTargets")}</p>
+              ) : (
+                (["GROUP", "PRIVATE"] as const).map((k) => {
+                  const list = options.filter((o) => o.kind === k);
+                  if (list.length === 0) return null;
+                  return (
+                    <div key={k} className="space-y-1">
+                      <p className="text-muted-foreground text-[11px] font-medium">{k === "GROUP" ? t("family.discountPickGroups") : t("family.discountPickPrivate")}</p>
+                      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                        {list.map((o) => (
+                          <label key={o.key} className="flex items-start gap-2 text-xs">
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 size-4 shrink-0"
+                              checked={picked.includes(o.key)}
+                              onChange={(e) => setPicked((p) => (e.target.checked ? [...p, o.key] : p.filter((x) => x !== o.key)))}
+                              data-testid={`discount-target-${o.key}`}
+                            />
+                            <span className="break-words">{o.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </fieldset>
+          )}
           <label className="flex items-start gap-2 text-xs">
             <input type="checkbox" className="mt-0.5 size-4" checked={applyExisting} onChange={(e) => setApplyExisting(e.target.checked)} data-testid="discount-apply-existing" />
             <span>
@@ -666,27 +755,56 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
       ) : (
         <ul className="divide-y" data-testid="discount-list">
           {data.discounts.map((d) => (
-            <li key={d.id} className={cn("flex flex-wrap items-center justify-between gap-2 py-2 text-sm", !d.active && "opacity-60")} data-testid={`discount-${d.id}`}>
-              <div className="min-w-0">
+            <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm" data-testid={`discount-${d.id}`}>
+              <div className={cn("min-w-0", !d.active && "opacity-60")}>
                 <p className="font-medium break-words">
                   <span className="text-violet-700 tabular-nums dark:text-violet-300">{describe(d)}</span> · {d.label}
                 </p>
-                <p className="text-muted-foreground text-xs">
-                  {[d.student_name ?? t("family.wholeFamily"), d.scope === "ALL" ? null : (d.group_name ?? t(`family.discountScope.${d.scope}`)), d.by].filter(Boolean).join(" · ")}
+                <p className="text-muted-foreground text-xs break-words">
+                  {[d.student_name ?? t("family.wholeFamily"), reach(d), d.by].filter(Boolean).join(" · ")}
                   {" · "}
-                  {d.active ? t("family.since", { date: dayLabel(d.starts_on, locale) }) : t("family.ended", { date: dayLabel(d.ends_on ?? d.starts_on, locale) })}
+                  {d.cancelled ? t("family.cancelled") : d.active ? t("family.since", { date: dayLabel(d.starts_on, locale) }) : t("family.ended", { date: dayLabel(d.ends_on ?? d.starts_on, locale) })}
                 </p>
               </div>
-              {d.active && data.can_collect && (
+              {/* An ended discount can still be cancelled: that takes it off the open bills from before its end too. */}
+              {!d.cancelled && data.can_collect && closing?.id !== d.id && (
                 <div className="flex flex-wrap gap-1">
-                  <Button type="button" size="xs" variant="ghost" className="gap-1" onClick={() => void applyToExisting(d.id)} title={t("family.applyToExistingHint")} data-testid={`discount-apply-${d.id}`}>
-                    <History className="size-3.5" aria-hidden />
-                    {t("family.applyToExistingShort")}
-                  </Button>
-                  <Button type="button" size="xs" variant="ghost" className="text-destructive gap-1" onClick={() => void end(d.id)} title={t("family.endDiscountHint")} data-testid={`discount-end-${d.id}`}>
+                  {d.active && (
+                    <>
+                      <Button type="button" size="xs" variant="ghost" className="gap-1" onClick={() => void applyToExisting(d.id)} title={t("family.applyToExistingHint")} data-testid={`discount-apply-${d.id}`}>
+                        <History className="size-3.5" aria-hidden />
+                        {t("family.applyToExistingShort")}
+                      </Button>
+                      <Button type="button" size="xs" variant="ghost" className="gap-1" onClick={() => startClosing(d.id, "end")} title={t("family.endDiscountHint")} data-testid={`discount-end-${d.id}`}>
+                        <CalendarClock className="size-3.5" aria-hidden />
+                        {t("family.endDiscount")}
+                      </Button>
+                    </>
+                  )}
+                  <Button type="button" size="xs" variant="ghost" className="text-destructive gap-1" onClick={() => startClosing(d.id, "cancel")} title={t("family.cancelDiscountHint")} data-testid={`discount-cancel-${d.id}`}>
                     <Ban className="size-3.5" aria-hidden />
-                    {t("family.endDiscount")}
+                    {t("family.cancelDiscount")}
                   </Button>
+                </div>
+              )}
+              {closing?.id === d.id && (
+                <div className="bg-muted/30 basis-full space-y-2 rounded-lg border p-2 text-xs" data-testid={`discount-closing-${d.id}`}>
+                  {closing.mode === "end" && (
+                    <label className="text-muted-foreground block">
+                      {t("family.endDiscountFrom")}
+                      <input type="date" className={cn(fieldClass, "mt-1")} value={endsOn} min={d.starts_on} onChange={(e) => setEndsOn(e.target.value)} data-testid={`discount-ends-on-${d.id}`} />
+                    </label>
+                  )}
+                  <p className="text-muted-foreground">{closing.mode === "end" ? t("family.endDiscountHint") : t("family.cancelDiscountHint")}</p>
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" size="xs" variant="ghost" onClick={() => setClosing(null)} disabled={closingBusy}>
+                      {t("family.discountBack")}
+                    </Button>
+                    <Button type="button" size="xs" variant="destructive" className="gap-1" onClick={() => void confirmClosing()} disabled={closingBusy || (closing.mode === "end" && !endsOn)} data-testid={`discount-confirm-${d.id}`}>
+                      {closingBusy && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+                      {closing.mode === "end" ? t("family.endDiscountConfirm") : t("family.cancelDiscountConfirm")}
+                    </Button>
+                  </div>
                 </div>
               )}
             </li>

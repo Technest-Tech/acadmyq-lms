@@ -684,3 +684,39 @@ fully paid → stays. Receipts never move; allocations follow their lines. The r
 Repair for moves made before: `GET /guardians/{id}` returns `moved_away` (invoice.read only) and the
 family page shows an amber card per child with "Move the charges" → `POST /students/{id}/carry-charges`
 (student.update, idempotent). Tests: tests/Feature/Accounting/FamilyChargesTest.php.
+
+## Discounts: several targets, end and cancel (2026-10-28)
+
+A centre reported two things: a discount it ended (or wanted gone) **stayed on the bill**, and a
+discount could be put on **one group only**, never two groups or two subscriptions.
+
+- **Why it stayed.** Ending only set `ends_on = today`; it never touched lines already priced. And
+  "apply to existing" moves `starts_on` back to the month's first charge, so this month's group
+  line (dated the 1st) was still inside the discount's life after an end "today".
+- **End = from a day, and the open bills follow.** `POST /accounting/family/{g}/discounts/{id}/end
+  { ends_on? }` (today by default; never before `starts_on`; an earlier end is kept) →
+  `PayerDiscounts::end()` re-prices every line in the discount's reach on an OPEN bill dated on or
+  after that day. Earlier lines keep it. The row's "إنهاء" opens a date (default today).
+- **Cancel = as if never given.** `DELETE /accounting/family/{g}/discounts/{id}` (was "end today")
+  → `PayerDiscounts::cancel()`: `ends_on = starts_on`, `cancelled_at/by`, and every line in reach on
+  an OPEN bill is re-priced. Closed bills never move. Offered on ended discounts too — that is how a
+  discount ended before this change comes off the open bills now. A line going up keeps what was
+  paid toward it, and `afterLinesChanged` spends the family's credit (often the credit the discount
+  made) on it first. Both return `removed {lines, amount_minor}` and are audited
+  (`accounting.discount_ended` / `accounting.discount_cancelled`).
+- **Targets.** `payer_discount_targets` (migration 2026_10_28_300001): any number of
+  `{class_group_id}` (that group's charges, any child the discount covers) or
+  `{student_id, teacher_id?}` (one child's private charges; with a teacher only that subject's — the
+  package's `teacher_id`, or the lesson's timetable teacher via `LessonPackages::lessonTeacher`). No
+  targets = everything in scope, as before. The POST takes `targets`; the scope follows them (all
+  groups → GROUP, all private → PRIVATE, mixed → ALL). The old single `payer_discounts.class_group_id`
+  was copied in as a target and is no longer read. `apply()` takes the subject teacher as an
+  optional last argument; the private-lesson writer passes a closure, called only when a standing
+  discount names a subject. The package writer (`raiseInvoice`) gets the block's `teacher_id`.
+- **Form.** "يُطبَّق على": every charge / every group / every private lesson / **chosen groups or
+  subscriptions** → a checklist of the chosen child's (or every child's) groups and private
+  subscriptions (`children[].private_subscriptions`: all private lessons, plus one entry per open
+  subject block). Ticks of another child drop out when the child changes.
+
+Tests: TreasuryTest (end today re-prices July; cancel after a closed May; end from a chosen day;
+several groups + one subject + mixed + refusals), accounting-treasury.test.tsx.

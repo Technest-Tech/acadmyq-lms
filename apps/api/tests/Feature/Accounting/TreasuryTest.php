@@ -418,10 +418,17 @@ it('takes a family discount off every charge raised from now on — percent and 
     $charges = collect($this->getJson("/api/accounting/family/{$this->parent}")->assertOk()->json('charges'))->where('period', '2026-07');
     expect($charges->firstWhere('student_name', 'Adam'))->toMatchArray(['amount_minor' => 35500, 'list_amount_minor' => 45000, 'discount_minor' => 9500, 'discount_label' => 'Sibling + Scholarship']);
 
-    // Ending the family discount stops it from today; August: Adam 450 − 50, Bassel full.
+    // Ending the family discount stops it from today — July's charges, dated today and still on an
+    // open bill, go back without it: Adam 450 − 50, Bassel full.
     $sibling = collect($card->json('discounts'))->firstWhere('label', 'Sibling')['id'];
-    $this->deleteJson("/api/accounting/family/{$this->parent}/discounts/{$sibling}")->assertOk();
-    expect(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('label', 'Sibling')['active'])->toBeFalse();
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts/{$sibling}/end")->assertOk()
+        ->assertJsonPath('removed', ['lines' => 2, 'amount_minor' => 9000]);
+    expect(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('label', 'Sibling'))
+        ->toMatchArray(['active' => false, 'cancelled' => false, 'ends_on' => '2026-07-01']);
+    $july = trsTenant($this->academy, fn () => DB::table('invoice_line_items')->where('class_group_id', $this->groupId)->where('group_period', '2026-07-01')->get()->keyBy(fn ($l) => (string) $l->student_id));
+    expect((int) $july[$this->adam]->amount_minor)->toBe(40000)->and($july[$this->adam]->discount_label)->toBe('Scholarship');
+    expect((int) $july[$this->bassel]->amount_minor)->toBe(45000)->and((int) $july[$this->bassel]->discount_minor)->toBe(0);
+    expect((int) trsTenant($this->academy, fn () => DB::table('invoices')->where('id', $july[$this->adam]->invoice_id)->value('total_minor')))->toBe(85000);
     // From the day it ended, a charge is priced without it — the day itself included.
     $price = fn (string $student, string $on) => trsTenant($this->academy, fn () => app(PayerDiscounts::class)->apply($this->academy, $student, PayerDiscounts::SCOPE_GROUP, $this->groupId, 45000, $on));
     expect($price($this->adam, '2026-07-01'))->toMatchArray(['amount_minor' => 40000, 'discount_minor' => 5000, 'discount_label' => 'Scholarship']);
@@ -468,9 +475,101 @@ it('takes a discount off the charges already on open bills when asked — paid o
     expect((int) $line($this->adam, '2026-06-01')->amount_minor)->toBe(35500)->and($line($this->adam, '2026-06-01')->discount_label)->toBe('Sibling + Scholarship');
     expect((int) $line($this->bassel, '2026-06-01')->amount_minor)->toBe(40500);
 
-    // An ended discount is not re-applied.
-    $this->deleteJson("/api/accounting/family/{$this->parent}/discounts/{$sibling['id']}")->assertOk();
+    // Cancelled, it comes off every open charge as if never given; the closed May keeps it.
+    $this->deleteJson("/api/accounting/family/{$this->parent}/discounts/{$sibling['id']}")->assertOk()
+        ->assertJsonPath('removed', ['lines' => 2, 'amount_minor' => 9000]);
+    expect((int) $line($this->adam, '2026-06-01')->amount_minor)->toBe(40000)->and($line($this->adam, '2026-06-01')->discount_label)->toBe('Scholarship');
+    expect((int) $line($this->bassel, '2026-06-01')->amount_minor)->toBe(45000)->and($line($this->bassel, '2026-06-01')->list_amount_minor)->toBeNull();
+    expect((int) $line($this->adam, '2026-05-01')->amount_minor)->toBe(40500)->and((int) $line($this->bassel, '2026-05-01')->amount_minor)->toBe(40500);
+    $card = $this->getJson("/api/accounting/family/{$this->parent}")->assertOk();
+    expect(collect($card->json('discounts'))->firstWhere('label', 'Sibling'))->toMatchArray(['active' => false, 'cancelled' => true]);
+    // The credit May's overpayment made still sits on June: 400 + 450 − 90.
+    expect($card->json('balance.0.due_minor'))->toBe(76000);
+    // A cancelled discount is not re-applied, nor ended again.
     $this->postJson("/api/accounting/family/{$this->parent}/discounts/{$sibling['id']}/apply-existing")->assertStatus(422);
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts/{$sibling['id']}/end")->assertStatus(422);
+});
+
+it('ends a discount from a chosen day — earlier charges keep it, later open ones lose it', function () {
+    trsOn($this->academy);
+    Sanctum::actingAs($this->owner);
+    $line = fn (string $student, string $period) => trsTenant($this->academy, fn () => DB::table('invoice_line_items')->where('class_group_id', $this->groupId)->where('student_id', $student)->where('group_period', $period)->first());
+    $id = $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'PERCENT', 'value' => 10, 'label' => 'Sibling', 'apply_to_existing' => true])
+        ->assertCreated()->json('id');
+
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts/{$id}/end", ['ends_on' => '2026-06-01'])->assertOk()
+        ->assertJsonPath('removed', ['lines' => 2, 'amount_minor' => 9000]);
+    expect((int) $line($this->adam, '2026-05-01')->amount_minor)->toBe(40500);
+    expect((int) $line($this->adam, '2026-06-01')->amount_minor)->toBe(45000);
+    // Repeating it, or asking for a later day, moves nothing more.
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts/{$id}/end", ['ends_on' => '2026-06-17'])->assertOk()->assertJsonPath('removed.lines', 0);
+    expect(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('id', $id)['ends_on'])->toBe('2026-06-01');
+    // Cancelling it afterwards takes May's back too.
+    $this->deleteJson("/api/accounting/family/{$this->parent}/discounts/{$id}")->assertOk()->assertJsonPath('removed.lines', 2);
+    expect((int) $line($this->adam, '2026-05-01')->amount_minor)->toBe(45000);
+});
+
+it('puts one discount on several groups and on one subject’s private subscription — and nothing else', function () {
+    trsOn($this->academy);
+    Sanctum::actingAs($this->owner);
+    $group = fn (string $name, int $weekday) => $this->postJson('/api/groups', [
+        'name' => $name, 'teacher_id' => $this->teacher, 'start_date' => '2026-05-01',
+        'slots' => [['weekday' => $weekday, 'start_time_local' => '17:00', 'duration_minutes' => 60]],
+        'billing_mode' => 'MONTHLY', 'price_minor' => 30000, 'currency' => 'EGP',
+        'student_ids' => [$this->adam],
+    ])->assertCreated()->json('group.id');
+    $maths = $group('Maths', 2);
+    $science = $group('Science', 3);
+    $amount = fn (string $groupId, string $period) => (int) trsTenant($this->academy, fn () => DB::table('invoice_line_items')->where('class_group_id', $groupId)->where('student_id', $this->adam)->where('group_period', $period)->value('amount_minor'));
+
+    // Adam: English and Maths, not Science.
+    $res = $this->postJson("/api/accounting/family/{$this->parent}/discounts", [
+        'kind' => 'PERCENT', 'value' => 10, 'label' => 'Two subjects', 'student_id' => $this->adam, 'apply_to_existing' => true,
+        'targets' => [['class_group_id' => $this->groupId], ['class_group_id' => $maths], ['class_group_id' => $maths]],
+    ])->assertCreated();
+    expect($res->json('applied'))->toBe(['lines' => 4, 'discount_minor' => 15000]);
+    expect($amount($this->groupId, '2026-06-01'))->toBe(40500)->and($amount($maths, '2026-06-01'))->toBe(27000)->and($amount($science, '2026-06-01'))->toBe(30000);
+    $discount = collect($this->getJson("/api/accounting/family/{$this->parent}")->assertOk()->json('discounts'))->firstWhere('label', 'Two subjects');
+    expect($discount['scope'])->toBe('GROUP')
+        ->and(collect($discount['targets'])->pluck('group_name')->sort()->values()->all())->toBe(['English A1', 'Maths']);
+    // Bassel is in English too, but the discount is Adam's.
+    expect((int) trsTenant($this->academy, fn () => DB::table('invoice_line_items')->where('class_group_id', $this->groupId)->where('student_id', $this->bassel)->where('group_period', '2026-06-01')->value('amount_minor')))->toBe(45000);
+
+    // One subject's private subscription: only charges of that teacher's subject, of that child.
+    $other = $this->createTeacher($this->academy, ['full_name' => 'Mr Sami', 'session_rate_minor' => 6000, 'currency' => 'EGP']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts", [
+        'kind' => 'FIXED', 'value' => 2000, 'label' => 'Maths block', 'targets' => [['student_id' => $this->adam, 'teacher_id' => $this->teacher]],
+    ])->assertCreated();
+    $price = fn (string $student, string $scope, ?string $groupId, $teacher) => trsTenant($this->academy, fn () => app(PayerDiscounts::class)->apply($this->academy, $student, $scope, $groupId, 10000, '2026-06-20', $teacher)['amount_minor']);
+    expect($price($this->adam, PayerDiscounts::SCOPE_PRIVATE, null, $this->teacher))->toBe(8000)
+        ->and($price($this->adam, PayerDiscounts::SCOPE_PRIVATE, null, fn () => $this->teacher))->toBe(8000)
+        ->and($price($this->adam, PayerDiscounts::SCOPE_PRIVATE, null, $other))->toBe(10000)
+        ->and($price($this->bassel, PayerDiscounts::SCOPE_PRIVATE, null, $this->teacher))->toBe(10000)
+        // The group discount above is Adam's group charges only: a private one is not in it.
+        ->and($price($this->adam, PayerDiscounts::SCOPE_GROUP, $science, null))->toBe(10000);
+    expect(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('label', 'Maths block'))
+        ->toMatchArray(['scope' => 'PRIVATE'])
+        ->and(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('label', 'Maths block')['targets'][0])
+        ->toMatchArray(['student_name' => 'Adam', 'teacher_name' => 'Miss Mona', 'class_group_id' => null]);
+
+    // Group and private together make an ALL-scope discount on exactly those.
+    $mixed = $this->postJson("/api/accounting/family/{$this->parent}/discounts", [
+        'kind' => 'FIXED', 'value' => 1000, 'label' => 'Mixed', 'targets' => [['class_group_id' => $science], ['student_id' => $this->bassel]],
+    ])->assertCreated()->json('id');
+    expect(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('id', $mixed)['scope'])->toBe('ALL');
+    expect($price($this->bassel, PayerDiscounts::SCOPE_PRIVATE, null, $other))->toBe(9000)
+        ->and($price($this->adam, PayerDiscounts::SCOPE_GROUP, $science, null))->toBe(9000);
+
+    // Refused: a target that is both, a child of another family, a child other than the discount's.
+    $stranger = $this->createStudent($this->academy, $this->createGuardian($this->academy, ['full_name' => 'Other parent']), ['full_name' => 'Zed', 'status' => 'REGULAR']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    $bad = fn (array $targets, array $extra = []) => $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'FIXED', 'value' => 100, 'label' => 'x', 'targets' => $targets] + $extra)->assertStatus(422);
+    $bad([['class_group_id' => $maths, 'student_id' => $this->adam]]);
+    $bad([['student_id' => $stranger]]);
+    $bad([['student_id' => $this->bassel]], ['student_id' => $this->adam]);
 });
 
 it('keeps discount presets an admin defines once, and a discount made from one copies it and remembers it', function () {

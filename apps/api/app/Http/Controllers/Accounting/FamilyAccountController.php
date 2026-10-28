@@ -135,6 +135,14 @@ final class FamilyAccountController extends Controller
             ->distinct()
             ->get(['s.student_id', 't.full_name'])
             ->groupBy(fn ($r) => (string) $r->student_id);
+        // The private subscriptions a discount can be put on: each child's open blocks, one per subject.
+        $packages = DB::table('lesson_packages as p')
+            ->leftJoin('teachers as t', 't.id', '=', 'p.teacher_id')
+            ->whereIn('p.student_id', $childIds ?: ['00000000-0000-0000-0000-000000000000'])
+            ->where('p.status', 'ACTIVE')
+            ->orderBy('p.course')
+            ->get(['p.student_id', 'p.teacher_id', 'p.course', 'p.label', 't.full_name as teacher_name'])
+            ->groupBy(fn ($r) => (string) $r->student_id);
 
         $childRows = $children->map(fn ($c) => [
             'id' => (string) $c->id,
@@ -156,6 +164,17 @@ final class FamilyAccountController extends Controller
                 'price_basis' => (string) $subscriptions[(string) $c->id]->price_basis,
                 'teachers' => ($teachers[(string) $c->id] ?? collect())->pluck('full_name')->values()->all(),
             ] : null,
+            // teacher_id null = every private charge of the child; set = that subject's block.
+            'private_subscriptions' => isset($subscriptions[(string) $c->id]) || isset($packages[(string) $c->id])
+                ? array_merge(
+                    [['teacher_id' => null, 'teacher_name' => null, 'course' => null]],
+                    ($packages[(string) $c->id] ?? collect())->whereNotNull('teacher_id')->map(fn ($p) => [
+                        'teacher_id' => (string) $p->teacher_id,
+                        'teacher_name' => $p->teacher_name,
+                        'course' => $p->course ?? $p->label,
+                    ])->values()->all(),
+                )
+                : [],
             'due' => array_map(fn ($cur, $amt) => ['currency' => $cur, 'due_minor' => $amt], array_keys($dueByChild[(string) $c->id] ?? []), array_values($dueByChild[(string) $c->id] ?? [])),
         ])->all();
 
@@ -243,11 +262,19 @@ final class FamilyAccountController extends Controller
                 'scope' => (string) $d->scope,
                 'student_id' => $d->student_id !== null ? (string) $d->student_id : null,
                 'student_name' => $d->student_name,
-                'class_group_id' => $d->class_group_id !== null ? (string) $d->class_group_id : null,
-                'group_name' => $d->group_name,
+                // Empty = every charge in its scope.
+                'targets' => array_map(fn ($t) => [
+                    'class_group_id' => $t->class_group_id !== null ? (string) $t->class_group_id : null,
+                    'group_name' => $t->group_name,
+                    'student_id' => $t->student_id !== null ? (string) $t->student_id : null,
+                    'student_name' => $t->student_name,
+                    'teacher_id' => $t->teacher_id !== null ? (string) $t->teacher_id : null,
+                    'teacher_name' => $t->teacher_name,
+                ], $d->targets),
                 'starts_on' => Carbon::parse($d->starts_on)->format('Y-m-d'),
                 'ends_on' => $d->ends_on !== null ? Carbon::parse($d->ends_on)->format('Y-m-d') : null,
-                'active' => $d->ends_on === null || Carbon::parse($d->ends_on)->format('Y-m-d') > $today,
+                'active' => $d->cancelled_at === null && ($d->ends_on === null || Carbon::parse($d->ends_on)->format('Y-m-d') > $today),
+                'cancelled' => $d->cancelled_at !== null,
                 'preset_id' => isset($d->preset_id) && $d->preset_id !== null ? (string) $d->preset_id : null,
                 'by' => $d->created_by_name,
             ])->values()->all(),
@@ -305,6 +332,10 @@ final class FamilyAccountController extends Controller
      * child): a percentage or a fixed amount off each charge, from today, until it is ended. With
      * `apply_to_existing` it also comes off the charges already on the family's open bills
      * ({@see PayerDiscounts::applyToExisting()}); without it, nothing already billed moves.
+     *
+     * `targets` puts it on chosen groups and private subscriptions only — any number of each:
+     * `{class_group_id}` or `{student_id, teacher_id?}` (a child's private charges, or one subject's).
+     * The scope then follows them. A lone `class_group_id` (the older form) is one group target.
      */
     public function addDiscount(Request $request, string $guardianId): JsonResponse
     {
@@ -319,6 +350,10 @@ final class FamilyAccountController extends Controller
             'scope' => ['sometimes', Rule::in(['ALL', 'GROUP', 'PRIVATE'])],
             'student_id' => ['nullable', 'uuid'],
             'class_group_id' => ['nullable', 'uuid'],
+            'targets' => ['sometimes', 'array', 'max:50'],
+            'targets.*.class_group_id' => ['nullable', 'uuid'],
+            'targets.*.student_id' => ['nullable', 'uuid'],
+            'targets.*.teacher_id' => ['nullable', 'uuid'],
             'starts_on' => ['nullable', 'date_format:Y-m-d'],
             'apply_to_existing' => ['sometimes', 'boolean'],
         ]);
@@ -344,31 +379,41 @@ final class FamilyAccountController extends Controller
             throw ValidationException::withMessages(['student_id' => ['Not one of this family\'s children. / ليس من أبناء هذه الأسرة.']]);
         }
         $scope = $data['scope'] ?? 'ALL';
-        $groupId = $scope === 'GROUP' ? ($data['class_group_id'] ?? null) : null;
-        if ($groupId !== null && ! DB::table('class_groups')->where('id', $groupId)->exists()) {
-            throw ValidationException::withMessages(['class_group_id' => ['Unknown group. / مجموعة غير معروفة.']]);
+        $targets = $this->discountTargets($guardianId, $studentId, $data['targets'] ?? (
+            $scope === 'GROUP' && ($data['class_group_id'] ?? null) !== null ? [['class_group_id' => $data['class_group_id']]] : []
+        ));
+        if ($targets !== []) {
+            $kinds = array_unique(array_map(fn ($t) => $t['class_group_id'] !== null ? 'GROUP' : 'PRIVATE', $targets));
+            $scope = count($kinds) === 1 ? $kinds[0] : 'ALL';
         }
 
         $ctx = app(AuthContext::class);
         $academyId = $this->academyId();
-        $id = (string) DB::table('payer_discounts')->insertGetId([
-            'academy_id' => $academyId,
-            'guardian_id' => $studentId === null ? $guardianId : null,
-            'student_id' => $studentId,
-            'kind' => $data['kind'],
-            'value' => $data['kind'] === 'PERCENT' ? (int) $data['value'] * 100 : (int) $data['value'],
-            'label' => trim((string) $data['label']),
-            'scope' => $scope,
-            'class_group_id' => $groupId,
-            'starts_on' => $data['starts_on'] ?? $this->discounts->today($academyId),
-            'preset_id' => $presetId,
-            'created_by' => $ctx->userId,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        // One write: a discount whose targets did not land would reach every charge.
+        $id = DB::transaction(function () use ($academyId, $guardianId, $studentId, $data, $scope, $presetId, $ctx, $targets): string {
+            $id = (string) DB::table('payer_discounts')->insertGetId([
+                'academy_id' => $academyId,
+                'guardian_id' => $studentId === null ? $guardianId : null,
+                'student_id' => $studentId,
+                'kind' => $data['kind'],
+                'value' => $data['kind'] === 'PERCENT' ? (int) $data['value'] * 100 : (int) $data['value'],
+                'label' => trim((string) $data['label']),
+                'scope' => $scope,
+                'starts_on' => $data['starts_on'] ?? $this->discounts->today($academyId),
+                'preset_id' => $presetId,
+                'created_by' => $ctx->userId,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            foreach ($targets as $t) {
+                DB::table('payer_discount_targets')->insert(['academy_id' => $academyId, 'discount_id' => $id] + $t);
+            }
+
+            return $id;
+        });
         Audit::log('accounting.discount_added', 'guardian', $guardianId, $academyId, $ctx->userId, $ctx->role, after: [
             'discount' => $id, 'kind' => $data['kind'], 'value' => (int) $data['value'], 'label' => trim((string) $data['label']), 'scope' => $scope, 'student_id' => $studentId,
-            'preset_id' => $presetId,
+            'preset_id' => $presetId, 'targets' => $targets,
         ]);
         $applied = ($data['apply_to_existing'] ?? false) ? $this->applied($guardianId, $id) : ['lines' => 0, 'discount_minor' => 0];
 
@@ -383,31 +428,83 @@ final class FamilyAccountController extends Controller
     {
         Gate::authorize('invoice.mark_paid');
         $d = $this->familyDiscount($guardianId, $discountId);
-        if ($d->ends_on !== null && Carbon::parse($d->ends_on)->format('Y-m-d') <= $this->discounts->today($this->academyId())) {
+        if ($d->cancelled_at !== null || ($d->ends_on !== null && Carbon::parse($d->ends_on)->format('Y-m-d') <= $this->discounts->today($this->academyId()))) {
             throw ValidationException::withMessages(['discount' => ['This discount has ended. / هذا الخصم منتهٍ.']]);
         }
 
         return response()->json(['applied' => $this->applied($guardianId, $discountId)]);
     }
 
-    /** DELETE /api/accounting/family/{guardianId}/discounts/{id} — ends it today. What it already took stays. */
-    public function endDiscount(string $guardianId, string $discountId): JsonResponse
+    /**
+     * POST /api/accounting/family/{guardianId}/discounts/{id}/end { ends_on? } — stops it from a day
+     * (today unless given): every charge dated from then on, the ones on open bills included, goes
+     * back to its full price. What it took before that day stays.
+     */
+    public function endDiscount(Request $request, string $guardianId, string $discountId): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $data = $request->validate(['ends_on' => ['nullable', 'date_format:Y-m-d']]);
+        $d = $this->familyDiscount($guardianId, $discountId);
+        if ($d->cancelled_at !== null) {
+            throw ValidationException::withMessages(['discount' => ['This discount was cancelled. / هذا الخصم أُلغي.']]);
+        }
+        $ctx = app(AuthContext::class);
+        $endsOn = $data['ends_on'] ?? $this->discounts->today($this->academyId());
+        $removed = $this->discounts->end($this->academyId(), $discountId, $endsOn, $ctx->userId);
+        Audit::log('accounting.discount_ended', 'guardian', $guardianId, $this->academyId(), $ctx->userId, $ctx->role,
+            before: ['discount' => $discountId, 'label' => $d->label], after: ['ends_on' => $endsOn] + $removed);
+
+        return response()->json(['removed' => ['lines' => $removed['lines'], 'amount_minor' => -$removed['discount_minor']]]);
+    }
+
+    /**
+     * DELETE /api/accounting/family/{guardianId}/discounts/{id} — cancels it, as if it was never
+     * given: it comes off every charge still on an open bill. Closed bills keep what they were.
+     */
+    public function cancelDiscount(string $guardianId, string $discountId): JsonResponse
     {
         Gate::authorize('invoice.mark_paid');
         $d = $this->familyDiscount($guardianId, $discountId);
         $ctx = app(AuthContext::class);
-        $today = $this->discounts->today($this->academyId());
-        if ($d->ends_on === null || Carbon::parse($d->ends_on)->format('Y-m-d') > $today) {
-            // Ending it on the day it started removes it outright: it never applied to anything.
-            DB::table('payer_discounts')->where('id', $discountId)->update([
-                'ends_on' => max($today, Carbon::parse($d->starts_on)->format('Y-m-d')),
-                'ended_by' => $ctx->userId,
-                'updated_at' => now(),
-            ]);
-        }
-        Audit::log('accounting.discount_ended', 'guardian', $guardianId, $this->academyId(), $ctx->userId, $ctx->role, before: ['discount' => $discountId, 'label' => $d->label]);
+        $removed = $this->discounts->cancel($this->academyId(), $discountId, $ctx->userId);
+        Audit::log('accounting.discount_cancelled', 'guardian', $guardianId, $this->academyId(), $ctx->userId, $ctx->role,
+            before: ['discount' => $discountId, 'label' => $d->label], after: $removed);
 
-        return response()->json(['ok' => true]);
+        return response()->json(['removed' => ['lines' => $removed['lines'], 'amount_minor' => -$removed['discount_minor']]]);
+    }
+
+    /**
+     * The groups and private subscriptions a new discount is put on, checked against the family:
+     * a group that exists, a child of this family (the discount's own child, when it has one) and
+     * a teacher that exists. Duplicates collapse.
+     *
+     * @param  list<array{class_group_id?:?string, student_id?:?string, teacher_id?:?string}>  $input
+     * @return list<array{class_group_id:?string, student_id:?string, teacher_id:?string}>
+     */
+    private function discountTargets(string $guardianId, ?string $studentId, array $input): array
+    {
+        $targets = [];
+        foreach ($input as $t) {
+            $groupId = $t['class_group_id'] ?? null;
+            $childId = $t['student_id'] ?? null;
+            $teacherId = $childId !== null ? ($t['teacher_id'] ?? null) : null;
+            if (($groupId === null) === ($childId === null)) {
+                throw ValidationException::withMessages(['targets' => ['Each choice is a group or a child\'s private subscription. / كل اختيار مجموعة أو اشتراك خاص لابن.']]);
+            }
+            if ($groupId !== null && ! DB::table('class_groups')->where('id', $groupId)->exists()) {
+                throw ValidationException::withMessages(['targets' => ['Unknown group. / مجموعة غير معروفة.']]);
+            }
+            if ($childId !== null && (($studentId !== null && $childId !== $studentId)
+                || ! DB::table('students')->where('id', $childId)->where('guardian_id', $guardianId)->exists())) {
+                throw ValidationException::withMessages(['targets' => ['Not one of this family\'s children. / ليس من أبناء هذه الأسرة.']]);
+            }
+            if ($teacherId !== null && ! DB::table('teachers')->where('id', $teacherId)->exists()) {
+                throw ValidationException::withMessages(['targets' => ['Unknown teacher. / معلم غير معروف.']]);
+            }
+            $targets[$groupId.'|'.$childId.'|'.$teacherId] = ['class_group_id' => $groupId, 'student_id' => $childId, 'teacher_id' => $teacherId];
+        }
+
+        return array_values($targets);
     }
 
     /** Runs the reprice and leaves a trace of what it moved. */
