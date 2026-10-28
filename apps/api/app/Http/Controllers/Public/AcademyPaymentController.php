@@ -48,7 +48,7 @@ final class AcademyPaymentController extends Controller
     {
         $data = $request->validate([
             'method' => ['required', Rule::in(['INSTAPAY', 'VODAFONE_CASH'])],
-            'screenshot' => ['required', 'file', 'image', 'max:5120'], // ≤ 5 MB image
+            'screenshot' => ['required', 'file', 'image', 'max:20480'], // ≤ 20 MB image — an iPhone PNG screenshot runs past 5 MB
             'amount' => ['nullable', 'integer', 'min:0'],
             'note' => ['nullable', 'string', 'max:1000'],
         ]);

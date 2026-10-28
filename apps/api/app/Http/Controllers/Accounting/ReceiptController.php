@@ -142,7 +142,7 @@ final class ReceiptController extends Controller
             'note' => ['nullable', 'string', 'max:1000'],
             'received_on' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:'.Carbon::now($tz)->format('Y-m-d')],
             // Money that moved through a bank, a wallet or a card leaves a picture; cash does not.
-            'proof' => [Rule::requiredIf(fn () => $request->input('method') !== 'CASH'), 'nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'proof' => [Rule::requiredIf(fn () => $request->input('method') !== 'CASH'), 'nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480'],
             'line_ids' => ['nullable', 'array', 'max:500'],
             'line_ids.*' => ['uuid'],
             'apply_rest' => ['nullable', 'boolean'],

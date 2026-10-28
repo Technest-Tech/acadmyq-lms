@@ -775,7 +775,7 @@ final class InvoiceController extends Controller
             'payment_method' => ['required', 'string', 'in:CASH,BANK_TRANSFER,OTHER'],
             'payment_reason' => ['nullable', 'string', 'max:1000'],
             'payment_reference' => ['nullable', 'string', 'max:255'],
-            'payment_proof' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+            'payment_proof' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480'],
             'amount_paid_minor' => ['nullable', 'integer', 'min:0'],
         ]);
 
