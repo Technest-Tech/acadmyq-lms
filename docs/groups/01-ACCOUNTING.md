@@ -664,3 +664,23 @@ picked all three meanings of "amount"):**
   receipt since its opening day) is deleted for good with its method map; one with history is
   STOPPED instead (`is_active=false`, methods unmapped, records kept) and only when its balance is
   zero. Stopped accounts are listed under the treasury grid and can be reactivated from their page.
+
+## A child's charges follow them to their new family (2026-10-28)
+
+Lingo had two «آيات محسن»; the desk moved the child onto one to delete the other — and the emptied
+parent kept every bill (a parent with no children, still owing) while the new one owed nothing.
+`PATCH /students/{id}` with a new `guardian_id` re-pointed the child alone.
+
+Now `App\Services\FamilyCharges::carry()` runs inside the move (one transaction) for PER_GUARDIAN
+academies, accounting or classic, bill by bill over the old family's bills holding the child:
+an OPEN bill → all the child's lines go to the new family's bill for that month (or the bill changes
+hands whole if it is only the child's; two AUTO bills for one family+month can't exist, so a running
+month joins the twin and the emptied bill stays at zero — never deleted, xpay rows cascade off
+invoices); a closed bill only the child's with something owed → changes hands whole (a twin forces it
+to MANUAL); a closed bill shared with siblings → cannot split (frozen totals), reported as `stuck`;
+fully paid → stays. Receipts never move; allocations follow their lines. The response carries
+`charges {lines, invoices, stuck, amounts}`; audit `student.charges_moved`.
+
+Repair for moves made before: `GET /guardians/{id}` returns `moved_away` (invoice.read only) and the
+family page shows an amber card per child with "Move the charges" → `POST /students/{id}/carry-charges`
+(student.update, idempotent). Tests: tests/Feature/Accounting/FamilyChargesTest.php.

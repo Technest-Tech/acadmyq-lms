@@ -721,6 +721,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/students', [StudentController::class, 'store']);
     Route::get('/students/{id}', [StudentController::class, 'show']);
     Route::patch('/students/{id}', [StudentController::class, 'update']);
+    Route::post('/students/{id}/carry-charges', [StudentController::class, 'carryCharges'])->whereUuid('id');
     Route::post('/students/{id}/deactivate', [StudentController::class, 'deactivate']);
     Route::post('/students/{id}/reactivate', [StudentController::class, 'reactivate']);
     // Owner-facing "remove from the system" — a recoverable soft-delete (design §3.7); the row

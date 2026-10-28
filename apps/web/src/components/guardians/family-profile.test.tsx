@@ -18,6 +18,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   deleteGuardian: vi.fn(),
   reactivateGuardian: vi.fn(),
   updateStudent: vi.fn(),
+  carryStudentCharges: vi.fn(),
   listStudents: vi.fn(),
   listGuardians: vi.fn(),
   listTeachers: vi.fn(),
@@ -193,6 +194,62 @@ describe("FamilyProfile", () => {
         guardian_id: "g1",
       }),
     );
+  });
+
+  // Lingo, 2026-10-28: the child moved, their bills stayed behind with the old parent.
+  it("says what came along with a moved child, and what could not", async () => {
+    vi.mocked(api.listStudents).mockResolvedValue({
+      rows: [{ id: "s9", full_name: "Bilal", guardian_name: "Another Family", deleted_at: null } as unknown as api.StudentRow],
+      total: 1,
+      page: 1,
+      pageSize: 200,
+    });
+    vi.mocked(api.updateStudent).mockResolvedValue({
+      ok: true,
+      changed: ["guardian_id"],
+      charges: { lines: 2, invoices: 2, stuck: 1, amounts: [{ currency: "EGP", amount_minor: 90000 }] },
+    });
+    renderProfile();
+    await screen.findByTestId("guardian-children");
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("link-child"));
+    await user.click(await screen.findByTestId("link-student-picker"));
+    await user.click(await screen.findByText("Bilal"));
+    await user.click(screen.getByTestId("confirm-link-child"));
+
+    expect(await screen.findByText(/with what they owe: EGP\s?900/)).toBeInTheDocument();
+    expect(screen.getByText(/1 charge stays on a closed bill/)).toBeInTheDocument();
+  });
+
+  it("offers to send a moved child's charges after them, and does", async () => {
+    const base = await api.getGuardian("g1");
+    const stray = { student_id: "s7", student_name: "Omar", guardian_id: "g2", guardian_name: "Ayat Mohsen", movable: true, amounts: [{ currency: "EGP", amount_minor: 45000 }] };
+    vi.mocked(api.getGuardian).mockResolvedValueOnce({ ...base, moved_away: [stray] }).mockResolvedValue({ ...base, moved_away: [] });
+    vi.mocked(api.carryStudentCharges).mockResolvedValue({ charges: { lines: 1, invoices: 1, stuck: 0, amounts: [{ currency: "EGP", amount_minor: 45000 }] } });
+    renderProfile();
+
+    const card = await screen.findByTestId("moved-away");
+    expect(within(card).getByText("Omar")).toBeInTheDocument();
+    expect(within(card).getByRole("link", { name: "Ayat Mohsen" })).toHaveAttribute("href", "/guardians/g2");
+    await userEvent.setup().click(within(card).getByTestId("carry-s7"));
+
+    await waitFor(() => expect(api.carryStudentCharges).toHaveBeenCalledWith("s7", "g1"));
+    expect(await screen.findByText(/Omar’s charges \(EGP\s?450.*\) moved to Ayat Mohsen/)).toBeInTheDocument();
+    expect(screen.queryByTestId("moved-away")).not.toBeInTheDocument();
+  });
+
+  it("names a moved child's charges it cannot split, without a button", async () => {
+    const base = await api.getGuardian("g1");
+    vi.mocked(api.getGuardian).mockResolvedValue({
+      ...base,
+      moved_away: [{ student_id: "s7", student_name: "Omar", guardian_id: "g2", guardian_name: "Ayat Mohsen", movable: false, amounts: [{ currency: "EGP", amount_minor: 45000 }] }],
+    });
+    renderProfile();
+
+    const card = await screen.findByTestId("moved-away");
+    expect(within(card).getByText(enMessages.guardians.detail.movedAway.stuck)).toBeInTheDocument();
+    expect(within(card).queryByTestId("carry-s7")).not.toBeInTheDocument();
   });
 
   // Adding a child is one flow: the "already in the system" path must be reachable from the

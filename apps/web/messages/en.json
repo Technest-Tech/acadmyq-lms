@@ -1134,7 +1134,18 @@
       "deleteConfirmBody": "The parent disappears from your lists. Bills, receipts and lesson history are not erased, and they can be reactivated later.",
       "deleteChildrenTick": "Also delete {count, plural, one {their child} other {their # children}}",
       "deleteChildrenHint": "Their timetables stop, packages close and unmarked lessons are cancelled — exactly as deleting each student.",
-      "deleteYes": "Yes, delete"
+      "deleteYes": "Yes, delete",
+      "linkedWithCharges": "Student moved to this family, with what they owe: {amount}.",
+      "chargesStuck": "{count, plural, one {# charge stays} other {# charges stay}} on a closed bill shared with siblings in the previous family.",
+      "movedAway": {
+        "title": "Charges of children who moved to another family",
+        "hint": "These amounts are still on this family’s bills for children who are no longer in it. Move them to the family they moved to.",
+        "movedTo": "moved to",
+        "move": "Move the charges",
+        "moved": "{student}’s charges ({amount}) moved to {guardian}.",
+        "stuck": "On a closed bill shared with siblings — it cannot be split.",
+        "nothing": "Nothing left to move."
+      }
     }
   },
   "teachers": {
@@ -2075,7 +2086,9 @@
       "keep": "Keep it",
       "deleted": "Subscription deleted.",
       "deletedCredited": "Subscription deleted. {amount} already paid toward it is now the family's credit.",
-      "deleteFailed": "Couldn't delete the subscription."
+      "deleteFailed": "Couldn't delete the subscription.",
+      "deletePrivateTitle": "Delete {name}'s private subscription {label}?",
+      "deletePrivateHint": "For a subscription opened by mistake: it disappears with its unpaid bill. Only offered while no lesson has been counted on it and nothing has been paid toward it — otherwise end it."
     },
     "monthly": {
       "lessons": "Lessons a month",

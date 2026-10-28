@@ -7,6 +7,7 @@ namespace App\Http\Controllers\People;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Services\ClassGroups;
+use App\Services\FamilyCharges;
 use App\Services\Invoicing;
 use App\Services\LessonPackages;
 use App\Services\SessionGenerator;
@@ -279,6 +280,8 @@ final class StudentController extends Controller
      * and drops the adult-solo flag (a student stops being their own guardian the moment a real
      * one takes over). The old self-guardian row is left alone — deactivating a record the user
      * did not ask about would be a surprise, and it is deactivatable from the parents page.
+     * The child's charges move with them ({@see FamilyCharges::carry()}): what the old family's
+     * bills still hold for them goes onto the new family's, reported back as `charges`.
      */
     public function update(Request $request, string $id): JsonResponse
     {
@@ -341,18 +344,46 @@ final class StudentController extends Controller
         }
 
         $academyId = $this->currentAcademyId();
-        DB::table('students')->where('id', $id)->update($after + $move + ['updated_at' => now()]);
+        // One unit: a move whose charges cannot follow must not half-happen (a 422 would commit it).
+        $charges = DB::transaction(function () use ($id, $after, $move, $before, $existing, $academyId) {
+            DB::table('students')->where('id', $id)->update($after + $move + ['updated_at' => now()]);
 
-        if ($after !== []) {
-            Audit::log('student.update', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
-        }
-        if ($move !== []) {
+            if ($after !== []) {
+                Audit::log('student.update', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
+            }
+            if ($move === []) {
+                return null;
+            }
             Audit::log('student.guardian_reassigned', 'student', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
                 after: $move,
                 before: ['guardian_id' => $existing->guardian_id, 'is_self_guardian' => $existing->is_self_guardian]);
+
+            return $existing->guardian_id !== null
+                ? app(FamilyCharges::class)->carry($academyId, $id, (string) $existing->guardian_id, $this->ctx()->userId, $this->ctx()->role)
+                : null;
+        });
+
+        return response()->json(['ok' => true, 'changed' => array_keys($after + $move)] + ($charges !== null ? ['charges' => $charges] : []));
+    }
+
+    /**
+     * POST /api/students/{id}/carry-charges — send after the student whatever another family's
+     * bills still hold for them (a move made before charges followed the child, 2026-10-28). Same
+     * permission as the move itself.
+     */
+    public function carryCharges(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('student.update');
+        $data = $request->validate(['from_guardian_id' => ['nullable', 'uuid']]);
+        if (DB::table('students')->where('id', $id)->whereNull('deleted_at')->doesntExist()) {
+            abort(404, 'Student not found.');
         }
 
-        return response()->json(['ok' => true, 'changed' => array_keys($after + $move)]);
+        $charges = DB::transaction(fn () => app(FamilyCharges::class)->carry(
+            $this->currentAcademyId(), $id, $data['from_guardian_id'] ?? null, $this->ctx()->userId, $this->ctx()->role,
+        ));
+
+        return response()->json(['charges' => $charges]);
     }
 
     /**

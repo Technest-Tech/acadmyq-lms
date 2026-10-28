@@ -214,4 +214,24 @@ describe("SubscriptionsCard", () => {
     await waitFor(() => expect(groupsApi.undoGroupMember).toHaveBeenCalledWith("g1", "s1"));
     expect(await screen.findByText(ar.deleted)).toBeTruthy();
   });
+
+  it("offers Delete only on a private subscription nothing has happened on, and deletes it", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg(),
+        pkg({ id: "p2", label: "Opened by mistake", minutes_consumed: 0, minutes_remaining: 600, lesson_count: 0, invoice_paid_minor: 0, outstanding_minor: 100000 }),
+        pkg({ id: "p3", label: "Paid, unused", minutes_consumed: 0, minutes_remaining: 600, lesson_count: 0 }),
+      ],
+    });
+    pkgApi.cancelLessonPackage.mockResolvedValue({ ok: true });
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+
+    const wrong = await screen.findByTestId("subs-package-p2");
+    expect(within(screen.getByTestId("subs-package-p1")).queryByTestId("subs-delete")).toBeNull();
+    expect(within(screen.getByTestId("subs-package-p3")).queryByTestId("subs-delete")).toBeNull();
+    await userEvent.click(within(wrong).getByTestId("subs-delete"));
+    await userEvent.click(await screen.findByTestId("subs-package-delete-confirm"));
+    await waitFor(() => expect(pkgApi.cancelLessonPackage).toHaveBeenCalledWith("p2"));
+    expect(await screen.findByText(ar.deleted)).toBeTruthy();
+  });
 });

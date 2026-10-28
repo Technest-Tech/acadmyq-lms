@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { ProfileCard } from "@/components/ui/profile-card";
 import { getStudentRenewalPolicy, setStudentRenewalPolicy, type StudentRenewalPolicy } from "@/lib/accounting-api";
-import { listLessonPackages, type LessonPackageRow } from "@/lib/api";
+import { cancelLessonPackage, listLessonPackages, type LessonPackageRow } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
 import { addGroupMembers, getGroup, listBoardMembers, listGroups, undoGroupMember, type BoardMember, type GroupDetail, type GroupRow } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
@@ -35,7 +35,8 @@ import { cn } from "@/lib/utils";
  * Every open row can be edited or ended here, with the group page's and the packages page's own
  * forms: a student pauses or drops ONE group and keeps the rest, so ending is per row — a
  * membership gets a leave date and a reason (PAUSED / STOPPED), a private subscription is closed
- * (what was used is billed) or, if untouched, cancelled. Nothing is deleted.
+ * (what was used is billed) or, if untouched, cancelled. Only a row opened by mistake, with nothing
+ * on it yet, can be deleted outright.
  */
 export function SubscriptionsCard({ studentId, studentName, onChanged }: { studentId: string; studentName: string; onChanged?: () => void }) {
   const centre = useCapability("centre");
@@ -47,7 +48,15 @@ type Action =
   | { kind: "join" }
   | { kind: "package" }
   | { kind: "groupEdit" | "groupEnd" | "groupDelete"; member: BoardMember }
-  | { kind: "pkgEdit" | "pkgEnd"; row: LessonPackageRow };
+  | { kind: "pkgEdit" | "pkgEnd" | "pkgDelete"; row: LessonPackageRow };
+
+/**
+ * A private subscription opened by mistake can go — while nothing has happened on it: no lesson
+ * counted, no money in. The API voids its still-unpaid bill with it; anything further is ended.
+ */
+function packageDeletable(p: LessonPackageRow): boolean {
+  return p.status === "ACTIVE" && p.minutes_consumed === 0 && p.lesson_count === 0 && p.invoice_paid_minor === 0;
+}
 
 function Subscriptions({ studentId, studentName, onChanged }: { studentId: string; studentName: string; onChanged?: () => void }) {
   const t = useTranslations("students");
@@ -232,7 +241,13 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                       <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", p.invoice_id === null ? "bg-muted text-muted-foreground" : p.outstanding_minor > 0 ? "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300")} data-testid="subs-package-bill">
                         {p.invoice_id === null ? tp("card.notBilledYet") : p.outstanding_minor > 0 ? tp("card.amountDue", { amount: money(p.outstanding_minor, p.currency) }) : tp("card.paid")}
                       </span>
-                      {p.status === "ACTIVE" && managePackages && <RowActions onEdit={() => setModal({ kind: "pkgEdit", row: p })} onEnd={() => setModal({ kind: "pkgEnd", row: p })} />}
+                      {p.status === "ACTIVE" && managePackages && (
+                        <RowActions
+                          onEdit={() => setModal({ kind: "pkgEdit", row: p })}
+                          onEnd={() => setModal({ kind: "pkgEnd", row: p })}
+                          onDelete={packageDeletable(p) ? () => setModal({ kind: "pkgDelete", row: p }) : undefined}
+                        />
+                      )}
                     </div>
                   </li>
                 ))}
@@ -264,6 +279,7 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
         {modal?.kind === "pkgEdit" && <EditPackageForm row={modal.row} onSaved={(msg) => done(msg)} onCancel={() => setModal(null)} />}
       </Modal>
       <ClosePackageModal row={modal?.kind === "pkgEnd" ? modal.row : null} title={t("subscriptions.endPrivateTitle")} allowCancel onClose={() => setModal(null)} onDone={(msg) => done(msg)} />
+      {modal?.kind === "pkgDelete" && <DeletePackageModal row={modal.row} studentName={studentName} onClose={() => setModal(null)} onDone={(msg) => done(msg)} />}
     </ProfileCard>
   );
 }
@@ -332,6 +348,48 @@ function DeleteMembershipModal({ member, studentName, onClose, onDone }: { membe
       }
     >
       <p className="text-muted-foreground text-sm">{t("subscriptions.deleteHint")}</p>
+      {error && <AlertBanner variant="error" message={error} />}
+    </Modal>
+  );
+}
+
+/** Void a private subscription opened by mistake — its unpaid bill goes with it (POST /packages/{id}/cancel). */
+function DeletePackageModal({ row, studentName, onClose, onDone }: { row: LessonPackageRow; studentName: string; onClose: () => void; onDone: (message: string) => void }) {
+  const t = useTranslations("students");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm() {
+    setBusy(true);
+    setError(null);
+    try {
+      await cancelLessonPackage(row.id);
+      onDone(t("subscriptions.deleted"));
+    } catch (err) {
+      setError(apiErrorMessage(err, t("subscriptions.deleteFailed")));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t("subscriptions.deletePrivateTitle", { name: studentName, label: row.label })}
+      size="sm"
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+            {t("subscriptions.keep")}
+          </Button>
+          <Button type="button" variant="destructive" onClick={() => void confirm()} disabled={busy} data-testid="subs-package-delete-confirm">
+            {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+            {t("subscriptions.deleteConfirm")}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-muted-foreground text-sm">{t("subscriptions.deletePrivateHint")}</p>
       {error && <AlertBanner variant="error" message={error} />}
     </Modal>
   );

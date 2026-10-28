@@ -2106,9 +2106,31 @@ export function listGuardians(
   return apiFetch(`/api/guardians${toQueryString(q)}`);
 }
 
+/**
+ * What a family's bills still hold for a child who moved to another family (`invoice.read` only;
+ * empty otherwise). `movable` is false when it all sits on closed bills shared with siblings.
+ */
+export interface MovedAwayCharges {
+  student_id: string;
+  student_name: string;
+  guardian_id: string;
+  guardian_name: string | null;
+  movable: boolean;
+  amounts: { currency: string; amount_minor: number }[];
+}
+
+/** What followed a child to their new family when they moved. */
+export interface CarriedCharges {
+  lines: number;
+  invoices: number;
+  /** The child's lines left on closed bills shared with siblings (they cannot be split). */
+  stuck: number;
+  amounts: { currency: string; amount_minor: number }[];
+}
+
 export function getGuardian(
   id: string,
-): Promise<{ guardian: GuardianRow; children: GuardianChild[] }> {
+): Promise<{ guardian: GuardianRow; children: GuardianChild[]; moved_away?: MovedAwayCharges[] }> {
   return apiFetch(`/api/guardians/${id}`);
 }
 
@@ -3338,10 +3360,21 @@ export function createStudent(input: StudentInput): Promise<{
 export function updateStudent(
   id: string,
   patch: StudentInput,
-): Promise<{ ok: boolean; changed: string[] }> {
+): Promise<{ ok: boolean; changed: string[]; charges?: CarriedCharges }> {
   return apiFetch(`/api/students/${id}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
+  });
+}
+
+/** Send after a child what another family's bills still hold for them. */
+export function carryStudentCharges(
+  id: string,
+  fromGuardianId?: string,
+): Promise<{ charges: CarriedCharges }> {
+  return apiFetch(`/api/students/${id}/carry-charges`, {
+    method: "POST",
+    body: JSON.stringify({ from_guardian_id: fromGuardianId ?? null }),
   });
 }
 

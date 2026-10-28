@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  ArrowLeftRight,
   BookOpen,
   CalendarDays,
   PauseCircle,
@@ -20,6 +21,7 @@ import {
   Plus,
   RotateCcw,
   ShieldAlert,
+  TriangleAlert,
   UserCircle2,
   UserPlus,
   Users,
@@ -40,6 +42,7 @@ import { FamilyAccountsCard } from "@/components/accounting/family-accounts-card
 import { ParentPortalCard } from "@/components/guardians/parent-portal-card";
 import {
   ApiError,
+  carryStudentCharges,
   deleteGuardian,
   getGuardian,
   listStudents,
@@ -48,8 +51,10 @@ import {
   suspendGuardian,
   updateGuardian,
   updateStudent,
+  type CarriedCharges,
   type GuardianChild,
   type GuardianRow,
+  type MovedAwayCharges,
 } from "@/lib/api";
 import { COUNTRIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
@@ -462,6 +467,11 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
 
   const [guardian, setGuardian] = useState<GuardianRow | null>(null);
   const [children, setChildren] = useState<GuardianChild[]>([]);
+  // What this family's bills still hold for children who moved to another family.
+  const [movedAway, setMovedAway] = useState<MovedAwayCharges[]>([]);
+  const [carrying, setCarrying] = useState<string | null>(null);
+  // Bumped when money moves, so the family's account card reads it again.
+  const [moneyTick, setMoneyTick] = useState(0);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -488,6 +498,7 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
       const res = await getGuardian(guardianId);
       setGuardian(res.guardian);
       setChildren(res.children);
+      setMovedAway(res.moved_away ?? []);
     } catch {
       setNotFound(true);
     }
@@ -594,16 +605,55 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
     setModal("add");
   }
 
+  const money = (amounts: { currency: string; amount_minor: number }[]) =>
+    amounts.map((a) => formatMoney({ amount: a.amount_minor, currency: a.currency }, locale)).join(" + ");
+
+  /** What followed a moved child, in words: the amount that came along, and what could not. */
+  function carriedNote(charges: CarriedCharges | undefined, fallback: string): string {
+    if (!charges || (charges.lines === 0 && charges.stuck === 0)) return fallback;
+    return [
+      charges.amounts.length > 0 ? t("detail.linkedWithCharges", { amount: money(charges.amounts) }) : fallback,
+      charges.stuck > 0 ? t("detail.chargesStuck", { count: charges.stuck }) : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  async function carry(item: MovedAwayCharges) {
+    setCarrying(item.student_id);
+    setError(null);
+    try {
+      const res = await carryStudentCharges(item.student_id, guardianId);
+      await refresh();
+      setMoneyTick((n) => n + 1);
+      flash(
+        res.charges.lines > 0
+          ? [
+              t("detail.movedAway.moved", { student: item.student_name, amount: money(item.amounts), guardian: item.guardian_name ?? "" }),
+              res.charges.stuck > 0 ? t("detail.chargesStuck", { count: res.charges.stuck }) : null,
+            ]
+              .filter(Boolean)
+              .join(" ")
+          : t("detail.movedAway.nothing"),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setCarrying(null);
+    }
+  }
+
   async function linkStudent() {
     if (!selectedStudentId) return;
     setLinking(true);
     setError(null);
     try {
-      await updateStudent(selectedStudentId, { guardian_id: guardianId });
+      const res = await updateStudent(selectedStudentId, { guardian_id: guardianId });
       setModal("none");
       setSelectedStudentId("");
       await refresh();
-      flash(t("detail.linked"));
+      setMoneyTick((n) => n + 1);
+      flash(carriedNote(res.charges, t("detail.linked")));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -719,6 +769,49 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
         />
       )}
 
+      {/* ── Charges of children who moved to another family ─────────────── */}
+      {movedAway.length > 0 && (
+        <section className="space-y-3 rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4" data-testid="moved-away">
+          <div className="flex items-start gap-2.5">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+            <div>
+              <p className="text-sm font-semibold">{t("detail.movedAway.title")}</p>
+              <p className="text-muted-foreground text-xs">{t("detail.movedAway.hint")}</p>
+            </div>
+          </div>
+          <ul className="space-y-2">
+            {movedAway.map((m) => (
+              <li key={m.student_id} className="bg-card flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0 text-sm">
+                  <p className="break-words">
+                    <span className="font-medium">{m.student_name}</span>
+                    <span className="text-muted-foreground"> · {t("detail.movedAway.movedTo")} </span>
+                    <Link href={`/guardians/${m.guardian_id}`} className="text-primary font-medium hover:underline">
+                      {m.guardian_name ?? "—"}
+                    </Link>
+                  </p>
+                  <p className="font-semibold break-words text-amber-700 tabular-nums dark:text-amber-300">{money(m.amounts)}</p>
+                  {!m.movable && <p className="text-muted-foreground text-xs">{t("detail.movedAway.stuck")}</p>}
+                </div>
+                {canEditStudent && m.movable && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="shrink-0 gap-1"
+                    onClick={() => void carry(m)}
+                    disabled={carrying !== null}
+                    data-testid={`carry-${m.student_id}`}
+                  >
+                    <ArrowLeftRight className="size-3.5" aria-hidden />
+                    {t("detail.movedAway.move")}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {/* ── The children ─────────────────────────────────────────────── */}
       <ProfileCard
         icon={GraduationCap}
@@ -793,7 +886,7 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
       <ParentPortalCard guardianId={guardianId} active={isActive} />
 
       {/* ── The family's money (accounting academies only; renders nothing otherwise) ── */}
-      <FamilyAccountsCard guardianId={guardianId} />
+      <FamilyAccountsCard key={moneyTick} guardianId={guardianId} />
 
       {/* ── Billing contact ──────────────────────────────────────────── */}
       {canEdit && (

@@ -800,6 +800,12 @@ final class Invoicing implements BillingHook
         return [(string) $guardianId, null, $currency];
     }
 
+    /** The payer's bill still open for this month, or their first open one after it ({@see openInvoiceForLesson()}). */
+    public function openInvoiceFor(object $academy, ?string $guardianId, ?string $studentId, int $year, int $month, string $currency): string
+    {
+        return $this->openInvoiceForLesson($academy, $guardianId, $studentId, $year, $month, $currency);
+    }
+
     /**
      * Find or open the OPEN monthly invoice for the given payer/period/currency (R-INV-1).
      *

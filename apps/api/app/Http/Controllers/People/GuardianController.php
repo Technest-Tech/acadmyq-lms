@@ -7,6 +7,7 @@ namespace App\Http\Controllers\People;
 use App\Services\SessionGenerator;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
+use App\Services\FamilyCharges;
 use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\DoneBy;
@@ -181,7 +182,10 @@ final class GuardianController extends Controller
                 return $row;
             });
 
-        return response()->json(['guardian' => $guardian, 'children' => $children]);
+        // Bills that still hold charges of children who moved to another family (money: invoice.read).
+        $movedAway = Gate::allows('invoice.read') ? app(FamilyCharges::class)->strays((string) $guardian->academy_id, $id) : [];
+
+        return response()->json(['guardian' => $guardian, 'children' => $children, 'moved_away' => $movedAway]);
     }
 
     /** PATCH /api/guardians/{id} — edit; before/after audit of exactly the changed fields. */
