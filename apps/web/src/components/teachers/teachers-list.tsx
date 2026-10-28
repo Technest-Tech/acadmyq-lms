@@ -2,7 +2,9 @@
 
 import {
   BadgeCheck,
+  Check,
   Clock,
+  Copy,
   MessageCircle,
   Pencil,
   Plus,
@@ -10,7 +12,7 @@ import {
   Users,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Octagram } from "@/components/ornaments";
 import { addedByFilter, DoneByCell, useTeamActors } from "@/components/team/done-by";
@@ -207,6 +209,28 @@ export function TeachersList({
             <span className="text-muted-foreground/40">—</span>
           ),
       },
+      // Where the salary is sent — copied straight into the wallet / InstaPay app on payday.
+      {
+        key: "payout",
+        header: t("colPayout"),
+        headerClassName: "min-w-44",
+        render: (r) =>
+          r.payout_handle ? (
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="min-w-0">
+                <div dir="ltr" className="truncate text-sm tabular-nums" title={r.payout_handle}>
+                  {r.payout_handle}
+                </div>
+                <div className="text-muted-foreground text-[11px]">
+                  {t(r.payout_method === "WALLET" ? "form.payoutWallet" : "form.payoutInstapay")}
+                </div>
+              </div>
+              <CopyValueButton value={r.payout_handle} label={t("copyPayout")} copiedLabel={t("payoutCopied")} />
+            </div>
+          ) : (
+            <span className="text-muted-foreground/40">—</span>
+          ),
+      },
       {
         key: "status",
         header: t("colStatus"),
@@ -278,6 +302,7 @@ export function TeachersList({
           ]
         : []),
       { header: t("colWhatsapp"), value: (r) => r.phone },
+      { header: t("colPayout"), value: (r) => r.payout_handle ?? "", width: 24 },
       {
         header: t("colStatus"),
         value: (r) => (r.deleted_at == null ? t("stat.active") : t("stat.inactive")),
@@ -407,5 +432,34 @@ export function TeachersList({
         />
       </div>
     </section>
+  );
+}
+
+/**
+ * A one-tap copy inside a clickable row: it stops the click from opening the teacher, and
+ * says "copied" for a moment so nobody pastes twice wondering if it worked.
+ */
+function CopyValueButton({ value, label, copiedLabel }: { value: string; label: string; copiedLabel: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        void navigator.clipboard
+          ?.writeText(value)
+          .then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          })
+          .catch(() => {});
+      }}
+      title={copied ? copiedLabel : label}
+      aria-label={copied ? copiedLabel : label}
+      data-testid="copy-payout"
+      className="text-muted-foreground hover:bg-muted hover:text-foreground inline-flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors"
+    >
+      {copied ? <Check className="size-3.5 text-emerald-600" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+    </button>
   );
 }

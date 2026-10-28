@@ -1168,6 +1168,9 @@
     "colRate": "الأجر",
     "colPhone": "الهاتف",
     "colWhatsapp": "واتساب",
+    "colPayout": "رقم التحويل",
+    "copyPayout": "نسخ رقم التحويل",
+    "payoutCopied": "تم النسخ",
     "colStudents": "الطلاب",
     "list": {
       "title": "كل المعلمين",

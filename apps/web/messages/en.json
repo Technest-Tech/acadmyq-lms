@@ -1168,6 +1168,9 @@
     "colRate": "Pay",
     "colPhone": "Phone",
     "colWhatsapp": "WhatsApp",
+    "colPayout": "Transfer number",
+    "copyPayout": "Copy transfer number",
+    "payoutCopied": "Copied",
     "colStudents": "Students",
     "list": {
       "title": "All teachers",
