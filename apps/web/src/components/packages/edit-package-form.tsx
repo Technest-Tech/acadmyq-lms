@@ -34,6 +34,8 @@ type AppliesTo = "CURRENT" | "NEXT";
  */
 function lessonShapeOf(row: LessonPackageRow): { lessons: number; minutes: number } {
   const total = row.minutes_total;
+  // Sold in lessons of a known length (a centre): that is the answer.
+  if (row.lesson_minutes && total % row.lesson_minutes === 0) return { lessons: total / row.lesson_minutes, minutes: row.lesson_minutes };
   const digits = row.label.replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
   const m = digits.match(/(\d+)\s*×\s*(\d+)/);
   if (m) {
@@ -58,7 +60,7 @@ const inputBase =
  * and what carried into it are all facts other records already depend on. What is left is these
  * four — plus whether it renews itself — so those are the only ones offered — and the floor under the hours is what has already
  * been taught, because a package cannot be sold backwards. The size and price are asked in the
- * open form's own fields (lessons × length + total, or a centre's hours + lesson price), so a
+ * open form's own fields (lessons × length + total, or a centre's lessons + one lesson's price), so a
  * package reads back the way it was sold.
  */
 export function EditPackageForm({
@@ -73,15 +75,13 @@ export function EditPackageForm({
   const t = useTranslations("packages");
   const locale = useLocale();
 
-  // The same fields the package was opened with: a centre quotes hours + one lesson's price,
-  // everyone else counts lessons of a length against a total.
+  // The same fields the package was opened with: lessons of a length — priced by the lesson in a
+  // centre, against a total everywhere else.
   const perLesson = useCapability("centre");
   const [shape] = useState(() => lessonShapeOf(row));
   const [label, setLabel] = useState(row.label);
   const [unitMinutes, setUnitMinutes] = useState(shape.minutes);
   const [lessons, setLessons] = useState(String(shape.lessons));
-  // Two decimals are exact enough to land back on the same minute (8 × 40 min reads 5.33).
-  const [hours, setHours] = useState(String(Math.round((row.minutes_total / 60) * 100) / 100));
   const [price, setPrice] = useState((row.price_minor / 100).toFixed(2));
   const [unitPrice, setUnitPrice] = useState(() =>
     majorText(lessonPriceFromTotal(row.price_minor, row.minutes_total, shape.minutes)),
@@ -94,11 +94,7 @@ export function EditPackageForm({
   const [error, setError] = useState<string | null>(null);
 
   const lessonCount = lessonCountOf(lessons);
-  const hoursNum = perLesson
-    ? Number.parseFloat(hours)
-    : lessonCount !== null
-      ? (lessonCount * unitMinutes) / 60
-      : Number.NaN;
+  const hoursNum = lessonCount !== null ? (lessonCount * unitMinutes) / 60 : Number.NaN;
   const totalMinutes = Number.isFinite(hoursNum) && hoursNum > 0 ? Math.round(hoursNum * 60) : 0;
   const priceMinor = perLesson
     ? totalFromLessonPrice(Math.round(Number.parseFloat((unitPrice || "0").replace(",", ".")) * 100), totalMinutes, unitMinutes)
@@ -120,7 +116,8 @@ export function EditPackageForm({
   const termsChanged =
     label.trim() !== row.label ||
     (Number.isFinite(hoursNum) && Math.round(hoursNum * 60) !== row.minutes_total) ||
-    priceMinor !== row.price_minor;
+    priceMinor !== row.price_minor ||
+    (perLesson && unitMinutes !== (row.lesson_minutes ?? shape.minutes));
   // The question only exists when there IS a next block: one that renews itself.
   const askScope = termsChanged && autoRenew;
   const nextOnly = askScope && appliesTo === "NEXT";
@@ -147,6 +144,7 @@ export function EditPackageForm({
         price_minor: priceMinor,
         expires_on: expiresOn === "" ? null : expiresOn,
         auto_renew: autoRenew,
+        ...(perLesson ? { lesson_minutes: unitMinutes } : {}),
         ...(askScope && appliesTo !== null ? { applies_to: appliesTo } : {}),
       });
       onSaved(nextOnly ? t("alerts.nextTermsSaved") : t("alerts.edited"));
@@ -196,17 +194,19 @@ export function EditPackageForm({
       {perLesson ? (
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <label htmlFor="pkg-edit-hours" className="text-sm font-medium">
-              {t("form.hours")}
+            <label htmlFor="pkg-edit-lessons" className="text-sm font-medium">
+              {t("form.lessons")}
             </label>
             <input
-              id="pkg-edit-hours"
+              id="pkg-edit-lessons"
               type="number"
-              min="0.5"
-              step="any"
-              value={hours}
-              onChange={(e) => setHours(e.target.value)}
+              min="1"
+              step="1"
+              inputMode="numeric"
+              value={lessons}
+              onChange={(e) => setLessons(e.target.value)}
               className={inputBase}
+              data-testid="pkg-edit-lessons"
             />
           </div>
         </div>

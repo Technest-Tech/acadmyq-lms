@@ -7,6 +7,7 @@ namespace App\Http\Controllers\People;
 use App\Services\SessionGenerator;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
+use App\Services\ChargeCancellation;
 use App\Services\FamilyCharges;
 use App\Support\Audit;
 use App\Support\DataTable;
@@ -288,14 +289,42 @@ final class GuardianController extends Controller
     }
 
     /**
-     * POST /api/guardians/{id}/suspend — pause the whole family for a while, without deactivating
-     * anyone. The children's active timetables are switched off and flagged, their future untouched
-     * lessons are taken back off the calendar, and no group month is raised on them while it lasts.
-     * Everything already recorded (lessons held, bills, receipts) stays exactly as it is.
+     * GET /api/guardians/{id}/advance-dues — what the family still owes for lessons it has not had
+     * yet (this month's group charges, a running private subscription's bill), for the suspend
+     * dialog to offer cancelling. Empty without the accounts, or for a role that cannot see money.
      */
-    public function suspend(string $id): JsonResponse
+    public function advanceDues(string $id): JsonResponse
     {
         Gate::authorize('guardian.update');
+        if (! DB::table('guardians')->where('id', $id)->exists()) {
+            abort(404, 'Guardian not found.');
+        }
+        $canSee = Gate::allows('invoice.read');
+
+        return response()->json([
+            'dues' => $canSee ? app(ChargeCancellation::class)->advanceDues($this->currentAcademyId(), $id)->all() : [],
+            'can_cancel' => $canSee && Gate::allows('invoice.mark_paid'),
+        ]);
+    }
+
+    /**
+     * POST /api/guardians/{id}/suspend { cancel_line_ids? } — pause the whole family for a while,
+     * without deactivating anyone. The children's active timetables are switched off and flagged,
+     * their future untouched lessons are taken back off the calendar, they come off their groups'
+     * attendance sheets, and no group month is raised on them while it lasts. Everything already
+     * recorded (lessons held, bills, receipts) stays — except the dues raised ahead that the desk
+     * ticks in `cancel_line_ids` ({@see advanceDues()}), whose unpaid part is let go.
+     */
+    public function suspend(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('guardian.update');
+        $cancelIds = $request->validate([
+            'cancel_line_ids' => ['sometimes', 'array', 'max:200'],
+            'cancel_line_ids.*' => ['uuid'],
+        ])['cancel_line_ids'] ?? [];
+        if ($cancelIds !== []) {
+            Gate::authorize('invoice.mark_paid');
+        }
 
         $guardian = DB::table('guardians')->where('id', $id)->whereNull('deleted_at')->first();
         if ($guardian === null) {
@@ -304,6 +333,9 @@ final class GuardianController extends Controller
         if ($guardian->suspended_at !== null) {
             return response()->json(['ok' => true, 'already' => true]);
         }
+        // Only the family's own dues raised ahead — never another line id slipped in.
+        $cancellable = $cancelIds === [] ? [] : app(ChargeCancellation::class)->advanceDues($this->currentAcademyId(), $id)->pluck('id')->all();
+        $cancelIds = array_values(array_intersect(array_unique($cancelIds), $cancellable));
 
         $paused = DB::transaction(function () use ($id): array {
             DB::table('guardians')->where('id', $id)->update(['suspended_at' => now(), 'suspended_by' => $this->ctx()->userId, 'updated_at' => now()]);
@@ -320,9 +352,22 @@ final class GuardianController extends Controller
         // untouched lessons — never a held, moved or reported one.
         $this->regenerate($paused);
 
-        Audit::log('guardian.suspend', 'guardian', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['suspended_at' => now()->toIso8601String(), 'paused_schedules' => count($paused)]);
+        $cancelled = [];
+        foreach ($cancelIds as $lineId) {
+            // A subscription's bill is let go whole, so a second line of the same bill may be gone already.
+            if (DB::table('invoice_line_items')->where('id', $lineId)->whereNull('cancelled_at')->exists()) {
+                $done = app(ChargeCancellation::class)->cancel($this->currentAcademyId(), $lineId, 'Family suspended / إيقاف الأسرة', $this->ctx()->userId, $this->ctx()->role);
+                $cancelled[$done['currency']] = ($cancelled[$done['currency']] ?? 0) + $done['cancelled_minor'];
+            }
+        }
 
-        return response()->json(['ok' => true, 'paused_schedules' => count($paused)]);
+        Audit::log('guardian.suspend', 'guardian', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['suspended_at' => now()->toIso8601String(), 'paused_schedules' => count($paused), 'cancelled_dues' => $cancelled]);
+
+        return response()->json([
+            'ok' => true,
+            'paused_schedules' => count($paused),
+            'cancelled' => array_map(fn ($c, $a) => ['currency' => $c, 'amount_minor' => $a], array_keys($cancelled), array_values($cancelled)),
+        ]);
     }
 
     /** POST /api/guardians/{id}/resume — the timetables suspend switched off come back, and their lessons with them. */

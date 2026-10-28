@@ -212,6 +212,8 @@ export function StudentsList({
   const { can, session } = useAuth();
   const isTeacher = session?.role === "TEACHER";
   const canPrice = can("student.set_price");
+  // "Family suspended" is a centre's (a Quran academy's list stays as it was).
+  const centre = session?.capabilities?.includes("centre") ?? false;
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
   const actors = useTeamActors();
 
@@ -252,6 +254,12 @@ export function StudentsList({
                 <div className="flex items-center gap-1.5">
                   <span className="truncate font-semibold">{r.full_name}</span>
                   <StageBadge status={r.status} />
+                  {/* Paused with the family (suspend): no lessons, no group months, off the group sheets. */}
+                  {centre && r.family_suspended_at && (
+                    <span className="inline-flex shrink-0 items-center rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300" data-testid={`student-suspended-${r.id}`}>
+                      {t("list.familySuspended")}
+                    </span>
+                  )}
                 </div>
                 {/* The parent under the child: on a roll of minors, the guardian IS part of the
                     student's identity, and folding it in here buys back a whole column. */}

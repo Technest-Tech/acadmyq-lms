@@ -23,7 +23,7 @@ import { useCallback, useEffect, useState, type ComponentType, type ReactNode } 
 import { useAuth } from "@/components/auth-provider";
 import { GroupAccountsPanel } from "@/components/groups/group-accounts-panel";
 import { GroupForm, apiErrorMessage } from "@/components/groups/group-form";
-import { hoursText, percent, pricingRuleKey, sortSlots, wallTime } from "@/components/groups/group-format";
+import { hoursText, monthLessons, percent, pricingRuleKey, sortSlots, wallTime } from "@/components/groups/group-format";
 import { GroupLessonsPanel } from "@/components/groups/group-lessons-panel";
 import { GroupMembersPanel } from "@/components/groups/group-members-panel";
 import { GroupMoneyPanel } from "@/components/groups/group-money-panel";
@@ -289,6 +289,8 @@ function GroupOverview({ group }: { group: GroupDetail }) {
   const t = useTranslations("groups");
   const tw = useTranslations("scheduling");
   const locale = useLocale();
+  // A centre reads a month sold by time in lessons.
+  const centre = useCapability("centre");
 
   return (
     <div className="space-y-4" data-testid="group-overview">
@@ -323,9 +325,10 @@ function GroupOverview({ group }: { group: GroupDetail }) {
         {group.pricing && (
           <Fact icon={Wallet} label={t("money.studentPays")}>
             {group.pricing.price_minor != null && group.pricing.currency
-              ? t(`moneyTab.rule.${pricingRuleKey(group.pricing)}`, {
+              ? t(`moneyTab.rule.${pricingRuleKey(group.pricing, centre)}`, {
                   price: formatMoney({ amount: group.pricing.price_minor, currency: group.pricing.currency }, locale),
                   hours: hoursText(group.pricing.month_minutes ?? 0, locale),
+                  lessons: monthLessons(group.pricing.month_minutes, group.slots),
                 })
               : t("moneyTab.noPrice")}
           </Fact>

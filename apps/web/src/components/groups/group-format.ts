@@ -26,10 +26,18 @@ export function hoursText(minutes: number, locale = "en"): string {
 
 /**
  * Which `moneyTab.rule.*` sentence describes what a student pays — a monthly group sold by hours
- * reads "450 for every 8 hours", not "450 a month".
+ * reads "450 for every 8 hours", not "450 a month"; a centre's, by lessons ("450 for every 8
+ * lessons", `perLesson`).
  */
-export function pricingRuleKey(pricing: Pick<GroupPricing, "billing_mode" | "month_minutes">): string {
-  return pricing.billing_mode === "MONTHLY" && pricing.month_minutes != null ? "MONTHLY_HOURS" : pricing.billing_mode;
+export function pricingRuleKey(pricing: Pick<GroupPricing, "billing_mode" | "month_minutes">, perLesson = false): string {
+  if (pricing.billing_mode === "MONTHLY" && pricing.month_minutes != null) return perLesson ? "MONTHLY_LESSONS" : "MONTHLY_HOURS";
+  return pricing.billing_mode;
+}
+
+/** A month sold by time, counted in the group's own lessons (its first slot's length). */
+export function monthLessons(monthMinutes: number | null | undefined, slots: { duration_minutes: number }[]): number {
+  const length = slots[0]?.duration_minutes ?? 60;
+  return length > 0 ? Math.round(((monthMinutes ?? 0) / length) * 10) / 10 : 0;
 }
 
 /** Today as "YYYY-MM-DD" in `tz`. */

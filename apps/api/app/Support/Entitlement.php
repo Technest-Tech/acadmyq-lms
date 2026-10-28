@@ -118,6 +118,12 @@ final class Entitlement
      *
      * @return array{plan: ?string, capabilities: list<string>, limits: array<string,mixed>, addOns: list<string>}
      */
+    /** Does the academy hold this capability right now (e.g. `centre`, the curriculum centres' switch)? */
+    public static function hasCapability(string $academyId, string $capability): bool
+    {
+        return in_array($capability, self::resolve($academyId)['capabilities'], true);
+    }
+
     public static function resolve(string $academyId): array
     {
         $hasModuleSubs = DB::table('module_subscriptions')

@@ -1125,6 +1125,19 @@
       "suspendedSince": "موقوفة منذ {date}",
       "resume": "إعادة التفعيل",
       "resumeDesc": "الأسرة موقوفة مؤقتًا. إعادة التفعيل تُرجع جداول الأبناء وحصصهم من اليوم.",
+      "suspendConfirm": "إيقاف الأسرة",
+      "suspendBack": "رجوع",
+      "suspendedCancelled": "تم إيقاف الأسرة مؤقتًا، وأُلغي من مستحقاتها {amount}.",
+      "advanceDuesLoading": "جارٍ تحميل المستحقات المقدَّمة…",
+      "advanceDuesNone": "لا مستحقات مقدَّمة غير مدفوعة على الأسرة. الإيقاف يوقف الجداول والحصص، ولا تُحسب أشهر مجموعات جديدة.",
+      "advanceDuesTitle": "مستحقات اتحسبت مقدمًا ولم تُدفع",
+      "advanceDuesHint": "لحصص لن يحضرها الأبناء أثناء الإيقاف. علّم ما تريد إلغاءه — المدفوع منها يبقى مدفوعًا، والباقي لا يُطلب.",
+      "advanceDueKind": {
+        "GROUP": "مجموعة",
+        "PACKAGE": "اشتراك خاص"
+      },
+      "advanceDuePackageEnds": "إلغاؤه يُنهي الاشتراك",
+      "advanceDuesTicked": "سيُلغى {amount}",
       "suspendedOk": "تم إيقاف الأسرة مؤقتًا.",
       "resumedOk": "عادت الأسرة نشطة.",
       "delete": "حذف ولي الأمر",
@@ -1651,6 +1664,7 @@
       "trials": "التجريبية"
     },
     "list": {
+      "familySuspended": "موقوف مع الأسرة",
       "allStudents": "كل الطلاب",
       "allStudentsSub": "اضغط أي صف لعرض الملف أو الاشتراك أو بيانات المعلم",
       "trialStudents": "الطلاب التجريبيون",
@@ -1816,6 +1830,7 @@
       "pickGroup": "اختر مجموعة",
       "noGroups": "لا مجموعات نشطة بعد.",
       "removeGroup": "إزالة",
+      "groupPriceLessons": "{price} · {lessons} حصة في الشهر",
       "groupPrice": "{price} · {hours} س في الشهر",
       "groupPriceMonthly": "{price} شهريًا",
       "groupPriceLesson": "{price} للحصة",
@@ -2063,6 +2078,7 @@
       "since": "منذ {date}",
       "left": "غادر {date}",
       "remaining": "{hours} س متبقية",
+      "remainingLessons": "{count, plural, one {حصة واحدة متبقية} two {حصتان متبقيتان} few {# حصص متبقية} other {# حصة متبقية}}",
       "outstanding": "متأخر {amount}",
       "openGroup": "فتح المجموعة",
       "openPackage": "فتح الاشتراك",
@@ -2855,6 +2871,10 @@
       "endsOn": "تنتهي {date}",
       "hourlyRate": "سعر الساعة",
       "perHour": "{amount}/ساعة",
+      "perLesson": "{amount}/حصة ({minutes} د)",
+      "lessonsCount": "{count, plural, one {حصة واحدة} two {حصتان} few {# حصص} other {# حصة}}",
+      "totalLessons": "إجمالي الحصص",
+      "lessonPrice": "سعر الحصة",
       "nextLesson": "الحصة القادمة",
       "noneScheduled": "لا توجد حصة",
       "upcomingCount": "{count} قادمة",
@@ -7155,6 +7175,9 @@
       "monthHoursPlaceholder": "مثال: 8",
       "monthHoursHint": "فارغ = يُحسب كل شهر ميلادي. مع الساعات: الرسوم تغطي هذا العدد من ساعات الحصص، ويُحسب الشهر التالي عند انتهائها.",
       "monthHoursOnHint": "كل رسوم تغطي {hours} ساعة من حصص المجموعة. يُحسب الشهر التالي عندما تُعقد هذه الساعات — الغياب يُحتسب، فالحصة تمت.",
+      "monthLessons": "عدد الحصص في الشهر",
+      "monthLessonsHint": "فارغ = يُحسب كل شهر ميلادي. مع عدد الحصص: الرسوم تغطي هذا العدد من حصص المجموعة، ويُحسب الشهر التالي عند انتهائها.",
+      "monthLessonsOnHint": "كل رسوم تغطي {lessons} حصة من حصص المجموعة. يُحسب الشهر التالي عندما تُعقد — الغياب يُحتسب، فالحصة تمت.",
       "monthHoursSwitchHint": "من حُسب عليه هذا الشهر يبقى كما هو — الطريقة الجديدة تبدأ من أول الشهر القادم.",
       "chargeAbsent": "احسب الغياب بدون عذر أيضًا (الغياب بعذر لا يُحسب أبدًا)",
       "forwardOnly": "السعر الجديد يسري من الآن؛ ما تم احتسابه يبقى بسعره.",
@@ -7189,6 +7212,7 @@
       "loadFailed": "تعذّر تحميل فلوس المجموعة.",
       "rule": {
         "MONTHLY": "{price} شهريًا، مقدمًا",
+        "MONTHLY_LESSONS": "{price} لكل {lessons} حصة، مقدمًا",
         "MONTHLY_HOURS": "{price} لكل {hours} ساعة، مقدمًا",
         "PER_LESSON": "{price} عن كل حصة يحضرها",
         "COURSE": "{price} رسوم الكورس"
@@ -9849,7 +9873,8 @@
       "balanceNote": "الرصيد الموجب مستحق على الأسرة؛ الصفر أو أقل يعني مسدَّد (السالب رصيد مقدم).",
       "pickTitle": "كشف حساب من؟",
       "pickHint": "اختر الطالب — الكشف لحساب أسرته.",
-      "discounted": "خصم {amount} من {list}: {label}"
+      "discounted": "خصم {amount} من {list}: {label}",
+      "refundNo": "رد مبلغ · {number}"
     },
     "daily": {
       "title": "التحصيل اليومي",
@@ -9896,7 +9921,8 @@
       "event": {
         "RECEIPT": "دفع {amount} — {number}",
         "REMINDER": "أُرسل تذكير واتساب",
-        "BILL_SENT": "أُرسلت فاتورة {period} ({amount})"
+        "BILL_SENT": "أُرسلت فاتورة {period} ({amount})",
+        "REFUND": "رد {amount} للأسرة · {number}"
       },
       "discounts": "الخصومات",
       "noDiscounts": "لا خصومات على هذه الأسرة.",
@@ -9942,13 +9968,35 @@
       "applyToExistingShort": "طبّق على الحالي",
       "applyToExistingHint": "يُخصم من كل مستحقات الأسرة على الفواتير المفتوحة؛ ما دُفع منها يتحول إلى رصيد، والفواتير المقفلة لا تتغير.",
       "discountFailed": "لم يُحفظ الخصم.",
+      "cancelCharge": "إلغاء المستحق",
+      "cancelChargeHint": "الجزء غير المدفوع لا يُطلب من الأسرة بعد الآن؛ المدفوع يبقى مدفوعًا. لو كان فاتورة اشتراك خاص يُنهى الاشتراك معها.",
+      "cancelChargeReason": "السبب (اختياري) — مثال: الطالب لن يكمل",
+      "cancelChargeConfirm": "إلغاء {amount}",
+      "chargeCancelled": "أُلغي {amount} من المستحق.",
+      "cancelChargeFailed": "لم يُلغَ المستحق.",
       "wasPrice": "بدل {list} · خصم {discount} ({label})",
       "openFamily": "فتح الأسرة",
       "preset": "بند الخصم",
       "presetExceptional": "استثنائي — اكتبه يدويًا",
       "noPresets": "لا توجد بنود خصم بعد.",
       "managePresets": "إدارة بنود الخصم",
-      "saveAsPreset": "احفظه أيضًا كبند خصم لاختياره المرة القادمة"
+      "saveAsPreset": "احفظه أيضًا كبند خصم لاختياره المرة القادمة",
+      "refund": {
+        "button": "رد الرصيد",
+        "title": "رد رصيد للأسرة",
+        "description": "المبلغ يطلع من الخزنة كمصروف «رد مبالغ للأسر» وينزل من رصيدهم.",
+        "holds": "رصيدهم الحالي {amount}",
+        "amount": "المبلغ",
+        "confirm": "اصرف المبلغ",
+        "failed": "تعذّر رد الرصيد."
+      },
+      "unsettled": {
+        "title": "فلوس للأسرة من اشتراكات انتهت قبل ما تخلص",
+        "hint": "اشتراك اتقفل وفيه حصص مدفوعة ما اتاخدتش. قرر: رصيد، رد نقدي، أو الأكاديمية تحتفظ بيه.",
+        "closedOn": "اتقفل {date}",
+        "paidUsed": "دفعوا {paid} · المستخدم {used}",
+        "decide": "قرر"
+      }
     },
     "kind": {
       "CASH": "درج نقدي",
@@ -10221,6 +10269,36 @@
       "saved": "تم حفظ البند.",
       "failed": "تعذّر حفظ البند.",
       "loadFailed": "تعذّر تحميل بنود الخصم."
+    },
+    "settle": {
+      "title": "الحصص المدفوعة اللي ما اتاخدتش",
+      "for": "{name} · {label}",
+      "owedBack": "للأسرة {amount} من اشتراك لم يكتمل",
+      "breakdown": "متبقي {left} — دفعوا {paid}، والمستخدم بـ{used}",
+      "mode": {
+        "CREDIT": "رصيد للأسرة",
+        "REFUND": "رد نقدي من الخزينة",
+        "KEEP": "تحتفظ به الأكاديمية",
+        "LATER": "أقرر بعدين"
+      },
+      "hint": {
+        "CREDIT": "الفاتورة تنزل للمستخدم بس، والباقي رصيد ينزل لوحده من أي مستحق جديد — ويفضل ظاهر حتى لو الطالب اتوقف.",
+        "REFUND": "الفاتورة تنزل للمستخدم بس، والباقي يطلع من خزنة كمصروف «رد مبالغ للأسر».",
+        "KEEP": "مفيش فلوس بتتحرك. بيتسجل القرار والسبب.",
+        "LATER": "يفضل ظاهر في حساب الأسرة لحد ما حد يقرر."
+      },
+      "noAccount": "مفيش خزنة مفعّلة بنفس العملة.",
+      "account": "الخزنة اللي هيطلع منها المبلغ",
+      "note": "ملاحظة (اختياري)",
+      "keepReason": "السبب",
+      "back": "رجوع",
+      "confirm": "تأكيد",
+      "failed": "تعذّر حفظ القرار.",
+      "done": {
+        "CREDIT": "{amount} بقت رصيد للأسرة.",
+        "REFUND": "اتردّ {amount} للأسرة (مصروف {number}).",
+        "KEEP": "اتسجل إن الأكاديمية محتفظة بـ{amount}."
+      }
     }
   },
   "doneBy": {

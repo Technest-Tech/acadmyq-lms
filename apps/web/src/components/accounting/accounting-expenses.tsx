@@ -282,7 +282,8 @@ export function ExpenseModal({
   onDone: (number: string) => void;
 }) {
   const t = useTranslations("accounting");
-  const categories = data.categories.filter((c) => c.is_active && c.key !== "teacher_salaries");
+  // Salaries are paid from their statements, refunds from the family's account (they draw on its credit).
+  const categories = data.categories.filter((c) => c.is_active && c.key !== "teacher_salaries" && c.key !== "refunds");
   const [category, setCategory] = useState(categories[0]?.id ?? "");
   // "+ New category…" right in the list: the desk names it here and the expense lands under it.
   const [newCategory, setNewCategory] = useState("");

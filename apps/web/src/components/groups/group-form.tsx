@@ -22,7 +22,7 @@ import {
   type GroupSlot,
   type GroupTeacherPayMode,
 } from "@/lib/groups-api";
-import { LessonPriceFields, lessonPriceFromTotal, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
+import { LessonPriceFields, lessonPriceFromTotal, lessonsIn, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
@@ -132,10 +132,16 @@ export function GroupForm({
   const [monthHours, setMonthHours] = useState(savedMonthMinutes != null ? hoursText(savedMonthMinutes) : "");
   // Hours group only: what a lesson counts against a student's hours when they are alone in it.
   const [soloMinutes, setSoloMinutes] = useState(group?.pricing?.solo_billed_minutes != null ? String(group.pricing.solo_billed_minutes) : "");
-  // A centre prices a month of hours by the lesson — "40 minutes for 100" × the month's hours — and
-  // the month's price is worked out (2026-10-25). The length starts at the group's own lesson length.
+  // A centre counts a month in lessons and prices it by the lesson — 8 lessons × "40 minutes for 90"
+  // — and the month's price is worked out (2026-10-25, lessons 2026-10-29). The length starts at the
+  // group's own lesson length; the month is still kept in minutes (lessons × length).
   const centre = useCapability("centre");
   const [lessonMinutes, setLessonMinutes] = useState(group?.slots[0]?.duration_minutes ?? 60);
+  const [monthLessons, setMonthLessons] = useState(() =>
+    savedMonthMinutes != null ? String(lessonsIn(savedMonthMinutes, group?.slots[0]?.duration_minutes ?? 60)) : "",
+  );
+  /** What the month field holds — lessons in a centre, hours everywhere else. */
+  const monthText = centre ? monthLessons : monthHours;
   const [lessonPrice, setLessonPrice] = useState(() => {
     const total = group?.pricing?.price_minor ?? null;
     const minutes = group?.pricing?.month_minutes ?? null;
@@ -210,7 +216,7 @@ export function GroupForm({
     if (capacity && (!Number.isInteger(Number(capacity)) || Number(capacity) < 1)) return t("form.errors.capacity");
     if (canPrice && price.trim() !== "" && (toMinor(price) ?? -1) < 0) return t("form.errors.price");
     if (canPrice && byLesson() && lessonPrice.trim() !== "" && (toMinor(lessonPrice) ?? -1) < 0) return t("form.errors.price");
-    if (canPrice && billingMode === "MONTHLY" && monthHours.trim() !== "" && monthMinutes() === null) {
+    if (canPrice && billingMode === "MONTHLY" && monthText.trim() !== "" && monthMinutes() === null) {
       return t("form.errors.monthHours");
     }
     if (canPrice && soloMinutes.trim() !== "" && (!Number.isInteger(Number(soloMinutes)) || Number(soloMinutes) < 1 || Number(soloMinutes) > 600)) {
@@ -236,8 +242,13 @@ export function GroupForm({
     return unit === null ? null : totalFromLessonPrice(unit, monthMinutes() ?? 0, lessonMinutes);
   }
 
-  /** The typed hours → minutes; null when empty or not a positive number. */
+  /** The typed month → minutes (a centre's lessons × their length, or hours); null when empty or not a positive number. */
   function monthMinutes(): number | null {
+    if (centre) {
+      const n = Number.parseFloat(monthLessons.replace(",", "."));
+      if (monthLessons.trim() === "" || Number.isNaN(n) || n <= 0 || n > 500) return null;
+      return Math.round(n * lessonMinutes);
+    }
     const h = Number.parseFloat(monthHours.replace(",", "."));
     if (monthHours.trim() === "" || Number.isNaN(h) || h <= 0 || h > 1000) return null;
     return Math.round(h * 60);
@@ -526,14 +537,14 @@ export function GroupForm({
           </div>
           {centre && billingMode === "MONTHLY" ? (
             <div className="space-y-3" data-testid="group-pricing-centre">
-              <Field label={t("money.monthHours")} icon={Clock} hint={monthHours.trim() ? t("money.monthHoursOnHint", { hours: monthHours.trim() }) : t("money.monthHoursHint")}>
+              <Field label={t("money.monthLessons")} icon={Clock} hint={monthLessons.trim() ? t("money.monthLessonsOnHint", { lessons: monthLessons.trim() }) : t("money.monthLessonsHint")}>
                 <input
                   className={cn(fieldClass, "sm:w-40")}
-                  inputMode="decimal"
-                  value={monthHours}
-                  onChange={(e) => setMonthHours(e.target.value)}
+                  inputMode="numeric"
+                  value={monthLessons}
+                  onChange={(e) => setMonthLessons(e.target.value)}
                   placeholder={t("money.monthHoursPlaceholder")}
-                  data-testid="group-month-hours"
+                  data-testid="group-month-lessons"
                 />
               </Field>
               {monthMinutes() !== null ? (
@@ -623,12 +634,12 @@ export function GroupForm({
               </div>
             </Field>
           )}
-          {billingMode === "MONTHLY" && editing && (savedMonthMinutes === null) !== (monthHours.trim() === "") && (
+          {billingMode === "MONTHLY" && editing && (savedMonthMinutes === null) !== (monthText.trim() === "") && (
             <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
               {t("money.monthHoursSwitchHint")}
             </p>
           )}
-          {billingMode === "MONTHLY" && monthHours.trim() === "" && (
+          {billingMode === "MONTHLY" && monthText.trim() === "" && (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={prorateJoin} onChange={(e) => setProrateJoin(e.target.checked)} />
               {t("money.prorateJoin")}

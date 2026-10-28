@@ -1125,6 +1125,19 @@
       "suspendedSince": "Paused since {date}",
       "resume": "Resume",
       "resumeDesc": "The family is paused. Resuming brings the children’s timetables and lessons back from today.",
+      "suspendConfirm": "Suspend the family",
+      "suspendBack": "Back",
+      "suspendedCancelled": "Family suspended, and {amount} of its dues cancelled.",
+      "advanceDuesLoading": "Loading the dues billed ahead…",
+      "advanceDuesNone": "Nothing billed ahead is unpaid. Suspending stops the timetables and lessons, and no new group months are billed.",
+      "advanceDuesTitle": "Billed ahead and not paid",
+      "advanceDuesHint": "For lessons the children won’t have while the family is away. Tick what to cancel — anything already paid stays paid, the rest is no longer owed.",
+      "advanceDueKind": {
+        "GROUP": "Group",
+        "PACKAGE": "Private subscription"
+      },
+      "advanceDuePackageEnds": "cancelling it ends the subscription",
+      "advanceDuesTicked": "{amount} will be cancelled",
       "suspendedOk": "The family is paused.",
       "resumedOk": "The family is active again.",
       "delete": "Delete parent",
@@ -1651,6 +1664,7 @@
       "trials": "Trials"
     },
     "list": {
+      "familySuspended": "Family suspended",
       "allStudents": "All Students",
       "allStudentsSub": "Click any row to view profile, subscription, or teacher details",
       "trialStudents": "Trial Students",
@@ -1816,6 +1830,7 @@
       "pickGroup": "Pick a group",
       "noGroups": "No active groups yet.",
       "removeGroup": "Remove",
+      "groupPriceLessons": "{price} · {lessons} lessons a month",
       "groupPrice": "{price} · {hours} h a month",
       "groupPriceMonthly": "{price} a month",
       "groupPriceLesson": "{price} a lesson",
@@ -2063,6 +2078,7 @@
       "since": "Since {date}",
       "left": "Left {date}",
       "remaining": "{hours} h left",
+      "remainingLessons": "{count, plural, one {# lesson left} other {# lessons left}}",
       "outstanding": "{amount} owed",
       "openGroup": "Open the group",
       "openPackage": "Open the subscription",
@@ -2855,6 +2871,10 @@
       "endsOn": "ends {date}",
       "hourlyRate": "Hourly rate",
       "perHour": "{amount}/hour",
+      "perLesson": "{amount}/lesson ({minutes} min)",
+      "lessonsCount": "{count, plural, one {# lesson} other {# lessons}}",
+      "totalLessons": "Total lessons",
+      "lessonPrice": "Lesson price",
       "nextLesson": "Next lesson",
       "noneScheduled": "None scheduled",
       "upcomingCount": "{count} upcoming",
@@ -7155,6 +7175,9 @@
       "monthHoursPlaceholder": "e.g. 8",
       "monthHoursHint": "Empty = billed every calendar month. With hours, the fee covers that many hours of lessons and the next month is billed when they are used up.",
       "monthHoursOnHint": "Each fee covers {hours} hours of the group's lessons. The next month is billed when the group has held them — an absence still counts, the class happened.",
+      "monthLessons": "Lessons per month",
+      "monthLessonsHint": "Empty = billed every calendar month. With lessons, the fee covers that many of the group's lessons and the next month is billed when they are used up.",
+      "monthLessonsOnHint": "Each fee covers {lessons} of the group's lessons. The next month is billed when the group has held them — an absence still counts, the class happened.",
       "monthHoursSwitchHint": "Anyone already billed for this month keeps that bill — the new way starts on the 1st of next month.",
       "chargeAbsent": "Charge an unexcused absence too (an excused one is never charged)",
       "forwardOnly": "A new price applies from now on; charges already made keep theirs.",
@@ -7189,6 +7212,7 @@
       "loadFailed": "Could not load the group's money.",
       "rule": {
         "MONTHLY": "{price} a month, up front",
+        "MONTHLY_LESSONS": "{price} for every {lessons} lessons, up front",
         "MONTHLY_HOURS": "{price} for every {hours} hours, up front",
         "PER_LESSON": "{price} per lesson attended",
         "COURSE": "{price} course fee"
@@ -9849,7 +9873,8 @@
       "balanceNote": "A positive balance is owed by the family; zero or below means settled (below zero is credit).",
       "pickTitle": "Whose statement?",
       "pickHint": "Pick a student — the statement is their family's account.",
-      "discounted": "{label}: {amount} off {list}"
+      "discounted": "{label}: {amount} off {list}",
+      "refundNo": "Paid back · {number}"
     },
     "daily": {
       "title": "Daily collections",
@@ -9896,7 +9921,8 @@
       "event": {
         "RECEIPT": "Paid {amount} — {number}",
         "REMINDER": "WhatsApp reminder sent",
-        "BILL_SENT": "Bill {period} sent ({amount})"
+        "BILL_SENT": "Bill {period} sent ({amount})",
+        "REFUND": "Paid back {amount} · {number}"
       },
       "discounts": "Discounts",
       "noDiscounts": "No discounts on this family.",
@@ -9942,13 +9968,35 @@
       "applyToExistingShort": "Apply to existing",
       "applyToExistingHint": "Takes it off every charge of the family on open bills. Anything already paid becomes credit. Closed bills don’t change.",
       "discountFailed": "Couldn’t save the discount.",
+      "cancelCharge": "Cancel due",
+      "cancelChargeHint": "The unpaid part is no longer owed; anything paid stays paid. A private subscription’s bill ends the subscription with it.",
+      "cancelChargeReason": "Reason (optional) — e.g. not continuing",
+      "cancelChargeConfirm": "Cancel {amount}",
+      "chargeCancelled": "{amount} cancelled.",
+      "cancelChargeFailed": "Couldn’t cancel the due.",
       "wasPrice": "instead of {list} · {discount} off ({label})",
       "openFamily": "Open the family",
       "preset": "Preset",
       "presetExceptional": "Exceptional — type it in",
       "noPresets": "No discount presets yet.",
       "managePresets": "Manage discount presets",
-      "saveAsPreset": "Also save it as a discount preset, to pick next time"
+      "saveAsPreset": "Also save it as a discount preset, to pick next time",
+      "refund": {
+        "button": "Pay credit back",
+        "title": "Pay credit back to the family",
+        "description": "The money leaves an account as a “Refunds to families” expense and comes off their credit.",
+        "holds": "Their credit now: {amount}",
+        "amount": "Amount",
+        "confirm": "Pay it",
+        "failed": "Could not pay the credit back."
+      },
+      "unsettled": {
+        "title": "Owed to the family from subscriptions that ended early",
+        "hint": "A subscription closed with lessons paid and not taken. Decide: credit, a refund, or the academy keeps it.",
+        "closedOn": "Closed {date}",
+        "paidUsed": "Paid {paid} · used {used}",
+        "decide": "Decide"
+      }
     },
     "kind": {
       "CASH": "Cash drawer",
@@ -10221,6 +10269,36 @@
       "saved": "Preset saved.",
       "failed": "Could not save the preset.",
       "loadFailed": "Could not load the discount presets."
+    },
+    "settle": {
+      "title": "Lessons paid for and not taken",
+      "for": "{name} · {label}",
+      "owedBack": "The family is owed {amount} from a subscription not used up",
+      "breakdown": "{left} left — they paid {paid}, what was used is worth {used}",
+      "mode": {
+        "CREDIT": "Credit for the family",
+        "REFUND": "Pay it back from the treasury",
+        "KEEP": "The academy keeps it",
+        "LATER": "Decide later"
+      },
+      "hint": {
+        "CREDIT": "The bill comes down to what was used; the rest is credit that pays their next charges by itself — and stays on their account even if the student stops.",
+        "REFUND": "The bill comes down to what was used; the rest leaves an account as a “Refunds to families” expense.",
+        "KEEP": "No money moves. The decision and why are recorded.",
+        "LATER": "It stays on the family’s account until someone decides."
+      },
+      "noAccount": "No open account in this currency.",
+      "account": "The account the money is paid from",
+      "note": "Note (optional)",
+      "keepReason": "Why",
+      "back": "Back",
+      "confirm": "Confirm",
+      "failed": "Could not save the decision.",
+      "done": {
+        "CREDIT": "{amount} is now the family’s credit.",
+        "REFUND": "{amount} paid back to the family (expense {number}).",
+        "KEEP": "Recorded: the academy keeps {amount}."
+      }
     }
   },
   "doneBy": {

@@ -1,21 +1,30 @@
 "use client";
 
 import { useLocale, useTranslations } from "next-intl";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { SettlementFields, settledNotice } from "@/components/accounting/settle-package";
+import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
   cancelLessonPackage,
   closeLessonPackage,
+  getPackageSettlement,
   type LessonPackageRow,
+  type PackageSettlementInfo,
+  type SettlementChoice,
+  type SettlementResult,
 } from "@/lib/api";
+import { formatMoney } from "@/lib/money";
 import { formatHours } from "@/lib/time";
 
 /**
  * Close a package early — the packages page's own modal, shared with the student's subscriptions
  * card. Closing keeps what was used and bills it per the package's rules. `allowCancel` adds the
  * other end for a package nothing was taken from yet: cancel it, which voids its untouched bill.
+ * A block paid up front with lessons left asks, in the same step, what becomes of the money paid
+ * for them (SettlementFields) — or leaves it waiting on the family's account.
  */
 export function ClosePackageModal({
   row,
@@ -87,6 +96,29 @@ function CloseBody({
 
   const unused = row.minutes_consumed - row.absorbed_overdraft_minutes <= 0;
 
+  // Paid for lessons it will not give: what becomes of that money (asked only of whoever handles it).
+  const { can, session } = useAuth();
+  // Settling a prepaid block is a centre's: a Quran academy's close dialog is unchanged (no request).
+  const centre = session?.capabilities?.includes("centre") ?? false;
+  const ta = useTranslations("accounting");
+  const [settle, setSettle] = useState<PackageSettlementInfo | null>(null);
+  const [choice, setChoice] = useState<SettlementChoice | null>({ mode: "CREDIT" });
+  const asksSettlement = settle?.preview != null && settle.can_settle && settle.preview.owed_back_minor > 0;
+  useEffect(() => {
+    if (!centre || row.bill_timing !== "ON_START" || !can("invoice.read")) return;
+    let live = true;
+    getPackageSettlement(row.id)
+      .then((info) => live && setSettle(info))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [row.id, row.bill_timing, can, centre]);
+  const settledText = (s: SettlementResult | null | undefined) =>
+    s ? ` ${settledNotice(ta, s.mode, formatMoney({ amount: s.amount_minor, currency: s.currency }, locale), s.expense_number)}` : "";
+  const chosen = asksSettlement ? (choice ?? undefined) : undefined;
+  const choiceIncomplete = chosen?.mode === "REFUND" && !chosen.cash_account_id;
+
   async function confirmClose(target: LessonPackageRow) {
     setBusy(true);
     try {
@@ -94,11 +126,12 @@ function CloseBody({
         target.id,
         closeReason.trim() || undefined,
         returnToMonthly,
+        chosen,
       );
       onDone(
-        result.returned_to_monthly
+        (result.returned_to_monthly
           ? t("alerts.closedAndReturned")
-          : t("alerts.closed"),
+          : t("alerts.closed")) + settledText(result.settlement),
       );
     } catch {
       fail(t("alerts.closeFailed"));
@@ -110,8 +143,8 @@ function CloseBody({
   async function confirmCancel(target: LessonPackageRow) {
     setBusy(true);
     try {
-      await cancelLessonPackage(target.id, closeReason.trim() || undefined);
-      onDone(t("alerts.cancelled"));
+      const result = await cancelLessonPackage(target.id, closeReason.trim() || undefined, chosen);
+      onDone(t("alerts.cancelled") + settledText(result.settlement));
     } catch {
       fail(t("alerts.cancelFailed"));
     } finally {
@@ -133,6 +166,16 @@ function CloseBody({
           left: formatHours(row.minutes_remaining, locale),
         })}
       </p>
+      {asksSettlement && settle.preview && (
+        <SettlementFields
+          preview={settle.preview}
+          accounts={settle.accounts}
+          canRefund={settle.can_refund}
+          value={choice}
+          onChange={setChoice}
+          allowLater
+        />
+      )}
       {row.bill_timing === "ON_COMPLETION" && (
         <p className="rounded-xl bg-amber-500/10 px-3 py-2.5 text-xs font-medium text-amber-700 dark:text-amber-400">
           {t("close.proRataNote")}
@@ -185,7 +228,7 @@ function CloseBody({
             size="xs"
             variant="outline"
             onClick={() => void confirmCancel(row)}
-            disabled={busy}
+            disabled={busy || choiceIncomplete}
             data-testid="pkg-cancel-confirm"
           >
             {t("close.cancelConfirm")}
@@ -199,7 +242,7 @@ function CloseBody({
         <Button
           size="sm"
           onClick={() => void confirmClose(row)}
-          disabled={busy}
+          disabled={busy || choiceIncomplete}
           data-testid="pkg-close-confirm"
         >
           {t("close.confirm")}

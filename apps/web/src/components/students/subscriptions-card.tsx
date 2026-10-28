@@ -12,6 +12,7 @@ import { fieldClass } from "@/components/groups/group-format";
 import { JoinDateForm, leftReasonText, MemberPriceForm, MoveMemberForm, RemoveMemberForm } from "@/components/groups/group-members-panel";
 import { ClosePackageModal } from "@/components/packages/close-package-modal";
 import { EditPackageForm } from "@/components/packages/edit-package-form";
+import { lessonsIn, pricePerLesson } from "@/components/packages/lesson-price-fields";
 import { OpenPackageForm } from "@/components/packages/open-package-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -213,17 +214,30 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                         {[
                           p.subject ? [p.subject.course, p.subject.teacher_name].filter(Boolean).join(" · ") : null,
                           t("subscriptions.since", { date: dayLabel(p.starts_on, locale) }),
-                          p.status === "ACTIVE" ? t("subscriptions.remaining", { hours: (p.minutes_remaining / 60).toLocaleString(locale, { maximumFractionDigits: 1 }) }) : tp(`status.${p.status}`),
+                          p.status !== "ACTIVE"
+                            ? tp(`status.${p.status}`)
+                            : p.lesson_minutes
+                              ? t("subscriptions.remainingLessons", { count: lessonsIn(p.minutes_remaining, p.lesson_minutes) })
+                              : t("subscriptions.remaining", { hours: (p.minutes_remaining / 60).toLocaleString(locale, { maximumFractionDigits: 1 }) }),
                         ]
                           .filter(Boolean)
                           .join(" · ")}
                       </p>
                       {/* The block itself: hours used of bought, lessons, the hour's price, the bill, renewal. */}
                       <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs" data-testid="subs-package-details">
-                        <span>{tp("card.used", { used: formatHours(p.minutes_consumed, locale), total: formatHours(p.minutes_sold, locale) })}</span>
+                        <span>
+                          {p.lesson_minutes
+                            ? tp("card.used", { used: lessonsIn(p.minutes_consumed, p.lesson_minutes).toLocaleString(locale), total: tp("card.lessonsCount", { count: lessonsIn(p.minutes_sold, p.lesson_minutes) }) })
+                            : tp("card.used", { used: formatHours(p.minutes_consumed, locale), total: formatHours(p.minutes_sold, locale) })}
+                        </span>
                         <span>· {tp("card.lessonsUsed")}: {p.lesson_count}</span>
                         {p.status === "ACTIVE" && p.upcoming_lesson_count > 0 && <span>· {tp("card.upcomingCount", { count: p.upcoming_lesson_count })}</span>}
-                        <span>· {tp("card.perHour", { amount: money(p.hourly_rate_minor, p.currency) })}</span>
+                        <span>
+                          ·{" "}
+                          {p.lesson_minutes
+                            ? tp("card.perLesson", { amount: money(pricePerLesson(p, p.lesson_minutes), p.currency), minutes: p.lesson_minutes })
+                            : tp("card.perHour", { amount: money(p.hourly_rate_minor, p.currency) })}
+                        </span>
                         {p.status === "ACTIVE" && p.auto_renew && (
                           <span className="inline-flex items-center gap-0.5" title={tp("card.autoRenewNext", { n: p.sequence_no + 1 })}>
                             · <RefreshCw className="size-3" aria-hidden />

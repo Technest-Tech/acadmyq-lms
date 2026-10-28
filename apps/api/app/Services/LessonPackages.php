@@ -821,7 +821,8 @@ final class LessonPackages
         // Carry-over is deliberately an explicit choice, never automatic: unused minutes are the
         // academy's money to forgive or keep, and silently moving them is how disputes start.
         $carried = 0;
-        if (($data['carry_over'] ?? false) === true && $previous !== null) {
+        // A block whose unused part was already given back as money has nothing left to carry.
+        if (($data['carry_over'] ?? false) === true && $previous !== null && ! in_array($previous->settlement ?? null, ['CREDIT', 'REFUND'], true)) {
             $carried = $this->remainingMinutes($previous);
         }
 
@@ -868,6 +869,8 @@ final class LessonPackages
             'course' => $course,
             'label' => (string) $data['label'],
             'minutes_total' => $minutesTotal,
+            // The length of one lesson it was sold in — display only (null = read in hours).
+            'lesson_minutes' => isset($data['lesson_minutes']) ? (int) $data['lesson_minutes'] : null,
             // The previous block's last lesson ran past its end; those minutes are this block's.
             'minutes_consumed' => $absorbed,
             'absorbed_overdraft_minutes' => $absorbed,
@@ -903,6 +906,8 @@ final class LessonPackages
         if ($carried > 0 && $previous !== null) {
             DB::table('lesson_packages')->where('id', $previous->id)->update([
                 'closed_reason' => 'CARRIED_OVER',
+                // The minutes went on with the student: nothing is owed back for them.
+                'settlement' => ($previous->settlement ?? null) === 'PENDING' ? null : ($previous->settlement ?? null),
                 'updated_at' => now(),
             ]);
         }
@@ -1132,7 +1137,7 @@ final class LessonPackages
     public function edit(string $packageId, array $changes, ?string $actorUserId, ?string $actorRole, bool $nextOnly = false): array
     {
         if ($nextOnly) {
-            $terms = array_intersect_key($changes, array_flip(['label', 'minutes_total', 'price_minor']));
+            $terms = array_intersect_key($changes, array_flip(['label', 'minutes_total', 'lesson_minutes', 'price_minor']));
             $result = $this->edit($packageId, array_diff_key($changes, $terms), $actorUserId, $actorRole);
 
             return $result + ['next_terms' => $this->setNextTerms($packageId, $terms, $actorUserId, $actorRole)];
@@ -1167,6 +1172,9 @@ final class LessonPackages
         $autoRenew = array_key_exists('auto_renew', $changes)
             ? (bool) $changes['auto_renew']
             : (bool) $package->auto_renew;
+        $lessonMinutes = array_key_exists('lesson_minutes', $changes)
+            ? $changes['lesson_minutes']
+            : $package->lesson_minutes;
 
         $carried = (int) $package->carried_over_minutes;
         $consumed = (int) $package->minutes_consumed;
@@ -1192,6 +1200,7 @@ final class LessonPackages
             'price_minor' => $price,
             'expires_on' => $expires,
             'auto_renew' => $autoRenew,
+            'lesson_minutes' => $lessonMinutes,
         ] as $col => $value) {
             if ((string) $value !== (string) $package->{$col}) {
                 $before[$col] = $package->{$col};
@@ -1234,7 +1243,7 @@ final class LessonPackages
 
             // New terms on this block are the terms the renewal copies — anything parked for "the
             // next one" is superseded by them.
-            $termsMoved = array_intersect_key($after, array_flip(['label', 'minutes_total', 'price_minor'])) !== [];
+            $termsMoved = array_intersect_key($after, array_flip(['label', 'minutes_total', 'lesson_minutes', 'price_minor'])) !== [];
             DB::table('lesson_packages')->where('id', $packageId)->update($after + ['updated_at' => now()] + ($termsMoved ? ['next_terms' => null] : []));
 
             Audit::log(
@@ -1289,6 +1298,10 @@ final class LessonPackages
                     $packages[] = $summary;
                 }
 
+                continue;
+            }
+            // A bill the academy let go (إلغاء المستحق) is settled as it stands — never priced back up.
+            if (DB::table('invoice_line_items')->where('invoice_id', $p->invoice_id)->whereNotNull('cancelled_at')->exists()) {
                 continue;
             }
             if (! in_array((string) $p->invoice_status, ['OPEN', 'CLOSED'], true)) {
@@ -1414,7 +1427,7 @@ final class LessonPackages
         }
 
         $before = $package->next_terms !== null ? (array) json_decode((string) $package->next_terms, true) : [];
-        $next = array_merge($before, array_map(fn ($v) => is_string($v) ? trim($v) : (int) $v, $terms));
+        $next = array_merge($before, array_map(fn ($v) => is_string($v) ? trim($v) : ($v === null ? null : (int) $v), $terms));
         $next = array_filter($next, fn ($v, $k) => (string) $v !== (string) $package->{$k}, ARRAY_FILTER_USE_BOTH);
         if (isset($next['minutes_total']) && (int) $next['minutes_total'] < 30) {
             throw ValidationException::withMessages(['hours' => ['A package is at least half an hour. / الباقة نصف ساعة على الأقل.']]);
@@ -1639,6 +1652,8 @@ final class LessonPackages
             after: ['reason' => $reason, 'invoice_id' => $invoiceId, 'renewed_package_id' => $renewedId, 'renewal_held' => $held],
             before: ['status' => (string) $package->status],
         );
+        // Closed with lessons left on a bill paid up front: what becomes of them waits on a decision.
+        app(PackageSettlement::class)->markIfOwed($packageId);
 
         return ['package_id' => $packageId, 'invoice_id' => $invoiceId, 'renewed_package_id' => $renewedId];
     }
@@ -1720,6 +1735,7 @@ final class LessonPackages
             'teacher_id' => $finished->teacher_id !== null ? (string) $finished->teacher_id : null,
             'label' => (string) ($next['label'] ?? $finished->label),
             'minutes_total' => (int) ($next['minutes_total'] ?? $finished->minutes_total),
+            'lesson_minutes' => $next['lesson_minutes'] ?? ($finished->lesson_minutes !== null ? (int) $finished->lesson_minutes : null),
             'price_minor' => (int) ($next['price_minor'] ?? $finished->price_minor),
             'currency' => (string) $finished->currency,
             'bill_timing' => (string) $finished->bill_timing,
@@ -1796,6 +1812,7 @@ final class LessonPackages
             after: ['note' => $note, 'invoice_voided' => $voided],
             before: ['status' => (string) $package->status],
         );
+        app(PackageSettlement::class)->markIfOwed($packageId);
     }
 
     /**
@@ -2145,7 +2162,7 @@ final class LessonPackages
             : $label;
     }
 
-    private function packageLineDescription(string $label, int $minutesTotal, int $carried): string
+    public function packageLineDescription(string $label, int $minutesTotal, int $carried): string
     {
         $text = 'Package: '.$label.' — '.$this->humanHours($minutesTotal);
 

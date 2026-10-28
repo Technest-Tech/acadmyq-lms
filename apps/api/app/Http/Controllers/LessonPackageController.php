@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Enums\SessionStatus;
+use App\Http\Controllers\Accounting\SettlementController;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
 use App\Services\LessonPackages;
@@ -393,6 +394,8 @@ final class LessonPackageController extends Controller
             'teacher_id' => ['sometimes', 'nullable', 'uuid'],
             'new_subject' => ['sometimes', 'boolean'],
             'course' => ['sometimes', 'nullable', 'string', 'max:80'],
+            // Sold in lessons of this length (a centre): display only, the block still runs on minutes.
+            'lesson_minutes' => ['sometimes', 'nullable', 'integer', 'min:5', 'max:600'],
         ]);
 
         $ctx = app(AuthContext::class);
@@ -405,6 +408,7 @@ final class LessonPackageController extends Controller
             'course' => $validated['course'] ?? null,
             'label' => (string) $validated['label'],
             'minutes_total' => (int) round(((float) $validated['hours']) * 60),
+            'lesson_minutes' => $validated['lesson_minutes'] ?? null,
             'price_minor' => (int) $validated['price_minor'],
             'currency' => $validated['currency'] ?? null,
             'bill_timing' => $validated['bill_timing'] ?? null,
@@ -444,6 +448,7 @@ final class LessonPackageController extends Controller
             'price_minor' => ['sometimes', 'integer', 'min:0'],
             'expires_on' => ['sometimes', 'nullable', 'date'],
             'auto_renew' => ['sometimes', 'boolean'],
+            'lesson_minutes' => ['sometimes', 'nullable', 'integer', 'min:5', 'max:600'],
             // The edit form's question: this block (and so the next ones), or the next renewal only.
             'applies_to' => ['sometimes', Rule::in(['CURRENT', 'NEXT'])],
         ]);
@@ -463,6 +468,9 @@ final class LessonPackageController extends Controller
         }
         if (array_key_exists('auto_renew', $validated)) {
             $changes['auto_renew'] = (bool) $validated['auto_renew'];
+        }
+        if (array_key_exists('lesson_minutes', $validated)) {
+            $changes['lesson_minutes'] = $validated['lesson_minutes'] !== null ? (int) $validated['lesson_minutes'] : null;
         }
 
         $ctx = app(AuthContext::class);
@@ -505,12 +513,11 @@ final class LessonPackageController extends Controller
         $packages = app(LessonPackages::class);
         $studentId = (string) DB::table('lesson_packages')->where('id', $id)->value('student_id');
 
-        $result = $packages->complete(
-            $id,
-            (string) ($validated['reason'] ?? 'CLOSED_EARLY'),
-            $ctx->userId,
-            $ctx->role,
-        );
+        // Closed and, when asked, settled as one: a refused refund leaves the block open.
+        [$result, $settled] = DB::transaction(fn () => [
+            $packages->complete($id, (string) ($validated['reason'] ?? 'CLOSED_EARLY'), $ctx->userId, $ctx->role),
+            SettlementController::settleAfterClose($request, $id),
+        ]);
 
         // The one way back to the monthly clock, offered at the moment an owner actually decides
         // a student is done buying blocks. Keeping it here rather than on the student's profile
@@ -526,6 +533,7 @@ final class LessonPackageController extends Controller
             'ok' => true,
             'invoice_id' => $result['invoice_id'],
             'returned_to_monthly' => $returned,
+            'settlement' => $settled,
         ]);
     }
 
@@ -540,9 +548,13 @@ final class LessonPackageController extends Controller
 
         $ctx = app(AuthContext::class);
 
-        app(LessonPackages::class)->cancel($id, $validated['note'] ?? null, $ctx->userId, $ctx->role);
+        $settled = DB::transaction(function () use ($request, $id, $validated, $ctx) {
+            app(LessonPackages::class)->cancel($id, $validated['note'] ?? null, $ctx->userId, $ctx->role);
 
-        return response()->json(['ok' => true]);
+            return SettlementController::settleAfterClose($request, $id);
+        });
+
+        return response()->json(['ok' => true, 'settlement' => $settled]);
     }
 
     /**
@@ -927,7 +939,7 @@ final class LessonPackageController extends Controller
             ->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')
             ->leftJoin('teachers as st', 'st.id', '=', 'p.teacher_id')
             ->select([
-                'p.id', 'p.student_id', 'p.label', 'p.minutes_total', 'p.minutes_consumed',
+                'p.id', 'p.student_id', 'p.label', 'p.minutes_total', 'p.lesson_minutes', 'p.minutes_consumed',
                 'p.carried_over_minutes', 'p.minutes_overdrawn', 'p.price_minor', 'p.currency',
                 'p.hourly_rate_minor', 'p.bill_timing', 'p.status', 'p.sequence_no',
                 'p.starts_on', 'p.expires_on', 'p.invoice_id', 'p.overdraft_invoice_id',
@@ -1232,6 +1244,8 @@ final class LessonPackageController extends Controller
             'status' => (string) $row->status,
             'bill_timing' => (string) $row->bill_timing,
             'minutes_total' => (int) $row->minutes_total,
+            // Sold in lessons of this length (null = in hours): the cards count lessons with it.
+            'lesson_minutes' => isset($row->lesson_minutes) && $row->lesson_minutes !== null ? (int) $row->lesson_minutes : null,
             'carried_over_minutes' => (int) $row->carried_over_minutes,
             'minutes_sold' => $sold,
             'minutes_consumed' => $consumed,

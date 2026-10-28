@@ -202,6 +202,7 @@ final class StudentController extends Controller
                     'student_id' => $studentId,
                     'label' => (string) $package['label'],
                     'minutes_total' => (int) round(((float) $package['hours']) * 60),
+                    'lesson_minutes' => isset($package['lesson_minutes']) ? (int) $package['lesson_minutes'] : null,
                     'price_minor' => (int) $package['price_minor'],
                     'currency' => $package['currency'] ?? null,
                     'bill_timing' => $package['bill_timing'] ?? null,
@@ -901,6 +902,8 @@ final class StudentController extends Controller
                 's.id', 's.full_name', 's.whatsapp_phone', 's.secondary_phone', 's.country', 's.status', 's.is_self_guardian',
                 's.guardian_id', 's.deleted_at', 's.created_at',
                 'g.full_name as guardian_name', 'g.whatsapp_phone as guardian_phone',
+                // The family is paused (suspend): the list marks the child as suspended too.
+                'g.suspended_at as family_suspended_at',
                 'sub.id as subscription_id', 'sub.price_minor', 'sub.currency as price_currency',
                 'sub.price_basis', 'sub.plan_label', 'sub.sessions_per_month', 'sub.lesson_minutes',
                 'sub.start_date', 'sub.status as subscription_status',
@@ -1296,6 +1299,7 @@ final class StudentController extends Controller
             $rules['package.starts_on'] = ['sometimes', 'nullable', 'date'];
             $rules['package.expires_on'] = ['sometimes', 'nullable', 'date', 'after_or_equal:package.starts_on'];
             $rules['package.auto_renew'] = ['sometimes', 'boolean'];
+            $rules['package.lesson_minutes'] = ['sometimes', 'nullable', 'integer', 'min:5', 'max:600'];
         }
 
         return $request->validate($rules);

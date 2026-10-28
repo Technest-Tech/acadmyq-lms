@@ -294,6 +294,10 @@ export function StatementSheet({ data, onOpenReceipt }: { data: Statement; onOpe
                             {e.method && <MethodBadge method={e.method} />}
                           </span>
                         )
+                      ) : e.kind === "REFUND" ? (
+                        <span className="font-medium text-amber-700 dark:text-amber-300" data-testid="statement-refund">
+                          {t("statement.refundNo", { number: e.description })}
+                        </span>
                       ) : (
                         <>
                           <span className="font-medium break-words">{e.description}</span>

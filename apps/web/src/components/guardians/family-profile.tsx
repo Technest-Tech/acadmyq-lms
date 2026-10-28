@@ -40,6 +40,7 @@ import { HeroBadge, PageHero } from "@/components/ui/page-hero";
 import { FactCard, ProfileCard } from "@/components/ui/profile-card";
 import { FamilyAccountsCard } from "@/components/accounting/family-accounts-card";
 import { ParentPortalCard } from "@/components/guardians/parent-portal-card";
+import { SuspendFamilyConfirm } from "@/components/guardians/suspend-family";
 import {
   ApiError,
   carryStudentCharges,
@@ -56,6 +57,7 @@ import {
   type GuardianRow,
   type MovedAwayCharges,
 } from "@/lib/api";
+import { useCapability } from "@/lib/capabilities";
 import { COUNTRIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -480,6 +482,10 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
   // Deleting a parent with children takes the children too — ticked by hand, never assumed.
   const [alsoChildren, setAlsoChildren] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // A centre's suspend asks first: the dues raised ahead, each with a box to let it go. Every other
+  // academy suspends on the click, as it always has.
+  const [confirmingSuspend, setConfirmingSuspend] = useState(false);
+  const centre = useCapability("centre");
 
   /**
    * Adding a child is one flow with two ways in: enrol someone new, or move a student who is
@@ -1018,6 +1024,22 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
           description={guardian.suspended_at ? t("detail.resumeDesc") : t("detail.suspendDesc")}
           tone={guardian.suspended_at ? "slate" : "violet"}
         >
+          {confirmingSuspend && !guardian.suspended_at ? (
+            <SuspendFamilyConfirm
+              guardianId={guardianId}
+              onCancel={() => setConfirmingSuspend(false)}
+              onDone={async (cancelled) => {
+                setConfirmingSuspend(false);
+                await refresh();
+                setMoneyTick((n) => n + 1);
+                flash(
+                  cancelled.length > 0
+                    ? t("detail.suspendedCancelled", { amount: cancelled.map((c) => formatMoney({ amount: c.amount_minor, currency: c.currency }, locale)).join(" + ") })
+                    : t("detail.suspendedOk"),
+                );
+              }}
+            />
+          ) : (
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-muted-foreground min-w-0 text-xs">{guardian.suspended_at ? "" : t("detail.suspendHint")}</p>
             <Button
@@ -1028,6 +1050,10 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
               className="shrink-0 gap-1.5"
               onClick={async () => {
                 setError(null);
+                if (!guardian.suspended_at && centre) {
+                  setConfirmingSuspend(true);
+                  return;
+                }
                 try {
                   if (guardian.suspended_at) {
                     await resumeGuardian(guardianId);
@@ -1047,6 +1073,7 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
               {guardian.suspended_at ? t("detail.resume") : t("detail.suspend")}
             </Button>
           </div>
+          )}
         </ProfileCard>
       )}
 

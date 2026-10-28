@@ -34,6 +34,8 @@ export interface PackageTermsPayload {
   starts_on: string;
   expires_on: string | null;
   auto_renew: boolean;
+  /** A centre's block is sold in lessons of this length; the cards then count lessons, not hours. */
+  lesson_minutes?: number;
 }
 
 /**
@@ -60,14 +62,13 @@ export function usePackageTerms({
 } = {}) {
   const t = useTranslations("packages");
   const locale = useLocale();
-  // A centre quotes a lesson, not a block: "40 minutes for 100" × the hours bought = the total.
+  // A centre quotes a lesson, not a block: "40 minutes for 90" × the lessons bought = the total.
   const perLesson = useCapability("centre");
   const [unitMinutes, setUnitMinutes] = useState(60);
   const [unitPrice, setUnitPriceRaw] = useState("");
   const [unitPriceWasEdited, setUnitPriceWasEdited] = useState(false);
-  const [hours, setHours] = useState("");
-  // Everyone but a centre counts the block in lessons of a length (`unitMinutes`): "8 lessons of
-  // 40 minutes" is 5h20m, which nobody could type as a whole or half number of hours.
+  // The block is counted in lessons of a length (`unitMinutes`): "8 lessons of 40 minutes" is
+  // 5h20m, which nobody could type as a whole or half number of hours.
   const [lessons, setLessons] = useState("");
   const [price, setPriceRaw] = useState("");
   const [priceWasEdited, setPriceWasEdited] = useState(false);
@@ -84,11 +85,7 @@ export function usePackageTerms({
   const [autoRenew, setAutoRenew] = useState(true);
 
   const lessonCount = lessonCountOf(lessons);
-  const hoursNum = perLesson
-    ? Number.parseFloat(hours)
-    : lessonCount !== null
-      ? (lessonCount * unitMinutes) / 60
-      : Number.NaN;
+  const hoursNum = lessonCount !== null ? (lessonCount * unitMinutes) / 60 : Number.NaN;
   const totalMinutes = Number.isFinite(hoursNum) && hoursNum > 0 ? Math.round(hoursNum * 60) : 0;
   const priceMinor = perLesson
     ? totalFromLessonPrice(Math.round(Number.parseFloat((unitPrice || "0").replace(",", ".")) * 100), totalMinutes, unitMinutes)
@@ -139,11 +136,11 @@ export function usePackageTerms({
       year: "numeric",
     });
     setLabelRaw(
-      lessonCount !== null && !perLesson
+      lessonCount !== null
         ? t("form.labelAutoLessons", { lessons: lessonCount, minutes: unitMinutes, month })
         : t("form.labelAuto", { hours: hoursNum, month }),
     );
-  }, [hoursNum, lessonCount, unitMinutes, perLesson, startsOn, labelWasEdited, locale, t]);
+  }, [hoursNum, lessonCount, unitMinutes, startsOn, labelWasEdited, locale, t]);
 
   const valid =
     currency !== "" &&
@@ -162,6 +159,7 @@ export function usePackageTerms({
       starts_on: startsOn,
       expires_on: expiresOn === "" ? null : expiresOn,
       auto_renew: autoRenew,
+      ...(perLesson ? { lesson_minutes: unitMinutes } : {}),
     };
   }
 
@@ -176,8 +174,6 @@ export function usePackageTerms({
     },
     totalMinutes,
     priceMinor,
-    hours,
-    setHours,
     lessons,
     setLessons,
     lessonCount,
@@ -247,18 +243,20 @@ export function PackageTermsFields({
       <div className="grid grid-cols-2 gap-3">
         {terms.perLesson ? (
         <div className="space-y-1.5">
-          <label htmlFor={`${idPrefix}-hours`} className="text-sm font-medium">
-            {t("form.hours")}
+          <label htmlFor={`${idPrefix}-lessons`} className="text-sm font-medium">
+            {t("form.lessons")}
           </label>
           <input
-            id={`${idPrefix}-hours`}
+            id={`${idPrefix}-lessons`}
             type="number"
-            min="0.5"
-            step="0.5"
-            value={terms.hours}
-            onChange={(e) => terms.setHours(e.target.value)}
-            placeholder="20"
+            min="1"
+            step="1"
+            inputMode="numeric"
+            value={terms.lessons}
+            onChange={(e) => terms.setLessons(e.target.value)}
+            placeholder="8"
             className={inputClass}
+            data-testid={`${idPrefix}-lessons`}
           />
         </div>
         ) : (

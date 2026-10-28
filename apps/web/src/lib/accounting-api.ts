@@ -6,7 +6,7 @@
  * (`accounting`, opt-in per client). A receipt is money that changed hands; its allocations say
  * which invoice lines it paid, and whatever it did not cover is the payer's credit.
  */
-import { apiFetch, fetchPrivateFileUrl } from "@/lib/api";
+import { apiFetch, fetchPrivateFileUrl, type SettlementPreview } from "@/lib/api";
 
 export type ReceiptMethod = "CASH" | "INSTAPAY" | "WALLET" | "BANK_TRANSFER" | "CARD" | "OTHER";
 export const RECEIPT_METHODS: ReceiptMethod[] = ["CASH", "INSTAPAY", "WALLET", "BANK_TRANSFER", "CARD", "OTHER"];
@@ -368,7 +368,8 @@ export interface Arrears {
 
 export interface StatementEntry {
   date: string;
-  kind: "CHARGE" | "RECEIPT";
+  /** REFUND: credit paid back out of the treasury (description = the expense number). */
+  kind: "CHARGE" | "RECEIPT" | "REFUND";
   id: string;
   description: string;
   student_name?: string | null;
@@ -391,7 +392,7 @@ export interface Statement {
   students: string[];
   from: string;
   to: string;
-  currencies: { currency: string; opening_minor: number; charges_minor: number; receipts_minor: number; closing_minor: number; entries: StatementEntry[] }[];
+  currencies: { currency: string; opening_minor: number; charges_minor: number; receipts_minor: number; refunds_minor?: number; closing_minor: number; entries: StatementEntry[] }[];
   balance: PayerBalance[];
 }
 
@@ -453,6 +454,8 @@ export interface FamilyCharge {
   currency: string;
   payer_kind: "GUARDIAN" | "STUDENT";
   payer_id: string;
+  /** On a bill still open — the only kind whose charge can be cancelled. */
+  bill_open?: boolean;
 }
 
 export type DiscountKind = "PERCENT" | "FIXED";
@@ -522,7 +525,17 @@ export type FamilyEvent =
   | { kind: "RECEIPT"; at: string; date: string; id: string; number: string; amount_minor: number; currency: string; method: ReceiptMethod; by: string | null; voided: boolean; void_reason: string | null }
   | { kind: "REMINDER"; at: string; date: string; id: string; by: string | null }
   | { kind: "BILL_SENT"; at: string; date: string; id: string; period: string; amount_minor: number; currency: string }
-  | { kind: "NOTE"; at: string; date: string; id: string; body: string; follow_up_on: string | null; by: string | null; mine: boolean };
+  | { kind: "NOTE"; at: string; date: string; id: string; body: string; follow_up_on: string | null; by: string | null; mine: boolean }
+  | { kind: "REFUND"; at: string; date: string; id: string; number: string; amount_minor: number; currency: string; body: string | null; by: string | null; voided: boolean; void_reason: string | null };
+
+/** A child's subscription closed with lessons paid and not taken, waiting on a decision. */
+export interface UnsettledPackage extends SettlementPreview {
+  package_id: string;
+  student_id: string;
+  student_name: string;
+  label: string;
+  closed_on: string | null;
+}
 
 /** Renew freely, or wait for the last charge to be paid before the next one opens. */
 export type RenewalPolicy = "FREE" | "PAY_FIRST";
@@ -547,6 +560,11 @@ export interface FamilyAccount {
   charges: FamilyCharge[];
   discounts: FamilyDiscount[];
   timeline: FamilyEvent[];
+  unsettled?: UnsettledPackage[];
+  /** Where credit can be paid back from. */
+  refund_accounts?: { id: string; name: string; kind: string; currency: string }[];
+  can_refund?: boolean;
+  can_settle?: boolean;
   can_collect: boolean;
   can_remind: boolean;
   can_note: boolean;
@@ -624,6 +642,26 @@ export interface DiscountRemoved {
 /** Ends it from a day (today by default): charges from then on, open bills included, go back to full price. */
 export function endFamilyDiscount(guardianId: string, discountId: string, endsOn?: string): Promise<{ removed: DiscountRemoved }> {
   return apiFetch(`/api/accounting/family/${guardianId}/discounts/${discountId}/end`, { method: "POST", body: JSON.stringify({ ends_on: endsOn || null }) });
+}
+
+/**
+ * Let go of what is still owed on one charge — billed ahead, the child is not coming (إلغاء المستحق).
+ * What was paid stays paid; a private subscription's bill takes the subscription with it.
+ */
+export function cancelFamilyCharge(
+  guardianId: string,
+  lineId: string,
+  reason?: string | null,
+): Promise<{ cancelled: { lines: number; cancelled_minor: number; currency: string } }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/charges/${lineId}/cancel`, { method: "POST", body: JSON.stringify({ reason: reason || null }) });
+}
+
+/** Pay a family's credit back out of a treasury account (an expense under "رد مبالغ للأسر"). */
+export function refundFamilyCredit(
+  guardianId: string,
+  input: { amount_minor: number; currency: string; cash_account_id: string; note?: string | null },
+): Promise<{ expense_id: string; number: string }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/refund`, { method: "POST", body: JSON.stringify(input) });
 }
 
 /** Cancels it outright: off every charge still on an open bill, as if never given. */

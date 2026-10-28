@@ -42,6 +42,8 @@ final class Treasury
         'marketing' => 'تسويق وإعلانات',
         'maintenance' => 'صيانة',
         'other' => 'مصروفات أخرى',
+        // Credit paid back to a family (PackageSettlement / a refund from the family card).
+        'refunds' => 'رد مبالغ للأسر',
     ];
 
     public function ensureCategories(string $academyId): void
@@ -51,6 +53,10 @@ final class Treasury
         }
         $i = 0;
         foreach (self::DEFAULT_CATEGORIES as $key => $name) {
+            // Refunds are a centre's (PackageSettlement): made on the first one, never listed up front.
+            if ($key === 'refunds') {
+                continue;
+            }
             DB::table('expense_categories')->insert(['academy_id' => $academyId, 'key' => $key, 'name' => $name, 'sort_order' => $i++]);
         }
     }
@@ -58,6 +64,12 @@ final class Treasury
     public function categoryId(string $academyId, string $key): string
     {
         $this->ensureCategories($academyId);
+        // A default added after the academy's categories were set up (refunds) is created on first use.
+        if (isset(self::DEFAULT_CATEGORIES[$key])) {
+            DB::table('expense_categories')->insertOrIgnore([
+                'academy_id' => $academyId, 'key' => $key, 'name' => self::DEFAULT_CATEGORIES[$key], 'sort_order' => count(self::DEFAULT_CATEGORIES),
+            ]);
+        }
 
         return (string) DB::table('expense_categories')->where('academy_id', $academyId)->where('key', $key)->value('id');
     }

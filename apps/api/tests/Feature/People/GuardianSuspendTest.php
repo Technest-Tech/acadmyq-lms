@@ -102,16 +102,16 @@ it('raises no group month on a paused family, and bills it again once resumed', 
         'student_ids' => [$this->adam, $this->dina],
     ])->assertCreated()->json('group.id');
     $lines = fn () => suspendTenant($this->academy, fn () => DB::table('invoice_line_items')->where('class_group_id', $groupId)->get()->groupBy(fn ($l) => (string) $l->student_id)->map->count()->all());
-    expect($lines())->toBe([$this->adam => 1, $this->dina => 1]);
+    expect($lines())->toEqual([$this->adam => 1, $this->dina => 1]);
 
     $this->postJson("/api/guardians/{$this->parent}/suspend")->assertOk();
     Carbon::setTestNow('2026-07-01 09:00:00');
     (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
     // July: Dina yes, Adam no — and his June line is exactly where it was.
-    expect($lines())->toBe([$this->adam => 1, $this->dina => 2]);
+    expect($lines())->toEqual([$this->adam => 1, $this->dina => 2]);
 
     Sanctum::actingAs($this->owner);
     $this->postJson("/api/guardians/{$this->parent}/resume")->assertOk();
     (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
-    expect($lines())->toBe([$this->adam => 2, $this->dina => 2]);
+    expect($lines())->toEqual([$this->adam => 2, $this->dina => 2]);
 });

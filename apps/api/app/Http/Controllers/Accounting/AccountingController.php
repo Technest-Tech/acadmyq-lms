@@ -126,10 +126,11 @@ final class AccountingController extends Controller
         $credit = [];
         foreach (DB::table('receipts as r')
             ->leftJoinSub(DB::table('receipt_allocations')->selectRaw('receipt_id, sum(amount_minor) as allocated')->groupBy('receipt_id'), 'a', 'a.receipt_id', '=', 'r.id')
+            ->leftJoinSub(Ledger::refundsByReceipt(), 'rf', 'rf.receipt_id', '=', 'r.id')
             ->whereNull('r.voided_at')
-            ->whereRaw('r.amount_minor > coalesce(a.allocated, 0)')
+            ->whereRaw('r.amount_minor > coalesce(a.allocated, 0) + coalesce(rf.refunded, 0)')
             ->groupBy('r.currency')
-            ->get(['r.currency', DB::raw('sum(r.amount_minor - coalesce(a.allocated, 0)) as credit')]) as $row) {
+            ->get(['r.currency', DB::raw('sum(r.amount_minor - coalesce(a.allocated, 0) - coalesce(rf.refunded, 0)) as credit')]) as $row) {
             $credit[] = ['currency' => (string) $row->currency, 'credit_minor' => (int) $row->credit];
         }
 
@@ -457,6 +458,25 @@ final class AccountingController extends Controller
                 'invoice_url' => AcademyUrl::invoice($academyId, (string) $l->public_token),
             ];
         }
+        // Credit paid back to them out of the treasury: money that left their account.
+        $refunds = DB::table('receipt_refunds as rr')
+            ->join('receipts as r', 'r.id', '=', 'rr.receipt_id')
+            ->join('expenses as e', 'e.id', '=', 'rr.expense_id')
+            ->whereNull('e.voided_at')
+            ->tap(fn ($q) => $onAccount($q, 'r'))
+            ->groupBy('e.id', 'e.number', 'e.spent_on', 'e.currency')
+            ->get(['e.id', 'e.number', 'e.spent_on', 'e.currency', DB::raw('sum(rr.amount_minor) as amount')]);
+        foreach ($refunds as $f) {
+            $entries[] = [
+                'date' => Carbon::parse($f->spent_on)->format('Y-m-d'),
+                'kind' => 'REFUND',
+                'id' => (string) $f->id,
+                'description' => (string) $f->number,
+                'currency' => (string) $f->currency,
+                'debit_minor' => (int) $f->amount,
+                'credit_minor' => 0,
+            ];
+        }
         foreach ($receipts as $r) {
             $entries[] = [
                 'date' => Carbon::parse($r->received_on)->format('Y-m-d'),
@@ -476,7 +496,7 @@ final class AccountingController extends Controller
         $currencies = [];
         foreach ($entries as $e) {
             $c = $e['currency'];
-            $currencies[$c] ??= ['currency' => $c, 'opening_minor' => 0, 'charges_minor' => 0, 'receipts_minor' => 0, 'closing_minor' => 0, 'entries' => []];
+            $currencies[$c] ??= ['currency' => $c, 'opening_minor' => 0, 'charges_minor' => 0, 'receipts_minor' => 0, 'refunds_minor' => 0, 'closing_minor' => 0, 'entries' => []];
             if ($e['date'] < $from) {
                 $currencies[$c]['opening_minor'] += $e['debit_minor'] - $e['credit_minor'];
 
@@ -485,7 +505,7 @@ final class AccountingController extends Controller
             if ($e['date'] > $to) {
                 continue;
             }
-            $currencies[$c]['charges_minor'] += $e['debit_minor'];
+            $currencies[$c][$e['kind'] === 'REFUND' ? 'refunds_minor' : 'charges_minor'] += $e['debit_minor'];
             $currencies[$c]['receipts_minor'] += $e['credit_minor'];
             $currencies[$c]['entries'][] = $e;
         }

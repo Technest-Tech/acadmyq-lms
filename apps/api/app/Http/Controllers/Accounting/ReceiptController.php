@@ -349,6 +349,7 @@ final class ReceiptController extends Controller
 
         $payer = ['guardian_id' => $r->guardian_id, 'student_id' => $r->student_id, 'payer_name' => $r->payer_name];
         $allocated = (int) $allocations->sum('amount_minor');
+        $refunded = $this->ledger->refunded($id);
         $academyId = (string) $r->academy_id;
 
         $voidedBy = $r->voided_by !== null ? DB::table('users')->where('id', $r->voided_by)->value('full_name') : null;
@@ -358,7 +359,9 @@ final class ReceiptController extends Controller
             'has_proof' => $r->proof_path !== null,
             'payer' => $this->payerInfo($payer),
             'public_url' => AcademyUrl::receipt($academyId, (string) $r->public_token),
-            'unallocated_minor' => $r->voided_at === null ? (int) $r->amount_minor - $allocated : 0,
+            'unallocated_minor' => $r->voided_at === null ? (int) $r->amount_minor - $allocated - $refunded : 0,
+            // Paid back to the family out of the treasury (a refund expense).
+            'refunded_minor' => $refunded,
             'voided_at' => $r->voided_at,
             'voided_by_name' => $voidedBy,
             'allocations' => $allocations->map(fn ($a) => [

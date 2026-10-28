@@ -46,6 +46,7 @@ use App\Http\Controllers\Accounting\DiscountPresetController;
 use App\Http\Controllers\Accounting\FamilyAccountController;
 use App\Http\Controllers\Accounting\ReceiptController;
 use App\Http\Controllers\Accounting\RenewalPolicyController;
+use App\Http\Controllers\Accounting\SettlementController;
 use App\Http\Controllers\Accounting\TreasuryController;
 use App\Http\Controllers\Groups\GroupAccountsController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
@@ -709,6 +710,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::delete('/guardians/{id}', [GuardianController::class, 'destroy']);
     Route::post('/guardians/{id}/reactivate', [GuardianController::class, 'reactivate']);
     // A family paused for a while, and the way back (docs/groups/01-ACCOUNTING.md).
+    Route::get('/guardians/{id}/advance-dues', [GuardianController::class, 'advanceDues'])->whereUuid('id');
     Route::post('/guardians/{id}/suspend', [GuardianController::class, 'suspend']);
     Route::post('/guardians/{id}/resume', [GuardianController::class, 'resume']);
     // The family's private page link (`/p/{token}`): read, make / replace, switch off, WhatsApp it.
@@ -1182,6 +1184,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::post('/accounting/family/{guardianId}/discounts/{discountId}/end', [FamilyAccountController::class, 'endDiscount'])->whereUuid(['guardianId', 'discountId']);
             Route::delete('/accounting/family/{guardianId}/discounts/{discountId}', [FamilyAccountController::class, 'cancelDiscount'])->whereUuid(['guardianId', 'discountId']);
             Route::post('/accounting/family/{guardianId}/discounts/{discountId}/apply-existing', [FamilyAccountController::class, 'applyDiscountToExisting'])->whereUuid(['guardianId', 'discountId']);
+            Route::post('/accounting/family/{guardianId}/charges/{lineId}/cancel', [FamilyAccountController::class, 'cancelCharge'])->whereUuid(['guardianId', 'lineId']);
+            Route::post('/accounting/family/{guardianId}/refund', [SettlementController::class, 'refund'])->whereUuid('guardianId');
             Route::patch('/accounting/family/{guardianId}/renewal-policy', [RenewalPolicyController::class, 'updateFamily'])->whereUuid('guardianId');
             Route::get('/accounting/discount-presets', [DiscountPresetController::class, 'index']);
             Route::post('/accounting/discount-presets', [DiscountPresetController::class, 'store']);
@@ -1231,6 +1235,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/packages/{id}/sync-lessons', [LessonPackageController::class, 'syncLessons']);
         Route::post('/packages/{id}/close', [LessonPackageController::class, 'close']);
         Route::post('/packages/{id}/cancel', [LessonPackageController::class, 'cancel']);
+        // What becomes of a prepaid block's unused money: the family's credit, paid back, or kept.
+        Route::get('/packages/{id}/settlement', [SettlementController::class, 'show'])->whereUuid('id');
+        Route::post('/packages/{id}/settle', [SettlementController::class, 'settle'])->whereUuid('id');
         Route::post('/packages/{id}/bill-overdraft', [LessonPackageController::class, 'billOverdraft']);
         Route::post('/packages/{id}/remind', [LessonPackageController::class, 'remind']);
 

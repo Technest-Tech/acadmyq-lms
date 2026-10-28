@@ -622,6 +622,11 @@ final class TreasuryController extends Controller
             abort(404, 'Expense not found.');
         }
         $this->treasury->assertOpenDay((string) $e->cash_account_id, (string) $e->spent_on);
+        if (DB::table('receipt_refunds')->where('expense_id', $id)->exists()) {
+            throw ValidationException::withMessages(['amount_minor' => [
+                'Money paid back to a family is drawn on their receipts: void it and pay back again. / المبلغ المردود مسحوب من إيصالات الأسرة: ألغِه واصرفه من جديد.',
+            ]]);
+        }
         if ($e->payout_id !== null) {
             Gate::authorize('payout.read');
             $total = (int) DB::table('payouts')->where('id', $e->payout_id)->value('total_minor');
@@ -647,6 +652,15 @@ final class TreasuryController extends Controller
         $this->treasury->assertOpenDay((string) $e->cash_account_id, (string) $e->spent_on);
         DB::table('expenses')->where('id', $id)->update(['voided_at' => now(), 'voided_by' => app(AuthContext::class)->userId, 'void_reason' => trim((string) $data['reason'])]);
         $this->audit('expense.voided', 'expense', $id, ['number' => $e->number, 'reason' => $data['reason']]);
+        // A refund taken back: the money is the family's credit again, and pays what they owe.
+        $refunded = DB::table('receipt_refunds as rr')->join('receipts as r', 'r.id', '=', 'rr.receipt_id')->where('rr.expense_id', $id)
+            ->distinct()->get(['r.guardian_id', 'r.student_id', 'r.currency']);
+        if ($refunded->isNotEmpty()) {
+            DB::table('lesson_packages')->where('settle_expense_id', $id)->where('settlement', 'REFUND')->update(['settlement' => 'CREDIT', 'updated_at' => now()]);
+            foreach ($refunded as $r) {
+                app(Ledger::class)->applyCredit($this->academyId(), ['guardian_id' => $r->guardian_id, 'student_id' => $r->student_id], (string) $r->currency);
+            }
+        }
 
         return response()->json(['ok' => true]);
     }

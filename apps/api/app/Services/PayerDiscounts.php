@@ -228,6 +228,8 @@ final class PayerDiscounts
             ->where('i.academy_id', $academyId)
             ->where('i.status', 'OPEN')
             ->whereIn('li.student_id', $studentIds)
+            // A charge let go (إلغاء المستحق) keeps what it was cancelled to.
+            ->whereNull('li.cancelled_at')
             ->whereNotNull('li.session_date')
             ->when($fromDate !== null, fn ($q) => $q->where('li.session_date', '>=', $fromDate))
             ->whereRaw('coalesce(li.list_amount_minor, li.amount_minor) > 0')

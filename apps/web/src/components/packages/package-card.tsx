@@ -28,6 +28,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
+import { lessonsIn, pricePerLesson } from "@/components/packages/lesson-price-fields";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -124,6 +125,9 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
   const { row, timezone, onOpenDetail } = props;
   const t = useTranslations("packages");
   const locale = useLocale();
+  // Sold in lessons (a centre): count and price in lessons, not hours.
+  const lessonMinutes = row.lesson_minutes ?? null;
+  const lessons = (minutes: number) => t("card.lessonsCount", { count: lessonsIn(minutes, lessonMinutes ?? 60) });
 
   const isActive = row.status === "ACTIVE";
   const low = isActive && row.minutes_remaining <= 60;
@@ -292,8 +296,8 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
         <div className="grid grid-cols-2 gap-2">
           <Metric
             icon={Clock3}
-            label={t("card.totalHours")}
-            value={formatHours(row.minutes_sold, locale)}
+            label={lessonMinutes ? t("card.totalLessons") : t("card.totalHours")}
+            value={lessonMinutes ? lessons(row.minutes_sold) : formatHours(row.minutes_sold, locale)}
             tone="violet"
           />
           <Metric
@@ -305,7 +309,7 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
           <Metric
             icon={RefreshCw}
             label={t("card.remainingShort")}
-            value={formatHours(row.minutes_remaining, locale)}
+            value={lessonMinutes ? lessons(row.minutes_remaining) : formatHours(row.minutes_remaining, locale)}
             tone={low ? "amber" : "emerald"}
           />
           <Metric
@@ -373,16 +377,20 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
           />
           <InfoRow
             icon={WalletCards}
-            label={t("card.hourlyRate")}
-            value={t("card.perHour", {
-              amount: formatMoney(
-                {
-                  amount: row.hourly_rate_minor,
-                  currency: row.currency,
-                },
-                locale,
-              ),
-            })}
+            label={lessonMinutes ? t("card.lessonPrice") : t("card.hourlyRate")}
+            value={
+              lessonMinutes
+                ? t("card.perLesson", { amount: formatMoney({ amount: pricePerLesson(row, lessonMinutes), currency: row.currency }, locale), minutes: lessonMinutes })
+                : t("card.perHour", {
+                    amount: formatMoney(
+                      {
+                        amount: row.hourly_rate_minor,
+                        currency: row.currency,
+                      },
+                      locale,
+                    ),
+                  })
+            }
           />
           <InfoRow
             icon={CalendarClock}

@@ -263,17 +263,20 @@ describe("OpenPackageForm — a centre prices by the lesson", () => {
     // No total to type: it is worked out.
     expect(screen.queryByLabelText(arMessages.packages.form.price)).not.toBeInTheDocument();
 
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "10");
+    // Lessons, not hours.
+    expect(screen.queryByLabelText(arMessages.packages.form.hours)).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "15");
     await userEvent.selectOptions(screen.getByTestId("pkg-lesson-unit"), "40");
     const unitPrice = screen.getByTestId("pkg-lesson-unit-price");
     await userEvent.clear(unitPrice);
-    await userEvent.type(unitPrice, "100");
-    // 10 hours of 40-minute lessons = 15 lessons × 100.
+    await userEvent.type(unitPrice, "90");
+    // 15 lessons of 40 minutes × 90 = 1,350.
     const readout = screen.getByTestId("pkg-lesson-total");
     expect(readout.textContent).toContain("15");
 
     await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.open }));
-    await waitFor(() => expect(openLessonPackage).toHaveBeenCalledWith(expect.objectContaining({ hours: 10, price_minor: 150000 })));
+    // 15 × 40 min = 10 hours on the server, and the lesson's length goes with it.
+    await waitFor(() => expect(openLessonPackage).toHaveBeenCalledWith(expect.objectContaining({ hours: 10, price_minor: 135000, lesson_minutes: 40 })));
   });
 
   it("keeps the total-price field for an academy that is not a centre", async () => {
@@ -315,10 +318,10 @@ describe("OpenPackageForm — a centre sells one subscription per subject", () =
     expect(screen.getByTestId("package-already-open").textContent).toContain(arMessages.packages.form.alreadyOpenSubject);
     await userEvent.selectOptions(subject, "t-eng");
 
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "8");
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "8");
     await userEvent.type(screen.getByTestId("pkg-lesson-unit-price"), "100");
     await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.open }));
-    await waitFor(() => expect(openLessonPackage).toHaveBeenCalledWith(expect.objectContaining({ teacher_id: "t-eng", hours: 8 })));
+    await waitFor(() => expect(openLessonPackage).toHaveBeenCalledWith(expect.objectContaining({ teacher_id: "t-eng", hours: 8, lesson_minutes: 60 })));
   });
 
   it("shows no subject picker to an academy that is not a centre", async () => {
@@ -343,7 +346,7 @@ describe("OpenPackageForm — a centre sells one subscription per subject", () =
     await waitFor(() => expect(within(teacher).getAllByRole("option").length).toBe(2));
     await userEvent.selectOptions(teacher, "t-maths");
 
-    await userEvent.type(screen.getByLabelText(arMessages.packages.form.hours), "8");
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "8");
     await userEvent.type(screen.getByTestId("pkg-lesson-unit-price"), "100");
     await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.open }));
     await waitFor(() =>

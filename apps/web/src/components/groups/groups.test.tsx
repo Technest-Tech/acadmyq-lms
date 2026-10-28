@@ -355,7 +355,7 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
     expect(createGroup.mock.calls[0]![0]).toMatchObject({ billing_mode: "MONTHLY", price_minor: 60000, month_minutes: 450 });
   });
 
-  it("a centre prices a month of hours by the lesson: hours, lesson length and its price — the month's price is worked out", async () => {
+  it("a centre counts a month in lessons and prices it by the lesson: lessons, their length and price — the month's price is worked out", async () => {
     const user = userEvent.setup();
     render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage", "student.set_price"], capabilities: ["invoicing", "groups", "centre"] }),
       <GroupForm onSaved={() => {}} onCancel={() => {}} />));
@@ -363,17 +363,18 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
     await user.type(screen.getByTestId("group-name"), "English A1");
     await user.click(screen.getByTestId("group-teacher"));
     await user.click(await screen.findByText("Mona"));
-    // Hours first; with them, the price is asked per lesson.
-    await user.type(screen.getByTestId("group-month-hours"), "8");
+    // Lessons a month first — not hours; with them, the price is asked per lesson.
+    expect(screen.queryByTestId("group-month-hours")).not.toBeInTheDocument();
+    await user.type(screen.getByTestId("group-month-lessons"), "12");
     expect(screen.queryByTestId("group-price")).not.toBeInTheDocument();
     await user.selectOptions(screen.getByTestId("group-lesson-unit"), "40");
-    await user.type(screen.getByTestId("group-lesson-unit-price"), "100");
-    // 8 hours of 40-minute lessons = 12 lessons × 100 = 1,200 a month.
+    await user.type(screen.getByTestId("group-lesson-unit-price"), "90");
+    // 12 lessons of 40 minutes × 90 = 1,080 a month; the month is kept as 480 minutes.
     expect(screen.getByTestId("group-lesson-total").textContent).toContain("12");
     await user.click(screen.getByTestId("group-save"));
 
     await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
-    expect(createGroup.mock.calls[0]![0]).toMatchObject({ billing_mode: "MONTHLY", price_minor: 120000, month_minutes: 480 });
+    expect(createGroup.mock.calls[0]![0]).toMatchObject({ billing_mode: "MONTHLY", price_minor: 108000, month_minutes: 480 });
   });
 
   it("drops the hours when the group is not monthly", async () => {

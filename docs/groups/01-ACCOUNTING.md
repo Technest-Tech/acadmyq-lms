@@ -720,3 +720,93 @@ discount could be put on **one group only**, never two groups or two subscriptio
 
 Tests: TreasuryTest (end today re-prices July; cancel after a closed May; end from a chosen day;
 several groups + one subject + mixed + refusals), accounting-treasury.test.tsx.
+
+## Lessons, not hours; a family suspended and the dues raised ahead (`centre`, 2026-10-29)
+
+Ahmed for the curriculum centres: a subscription is "8 lessons of 40 minutes at 90 each", never
+"5h20 at 135 an hour"; suspending a family should suspend its children; and what was billed ahead
+must be cancellable — the child may not come back, yet the charge stayed.
+
+- **Private subscription in lessons.** `lesson_packages.lesson_minutes` (migration
+  2026_10_29_000001, nullable): the length of one lesson the block was sold in. Display only — the
+  engine still runs on minutes and the hourly rate. Under `centre` every form (open / new student /
+  trial wizard / subscriptions card / edit) asks **lessons** + length + one lesson's price; the
+  server gets `hours = lessons × length / 60`, `price_minor = lessons × price` and `lesson_minutes`.
+  Renewal copies it; a NEXT-only edit parks it in `next_terms`. Cards (package card, subscriptions
+  card) read "6 lessons left", "2 of 8 lessons", "90/lesson (40 min)" when it is set. Quran
+  academies never send it, so their cards are unchanged.
+- **Group month in lessons.** A centre's monthly group asks "lessons a month" (× the lesson length
+  = `month_minutes`, unchanged on the server); the group page, money tab and new-student group list
+  read "450 for every 8 lessons" (`moneyTab.rule.MONTHLY_LESSONS`).
+- **Suspend takes the children with it.** On top of timetables off and no new group months
+  (2026-10-24), `ClassGroups::roster` now leaves a suspended family's children off every group
+  sheet dated from the suspension day (academy tz) — so they are not marked present by default or
+  counted for teacher pay. The students list shows "Family suspended" (`family_suspended_at`).
+- **Dues raised ahead — إلغاء المستحق.** `invoice_line_items.cancelled_minor / cancelled_at /
+  cancelled_by / cancel_reason` (migration 2026_10_29_000002). `ChargeCancellation::cancel()`:
+  only on an OPEN bill and only with `accounting`; the unpaid part goes (`amount_minor` → what was
+  paid), totals follow, ledger refresh + group revenue share re-sync; the line stays, so
+  `BillGroupMonthsJob` never raises it again, discount re-pricing skips it and package re-pricing
+  skips its bill. A line of a private subscription's own bill takes the whole bill and ends the
+  subscription: unused → `LessonPackages::cancel()` (bill voided if nothing paid), used →
+  `auto_renew=false` + `complete(…, 'CHARGE_CANCELLED')`.
+  `advanceDues()` = unpaid lines on OPEN bills of the family's children that are a group MONTHLY/
+  COURSE charge from this month on, or a running package's bill.
+  - `GET /guardians/{id}/advance-dues`, `POST /guardians/{id}/suspend { cancel_line_ids }` (only ids
+    in that set; `invoice.mark_paid`) — the suspend card asks first and lists them, nothing ticked.
+  - `POST /accounting/family/{g}/charges/{line}/cancel { reason? }` — "إلغاء المستحق" on any charge
+    of the family card on an open bill (`bill_open`).
+
+Tests: CancelDuesTest (advance dues + suspend cancel + never re-raised + discount skip; roster;
+one charge part-paid; package unused/used; non-accounting; lesson_minutes through edit and renewal),
+family-profile / accounting-treasury / subscriptions-card / groups / open-package-form tests.
+
+## A subscription that ends early — the money paid for lessons not taken (2026-10-29)
+
+A curriculum centre asked: a family paid a whole private subscription up front, the child stopped
+part-way, and they are owed the rest — how does the system know, even while the child is stopped?
+Before, the unused part of a closed ON_START block simply vanished: no credit, no trace.
+
+**Settling a block** (`App\Services\PackageSettlement`, `lesson_packages.settlement`):
+
+- A block billed up front that closes (by hand, the student removed, its bill let go) with lessons
+  left on a bill that charges more than they used is **PENDING**. It shows on the family's money
+  card — «فلوس للأسرة من اشتراكات انتهت قبل ما تخلص» — the children who left included, until
+  someone decides. The close dialog asks in the same step (or "decide later").
+- What comes back = what was **paid** on the block's line − what was **used** (the agreed price
+  after discount × used minutes ÷ bought minutes). Never more than was paid: a bill let go
+  (إلغاء المستحق) or never paid returns nothing.
+- **CREDIT** — the line (and its bill, even closed) comes down to what was used. The DB trigger that
+  frees allocations above a repriced line gives the excess back to the receipts: the family's credit,
+  which pays their next charges by itself.
+- **REFUND** — the same, then the credit is paid out of a treasury account: an expense under the new
+  category `refunds` («رد مبالغ للأسر»), drawn on the receipts that held it (`receipt_refunds`).
+- **KEEP** — nothing moves; the decision, amount and reason are recorded.
+- A block settled with money (CREDIT / REFUND) has nothing left to **carry over** into the next one;
+  a PENDING block whose minutes are carried over is no longer owed anything.
+
+**Refunds** are a ledger fact now: a receipt's credit = amount − allocated − refunded (a refund
+whose expense is voided gives it back, and the settlement turns back to CREDIT). The family card
+pays any credit back («رد الرصيد»); the statement shows refunds as their own debit line; a
+receipt that was partly paid back cannot be voided, and a refund expense's amount cannot be edited
+(void it and pay again). The `refunds` category is not offered in the manual expense form.
+
+**Closed bills**: totals stay frozen except inside a settlement, which names its one invoice in the
+transaction-local `app.settling_invoice_id`, and then only downwards.
+
+Endpoints: `GET /packages/{id}/settlement`, `POST /packages/{id}/settle`, `settlement` on
+`POST /packages/{id}/close|cancel`, `POST /accounting/family/{guardianId}/refund`. Money moves on
+`invoice.mark_paid` (+ `package.manage` to settle); paying out also takes `expense.manage`.
+
+**Scope rule (Ahmed, 2026-10-29): none of the 2026-10-29 work may change anything for the existing
+Quran academies.** Everything above — and the prepaid-subscription settlement shipped beside it —
+is gated on `centre`, on the server (`Entitlement::hasCapability($academyId, 'centre')`:
+`ChargeCancellation::availableFor`, `PackageSettlement::availableFor`, `ClassGroups::roster`) and in
+the web (students-list badge, suspend asks first, charge cancel, close-dialog settlement). A Quran
+academy on the accounts still suspends on one click, keeps a suspended child on the group sheet,
+gets no advance dues / cancel / settlement / refund (pinned: CancelDuesTest "changes nothing for an
+academy that is not a centre", family-profile + accounting-treasury tests). The `refunds` expense
+category is created on first use, never seeded. Found on the way: the settlement's invoice-freeze
+exception read `current_setting('app.settling_invoice_id', true)` bare — NULL on a fresh connection
+made the whole IF NULL, so plpgsql skipped the raise and a CLOSED invoice's totals could be lowered
+in any academy; now `coalesce(…, '')`, pinned by "never lets a closed bill's total change".

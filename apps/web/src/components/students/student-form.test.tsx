@@ -400,8 +400,8 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     const user = userEvent.setup();
     renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "centre"] });
     await fillActiveStudent(user);
-    // The subscription's own fields are already open: no click on the billing tile needed.
-    expect(screen.getByLabelText(enMessages.packages.form.hours)).toBeInTheDocument();
+    // The subscription's own fields are already open: no click on the billing tile needed — in lessons.
+    expect(screen.getByLabelText(enMessages.packages.form.lessons)).toBeInTheDocument();
     expect(screen.getByTestId("billing-package").textContent).toContain(enMessages.students.form.billingSubscription);
   });
 
@@ -477,7 +477,7 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "groups", "centre"], extraPermissions: ["group.manage"] });
     await fillActiveStudent(user);
     // Starts on the subscription; the group list sits above it.
-    expect(screen.getByLabelText(enMessages.packages.form.hours)).toBeInTheDocument();
+    expect(screen.getByLabelText(enMessages.packages.form.lessons)).toBeInTheDocument();
     expect(await screen.findByTestId("group-subs")).toBeInTheDocument();
   });
 

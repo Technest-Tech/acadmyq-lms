@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Support\Audit;
+use App\Support\Entitlement;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -433,12 +434,18 @@ final class ClassGroups
         $date = Carbon::parse($lesson->occurrence_local_date)->format('Y-m-d');
         $removed = DB::table('class_group_lesson_removals')->where('lesson_id', $lesson->id)->pluck('student_id')->all();
 
+        // A centre's suspended family takes its children off the sheet from the day it was suspended.
+        $centre = Entitlement::hasCapability((string) $lesson->academy_id, 'centre');
+        $timezone = $centre ? (string) (DB::table('academies')->where('id', $lesson->academy_id)->value('timezone') ?: 'UTC') : 'UTC';
+
         $members = DB::table('class_group_members as m')
             ->join('students as st', 'st.id', '=', 'm.student_id')
             ->where('m.group_id', $lesson->group_id)
             ->where('m.joined_on', '<=', $date)
             ->where(fn ($q) => $q->whereNull('m.left_on')->orWhere('m.left_on', '>', $date))
             ->whereNull('st.deleted_at')
+            ->when($centre, fn ($q) => $q->leftJoin('guardians as gu', 'gu.id', '=', 'st.guardian_id')
+                ->where(fn ($s) => $s->whereNull('gu.suspended_at')->orWhereRaw('(gu.suspended_at at time zone ?)::date > ?::date', [$timezone, $date])))
             ->whereNotIn('m.student_id', $removed)
             ->get(['m.student_id', 'st.full_name']);
 

@@ -3,6 +3,7 @@
 import {
   AlarmClock,
   Ban,
+  Banknote,
   BellRing,
   CalendarClock,
   FileText,
@@ -28,6 +29,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { MethodBadge, Panel, Tile, dayLabel, toMajorText, waLink } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
 import { RenewalPolicyControl } from "@/components/accounting/renewal-policy-control";
+import { RefundCreditModal, SettleModal } from "@/components/accounting/settle-package";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
@@ -38,6 +40,7 @@ import {
   addFamilyDiscount,
   applyFamilyDiscountToExisting,
   addFamilyNote,
+  cancelFamilyCharge,
   deleteFamilyNote,
   cancelFamilyDiscount,
   endFamilyDiscount,
@@ -55,6 +58,7 @@ import {
   type FamilyCharge,
   type FamilyDiscount,
   type FamilyEvent,
+  type UnsettledPackage,
 } from "@/lib/accounting-api";
 import { useCapability } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
@@ -81,6 +85,8 @@ export function FamilyAccountsCard({ guardianId }: { guardianId: string }) {
 
 function FamilyAccounts({ guardianId }: { guardianId: string }) {
   const t = useTranslations("accounting");
+  // Letting a charge go (إلغاء المستحق) is a centre's; every other academy's card is unchanged.
+  const centre = useCapability("centre");
   const locale = useLocale();
   const [data, setData] = useState<FamilyAccount | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +98,13 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
   const [note, setNote] = useState("");
   const [followUp, setFollowUp] = useState("");
   const [savingNote, setSavingNote] = useState(false);
+  // The charge whose "cancel the due" is being confirmed, with the reason typed for it.
+  const [cancellingCharge, setCancellingCharge] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelBusy, setCancelBusy] = useState(false);
+  // A subscription closed with lessons paid and not taken, being decided; credit being paid back.
+  const [settling, setSettling] = useState<UnsettledPackage | null>(null);
+  const [refunding, setRefunding] = useState<{ currency: string; credit_minor: number } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -110,6 +123,21 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
   const charges = useMemo(() => (data?.charges ?? []).filter((c) => source === "ALL" || c.source === source), [data, source]);
   const sources = useMemo(() => new Set((data?.charges ?? []).map((c) => c.source)), [data]);
   const guardianOwes = (data?.charges ?? []).some((c) => c.payer_kind === "GUARDIAN");
+
+  async function cancelCharge(c: FamilyCharge) {
+    setCancelBusy(true);
+    try {
+      const { cancelled } = await cancelFamilyCharge(guardianId, c.id, cancelReason.trim() || null);
+      setCancellingCharge(null);
+      setCancelReason("");
+      setNotice(t("family.chargeCancelled", { amount: money(cancelled.cancelled_minor, cancelled.currency) }));
+      void load();
+    } catch (err) {
+      setNotice(apiErrorMessage(err, t("family.cancelChargeFailed")));
+    } finally {
+      setCancelBusy(false);
+    }
+  }
 
   async function remind() {
     setReminding(true);
@@ -198,7 +226,15 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
             <Tile key={`over-${b.currency}`} label={t("overview.overdue")} value={money(b.overdue_minor, b.currency)} icon={Hourglass} accent="amber" hint={t("overview.overdueHint")} />
           ))}
           {data.balance.filter((b) => b.credit_minor > 0).map((b) => (
-            <Tile key={`credit-${b.currency}`} label={t("overview.credit")} value={money(b.credit_minor, b.currency)} icon={PiggyBank} accent="violet" />
+            <div key={`credit-${b.currency}`} className="space-y-1.5">
+              <Tile label={t("overview.credit")} value={money(b.credit_minor, b.currency)} icon={PiggyBank} accent="violet" />
+              {data.can_refund && (
+                <Button type="button" size="xs" variant="outline" className="w-full gap-1" onClick={() => setRefunding(b)} data-testid={`family-refund-${b.currency}`}>
+                  <Banknote className="size-3.5" aria-hidden />
+                  {t("family.refund.button")}
+                </Button>
+              )}
+            </div>
           ))}
           {data.paid_this_year.map((p) => (
             <Tile
@@ -234,6 +270,37 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
       </div>
 
       {notice && <AlertBanner variant="info" message={notice} onDismiss={() => setNotice(null)} />}
+
+      {/* Subscriptions that ended with lessons paid and not taken: the family is owed, until someone decides. */}
+      {(data.unsettled ?? []).length > 0 && (
+        <Panel title={t("family.unsettled.title")} icon={PiggyBank} accent="amber">
+          <p className="text-muted-foreground mb-2 text-xs">{t("family.unsettled.hint")}</p>
+          <ul className="divide-y" data-testid="family-unsettled">
+            {(data.unsettled ?? []).map((u) => (
+              <li key={u.package_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2.5" data-testid={`unsettled-${u.package_id}`}>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium break-words">
+                    {u.student_name} · {u.label}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {[u.closed_on ? t("family.unsettled.closedOn", { date: dayLabel(u.closed_on, locale) }) : null, t("family.unsettled.paidUsed", { paid: money(u.paid_minor, u.currency), used: money(u.used_minor, u.currency) })]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="font-semibold text-amber-700 tabular-nums dark:text-amber-300">{money(u.owed_back_minor, u.currency)}</span>
+                  {data.can_settle && (
+                    <Button type="button" size="xs" onClick={() => setSettling(u)} data-testid={`unsettled-decide-${u.package_id}`}>
+                      {t("family.unsettled.decide")}
+                    </Button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      )}
 
       {/* The children and what each is in */}
       <Panel title={t("family.children")} icon={UserRound} accent="violet">
@@ -322,7 +389,7 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
         ) : (
           <ul className="divide-y" data-testid="family-charges">
             {charges.map((c) => (
-              <li key={c.id} className="flex items-start justify-between gap-3 py-2.5">
+              <li key={c.id} className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 py-2.5" data-testid={`family-charge-${c.id}`}>
                 <div className="min-w-0">
                   <p className="text-sm font-medium break-words">{c.description}</p>
                   <p className="text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs">
@@ -339,7 +406,44 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
                     )}
                   </p>
                 </div>
-                <span className="shrink-0 font-semibold text-rose-600 tabular-nums dark:text-rose-400">{money(c.remaining_minor, c.currency)}</span>
+                <div className="flex shrink-0 flex-col items-end gap-0.5">
+                  <span className="font-semibold text-rose-600 tabular-nums dark:text-rose-400">{money(c.remaining_minor, c.currency)}</span>
+                  {centre && data.can_collect && c.bill_open && cancellingCharge !== c.id && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive text-[11px] underline-offset-2 hover:underline"
+                      onClick={() => {
+                        setCancellingCharge(c.id);
+                        setCancelReason("");
+                      }}
+                      data-testid={`charge-cancel-${c.id}`}
+                    >
+                      {t("family.cancelCharge")}
+                    </button>
+                  )}
+                </div>
+                {cancellingCharge === c.id && (
+                  <div className="bg-muted/30 basis-full space-y-2 rounded-lg border p-2 text-xs" data-testid={`charge-cancel-form-${c.id}`}>
+                    <p className="text-muted-foreground">{t("family.cancelChargeHint")}</p>
+                    <input
+                      className={fieldClass}
+                      value={cancelReason}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      placeholder={t("family.cancelChargeReason")}
+                      maxLength={200}
+                      data-testid={`charge-cancel-reason-${c.id}`}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button type="button" size="xs" variant="ghost" onClick={() => setCancellingCharge(null)} disabled={cancelBusy}>
+                        {t("family.discountBack")}
+                      </Button>
+                      <Button type="button" size="xs" variant="destructive" className="gap-1" onClick={() => void cancelCharge(c)} disabled={cancelBusy} data-testid={`charge-cancel-confirm-${c.id}`}>
+                        {cancelBusy && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+                        {t("family.cancelChargeConfirm", { amount: money(c.remaining_minor, c.currency) })}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -377,6 +481,28 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
 
       <CollectModal open={collect !== null} target={collect} onClose={() => setCollect(null)} onRecorded={() => void load()} />
       <ReceiptDetailModal receiptId={receiptId} onClose={() => setReceiptId(null)} onChanged={() => void load()} />
+      <SettleModal
+        item={settling}
+        accounts={(data.refund_accounts ?? []).filter((a) => a.currency === settling?.currency)}
+        canRefund={data.can_refund ?? false}
+        onClose={() => setSettling(null)}
+        onDone={(message) => {
+          setSettling(null);
+          setNotice(message);
+          void load();
+        }}
+      />
+      <RefundCreditModal
+        guardianId={guardianId}
+        credit={refunding}
+        accounts={data.refund_accounts ?? []}
+        onClose={() => setRefunding(null)}
+        onDone={(message) => {
+          setRefunding(null);
+          setNotice(message);
+          void load();
+        }}
+      />
     </section>
   );
 }
@@ -399,8 +525,9 @@ function TimelineItem({
     REMINDER: "bg-amber-500",
     BILL_SENT: "bg-sky-500",
     NOTE: "bg-violet-500",
+    REFUND: "bg-amber-600",
   }[e.kind];
-  const Icon = { RECEIPT: Receipt, REMINDER: BellRing, BILL_SENT: Send, NOTE: NotebookPen }[e.kind];
+  const Icon = { RECEIPT: Receipt, REMINDER: BellRing, BILL_SENT: Send, NOTE: NotebookPen, REFUND: Banknote }[e.kind];
 
   return (
     <li className="relative">
@@ -419,6 +546,10 @@ function TimelineItem({
             {e.kind === "REMINDER" && t("family.event.REMINDER")}
             {e.kind === "BILL_SENT" && t("family.event.BILL_SENT", { period: e.period, amount: money(e.amount_minor, e.currency) })}
             {e.kind === "NOTE" && <span className="font-normal break-words whitespace-pre-line">{e.body}</span>}
+            {e.kind === "REFUND" && (
+              <span className={cn(e.voided && "line-through opacity-60")}>{t("family.event.REFUND", { number: e.number, amount: money(e.amount_minor, e.currency) })}</span>
+            )}
+            {e.kind === "REFUND" && e.voided && <span className="text-xs text-rose-700 dark:text-rose-300">{t("family.voided", { reason: e.void_reason ?? "" })}</span>}
           </p>
           <p className="text-muted-foreground text-xs">
             {dayLabel(e.date, locale)}

@@ -242,6 +242,11 @@ final class Ledger
         if ($receipt->voided_at !== null) {
             throw ValidationException::withMessages(['receipt' => ['This receipt is already void. / هذا الإيصال ملغى بالفعل.']]);
         }
+        if ($this->refunded($receiptId) > 0) {
+            throw ValidationException::withMessages(['receipt' => [
+                'Part of this receipt was paid back to the family. Void that refund first. / جزء من هذا الإيصال رُدّ للأسرة. ألغِ مصروف الرد أولًا.',
+            ]]);
+        }
 
         $covered = DB::table('receipt_allocations')->where('receipt_id', $receiptId)->get(['invoice_line_id', 'amount_minor']);
         DB::table('receipt_allocations')->where('receipt_id', $receiptId)->delete();
@@ -357,6 +362,41 @@ final class Ledger
                 DB::statement('select set_config(?, ?, false)', [$key, (string) $value]);
             }
         }
+    }
+
+    /**
+     * Pay `$amountMinor` of a payer's credit back to them: drawn on the receipts holding it, newest
+     * first, each portion tied to the expense that took the money out of the treasury. Voiding that
+     * expense makes it credit again.
+     *
+     * @param  array{guardian_id?: ?string, student_id?: ?string, payer_name?: ?string}  $payer
+     */
+    public function refund(string $academyId, array $payer, int $amountMinor, string $currency, string $expenseId): void
+    {
+        $payer = $this->normalisePayer($payer);
+        $this->lockPayer($academyId, $payer, null);
+        $receipts = $this->creditReceipts($academyId, $payer, $currency)->reverse()->values();
+        if ($amountMinor <= 0 || (int) $receipts->sum('unallocated') < $amountMinor) {
+            throw ValidationException::withMessages(['amount_minor' => ['More than the credit they hold. / أكبر من الرصيد المتاح لهم.']]);
+        }
+
+        $left = $amountMinor;
+        foreach ($receipts as $r) {
+            $take = min($left, (int) $r->unallocated);
+            DB::table('receipt_refunds')->insert([
+                'academy_id' => $academyId, 'receipt_id' => $r->id, 'expense_id' => $expenseId, 'amount_minor' => $take, 'created_at' => now(),
+            ]);
+            $left -= $take;
+            if ($left <= 0) {
+                break;
+            }
+        }
+    }
+
+    /** What of a receipt was paid back (its refund not voided). */
+    public function refunded(string $receiptId): int
+    {
+        return (int) DB::selectOne('select app.receipt_refunded(?) as v', [$receiptId])->v;
     }
 
     /** A line was raised / removed / repriced on this invoice: let the payer's credit follow. */
@@ -536,7 +576,8 @@ final class Ledger
      */
     private function allocateFifo(object $receipt, Collection $lines, ?int $budget = null): int
     {
-        $budget ??= (int) $receipt->amount_minor - (int) DB::table('receipt_allocations')->where('receipt_id', $receipt->id)->sum('amount_minor');
+        $budget ??= (int) $receipt->amount_minor - (int) DB::table('receipt_allocations')->where('receipt_id', $receipt->id)->sum('amount_minor')
+            - $this->refunded((string) $receipt->id);
         $spent = 0;
 
         foreach ($lines as $line) {
@@ -591,14 +632,25 @@ final class Ledger
 
         return DB::table('receipts as r')
             ->leftJoinSub($allocated, 'a', 'a.receipt_id', '=', 'r.id')
+            ->leftJoinSub(self::refundsByReceipt(), 'rf', 'rf.receipt_id', '=', 'r.id')
             ->where('r.academy_id', $academyId)
             ->whereNull('r.voided_at')
             ->tap(fn ($q) => $this->wherePayer($q, $payer, $academyId, 'r'))
             ->when($currency !== null, fn ($q) => $q->where('r.currency', $currency))
-            ->whereRaw('r.amount_minor > coalesce(a.allocated, 0)')
+            ->whereRaw('r.amount_minor > coalesce(a.allocated, 0) + coalesce(rf.refunded, 0)')
             ->orderBy('r.received_on')
             ->orderBy('r.created_at')
-            ->get(['r.*', DB::raw('r.amount_minor - coalesce(a.allocated, 0) as unallocated')]);
+            ->get(['r.*', DB::raw('r.amount_minor - coalesce(a.allocated, 0) - coalesce(rf.refunded, 0) as unallocated')]);
+    }
+
+    /** Per receipt, what was paid back out of it (`receipt_id`, `refunded`) — a voided refund expense gives it back. */
+    public static function refundsByReceipt()
+    {
+        return DB::table('receipt_refunds as rr')
+            ->join('expenses as e', 'e.id', '=', 'rr.expense_id')
+            ->whereNull('e.voided_at')
+            ->selectRaw('rr.receipt_id, sum(rr.amount_minor) as refunded')
+            ->groupBy('rr.receipt_id');
     }
 
     /**

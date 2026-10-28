@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Accounting;
 
 use App\Http\Controllers\Controller;
+use App\Services\ChargeCancellation;
 use App\Services\Ledger;
+use App\Services\PackageSettlement;
 use App\Services\PayerDiscounts;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -108,6 +110,8 @@ final class FamilyAccountController extends Controller
                 'discount_label' => $l->discount_label,
                 'paid_minor' => (int) $l->allocated,
                 'remaining_minor' => $left,
+                // Only a charge on an open bill can be let go (إلغاء المستحق).
+                'bill_open' => (string) $l->invoice_status === 'OPEN',
                 'currency' => (string) $l->currency,
                 'payer_kind' => $l->payer_kind,
                 'payer_id' => (string) $l->payer_id,
@@ -209,6 +213,18 @@ final class FamilyAccountController extends Controller
                 'void_reason' => $r->void_reason,
             ];
         }
+        // Credit paid back out of the treasury (a refund expense drawn on the family's receipts).
+        foreach (DB::table('expenses as e')->leftJoin('users as u', 'u.id', '=', 'e.created_by')
+            ->whereIn('e.id', DB::table('receipt_refunds as rr')->join('receipts as r', 'r.id', '=', 'rr.receipt_id')->select('rr.expense_id')
+                ->where(fn ($q) => $q->where('r.guardian_id', $guardianId)->orWhereIn('r.student_id', $childIds ?: ['00000000-0000-0000-0000-000000000000'])))
+            ->orderByDesc('e.created_at')->limit(50)
+            ->get(['e.id', 'e.number', 'e.created_at', 'e.spent_on', 'e.amount_minor', 'e.currency', 'e.description', 'e.voided_at', 'e.void_reason', 'u.full_name as by']) as $e) {
+            $timeline[] = [
+                'at' => Carbon::parse($e->created_at)->toIso8601String(), 'date' => Carbon::parse($e->spent_on)->format('Y-m-d'), 'kind' => 'REFUND', 'id' => (string) $e->id,
+                'number' => (string) $e->number, 'amount_minor' => (int) $e->amount_minor, 'currency' => (string) $e->currency, 'body' => $e->description,
+                'by' => $e->by, 'voided' => $e->voided_at !== null, 'void_reason' => $e->void_reason,
+            ];
+        }
         foreach (DB::table('audit_log as a')->leftJoin('users as u', 'u.id', '=', 'a.actor_user_id')
             ->where('a.action', 'accounting.reminder_sent')
             ->where(fn ($q) => $q->where('a.entity_id', $guardianId)->orWhereIn('a.entity_id', $childIds ?: ['00000000-0000-0000-0000-000000000000']))
@@ -238,6 +254,9 @@ final class FamilyAccountController extends Controller
             ->where('follow_up_on', '>=', $today)->orderBy('follow_up_on')->first(['follow_up_on', 'body']);
 
         ksort($balance);
+        // Settling and paying credit back are a centre's (PackageSettlement::availableFor).
+        $settles = PackageSettlement::availableFor($academyId);
+        $canRefund = $settles && Gate::allows('invoice.mark_paid') && Gate::allows('expense.manage');
 
         return response()->json([
             'family' => ['id' => (string) $guardian->id, 'name' => (string) $guardian->full_name, 'phone' => $guardian->whatsapp_phone, 'renewal_policy' => (string) $guardian->renewal_policy],
@@ -279,6 +298,13 @@ final class FamilyAccountController extends Controller
                 'by' => $d->created_by_name,
             ])->values()->all(),
             'timeline' => array_slice($timeline, 0, 150),
+            // Subscriptions closed with lessons paid and not taken, waiting on a decision (PackageSettlement).
+            'unsettled' => $settles ? app(PackageSettlement::class)->pendingFor($guardianId)->all() : [],
+            // Where credit can be paid back from (the refund dialog).
+            'refund_accounts' => $canRefund ? DB::table('cash_accounts')->where('is_active', true)->orderBy('sort_order')->get(['id', 'name', 'kind', 'currency'])
+                ->map(fn ($a) => ['id' => (string) $a->id, 'name' => (string) $a->name, 'kind' => (string) $a->kind, 'currency' => (string) $a->currency])->all() : [],
+            'can_refund' => $canRefund,
+            'can_settle' => $settles && Gate::allows('invoice.mark_paid') && Gate::allows('package.manage'),
             'can_collect' => Gate::allows('invoice.mark_paid'),
             'can_remind' => Gate::allows('invoice.send_link'),
             'can_note' => Gate::allows('invoice.mark_paid'),
@@ -505,6 +531,29 @@ final class FamilyAccountController extends Controller
         }
 
         return array_values($targets);
+    }
+
+    /**
+     * POST /api/accounting/family/{guardianId}/charges/{lineId}/cancel { reason? } — let go of what
+     * is still owed on one of the family's charges ({@see ChargeCancellation}): it was billed ahead
+     * and the child is not coming. What was paid stays paid.
+     */
+    public function cancelCharge(Request $request, string $guardianId, string $lineId): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $reason = $request->validate(['reason' => ['nullable', 'string', 'max:200']])['reason'] ?? null;
+        $childIds = DB::table('students')->where('guardian_id', $guardianId)->pluck('id')->map(fn ($v) => (string) $v)->all();
+        $ours = DB::table('invoice_line_items as li')->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+            ->where('li.id', $lineId)
+            ->where(fn ($q) => $q->where('i.guardian_id', $guardianId)->orWhereIn('li.student_id', $childIds ?: ['00000000-0000-0000-0000-000000000000']))
+            ->exists();
+        if (! $ours) {
+            abort(404, 'Charge not found.');
+        }
+        $ctx = app(AuthContext::class);
+        $done = app(ChargeCancellation::class)->cancel($this->academyId(), $lineId, $reason !== null ? trim($reason) : null, $ctx->userId, $ctx->role);
+
+        return response()->json(['cancelled' => $done]);
     }
 
     /** Runs the reprice and leaves a trace of what it moved. */

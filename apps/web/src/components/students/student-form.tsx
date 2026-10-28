@@ -37,7 +37,7 @@ import {
   type TeacherRow,
 } from "@/lib/api";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
-import { hoursText } from "@/components/groups/group-format";
+import { hoursText, monthLessons } from "@/components/groups/group-format";
 import { addGroupMembers, listGroups, type GroupRow } from "@/lib/groups-api";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { formatMoney } from "@/lib/money";
@@ -777,7 +777,9 @@ export function StudentForm({
                         price === null
                           ? t("form.groupNoPrice")
                           : pr?.billing_mode === "MONTHLY" && pr.month_minutes
-                            ? t("form.groupPrice", { price, hours: hoursText(pr.month_minutes) })
+                            ? centre && g?.slots
+                              ? t("form.groupPriceLessons", { price, lessons: monthLessons(pr.month_minutes, g.slots) })
+                              : t("form.groupPrice", { price, hours: hoursText(pr.month_minutes) })
                             : pr?.billing_mode === "PER_LESSON"
                               ? t("form.groupPriceLesson", { price })
                               : pr?.billing_mode === "COURSE"

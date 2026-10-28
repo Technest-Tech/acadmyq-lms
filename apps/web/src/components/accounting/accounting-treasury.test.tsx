@@ -46,15 +46,19 @@ const api = {
   applyFamilyDiscountToExisting: vi.fn(),
   endFamilyDiscount: vi.fn(),
   cancelFamilyDiscount: vi.fn(),
+  cancelFamilyCharge: vi.fn(),
   setFamilyRenewalPolicy: vi.fn(),
   listDiscountPresets: vi.fn(),
   createDiscountPreset: vi.fn(),
   updateDiscountPreset: vi.fn(),
+  refundFamilyCredit: vi.fn(),
 };
 const getPayout = vi.fn();
+const settlePackage = vi.fn();
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getPayout: (...a: unknown[]) => getPayout(...a),
+  settlePackage: (...a: unknown[]) => settlePackage(...a),
 }));
 vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/accounting-api")>()),
@@ -79,10 +83,12 @@ vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   applyFamilyDiscountToExisting: (...a: unknown[]) => api.applyFamilyDiscountToExisting(...a),
   endFamilyDiscount: (...a: unknown[]) => api.endFamilyDiscount(...a),
   cancelFamilyDiscount: (...a: unknown[]) => api.cancelFamilyDiscount(...a),
+  cancelFamilyCharge: (...a: unknown[]) => api.cancelFamilyCharge(...a),
   setFamilyRenewalPolicy: (...a: unknown[]) => api.setFamilyRenewalPolicy(...a),
   listDiscountPresets: (...a: unknown[]) => api.listDiscountPresets(...a),
   createDiscountPreset: (...a: unknown[]) => api.createDiscountPreset(...a),
   updateDiscountPreset: (...a: unknown[]) => api.updateDiscountPreset(...a),
+  refundFamilyCredit: (...a: unknown[]) => api.refundFamilyCredit(...a),
 }));
 
 const ar = arMessages.accounting;
@@ -92,6 +98,7 @@ const owner = (capabilities = ["invoicing", "groups", "accounting"]) =>
 beforeEach(() => {
   Object.values(api).forEach((f) => f.mockReset());
   getPayout.mockReset();
+  settlePackage.mockReset();
   nav.push.mockReset();
   api.listDiscountPresets.mockResolvedValue({ presets: [], can_manage: true });
 });
@@ -412,7 +419,7 @@ function family(): FamilyAccount {
       },
     ],
     charges: [
-      { id: "l1", invoice_id: "i1", source: "GROUP", group_name: "English A1", description: "English A1 — June 2026", student_id: "s1", student_name: "Adam", date: "2026-06-01", period: "2026-06", amount_minor: 40500, list_amount_minor: 45000, discount_minor: 4500, discount_label: "Sibling", paid_minor: 0, remaining_minor: 40500, currency: "EGP", payer_kind: "GUARDIAN", payer_id: "gd1" },
+      { id: "l1", invoice_id: "i1", source: "GROUP", group_name: "English A1", description: "English A1 — June 2026", student_id: "s1", student_name: "Adam", date: "2026-06-01", period: "2026-06", amount_minor: 40500, list_amount_minor: 45000, discount_minor: 4500, discount_label: "Sibling", paid_minor: 0, remaining_minor: 40500, currency: "EGP", payer_kind: "GUARDIAN", payer_id: "gd1", bill_open: true },
       { id: "l2", invoice_id: "i1", source: "PRIVATE", group_name: null, description: "Lesson 2026-06-02", student_id: "s2", student_name: "Bassel", date: "2026-06-02", period: "2026-06", amount_minor: 10000, list_amount_minor: null, discount_minor: 0, discount_label: null, paid_minor: 0, remaining_minor: 10000, currency: "EGP", payer_kind: "GUARDIAN", payer_id: "gd1" },
     ],
     discounts: [{ id: "d1", kind: "PERCENT", value: 1000, label: "Sibling", scope: "ALL", student_id: null, student_name: null, targets: [], starts_on: "2026-06-01", ends_on: null, active: true, cancelled: false, by: "Owner" }],
@@ -471,6 +478,66 @@ describe("Family card", () => {
     await userEvent.click(screen.getByTestId("discount-save"));
     // A fixed amount goes up in minor units; a percentage would go as a whole percent.
     await waitFor(() => expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { kind: "FIXED", value: 5000, label: "Scholarship", scope: "GROUP", student_id: "s1", apply_to_existing: true }));
+  });
+
+  it("lists a subscription that ended with lessons paid and not taken, pays it back from an account, and pays credit back", async () => {
+    api.getFamilyAccount.mockResolvedValue({
+      ...family(),
+      balance: [{ currency: "EGP", due_minor: 0, credit_minor: 30000, balance_minor: -30000, overdue_minor: 0 }],
+      unsettled: [{ package_id: "p1", student_id: "s2", student_name: "Bassel", label: "English", closed_on: "2026-06-10", settlement: "PENDING", unused_minutes: 300, lesson_minutes: 60, price_minor: 160000, used_minor: 60000, paid_minor: 160000, owed_back_minor: 100000, currency: "EGP" }],
+      refund_accounts: [{ id: "a1", name: "Cash drawer", kind: "CASH", currency: "EGP" }, { id: "a9", name: "USD box", kind: "CASH", currency: "USD" }],
+      can_refund: true,
+      can_settle: true,
+      timeline: [{ kind: "REFUND", at: "2026-06-16T10:00:00Z", date: "2026-06-16", id: "e0", number: "E-000003", amount_minor: 5000, currency: "EGP", body: null, by: "Owner", voided: false, void_reason: null }],
+    });
+    settlePackage.mockResolvedValue({ mode: "REFUND", amount_minor: 100000, currency: "EGP", expense_id: "e1", expense_number: "E-000007" });
+    api.refundFamilyCredit.mockResolvedValue({ expense_id: "e2", number: "E-000008" });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    expect((await screen.findByTestId("unsettled-p1")).textContent).toContain("Bassel");
+    expect(screen.getByTestId("family-timeline").textContent).toContain("E-000003");
+
+    await userEvent.click(screen.getByTestId("unsettled-decide-p1"));
+    await userEvent.click(within(screen.getByTestId("settle-mode-REFUND")).getByRole("radio"));
+    // Only an account in the subscription's currency.
+    expect(within(screen.getByTestId("settle-account")).getAllByRole("option").map((o) => o.textContent)).toEqual(["Cash drawer"]);
+    await userEvent.click(screen.getByTestId("settle-confirm"));
+    await waitFor(() => expect(settlePackage).toHaveBeenCalledWith("p1", { mode: "REFUND", cash_account_id: "a1", note: null }));
+    expect(await screen.findByText(/E-000007/)).toBeTruthy();
+
+    await userEvent.click(screen.getByTestId("family-refund-EGP"));
+    expect(screen.getByTestId("refund-amount")).toHaveValue("300");
+    await userEvent.clear(screen.getByTestId("refund-amount"));
+    await userEvent.type(screen.getByTestId("refund-amount"), "350");
+    expect(screen.getByTestId("refund-confirm")).toBeDisabled();
+    await userEvent.clear(screen.getByTestId("refund-amount"));
+    await userEvent.type(screen.getByTestId("refund-amount"), "200");
+    await userEvent.click(screen.getByTestId("refund-confirm"));
+    await waitFor(() => expect(api.refundFamilyCredit).toHaveBeenCalledWith("gd1", { amount_minor: 20000, currency: "EGP", cash_account_id: "a1", note: null }));
+  });
+
+  it("cancels a charge billed ahead from its row — asked first, with a reason — only on an open bill", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    api.cancelFamilyCharge.mockResolvedValue({ cancelled: { lines: 1, cancelled_minor: 40500, currency: "EGP" } });
+    render(withAuth(owner(["invoicing", "groups", "accounting", "centre"]), <FamilyAccountsCard guardianId="gd1" />));
+
+    await screen.findByTestId("family-charges");
+    // l2 sits on a bill that is not open (no flag): nothing to offer there.
+    expect(screen.queryByTestId("charge-cancel-l2")).toBeNull();
+    await userEvent.click(screen.getByTestId("charge-cancel-l1"));
+    expect(screen.getByTestId("charge-cancel-form-l1").textContent).toContain(ar.family.cancelChargeHint);
+    await userEvent.type(screen.getByTestId("charge-cancel-reason-l1"), "Not continuing");
+    await userEvent.click(screen.getByTestId("charge-cancel-confirm-l1"));
+    await waitFor(() => expect(api.cancelFamilyCharge).toHaveBeenCalledWith("gd1", "l1", "Not continuing"));
+    // The notice says it went (the words around the amount; the amount itself carries direction marks).
+    expect(await screen.findByText(new RegExp(ar.family.chargeCancelled.split("{amount}")[1]!.trim().replace(".", "\\.")))).toBeTruthy();
+  });
+
+  it("offers no charge cancel to an academy that is not a centre", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+    await screen.findByTestId("family-charges");
+    expect(screen.queryByTestId("charge-cancel-l1")).toBeNull();
   });
 
   it("puts one discount on several groups and private subscriptions — only the chosen child's", async () => {

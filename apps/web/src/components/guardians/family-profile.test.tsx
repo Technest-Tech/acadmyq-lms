@@ -19,6 +19,9 @@ vi.mock("@/lib/api", async (importActual) => ({
   reactivateGuardian: vi.fn(),
   updateStudent: vi.fn(),
   carryStudentCharges: vi.fn(),
+  getGuardianAdvanceDues: vi.fn(),
+  suspendGuardian: vi.fn(),
+  resumeGuardian: vi.fn(),
   listStudents: vi.fn(),
   listGuardians: vi.fn(),
   listTeachers: vi.fn(),
@@ -70,12 +73,12 @@ const OWNER_CAPS = [
 ];
 
 /** `student.set_price` is the capability that decides whether a child's rate is rendered. */
-function renderProfile({ price = true, only }: { price?: boolean; only?: string[] } = {}) {
+function renderProfile({ price = true, only, capabilities }: { price?: boolean; only?: string[]; capabilities?: string[] } = {}) {
   const permissions = only ?? (price ? [...OWNER_CAPS, "student.set_price"] : OWNER_CAPS);
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
       <AuthContext.Provider
-        value={authValue(makeSession("ACADEMY_OWNER", { permissions }))}
+        value={authValue(makeSession("ACADEMY_OWNER", { permissions, ...(capabilities ? { capabilities } : {}) }))}
       >
         <FamilyProfile guardianId="g1" />
       </AuthContext.Provider>
@@ -390,5 +393,65 @@ describe("FamilyProfile", () => {
 
     const children = screen.getByTestId("guardian-children");
     expect(within(children).queryByText("Rate")).not.toBeInTheDocument();
+  });
+});
+
+describe("FamilyProfile — suspending a family", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getGuardian).mockResolvedValue({
+      guardian: { id: "g1", full_name: "Mohamed Family", whatsapp_phone: "+201000000000", country: "EG", currency: "EGP", notes: null, deleted_at: null, created_at: "2026-01-04T00:00:00Z" },
+      children: [child()],
+    });
+  });
+
+  it("lists the dues billed ahead, lets the desk tick which to cancel, and suspends with them", async () => {
+    vi.mocked(api.getGuardianAdvanceDues).mockResolvedValue({
+      can_cancel: true,
+      dues: [
+        { id: "l1", student_id: "s1", student_name: "Yusuf", description: "English A1 — June 2026", kind: "GROUP", date: "2026-06-01", remaining_minor: 45000, currency: "EGP" },
+        { id: "l2", student_id: "s1", student_name: "Yusuf", description: "8 × 40 min — June", kind: "PACKAGE", date: "2026-06-03", remaining_minor: 72000, currency: "EGP" },
+      ],
+    });
+    vi.mocked(api.suspendGuardian).mockResolvedValue({ ok: true, paused_schedules: 1, cancelled: [{ currency: "EGP", amount_minor: 45000 }] });
+    const user = userEvent.setup();
+    renderProfile({ capabilities: ["invoicing", "accounting", "centre"] });
+
+    // Asked first — nothing goes on the first click, and nothing is ticked for the desk.
+    await user.click(await screen.findByTestId("suspend-guardian"));
+    expect(api.suspendGuardian).not.toHaveBeenCalled();
+    const list = await screen.findByTestId("advance-dues");
+    expect(within(list).getByText(/English A1/)).toBeInTheDocument();
+    expect(within(list).getByText(new RegExp(enMessages.guardians.detail.advanceDuePackageEnds))).toBeInTheDocument();
+    expect(screen.getByTestId("advance-due-l1")).not.toBeChecked();
+
+    await user.click(screen.getByTestId("advance-due-l1"));
+    expect(screen.getByTestId("advance-dues-total").textContent).toContain("450");
+    await user.click(screen.getByTestId("suspend-confirm-go"));
+    await waitFor(() => expect(api.suspendGuardian).toHaveBeenCalledWith("g1", ["l1"]));
+    expect(await screen.findByText(/450/, { selector: "p, span, div" })).toBeInTheDocument();
+  });
+
+  it("suspends straight from the confirm when nothing was billed ahead", async () => {
+    vi.mocked(api.getGuardianAdvanceDues).mockResolvedValue({ can_cancel: false, dues: [] });
+    vi.mocked(api.suspendGuardian).mockResolvedValue({ ok: true, paused_schedules: 1, cancelled: [] });
+    const user = userEvent.setup();
+    renderProfile({ capabilities: ["invoicing", "accounting", "centre"] });
+
+    await user.click(await screen.findByTestId("suspend-guardian"));
+    expect(await screen.findByText(enMessages.guardians.detail.advanceDuesNone)).toBeInTheDocument();
+    await user.click(screen.getByTestId("suspend-confirm-go"));
+    await waitFor(() => expect(api.suspendGuardian).toHaveBeenCalledWith("g1", []));
+  });
+
+  it("suspends on the click, as it always has, for an academy that is not a centre — nothing asked, no dues fetched", async () => {
+    vi.mocked(api.suspendGuardian).mockResolvedValue({ ok: true, paused_schedules: 1 });
+    const user = userEvent.setup();
+    renderProfile({ capabilities: ["invoicing", "accounting"] });
+
+    await user.click(await screen.findByTestId("suspend-guardian"));
+    await waitFor(() => expect(api.suspendGuardian).toHaveBeenCalledWith("g1"));
+    expect(screen.queryByTestId("suspend-confirm")).toBeNull();
+    expect(api.getGuardianAdvanceDues).not.toHaveBeenCalled();
   });
 });

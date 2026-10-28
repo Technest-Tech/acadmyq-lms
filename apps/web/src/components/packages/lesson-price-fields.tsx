@@ -19,6 +19,18 @@ export function lessonPriceFromTotal(totalMinor: number, totalMinutes: number, u
   return Math.round((totalMinor * unitMinutes) / totalMinutes);
 }
 
+/** Minutes counted in lessons of `lessonMinutes`: whole, or to one decimal for a lesson cut short. */
+export function lessonsIn(minutes: number, lessonMinutes: number): number {
+  return lessonMinutes > 0 ? Math.round((minutes / lessonMinutes) * 10) / 10 : 0;
+}
+
+/** What one lesson costs in a block sold in lessons of `lessonMinutes`. */
+export function pricePerLesson(block: { price_minor: number; minutes_total: number; hourly_rate_minor: number }, lessonMinutes: number): number {
+  return block.minutes_total > 0
+    ? Math.round((block.price_minor * lessonMinutes) / block.minutes_total)
+    : Math.round((block.hourly_rate_minor * lessonMinutes) / 60);
+}
+
 /** Major-unit text for an amount field ("100", "62.50"). */
 export function majorText(minor: number): string {
   return minor % 100 === 0 ? String(minor / 100) : (minor / 100).toFixed(2);
@@ -26,8 +38,8 @@ export function majorText(minor: number): string {
 
 /**
  * Priced the way a centre quotes it (2026-10-25): the length of one lesson and what it costs —
- * "40 minutes for 100" — and the system works out the total from the hours bought. Used by a
- * private subscription (hours in the block) and a monthly-by-hours group (hours a month).
+ * "40 minutes for 90" — and the system works out the total from what was bought. Used by a
+ * private subscription (lessons in the block) and a monthly group (lessons a month).
  */
 export function LessonPriceFields({
   unitMinutes,
@@ -43,7 +55,7 @@ export function LessonPriceFields({
   onUnitMinutes: (minutes: number) => void;
   unitPrice: string;
   onUnitPrice: (value: string) => void;
-  /** Hours bought, in minutes (null/0 until they are typed). */
+  /** What was bought, in minutes — lessons × their length (null/0 until typed). */
   totalMinutes: number | null;
   currency: string;
   idPrefix: string;

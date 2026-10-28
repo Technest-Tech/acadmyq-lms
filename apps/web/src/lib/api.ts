@@ -2173,9 +2173,33 @@ export function reactivateGuardian(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/guardians/${id}/reactivate`, { method: "POST" });
 }
 
-/** Pause the whole family for a while (timetables off, no group months); nothing is deactivated. */
-export function suspendGuardian(id: string): Promise<{ ok: boolean; paused_schedules?: number }> {
-  return apiFetch(`/api/guardians/${id}/suspend`, { method: "POST" });
+/** A charge the family still owes for lessons it has not had yet — what suspending can let go. */
+export interface AdvanceDue {
+  id: string;
+  student_id: string;
+  student_name: string;
+  description: string;
+  /** GROUP = a group month or course; PACKAGE = a running private subscription's bill (letting it go ends it). */
+  kind: "GROUP" | "PACKAGE";
+  date: string | null;
+  remaining_minor: number;
+  currency: string;
+}
+
+/** The dues raised ahead for the suspend dialog; empty without the accounts or for a role that cannot see money. */
+export function getGuardianAdvanceDues(id: string): Promise<{ dues: AdvanceDue[]; can_cancel: boolean }> {
+  return apiFetch(`/api/guardians/${id}/advance-dues`);
+}
+
+/**
+ * Pause the whole family for a while (timetables off, off the groups' sheets, no group months);
+ * nothing is deactivated. `cancelLineIds` lets go of the ticked dues raised ahead.
+ */
+export function suspendGuardian(
+  id: string,
+  cancelLineIds: string[] = [],
+): Promise<{ ok: boolean; paused_schedules?: number; cancelled?: { currency: string; amount_minor: number }[] }> {
+  return apiFetch(`/api/guardians/${id}/suspend`, { method: "POST", body: JSON.stringify(cancelLineIds.length > 0 ? { cancel_line_ids: cancelLineIds } : {}) });
 }
 
 export function resumeGuardian(id: string): Promise<{ ok: boolean; resumed_schedules?: number }> {
@@ -3162,6 +3186,8 @@ export interface StudentRow {
   guardian_name: string | null;
   /** The parent's WhatsApp — the number to reach a child who has none of their own. */
   guardian_phone?: string | null;
+  /** Set while the family is suspended — the child is paused with it. */
+  family_suspended_at?: string | null;
   subscription_id: string | null;
   price_minor: number | null;
   price_currency: string | null;
@@ -8157,6 +8183,8 @@ export interface LessonPackageRow {
   status: PackageStatus;
   bill_timing: PackageBillTiming;
   minutes_total: number;
+  /** Sold in lessons of this length (a centre): the cards count lessons and price one. Null = in hours. */
+  lesson_minutes?: number | null;
   carried_over_minutes: number;
   /** minutes_total + carried_over_minutes — the balance the student actually has. */
   minutes_sold: number;
@@ -8423,6 +8451,8 @@ export function openLessonPackage(input: {
   auto_renew?: boolean;
   /** A centre's subscription for one subject (its teacher); omitted = any of the student's lessons. */
   teacher_id?: string | null;
+  /** A centre sells it in lessons of this length. */
+  lesson_minutes?: number;
 }): Promise<{
   id: string;
   invoice_id: string | null;
@@ -8457,6 +8487,7 @@ export function updateLessonPackage(
     price_minor?: number;
     expires_on?: string | null;
     auto_renew?: boolean;
+    lesson_minutes?: number | null;
     /** The new label / hours / price: this block (and so the next ones), or the next renewal only. */
     applies_to?: "CURRENT" | "NEXT";
   },
@@ -8500,14 +8531,17 @@ export function closeLessonPackage(
    * someone is done buying blocks — so both directions of the switch live on this screen.
    */
   returnToMonthly = false,
+  /** What becomes of lessons paid and not taken, decided in the same step (PackageSettlement). */
+  settlement?: SettlementChoice,
 ): Promise<{
   ok: boolean;
   invoice_id: string | null;
   returned_to_monthly: boolean;
+  settlement?: SettlementResult | null;
 }> {
   return apiFetch(`/api/packages/${id}/close`, {
     method: "POST",
-    body: JSON.stringify({ reason, return_to_monthly: returnToMonthly }),
+    body: JSON.stringify({ reason, return_to_monthly: returnToMonthly, settlement }),
   });
 }
 
@@ -8515,11 +8549,61 @@ export function closeLessonPackage(
 export function cancelLessonPackage(
   id: string,
   note?: string,
-): Promise<{ ok: boolean }> {
+  settlement?: SettlementChoice,
+): Promise<{ ok: boolean; settlement?: SettlementResult | null }> {
   return apiFetch(`/api/packages/${id}/cancel`, {
     method: "POST",
-    body: JSON.stringify({ note }),
+    body: JSON.stringify({ note, settlement }),
   });
+}
+
+/**
+ * A prepaid block that ends before it is used up: the family's credit, paid back out of a
+ * treasury account, or kept by the academy (with why).
+ */
+export type SettlementMode = "CREDIT" | "REFUND" | "KEEP";
+
+export interface SettlementChoice {
+  mode: SettlementMode;
+  cash_account_id?: string | null;
+  note?: string | null;
+}
+
+export interface SettlementResult {
+  mode: SettlementMode;
+  amount_minor: number;
+  currency: string;
+  expense_id: string | null;
+  expense_number: string | null;
+}
+
+/** What is left of a block, what it was worth, what was paid — and what would come back. */
+export interface SettlementPreview {
+  settlement: "PENDING" | SettlementMode | null;
+  unused_minutes: number;
+  /** The length of one lesson it was sold in; null = read in hours. */
+  lesson_minutes: number | null;
+  price_minor: number;
+  used_minor: number;
+  paid_minor: number;
+  owed_back_minor: number;
+  currency: string;
+}
+
+export interface PackageSettlementInfo {
+  preview: SettlementPreview | null;
+  settled: { mode: SettlementMode; amount_minor: number; currency: string; on: string; note: string | null; by: string | null; expense_number: string | null } | null;
+  accounts: { id: string; name: string; kind: string }[];
+  can_settle: boolean;
+  can_refund: boolean;
+}
+
+export function getPackageSettlement(id: string): Promise<PackageSettlementInfo> {
+  return apiFetch(`/api/packages/${id}/settlement`);
+}
+
+export function settlePackage(id: string, choice: SettlementChoice): Promise<SettlementResult> {
+  return apiFetch(`/api/packages/${id}/settle`, { method: "POST", body: JSON.stringify(choice) });
 }
 
 /** Put a stranded overdraft on its own invoice (when no next package was ever opened). */
