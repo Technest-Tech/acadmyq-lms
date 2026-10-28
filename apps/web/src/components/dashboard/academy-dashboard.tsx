@@ -1141,7 +1141,7 @@ export function AcademyDashboard() {
           only when there IS a backlog — a clean academy never sees it. */}
       {overdue !== null && overdue.count > 0 && (
         <Link
-          href="/attendance"
+          href="/attendance?view=overdue"
           data-testid="dashboard-overdue"
           className="group flex flex-wrap items-center gap-4 rounded-2xl border-2 border-rose-300 bg-rose-50/80 p-5 shadow-sm transition-colors hover:bg-rose-100/70 dark:border-rose-900/60 dark:bg-rose-950/25 dark:hover:bg-rose-950/40"
         >

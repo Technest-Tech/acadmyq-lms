@@ -3344,12 +3344,8 @@
       "seeAll": "See all lessons"
     },
     "overdueTitle": "Held-up Lessons",
-    "overdueSubtitle": "These lessons ended over {hours} hours ago and still have no outcome recorded. Oldest first — they will not appear in the day, week or month below unless you happen to be on their date.",
     "overdueSubtitleTeacher": "You have not recorded an outcome for these lessons yet, and they ended over {hours} hours ago. Oldest first.",
     "overdueLateBy": "Ended {when}",
-    "overdueShowAll": "Show {count} more",
-    "overdueShowLess": "Show less",
-    "overdueTruncated": "Showing the oldest {shown} of {total}.",
     "revert": {
       "action": "Undo",
       "title": "Undo this outcome?",
@@ -3364,6 +3360,42 @@
     "tabs": {
       "private": "Private lessons",
       "groups": "Group classes"
+    },
+    "section": {
+      "label": "Attendance view",
+      "period": "Period attendance",
+      "overdue": "Held-up lessons"
+    },
+    "overdueBoard": {
+      "subtitle": "These lessons ended over {hours} hours ago and nobody has recorded what happened. They stay here, whatever date they were on, until someone does.",
+      "tileAll": "All held-up",
+      "tileAllHint": "Oldest first",
+      "tileMarking": "Not recorded",
+      "tileMarkingHint": "Nobody has marked them yet",
+      "tileApproval": "Awaiting approval",
+      "tileApprovalHint": "A cancel or free request waits",
+      "tileWeek": "Over a week late",
+      "tileWeekHint": "Ended 7 or more days ago",
+      "holder": "Waiting on",
+      "holderAny": "Anything",
+      "holderMarking": "Recording",
+      "holderApproval": "Approval",
+      "age": "How late",
+      "ageAny": "Any time",
+      "age1": "Over a day",
+      "age3": "Over 3 days",
+      "age7": "Over a week",
+      "age30": "Over a month",
+      "groupBy": "Group by",
+      "groupDay": "Day",
+      "groupTeacher": "Teacher",
+      "colLesson": "Lesson",
+      "colHolder": "Held up by",
+      "colLateDays": "Days late",
+      "emptyTitle": "No held-up lessons",
+      "emptyBody": "Every lesson that ended more than {hours} hours ago has its outcome recorded.",
+      "noMatch": "No held-up lessons match these filters.",
+      "truncated": "Showing the oldest {shown} of {total} — the filters and counts cover those."
     }
   },
   "payroll": {

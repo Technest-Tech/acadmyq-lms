@@ -22,6 +22,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   listStudents: vi.fn(),
   followSession: vi.fn(),
   listTeamActors: vi.fn(),
+  getOverdueSessions: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -103,6 +104,12 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     // The My / All lessons tab is remembered per login in localStorage; start every test fresh.
     window.localStorage.clear();
     vi.mocked(api.listTeamActors).mockResolvedValue({ actors: [] });
+    vi.mocked(api.getOverdueSessions).mockResolvedValue({
+      sessions: [],
+      count: 0,
+      truncated: false,
+      grace_hours: 4,
+    });
     vi.mocked(api.listTeachers).mockResolvedValue({
       rows: [],
       total: 0,
@@ -691,5 +698,94 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     expect(
       await screen.findByText(enMessages.attendance.periodTruncated),
     ).toBeInTheDocument();
+  });
+  describe("الحصص المعلقة tab", () => {
+    const held = {
+      ...daySession,
+      id: "ov1",
+      student_name: "Forgotten",
+      student_status: "REGULAR",
+      scheduled_at_utc: "2026-05-01T09:00:00Z",
+      pending_approval: false,
+    };
+
+    beforeEach(() => {
+      vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
+      vi.mocked(api.getOverdueSessions).mockResolvedValue({
+        sessions: [held],
+        count: 1,
+        truncated: false,
+        grace_hours: 4,
+      });
+    });
+
+    // Two jobs, two tabs: the backlog is not mixed into the period list, but its count is
+    // visible from the period tab so it can never be forgotten there.
+    it("keeps the backlog on its own tab, counted on the tab itself", async () => {
+      const user = userEvent.setup();
+      renderManager();
+
+      await screen.findByTestId("day-list");
+      expect(await screen.findByTestId("section-overdue-count")).toHaveTextContent("1");
+      expect(screen.queryByTestId("overdue-board")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("section-overdue"));
+
+      const board = await screen.findByTestId("overdue-board");
+      expect(within(board).getAllByText("Forgotten").length).toBeGreaterThan(0);
+      expect(screen.queryByTestId("day-sessions")).not.toBeInTheDocument();
+      expect(window.location.search).toBe("?view=overdue");
+
+      await user.click(screen.getByTestId("section-period"));
+      expect(await screen.findByTestId("day-list")).toBeInTheDocument();
+      expect(window.location.search).toBe("");
+    });
+
+    it("opens on the held-up tab from a ?view=overdue link", async () => {
+      window.history.replaceState(null, "", "/attendance?view=overdue");
+      renderManager();
+
+      expect(await screen.findByTestId("overdue-board")).toBeInTheDocument();
+      expect(screen.getByTestId("section-overdue")).toHaveAttribute("aria-selected", "true");
+    });
+
+    it("jumps to the held-up tab from the hero badge", async () => {
+      const user = userEvent.setup();
+      renderManager();
+
+      await user.click(await screen.findByTestId("hero-overdue"));
+
+      expect(await screen.findByTestId("overdue-board")).toBeInTheDocument();
+    });
+
+    it("keeps the backlog's filters across a trip to the period tab", async () => {
+      const user = userEvent.setup();
+      renderManager();
+
+      await user.click(await screen.findByTestId("section-overdue"));
+      await user.type(await screen.findByTestId("overdue-search"), "nobody");
+      expect(screen.getByTestId("overdue-no-match")).toBeInTheDocument();
+
+      await user.click(screen.getByTestId("section-period"));
+      await user.click(screen.getByTestId("section-overdue"));
+
+      expect(screen.getByTestId("overdue-search")).toHaveValue("nobody");
+    });
+
+    it("says the slate is clean on the tab when nothing is held up", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.getOverdueSessions).mockResolvedValue({
+        sessions: [],
+        count: 0,
+        truncated: false,
+        grace_hours: 4,
+      });
+      renderManager();
+
+      await screen.findByTestId("day-list");
+      expect(screen.queryByTestId("section-overdue-count")).not.toBeInTheDocument();
+      await user.click(screen.getByTestId("section-overdue"));
+      expect(await screen.findByTestId("overdue-clear")).toBeInTheDocument();
+    });
   });
 });

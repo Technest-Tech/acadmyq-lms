@@ -40,7 +40,9 @@ import {
 } from "@/components/attendance/enter-lesson-button";
 import { FollowControl, type FollowInfo } from "@/components/attendance/follow-control";
 import {
-  OverdueLessonsPanel,
+  EMPTY_OVERDUE_FILTERS,
+  OverdueLessonsBoard,
+  type OverdueFilters,
   useOverdueLessons,
 } from "@/components/attendance/overdue-lessons";
 import { RescheduleModal } from "@/components/attendance/reschedule-modal";
@@ -80,6 +82,9 @@ const RANGE_MODES: RangeMode[] = ["day", "week", "month"];
 function isRangeMode(v: string | null): v is RangeMode {
   return v === "day" || v === "week" || v === "month";
 }
+
+/** Which of the page's two worklists is open: the picked period, or the held-up backlog. */
+type Section = "period" | "overdue";
 
 function todayStr(): string {
   const d = new Date();
@@ -277,8 +282,12 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   const [truncated, setTruncated] = useState(false);
 
   // الحصص المعلقة — lessons already past their grace window with no outcome. Deliberately NOT tied
-  // to the period on screen: the whole point is that they were left behind by it.
+  // to the period on screen: the whole point is that they were left behind by it. Read on both
+  // tabs, because the hero and the tab badge carry its count wherever the user is.
   const overdue = useOverdueLessons(0, mine);
+  const [section, setSection] = useState<Section>("period");
+  // Kept here rather than in the board, so a trip to the period tab and back keeps the chase.
+  const [overdueFilters, setOverdueFilters] = useState<OverdueFilters>(EMPTY_OVERDUE_FILTERS);
 
   const timeFmt = useMemo(
     () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
@@ -292,6 +301,9 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
     const linkedDate = params.get("date");
     const linkedRange = params.get("range");
     const sid = params.get("session");
+    // ?view=overdue opens straight on the held-up tab (the dashboard's urgent card links there).
+    // A session link always lands on the period, where that lesson's row is.
+    if (!sid && params.get("view") === "overdue") setSection("overdue");
     if (linkedDate) setDate(linkedDate);
     // A link to one session always lands on that session's own day: opening a whole month
     // around it would bury the row the link is about.
@@ -307,9 +319,10 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
     const qs = new URLSearchParams();
     if (date !== todayStr()) qs.set("date", date);
     if (range !== "day") qs.set("range", range);
+    if (section === "overdue") qs.set("view", "overdue");
     const query = qs.toString();
     window.history.replaceState(null, "", query ? `/attendance?${query}` : "/attendance");
-  }, [date, range]);
+  }, [date, range, section]);
 
   useEffect(() => {
     if (isTeacher) return;
@@ -546,14 +559,17 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
         subtitle={t("managerSubtitle")}
         actions={
           <>
+            {/* The backlog's size from either tab, and the way into it. */}
             {overdue.count > 0 && (
-              <span
+              <button
+                type="button"
                 data-testid="hero-overdue"
-                className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/60 bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm"
+                onClick={() => setSection("overdue")}
+                className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/60 bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-rose-700"
               >
                 <AlarmClock className="size-3.5" aria-hidden />
                 {t("overdueTitle")} {overdue.count}
-              </span>
+              </button>
             )}
             {pendingCount > 0 && (
               <span className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm">
@@ -561,7 +577,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                 {t("pendingCount")} {pendingCount}
               </span>
             )}
-            {!showsToday && (
+            {!showsToday && section === "period" && (
               <Button
                 type="button"
                 size="lg"
@@ -591,7 +607,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
       {header}
 
       {/* ── حصصي / كل الحصص ─────────────────────────────────────────────
-          Above everything it narrows: the held-up panel, the counts and the list all follow it. */}
+          Above everything it narrows: both tabs, their counts and their lists all follow it. */}
       {scopeOffered && (
         <div className="space-y-1.5">
           <div
@@ -626,401 +642,369 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
         </div>
       )}
 
-      {/* ── الحصص المعلقة / Held-up lessons ───────────────────────────────
-          Sits ABOVE the period navigator on purpose: it is the only block on the page that is not
-          about the window you picked, and it is the only one that is already late. */}
-      <OverdueLessonsPanel state={overdue} onOpen={openSession} isTeacher={isTeacher} />
-
-      {/* ── Period navigator ──────────────────────────────────────────────
-          The page used to be nailed to today, which left a past or future lesson reachable only
-          through a calendar deep link. Pick any day here, or widen the window to a whole week or
-          month; the counts, filters, list and export below all follow it. */}
+      {/* ── حضور الفترة / الحصص المعلقة ─────────────────────────────────
+          Two jobs, two tabs. The period worklist is about the window you picked; the held-up list
+          is about everything that window left behind. Stacked on one page, the backlog was a
+          five-row strip fighting the day's list for attention — as its own tab it gets the full
+          set of filters and the counts it needs to be worked, and its badge keeps it loud. */}
       <div
-        className="bg-card flex flex-wrap items-center gap-3 rounded-2xl border p-3 shadow-sm"
-        data-testid="period-nav"
+        role="tablist"
+        aria-label={t("section.label")}
+        data-testid="attendance-section"
+        className="no-scrollbar bg-muted/60 flex gap-1 overflow-x-auto rounded-2xl p-1"
       >
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            aria-label={t("prevPeriod")}
-            title={t("prevPeriod")}
-            data-testid="period-prev"
-            onClick={() => setDate((d) => shiftAnchor(d, range, -1))}
-          >
-            <ChevronLeft className="size-4 rtl:rotate-180" aria-hidden />
-          </Button>
-
-          {/* A month window is picked as a month; a day or week is picked by its day. */}
-          {range === "month" ? (
-            <input
-              type="month"
-              aria-label={t("pickMonth")}
-              data-testid="period-month-input"
-              value={date.slice(0, 7)}
-              onChange={(e) => {
-                // An empty value means the field is mid-edit — keep the month we are on.
-                if (e.target.value) setDate(`${e.target.value}-01`);
-              }}
-              className="border-input bg-background focus:border-primary focus:ring-primary/15 h-9 rounded-xl border px-3 text-sm outline-none focus:ring-3"
-            />
-          ) : (
-            <input
-              type="date"
-              aria-label={t("pickDate")}
-              data-testid="period-date-input"
-              value={date}
-              onChange={(e) => {
-                if (e.target.value) setDate(e.target.value);
-              }}
-              className="border-input bg-background focus:border-primary focus:ring-primary/15 h-9 rounded-xl border px-3 text-sm outline-none focus:ring-3"
-            />
-          )}
-
-          <Button
-            type="button"
-            variant="outline"
-            size="icon-sm"
-            aria-label={t("nextPeriod")}
-            title={t("nextPeriod")}
-            data-testid="period-next"
-            onClick={() => setDate((d) => shiftAnchor(d, range, 1))}
-          >
-            <ChevronRight className="size-4 rtl:rotate-180" aria-hidden />
-          </Button>
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="ms-1 h-9"
-            data-testid="period-today"
-            onClick={() => setDate(today)}
-          >
-            {t("today")}
-          </Button>
-        </div>
-
-        {/* Day / week / month */}
-        <div
-          role="group"
-          aria-label={t("rangeLabel")}
-          className="bg-muted/60 ms-auto inline-flex items-center gap-0.5 rounded-xl p-0.5"
-        >
-          {RANGE_MODES.map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              data-testid={`range-${mode}`}
-              aria-pressed={range === mode}
-              onClick={() => setRange(mode)}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
-                range === mode
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {t(`range_${mode}`)}
-            </button>
-          ))}
-        </div>
-
-        <p className="text-muted-foreground w-full text-xs" data-testid="period-label">
-          {periodLabel}
-        </p>
-      </div>
-
-      {/* ── The period, cut four ways ────────────────────────────────────
-          These were a read-only scoreboard. Each one is now the filter that produces it, so the
-          number and the worklist below it always agree. */}
-      <div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <SegmentTile
-            testKey="all"
-            icon={CalendarClock}
-            label={t("totalCount")}
-            value={sessions === null ? null : total}
-            share={null}
-            tone="emerald"
-            selected={!status && !trialOnly}
-            onSelect={() => {
-              setStatus("");
-              setTrialOnly(false);
-            }}
-          />
-          <SegmentTile
-            testKey="attended"
-            icon={CheckCircle2}
-            label={t("attendedCount")}
-            value={sessions === null ? null : attendedCount}
-            share={dayShare(attendedCount)}
-            tone="teal"
-            selected={status === "ATTENDED"}
-            onSelect={() => {
-              setTrialOnly(false);
-              setStatus((prev) => (prev === "ATTENDED" ? "" : "ATTENDED"));
-            }}
-          />
-          <SegmentTile
-            testKey="pending"
-            icon={UserX}
-            label={t("pendingCount")}
-            value={sessions === null ? null : pendingCount}
-            share={dayShare(pendingCount)}
-            tone="gold"
-            selected={status === "SCHEDULED"}
-            onSelect={() => {
-              setTrialOnly(false);
-              setStatus((prev) => (prev === "SCHEDULED" ? "" : "SCHEDULED"));
-            }}
-          />
-          <SegmentTile
-            testKey="trials"
-            icon={Sparkles}
-            label={t("trialsCount")}
-            value={sessions === null ? null : trialCount}
-            share={dayShare(trialCount)}
-            tone="violet"
-            selected={trialOnly}
-            onSelect={() => {
-              setStatus("");
-              setTrialOnly((prev) => !prev);
-            }}
-          />
-        </div>
-        <p className="text-muted-foreground/80 mt-2 text-[11px]">
-          {t("tilesHint")}
-        </p>
-      </div>
-
-      {/* ── Free (trial) lessons breakdown ──────────────────────────────── */}
-      {teacherTrials !== null && teacherTrials.length > 0 && (
-        <div className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/60 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/10">
-          <div className="flex items-center gap-2 border-b border-amber-200 px-5 py-3 dark:border-amber-900/40">
-            <Sparkles className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-            <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-200">
-              {t("freeTrialsTitle")}
-            </h2>
-            <span className="ms-auto text-xs font-medium text-amber-600 dark:text-amber-400">
-              {trialCount} {trialCount === 1 ? t("trialSession") : t("trialSessions")}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-x-6 gap-y-2 px-5 py-3">
-            {teacherTrials.map((row) => (
-              <div key={row.name} className="flex items-center gap-2">
-                <span className="text-sm font-medium text-amber-900 dark:text-amber-100">
-                  {row.name}
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-                  <Sparkles className="size-2.5" />
-                  {row.count}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Filter toolbar ────────────────────────────────────────────────── */}
-      <div className="bg-card flex flex-wrap items-end gap-3 rounded-2xl border p-3 shadow-sm sm:p-4">
-        {/* Search — its own row on a phone; with a zero flex basis it would otherwise stay beside
-            the selects and be squeezed to nothing. */}
-        <div className="relative min-w-full flex-1 sm:min-w-0">
-          <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" />
-          <input
-            type="search"
-            aria-label={t("searchPlaceholder")}
-            placeholder={t("searchPlaceholder")}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 h-9 w-full rounded-xl border py-2 pe-3 ps-9 text-sm outline-none focus:ring-3"
-          />
-        </div>
-
-        {/* Teacher filter (Owner only) */}
-        {!isTeacher && (
-          <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
-            <label className="text-muted-foreground text-xs font-medium">{t("teacher")}</label>
-            <select
-              aria-label={t("teacher")}
-              value={teacherId}
-              onChange={(e) => setTeacherId(e.target.value)}
-              className="border-input bg-background h-9 w-full rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15 sm:w-auto"
-            >
-              <option value="">{t("allTeachers")}</option>
-              {teachers.map((tch) => (
-                <option key={tch.id} value={tch.id}>
-                  {tch.full_name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Status filter */}
-        <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
-          <label className="text-muted-foreground text-xs font-medium">{t("status")}</label>
-          <select
-            aria-label={t("status")}
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="border-input bg-background h-9 w-full rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15 sm:w-auto"
-          >
-            <option value="">{t("allStatuses")}</option>
-            {SESSION_STATUS.filter(
-              (s) => s !== "ABSENT_UNEXCUSED" && s !== "ABSENT_EXCUSED",
-            ).map((s) => (
-              <option key={s} value={s}>
-                {tSched(`status.${s}`)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Done-by filter — only once more than one person runs the academy */}
-        {showDoneByFilter && (
-          <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
-            <label className="text-muted-foreground text-xs font-medium">{tDone("filter")}</label>
-            <select
-              aria-label={tDone("filter")}
-              data-testid="done-by-filter"
-              value={doneBy}
-              onChange={(e) => setDoneBy(e.target.value)}
-              className="border-input bg-background h-9 w-full rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15 sm:w-auto"
-            >
-              <option value="">{tDone("everyone")}</option>
-              <option value={DONE_BY_TEACHER}>{tDone("theTeacher")}</option>
-              {actors.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {actorLabel(a, tDone("off"))}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Trials-only toggle */}
-        <Button
+        <button
           type="button"
-          variant={trialOnly ? "default" : "outline"}
-          size="sm"
-          onClick={() => setTrialOnly((v) => !v)}
+          role="tab"
+          aria-selected={section === "period"}
+          data-testid="section-period"
+          onClick={() => setSection("period")}
           className={cn(
-            "h-9 gap-1.5",
-            trialOnly && "border-transparent bg-amber-500 text-white hover:bg-amber-600",
+            "inline-flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors sm:px-4",
+            section === "period"
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
           )}
         >
-          <Sparkles className="size-3.5" />
-          {t("trialsOnly")}
-        </Button>
-
-        {/* Clear all */}
-        {hasActiveFilters && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground h-9 gap-1"
-            onClick={clearFilters}
-          >
-            <X className="size-3.5" />
-            {t("clearFilters")}
-          </Button>
-        )}
+          <ClipboardCheck className="size-4" aria-hidden />
+          {t("section.period")}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === "overdue"}
+          data-testid="section-overdue"
+          onClick={() => setSection("overdue")}
+          className={cn(
+            "inline-flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors sm:px-4",
+            section === "overdue"
+              ? "bg-background text-rose-700 shadow-sm ring-1 ring-rose-300 dark:text-rose-300 dark:ring-rose-900/60"
+              : overdue.count > 0
+                ? "text-rose-700 hover:text-rose-800 dark:text-rose-300"
+                : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <AlarmClock className="size-4" aria-hidden />
+          {t("section.overdue")}
+          {overdue.count > 0 && (
+            <span
+              data-testid="section-overdue-count"
+              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[11px] font-bold tabular-nums text-white"
+            >
+              {overdue.count.toLocaleString()}
+            </span>
+          )}
+        </button>
       </div>
 
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
 
-      {truncated && <AlertBanner variant="info" message={t("periodTruncated")} />}
-
-      {/* ── Sessions table ────────────────────────────────────────────────── */}
-      <div className="bg-card overflow-hidden rounded-2xl border shadow-sm" data-testid="day-sessions">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3.5 sm:px-5">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold">{periodLabel}</h2>
-            <p className="text-muted-foreground text-xs">
-              {multiDay ? t("periodSubtitle") : t("daySubtitle")}
-            </p>
-          </div>
-          {filteredSessions !== null && filteredSessions.length > 0 && (
-            <div className="flex items-center gap-2">
+      {section === "overdue" ? (
+        <OverdueLessonsBoard
+          state={overdue}
+          filters={overdueFilters}
+          onFiltersChange={setOverdueFilters}
+          onOpen={openSession}
+          onReschedule={canReschedule ? setRescheduling : undefined}
+          isTeacher={isTeacher}
+          canFollow={canFollow}
+          onError={setError}
+          onSeeAll={mine ? () => chooseScope("all") : undefined}
+        />
+      ) : (
+        <>
+          {/* ── Period navigator ──────────────────────────────────────────────
+              The page used to be nailed to today, which left a past or future lesson reachable only
+              through a calendar deep link. Pick any day here, or widen the window to a whole week or
+              month; the counts, filters, list and export below all follow it. */}
+          <div
+            className="bg-card flex flex-wrap items-center gap-3 rounded-2xl border p-3 shadow-sm"
+            data-testid="period-nav"
+          >
+            <div className="flex items-center gap-1">
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                onClick={() => void handleExport()}
-                disabled={exporting}
-                className="gap-1.5"
-                data-testid="attendance-export"
+                size="icon-sm"
+                aria-label={t("prevPeriod")}
+                title={t("prevPeriod")}
+                data-testid="period-prev"
+                onClick={() => setDate((d) => shiftAnchor(d, range, -1))}
               >
-                {exporting ? (
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <FileSpreadsheet className="size-3.5" aria-hidden />
-                )}
-                {tDt("export")}
+                <ChevronLeft className="size-4 rtl:rotate-180" aria-hidden />
               </Button>
-              <span className="text-muted-foreground bg-muted rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums">
-                {filteredSessions.length}
-              </span>
-            </div>
-          )}
-        </div>
-        {exportError && (
-          <p
-            className="text-destructive border-b px-5 py-2 text-xs font-medium"
-            role="alert"
-          >
-            {exportError}
-          </p>
-        )}
 
-        {filteredSessions === null ? (
-          // Loading state
-          <div className="divide-y" data-testid="day-loading">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-4 px-5 py-4" aria-hidden>
-                <div className="bg-muted h-4 w-14 animate-pulse rounded" />
-                <div className="bg-muted h-4 flex-1 animate-pulse rounded" />
-                <div className="bg-muted h-4 w-28 animate-pulse rounded" />
-                <div className="bg-muted h-4 w-16 animate-pulse rounded" />
-                <div className="bg-muted h-6 w-20 animate-pulse rounded-full" />
-                <div className="bg-muted h-7 w-16 animate-pulse rounded-lg" />
-              </div>
-            ))}
-          </div>
-        ) : filteredSessions.length === 0 ? (
-          <div
-            className="flex flex-col items-center px-5 py-14 text-center"
-            data-testid="day-empty"
-          >
-            <div className="bg-muted mb-3 flex size-12 items-center justify-center rounded-full">
-              <CalendarClock className="text-muted-foreground size-5" />
-            </div>
-            <p className="text-sm font-medium">
-              {multiDay ? t("periodNone") : t("dayNone")}
-            </p>
-            {mine && (
+              {/* A month window is picked as a month; a day or week is picked by its day. */}
+              {range === "month" ? (
+                <input
+                  type="month"
+                  aria-label={t("pickMonth")}
+                  data-testid="period-month-input"
+                  value={date.slice(0, 7)}
+                  onChange={(e) => {
+                    // An empty value means the field is mid-edit — keep the month we are on.
+                    if (e.target.value) setDate(`${e.target.value}-01`);
+                  }}
+                  className="border-input bg-background focus:border-primary focus:ring-primary/15 h-9 rounded-xl border px-3 text-sm outline-none focus:ring-3"
+                />
+              ) : (
+                <input
+                  type="date"
+                  aria-label={t("pickDate")}
+                  data-testid="period-date-input"
+                  value={date}
+                  onChange={(e) => {
+                    if (e.target.value) setDate(e.target.value);
+                  }}
+                  className="border-input bg-background focus:border-primary focus:ring-primary/15 h-9 rounded-xl border px-3 text-sm outline-none focus:ring-3"
+                />
+              )}
+
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
+                aria-label={t("nextPeriod")}
+                title={t("nextPeriod")}
+                data-testid="period-next"
+                onClick={() => setDate((d) => shiftAnchor(d, range, 1))}
+              >
+                <ChevronRight className="size-4 rtl:rotate-180" aria-hidden />
+              </Button>
+
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="mt-3 gap-1"
-                data-testid="scope-empty-all"
-                onClick={() => chooseScope("all")}
+                className="ms-1 h-9"
+                data-testid="period-today"
+                onClick={() => setDate(today)}
               >
-                <Users className="size-3.5" />
-                {t("scope.seeAll")}
+                {t("today")}
               </Button>
+            </div>
+
+            {/* Day / week / month */}
+            <div
+              role="group"
+              aria-label={t("rangeLabel")}
+              className="bg-muted/60 ms-auto inline-flex items-center gap-0.5 rounded-xl p-0.5"
+            >
+              {RANGE_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  data-testid={`range-${mode}`}
+                  aria-pressed={range === mode}
+                  onClick={() => setRange(mode)}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                    range === mode
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {t(`range_${mode}`)}
+                </button>
+              ))}
+            </div>
+
+            <p className="text-muted-foreground w-full text-xs" data-testid="period-label">
+              {periodLabel}
+            </p>
+          </div>
+
+          {/* ── The period, cut four ways ────────────────────────────────────
+              These were a read-only scoreboard. Each one is now the filter that produces it, so the
+              number and the worklist below it always agree. */}
+          <div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <SegmentTile
+                testKey="all"
+                icon={CalendarClock}
+                label={t("totalCount")}
+                value={sessions === null ? null : total}
+                share={null}
+                tone="emerald"
+                selected={!status && !trialOnly}
+                onSelect={() => {
+                  setStatus("");
+                  setTrialOnly(false);
+                }}
+              />
+              <SegmentTile
+                testKey="attended"
+                icon={CheckCircle2}
+                label={t("attendedCount")}
+                value={sessions === null ? null : attendedCount}
+                share={dayShare(attendedCount)}
+                tone="teal"
+                selected={status === "ATTENDED"}
+                onSelect={() => {
+                  setTrialOnly(false);
+                  setStatus((prev) => (prev === "ATTENDED" ? "" : "ATTENDED"));
+                }}
+              />
+              <SegmentTile
+                testKey="pending"
+                icon={UserX}
+                label={t("pendingCount")}
+                value={sessions === null ? null : pendingCount}
+                share={dayShare(pendingCount)}
+                tone="gold"
+                selected={status === "SCHEDULED"}
+                onSelect={() => {
+                  setTrialOnly(false);
+                  setStatus((prev) => (prev === "SCHEDULED" ? "" : "SCHEDULED"));
+                }}
+              />
+              <SegmentTile
+                testKey="trials"
+                icon={Sparkles}
+                label={t("trialsCount")}
+                value={sessions === null ? null : trialCount}
+                share={dayShare(trialCount)}
+                tone="violet"
+                selected={trialOnly}
+                onSelect={() => {
+                  setStatus("");
+                  setTrialOnly((prev) => !prev);
+                }}
+              />
+            </div>
+            <p className="text-muted-foreground/80 mt-2 text-[11px]">
+              {t("tilesHint")}
+            </p>
+          </div>
+
+          {/* ── Free (trial) lessons breakdown ──────────────────────────────── */}
+          {teacherTrials !== null && teacherTrials.length > 0 && (
+            <div className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/60 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/10">
+              <div className="flex items-center gap-2 border-b border-amber-200 px-5 py-3 dark:border-amber-900/40">
+                <Sparkles className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                  {t("freeTrialsTitle")}
+                </h2>
+                <span className="ms-auto text-xs font-medium text-amber-600 dark:text-amber-400">
+                  {trialCount} {trialCount === 1 ? t("trialSession") : t("trialSessions")}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-2 px-5 py-3">
+                {teacherTrials.map((row) => (
+                  <div key={row.name} className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                      {row.name}
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                      <Sparkles className="size-2.5" />
+                      {row.count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Filter toolbar ────────────────────────────────────────────────── */}
+          <div className="bg-card flex flex-wrap items-end gap-3 rounded-2xl border p-3 shadow-sm sm:p-4">
+            {/* Search — its own row on a phone; with a zero flex basis it would otherwise stay beside
+                the selects and be squeezed to nothing. */}
+            <div className="relative min-w-full flex-1 sm:min-w-0">
+              <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" />
+              <input
+                type="search"
+                aria-label={t("searchPlaceholder")}
+                placeholder={t("searchPlaceholder")}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 h-9 w-full rounded-xl border py-2 pe-3 ps-9 text-sm outline-none focus:ring-3"
+              />
+            </div>
+
+            {/* Teacher filter (Owner only) */}
+            {!isTeacher && (
+              <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
+                <label className="text-muted-foreground text-xs font-medium">{t("teacher")}</label>
+                <select
+                  aria-label={t("teacher")}
+                  value={teacherId}
+                  onChange={(e) => setTeacherId(e.target.value)}
+                  className="border-input bg-background h-9 w-full rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15 sm:w-auto"
+                >
+                  <option value="">{t("allTeachers")}</option>
+                  {teachers.map((tch) => (
+                    <option key={tch.id} value={tch.id}>
+                      {tch.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             )}
+
+            {/* Status filter */}
+            <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
+              <label className="text-muted-foreground text-xs font-medium">{t("status")}</label>
+              <select
+                aria-label={t("status")}
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                className="border-input bg-background h-9 w-full rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15 sm:w-auto"
+              >
+                <option value="">{t("allStatuses")}</option>
+                {SESSION_STATUS.filter(
+                  (s) => s !== "ABSENT_UNEXCUSED" && s !== "ABSENT_EXCUSED",
+                ).map((s) => (
+                  <option key={s} value={s}>
+                    {tSched(`status.${s}`)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Done-by filter — only once more than one person runs the academy */}
+            {showDoneByFilter && (
+              <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-none">
+                <label className="text-muted-foreground text-xs font-medium">{tDone("filter")}</label>
+                <select
+                  aria-label={tDone("filter")}
+                  data-testid="done-by-filter"
+                  value={doneBy}
+                  onChange={(e) => setDoneBy(e.target.value)}
+                  className="border-input bg-background h-9 w-full rounded-xl border px-3 text-sm outline-none focus:border-primary focus:ring-3 focus:ring-primary/15 sm:w-auto"
+                >
+                  <option value="">{tDone("everyone")}</option>
+                  <option value={DONE_BY_TEACHER}>{tDone("theTeacher")}</option>
+                  {actors.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {actorLabel(a, tDone("off"))}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Trials-only toggle */}
+            <Button
+              type="button"
+              variant={trialOnly ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTrialOnly((v) => !v)}
+              className={cn(
+                "h-9 gap-1.5",
+                trialOnly && "border-transparent bg-amber-500 text-white hover:bg-amber-600",
+              )}
+            >
+              <Sparkles className="size-3.5" />
+              {t("trialsOnly")}
+            </Button>
+
+            {/* Clear all */}
             {hasActiveFilters && (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="mt-3 gap-1"
+                className="text-muted-foreground h-9 gap-1"
                 onClick={clearFilters}
               >
                 <X className="size-3.5" />
@@ -1028,139 +1012,416 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
               </Button>
             )}
           </div>
-        ) : (
-          <>
-            {/* ── Desktop table ─────────────────────────────────────── */}
-            <div className="hidden overflow-x-auto sm:block" data-testid="day-list">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-muted/30 border-b">
-                    <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
-                      {t("colTime")}
-                    </th>
-                    <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
-                      {t("colStudent")}
-                    </th>
-                    {!isTeacher && (
-                      <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
-                        {t("teacher")}
-                      </th>
+
+          {truncated && <AlertBanner variant="info" message={t("periodTruncated")} />}
+
+          {/* ── Sessions table ────────────────────────────────────────────────── */}
+          <div className="bg-card overflow-hidden rounded-2xl border shadow-sm" data-testid="day-sessions">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3.5 sm:px-5">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold">{periodLabel}</h2>
+                <p className="text-muted-foreground text-xs">
+                  {multiDay ? t("periodSubtitle") : t("daySubtitle")}
+                </p>
+              </div>
+              {filteredSessions !== null && filteredSessions.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handleExport()}
+                    disabled={exporting}
+                    className="gap-1.5"
+                    data-testid="attendance-export"
+                  >
+                    {exporting ? (
+                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                    ) : (
+                      <FileSpreadsheet className="size-3.5" aria-hidden />
                     )}
-                    <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
-                      {t("colDuration")}
-                    </th>
-                    <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
-                      {t("status")}
-                    </th>
-                    {!isTeacher && (
-                      <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
-                        {tDone("col")}
-                      </th>
-                    )}
-                    <th className="px-5 py-3" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
+                    {tDt("export")}
+                  </Button>
+                  <span className="text-muted-foreground bg-muted rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums">
+                    {filteredSessions.length}
+                  </span>
+                </div>
+              )}
+            </div>
+            {exportError && (
+              <p
+                className="text-destructive border-b px-5 py-2 text-xs font-medium"
+                role="alert"
+              >
+                {exportError}
+              </p>
+            )}
+
+            {filteredSessions === null ? (
+              // Loading state
+              <div className="divide-y" data-testid="day-loading">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-4 px-5 py-4" aria-hidden>
+                    <div className="bg-muted h-4 w-14 animate-pulse rounded" />
+                    <div className="bg-muted h-4 flex-1 animate-pulse rounded" />
+                    <div className="bg-muted h-4 w-28 animate-pulse rounded" />
+                    <div className="bg-muted h-4 w-16 animate-pulse rounded" />
+                    <div className="bg-muted h-6 w-20 animate-pulse rounded-full" />
+                    <div className="bg-muted h-7 w-16 animate-pulse rounded-lg" />
+                  </div>
+                ))}
+              </div>
+            ) : filteredSessions.length === 0 ? (
+              <div
+                className="flex flex-col items-center px-5 py-14 text-center"
+                data-testid="day-empty"
+              >
+                <div className="bg-muted mb-3 flex size-12 items-center justify-center rounded-full">
+                  <CalendarClock className="text-muted-foreground size-5" />
+                </div>
+                <p className="text-sm font-medium">
+                  {multiDay ? t("periodNone") : t("dayNone")}
+                </p>
+                {mine && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="mt-3 gap-1"
+                    data-testid="scope-empty-all"
+                    onClick={() => chooseScope("all")}
+                  >
+                    <Users className="size-3.5" />
+                    {t("scope.seeAll")}
+                  </Button>
+                )}
+                {hasActiveFilters && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="mt-3 gap-1"
+                    onClick={clearFilters}
+                  >
+                    <X className="size-3.5" />
+                    {t("clearFilters")}
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* ── Desktop table ─────────────────────────────────────── */}
+                <div className="hidden overflow-x-auto sm:block" data-testid="day-list">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-muted/30 border-b">
+                        <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
+                          {t("colTime")}
+                        </th>
+                        <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
+                          {t("colStudent")}
+                        </th>
+                        {!isTeacher && (
+                          <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
+                            {t("teacher")}
+                          </th>
+                        )}
+                        <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
+                          {t("colDuration")}
+                        </th>
+                        <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
+                          {t("status")}
+                        </th>
+                        {!isTeacher && (
+                          <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
+                            {tDone("col")}
+                          </th>
+                        )}
+                        <th className="px-5 py-3" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {(dayGroups ?? []).map((group) => (
+                        <Fragment key={group.day}>
+                          {/* A day header, only once the window is wider than a single day. */}
+                          {multiDay && (
+                            <tr
+                              className="bg-muted/40"
+                              data-testid="day-group"
+                              data-day={group.day}
+                            >
+                              <th
+                                scope="colgroup"
+                                colSpan={colCount}
+                                className="text-muted-foreground px-5 py-2 text-start text-xs font-semibold"
+                              >
+                                {dayStampFmt.format(new Date(`${group.day}T12:00:00`))}
+                                <span className="ms-2 font-normal tabular-nums opacity-70">
+                                  {group.rows.length}
+                                </span>
+                              </th>
+                            </tr>
+                          )}
+                          {group.rows.map((s) => {
+                            const isTrial =
+                              s.student_status === "TRIAL" || s.student_status === "TRIAL_BOOKED";
+                            const displayStatus = (statusOverrides[s.id] ?? s.status) as typeof s.status;
+                            const isRecorded = displayStatus !== "SCHEDULED";
+                            return (
+                              <tr
+                                key={s.id}
+                                data-row={s.id}
+                                onClick={() => openSession(s)}
+                                className={cn(
+                                  "cursor-pointer transition-colors hover:bg-muted/30",
+                                  STATUS_ROW[displayStatus] ?? "",
+                                )}
+                              >
+                                {/* Time + status dot */}
+                                <td className="px-5 py-3.5">
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className={cn(
+                                        "size-2 shrink-0 rounded-full transition-colors",
+                                        STATUS_DOT[displayStatus] ?? "bg-slate-400",
+                                      )}
+                                    />
+                                    <span className="font-medium tabular-nums">
+                                      {timeFmt.format(new Date(s.scheduled_at_utc))}
+                                    </span>
+                                    {/* Checkmark overlay once any outcome is recorded */}
+                                    {isRecorded && statusOverrides[s.id] && (
+                                      <span className="inline-flex size-4 items-center justify-center rounded-full bg-emerald-500 text-white">
+                                        <svg className="size-2.5" viewBox="0 0 12 12" fill="none" aria-hidden>
+                                          <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                        </svg>
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* Student + trial badge */}
+                                <td className="px-5 py-3.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium">{s.student_name ?? "—"}</span>
+                                    {isTrial && (
+                                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                        <Sparkles className="size-2.5" />
+                                        {t("trial")}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* Teacher (owner only) */}
+                                {!isTeacher && (
+                                  <td className="text-muted-foreground px-5 py-3.5">
+                                    {s.teacher_name ?? "—"}
+                                  </td>
+                                )}
+
+                                {/* Duration */}
+                                <td className="text-muted-foreground px-5 py-3.5">
+                                  <div className="flex items-center gap-1">
+                                    <Clock className="size-3.5 shrink-0 opacity-60" />
+                                    <span className="tabular-nums">
+                                      {s.duration_minutes} {t("min")}
+                                    </span>
+                                  </div>
+                                </td>
+
+                                {/* Status badge */}
+                                <td className="px-5 py-3.5">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <StatusBadge status={displayStatus} />
+                                    {s.teacher_joined_at && (
+                                      <TeacherEnteredChip at={s.teacher_joined_at} timeFmt={timeFmt} />
+                                    )}
+                                    {s.pending_cancel_type && displayStatus === "SCHEDULED" && (
+                                      <span
+                                        data-testid="awaiting-approval"
+                                        title={t("awaitingApprovalHint")}
+                                        className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                                      >
+                                        <Clock className="size-2.5" />
+                                        {t("awaitingApproval")}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* Done by (owner only) */}
+                                {!isTeacher && (
+                                  <td className="px-5 py-3.5">
+                                    <DoneByCell {...doneByOf(s)} />
+                                  </td>
+                                )}
+
+                                {/* Action */}
+                                <td className="px-5 py-3.5 text-end">
+                                  <div className="flex items-center justify-end gap-2">
+                                    {/* WhatsApp send — placeholder, disabled until the feature ships. */}
+                                    {isRecorded && (
+                                      <Button
+                                        type="button"
+                                        size="xs"
+                                        variant="outline"
+                                        disabled
+                                        title={t("whatsappSoon")}
+                                        data-testid="row-whatsapp"
+                                        className="gap-1.5"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <MessageCircle className="size-3.5" />
+                                        {t("sendWhatsapp")}
+                                      </Button>
+                                    )}
+                                    {/* Enter: only the lesson's own teacher opens the room — an
+                                        owner's press would read as the teacher arriving. */}
+                                    {isTeacher && (
+                                      <EnterLessonButton
+                                        lesson={{ ...s, status: displayStatus }}
+                                        meetingUrl={s.meeting_url}
+                                        now={now}
+                                        earlyHorizonMinutes={ENTER_EARLY_HORIZON_MINUTES}
+                                      />
+                                    )}
+                                    {displayStatus === "SCHEDULED" && (
+                                      <FollowControl
+                                        sessionId={s.id}
+                                        followed={followInfo(s)}
+                                        canFollow={canFollow}
+                                        onFollowed={(info) => setFollowOverrides((m) => ({ ...m, [s.id]: info }))}
+                                        onError={setError}
+                                      />
+                                    )}
+                                    {canReschedule && displayStatus === "SCHEDULED" && (
+                                      <Button
+                                        type="button"
+                                        size="xs"
+                                        variant="outline"
+                                        data-testid="row-reschedule"
+                                        className="gap-1.5"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setRescheduling(s);
+                                        }}
+                                      >
+                                        <RotateCcw className="size-3.5" />
+                                        {tSched("actions.reschedule")}
+                                      </Button>
+                                    )}
+                                    {/* The lesson didn't happen after all: put it back to pending,
+                                        which is where the Reschedule action above becomes available.
+                                        A RESCHEDULED row is excluded — it was replaced, not marked. */}
+                                    {canRevert &&
+                                      isRecorded &&
+                                      displayStatus !== "RESCHEDULED" && (
+                                        <Button
+                                          type="button"
+                                          size="xs"
+                                          variant="outline"
+                                          data-testid="row-revert"
+                                          className="gap-1.5"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setReverting(s);
+                                          }}
+                                        >
+                                          <Undo2 className="size-3.5" />
+                                          {t("revert.action")}
+                                        </Button>
+                                      )}
+                                    <Button
+                                      type="button"
+                                      size="xs"
+                                      variant={displayStatus === "SCHEDULED" ? "default" : "outline"}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openSession(s);
+                                      }}
+                                    >
+                                      {displayStatus === "SCHEDULED" ? t("record") : t("open")}
+                                    </Button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* ── Mobile cards ──────────────────────────────────────── */}
+                <ul className="divide-y sm:hidden">
                   {(dayGroups ?? []).map((group) => (
                     <Fragment key={group.day}>
-                      {/* A day header, only once the window is wider than a single day. */}
                       {multiDay && (
-                        <tr
-                          className="bg-muted/40"
+                        <li
                           data-testid="day-group"
                           data-day={group.day}
+                          className="bg-muted/40 text-muted-foreground px-5 py-2 text-xs font-semibold"
                         >
-                          <th
-                            scope="colgroup"
-                            colSpan={colCount}
-                            className="text-muted-foreground px-5 py-2 text-start text-xs font-semibold"
-                          >
-                            {dayStampFmt.format(new Date(`${group.day}T12:00:00`))}
-                            <span className="ms-2 font-normal tabular-nums opacity-70">
-                              {group.rows.length}
-                            </span>
-                          </th>
-                        </tr>
+                          {dayStampFmt.format(new Date(`${group.day}T12:00:00`))}
+                          <span className="ms-2 font-normal tabular-nums opacity-70">
+                            {group.rows.length}
+                          </span>
+                        </li>
                       )}
                       {group.rows.map((s) => {
                         const isTrial =
                           s.student_status === "TRIAL" || s.student_status === "TRIAL_BOOKED";
                         const displayStatus = (statusOverrides[s.id] ?? s.status) as typeof s.status;
-                        const isRecorded = displayStatus !== "SCHEDULED";
                         return (
-                          <tr
+                          <li
                             key={s.id}
-                            data-row={s.id}
-                            onClick={() => openSession(s)}
                             className={cn(
-                              "cursor-pointer transition-colors hover:bg-muted/30",
+                              "cursor-pointer px-4 py-4 transition-colors hover:bg-muted/30",
                               STATUS_ROW[displayStatus] ?? "",
                             )}
+                            onClick={() => openSession(s)}
                           >
-                            {/* Time + status dot */}
-                            <td className="px-5 py-3.5">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={cn(
-                                    "size-2 shrink-0 rounded-full transition-colors",
-                                    STATUS_DOT[displayStatus] ?? "bg-slate-400",
+                            <div className="mb-2 flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={cn(
+                                      "size-2 shrink-0 rounded-full transition-colors",
+                                      STATUS_DOT[displayStatus] ?? "bg-slate-400",
+                                    )}
+                                  />
+                                  <p className="truncate font-semibold">{s.student_name ?? "—"}</p>
+                                  {isTrial && (
+                                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                                      <Sparkles className="size-2.5" />
+                                      {t("trial")}
+                                    </span>
                                   )}
-                                />
-                                <span className="font-medium tabular-nums">
+                                </div>
+                                <p className="text-muted-foreground mt-0.5 text-xs">
+                                  {s.teacher_name}
+                                  {" · "}
                                   {timeFmt.format(new Date(s.scheduled_at_utc))}
-                                </span>
-                                {/* Checkmark overlay once any outcome is recorded */}
-                                {isRecorded && statusOverrides[s.id] && (
-                                  <span className="inline-flex size-4 items-center justify-center rounded-full bg-emerald-500 text-white">
-                                    <svg className="size-2.5" viewBox="0 0 12 12" fill="none" aria-hidden>
-                                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </svg>
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-
-                            {/* Student + trial badge */}
-                            <td className="px-5 py-3.5">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium">{s.student_name ?? "—"}</span>
-                                {isTrial && (
-                                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                                    <Sparkles className="size-2.5" />
-                                    {t("trial")}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-
-                            {/* Teacher (owner only) */}
-                            {!isTeacher && (
-                              <td className="text-muted-foreground px-5 py-3.5">
-                                {s.teacher_name ?? "—"}
-                              </td>
-                            )}
-
-                            {/* Duration */}
-                            <td className="text-muted-foreground px-5 py-3.5">
-                              <div className="flex items-center gap-1">
-                                <Clock className="size-3.5 shrink-0 opacity-60" />
-                                <span className="tabular-nums">
+                                  {" · "}
                                   {s.duration_minutes} {t("min")}
-                                </span>
+                                </p>
+                                {!isTeacher && doneByOf(s).name && (
+                                  <div className="text-muted-foreground mt-1 flex min-w-0 items-center gap-1 text-xs">
+                                    <span className="shrink-0">{tDone("col")}:</span>
+                                    <DoneByCell {...doneByOf(s)} />
+                                  </div>
+                                )}
                               </div>
-                            </td>
-
-                            {/* Status badge */}
-                            <td className="px-5 py-3.5">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <StatusBadge status={displayStatus} />
+                              <div className="flex shrink-0 flex-col items-end gap-1">
+                                <StatusBadge status={displayStatus} className="shrink-0" />
                                 {s.teacher_joined_at && (
                                   <TeacherEnteredChip at={s.teacher_joined_at} timeFmt={timeFmt} />
                                 )}
                                 {s.pending_cancel_type && displayStatus === "SCHEDULED" && (
                                   <span
                                     data-testid="awaiting-approval"
-                                    title={t("awaitingApprovalHint")}
                                     className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
                                   >
                                     <Clock className="size-2.5" />
@@ -1168,293 +1429,114 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                   </span>
                                 )}
                               </div>
-                            </td>
-
-                            {/* Done by (owner only) */}
-                            {!isTeacher && (
-                              <td className="px-5 py-3.5">
-                                <DoneByCell {...doneByOf(s)} />
-                              </td>
-                            )}
-
-                            {/* Action */}
-                            <td className="px-5 py-3.5 text-end">
-                              <div className="flex items-center justify-end gap-2">
-                                {/* WhatsApp send — placeholder, disabled until the feature ships. */}
-                                {isRecorded && (
-                                  <Button
-                                    type="button"
-                                    size="xs"
-                                    variant="outline"
-                                    disabled
-                                    title={t("whatsappSoon")}
-                                    data-testid="row-whatsapp"
-                                    className="gap-1.5"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <MessageCircle className="size-3.5" />
-                                    {t("sendWhatsapp")}
-                                  </Button>
-                                )}
-                                {/* Enter: only the lesson's own teacher opens the room — an
-                                    owner's press would read as the teacher arriving. */}
-                                {isTeacher && (
-                                  <EnterLessonButton
-                                    lesson={{ ...s, status: displayStatus }}
-                                    meetingUrl={s.meeting_url}
-                                    now={now}
-                                    earlyHorizonMinutes={ENTER_EARLY_HORIZON_MINUTES}
-                                  />
-                                )}
-                                {displayStatus === "SCHEDULED" && (
-                                  <FollowControl
-                                    sessionId={s.id}
-                                    followed={followInfo(s)}
-                                    canFollow={canFollow}
-                                    onFollowed={(info) => setFollowOverrides((m) => ({ ...m, [s.id]: info }))}
-                                    onError={setError}
-                                  />
-                                )}
-                                {canReschedule && displayStatus === "SCHEDULED" && (
-                                  <Button
-                                    type="button"
-                                    size="xs"
-                                    variant="outline"
-                                    data-testid="row-reschedule"
-                                    className="gap-1.5"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setRescheduling(s);
-                                    }}
-                                  >
-                                    <RotateCcw className="size-3.5" />
-                                    {tSched("actions.reschedule")}
-                                  </Button>
-                                )}
-                                {/* The lesson didn't happen after all: put it back to pending,
-                                    which is where the Reschedule action above becomes available.
-                                    A RESCHEDULED row is excluded — it was replaced, not marked. */}
-                                {canRevert &&
-                                  isRecorded &&
-                                  displayStatus !== "RESCHEDULED" && (
-                                    <Button
-                                      type="button"
-                                      size="xs"
-                                      variant="outline"
-                                      data-testid="row-revert"
-                                      className="gap-1.5"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setReverting(s);
-                                      }}
-                                    >
-                                      <Undo2 className="size-3.5" />
-                                      {t("revert.action")}
-                                    </Button>
-                                  )}
+                            </div>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              {/* WhatsApp send — placeholder, disabled until the feature ships. */}
+                              {displayStatus !== "SCHEDULED" && (
                                 <Button
                                   type="button"
                                   size="xs"
-                                  variant={displayStatus === "SCHEDULED" ? "default" : "outline"}
+                                  variant="outline"
+                                  disabled
+                                  title={t("whatsappSoon")}
+                                  data-testid="row-whatsapp"
+                                  className="gap-1.5"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <MessageCircle className="size-3.5" />
+                                  {t("sendWhatsapp")}
+                                </Button>
+                              )}
+                              {isTeacher && (
+                                <EnterLessonButton
+                                  lesson={{ ...s, status: displayStatus }}
+                                  meetingUrl={s.meeting_url}
+                                  now={now}
+                                  earlyHorizonMinutes={ENTER_EARLY_HORIZON_MINUTES}
+                                />
+                              )}
+                              {displayStatus === "SCHEDULED" && (
+                                <FollowControl
+                                  sessionId={s.id}
+                                  followed={followInfo(s)}
+                                  canFollow={canFollow}
+                                  onFollowed={(info) => setFollowOverrides((m) => ({ ...m, [s.id]: info }))}
+                                  onError={setError}
+                                />
+                              )}
+                              {canReschedule && displayStatus === "SCHEDULED" && (
+                                <Button
+                                  type="button"
+                                  size="xs"
+                                  variant="outline"
+                                  data-testid="row-reschedule"
+                                  className="gap-1.5"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    openSession(s);
+                                    setRescheduling(s);
                                   }}
                                 >
-                                  {displayStatus === "SCHEDULED" ? t("record") : t("open")}
+                                  <RotateCcw className="size-3.5" />
+                                  {tSched("actions.reschedule")}
                                 </Button>
-                              </div>
-                            </td>
-                          </tr>
+                              )}
+                              {canRevert &&
+                                displayStatus !== "SCHEDULED" &&
+                                displayStatus !== "RESCHEDULED" && (
+                                  <Button
+                                    type="button"
+                                    size="xs"
+                                    variant="outline"
+                                    data-testid="row-revert"
+                                    className="gap-1.5"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setReverting(s);
+                                    }}
+                                  >
+                                    <Undo2 className="size-3.5" />
+                                    {t("revert.action")}
+                                  </Button>
+                                )}
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant={displayStatus === "SCHEDULED" ? "default" : "outline"}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openSession(s);
+                                }}
+                              >
+                                {displayStatus === "SCHEDULED" ? t("record") : t("open")}
+                              </Button>
+                            </div>
+                          </li>
                         );
                       })}
                     </Fragment>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </ul>
+              </>
+            )}
 
-            {/* ── Mobile cards ──────────────────────────────────────── */}
-            <ul className="divide-y sm:hidden">
-              {(dayGroups ?? []).map((group) => (
-                <Fragment key={group.day}>
-                  {multiDay && (
-                    <li
-                      data-testid="day-group"
-                      data-day={group.day}
-                      className="bg-muted/40 text-muted-foreground px-5 py-2 text-xs font-semibold"
-                    >
-                      {dayStampFmt.format(new Date(`${group.day}T12:00:00`))}
-                      <span className="ms-2 font-normal tabular-nums opacity-70">
-                        {group.rows.length}
-                      </span>
-                    </li>
+            {/* Table footer: session count */}
+            {filteredSessions !== null && filteredSessions.length > 0 && (
+              <div className="border-t px-5 py-3">
+                <p className="text-muted-foreground text-xs">
+                  {filteredSessions.length}{" "}
+                  {filteredSessions.length === 1 ? t("sessionsShownOne") : t("sessionsShown")}
+                  {sessions && filteredSessions.length !== sessions.length && (
+                    <>
+                      {" · "}
+                      {sessions.length} {t("sessionsTotal")}
+                    </>
                   )}
-                  {group.rows.map((s) => {
-                    const isTrial =
-                      s.student_status === "TRIAL" || s.student_status === "TRIAL_BOOKED";
-                    const displayStatus = (statusOverrides[s.id] ?? s.status) as typeof s.status;
-                    return (
-                      <li
-                        key={s.id}
-                        className={cn(
-                          "cursor-pointer px-4 py-4 transition-colors hover:bg-muted/30",
-                          STATUS_ROW[displayStatus] ?? "",
-                        )}
-                        onClick={() => openSession(s)}
-                      >
-                        <div className="mb-2 flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={cn(
-                                  "size-2 shrink-0 rounded-full transition-colors",
-                                  STATUS_DOT[displayStatus] ?? "bg-slate-400",
-                                )}
-                              />
-                              <p className="truncate font-semibold">{s.student_name ?? "—"}</p>
-                              {isTrial && (
-                                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                                  <Sparkles className="size-2.5" />
-                                  {t("trial")}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-muted-foreground mt-0.5 text-xs">
-                              {s.teacher_name}
-                              {" · "}
-                              {timeFmt.format(new Date(s.scheduled_at_utc))}
-                              {" · "}
-                              {s.duration_minutes} {t("min")}
-                            </p>
-                            {!isTeacher && doneByOf(s).name && (
-                              <div className="text-muted-foreground mt-1 flex min-w-0 items-center gap-1 text-xs">
-                                <span className="shrink-0">{tDone("col")}:</span>
-                                <DoneByCell {...doneByOf(s)} />
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex shrink-0 flex-col items-end gap-1">
-                            <StatusBadge status={displayStatus} className="shrink-0" />
-                            {s.teacher_joined_at && (
-                              <TeacherEnteredChip at={s.teacher_joined_at} timeFmt={timeFmt} />
-                            )}
-                            {s.pending_cancel_type && displayStatus === "SCHEDULED" && (
-                              <span
-                                data-testid="awaiting-approval"
-                                className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-                              >
-                                <Clock className="size-2.5" />
-                                {t("awaitingApproval")}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-end gap-2">
-                          {/* WhatsApp send — placeholder, disabled until the feature ships. */}
-                          {displayStatus !== "SCHEDULED" && (
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="outline"
-                              disabled
-                              title={t("whatsappSoon")}
-                              data-testid="row-whatsapp"
-                              className="gap-1.5"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <MessageCircle className="size-3.5" />
-                              {t("sendWhatsapp")}
-                            </Button>
-                          )}
-                          {isTeacher && (
-                            <EnterLessonButton
-                              lesson={{ ...s, status: displayStatus }}
-                              meetingUrl={s.meeting_url}
-                              now={now}
-                              earlyHorizonMinutes={ENTER_EARLY_HORIZON_MINUTES}
-                            />
-                          )}
-                          {displayStatus === "SCHEDULED" && (
-                            <FollowControl
-                              sessionId={s.id}
-                              followed={followInfo(s)}
-                              canFollow={canFollow}
-                              onFollowed={(info) => setFollowOverrides((m) => ({ ...m, [s.id]: info }))}
-                              onError={setError}
-                            />
-                          )}
-                          {canReschedule && displayStatus === "SCHEDULED" && (
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="outline"
-                              data-testid="row-reschedule"
-                              className="gap-1.5"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setRescheduling(s);
-                              }}
-                            >
-                              <RotateCcw className="size-3.5" />
-                              {tSched("actions.reschedule")}
-                            </Button>
-                          )}
-                          {canRevert &&
-                            displayStatus !== "SCHEDULED" &&
-                            displayStatus !== "RESCHEDULED" && (
-                              <Button
-                                type="button"
-                                size="xs"
-                                variant="outline"
-                                data-testid="row-revert"
-                                className="gap-1.5"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setReverting(s);
-                                }}
-                              >
-                                <Undo2 className="size-3.5" />
-                                {t("revert.action")}
-                              </Button>
-                            )}
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant={displayStatus === "SCHEDULED" ? "default" : "outline"}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openSession(s);
-                            }}
-                          >
-                            {displayStatus === "SCHEDULED" ? t("record") : t("open")}
-                          </Button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </Fragment>
-              ))}
-            </ul>
-          </>
-        )}
-
-        {/* Table footer: session count */}
-        {filteredSessions !== null && filteredSessions.length > 0 && (
-          <div className="border-t px-5 py-3">
-            <p className="text-muted-foreground text-xs">
-              {filteredSessions.length}{" "}
-              {filteredSessions.length === 1 ? t("sessionsShownOne") : t("sessionsShown")}
-              {sessions && filteredSessions.length !== sessions.length && (
-                <>
-                  {" · "}
-                  {sessions.length} {t("sessionsTotal")}
-                </>
-              )}
-            </p>
+                </p>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
 
       {/* Attendance/report popup */}
       <AttendanceReportModal

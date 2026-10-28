@@ -40,6 +40,12 @@ export const TILE_TONES = {
     bar: "bg-violet-500",
     wash: "from-violet-500/[0.08]",
   },
+  rose: {
+    icon: "text-rose-600 dark:text-rose-400",
+    chip: "bg-rose-500/10 ring-rose-500/20",
+    bar: "bg-rose-500",
+    wash: "from-rose-500/[0.08]",
+  },
   slate: {
     icon: "text-slate-500 dark:text-slate-400",
     chip: "bg-slate-400/10 ring-slate-400/20",
