@@ -154,9 +154,14 @@ final class AcademyRoleController extends Controller
         Gate::authorize('role.manage');
 
         $features = $this->features();
+        $academyId = $this->academyId();
 
         $system = [];
+        $effective = [];
         foreach (self::VISIBLE_SYSTEM_ROLES as $code) {
+            $tunable = in_array($code, PermissionCatalog::TUNABLE_ROLES, true);
+            // As THIS academy has it: a shared role carries the academy's own edits.
+            $effective[$code] = PermissionResolver::forRoleIn($code, $academyId);
             $system[] = [
                 'code'          => $code,
                 'name'          => $code,
@@ -164,8 +169,12 @@ final class AcademyRoleController extends Controller
                 // Only what this academy can use: a TEACHER's `room.join` means nothing without
                 // the video module, and listing it is how "rooms" showed up on a management-only
                 // academy's roles page.
-                'permissions'   => PermissionCatalog::usableWith(PermissionResolver::forRole($code), $features),
+                'permissions'   => PermissionCatalog::usableWith($effective[$code], $features),
                 'assignedCount' => $this->assignedCount($code),
+                // The shared staff roles can be edited for this academy (tune()), and say when
+                // they have been, so the page can offer "back to the default".
+                'editable'      => $tunable,
+                'tuned'         => $tunable && PermissionResolver::tuning($code, $academyId) !== null,
             ];
         }
 
@@ -204,8 +213,6 @@ final class AcademyRoleController extends Controller
             $areas[] = ['key' => $area['key'], 'kind' => $area['kind'], 'view' => $view, 'manage' => $manage];
         }
 
-        $roleMap = PermissionCatalog::roleMap();
-
         return response()->json([
             'system'    => $system,
             'custom'    => $custom,
@@ -216,13 +223,14 @@ final class AcademyRoleController extends Controller
             // than having to know that `payout.adjust` is how an award gets paid.
             'financial'  => array_values(array_intersect($grantable, PermissionCatalog::FINANCIAL)),
             'statistics' => array_values(array_intersect($grantable, PermissionCatalog::STATISTICS)),
-            // Starting points for a new role: each shared built-in role's own set, clamped to what
-            // the acting user may actually delegate — so "a supervisor who only takes attendance"
-            // starts from the whole supervisor and unticks, instead of from eighty empty boxes.
+            // Starting points for a new role: each shared built-in role's own set (as this academy
+            // has edited it), clamped to what the acting user may actually delegate — so "a
+            // supervisor who only takes attendance" starts from the whole supervisor and unticks,
+            // instead of from eighty empty boxes.
             'presets'   => array_map(fn (string $role): array => [
                 'key'         => strtolower($role),
                 'role'        => $role,
-                'permissions' => array_values(array_intersect($grantable, $roleMap[$role])),
+                'permissions' => array_values(array_intersect($grantable, $effective[$role])),
             ], ['MANAGER', 'SUPERVISOR', 'ACCOUNTANT', 'CUSTOMER_SERVICE']),
         ]);
     }
@@ -326,6 +334,90 @@ final class AcademyRoleController extends Controller
             before: $before);
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * PUT /api/roles/system/{code} — edit a shared built-in role (supervisor, accountant, …) for
+     * THIS academy only: `permissions` is the whole set its holders should have here.
+     *
+     * Stored as the difference from the platform's role (academy_role_tunings), so what the
+     * platform adds to the role later still arrives. The builder only shows what this user may
+     * grant in this academy's modules; capabilities outside that view are carried over untouched
+     * (an LMS capability the academy cannot see is neither granted nor stripped by the edit).
+     * Adding is clamped like the custom-role builder — nobody hands out what they do not hold;
+     * taking away is always allowed.
+     */
+    public function tune(Request $request, string $code): JsonResponse
+    {
+        Gate::authorize('role.manage');
+
+        $academyId = $this->academyId();
+        if (! in_array($code, PermissionCatalog::TUNABLE_ROLES, true)) {
+            abort(404, 'This role cannot be edited.');
+        }
+
+        $data = $request->validate([
+            'permissions'   => ['present', 'array'],
+            'permissions.*' => ['string', Rule::in(PermissionCatalog::PERMISSIONS)],
+        ]);
+        $wanted = array_values(array_unique($data['permissions']));
+
+        $base = PermissionResolver::forRole($code);
+        $current = PermissionResolver::forRoleIn($code, $academyId);
+        $visible = $this->grantable();
+        $this->assertGrantable(array_values(array_diff($wanted, $current)));
+
+        $final = array_values(array_unique([...array_diff($current, $visible), ...$wanted]));
+        $added = array_values(array_diff($final, $base));
+        $removed = array_values(array_diff($base, $final));
+        sort($added);
+        sort($removed);
+
+        if ($added === [] && $removed === []) {
+            DB::table('academy_role_tunings')->where('role', $code)->delete();
+        } else {
+            DB::table('academy_role_tunings')->updateOrInsert(
+                ['academy_id' => $academyId, 'role' => $code],
+                [
+                    'added'      => $this->pgArray($added),
+                    'removed'    => $this->pgArray($removed),
+                    'updated_at' => now(),
+                ],
+            );
+        }
+
+        Audit::log('role.tune', 'role', null, $academyId, $this->ctx()->userId, $this->ctx()->role,
+            after: ['role' => $code, 'added' => $added, 'removed' => $removed],
+            before: ['role' => $code, 'permissions' => $current]);
+
+        return response()->json(['ok' => true, 'added' => $added, 'removed' => $removed]);
+    }
+
+    /** DELETE /api/roles/system/{code} — put a built-in role back exactly as the platform ships it. */
+    public function resetTuning(string $code): JsonResponse
+    {
+        Gate::authorize('role.manage');
+
+        $academyId = $this->academyId();
+        if (! in_array($code, PermissionCatalog::TUNABLE_ROLES, true)) {
+            abort(404, 'This role cannot be edited.');
+        }
+
+        $before = PermissionResolver::tuning($code, $academyId);
+        DB::table('academy_role_tunings')->where('role', $code)->delete(); // RLS: this academy's row
+
+        if ($before !== null) {
+            Audit::log('role.tune_reset', 'role', null, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['role' => $code], before: ['role' => $code] + $before);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** A Postgres text[] literal for a list of capability codes (codes are [a-z_.] only). */
+    private function pgArray(array $codes): string
+    {
+        return '{'.implode(',', array_map(fn (string $c) => '"'.$c.'"', $codes)).'}';
     }
 
     /** DELETE /api/roles/{id} — remove a custom role (blocked while still assigned). */

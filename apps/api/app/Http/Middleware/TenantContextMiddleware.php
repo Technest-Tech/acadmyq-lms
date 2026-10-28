@@ -68,7 +68,9 @@ final class TenantContextMiddleware
             }
         }
 
-        $permissions = PermissionResolver::forRole($role);
+        // The role's grants as this academy has them: a shared built-in role (supervisor, …) may
+        // carry the academy's own edits on top of the platform's set.
+        $permissions = PermissionResolver::forRoleIn($role, $academyId);
 
         // A Super Admin who has ENTERED an academy acts inside it with everything its owner can do,
         // on top of the platform set. The SUPER_ADMIN catalog alone has no student.read or

@@ -18,6 +18,8 @@ vi.mock("@/lib/api", async (importActual) => ({
   listStaffDepartments: vi.fn(),
   createAcademyRole: vi.fn(),
   createStaff: vi.fn(),
+  tuneSystemRole: vi.fn(),
+  resetSystemRole: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -94,6 +96,7 @@ const ROLES: AcademyRolesResponse = {
       code: "MANAGER",
       name: "MANAGER",
       system: true,
+      editable: true,
       permissions: GRANTABLE,
       assignedCount: 0,
     },
@@ -101,6 +104,7 @@ const ROLES: AcademyRolesResponse = {
       code: "SUPERVISOR",
       name: "SUPERVISOR",
       system: true,
+      editable: true,
       permissions: SUPERVISOR,
       assignedCount: 2,
     },
@@ -108,6 +112,7 @@ const ROLES: AcademyRolesResponse = {
       code: "ACCOUNTANT",
       name: "ACCOUNTANT",
       system: true,
+      editable: true,
       permissions: ACCOUNTANT,
       assignedCount: 0,
     },
@@ -115,6 +120,7 @@ const ROLES: AcademyRolesResponse = {
       code: "CUSTOMER_SERVICE",
       name: "CUSTOMER_SERVICE",
       system: true,
+      editable: true,
       permissions: ["student.read", "student.create"],
       assignedCount: 0,
     },
@@ -122,6 +128,7 @@ const ROLES: AcademyRolesResponse = {
       code: "STAFF",
       name: "STAFF",
       system: true,
+      editable: true,
       permissions: ["student.read"],
       assignedCount: 0,
     },
@@ -184,6 +191,63 @@ describe("RolesPanel", () => {
       roleId: "r1",
       code: "CR_1",
     });
+  });
+
+  it("edits the supervisor for this academy only", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.tuneSystemRole).mockResolvedValue({
+      ok: true,
+      added: ["invoice.read", "invoice.mark_paid"],
+      removed: [],
+    });
+    vi.mocked(api.resetSystemRole).mockResolvedValue({ ok: true });
+    render(
+      withAuth(
+        makeSession("ACADEMY_OWNER", { permissions: ["role.manage"] }),
+        <RolesPanel />,
+      ),
+    );
+
+    // The owner and teacher are not editable; the shared staff roles are.
+    await screen.findByTestId("role-card-SUPERVISOR");
+    expect(screen.queryByTestId("edit-role-ACADEMY_OWNER")).toBeNull();
+    await user.click(screen.getByTestId("edit-role-SUPERVISOR"));
+
+    // No name to type — it is the supervisor — just its sections.
+    expect(screen.queryByTestId("role-name")).toBeNull();
+    await user.click(screen.getByTestId("level-invoices-manage"));
+    await user.click(screen.getByTestId("save-role"));
+    expect(api.tuneSystemRole).toHaveBeenCalledWith(
+      "SUPERVISOR",
+      expect.arrayContaining([
+        ...SUPERVISOR,
+        "invoice.read",
+        "invoice.mark_paid",
+      ]),
+    );
+  });
+
+  it("offers an edited built-in role its way back to the default", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.resetSystemRole).mockResolvedValue({ ok: true });
+    vi.mocked(api.listAcademyRoles).mockResolvedValue({
+      ...ROLES,
+      system: ROLES.system.map((r) =>
+        r.code === "SUPERVISOR" ? { ...r, tuned: true } : r,
+      ),
+    });
+    render(
+      withAuth(
+        makeSession("ACADEMY_OWNER", { permissions: ["role.manage"] }),
+        <RolesPanel />,
+      ),
+    );
+
+    const card = await screen.findByTestId("role-card-SUPERVISOR");
+    expect(within(card).getByTestId("role-edited")).toBeInTheDocument();
+    await user.click(screen.getByTestId("edit-role-SUPERVISOR"));
+    await user.click(screen.getByTestId("reset-role"));
+    expect(api.resetSystemRole).toHaveBeenCalledWith("SUPERVISOR");
   });
 
   it("marks which built-in roles reach money", async () => {

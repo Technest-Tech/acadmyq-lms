@@ -2488,10 +2488,14 @@ export interface AcademyRoleSummary {
   name: string;
   description?: string | null;
   isActive?: boolean;
-  /** True for the built-in, non-editable system roles (OWNER, MANAGER, SUPERVISOR…). */
+  /** True for the built-in system roles (OWNER, MANAGER, SUPERVISOR…). */
   system: boolean;
   permissions: string[];
   assignedCount: number;
+  /** A shared built-in role this academy may edit for itself (supervisor, accountant, …). */
+  editable?: boolean;
+  /** This academy has edited the built-in role away from how it ships. */
+  tuned?: boolean;
 }
 
 /** A starting point for a new custom role — a named set of boxes already ticked. */
@@ -2561,6 +2565,22 @@ export function updateAcademyRole(
 
 export function deleteAcademyRole(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/roles/${id}`, { method: "DELETE" });
+}
+
+/** Edit a shared built-in role for this academy only: `permissions` is its whole set here. */
+export function tuneSystemRole(
+  code: string,
+  permissions: string[],
+): Promise<{ ok: boolean; added: string[]; removed: string[] }> {
+  return apiFetch(`/api/roles/system/${code}`, {
+    method: "PUT",
+    body: JSON.stringify({ permissions }),
+  });
+}
+
+/** Put a built-in role back exactly as the platform ships it. */
+export function resetSystemRole(code: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/roles/system/${code}`, { method: "DELETE" });
 }
 
 // ── Specializations (Settings) ───────────────────────────────────────────────

@@ -264,3 +264,67 @@ it('keeps a hidden-module capability a role already holds through an edit', func
     $code = collect($this->getJson('/api/roles')->json('custom'))->firstWhere('id', $id)['code'];
     expect(PermissionResolver::forRole($code))->toEqual(['guardian.read', 'invoice.read', 'student.read']);
 });
+
+// ── Editing a built-in role for one academy (academy_role_tunings) ───────────
+
+it('edits the supervisor for this academy only, stored as a difference from the platform role', function () {
+    clientWith(['custom_roles', 'payroll'], $this->academy);
+    $other = $this->createAcademy();
+    $supHere = $this->makeUser($this->academy, 'SUPERVISOR', ['email' => 'sup-here@test.local']);
+    $supThere = $this->makeUser($other, 'SUPERVISOR', ['email' => 'sup-there@test.local']);
+
+    Sanctum::actingAs($this->owner);
+    $sup = collect($this->getJson('/api/roles')->assertOk()->json('system'))->firstWhere('code', 'SUPERVISOR');
+    expect($sup['editable'])->toBeTrue()->and($sup['tuned'])->toBeFalse();
+
+    // The builder shows only this academy's modules: the supervisor's invoice capabilities are
+    // invisible here (no invoicing), so the edit cannot mention them — and must not strip them.
+    expect($sup['permissions'])->not->toContain('invoice.mark_paid');
+    $wanted = array_values(array_diff([...$sup['permissions'], 'payout.read'], ['student.deactivate']));
+    $res = $this->putJson('/api/roles/system/SUPERVISOR', ['permissions' => $wanted])->assertOk();
+    expect($res->json('added'))->toBe(['payout.read'])
+        ->and($res->json('removed'))->toBe(['student.deactivate']);
+
+    // This academy's supervisors hold the edited set on their next request…
+    Sanctum::actingAs($supHere);
+    expect($this->getJson('/api/auth/me')->assertOk()->json('permissions'))
+        ->toContain('payout.read')->toContain('invoice.mark_paid')->toContain('student.update')
+        ->not->toContain('student.deactivate');
+
+    // …another academy's keep the role as it ships.
+    Sanctum::actingAs($supThere);
+    expect($this->getJson('/api/auth/me')->assertOk()->json('permissions'))
+        ->not->toContain('payout.read')->toContain('student.deactivate');
+
+    // The page says it was edited, and "back to default" undoes it.
+    Sanctum::actingAs($this->owner);
+    expect(collect($this->getJson('/api/roles')->json('system'))->firstWhere('code', 'SUPERVISOR')['tuned'])->toBeTrue();
+    $this->deleteJson('/api/roles/system/SUPERVISOR')->assertOk();
+    expect(collect($this->getJson('/api/roles')->json('system'))->firstWhere('code', 'SUPERVISOR')['tuned'])->toBeFalse();
+
+    Sanctum::actingAs($supHere);
+    expect($this->getJson('/api/auth/me')->json('permissions'))
+        ->not->toContain('payout.read')->toContain('student.deactivate');
+});
+
+it('keeps the owner and the teacher fixed, and never lets an editor hand out what they lack', function () {
+    clientWith(['custom_roles', 'payroll'], $this->academy);
+    Sanctum::actingAs($this->owner);
+
+    $this->putJson('/api/roles/system/ACADEMY_OWNER', ['permissions' => ['student.read']])->assertNotFound();
+    $this->putJson('/api/roles/system/TEACHER', ['permissions' => ['student.read']])->assertNotFound();
+    expect(collect($this->getJson('/api/roles')->json('system'))->firstWhere('code', 'TEACHER')['editable'])->toBeFalse();
+
+    // Someone trusted with roles but not with payroll cannot give supervisors the payroll.
+    $code = $this->postJson('/api/roles', [
+        'name' => 'Roles desk', 'permissions' => ['role.manage', 'student.read', 'session.read'],
+    ])->assertCreated()->json('code');
+    Sanctum::actingAs($this->makeUser($this->academy, $code, ['email' => 'roles-desk@test.local']));
+
+    $this->putJson('/api/roles/system/SUPERVISOR', ['permissions' => ['student.read', 'session.read', 'payout.read']])
+        ->assertStatus(422)->assertJsonValidationErrors('permissions');
+
+    // What they cannot see is carried over, never stripped by their narrower view.
+    $this->putJson('/api/roles/system/SUPERVISOR', ['permissions' => ['student.read', 'session.read']])
+        ->assertOk()->assertJson(['added' => [], 'removed' => []]);
+});

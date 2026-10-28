@@ -7226,7 +7226,7 @@
     "presets": {
       "supervisor": {
         "name": "Supervisor",
-        "description": "Runs the academy day to day and enrols people with their prices. No invoices, payroll or statistics.",
+        "description": "Runs the academy day to day, sells packages and collects bills. No payroll, treasury or statistics.",
         "hint": "Starts a role holding everything a supervisor gets — untick anything they should not manage."
       },
       "manager": {
@@ -7279,8 +7279,13 @@
     },
     "systemRoleHint": {
       "STAFF": "Sees students and the schedule, changes nothing",
-      "SUPERVISOR": "Runs the day: adds students, families and teachers in full (prices and pay included), lessons and attendance — no invoices, payroll or statistics",
+      "SUPERVISOR": "Runs the day: adds students, families and teachers in full, packages, bills and marking them paid, lessons and attendance — no payroll, treasury or statistics",
       "ACADEMY_OWNER": "The academy's owner — everything",
+    "editSystemTitle": "Edit {role} for your academy",
+    "editSystemHint": "Applies to everyone with this role in your academy only. Other academies keep it as it ships.",
+    "editedTag": "edited",
+    "resetSystem": "Back to default",
+    "resetDone": "Back to the default role.",
       "MANAGER": "The whole academy like the owner: operations, money and statistics",
       "ACCOUNTANT": "Invoices, packages, payroll and prices; sees students and lessons read-only",
       "CUSTOMER_SERVICE": "Enrols students and families, books timetables, runs trials and leads — no money",
@@ -7293,7 +7298,7 @@
     "selectAll": "Select all",
     "clearAll": "Clear",
     "customRolesSub": "Built by you — edit or delete them",
-    "systemRolesSub": "The same in every academy — fixed, but you can copy one",
+    "systemRolesSub": "Ready to hand out — edit one to change it for your academy only, or copy it into a new role",
     "assignedTotal": "People assigned",
     "assignedTotalSub": "Across every role",
     "hero": {

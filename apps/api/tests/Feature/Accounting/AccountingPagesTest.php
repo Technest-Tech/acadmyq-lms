@@ -149,8 +149,8 @@ it('shows every group’s collection and profit, and a per-teacher roll-up for p
     ]);
     expect($res->json('teachers.0'))->toMatchArray(['teacher_name' => 'Miss Mona', 'groups' => 1, 'collected_minor' => 65000]);
 
-    // A supervisor never reaches money.
-    Sanctum::actingAs($this->supervisor);
+    // A role without money never reaches it.
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-pages@test.local']));
     $this->getJson('/api/accounting/groups')->assertForbidden();
     $this->getJson('/api/accounting/overview')->assertForbidden();
 });
@@ -215,8 +215,8 @@ it('sets a renewal policy on the family or on one child, audited, the stricter o
     $this->patchJson("/api/accounting/students/{$this->celine}/renewal-policy", ['policy' => 'PAY_FIRST'])->assertOk()
         ->assertJson(['policy' => 'PAY_FIRST', 'family_policy' => 'FREE', 'effective' => 'PAY_FIRST']);
 
-    // A supervisor (no money) may not change it.
-    Sanctum::actingAs($this->supervisor);
+    // A role without money may not change it.
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-policy@test.local']));
     $this->patchJson("/api/accounting/family/{$this->parent}/renewal-policy", ['policy' => 'FREE'])->assertForbidden();
 
     DB::statement("select set_config('app.current_academy_id', ?, true)", [$this->academy]);

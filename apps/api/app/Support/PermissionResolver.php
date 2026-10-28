@@ -36,6 +36,54 @@ final class PermissionResolver
     }
 
     /**
+     * The capability codes a role holds INSIDE one academy: {@see forRole()} with the academy's own
+     * edits to a shared built-in role applied (academy_role_tunings) — what it added, minus what it
+     * took away. Stored as a difference, so a capability the platform adds to the role later still
+     * arrives unless the academy removed that very one. Additions are clamped to the academy-scoped
+     * catalog here too, so a bad row can never mint a platform capability. Reads through the
+     * BYPASSRLS function: the request middleware calls this before the tenant context exists.
+     *
+     * @return list<string>
+     */
+    public static function forRoleIn(string $role, ?string $academyId): array
+    {
+        $base = self::forRole($role);
+        if ($academyId === null || ! in_array($role, PermissionCatalog::TUNABLE_ROLES, true)) {
+            return $base;
+        }
+
+        $tuning = self::tuning($role, $academyId);
+        if ($tuning === null) {
+            return $base;
+        }
+
+        $added = array_intersect($tuning['added'], PermissionCatalog::roleMap()['ACADEMY_OWNER']);
+        $codes = array_values(array_diff(array_unique([...$base, ...$added]), $tuning['removed']));
+        sort($codes);
+
+        return $codes;
+    }
+
+    /**
+     * An academy's edit to a built-in role, or null when it left the role as shipped.
+     *
+     * @return array{added: list<string>, removed: list<string>}|null
+     */
+    public static function tuning(string $role, string $academyId): ?array
+    {
+        $json = DB::selectOne('select app.auth_role_tuning(?::uuid, ?) as t', [$academyId, $role])?->t;
+        if ($json === null) {
+            return null;
+        }
+        $row = (array) json_decode((string) $json, true);
+
+        return [
+            'added' => array_values(array_map('strval', (array) ($row['added'] ?? []))),
+            'removed' => array_values(array_map('strval', (array) ($row['removed'] ?? []))),
+        ];
+    }
+
+    /**
      * Is this role code assignable and usable right now? System roles always are; a per-academy
      * custom role only while the academy keeps it active. Checked at login and on every request,
      * so a role switched off on the Roles page locks its holders out with a clear message instead

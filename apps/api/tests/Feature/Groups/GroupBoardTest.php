@@ -118,8 +118,8 @@ it('lists every member with their attendance, an absence streak, and this monthâ
     expect($flagged->pluck('full_name')->all())->toBe(['Bassel']);
     expect(collect($this->getJson('/api/group-members?flag=unpaid')->json('members'))->pluck('full_name')->sort()->values()->all())->toBe(['Adam', 'Bassel']);
 
-    // A supervisor sees the people, never the money.
-    Sanctum::actingAs($this->supervisor);
+    // The front desk sees the people, never the money.
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-members@test.local']));
     $res = $this->getJson('/api/group-members')->assertOk();
     expect($res->json('sees_money'))->toBeFalse();
     expect(collect($res->json('members'))->pluck('charge')->filter()->all())->toBe([]);
@@ -134,7 +134,7 @@ it('reads the monthâ€™s money group by group, with every unpaid charge', functio
     expect($res->json('totals.0'))->toMatchArray(['billed_minor' => 90000, 'paid_minor' => 0, 'teacher_cost_minor' => 6000]);
     expect(collect($res->json('unpaid'))->pluck('student_name')->sort()->values()->all())->toBe(['Adam', 'Bassel']);
 
-    Sanctum::actingAs($this->supervisor);
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-payments@test.local']));
     $this->getJson('/api/group-payments')->assertForbidden();
 });
 

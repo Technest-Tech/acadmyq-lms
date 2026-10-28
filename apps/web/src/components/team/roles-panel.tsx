@@ -7,6 +7,7 @@ import {
   Lock,
   Pencil,
   Plus,
+  RotateCcw,
   ShieldCheck,
   ShieldHalf,
   Trash2,
@@ -32,12 +33,16 @@ import {
   createAcademyRole,
   deleteAcademyRole,
   listAcademyRoles,
+  resetSystemRole,
+  tuneSystemRole,
   updateAcademyRole,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Draft = {
   id?: string;
+  /** Editing a shared built-in role for this academy (no name, no on/off — just its set). */
+  systemCode?: string;
   name: string;
   description: string;
   permissions: Set<string>;
@@ -153,6 +158,15 @@ export function RolesPanel() {
   function openEdit(role: AcademyRoleSummary) {
     setNotice(null);
     setViewing(null);
+    if (role.system) {
+      setDraft({
+        ...emptyDraft(),
+        systemCode: role.code,
+        name: roleLabel(role),
+        permissions: new Set(role.permissions),
+      });
+      return;
+    }
     setDraft({
       id: role.id,
       name: role.name,
@@ -168,7 +182,9 @@ export function RolesPanel() {
     setBusy(true);
     try {
       const perms = Array.from(draft.permissions);
-      if (draft.id) {
+      if (draft.systemCode) {
+        await tuneSystemRole(draft.systemCode, perms);
+      } else if (draft.id) {
         await updateAcademyRole(draft.id, {
           name: draft.name,
           description: draft.description || null,
@@ -184,6 +200,22 @@ export function RolesPanel() {
       }
       setDraft(null);
       setNotice(t("saved"));
+      load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetDefault(code: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      await resetSystemRole(code);
+      setDraft(null);
+      setViewing(null);
+      setNotice(t("resetDone"));
       load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -254,6 +286,7 @@ export function RolesPanel() {
                 }
                 areas={areas}
                 onView={() => setViewing(role)}
+                onEdit={role.editable ? () => openEdit(role) : undefined}
               />
             ))}
           </div>
@@ -333,7 +366,7 @@ export function RolesPanel() {
                   {t("copyAsCustom")}
                 </Button>
               )}
-            {viewing && !viewing.system && (
+            {viewing && (!viewing.system || viewing.editable) && (
               <Button
                 type="button"
                 size="sm"
@@ -385,7 +418,13 @@ export function RolesPanel() {
       <Modal
         open={draft !== null}
         onClose={() => !busy && setDraft(null)}
-        title={draft?.id ? t("editTitle") : t("createTitle")}
+        title={
+          draft?.systemCode
+            ? t("editSystemTitle", { role: draft.name })
+            : draft?.id
+              ? t("editTitle")
+              : t("createTitle")
+        }
         size="xl"
         footer={
           <>
@@ -395,6 +434,21 @@ export function RolesPanel() {
             >
               {t("capabilities", { count: draft?.permissions.size ?? 0 })}
             </span>
+            {draft?.systemCode &&
+              data?.system.find((r) => r.code === draft.systemCode)?.tuned && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={busy}
+                  onClick={() => void resetDefault(draft.systemCode as string)}
+                  data-testid="reset-role"
+                >
+                  <RotateCcw className="size-4" aria-hidden />
+                  {t("resetSystem")}
+                </Button>
+              )}
             <Button
               type="button"
               variant="ghost"
@@ -418,36 +472,42 @@ export function RolesPanel() {
       >
         {draft !== null && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium">
-                  {t("nameLabel")}
-                  <span className="text-destructive ms-0.5">*</span>
-                </span>
-                <input
-                  className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-3"
-                  value={draft.name}
-                  maxLength={120}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                  data-testid="role-name"
-                />
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium">
-                  {t("descriptionLabel")}
-                </span>
-                <input
-                  className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-3"
-                  value={draft.description}
-                  maxLength={500}
-                  onChange={(e) =>
-                    setDraft({ ...draft, description: e.target.value })
-                  }
-                />
-              </label>
-            </div>
+            {draft.systemCode ? (
+              <AlertBanner variant="info" message={t("editSystemHint")} />
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium">
+                    {t("nameLabel")}
+                    <span className="text-destructive ms-0.5">*</span>
+                  </span>
+                  <input
+                    className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-3"
+                    value={draft.name}
+                    maxLength={120}
+                    onChange={(e) =>
+                      setDraft({ ...draft, name: e.target.value })
+                    }
+                    data-testid="role-name"
+                  />
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium">
+                    {t("descriptionLabel")}
+                  </span>
+                  <input
+                    className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-3"
+                    value={draft.description}
+                    maxLength={500}
+                    onChange={(e) =>
+                      setDraft({ ...draft, description: e.target.value })
+                    }
+                  />
+                </label>
+              </div>
+            )}
 
-            {draft.id ? (
+            {draft.systemCode ? null : draft.id ? (
               <label className="flex items-center gap-2.5 text-sm">
                 <input
                   type="checkbox"
@@ -633,6 +693,14 @@ function RoleCard({
                   {t("seesStats")}
                 </span>
               )}
+              {role.tuned && (
+                <span
+                  className="bg-primary/10 text-primary inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                  data-testid="role-edited"
+                >
+                  <Pencil className="size-2.5" aria-hidden /> {t("editedTag")}
+                </span>
+              )}
               {role.isActive === false && (
                 <span className="text-muted-foreground text-[10px]">
                   {t("inactive")}
@@ -641,30 +709,35 @@ function RoleCard({
             </div>
           </div>
         </div>
-        {!role.system && (
+        {(onEdit || onDelete) && (
           <div className="flex shrink-0 gap-0.5">
-            <button
-              type="button"
-              aria-label={t("edit")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit?.();
-              }}
-              className="text-muted-foreground hover:text-foreground rounded-lg p-1.5"
-            >
-              <Pencil className="size-4" />
-            </button>
-            <button
-              type="button"
-              aria-label={t("delete")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete?.();
-              }}
-              className="text-muted-foreground hover:text-destructive rounded-lg p-1.5"
-            >
-              <Trash2 className="size-4" />
-            </button>
+            {onEdit && (
+              <button
+                type="button"
+                aria-label={t("edit")}
+                data-testid={`edit-role-${role.code}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                className="text-muted-foreground hover:text-foreground rounded-lg p-1.5"
+              >
+                <Pencil className="size-4" />
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                aria-label={t("delete")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete?.();
+                }}
+                className="text-muted-foreground hover:text-destructive rounded-lg p-1.5"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            )}
           </div>
         )}
       </div>

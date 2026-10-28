@@ -749,6 +749,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::patch('/roles/{id}', [AcademyRoleController::class, 'update']);
         Route::delete('/roles/{id}', [AcademyRoleController::class, 'destroy']);
     });
+        // Edit a shared built-in role (supervisor, accountant, …) for this academy only.
+        Route::put('/roles/system/{code}', [AcademyRoleController::class, 'tune']);
+        Route::delete('/roles/system/{code}', [AcademyRoleController::class, 'resetTuning']);
 
     // Staff — non-teaching academy staff (support, accounting, reception, HR, IT, etc.).
     // Capability-gated (staff.read / staff.create / staff.update / staff.deactivate),

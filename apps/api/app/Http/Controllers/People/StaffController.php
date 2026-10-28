@@ -453,7 +453,7 @@ final class StaffController extends Controller
         // hold everything it grants. Without this, anyone delegated staff.create + user.invite +
         // role.assign (an HR role) could mint a login carrying an owner-built role bigger than their
         // own and simply sign in as it.
-        $beyond = array_values(array_diff(PermissionResolver::forRole($role), $this->ctx()->permissions));
+        $beyond = array_values(array_diff(PermissionResolver::forRoleIn($role, $this->ctx()->academyId), $this->ctx()->permissions));
         if ($beyond !== []) {
             throw ValidationException::withMessages([
                 'role' => ['You cannot assign a role with capabilities you do not hold: '.implode(', ', $beyond)],

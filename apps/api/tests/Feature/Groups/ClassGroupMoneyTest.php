@@ -625,7 +625,7 @@ it('reads the month in money: charged, outstanding, teacher cost', function () {
     expect($res->json('totals.0'))->toMatchArray(['currency' => 'EGP', 'billed_minor' => 90000, 'paid_minor' => 0, 'outstanding_minor' => 90000]);
     expect($res->json('teacher_cost.0'))->toMatchArray(['currency' => 'EGP', 'amount_minor' => 6000, 'lessons' => 1]);
 
-    Sanctum::actingAs($this->supervisor);
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-group-money@test.local']));
     $this->getJson("/api/groups/{$groupId}/money")->assertForbidden();
 });
 

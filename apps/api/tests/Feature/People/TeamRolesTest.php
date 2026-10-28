@@ -64,7 +64,10 @@ it('draws the shared roles where the owner expects them', function () {
     // Supervisor: the day-to-day, enrolling people with their prices — never the money desk,
     // statistics or the academy's switches.
     expect(array_values(array_intersect($map['SUPERVISOR'], PermissionCatalog::FINANCIAL)))
-        ->toEqualCanonicalizing(['student.set_price', 'package.read', 'package.manage', 'teacher.set_pay'])
+        ->toEqualCanonicalizing([
+            'student.set_price', 'package.read', 'package.manage', 'teacher.set_pay',
+            'invoice.read', 'invoice.create', 'invoice.mark_paid', 'invoice.send_link',
+        ])
         ->and(array_intersect($map['SUPERVISOR'], PermissionCatalog::STATISTICS))->toBe([])
         ->and($map['SUPERVISOR'])->not->toContain('settings.manage')->toContain('session.follow');
 

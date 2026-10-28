@@ -364,7 +364,12 @@ it('keeps voiding and the register away from roles without money', function () {
     acctGroup($this);
     $receipt = acctCollect($this, ['guardian_id' => $this->parent, 'amount_minor' => 1000]);
 
+    // The supervisor collects (sees the register) but cannot take money back off the books.
     Sanctum::actingAs($this->supervisor);
+    $this->getJson('/api/receipts')->assertOk();
+    $this->postJson("/api/receipts/{$receipt['id']}/void", ['reason' => 'nope'])->assertForbidden();
+
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-receipts@test.local']));
     $this->getJson('/api/receipts')->assertForbidden();
     $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 1000, 'method' => 'CASH'])->assertForbidden();
     $this->postJson("/api/receipts/{$receipt['id']}/void", ['reason' => 'nope'])->assertForbidden();
@@ -507,7 +512,7 @@ it('builds the group’s collection sheet: exact per member, partial payments an
     $board = $this->getJson('/api/group-payments?month=2026-06')->assertOk();
     expect($board->json('totals.0.paid_minor'))->toBe(65000)->and($board->json('accounting'))->toBeTrue();
 
-    Sanctum::actingAs($this->supervisor);
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-accounts@test.local']));
     $this->getJson("/api/groups/{$groupId}/accounts")->assertForbidden();
 });
 

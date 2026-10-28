@@ -70,7 +70,10 @@ it('grants the supervisor the academy floor and, of the money, only the price of
     // list later cannot quietly slip into the role.
     $money = array_values(array_intersect($caps, PermissionCatalog::FINANCIAL));
     sort($money);
-    expect($money)->toBe(['package.manage', 'package.read', 'student.set_price', 'teacher.set_pay']);
+    expect($money)->toBe([
+        'invoice.create', 'invoice.mark_paid', 'invoice.read', 'invoice.send_link',
+        'package.manage', 'package.read', 'student.set_price', 'teacher.set_pay',
+    ]);
     expect(PermissionCatalog::roleMap()['SUPERVISOR'])->toEqualCanonicalizing($caps);
 
     // Nor hands out access: staff are visible, not editable, and roles are the owner's.
@@ -161,10 +164,10 @@ it('keeps the first teacher login from the front desk, which adds no teachers', 
     ])->assertForbidden();
 });
 
-it('keeps the invoices, the payroll and the profit out of reach', function () {
+it('lets a supervisor collect the bills but keeps the payroll and the profit out of reach', function () {
     Sanctum::actingAs($this->supervisor);
 
-    $this->getJson('/api/invoices')->assertForbidden();
+    $this->getJson('/api/invoices')->assertOk();
     $this->getJson('/api/payouts')->assertForbidden();
     $this->getJson('/api/reports/profit-summary')->assertForbidden();
 });
@@ -268,7 +271,7 @@ it('offers the supervisor as a starting point and marks what costs money', funct
     // The preset an academy narrows down to build "supervisor, attendance only".
     $preset = collect($res->json('presets'))->firstWhere('key', 'supervisor');
     expect($preset['permissions'])->toContain('session.mark_attendance')->toContain('student.set_price')
-        ->not->toContain('invoice.read')->not->toContain('payout.read')
+        ->toContain('invoice.mark_paid')->not->toContain('invoice.close')->not->toContain('payout.read')
         ->not->toContain('supervision.stats')->not->toContain('settings.manage');
 
     // The builder can show the owner which boxes hand over money.

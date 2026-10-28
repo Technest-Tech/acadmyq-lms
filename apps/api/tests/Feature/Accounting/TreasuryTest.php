@@ -153,7 +153,11 @@ it('records an expense from an account, voids it, and never lets a supervisor ne
     $this->postJson("/api/expenses/{$e->json('id')}/void", ['reason' => 'Paid twice'])->assertOk();
     expect(trsAccount($this, $drawer)['balance_minor'])->toBe(50000);
 
+    // A supervisor collects money in, but never records money out.
     Sanctum::actingAs($this->supervisor);
+    $this->postJson('/api/expenses', ['category_id' => $rent, 'cash_account_id' => $drawer, 'amount_minor' => 100])->assertForbidden();
+
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-treasury@test.local']));
     $this->getJson('/api/treasury')->assertForbidden();
     $this->postJson('/api/expenses', ['category_id' => $rent, 'cash_account_id' => $drawer, 'amount_minor' => 100])->assertForbidden();
 });
@@ -237,7 +241,7 @@ it('builds the family card: children, what they are in, what is owed and the tim
     $note = collect($res->json('timeline'))->firstWhere('kind', 'NOTE');
     $this->deleteJson("/api/accounting/family/{$this->parent}/notes/{$note['id']}")->assertOk();
 
-    Sanctum::actingAs($this->supervisor);
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-family@test.local']));
     $this->getJson("/api/accounting/family/{$this->parent}")->assertForbidden();
 });
 
@@ -392,8 +396,12 @@ it('keeps discount presets an admin defines once, and a discount made from one c
     expect($this->getJson('/api/accounting/discount-presets')->assertOk()->json('can_manage'))->toBeTrue();
     $this->postJson('/api/accounting/discount-presets', ['name' => 'Early payment', 'kind' => 'PERCENT', 'value' => 5])->assertCreated();
 
-    // A supervisor (no money) sees none of it.
+    // A supervisor collects and may use a preset, but does not define them.
     Sanctum::actingAs($this->supervisor);
+    $this->postJson('/api/accounting/discount-presets', ['name' => 'x', 'kind' => 'FIXED', 'value' => 100])->assertForbidden();
+
+    // A role without money sees none of it.
+    Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-presets@test.local']));
     $this->getJson('/api/accounting/discount-presets')->assertForbidden();
     $this->postJson('/api/accounting/discount-presets', ['name' => 'x', 'kind' => 'FIXED', 'value' => 100])->assertForbidden();
 });

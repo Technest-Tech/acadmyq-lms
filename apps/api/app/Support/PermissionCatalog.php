@@ -309,20 +309,23 @@ final class PermissionCatalog
     ];
 
     /**
-     * The money fields of the people a SUPERVISOR enrols, handed back on top of the subtraction.
+     * The money a SUPERVISOR handles, handed back on top of the subtraction.
      *
      * The supervisor adds students, families and teachers, and a record without its price is not
      * complete: the student form's whole billing block (monthly price, package, subscriptions)
      * sits behind student.set_price + package.manage, and a teacher's rates behind teacher.set_pay.
      * Academies kept asking for supervisors who set students up end to end (Lingo built a custom
-     * role for exactly this, 2026-10-25), so the built-in role now does. Invoices, receipts,
-     * payroll and the treasury stay withheld — the supervisor names the price, the money desk
-     * collects it.
+     * role for exactly this, 2026-10-25), so the built-in role now does — and since 2026-10-28 it
+     * also collects: sees the bills, raises one, sends the pay link and marks it paid (a receipt
+     * rides invoice.mark_paid). Closing a month, voiding a receipt, the treasury, payroll and the
+     * gateway keys stay with the money desk. An academy that wants less (or more) edits its own
+     * supervisors from the Roles page ({@see PermissionResolver::forRoleIn()}).
      */
     private const SUPERVISOR_MONEY_INCLUDES = [
         'student.set_price',
         'package.read', 'package.manage',
         'teacher.set_pay',
+        'invoice.read', 'invoice.create', 'invoice.mark_paid', 'invoice.send_link',
     ];
 
     /**
@@ -332,6 +335,13 @@ final class PermissionCatalog
      * Teachers page with a teacher record behind the login.
      */
     public const STAFF_ROLES = ['STAFF', 'CUSTOMER_SERVICE', 'SUPERVISOR', 'ACCOUNTANT', 'MANAGER'];
+
+    /**
+     * The built-in roles an academy may edit for itself (academy_role_tunings): the shared staff
+     * roles. Never the owner (the client itself) or the teacher (row-scoped in code, and the
+     * academy's Controls already switch its lesson powers).
+     */
+    public const TUNABLE_ROLES = self::STAFF_ROLES;
 
     /**
      * Default role → capability mapping (§5.4).
