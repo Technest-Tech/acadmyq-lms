@@ -10,6 +10,7 @@ use App\Services\ClassGroups;
 use App\Services\Invoicing;
 use App\Services\LessonPackages;
 use App\Services\SessionGenerator;
+use App\Services\StudentMonth;
 use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\DoneBy;
@@ -511,6 +512,24 @@ final class StudentController extends Controller
             'repriced' => $this->maybeRepriceOpenInvoices($request, $id, $academyId, $subId),
             'repriced_packages' => $this->maybeRepricePackages($request, $id, $data['price_basis'] ?? null, (int) ($data['price_minor'] ?? 0)),
         ], 200);
+    }
+
+    /**
+     * GET /api/students/{id}/subscription/month — the running month on the Subscription tab:
+     * lessons taught against the quota, what is still to come, this month's bill and what the
+     * family owes. The money half is blanked (null / []) for a role that may not see prices.
+     */
+    public function month(string $id): JsonResponse
+    {
+        Gate::authorize('student.read');
+        if (DB::table('students')->where('id', $id)->doesntExist()) {
+            abort(404, 'Student not found.');
+        }
+        $this->assertTeacherMayRead($id);
+
+        $withMoney = $this->seesPricing() && Gate::allows('invoice.read');
+
+        return response()->json(app(StudentMonth::class)->summary($id, $this->currentAcademyId(), $withMoney));
     }
 
     /**

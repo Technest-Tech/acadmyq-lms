@@ -29,6 +29,7 @@ import { useAuth } from "@/components/auth-provider";
 import { GuardianForm } from "@/components/guardians/guardian-form";
 import { TeacherTimetables } from "@/components/scheduling/schedule-editor";
 import { MonthlyTermsFields, useMonthlyTerms } from "@/components/students/monthly-terms";
+import { StudentMonthCard } from "@/components/students/student-month-card";
 import { SubscriptionsCard } from "@/components/students/subscriptions-card";
 import { DetailRow, ProfileCard } from "@/components/ui/profile-card";
 import { AlertBanner } from "@/components/ui/alert";
@@ -69,6 +70,7 @@ import {
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
+import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 // The manually-settable active states. Terminal states (GRADUATED/WITHDRAWN) are not editable
@@ -1124,6 +1126,7 @@ export function SubscriptionSection({
     sub?.price_basis === "PER_HOUR" || sub?.price_basis === "PER_PACKAGE";
   const isPackaged = sub?.price_basis === "PER_PACKAGE";
   const isFree = sub?.price_basis === "FREE";
+  const centre = useCapability("centre");
 
   const [showSet, setShowSet] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1266,13 +1269,17 @@ export function SubscriptionSection({
       {/* The live hour balance, for a student on package billing. It sits above the terms card
           because when a parent rings up, "how many hours are left" is the question — the agreed
           rate is what you check second. */}
-      {isPackaged && <StudentPackagePanel studentId={studentId} />}
+      {/* A centre lists its private subscriptions on its own card above, with the same details. */}
+      {isPackaged && !centre && <StudentPackagePanel studentId={studentId} onChanged={() => onChanged("")} />}
 
       {sub ? (
+        <>
         <ProfileCard
           icon={BookOpen}
-          title={sub.plan_label}
-          description={t(`basis.${sub.price_basis}`)}
+          // A package student's terms live on the package card above; what is left here is the
+          // hourly rate that seeds their next block, so it is named for what it is.
+          title={isPackaged ? t("subscription.rateTitle") : sub.plan_label}
+          description={isPackaged ? t("subscription.rateHint") : t(`basis.${sub.price_basis}`)}
           tone="violet"
           testId="subscription-card"
           bodyClassName="p-0"
@@ -1292,14 +1299,14 @@ export function SubscriptionSection({
                   className="gap-1.5"
                 >
                   <BookOpen className="size-3.5" />
-                  {t("subscription.edit")}
+                  {isPackaged ? t("subscription.editRate") : t("subscription.edit")}
                 </Button>
               )}
             </div>
           }
         >
           {/* The three numbers that decide the invoice, given equal weight and one baseline. */}
-          <div className="grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0 rtl:sm:divide-x-reverse">
+          <div className={cn("grid grid-cols-1 divide-y sm:divide-x sm:divide-y-0 rtl:sm:divide-x-reverse", isPackaged ? "sm:grid-cols-2" : "sm:grid-cols-3")}>
             <Figure
               label={
                 isHourly
@@ -1326,7 +1333,8 @@ export function SubscriptionSection({
               )}
             </Figure>
             {/* With a lesson length on file the count is lessons ("8 × 40 min"); before lengths were
-                recorded an hourly plan's count was hours. */}
+                recorded an hourly plan's count was hours. A package has no monthly count. */}
+            {!isPackaged && (
             <Figure
               label={
                 isHourly && sub.lesson_minutes == null
@@ -1342,11 +1350,20 @@ export function SubscriptionSection({
                 sub.sessions_per_month
               )}
             </Figure>
+            )}
             <Figure label={t("subscription.startDate")}>
               {sub.start_date}
             </Figure>
           </div>
         </ProfileCard>
+        {/* Where the agreed terms stand this month: taught vs the quota, the bill, the family's debt.
+            The quota is lessons only when it counts lessons — an old hourly plan's count was hours. */}
+        <StudentMonthCard
+          studentId={studentId}
+          quota={isPackaged || (isHourly && sub.lesson_minutes == null) ? null : sub.sessions_per_month}
+          refreshKey={sub}
+        />
+        </>
       ) : (
         <ProfileCard
           icon={BookOpen}

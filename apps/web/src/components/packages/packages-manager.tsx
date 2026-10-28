@@ -13,31 +13,19 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useCapability } from "@/lib/capabilities";
-import { ClosePackageModal } from "@/components/packages/close-package-modal";
-import { EditPackageForm } from "@/components/packages/edit-package-form";
 import { FamilyDueGroup, groupDueByFamily } from "@/components/packages/family-due-group";
-import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
-import { OpenPackageForm } from "@/components/packages/open-package-form";
 import {
   isPackagePaid,
   PackageCard,
-  type PackageActionProps,
 } from "@/components/packages/package-card";
-import { PackageDetail } from "@/components/packages/package-detail";
+import { usePackageActions } from "@/components/packages/use-package-actions";
 import { isPackageBillPaid, PaidPackageCard, paidAmount } from "@/components/packages/paid-package-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import {
-  ApiError,
-  billPackageOverdraft,
-  closeLessonPackage,
   getLessonPackageSummary,
   listLessonPackages,
-  remindLessonPackage,
-  sendInvoicePaymentLink,
-  syncLessonPackage,
   type LessonPackageRow,
   type LessonPackageSummary,
 } from "@/lib/api";
@@ -85,7 +73,6 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   const centre = useCapability("centre");
   const canManage = can("package.manage");
   const canSendInvoice = can("invoice.send_link");
-  const canMarkPaid = can("invoice.mark_paid");
   const timezone = useMemo(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
     [],
@@ -99,19 +86,6 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [query, setQuery] = useState("");
-  const [modal, setModal] = useState<
-    | { kind: "closed" }
-    | { kind: "open"; studentId?: string }
-    | { kind: "detail"; row: LessonPackageRow }
-    | { kind: "edit"; row: LessonPackageRow }
-    | { kind: "close"; row: LessonPackageRow }
-    | { kind: "toMonthly"; row: LessonPackageRow }
-    | { kind: "markPaid"; row: LessonPackageRow }
-  >({ kind: "closed" });
-  const [busy, setBusy] = useState(false);
-  const [syncingId, setSyncingId] = useState<string | null>(null);
-  const [sendingId, setSendingId] = useState<string | null>(null);
-  const [remindingId, setRemindingId] = useState<string | null>(null);
   const [alert, setAlert] = useState<{
     variant: "success" | "error";
     message: string;
@@ -127,22 +101,6 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   }, []);
 
   useEffect(refresh, [refresh]);
-
-  /**
-   * `/packages?open=<studentId>` opens the form with that student already chosen.
-   *
-   * It is how the student's profile links here. The profile shows the balance and links to the
-   * action; the action itself only ever exists on this screen, so there is still exactly one form
-   * and one place a package is entered — the link just saves the owner from finding the student
-   * again in a picker they arrived from.
-   */
-  // Optional-chained because useSearchParams() genuinely returns null when the component renders
-  // outside a Next router — which is every unit test of this screen. No link, no deep link.
-  const params = useSearchParams();
-  const deepLinkStudent = params?.get("open") ?? null;
-  useEffect(() => {
-    if (deepLinkStudent) setModal({ kind: "open", studentId: deepLinkStudent });
-  }, [deepLinkStudent]);
 
   /**
    * Students with a closed package behind them — the only ones for whom "carry over unused hours"
@@ -163,6 +121,35 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
     setAlert({ variant, message });
     if (variant === "success") setTimeout(() => setAlert(null), 4500);
   }
+
+  const { actionProps, openNew, openDetail, modals } = usePackageActions({
+    onChanged: refresh,
+    onAlert: showAlert,
+    studentsWithHistory,
+    onReminded: (rowId, result) =>
+      setRows((prev) =>
+        (prev ?? []).map((r) =>
+          r.id === rowId
+            ? { ...r, reminders_sent: result.reminders_sent, last_reminded_at: result.last_reminded_at }
+            : r,
+        ),
+      ),
+  });
+
+  /**
+   * `/packages?open=<studentId>` opens the form with that student already chosen.
+   *
+   * Kept for links from elsewhere (notifications, older bookmarks). The profile now opens the same
+   * form in place, through {@link usePackageActions}, so there is still exactly one form.
+   */
+  // Optional-chained because useSearchParams() genuinely returns null when the component renders
+  // outside a Next router — which is every unit test of this screen. No link, no deep link.
+  const params = useSearchParams();
+  const deepLinkStudent = params?.get("open") ?? null;
+  useEffect(() => {
+    if (deepLinkStudent) openNew(deepLinkStudent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkStudent]);
 
   /** Due's Paid tab: packages whose bill is settled, so the admin can see what came in and how. */
   const duePaid = view === "due" && tab === "paid";
@@ -245,148 +232,6 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
     return [...by.entries()].map(([currency, amount_minor]) => ({ currency, amount_minor }));
   }, [duePaid, visible]);
 
-  /**
-   * A student whose block ran out, moved back to the monthly clock. The same close endpoint as
-   * closing early with "return to monthly" ticked — on a package that already closed itself it
-   * changes nothing about the package and only flips the billing mode.
-   */
-  async function confirmReturnToMonthly(row: LessonPackageRow) {
-    setBusy(true);
-    try {
-      await closeLessonPackage(row.id, undefined, true);
-      setModal({ kind: "closed" });
-      refresh();
-      showAlert(
-        "success",
-        t("alerts.returnedToMonthly", { name: row.student_name }),
-      );
-    } catch {
-      showAlert("error", t("alerts.returnFailed"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function billOverdraft(row: LessonPackageRow) {
-    try {
-      await billPackageOverdraft(row.id);
-      refresh();
-      showAlert("success", t("alerts.overdraftBilled"));
-    } catch {
-      showAlert("error", t("alerts.overdraftFailed"));
-    }
-  }
-
-  async function syncLessons(row: LessonPackageRow) {
-    setSyncingId(row.id);
-    try {
-      const result = await syncLessonPackage(row.id);
-      refresh();
-      showAlert(
-        "success",
-        result.skipped_locked > 0
-          ? t("alerts.syncedWithLocked", {
-              imported: result.imported,
-              locked: result.skipped_locked,
-            })
-          : t("alerts.synced", { count: result.imported }),
-      );
-    } catch {
-      showAlert("error", t("alerts.syncFailed"));
-    } finally {
-      setSyncingId(null);
-    }
-  }
-
-  async function sendPayment(row: LessonPackageRow) {
-    if (row.invoice_id === null) return;
-    setSendingId(row.id);
-    try {
-      const result = await sendInvoicePaymentLink(row.invoice_id);
-      if (!result.sent && result.phone) {
-        const digits = result.phone.replace(/\D+/g, "");
-        window.open(
-          `https://wa.me/${digits}?text=${encodeURIComponent(result.message)}`,
-          "_blank",
-          "noopener,noreferrer",
-        );
-      }
-      showAlert(
-        "success",
-        result.sent ? t("alerts.paymentSent") : t("alerts.paymentReady"),
-      );
-    } catch {
-      showAlert("error", t("alerts.paymentFailed"));
-    } finally {
-      setSendingId(null);
-    }
-  }
-
-  /**
-   * Remind the payer — pay what is due, or renew a block that ran out (the server picks which).
-   * It opens WhatsApp the ordinary way, with the message written, and the staff member sends it —
-   * never through the gateway. Counted on the package either way, so the next person on the case
-   * can see the family has already been chased, how often, and when.
-   */
-  async function remind(row: LessonPackageRow) {
-    setRemindingId(row.id);
-    // Opened on the click itself: a tab opened after the request returns is a popup the browser
-    // is entitled to block. It is pointed at WhatsApp once the message is ready.
-    const tab = window.open("", "_blank");
-    try {
-      const result = await remindLessonPackage(row.id, locale);
-      if (tab !== null) {
-        tab.opener = null;
-        tab.location.href = result.deeplink;
-      } else {
-        window.open(result.deeplink, "_blank", "noopener,noreferrer");
-      }
-      setRows((prev) =>
-        (prev ?? []).map((r) =>
-          r.id === row.id
-            ? {
-                ...r,
-                reminders_sent: result.reminders_sent,
-                last_reminded_at: result.last_reminded_at,
-              }
-            : r,
-        ),
-      );
-      showAlert("success", t("alerts.reminderReady"));
-    } catch (err) {
-      tab?.close();
-      showAlert(
-        "error",
-        err instanceof ApiError && err.message
-          ? err.message
-          : t("alerts.reminderFailed"),
-      );
-    } finally {
-      setRemindingId(null);
-    }
-  }
-
-  /** What a package's actions need from this page — the full card and the Due page's rows alike. */
-  const actionProps = (row: LessonPackageRow): PackageActionProps => ({
-    row,
-    canManage,
-    canSendInvoice,
-    canMarkPaid,
-    syncing: syncingId === row.id,
-    sendingPayment: sendingId === row.id,
-    reminding: remindingId === row.id,
-    onRemind: () => void remind(row),
-    onOpenDetail: () => setModal({ kind: "detail", row }),
-    onEdit: () => setModal({ kind: "edit", row }),
-    onClose: () => setModal({ kind: "close", row }),
-    onBillOverdraft: () => void billOverdraft(row),
-    onSyncLessons: () => void syncLessons(row),
-    onSendPayment: () => void sendPayment(row),
-    onMarkPaid: () => setModal({ kind: "markPaid", row }),
-    onRenew: () => setModal({ kind: "open", studentId: row.student_id }),
-    onReturnToMonthly: () => setModal({ kind: "toMonthly", row }),
-  });
-
   return (
     <div className="space-y-5">
       <PageHero
@@ -465,7 +310,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
               <Button
                 size="lg"
                 variant="outline"
-                onClick={() => setModal({ kind: "open" })}
+                onClick={() => openNew()}
                 data-testid="open-package"
                 className="gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25 hover:text-white"
               >
@@ -600,7 +445,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
                 key={row.id}
                 row={row}
                 timezone={timezone}
-                onOpenDetail={() => setModal({ kind: "detail", row })}
+                onOpenDetail={() => openDetail(row)}
               />
             ))}
           </div>
@@ -627,127 +472,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
         )}
       </div>
 
-      {/* ── Open ─────────────────────────────────────────────────────── */}
-      <Modal
-        open={modal.kind === "open"}
-        onClose={() => setModal({ kind: "closed" })}
-        title={t("form.title")}
-        description={t("form.description")}
-        size="md"
-      >
-        {modal.kind === "open" && (
-          <OpenPackageForm
-            initialStudentId={modal.studentId}
-            studentsWithHistory={studentsWithHistory}
-            onCancel={() => setModal({ kind: "closed" })}
-            onSaved={(message) => {
-              setModal({ kind: "closed" });
-              refresh();
-              showAlert("success", message);
-            }}
-          />
-        )}
-      </Modal>
-
-      {/* ── Correct the terms ────────────────────────────────────────── */}
-      <Modal
-        open={modal.kind === "edit"}
-        onClose={() => setModal({ kind: "closed" })}
-        title={t("edit.title")}
-        description={t("edit.description")}
-        size="md"
-      >
-        {modal.kind === "edit" && (
-          <EditPackageForm
-            row={modal.row}
-            onCancel={() => setModal({ kind: "closed" })}
-            onSaved={(message) => {
-              setModal({ kind: "closed" });
-              refresh();
-              showAlert("success", message);
-            }}
-          />
-        )}
-      </Modal>
-
-      {/* ── The ledger ───────────────────────────────────────────────── */}
-      <Modal
-        open={modal.kind === "detail"}
-        onClose={() => setModal({ kind: "closed" })}
-        title={modal.kind === "detail" ? modal.row.student_name : ""}
-        description={modal.kind === "detail" ? modal.row.label : undefined}
-        size="lg"
-      >
-        {modal.kind === "detail" && (
-          <PackageDetail
-            row={modal.row}
-            timezone={timezone}
-            canManage={canManage}
-            onChanged={refresh}
-          />
-        )}
-      </Modal>
-
-      {/* ── Close early ──────────────────────────────────────────────── */}
-      <ClosePackageModal
-        row={modal.kind === "close" ? modal.row : null}
-        onClose={() => setModal({ kind: "closed" })}
-        onDone={(message) => {
-          setModal({ kind: "closed" });
-          refresh();
-          showAlert("success", message);
-        }}
-        onError={(message) => showAlert("error", message)}
-      />
-
-      {/* ── Out of hours → back to monthly ───────────────────────────── */}
-      <Modal
-        open={modal.kind === "toMonthly"}
-        onClose={() => setModal({ kind: "closed" })}
-        title={t("toMonthly.title")}
-        size="sm"
-      >
-        {modal.kind === "toMonthly" && (
-          <div className="space-y-4">
-            <p className="text-muted-foreground text-sm">
-              {t("toMonthly.body", { name: modal.row.student_name })}
-            </p>
-            <div className="flex items-center justify-end gap-2 border-t pt-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setModal({ kind: "closed" })}
-                disabled={busy}
-              >
-                {t("actions.cancel")}
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => void confirmReturnToMonthly(modal.row)}
-                disabled={busy}
-                data-testid="confirm-to-monthly"
-              >
-                {t("toMonthly.confirm")}
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {modal.kind === "markPaid" && modal.row.invoice_id !== null && (
-        <MarkPaidModal
-          open
-          invoiceId={modal.row.invoice_id}
-          totalMinor={modal.row.invoice_total_minor}
-          currency={modal.row.currency}
-          onClose={() => setModal({ kind: "closed" })}
-          onSuccess={() => {
-            setModal({ kind: "closed" });
-            refresh();
-            showAlert("success", t("alerts.markedPaid"));
-          }}
-        />
-      )}
+      {modals}
     </div>
   );
 }

@@ -724,6 +724,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::put('/students/{id}/subscription', [StudentController::class, 'setSubscription']);
     Route::patch('/students/{id}/subscription/price', [StudentController::class, 'changePrice']);
     Route::get('/students/{id}/subscription/reprice-preview', [StudentController::class, 'repricePreview']);
+    Route::get('/students/{id}/subscription/month', [StudentController::class, 'month']);
     Route::post('/students/{id}/teacher', [StudentController::class, 'reassignTeacher']);
     Route::put('/students/{id}/teachers', [StudentController::class, 'setTeachers']);
     Route::get('/students/{id}/teacher-history', [StudentController::class, 'teacherHistory']);
@@ -748,10 +749,10 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/roles', [AcademyRoleController::class, 'store']);
         Route::patch('/roles/{id}', [AcademyRoleController::class, 'update']);
         Route::delete('/roles/{id}', [AcademyRoleController::class, 'destroy']);
-    });
         // Edit a shared built-in role (supervisor, accountant, …) for this academy only.
         Route::put('/roles/system/{code}', [AcademyRoleController::class, 'tune']);
         Route::delete('/roles/system/{code}', [AcademyRoleController::class, 'resetTuning']);
+    });
 
     // Staff — non-teaching academy staff (support, accounting, reception, HR, IT, etc.).
     // Capability-gated (staff.read / staff.create / staff.update / staff.deactivate),

@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers, Loader2, Pencil, Plus, Receipt, Square, Trash2 } from "lucide-react";
+import { Layers, Loader2, Pencil, Plus, Receipt, RefreshCw, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -22,6 +22,7 @@ import { listLessonPackages, type LessonPackageRow } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
 import { addGroupMembers, getGroup, listBoardMembers, listGroups, undoGroupMember, type BoardMember, type GroupDetail, type GroupRow } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
+import { formatDateTime, formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
@@ -93,6 +94,7 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   }, [policyOn, studentId]);
 
   const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
   const active = (members ?? []).filter((m) => m.status === "ACTIVE");
   const former = (members ?? []).filter((m) => m.status !== "ACTIVE");
   const openPackages = (packages ?? []).filter((p) => p.status === "ACTIVE");
@@ -207,10 +209,29 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                           .filter(Boolean)
                           .join(" · ")}
                       </p>
+                      {/* The block itself: hours used of bought, lessons, the hour's price, the bill, renewal. */}
+                      <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs" data-testid="subs-package-details">
+                        <span>{tp("card.used", { used: formatHours(p.minutes_consumed, locale), total: formatHours(p.minutes_sold, locale) })}</span>
+                        <span>· {tp("card.lessonsUsed")}: {p.lesson_count}</span>
+                        {p.status === "ACTIVE" && p.upcoming_lesson_count > 0 && <span>· {tp("card.upcomingCount", { count: p.upcoming_lesson_count })}</span>}
+                        <span>· {tp("card.perHour", { amount: money(p.hourly_rate_minor, p.currency) })}</span>
+                        {p.status === "ACTIVE" && p.auto_renew && (
+                          <span className="inline-flex items-center gap-0.5" title={tp("card.autoRenewNext", { n: p.sequence_no + 1 })}>
+                            · <RefreshCw className="size-3" aria-hidden />
+                          </span>
+                        )}
+                      </p>
+                      {p.status === "ACTIVE" && p.next_lesson_at && (
+                        <p className="text-muted-foreground text-xs">
+                          {tp("card.nextLesson")}: {formatDateTime(p.next_lesson_at, timezone, locale)}
+                        </p>
+                      )}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1.5 text-end text-xs">
                       <p className="font-semibold tabular-nums">{money(p.price_minor, p.currency)}</p>
-                      {p.outstanding_minor > 0 && <p className="text-rose-600 dark:text-rose-400">{t("subscriptions.outstanding", { amount: money(p.outstanding_minor, p.currency) })}</p>}
+                      <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", p.invoice_id === null ? "bg-muted text-muted-foreground" : p.outstanding_minor > 0 ? "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300")} data-testid="subs-package-bill">
+                        {p.invoice_id === null ? tp("card.notBilledYet") : p.outstanding_minor > 0 ? tp("card.amountDue", { amount: money(p.outstanding_minor, p.currency) }) : tp("card.paid")}
+                      </span>
                       {p.status === "ACTIVE" && managePackages && <RowActions onEdit={() => setModal({ kind: "pkgEdit", row: p })} onEnd={() => setModal({ kind: "pkgEnd", row: p })} />}
                     </div>
                   </li>

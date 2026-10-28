@@ -1833,7 +1833,7 @@
       "set": "Set subscription",
       "setTitle": "Set Subscription",
       "replaceTitle": "Replace Subscription",
-      "edit": "Edit package",
+      "edit": "Edit subscription",
       "active": "Active",
       "saving": "Saving…",
       "none": "No active subscription.",
@@ -1859,7 +1859,7 @@
       "perSessionShort": "/session",
       "modePackage": "Lesson package",
       "onPackages": "On package billing",
-      "onPackagesHint": "The hours are the clock. Open, close and bill blocks on the packages page — the rate here is the default for the next one.",
+      "onPackagesHint": "The hours are the clock. Open, edit and close blocks from the package card on this page — the rate here is the default for the next one.",
       "repricedPackages": "Saved — {count, plural, one {# unpaid package} other {# unpaid packages}} and their bills moved to the new rate.",
       "repricePackages": {
         "question": "There are unpaid packages at the old rate — update them too?",
@@ -1869,6 +1869,33 @@
         "noTitle": "No, the new rate is for new packages only",
         "noBody": "The packages above keep their old price; the new rate starts with the next package opened.",
         "blocked": "Won’t change: {packages} — part already paid, or the bill is shared with another package."
+      },
+      "editRate": "Edit hourly rate",
+      "rateTitle": "Agreed hourly rate",
+      "rateHint": "Suggested for the next package. The open package keeps its own price, on its card.",
+      "month": {
+        "title": "This month",
+        "description": "Lessons and the bill for {month}",
+        "taught": "Taught",
+        "taughtOf": "{taught} of {quota}",
+        "upcoming": "Coming up",
+        "unmarked": "Not marked",
+        "cancelled": "Cancelled",
+        "nextLesson": "Next lesson",
+        "noNextLesson": "Nothing scheduled",
+        "bill": "This month's bill",
+        "noBill": "No lessons billed yet",
+        "billOwn": "{amount} of it for this student",
+        "billDue": "{amount} left",
+        "openBill": "Open bill",
+        "state": {
+          "PAID": "Paid",
+          "PARTIAL": "Part paid",
+          "UNPAID": "Unpaid"
+        },
+        "familyDue": "Family owes",
+        "familyNothing": "Nothing due",
+        "loadFailed": "Couldn't load this month's summary."
       }
     },
     "teacher": {
@@ -3020,10 +3047,11 @@
       "title": "Lesson package",
       "subtitle": "Hours bought, and what is left of them",
       "manage": "Manage packages",
-      "noActive": "No open package. Open one on the packages page so the next lesson has hours to take.",
+      "noActive": "No open package — the next lesson has no hours to take.",
       "owed": "{amount} still outstanding on finished packages.",
       "settled": "Settled",
-      "openOne": "Open a package"
+      "openOne": "Open a package",
+      "history": "Earlier packages"
     },
     "pages": {
       "open": {
@@ -7253,6 +7281,11 @@
     "delete": "Delete",
     "createTitle": "New role",
     "editTitle": "Edit role",
+    "editSystemTitle": "Edit {role} for your academy",
+    "editSystemHint": "Applies to everyone with this role in your academy only. Other academies keep it as it ships.",
+    "editedTag": "edited",
+    "resetSystem": "Back to default",
+    "resetDone": "Back to the default role.",
     "nameLabel": "Role name",
     "descriptionLabel": "Description",
     "activeLabel": "Active (can be assigned to users)",
@@ -7281,11 +7314,6 @@
       "STAFF": "Sees students and the schedule, changes nothing",
       "SUPERVISOR": "Runs the day: adds students, families and teachers in full, packages, bills and marking them paid, lessons and attendance — no payroll, treasury or statistics",
       "ACADEMY_OWNER": "The academy's owner — everything",
-    "editSystemTitle": "Edit {role} for your academy",
-    "editSystemHint": "Applies to everyone with this role in your academy only. Other academies keep it as it ships.",
-    "editedTag": "edited",
-    "resetSystem": "Back to default",
-    "resetDone": "Back to the default role.",
       "MANAGER": "The whole academy like the owner: operations, money and statistics",
       "ACCOUNTANT": "Invoices, packages, payroll and prices; sees students and lessons read-only",
       "CUSTOMER_SERVICE": "Enrols students and families, books timetables, runs trials and leads — no money",

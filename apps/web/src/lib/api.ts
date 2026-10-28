@@ -3389,6 +3389,41 @@ export function getRepricePreview(studentId: string): Promise<RepricePreview> {
   return apiFetch(`/api/students/${studentId}/subscription/reprice-preview`);
 }
 
+/** The student's running month (academy time): lessons against the quota, the bill, the family's debt. */
+export interface StudentMonth {
+  /** "YYYY-MM". */
+  month: string;
+  lessons: {
+    /** Billable to the student — the same matrix the invoice uses. */
+    taught: number;
+    taught_minutes: number;
+    cancelled: number;
+    upcoming: number;
+    /** Past, and nobody marked them yet. */
+    unmarked: number;
+  };
+  next_lesson_at: string | null;
+  /** This month's lesson bill — maybe the family's (`shared`). Null when nothing was billed, or money is hidden. */
+  bill: {
+    id: string;
+    status: string;
+    state: "PAID" | "PARTIAL" | "UNPAID";
+    currency: string;
+    total_minor: number;
+    own_minor: number;
+    paid_minor: number;
+    due_minor: number;
+    shared: boolean;
+    url: string;
+  } | null;
+  /** Every unpaid bill of the family, per currency; empty when nothing is due or money is hidden. */
+  family_due: { currency: string; due_minor: number }[];
+}
+
+export function getStudentMonth(studentId: string): Promise<StudentMonth> {
+  return apiFetch(`/api/students/${studentId}/subscription/month`);
+}
+
 export function changeSubscriptionPrice(
   studentId: string,
   input: {
