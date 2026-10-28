@@ -24,7 +24,7 @@ import { MethodBadge, Panel, Tile, dayLabel, toMajorText, toMinor, todayLocal } 
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { PageHero } from "@/components/ui/page-hero";
 import {
@@ -33,11 +33,9 @@ import {
   closeDay,
   createCashAccount,
   createTransfer,
-  getAccountLedger,
   getTreasury,
   mapMethodToAccount,
   type AccountKind,
-  type AccountLedger,
   type CashAccount,
   type ReceiptMethod,
   type TreasuryState,
@@ -54,7 +52,7 @@ export const KIND_ICON: Record<AccountKind, LucideIcon> = {
   OTHER: CircleEllipsis,
 };
 
-const KIND_TONE: Record<AccountKind, string> = {
+export const KIND_TONE: Record<AccountKind, string> = {
   CASH: "from-emerald-500/[0.12] text-emerald-700 dark:text-emerald-300",
   BANK: "from-sky-500/[0.12] text-sky-700 dark:text-sky-300",
   INSTAPAY: "from-orange-500/[0.12] text-orange-700 dark:text-orange-300",
@@ -76,7 +74,7 @@ export function AccountingTreasuryScreen({ hero = true }: { hero?: boolean }) {
   const locale = useLocale();
   const [data, setData] = useState<TreasuryState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [modal, setModal] = useState<{ kind: "account" } | { kind: "transfer"; from?: string } | { kind: "close"; account: CashAccount } | { kind: "ledger"; account: CashAccount } | null>(null);
+  const [modal, setModal] = useState<{ kind: "account" } | { kind: "transfer"; from?: string } | { kind: "close"; account: CashAccount } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -94,6 +92,7 @@ export function AccountingTreasuryScreen({ hero = true }: { hero?: boolean }) {
 
   const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
   const active = (data?.accounts ?? []).filter((a) => a.is_active);
+  const stopped = (data?.accounts ?? []).filter((a) => !a.is_active);
   const totals = useMemo(() => {
     const out: Record<string, number> = {};
     for (const a of active) out[a.currency] = (out[a.currency] ?? 0) + a.balance_minor;
@@ -188,7 +187,8 @@ export function AccountingTreasuryScreen({ hero = true }: { hero?: boolean }) {
               const Icon = KIND_ICON[a.kind];
               return (
                 <div key={a.id} className={cn("bg-card overflow-hidden rounded-2xl border bg-gradient-to-br to-transparent shadow-sm", KIND_TONE[a.kind].split(" ")[0])} data-testid={`account-${a.id}`}>
-                  <div className="p-4">
+                  {/* The card is the way in: the account's own page, money in beside money out. */}
+                  <Link href={`/accounting/treasury/${a.id}`} className="hover:bg-muted/30 block p-4 transition-colors" data-testid={`open-${a.id}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5">
                         <span className={cn("bg-card flex size-10 items-center justify-center rounded-xl border shadow-sm", KIND_TONE[a.kind].split(" ").slice(1).join(" "))}>
@@ -221,12 +221,12 @@ export function AccountingTreasuryScreen({ hero = true }: { hero?: boolean }) {
                         )}
                       </p>
                     )}
-                  </div>
+                  </Link>
                   <div className="bg-muted/40 flex flex-wrap gap-1.5 border-t px-3 py-2">
-                    <Button type="button" size="sm" variant="ghost" className="gap-1" onClick={() => setModal({ kind: "ledger", account: a })}>
+                    <Link href={`/accounting/treasury/${a.id}`} className={cn(buttonVariants({ size: "sm", variant: "ghost" }), "gap-1")}>
                       <BookOpen className="size-3.5" aria-hidden />
-                      {t("treasury.ledger")}
-                    </Button>
+                      {t("treasury.details")}
+                    </Link>
                     {data.can_close && !a.closed_today && (
                       <Button type="button" size="sm" variant="ghost" className="gap-1" onClick={() => setModal({ kind: "close", account: a })} data-testid={`close-${a.id}`}>
                         <Lock className="size-3.5" aria-hidden />
@@ -252,10 +252,21 @@ export function AccountingTreasuryScreen({ hero = true }: { hero?: boolean }) {
         </>
       )}
 
+      {/* A deleted account that had history is only stopped: its page (and the way back) stays here. */}
+      {stopped.length > 0 && (
+        <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-sm" data-testid="treasury-stopped">
+          <span>{t("treasury.stopped")}</span>
+          {stopped.map((a) => (
+            <Link key={a.id} href={`/accounting/treasury/${a.id}`} className="bg-muted/40 hover:bg-muted rounded-full border px-2.5 py-1 text-xs font-medium">
+              {a.name}
+            </Link>
+          ))}
+        </div>
+      )}
+
       {modal?.kind === "account" && <AccountModal onClose={() => setModal(null)} onDone={() => done(t("treasury.accountAdded"))} existing={data?.methods ?? []} />}
       {modal?.kind === "transfer" && data && <TransferModal accounts={active} from={modal.from} onClose={() => setModal(null)} onDone={() => done(t("treasury.transferred"))} />}
       {modal?.kind === "close" && <CloseModal account={modal.account} onClose={() => setModal(null)} onDone={(m) => done(m)} />}
-      {modal?.kind === "ledger" && <LedgerModal account={modal.account} onClose={() => setModal(null)} />}
     </div>
   );
 }
@@ -415,7 +426,7 @@ function AccountModal({ onClose, onDone, existing }: { onClose: () => void; onDo
   );
 }
 
-function TransferModal({ accounts, from, onClose, onDone }: { accounts: CashAccount[]; from?: string; onClose: () => void; onDone: () => void }) {
+export function TransferModal({ accounts, from, onClose, onDone }: { accounts: CashAccount[]; from?: string; onClose: () => void; onDone: () => void }) {
   const t = useTranslations("accounting");
   const locale = useLocale();
   const [fromId, setFromId] = useState(from ?? accounts[0]?.id ?? "");
@@ -501,7 +512,7 @@ function TransferModal({ accounts, from, onClose, onDone }: { accounts: CashAcco
   );
 }
 
-function CloseModal({ account, onClose, onDone }: { account: CashAccount; onClose: () => void; onDone: (msg: string) => void }) {
+export function CloseModal({ account, onClose, onDone }: { account: CashAccount; onClose: () => void; onDone: (msg: string) => void }) {
   const t = useTranslations("accounting");
   const locale = useLocale();
   const [counted, setCounted] = useState(toMajorText(Math.max(0, account.balance_minor)));
@@ -569,93 +580,6 @@ function CloseModal({ account, onClose, onDone }: { account: CashAccount; onClos
         <p className="text-muted-foreground text-xs">{t("treasury.closeLock")}</p>
         {error && <AlertBanner variant="error" message={error} />}
       </form>
-    </Modal>
-  );
-}
-
-function LedgerModal({ account, onClose }: { account: CashAccount; onClose: () => void }) {
-  const t = useTranslations("accounting");
-  const locale = useLocale();
-  const [data, setData] = useState<AccountLedger | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    getAccountLedger(account.id)
-      .then((d) => alive && setData(d))
-      .catch((err) => alive && setError(apiErrorMessage(err, t("treasury.loadFailed"))));
-    return () => {
-      alive = false;
-    };
-  }, [account.id, t]);
-
-  const money = (v: number) => formatMoney({ amount: v, currency: account.currency }, locale);
-
-  return (
-    <Modal open onClose={onClose} title={t("treasury.ledgerTitle", { name: account.name })} size="xl">
-      {error && <AlertBanner variant="error" message={error} />}
-      {!data && !error && <p className="text-muted-foreground py-8 text-center text-sm">{t("detail.loading")}</p>}
-      {data && (
-        <div className="space-y-3" data-testid="ledger">
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div className="bg-muted/40 rounded-xl border p-2.5">
-              <p className="text-muted-foreground text-xs">{t("treasury.broughtForward", { date: dayLabel(data.from, locale) })}</p>
-              <p className="font-bold tabular-nums">{money(data.opening_minor)}</p>
-            </div>
-            <div className="bg-muted/40 rounded-xl border p-2.5">
-              <p className="text-muted-foreground text-xs">{t("treasury.balanceAt", { date: dayLabel(data.to, locale) })}</p>
-              <p className="font-bold tabular-nums">{money(data.closing_minor)}</p>
-            </div>
-          </div>
-          <div className="max-h-[60vh] overflow-auto rounded-xl border">
-            <table className="w-full min-w-[560px] text-sm">
-              <thead className="bg-muted/70 text-muted-foreground sticky top-0 text-xs font-semibold">
-                <tr>
-                  <th className="p-2.5 text-start">{t("statement.col.date")}</th>
-                  <th className="p-2.5 text-start">{t("statement.col.item")}</th>
-                  <th className="p-2.5 text-end">{t("treasury.in")}</th>
-                  <th className="p-2.5 text-end">{t("treasury.out")}</th>
-                  <th className="p-2.5 text-end">{t("statement.col.balance")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {data.entries.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="text-muted-foreground p-6 text-center">
-                      {t("treasury.noMovements")}
-                    </td>
-                  </tr>
-                )}
-                {data.entries.map((e) => (
-                  <tr key={`${e.kind}-${e.id}`} className={cn(e.kind === "CLOSING" && "bg-sky-500/5")}>
-                    <td className="p-2.5 whitespace-nowrap">{dayLabel(e.date, locale)}</td>
-                    <td className="p-2.5">
-                      <span className="font-medium">{t(`treasury.entry.${e.kind}`)}</span>
-                      <span className="text-muted-foreground block text-xs break-words">
-                        {e.kind === "CLOSING" ? (
-                          t("treasury.closingLine", { expected: money(e.expected_minor ?? 0), counted: money(e.counted_minor ?? 0) })
-                        ) : e.kind === "RECEIPT" && (e.guardian_id || e.student_id) ? (
-                          <>
-                            {e.label} ·{" "}
-                            <Link href={e.guardian_id ? `/guardians/${e.guardian_id}` : `/students/${e.student_id}`} className="hover:underline" title={t("family.openFamily")}>
-                              {e.party}
-                            </Link>
-                          </>
-                        ) : (
-                          [e.label, e.party, e.category, e.description].filter(Boolean).join(" · ")
-                        )}
-                      </span>
-                    </td>
-                    <td className="p-2.5 text-end text-emerald-700 tabular-nums dark:text-emerald-300">{e.in_minor > 0 ? money(e.in_minor) : ""}</td>
-                    <td className="p-2.5 text-end text-rose-700 tabular-nums dark:text-rose-300">{e.out_minor > 0 ? money(e.out_minor) : ""}</td>
-                    <td className="p-2.5 text-end font-semibold tabular-nums">{money(e.balance_minor)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </Modal>
   );
 }

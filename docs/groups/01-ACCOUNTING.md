@@ -618,3 +618,49 @@ separately. A lesson package may now be tied to a subject — the student's teac
   the student↔teacher↔subject link with it (`new_subject` + `course` on `POST /packages`, written only
   after every check passes; the controller wraps the open in one transaction). A student whose "any
   lesson" block is open and who has no free subject starts on "+ New subject…".
+
+## One account, its own page (2026-10-28)
+
+Lingo's desk said the treasury was "not clear at all": a grid of cards, and a "movements" popup
+mixing receipts, expenses, transfers and counts in one running table. Now each card (and each
+account on the Overview strip) opens `/accounting/treasury/{id}` (`TreasuryAccountScreen`):
+
+- **Period** — this month (default) · last month · since opening · custom. Same
+  `GET /treasury/accounts/{id}/ledger?from&to`, no new endpoint.
+- **Top strip** — opening balance (labelled *opening* when the period starts the day the account
+  opened, *balance at the start* otherwise, with the original opening in the hint) · total
+  collected (receipts only) · total spent (expenses only) · balance at the end. Transfers and count
+  differences move the balance but are neither, so a one-line note gives their net and the four
+  numbers still add up.
+- **Two sides** — collected beside spent, newest first, each side's total as its header; the
+  spent side has category chips. Transfers / count differences sit apart under each side.
+- **Every line opens**: a receipt → the existing `ReceiptDetailModal`; an expense, transfer or
+  count → `EntryDetailModal` (void an expense / transfer with a reason, reopen the last counted
+  day) — inline, never a second modal.
+- **Statement tab** — the old popup's chronological table with the running balance (popup removed).
+- Header actions: new expense from this account (`ExpenseModal` now exported, takes `accountId`),
+  transfer, close the day.
+- Ledger entries gained `category_key`, `has_attachment`, `payout_id`, `by`, `from_name`/`to_name`.
+  **Fix:** the ledger used to show a salary's teacher and month to anyone with `invoice.read` —
+  supervisors hold it since 2026-10-28 — now blanked without `payout.read` (amount still moves the
+  balance). Pinned in TreasuryTest.
+
+**Same day, round 2 — edit, adjust, delete (Ahmed: "delete the treasury, edit the daily amount"; he
+picked all three meanings of "amount"):**
+
+- **Edit the account** (`PATCH /treasury/accounts/{id}`, `expense.manage`): name, opening balance,
+  opening day. The opening is locked once any day was counted (a closing froze what the books said
+  then — moving the start would quietly unbalance it); after that the fix is an adjustment. The
+  opening day may not move past the first live movement filed under the account. Audit keeps before.
+- **Adjust the balance** — تسوية رصيد (`cash_adjustments`, `POST /treasury/adjustments`,
+  `cashbox.close`): the desk types what is really there, the difference from the books is stored
+  signed with a required reason; like a count, but the day stays open. Voided with a reason, never
+  deleted, refused on a closed day. `balance = … + Σ live adjustments`. Ledger kind `ADJUSTMENT`.
+- **Correct an amount** (`PATCH /expenses/{id}`, `PATCH /treasury/transfers/{id}`,
+  `expense.manage`): from the line's detail popup; refused on a closed day; a salary never past
+  what is left on its statement (and needs `payout.read`). Audit keeps before/after.
+- **Delete** (`DELETE /treasury/accounts/{id}`): an account with no history at all (`Treasury::
+  hasHistory` — any receipt/expense/transfer/closing/adjustment, voided included, or a mapped
+  receipt since its opening day) is deleted for good with its method map; one with history is
+  STOPPED instead (`is_active=false`, methods unmapped, records kept) and only when its balance is
+  zero. Stopped accounts are listed under the treasury grid and can be reactivated from their page.

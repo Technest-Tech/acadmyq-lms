@@ -16,6 +16,7 @@ use Illuminate\Validation\ValidationException;
  *
  *   balance(day) = opening + receipts in − expenses out + transfers in − transfers out
  *                  + every closing difference (counted − expected) up to that day
+ *                  + every balance adjustment (actual − books, the day left open) up to that day
  *
  * A receipt lands in the account its method maps to (cash → the drawer). One recorded before the
  * treasury existed, or before its method was mapped, follows today's mapping — but only movements
@@ -137,26 +138,38 @@ final class Treasury
                 // So the ledger can open the family the money came from.
                 'guardian_id' => $r->guardian_id !== null ? (string) $r->guardian_id : null, 'student_id' => $r->student_id !== null ? (string) $r->student_id : null];
         }
-        foreach (DB::table('expenses as e')->join('expense_categories as c', 'c.id', '=', 'e.category_id')
+        foreach (DB::table('expenses as e')->join('expense_categories as c', 'c.id', '=', 'e.category_id')->leftJoin('users as u', 'u.id', '=', 'e.created_by')
             ->where('e.cash_account_id', $id)->whereNull('e.voided_at')->whereBetween('e.spent_on', [$from, $to])
-            ->get(['e.id', 'e.number', 'e.spent_on', 'e.created_at', 'e.amount_minor', 'e.payee', 'e.description', 'c.name as category']) as $e) {
+            ->get(['e.id', 'e.number', 'e.spent_on', 'e.created_at', 'e.amount_minor', 'e.payee', 'e.description', 'e.attachment_path', 'e.payout_id', 'c.name as category', 'c.key as category_key', 'u.full_name as by']) as $e) {
             $entries[] = ['kind' => 'EXPENSE', 'id' => (string) $e->id, 'date' => Carbon::parse($e->spent_on)->format('Y-m-d'), 'at' => (string) $e->created_at,
-                'label' => (string) $e->number, 'party' => $e->payee, 'category' => (string) $e->category, 'description' => $e->description, 'in_minor' => 0, 'out_minor' => (int) $e->amount_minor];
+                'label' => (string) $e->number, 'party' => $e->payee, 'category' => (string) $e->category, 'category_key' => $e->category_key, 'description' => $e->description,
+                'has_attachment' => $e->attachment_path !== null, 'payout_id' => $e->payout_id !== null ? (string) $e->payout_id : null, 'by' => $e->by,
+                'in_minor' => 0, 'out_minor' => (int) $e->amount_minor];
         }
         foreach (DB::table('cash_transfers as t')->join('cash_accounts as fa', 'fa.id', '=', 't.from_account_id')->join('cash_accounts as ta', 'ta.id', '=', 't.to_account_id')
+            ->leftJoin('users as u', 'u.id', '=', 't.created_by')
             ->whereNull('t.voided_at')->where(fn ($q) => $q->where('t.from_account_id', $id)->orWhere('t.to_account_id', $id))
             ->whereBetween('t.transferred_on', [$from, $to])
-            ->get(['t.id', 't.transferred_on', 't.created_at', 't.amount_minor', 't.note', 't.from_account_id', 'fa.name as from_name', 'ta.name as to_name']) as $t) {
+            ->get(['t.id', 't.transferred_on', 't.created_at', 't.amount_minor', 't.note', 't.from_account_id', 'fa.name as from_name', 'ta.name as to_name', 'u.full_name as by']) as $t) {
             $outgoing = (string) $t->from_account_id === $id;
             $entries[] = ['kind' => $outgoing ? 'TRANSFER_OUT' : 'TRANSFER_IN', 'id' => (string) $t->id, 'date' => Carbon::parse($t->transferred_on)->format('Y-m-d'), 'at' => (string) $t->created_at,
                 'label' => $outgoing ? (string) $t->to_name : (string) $t->from_name, 'description' => $t->note,
+                'from_name' => (string) $t->from_name, 'to_name' => (string) $t->to_name, 'by' => $t->by,
                 'in_minor' => $outgoing ? 0 : (int) $t->amount_minor, 'out_minor' => $outgoing ? (int) $t->amount_minor : 0];
         }
         foreach (DB::table('cash_closings as c')->leftJoin('users as u', 'u.id', '=', 'c.closed_by')->where('c.cash_account_id', $id)->whereBetween('c.day', [$from, $to])
             ->get(['c.id', 'c.day', 'c.created_at', 'c.expected_minor', 'c.counted_minor', 'c.difference_minor', 'c.note', 'u.full_name as by']) as $c) {
             $diff = (int) $c->difference_minor;
             $entries[] = ['kind' => 'CLOSING', 'id' => (string) $c->id, 'date' => Carbon::parse($c->day)->format('Y-m-d'), 'at' => '9999', // a day's count closes it: last
-                'label' => $c->by, 'description' => $c->note, 'expected_minor' => (int) $c->expected_minor, 'counted_minor' => (int) $c->counted_minor,
+                'label' => $c->by, 'by' => $c->by, 'description' => $c->note, 'expected_minor' => (int) $c->expected_minor, 'counted_minor' => (int) $c->counted_minor,
+                'in_minor' => max(0, $diff), 'out_minor' => max(0, -$diff)];
+        }
+        foreach (DB::table('cash_adjustments as a')->leftJoin('users as u', 'u.id', '=', 'a.created_by')->where('a.cash_account_id', $id)->whereNull('a.voided_at')
+            ->whereBetween('a.adjusted_on', [$from, $to])
+            ->get(['a.id', 'a.adjusted_on', 'a.created_at', 'a.expected_minor', 'a.actual_minor', 'a.amount_minor', 'a.reason', 'u.full_name as by']) as $a) {
+            $diff = (int) $a->amount_minor;
+            $entries[] = ['kind' => 'ADJUSTMENT', 'id' => (string) $a->id, 'date' => Carbon::parse($a->adjusted_on)->format('Y-m-d'), 'at' => (string) $a->created_at,
+                'label' => $a->by, 'by' => $a->by, 'description' => $a->reason, 'expected_minor' => (int) $a->expected_minor, 'actual_minor' => (int) $a->actual_minor,
                 'in_minor' => max(0, $diff), 'out_minor' => max(0, -$diff)];
         }
         usort($entries, fn ($a, $b) => [$a['date'], $a['at']] <=> [$b['date'], $b['at']]);
@@ -169,6 +182,35 @@ final class Treasury
         }
 
         return ['opening_minor' => $broughtForward, 'entries' => $entries, 'closing_minor' => $running];
+    }
+
+    /**
+     * Whether anything was ever recorded against the account — even voided, even a receipt that
+     * only lands in it by its method. Such an account is stopped, never deleted: its history stays.
+     */
+    public function hasHistory(string $accountId): bool
+    {
+        $opening = DB::table('cash_accounts')->where('id', $accountId)->value('opening_on');
+
+        return DB::table('receipts')->where('cash_account_id', $accountId)->exists()
+            || ($opening !== null && $this->receiptsQuery($accountId)->where('r.received_on', '>=', $opening)->exists())
+            || DB::table('expenses')->where('cash_account_id', $accountId)->exists()
+            || DB::table('cash_transfers')->where(fn ($q) => $q->where('from_account_id', $accountId)->orWhere('to_account_id', $accountId))->exists()
+            || DB::table('cash_closings')->where('cash_account_id', $accountId)->exists()
+            || DB::table('cash_adjustments')->where('cash_account_id', $accountId)->exists();
+    }
+
+    /** The first day something live is filed under the account itself (its opening day may not pass it), or null. */
+    public function firstMovementOn(string $accountId): ?string
+    {
+        $days = array_filter([
+            DB::table('receipts')->where('cash_account_id', $accountId)->whereNull('voided_at')->min('received_on'),
+            DB::table('expenses')->where('cash_account_id', $accountId)->whereNull('voided_at')->min('spent_on'),
+            DB::table('cash_transfers')->whereNull('voided_at')->where(fn ($q) => $q->where('from_account_id', $accountId)->orWhere('to_account_id', $accountId))->min('transferred_on'),
+            DB::table('cash_adjustments')->where('cash_account_id', $accountId)->whereNull('voided_at')->min('adjusted_on'),
+        ]);
+
+        return $days === [] ? null : Carbon::parse(min(array_map(fn ($d) => Carbon::parse($d)->format('Y-m-d'), $days)))->format('Y-m-d');
     }
 
     /** E-000001 … per academy, never reused. */
@@ -205,7 +247,8 @@ final class Treasury
         $out = (int) DB::table('expenses')->where('cash_account_id', $accountId)->whereNull('voided_at')->whereBetween('spent_on', [$from, $to])->sum('amount_minor');
         $tin = (int) DB::table('cash_transfers')->where('to_account_id', $accountId)->whereNull('voided_at')->whereBetween('transferred_on', [$from, $to])->sum('amount_minor');
         $tout = (int) DB::table('cash_transfers')->where('from_account_id', $accountId)->whereNull('voided_at')->whereBetween('transferred_on', [$from, $to])->sum('amount_minor');
-        $adjust = (int) DB::table('cash_closings')->where('cash_account_id', $accountId)->whereBetween('day', [$from, $to])->sum('difference_minor');
+        $adjust = (int) DB::table('cash_closings')->where('cash_account_id', $accountId)->whereBetween('day', [$from, $to])->sum('difference_minor')
+            + (int) DB::table('cash_adjustments')->where('cash_account_id', $accountId)->whereNull('voided_at')->whereBetween('adjusted_on', [$from, $to])->sum('amount_minor');
 
         return ['in' => $in + $tin, 'out' => $out + $tout, 'adjust' => $adjust];
     }

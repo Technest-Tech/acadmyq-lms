@@ -269,13 +269,24 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
 
 const NEW_CATEGORY = "__new__";
 
-function ExpenseModal({ data, onClose, onDone }: { data: ExpensesPage; onClose: () => void; onDone: (number: string) => void }) {
+/** A new expense. The treasury's account page opens it with that account already chosen. */
+export function ExpenseModal({
+  data,
+  accountId: initialAccount,
+  onClose,
+  onDone,
+}: {
+  data: Pick<ExpensesPage, "categories" | "accounts" | "can_manage">;
+  accountId?: string;
+  onClose: () => void;
+  onDone: (number: string) => void;
+}) {
   const t = useTranslations("accounting");
   const categories = data.categories.filter((c) => c.is_active && c.key !== "teacher_salaries");
   const [category, setCategory] = useState(categories[0]?.id ?? "");
   // "+ New category…" right in the list: the desk names it here and the expense lands under it.
   const [newCategory, setNewCategory] = useState("");
-  const [accountId, setAccountId] = useState(data.accounts[0]?.id ?? "");
+  const [accountId, setAccountId] = useState(initialAccount ?? data.accounts[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [on, setOn] = useState(todayLocal());
   const [payee, setPayee] = useState("");

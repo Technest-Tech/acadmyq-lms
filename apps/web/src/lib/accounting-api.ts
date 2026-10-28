@@ -611,6 +611,8 @@ export interface CashAccount {
   today_out_minor: number;
   last_closing: { day: string; difference_minor: number } | null;
   closed_today: boolean;
+  /** Anything ever recorded against it — such an account is stopped, never deleted. */
+  has_history: boolean;
 }
 
 export interface ExpenseCategory {
@@ -637,7 +639,7 @@ export interface TreasuryState {
 }
 
 export interface LedgerEntry {
-  kind: "RECEIPT" | "EXPENSE" | "TRANSFER_IN" | "TRANSFER_OUT" | "CLOSING";
+  kind: "RECEIPT" | "EXPENSE" | "TRANSFER_IN" | "TRANSFER_OUT" | "CLOSING" | "ADJUSTMENT";
   id: string;
   date: string;
   label: string | null;
@@ -647,16 +649,27 @@ export interface LedgerEntry {
   student_id?: string | null;
   method?: ReceiptMethod;
   category?: string;
+  /** EXPENSE: a salary's payee and month are blanked for anyone without payout.read. */
+  category_key?: string | null;
   description?: string | null;
+  has_attachment?: boolean;
+  payout_id?: string | null;
+  /** TRANSFER_*: both ends, whichever side this account is on. */
+  from_name?: string;
+  to_name?: string;
+  /** Who recorded it (EXPENSE / TRANSFER_*) or counted the day (CLOSING). */
+  by?: string | null;
   expected_minor?: number;
   counted_minor?: number;
+  /** ADJUSTMENT: what the account really held (the books said `expected_minor`). */
+  actual_minor?: number;
   in_minor: number;
   out_minor: number;
   balance_minor: number;
 }
 
 export interface AccountLedger {
-  account: { id: string; name: string; kind: AccountKind; currency: string; opening_on: string };
+  account: { id: string; name: string; kind: AccountKind; currency: string; opening_on: string; opening_balance_minor: number };
   from: string;
   to: string;
   opening_minor: number;
@@ -672,8 +685,25 @@ export function createCashAccount(input: { name: string; kind: AccountKind; curr
   return apiFetch(`/api/treasury/accounts`, { method: "POST", body: JSON.stringify(input) });
 }
 
-export function updateCashAccount(id: string, patch: { name?: string; is_active?: boolean }): Promise<{ ok: boolean }> {
+export function updateCashAccount(id: string, patch: { name?: string; is_active?: boolean; opening_balance_minor?: number; opening_on?: string }): Promise<{ ok: boolean }> {
   return apiFetch(`/api/treasury/accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+/** Deleted for good when it never held anything; otherwise stopped (it must be empty). */
+export function deleteCashAccount(id: string): Promise<{ deleted: boolean; stopped: boolean }> {
+  return apiFetch(`/api/treasury/accounts/${id}`, { method: "DELETE" });
+}
+
+export function createAdjustment(input: { cash_account_id: string; actual_minor: number; reason: string; day?: string }): Promise<{ id: string; expected_minor: number; actual_minor: number; amount_minor: number }> {
+  return apiFetch(`/api/treasury/adjustments`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function voidAdjustment(id: string, reason: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/treasury/adjustments/${id}/void`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export function updateTransferAmount(id: string, amountMinor: number): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/treasury/transfers/${id}`, { method: "PATCH", body: JSON.stringify({ amount_minor: amountMinor }) });
 }
 
 export function mapMethodToAccount(method: ReceiptMethod, currency: string, cashAccountId: string | null): Promise<{ ok: boolean }> {
@@ -762,6 +792,10 @@ export function createExpense(input: { category_id?: string | null; payout_id?: 
   if (input.description?.trim()) body.set("description", input.description.trim());
   if (input.attachment) body.set("attachment", input.attachment);
   return apiFetch(`/api/expenses`, { method: "POST", body });
+}
+
+export function updateExpenseAmount(id: string, amountMinor: number): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/expenses/${id}`, { method: "PATCH", body: JSON.stringify({ amount_minor: amountMinor }) });
 }
 
 export function voidExpense(id: string, reason: string): Promise<{ ok: boolean }> {

@@ -85,7 +85,7 @@ export function AccountingOverviewScreen() {
             {treasury.accounts
               .filter((a) => a.is_active)
               .map((a) => (
-                <Link key={a.id} href="/accounting/treasury" className="bg-muted/30 hover:bg-muted/60 rounded-xl border p-3 transition-colors">
+                <Link key={a.id} href={`/accounting/treasury/${a.id}`} className="bg-muted/30 hover:bg-muted/60 rounded-xl border p-3 transition-colors">
                   <p className="text-muted-foreground truncate text-xs">{a.name}</p>
                   <p className={cn("mt-1 text-lg font-bold break-words tabular-nums", a.balance_minor < 0 && "text-rose-600 dark:text-rose-400")}>
                     {money(a.balance_minor, a.currency)}

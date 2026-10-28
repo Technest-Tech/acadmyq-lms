@@ -3,11 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../../messages/ar.json";
 import { makeSession, withAuth } from "@/test/auth";
-import type { ExpensesPage, FamilyAccount, TreasuryState } from "@/lib/accounting-api";
+import type { AccountLedger, ExpensesPage, FamilyAccount, TreasuryState } from "@/lib/accounting-api";
+import { formatMoney } from "@/lib/money";
 import { AccountingExpensesScreen } from "./accounting-expenses";
 import { AccountingTreasuryScreen } from "./accounting-treasury";
 import { DiscountPresetsScreen } from "./discount-presets";
 import { FamilyAccountsCard } from "./family-accounts-card";
+import { TreasuryAccountScreen } from "./treasury-account";
 
 /**
  * The treasury, the expenses and the family card (docs/groups/01-ACCOUNTING.md): they show what the
@@ -15,14 +17,24 @@ import { FamilyAccountsCard } from "./family-accounts-card";
  * exist — no request either — for an academy without accounting.
  */
 
+const nav = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ replace: vi.fn(), push: nav.push, refresh: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => "/accounting/treasury",
 }));
 
 const api = {
   getTreasury: vi.fn(),
+  getAccountLedger: vi.fn(),
+  getReceipt: vi.fn(),
+  voidExpense: vi.fn(),
+  voidTransfer: vi.fn(),
+  reopenDay: vi.fn(),
+  deleteCashAccount: vi.fn(),
+  updateCashAccount: vi.fn(),
+  createAdjustment: vi.fn(),
+  updateExpenseAmount: vi.fn(),
   closeDay: vi.fn(),
   getExpenses: vi.fn(),
   createExpense: vi.fn(),
@@ -46,6 +58,15 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/accounting-api")>()),
   getTreasury: (...a: unknown[]) => api.getTreasury(...a),
+  getAccountLedger: (...a: unknown[]) => api.getAccountLedger(...a),
+  getReceipt: (...a: unknown[]) => api.getReceipt(...a),
+  voidExpense: (...a: unknown[]) => api.voidExpense(...a),
+  voidTransfer: (...a: unknown[]) => api.voidTransfer(...a),
+  reopenDay: (...a: unknown[]) => api.reopenDay(...a),
+  deleteCashAccount: (...a: unknown[]) => api.deleteCashAccount(...a),
+  updateCashAccount: (...a: unknown[]) => api.updateCashAccount(...a),
+  createAdjustment: (...a: unknown[]) => api.createAdjustment(...a),
+  updateExpenseAmount: (...a: unknown[]) => api.updateExpenseAmount(...a),
   closeDay: (...a: unknown[]) => api.closeDay(...a),
   getExpenses: (...a: unknown[]) => api.getExpenses(...a),
   createExpense: (...a: unknown[]) => api.createExpense(...a),
@@ -69,6 +90,7 @@ const owner = (capabilities = ["invoicing", "groups", "accounting"]) =>
 beforeEach(() => {
   Object.values(api).forEach((f) => f.mockReset());
   getPayout.mockReset();
+  nav.push.mockReset();
   api.listDiscountPresets.mockResolvedValue({ presets: [], can_manage: true });
 });
 
@@ -76,8 +98,8 @@ function treasury(over: Partial<TreasuryState> = {}): TreasuryState {
   return {
     today: "2026-06-17",
     accounts: [
-      { id: "a1", name: "Cash drawer", kind: "CASH", currency: "EGP", opening_balance_minor: 50000, opening_on: "2026-06-01", is_active: true, balance_minor: 80000, today_in_minor: 30000, today_out_minor: 0, last_closing: null, closed_today: false },
-      { id: "a2", name: "Bank", kind: "BANK", currency: "EGP", opening_balance_minor: 0, opening_on: "2026-06-01", is_active: true, balance_minor: 20000, today_in_minor: 0, today_out_minor: 0, last_closing: null, closed_today: false },
+      { id: "a1", name: "Cash drawer", kind: "CASH", currency: "EGP", opening_balance_minor: 50000, opening_on: "2026-06-01", is_active: true, balance_minor: 80000, today_in_minor: 30000, today_out_minor: 0, last_closing: null, closed_today: false, has_history: true },
+      { id: "a2", name: "Bank", kind: "BANK", currency: "EGP", opening_balance_minor: 0, opening_on: "2026-06-01", is_active: true, balance_minor: 20000, today_in_minor: 0, today_out_minor: 0, last_closing: null, closed_today: false, has_history: true },
     ],
     methods: [{ method: "CASH", currency: "EGP", cash_account_id: "a1" }],
     unmapped_methods: [{ method: "WALLET", currency: "EGP" }],
@@ -118,6 +140,161 @@ describe("Treasury", () => {
 
     await userEvent.click(screen.getByTestId("close-confirm"));
     await waitFor(() => expect(api.closeDay).toHaveBeenCalledWith({ cash_account_id: "a1", counted_minor: 75000, note: "" }));
+  });
+
+  it("opens each account on its own page", async () => {
+    api.getTreasury.mockResolvedValue(treasury());
+    render(withAuth(owner(), <AccountingTreasuryScreen />));
+    expect((await screen.findByTestId("open-a1")).getAttribute("href")).toBe("/accounting/treasury/a1");
+  });
+});
+
+const egp = (minor: number) => formatMoney({ amount: minor, currency: "EGP" }, "ar");
+
+function ledger(over: Partial<AccountLedger> = {}): AccountLedger {
+  return {
+    account: { id: "a1", name: "Cash drawer", kind: "CASH", currency: "EGP", opening_on: "2026-06-01", opening_balance_minor: 50000 },
+    from: "2026-06-01",
+    to: "2026-06-17",
+    opening_minor: 50000,
+    entries: [
+      { kind: "RECEIPT", id: "r1", date: "2026-06-02", label: "R-000001", party: "Parent of two", guardian_id: "g1", method: "CASH", in_minor: 30000, out_minor: 0, balance_minor: 80000 },
+      { kind: "EXPENSE", id: "e1", date: "2026-06-03", label: "E-000001", party: "Landlord", category: "الإيجار", category_key: "rent", has_attachment: false, by: "Owner Omar", in_minor: 0, out_minor: 10000, balance_minor: 70000 },
+      { kind: "EXPENSE", id: "e2", date: "2026-06-04", label: "E-000002", party: "Print shop", category: "طباعة", category_key: "printing", has_attachment: false, by: "Owner Omar", in_minor: 0, out_minor: 5000, balance_minor: 65000 },
+      { kind: "TRANSFER_OUT", id: "t1", date: "2026-06-05", label: "Bank", from_name: "Cash drawer", to_name: "Bank", description: "To the bank", by: "Owner Omar", in_minor: 0, out_minor: 20000, balance_minor: 45000 },
+    ],
+    closing_minor: 45000,
+    ...over,
+  };
+}
+
+describe("Treasury account page", () => {
+  it("puts the opening balance on top, money in beside money out, and opens a line's detail", async () => {
+    api.getTreasury.mockResolvedValue(treasury());
+    api.getAccountLedger.mockResolvedValue(ledger());
+    api.getReceipt.mockReturnValue(new Promise(() => {}));
+    api.voidExpense.mockResolvedValue({ ok: true });
+    render(withAuth(owner(), <TreasuryAccountScreen accountId="a1" />));
+
+    // The period starts the day the account opened, so the tile is its opening balance.
+    const opening = await screen.findByTestId("account-opening");
+    expect(opening.textContent).toContain(ar.treasury.account.opening);
+    expect(opening.textContent).toContain(egp(50000));
+    expect(screen.getByTestId("account-collected").textContent).toContain(egp(30000));
+    expect(screen.getByTestId("account-spent").textContent).toContain(egp(15000));
+    expect(screen.getByTestId("account-closing").textContent).toContain(egp(45000));
+
+    // A transfer moves the balance but is neither side's total: it sits apart under "out".
+    const inSide = screen.getByTestId("account-in");
+    const outSide = screen.getByTestId("account-out");
+    expect(within(inSide).getByText("Parent of two")).toBeTruthy();
+    expect(within(outSide).getByText("Landlord")).toBeTruthy();
+    expect(within(outSide).getByText(ar.treasury.account.moves)).toBeTruthy();
+    expect(within(inSide).queryByText("Landlord")).toBeNull();
+
+    // A category chip narrows the spent side.
+    await userEvent.click(within(screen.getByTestId("account-categories")).getByRole("button", { name: /طباعة/ }));
+    expect(within(outSide).queryByText("Landlord")).toBeNull();
+    expect(within(outSide).getByText("Print shop")).toBeTruthy();
+    await userEvent.click(within(screen.getByTestId("account-categories")).getByRole("button", { name: ar.expenses.allCategories }));
+
+    // A receipt opens the receipt itself.
+    await userEvent.click(screen.getByTestId("entry-r1"));
+    await waitFor(() => expect(api.getReceipt).toHaveBeenCalledWith("r1"));
+
+    // An expense opens its detail, and is voided right there with a reason.
+    await userEvent.click(screen.getByTestId("entry-e1"));
+    const detail = await screen.findByTestId("entry-detail");
+    expect(within(detail).getByText("Owner Omar")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("entry-act"));
+    expect(screen.getByTestId("entry-act-confirm")).toBeDisabled();
+    await userEvent.type(screen.getByTestId("entry-reason"), "Paid twice");
+    await userEvent.click(screen.getByTestId("entry-act-confirm"));
+    await waitFor(() => expect(api.voidExpense).toHaveBeenCalledWith("e1", "Paid twice"));
+  });
+
+  it("calls a later period's first figure the balance brought forward, and asks for last month", async () => {
+    api.getTreasury.mockResolvedValue(treasury());
+    api.getAccountLedger.mockResolvedValue(ledger({ from: "2026-06-10", opening_minor: 70000 }));
+    render(withAuth(owner(), <TreasuryAccountScreen accountId="a1" />));
+
+    const opening = await screen.findByTestId("account-opening");
+    expect(opening.textContent).toContain(ar.treasury.account.openingPeriod);
+    expect(opening.textContent).toContain(egp(70000));
+
+    await userEvent.click(screen.getByTestId("period-lastMonth"));
+    await waitFor(() => expect(api.getAccountLedger).toHaveBeenLastCalledWith("a1", expect.stringMatching(/-01$/), expect.any(String)));
+  });
+
+  it("deletes an account that never held anything, and asks to empty one that did first", async () => {
+    const accounts = treasury().accounts;
+    api.getTreasury.mockResolvedValue(treasury({ accounts: [{ ...accounts[0]!, has_history: false, balance_minor: 0 }, accounts[1]!] }));
+    api.getAccountLedger.mockResolvedValue(ledger({ entries: [], closing_minor: 0, opening_minor: 0 }));
+    api.deleteCashAccount.mockResolvedValue({ deleted: true, stopped: false });
+    const { unmount } = render(withAuth(owner(), <TreasuryAccountScreen accountId="a1" />));
+
+    await userEvent.click(await screen.findByTestId("account-delete"));
+    expect(screen.getByTestId("delete-account").textContent).toContain(ar.treasury.account.deleteForGood);
+    await userEvent.click(screen.getByTestId("delete-account-confirm"));
+    await waitFor(() => expect(api.deleteCashAccount).toHaveBeenCalledWith("a1"));
+    expect(nav.push).toHaveBeenCalledWith("/accounting/treasury");
+    unmount();
+
+    // The drawer holds 800 and has history: no button, only the way to empty it.
+    api.getTreasury.mockResolvedValue(treasury());
+    api.getAccountLedger.mockResolvedValue(ledger());
+    render(withAuth(owner(), <TreasuryAccountScreen accountId="a1" />));
+    await userEvent.click(await screen.findByTestId("account-delete"));
+    expect(screen.getByTestId("delete-account").textContent).toContain(egp(80000));
+    expect(screen.queryByTestId("delete-account-confirm")).toBeNull();
+  });
+
+  it("adjusts the balance to what is really there, with a reason", async () => {
+    api.getTreasury.mockResolvedValue(treasury());
+    api.getAccountLedger.mockResolvedValue(ledger());
+    api.createAdjustment.mockResolvedValue({ id: "adj1", expected_minor: 80000, actual_minor: 75000, amount_minor: -5000 });
+    render(withAuth(owner(), <TreasuryAccountScreen accountId="a1" />));
+
+    await userEvent.click(await screen.findByTestId("account-adjust"));
+    const actual = screen.getByTestId("adjust-actual") as HTMLInputElement;
+    expect(actual.value).toBe("800");
+    // Nothing to adjust yet, and never without a reason.
+    expect(screen.getByTestId("adjust-confirm")).toBeDisabled();
+    await userEvent.clear(actual);
+    await userEvent.type(actual, "750");
+    expect(screen.getByTestId("adjust-diff").textContent).toContain(ar.treasury.shortBy.split("{")[0]!.trim());
+    expect(screen.getByTestId("adjust-confirm")).toBeDisabled();
+    await userEvent.type(screen.getByTestId("adjust-reason"), "Counted at noon");
+    await userEvent.click(screen.getByTestId("adjust-confirm"));
+    await waitFor(() => expect(api.createAdjustment).toHaveBeenCalledWith({ cash_account_id: "a1", actual_minor: 75000, reason: "Counted at noon" }));
+  });
+
+  it("corrects an expense's amount from its detail, and locks the opening once a day is counted", async () => {
+    const accounts = treasury().accounts;
+    api.getTreasury.mockResolvedValue(treasury({ accounts: [{ ...accounts[0]!, last_closing: { day: "2026-06-16", difference_minor: 0 } }, accounts[1]!] }));
+    api.getAccountLedger.mockResolvedValue(ledger());
+    api.updateExpenseAmount.mockResolvedValue({ ok: true });
+    render(withAuth(owner(), <TreasuryAccountScreen accountId="a1" />));
+
+    await userEvent.click(await screen.findByTestId("entry-e1"));
+    await userEvent.click(screen.getByTestId("entry-edit"));
+    const amount = screen.getByTestId("entry-amount") as HTMLInputElement;
+    expect(amount.value).toBe("100");
+    await userEvent.clear(amount);
+    await userEvent.type(amount, "120");
+    await userEvent.click(screen.getByTestId("entry-edit-save"));
+    await waitFor(() => expect(api.updateExpenseAmount).toHaveBeenCalledWith("e1", 12000));
+
+    await userEvent.click(await screen.findByTestId("account-edit"));
+    expect(screen.getByTestId("edit-account-opening")).toBeDisabled();
+    expect(screen.getByText(ar.treasury.account.openingLocked)).toBeTruthy();
+  });
+
+  it("says so when the account does not exist", async () => {
+    api.getTreasury.mockResolvedValue(treasury());
+    api.getAccountLedger.mockRejectedValue(new Error("404"));
+    render(withAuth(owner(), <TreasuryAccountScreen accountId="nope" />));
+    expect(await screen.findByText(ar.treasury.account.notFound)).toBeTruthy();
   });
 });
 

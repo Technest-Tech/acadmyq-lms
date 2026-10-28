@@ -26,23 +26,28 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *   GET    /treasury                          every account with its balance today, the method map,
  *                                             the month's in / out / net, what still needs mapping
  *   POST   /treasury/accounts                 open an account (name, kind, currency, opening balance)
- *   PATCH  /treasury/accounts/{id}            rename / (de)activate
+ *   PATCH  /treasury/accounts/{id}            rename / (de)activate / correct the opening balance
+ *   DELETE /treasury/accounts/{id}            delete one that never held anything; stop one that did
  *   PUT    /treasury/methods                  which account a payment method lands in
  *   GET    /treasury/accounts/{id}/ledger     the account's movements with a running balance
  *   POST   /treasury/transfers                move money between two accounts
+ *   PATCH  /treasury/transfers/{id}           correct the amount
  *   POST   /treasury/transfers/{id}/void
  *   POST   /treasury/closings                 close a day: counted vs expected
  *   DELETE /treasury/closings/{id}            reopen the account's LAST closed day
+ *   POST   /treasury/adjustments              set a balance to what is really there (day stays open)
+ *   POST   /treasury/adjustments/{id}/void
  *   GET    /expenses                          money out: filter by days, category, account
  *   POST   /expenses                          record one (a salary: with its payout statement)
+ *   PATCH  /expenses/{id}                     correct the amount
  *   POST   /expenses/{id}/void
  *   GET    /expenses/{id}/attachment
  *   GET    /expenses/salaries                 finalized teacher statements and what is still unpaid
  *   POST   /expense-categories / PATCH /expense-categories/{id}
  *   GET    /accounting/income-expenses?year=  the year month by month: money in, money out, net
  *
- * Reading is `invoice.read`; writing `expense.manage`; closing a day `cashbox.close`; anything that
- * shows a teacher's pay additionally `payout.read`.
+ * Reading is `invoice.read`; writing `expense.manage`; closing a day or adjusting a balance
+ * `cashbox.close`; anything that shows a teacher's pay additionally `payout.read`.
  */
 final class TreasuryController extends Controller
 {
@@ -78,6 +83,7 @@ final class TreasuryController extends Controller
                 'today_out_minor' => $b['out_minor'],
                 'last_closing' => $last !== null ? ['day' => Carbon::parse($last->day)->format('Y-m-d'), 'difference_minor' => (int) $last->difference_minor] : null,
                 'closed_today' => $last !== null && Carbon::parse($last->day)->format('Y-m-d') === $today,
+                'has_history' => $this->treasury->hasHistory((string) $a->id),
             ];
         })->values();
 
@@ -152,21 +158,81 @@ final class TreasuryController extends Controller
         if ($account === null) {
             abort(404, 'Account not found.');
         }
-        $data = $request->validate(['name' => ['sometimes', 'string', 'max:80'], 'is_active' => ['sometimes', 'boolean']]);
+        $today = $this->today((string) $account->academy_id);
+        $data = $request->validate([
+            'name' => ['sometimes', 'string', 'max:80'],
+            'is_active' => ['sometimes', 'boolean'],
+            'opening_balance_minor' => ['sometimes', 'integer', 'min:-100000000000', 'max:100000000000'],
+            'opening_on' => ['sometimes', 'date_format:Y-m-d', 'before_or_equal:'.$today],
+        ]);
         if (array_key_exists('is_active', $data) && ! $data['is_active']) {
-            $balance = $this->treasury->balanceOf($account, $this->today((string) $account->academy_id))['balance_minor'];
-            if ($balance !== 0) {
-                throw ValidationException::withMessages(['is_active' => ['Move this account’s balance out before closing it. / انقل رصيد هذه الخزنة قبل إيقافها.']]);
+            $this->stop($account, $today);
+        }
+        $openingChanged = (array_key_exists('opening_balance_minor', $data) && (int) $data['opening_balance_minor'] !== (int) $account->opening_balance_minor)
+            || (array_key_exists('opening_on', $data) && $data['opening_on'] !== Carbon::parse($account->opening_on)->format('Y-m-d'));
+        if ($openingChanged) {
+            // A counted day froze what the books said then; moving the start would quietly unbalance it.
+            if (DB::table('cash_closings')->where('cash_account_id', $id)->exists()) {
+                throw ValidationException::withMessages(['opening_balance_minor' => [
+                    'A day has already been counted on this account — correct its balance with an adjustment instead. / تم جرد يوم على هذه الخزنة بالفعل — صحّح رصيدها بتسوية بدلًا من تعديل الافتتاحي.',
+                ]]);
             }
-            DB::table('cash_account_methods')->where('cash_account_id', $id)->delete();
+            $first = $this->treasury->firstMovementOn($id);
+            if (isset($data['opening_on']) && $first !== null && $data['opening_on'] > $first) {
+                throw ValidationException::withMessages(['opening_on' => [
+                    'This account already has movements from '.$first.'; it cannot start after them. / على هذه الخزنة حركات من '.$first.' فلا يمكن أن تبدأ بعدها.',
+                ]]);
+            }
         }
         DB::table('cash_accounts')->where('id', $id)->update(array_filter([
             'name' => isset($data['name']) ? trim((string) $data['name']) : null,
             'is_active' => $data['is_active'] ?? null,
+            'opening_balance_minor' => $data['opening_balance_minor'] ?? null,
+            'opening_on' => $data['opening_on'] ?? null,
         ], fn ($v) => $v !== null) + ['updated_at' => now()]);
-        $this->audit('treasury.account_updated', 'cash_account', $id, $data);
+        $this->audit('treasury.account_updated', 'cash_account', $id, $data + ($openingChanged ? [
+            'before' => ['opening_balance_minor' => (int) $account->opening_balance_minor, 'opening_on' => Carbon::parse($account->opening_on)->format('Y-m-d')],
+        ] : []));
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Delete an account. One that never held anything goes for good; one with any history (even
+     * voided) is stopped instead — hidden from the treasury, its movements kept — and like any stop
+     * it must be emptied first.
+     */
+    public function destroyAccount(string $id): JsonResponse
+    {
+        Gate::authorize('expense.manage');
+        $account = DB::table('cash_accounts')->where('id', $id)->first();
+        if ($account === null) {
+            abort(404, 'Account not found.');
+        }
+        if (! $this->treasury->hasHistory($id)) {
+            DB::table('cash_account_methods')->where('cash_account_id', $id)->delete();
+            DB::table('cash_accounts')->where('id', $id)->delete();
+            $this->audit('treasury.account_deleted', 'cash_account', $id, ['name' => $account->name]);
+
+            return response()->json(['deleted' => true, 'stopped' => false]);
+        }
+        if ($account->is_active) {
+            $this->stop($account, $this->today((string) $account->academy_id));
+            DB::table('cash_accounts')->where('id', $id)->update(['is_active' => false, 'updated_at' => now()]);
+            $this->audit('treasury.account_updated', 'cash_account', $id, ['is_active' => false]);
+        }
+
+        return response()->json(['deleted' => false, 'stopped' => true]);
+    }
+
+    /** An account stops only empty; it stops taking any payment method. */
+    private function stop(object $account, string $today): void
+    {
+        $balance = $this->treasury->balanceOf($account, $today)['balance_minor'];
+        if ($balance !== 0) {
+            throw ValidationException::withMessages(['is_active' => ['Move this account’s balance out before closing it. / انقل رصيد هذه الخزنة قبل إيقافها.']]);
+        }
+        DB::table('cash_account_methods')->where('cash_account_id', $account->id)->delete();
     }
 
     public function mapMethods(Request $request): JsonResponse
@@ -195,13 +261,23 @@ final class TreasuryController extends Controller
         $data = $request->validate(['from' => ['sometimes', 'nullable', 'date_format:Y-m-d'], 'to' => ['sometimes', 'nullable', 'date_format:Y-m-d']]);
         $to = $data['to'] ?? $today;
         $from = $data['from'] ?? Carbon::parse($to)->subDays(30)->format('Y-m-d');
+        $ledger = $this->treasury->ledger($account, $from, $to);
+
+        // A salary still moves the balance, but who was paid and for which month is payroll's business.
+        if (! Gate::allows('payout.read')) {
+            foreach ($ledger['entries'] as $i => $e) {
+                if ($e['kind'] === 'EXPENSE' && in_array($e['category_key'] ?? null, ['teacher_salaries', 'staff_salaries'], true)) {
+                    $ledger['entries'][$i] = ['party' => null, 'description' => null, 'payout_id' => null] + $e;
+                }
+            }
+        }
 
         return response()->json([
             'account' => ['id' => (string) $account->id, 'name' => (string) $account->name, 'kind' => (string) $account->kind, 'currency' => (string) $account->currency,
-                'opening_on' => Carbon::parse($account->opening_on)->format('Y-m-d')],
+                'opening_on' => Carbon::parse($account->opening_on)->format('Y-m-d'), 'opening_balance_minor' => (int) $account->opening_balance_minor],
             'from' => max($from, Carbon::parse($account->opening_on)->format('Y-m-d')),
             'to' => $to,
-        ] + $this->treasury->ledger($account, $from, $to));
+        ] + $ledger);
     }
 
     // ── Transfers & closings ────────────────────────────────────────────────
@@ -238,6 +314,22 @@ final class TreasuryController extends Controller
         $this->audit('treasury.transfer', 'cash_transfer', $id, ['from' => $from->name, 'to' => $to->name, 'amount_minor' => (int) $data['amount_minor']]);
 
         return response()->json(['id' => $id], 201);
+    }
+
+    public function updateTransfer(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('expense.manage');
+        $data = $request->validate(['amount_minor' => ['required', 'integer', 'min:1', 'max:100000000000']]);
+        $t = DB::table('cash_transfers')->where('id', $id)->whereNull('voided_at')->first();
+        if ($t === null) {
+            abort(404, 'Transfer not found.');
+        }
+        $this->treasury->assertOpenDay((string) $t->from_account_id, (string) $t->transferred_on);
+        $this->treasury->assertOpenDay((string) $t->to_account_id, (string) $t->transferred_on);
+        DB::table('cash_transfers')->where('id', $id)->update(['amount_minor' => (int) $data['amount_minor']]);
+        $this->audit('treasury.transfer_amount_changed', 'cash_transfer', $id, ['before' => (int) $t->amount_minor, 'amount_minor' => (int) $data['amount_minor']]);
+
+        return response()->json(['ok' => true]);
     }
 
     public function voidTransfer(Request $request, string $id): JsonResponse
@@ -304,6 +396,60 @@ final class TreasuryController extends Controller
         }
         DB::table('cash_closings')->where('id', $id)->delete();
         $this->audit('treasury.day_reopened', 'cash_account', (string) $c->cash_account_id, ['day' => $c->day, 'difference_minor' => (int) $c->difference_minor]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** The account really holds `actual_minor`: record the difference from the books, with why. */
+    public function storeAdjustment(Request $request): JsonResponse
+    {
+        Gate::authorize('cashbox.close');
+        $academyId = $this->academyId();
+        $data = $request->validate([
+            'cash_account_id' => ['required', 'uuid'],
+            'day' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:'.$this->today($academyId)],
+            'actual_minor' => ['required', 'integer', 'min:-100000000000', 'max:100000000000'],
+            'reason' => ['required', 'string', 'min:3', 'max:500'],
+        ]);
+        $account = DB::table('cash_accounts')->where('id', $data['cash_account_id'])->where('is_active', true)->first();
+        if ($account === null) {
+            throw ValidationException::withMessages(['cash_account_id' => ['Choose an open account. / اختر خزنة مفعّلة.']]);
+        }
+        $day = $data['day'] ?? $this->today($academyId);
+        if ($day < Carbon::parse($account->opening_on)->format('Y-m-d')) {
+            throw ValidationException::withMessages(['day' => ['That day is before this account was opened. / هذا اليوم قبل فتح الخزنة.']]);
+        }
+        $this->treasury->assertOpenDay((string) $account->id, $day);
+
+        return DB::transaction(function () use ($account, $day, $data, $academyId) {
+            $expected = $this->treasury->balanceOf($account, $day)['balance_minor'];
+            $actual = (int) $data['actual_minor'];
+            if ($actual === $expected) {
+                throw ValidationException::withMessages(['actual_minor' => ['That is already the balance — nothing to adjust. / هذا هو الرصيد بالفعل — لا توجد تسوية.']]);
+            }
+            $id = (string) Str::uuid();
+            DB::table('cash_adjustments')->insert([
+                'id' => $id, 'academy_id' => $academyId, 'cash_account_id' => $account->id, 'adjusted_on' => $day,
+                'expected_minor' => $expected, 'actual_minor' => $actual, 'amount_minor' => $actual - $expected,
+                'reason' => trim((string) $data['reason']), 'created_by' => app(AuthContext::class)->userId,
+            ]);
+            $this->audit('treasury.balance_adjusted', 'cash_account', (string) $account->id, ['day' => $day, 'expected_minor' => $expected, 'actual_minor' => $actual, 'reason' => $data['reason']]);
+
+            return response()->json(['id' => $id, 'expected_minor' => $expected, 'actual_minor' => $actual, 'amount_minor' => $actual - $expected], 201);
+        });
+    }
+
+    public function voidAdjustment(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('cashbox.close');
+        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:500']]);
+        $a = DB::table('cash_adjustments')->where('id', $id)->whereNull('voided_at')->first();
+        if ($a === null) {
+            abort(404, 'Adjustment not found.');
+        }
+        $this->treasury->assertOpenDay((string) $a->cash_account_id, (string) $a->adjusted_on);
+        DB::table('cash_adjustments')->where('id', $id)->update(['voided_at' => now(), 'voided_by' => app(AuthContext::class)->userId, 'void_reason' => trim((string) $data['reason'])]);
+        $this->audit('treasury.adjustment_voided', 'cash_account', (string) $a->cash_account_id, ['amount_minor' => (int) $a->amount_minor, 'reason' => $data['reason']]);
 
         return response()->json(['ok' => true]);
     }
@@ -464,6 +610,30 @@ final class TreasuryController extends Controller
         $this->audit('expense.recorded', 'expense', $id, ['number' => $number, 'amount_minor' => (int) $data['amount_minor'], 'account' => $account->name, 'payout_id' => $data['payout_id'] ?? null]);
 
         return response()->json(['id' => $id, 'number' => $number], 201);
+    }
+
+    /** Correct an expense's amount (a salary: never beyond what is left on its statement). */
+    public function updateExpense(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('expense.manage');
+        $data = $request->validate(['amount_minor' => ['required', 'integer', 'min:1', 'max:100000000000']]);
+        $e = DB::table('expenses')->where('id', $id)->whereNull('voided_at')->first();
+        if ($e === null) {
+            abort(404, 'Expense not found.');
+        }
+        $this->treasury->assertOpenDay((string) $e->cash_account_id, (string) $e->spent_on);
+        if ($e->payout_id !== null) {
+            Gate::authorize('payout.read');
+            $total = (int) DB::table('payouts')->where('id', $e->payout_id)->value('total_minor');
+            $others = (int) DB::table('expenses')->where('payout_id', $e->payout_id)->where('id', '<>', $id)->whereNull('voided_at')->sum('amount_minor');
+            if ((int) $data['amount_minor'] > $total - $others) {
+                throw ValidationException::withMessages(['amount_minor' => ['More than is left to pay on this statement. / أكبر من المتبقي على كشف المرتب.']]);
+            }
+        }
+        DB::table('expenses')->where('id', $id)->update(['amount_minor' => (int) $data['amount_minor']]);
+        $this->audit('expense.amount_changed', 'expense', $id, ['number' => $e->number, 'before' => (int) $e->amount_minor, 'amount_minor' => (int) $data['amount_minor']]);
+
+        return response()->json(['ok' => true]);
     }
 
     public function voidExpense(Request $request, string $id): JsonResponse

@@ -204,6 +204,120 @@ it('pays a teacher’s finalized statement out of an account, never beyond it', 
     expect(trsAccount($this, $drawer)['balance_minor'])->toBe(20000);
 });
 
+it('gives an account’s page every movement with its details, and keeps a salary’s payee from a supervisor', function () {
+    trsOn($this->academy);
+    [$drawer, $bank] = trsAccounts($this);
+    $payout = trsTenant($this->academy, function () {
+        $id = (string) Str::uuid();
+        DB::table('payouts')->insert(['id' => $id, 'academy_id' => $this->academy, 'teacher_id' => $this->teacher, 'period_year' => 2026, 'period_month' => 5,
+            'total_minor' => 40000, 'currency' => 'EGP', 'finalized_at' => now()]);
+
+        return $id;
+    });
+    $rent = collect($this->getJson('/api/expenses')->json('categories'))->firstWhere('key', 'rent')['id'];
+    $this->post('/api/expenses', ['category_id' => $rent, 'cash_account_id' => $drawer, 'amount_minor' => 10000, 'payee' => 'Landlord', 'attachment' => UploadedFile::fake()->image('bill.jpg')])->assertCreated();
+    $this->postJson('/api/expenses', ['payout_id' => $payout, 'cash_account_id' => $drawer, 'amount_minor' => 5000])->assertCreated();
+    $this->postJson('/api/treasury/transfers', ['from_account_id' => $drawer, 'to_account_id' => $bank, 'amount_minor' => 20000, 'note' => 'To the bank'])->assertCreated();
+
+    $res = $this->getJson("/api/treasury/accounts/{$drawer}/ledger?from=2026-06-01&to=2026-06-17")->assertOk();
+    expect($res->json('account.opening_balance_minor'))->toBe(50000)->and($res->json('closing_minor'))->toBe(15000);
+    $entries = collect($res->json('entries'))->keyBy('label');
+    expect($entries['E-000001'])->toMatchArray(['kind' => 'EXPENSE', 'category_key' => 'rent', 'party' => 'Landlord', 'has_attachment' => true, 'by' => 'Owner Omar']);
+    expect($entries['E-000002'])->toMatchArray(['party' => 'Miss Mona', 'description' => '2026-05', 'payout_id' => $payout]);
+    expect($entries['Bank'])->toMatchArray(['kind' => 'TRANSFER_OUT', 'from_name' => 'Cash drawer', 'to_name' => 'Bank', 'description' => 'To the bank', 'by' => 'Owner Omar']);
+
+    // A supervisor reads the account (invoice.read) and sees the salary leave it — not whose it was.
+    Sanctum::actingAs($this->supervisor);
+    $sup = collect($this->getJson("/api/treasury/accounts/{$drawer}/ledger?from=2026-06-01&to=2026-06-17")->assertOk()->json('entries'))->keyBy('label');
+    expect($sup['E-000002'])->toMatchArray(['party' => null, 'description' => null, 'payout_id' => null, 'out_minor' => 5000])
+        ->and($sup['E-000001']['party'])->toBe('Landlord');
+});
+
+it('corrects an opening balance until a day is counted, and adjusts a balance to what is really there', function () {
+    trsOn($this->academy);
+    [$drawer] = trsAccounts($this);
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 30000, 'method' => 'CASH'])->assertCreated();
+
+    // Typed 500 on day one; it was really 400, from the first of the month.
+    $this->patchJson("/api/treasury/accounts/{$drawer}", ['opening_balance_minor' => 40000, 'opening_on' => '2026-06-01'])->assertOk();
+    $printing = collect($this->getJson('/api/expenses')->json('categories'))->firstWhere('key', 'printing')['id'];
+    $this->postJson('/api/expenses', ['category_id' => $printing, 'cash_account_id' => $drawer, 'amount_minor' => 5000, 'spent_on' => '2026-06-10'])->assertCreated();
+    expect(trsAccount($this, $drawer)['balance_minor'])->toBe(65000);
+    // It cannot start after money it already holds.
+    $this->patchJson("/api/treasury/accounts/{$drawer}", ['opening_on' => '2026-06-15'])->assertStatus(422);
+
+    // The drawer holds 600: the 50 difference is recorded with its reason, the day stays open.
+    $adj = $this->postJson('/api/treasury/adjustments', ['cash_account_id' => $drawer, 'actual_minor' => 60000, 'reason' => 'Counted at noon'])->assertCreated();
+    expect($adj->json())->toMatchArray(['expected_minor' => 65000, 'actual_minor' => 60000, 'amount_minor' => -5000]);
+    expect(trsAccount($this, $drawer))->toMatchArray(['balance_minor' => 60000, 'closed_today' => false]);
+    $this->postJson('/api/treasury/adjustments', ['cash_account_id' => $drawer, 'actual_minor' => 60000, 'reason' => 'Again'])->assertStatus(422);
+    $entry = collect($this->getJson("/api/treasury/accounts/{$drawer}/ledger?from=2026-06-01")->json('entries'))->firstWhere('kind', 'ADJUSTMENT');
+    expect($entry)->toMatchArray(['description' => 'Counted at noon', 'out_minor' => 5000, 'expected_minor' => 65000, 'actual_minor' => 60000, 'by' => 'Owner Omar']);
+
+    $this->postJson("/api/treasury/adjustments/{$adj->json('id')}/void", ['reason' => 'Found it'])->assertOk();
+    expect(trsAccount($this, $drawer)['balance_minor'])->toBe(65000);
+
+    // Once a day is counted, the opening is history: corrections go through an adjustment.
+    $this->postJson('/api/treasury/closings', ['cash_account_id' => $drawer, 'counted_minor' => 65000])->assertCreated();
+    $this->patchJson("/api/treasury/accounts/{$drawer}", ['opening_balance_minor' => 0])->assertStatus(422);
+    $this->patchJson("/api/treasury/accounts/{$drawer}", ['name' => 'Reception drawer'])->assertOk();
+
+    // A supervisor counts nothing.
+    Sanctum::actingAs($this->supervisor);
+    $this->postJson('/api/treasury/adjustments', ['cash_account_id' => $drawer, 'actual_minor' => 1, 'reason' => 'Nope'])->assertForbidden();
+});
+
+it('deletes an account that never held anything, and only stops — empty — one that did', function () {
+    trsOn($this->academy);
+    [$drawer, $bank] = trsAccounts($this);
+    $wallet = $this->postJson('/api/treasury/accounts', ['name' => 'Wallet by mistake', 'kind' => 'WALLET', 'methods' => ['WALLET']])->assertCreated()->json('id');
+    expect(trsAccount($this, $wallet)['has_history'])->toBeFalse();
+
+    $this->deleteJson("/api/treasury/accounts/{$wallet}")->assertOk()->assertJson(['deleted' => true, 'stopped' => false]);
+    expect(collect($this->getJson('/api/treasury')->json('accounts'))->pluck('id')->all())->not->toContain($wallet);
+    expect(trsTenant($this->academy, fn () => DB::table('cash_account_methods')->where('method', 'WALLET')->count()))->toBe(0);
+
+    // The bank held money once: it is never deleted, and stops only when empty.
+    $t = $this->postJson('/api/treasury/transfers', ['from_account_id' => $drawer, 'to_account_id' => $bank, 'amount_minor' => 10000])->assertCreated()->json('id');
+    $this->deleteJson("/api/treasury/accounts/{$bank}")->assertStatus(422);
+    $this->postJson("/api/treasury/transfers/{$t}/void", ['reason' => 'Wrong account'])->assertOk();
+    $this->deleteJson("/api/treasury/accounts/{$bank}")->assertOk()->assertJson(['deleted' => false, 'stopped' => true]);
+    expect(trsAccount($this, $bank))->toMatchArray(['is_active' => false, 'has_history' => true]);
+    expect(trsTenant($this->academy, fn () => DB::table('cash_transfers')->where('id', $t)->exists()))->toBeTrue();
+
+    $this->patchJson("/api/treasury/accounts/{$bank}", ['is_active' => true])->assertOk();
+    expect(trsAccount($this, $bank)['is_active'])->toBeTrue();
+});
+
+it('corrects an expense’s and a transfer’s amount — never past a salary statement, never on a closed day', function () {
+    trsOn($this->academy);
+    [$drawer, $bank] = trsAccounts($this);
+    $rent = collect($this->getJson('/api/expenses')->json('categories'))->firstWhere('key', 'rent')['id'];
+    $e = $this->postJson('/api/expenses', ['category_id' => $rent, 'cash_account_id' => $drawer, 'amount_minor' => 20000])->assertCreated()->json('id');
+    $t = $this->postJson('/api/treasury/transfers', ['from_account_id' => $drawer, 'to_account_id' => $bank, 'amount_minor' => 10000])->assertCreated()->json('id');
+
+    $this->patchJson("/api/expenses/{$e}", ['amount_minor' => 15000])->assertOk();
+    $this->patchJson("/api/treasury/transfers/{$t}", ['amount_minor' => 30000])->assertOk();
+    expect(trsAccount($this, $drawer)['balance_minor'])->toBe(5000)
+        ->and(trsAccount($this, $bank)['balance_minor'])->toBe(30000);
+    $this->patchJson("/api/expenses/{$e}", ['amount_minor' => 0])->assertStatus(422);
+
+    $payout = trsTenant($this->academy, function () {
+        $id = (string) Str::uuid();
+        DB::table('payouts')->insert(['id' => $id, 'academy_id' => $this->academy, 'teacher_id' => $this->teacher, 'period_year' => 2026, 'period_month' => 5,
+            'total_minor' => 40000, 'currency' => 'EGP', 'finalized_at' => now()]);
+
+        return $id;
+    });
+    $salary = $this->postJson('/api/expenses', ['payout_id' => $payout, 'cash_account_id' => $bank, 'amount_minor' => 30000])->assertCreated()->json('id');
+    $this->patchJson("/api/expenses/{$salary}", ['amount_minor' => 50000])->assertStatus(422);
+    $this->patchJson("/api/expenses/{$salary}", ['amount_minor' => 40000])->assertOk();
+
+    $this->postJson('/api/treasury/closings', ['cash_account_id' => $drawer, 'counted_minor' => 5000])->assertCreated();
+    $this->patchJson("/api/expenses/{$e}", ['amount_minor' => 1000])->assertStatus(422);
+    $this->patchJson("/api/treasury/transfers/{$t}", ['amount_minor' => 1000])->assertStatus(422);
+});
+
 it('shows the year month by month: money in, money out, net', function () {
     trsOn($this->academy);
     [$drawer] = trsAccounts($this);
