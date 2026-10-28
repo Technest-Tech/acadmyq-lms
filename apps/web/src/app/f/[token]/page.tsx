@@ -4,7 +4,7 @@ import { getLocale } from "next-intl/server";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { cache } from "react";
-import { BankTransfer } from "@/app/i/[token]/payment-options";
+import { BankTransfer, FamilyXpayCheckout } from "@/app/i/[token]/payment-options";
 import { hours, isLang, type Lang, lessons, money, PARENT_LANG_COOKIE } from "@/app/p/[token]/copy";
 import { apiBase } from "@/lib/api-base";
 
@@ -40,6 +40,8 @@ interface FamilyPayload {
   totals: Array<{ currency: string; amount_minor: number }>;
   bank_transfer: Record<string, string> | null;
   card: boolean;
+  /** XPay is on: one card payment for the whole total, split across the bills when it settles. */
+  xpay?: boolean;
 }
 
 const COPY: Record<Lang, Record<string, string>> = {
@@ -50,6 +52,8 @@ const COPY: Record<Lang, Record<string, string>> = {
     packageNo: "الباقة رقم",
     payOne: "ادفع هذه وحدها",
     payAllTitle: "ادفع المبلغ كله بتحويل واحد",
+    cardAllTitle: "ادفع المبلغ كله بالبطاقة",
+    cardAllBody: "دفعة واحدة بالبطاقة تسدّد كل الفواتير أعلاه.",
     cardTitle: "الدفع بالبطاقة",
     cardBody: "تُدفع البطاقة لكل فاتورة على حدة — اضغط «ادفع هذه وحدها» بجانب كل واحدة.",
     noMethod: "تواصل مع الأكاديمية لإتمام الدفع.",
@@ -64,6 +68,8 @@ const COPY: Record<Lang, Record<string, string>> = {
     packageNo: "Package #",
     payOne: "Pay this one only",
     payAllTitle: "Pay it all in one transfer",
+    cardAllTitle: "Pay it all by card",
+    cardAllBody: "One card payment settles every bill above.",
     cardTitle: "Pay by card",
     cardBody: "A card pays each bill on its own — use “Pay this one only” beside each.",
     noMethod: "Contact the academy to complete the payment.",
@@ -234,6 +240,27 @@ export default async function FamilyPayPage({ params, searchParams }: PageProps)
         )}
 
         {/* How to pay it all */}
+        {/* One card payment for the whole total — first, because it is the one that is done in a minute. */}
+        {!nothingDue && data.xpay && (
+          <section className="space-y-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200" data-testid="family-card-pay">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-bold">
+                <CreditCard className="size-4 text-emerald-600" aria-hidden />
+                {t.cardAllTitle}
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500">{t.cardAllBody}</p>
+            </div>
+            {data.totals.map((o, i) => (
+              <FamilyXpayCheckout
+                key={o.currency}
+                familyToken={token}
+                amountMinor={o.amount_minor}
+                currency={o.currency}
+                confirmsReturn={i === 0}
+              />
+            ))}
+          </section>
+        )}
         {!nothingDue && data.bank_transfer && (
           <section className="space-y-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
             <h2 className="flex items-center gap-2 text-sm font-bold">
@@ -251,7 +278,8 @@ export default async function FamilyPayPage({ params, searchParams }: PageProps)
             ))}
           </section>
         )}
-        {!nothingDue && data.card && (
+        {/* PayPal (no XPay): a card still pays each bill through its own page. */}
+        {!nothingDue && data.card && !data.xpay && (
           <section className="flex items-start gap-3 rounded-2xl bg-white p-5 text-sm shadow-sm ring-1 ring-slate-200">
             <CreditCard className="mt-0.5 size-4 shrink-0 text-emerald-600" aria-hidden />
             <div>

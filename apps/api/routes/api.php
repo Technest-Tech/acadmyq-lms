@@ -82,6 +82,7 @@ use App\Http\Controllers\PaymentSettingsController;
 use App\Http\Controllers\PayoutController;
 use App\Http\Controllers\PaypalOrderController;
 use App\Http\Controllers\People\GuardianController;
+use App\Http\Controllers\FamilyXpayController;
 use App\Http\Controllers\People\FamilyPayController;
 use App\Http\Controllers\People\GuardianPortalController;
 use App\Http\Controllers\People\StaffController;
@@ -246,6 +247,10 @@ Route::middleware(['throttle:60,1'])->group(function () {
     // source of truth, and both paths settle through the same XpayFulfillment rule.
     Route::post('/i/{token}/xpay/session', [XpayCheckoutController::class, 'createSession']);
     Route::get('/i/{token}/xpay/session/{id}', [XpayCheckoutController::class, 'syncSession'])
+        ->where('id', '[A-Za-z0-9_]+');
+    // The same, for one card payment of a whole family's dues (the `/f/` page) — split across the bills.
+    Route::post('/f/{token}/xpay/session', [FamilyXpayController::class, 'createSession']);
+    Route::get('/f/{token}/xpay/session/{id}', [FamilyXpayController::class, 'syncSession'])
         ->where('id', '[A-Za-z0-9_]+');
 
     // Public academy pay page (Platform↔Academy billing). An academy views its bill + the platform's

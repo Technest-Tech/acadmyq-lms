@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Controllers\People;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\FamilyXpayController;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\PackagePurpose;
 use App\Support\Tenancy;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -32,6 +34,21 @@ final class FamilyPayController extends Controller
     private const TOKEN_LENGTH = 48;
 
     private const UNPAID = ['OPEN', 'CLOSED', 'PARTIALLY_PAID'];
+
+    /**
+     * The family's due package bills — what the page lists AND what one card payment covers
+     * ({@see FamilyXpayController}), so the two can never disagree. Run it
+     * under the academy's tenant context.
+     */
+    public static function dueQuery(string $guardianId): Builder
+    {
+        return DB::table('lesson_packages as p')
+            ->join('students as s', 's.id', '=', 'p.student_id')
+            ->join('invoices as i', 'i.id', '=', 'p.invoice_id')
+            ->where('s.guardian_id', $guardianId)
+            ->whereIn('i.status', self::UNPAID)
+            ->whereRaw('i.total_minor > i.amount_paid_minor');
+    }
 
     /** POST /api/packages/family/{guardianId}/pay-link — the family's link, made if it has none. */
     public function issue(string $guardianId): JsonResponse
@@ -95,12 +112,7 @@ final class FamilyPayController extends Controller
         $guardian = DB::table('guardians')->where('id', $guardianId)->first(['full_name']);
         $origin = AcademyUrl::origin($academyId);
 
-        $rows = DB::table('lesson_packages as p')
-            ->join('students as s', 's.id', '=', 'p.student_id')
-            ->join('invoices as i', 'i.id', '=', 'p.invoice_id')
-            ->where('s.guardian_id', $guardianId)
-            ->whereIn('i.status', self::UNPAID)
-            ->whereRaw('i.total_minor > i.amount_paid_minor')
+        $rows = self::dueQuery($guardianId)
             ->orderBy('s.full_name')
             ->orderBy('p.sequence_no')
             ->get([
@@ -134,7 +146,8 @@ final class FamilyPayController extends Controller
         ksort($totals);
 
         // Only the methods a parent can use from here: a bank transfer for the whole amount (its
-        // public details only), and whether a card can pay — each bill through its own link.
+        // public details only), XPay for the whole amount in one card payment (split across the
+        // bills when it settles), and PayPal — each bill through its own link.
         $methods = DB::table('academy_payment_settings')->where('is_active', true)->pluck('config', 'method');
         $bank = isset($methods['BANK_TRANSFER']) ? json_decode((string) $methods['BANK_TRANSFER'], true) : null;
 
@@ -148,6 +161,7 @@ final class FamilyPayController extends Controller
             'totals' => collect($totals)->map(fn (int $minor, string $currency): array => ['currency' => $currency, 'amount_minor' => $minor])->values()->all(),
             'bank_transfer' => is_array($bank) ? array_intersect_key($bank, array_flip(['bank_name', 'account_holder', 'account_number', 'iban'])) : null,
             'card' => isset($methods['XPAY']) || isset($methods['PAYPAL']),
+            'xpay' => isset($methods['XPAY']),
         ];
     }
 }

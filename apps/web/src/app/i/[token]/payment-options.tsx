@@ -448,12 +448,19 @@ function PaypalCheckout({
  * endpoint was never configured.
  */
 function XpayCheckout({
-  invoiceToken,
+  basePath,
+  payload,
+  confirmsReturn = true,
   amountMinor,
   currency,
   onPaid,
 }: {
-  invoiceToken: string;
+  /** `/api/i/{token}` for one bill, `/api/f/{token}` for a family's whole dues. */
+  basePath: string;
+  /** Sent when the session is opened (the family page names the currency it pays). */
+  payload?: Record<string, string>;
+  /** Only one button on a page should confirm the `?xpay=` it came back with. */
+  confirmsReturn?: boolean;
   amountMinor: number;
   currency: string;
   onPaid: () => void;
@@ -465,7 +472,7 @@ function XpayCheckout({
 
   // On return from XPay, confirm the session named in the query string.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !confirmsReturn) return;
     const params = new URLSearchParams(window.location.search);
 
     if (params.get("xpay_cancelled") === "1") {
@@ -480,7 +487,7 @@ function XpayCheckout({
     void (async () => {
       try {
         const res = await fetch(
-          `${API_BASE}/api/i/${invoiceToken}/xpay/session/${encodeURIComponent(sessionId)}`,
+          `${API_BASE}${basePath}/xpay/session/${encodeURIComponent(sessionId)}`,
           { headers: { Accept: "application/json" } },
         );
         const body = (await res.json().catch(() => ({}))) as {
@@ -502,20 +509,21 @@ function XpayCheckout({
         setError("We could not reach the payment service. Please refresh.");
       }
     })();
-  }, [invoiceToken, onPaid]);
+  }, [basePath, confirmsReturn, onPaid]);
 
   const start = async () => {
     setState("redirecting");
     setError(null);
     try {
       const res = await fetch(
-        `${API_BASE}/api/i/${invoiceToken}/xpay/session`,
+        `${API_BASE}${basePath}/xpay/session`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Accept: "application/json",
           },
+          body: JSON.stringify(payload ?? {}),
         },
       );
       const body = (await res.json().catch(() => ({}))) as {
@@ -590,6 +598,37 @@ function XpayCheckout({
         />
       </p>
     </div>
+  );
+}
+
+/**
+ * The family page's card button: ONE payment for everything the family owes in `currency`, which
+ * the API splits across the bills when it settles. The same XPay flow as a single bill — hosted
+ * page, webhook as the truth, the return confirming — pointed at `/api/f/{token}`.
+ */
+export function FamilyXpayCheckout({
+  familyToken,
+  amountMinor,
+  currency,
+  confirmsReturn,
+}: {
+  familyToken: string;
+  amountMinor: number;
+  currency: string;
+  confirmsReturn: boolean;
+}) {
+  const router = useRouter();
+  // Stable, for the same reason as PaymentOptions' onPaid: the confirm effect depends on it.
+  const onPaid = useCallback(() => router.refresh(), [router]);
+  return (
+    <XpayCheckout
+      basePath={`/api/f/${familyToken}`}
+      payload={{ currency }}
+      confirmsReturn={confirmsReturn}
+      amountMinor={amountMinor}
+      currency={currency}
+      onPaid={onPaid}
+    />
   );
 }
 
@@ -751,7 +790,7 @@ function MethodBody({
   if (pm.method === "XPAY") {
     return (
       <XpayCheckout
-        invoiceToken={invoiceToken}
+        basePath={`/api/i/${invoiceToken}`}
         amountMinor={amountMinor}
         currency={currency}
         onPaid={onPaid}

@@ -49,6 +49,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'api/lms/media/*',
             'api/i/*/xpay/session',   // start XPay hosted checkout
+            'api/f/*/xpay/session',   // start XPay checkout for a family's whole dues
             'api/i/*/paypal/*',       // create + capture a PayPal order
             'api/a/*/submit',         // academy uploads its transfer screenshot
             // The marketing site's demo form. A stronger case than any of the above: the sender is

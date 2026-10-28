@@ -36,7 +36,8 @@ it('exempts the public, token-authenticated payment endpoints from session CSRF'
     expect(csrfExempts('/api/i/alrayaEqLEUNbFa4Nzw4cd/xpay/session'))->toBeTrue()
         ->and(csrfExempts('/api/i/abc123/paypal/create-order'))->toBeTrue()
         ->and(csrfExempts('/api/i/abc123/paypal/capture/ORDER-1'))->toBeTrue()
-        ->and(csrfExempts('/api/a/xyz789/submit'))->toBeTrue();
+        ->and(csrfExempts('/api/a/xyz789/submit'))->toBeTrue()
+        ->and(csrfExempts('/api/f/famTokenABC123/xpay/session'))->toBeTrue();
 });
 
 it('still protects session-authenticated writes', function () {
@@ -44,5 +45,6 @@ it('still protects session-authenticated writes', function () {
     // XSRF cookie, so these have a token to check and must go on checking it.
     expect(csrfExempts('/api/students'))->toBeFalse()
         ->and(csrfExempts('/api/admin/academies/1/logo'))->toBeFalse()
-        ->and(csrfExempts('/api/i/abc123/xpay/session/SESS-1'))->toBeFalse();
+        ->and(csrfExempts('/api/i/abc123/xpay/session/SESS-1'))->toBeFalse()
+        ->and(csrfExempts('/api/f/abc123/xpay/session/SESS-1'))->toBeFalse();
 });

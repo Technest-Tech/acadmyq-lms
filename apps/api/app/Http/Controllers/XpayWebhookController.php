@@ -75,6 +75,27 @@ final class XpayWebhookController extends Controller
         }
 
         $session = (array) ($event['data']['object'] ?? []);
+
+        // One card payment for a family's dues (`/f/{token}`): settled bill by bill, against the bills
+        // OUR session row says it covered.
+        if (($session['metadata']['kind'] ?? null) === 'family') {
+            $guardianId = (string) ($session['metadata']['guardian_id'] ?? '');
+            if ($guardianId === '' || (string) ($session['metadata']['academy_id'] ?? '') !== $academy) {
+                return response()->json(['ok' => true, 'ignored' => 'unmatched']);
+            }
+            $marked = $this->fulfillment->settleFamily($session, $academy, $guardianId);
+            if ($marked === null) {
+                Log::warning('XPay event for an unknown family checkout session', [
+                    'event_id' => $eventId,
+                    'session_id' => $session['id'] ?? null,
+                ]);
+
+                return response()->json(['ok' => true, 'ignored' => 'unknown-session']);
+            }
+
+            return response()->json(['ok' => true, 'marked_paid' => $marked]);
+        }
+
         $invoiceId = (string) ($session['metadata']['invoice_id'] ?? '');
         $sessionAcademy = (string) ($session['metadata']['academy_id'] ?? '');
 

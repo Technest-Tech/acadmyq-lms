@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services\Xpay;
 
 use App\Services\Ledger;
+use App\Support\AuthContext;
+use App\Support\Tenancy;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -26,7 +28,7 @@ final class XpayFulfillment
      * Record the session locally and mark the invoice paid when the session really is settled.
      *
      * @param  array<string,mixed>  $session  an XPay Checkout Session object
-     * @return bool  true only when THIS call flipped the invoice to PAID
+     * @return bool true only when THIS call flipped the invoice to PAID
      */
     public function settle(array $session, string $academyId, string $invoiceId, int $expectedMinor): bool
     {
@@ -76,6 +78,86 @@ final class XpayFulfillment
         }
 
         return (bool) $marked;
+    }
+
+    /**
+     * The same rule for a FAMILY session (`/f/{token}`): one card payment for several bills.
+     *
+     * What the session covers comes from our own rows (xpay_checkout_session_invoices, written when
+     * it was opened) — never from the gateway's payload. The paid amount must cover the session's
+     * total; then each covered bill is marked paid by itself, and gets its own receipt on an academy
+     * kept by receipts. A bill that was meanwhile paid some other way is skipped and logged: the
+     * family paid it twice, which is a refund for a human to make, not something to guess at.
+     *
+     * Idempotent like settle(): a bill already PAID does not move, so a retried webhook or the
+     * return page racing it writes nothing.
+     *
+     * @param  array<string,mixed>  $session  an XPay Checkout Session object
+     * @return bool|null null = we never opened this session for this family; otherwise true only
+     *                   when THIS call marked at least one bill paid
+     */
+    public function settleFamily(array $session, string $academyId, string $guardianId): ?bool
+    {
+        $sessionId = (string) ($session['id'] ?? '');
+        if ($sessionId === '') {
+            return null;
+        }
+
+        $ctx = new AuthContext(userId: '', academyId: $academyId, role: 'GUARDIAN', permissions: []);
+        $opened = Tenancy::withContext($ctx, function () use ($sessionId, $guardianId, $session): ?array {
+            $row = DB::table('xpay_checkout_sessions')
+                ->where('id', $sessionId)
+                ->where('guardian_id', $guardianId)
+                ->first(['amount_minor']);
+            if ($row === null) {
+                return null;
+            }
+            DB::table('xpay_checkout_sessions')->where('id', $sessionId)->update([
+                'status' => (string) ($session['status'] ?? 'open'),
+                'payment_status' => (string) ($session['paymentStatus'] ?? 'unpaid'),
+                'updated_at' => now()->toIso8601String(),
+            ]);
+
+            return [
+                'amount_minor' => (int) $row->amount_minor,
+                'invoices' => DB::table('xpay_checkout_session_invoices')->where('session_id', $sessionId)->pluck('invoice_id')->all(),
+            ];
+        });
+
+        if ($opened === null) {
+            return null;
+        }
+        if (! self::isPaid($session)) {
+            return false;
+        }
+
+        $amountMinor = self::customerFacingTotalMinor($session);
+        if ($amountMinor === null || $amountMinor < $opened['amount_minor']) {
+            Log::warning('XPay family payment does not cover the bills it was opened for', [
+                'session_id' => $sessionId,
+                'guardian_id' => $guardianId,
+                'expected_minor' => $opened['amount_minor'],
+                'received_minor' => $amountMinor,
+            ]);
+
+            return false;
+        }
+
+        $markedAny = false;
+        foreach ($opened['invoices'] as $invoiceId) {
+            $marked = (bool) DB::selectOne('select app.xpay_settle_family_invoice(?, ?) as ok', [(string) $invoiceId, $sessionId])?->ok;
+            if ($marked) {
+                $markedAny = true;
+                app(Ledger::class)->recordGatewayPayment($academyId, (string) $invoiceId, 'XPay '.$sessionId);
+            } else {
+                Log::info('XPay family payment covered a bill that was already settled', [
+                    'session_id' => $sessionId,
+                    'invoice_id' => $invoiceId,
+                ]);
+            }
+        }
+
+        return $markedAny;
     }
 
     /** A session counts as settled only when XPay says both the session and its payment are done. */
