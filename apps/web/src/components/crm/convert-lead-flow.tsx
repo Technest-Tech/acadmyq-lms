@@ -15,6 +15,7 @@ import {
   type LeadRow,
   type StudentRow,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 
 /**
  * The SUBSCRIBED stage: the lead becomes a student, which is the only reason the stage exists.
@@ -49,7 +50,7 @@ export function ConvertLeadFlow({
 
   useEffect(() => {
     if (!canLinkExisting) return;
-    void listStudents({ pageSize: 100, filter: { status: "active" } })
+    void fetchRoster(listStudents, { filter: { status: "active" } })
       .then((r) => setStudents(r.rows))
       .catch(() => {});
   }, [canLinkExisting]);

@@ -39,6 +39,7 @@ import {
   type TeacherAdjustmentRow,
   type TeacherRow,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -76,7 +77,7 @@ export function AdjustmentsManager() {
   const refresh = useCallback(() => setRefreshToken((n) => n + 1), []);
 
   useEffect(() => {
-    listTeachers({ pageSize: 200, sort: "name" })
+    fetchRoster(listTeachers, { sort: "name" })
       .then((res) => setTeachers(res.rows.filter((row) => row.is_active)))
       .catch(() => setTeachers([]));
   }, []);

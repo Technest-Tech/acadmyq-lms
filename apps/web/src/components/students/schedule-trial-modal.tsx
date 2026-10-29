@@ -14,6 +14,7 @@ import {
   updateStudent,
   type TeacherRow,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { cn } from "@/lib/utils";
 
 const DURATION_OPTIONS = [
@@ -50,7 +51,7 @@ export function ScheduleTrialModal({
 
   useEffect(() => {
     if (!open) return;
-    void listTeachers({ pageSize: 50, filter: { status: "active" } })
+    void fetchRoster(listTeachers, { filter: { status: "active" } })
       .then((r) => setTeachers(r.rows))
       .catch(() => {});
   }, [open]);

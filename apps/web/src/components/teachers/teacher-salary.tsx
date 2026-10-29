@@ -3,6 +3,7 @@
 import { ChevronRight, Wallet } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
 import { PayoutDetailModal } from "@/components/payroll/payout-detail-modal";
 import { TeacherPayCard } from "@/components/teachers/teacher-pay-card";
 import { ApiError, listPayouts, type PayoutRow } from "@/lib/api";
@@ -17,7 +18,9 @@ function periodLabel(year: number, month: number, locale: string): string {
 }
 
 /** A teacher's pay: how they are paid, then their payout statements (per-period totals + status,
- *  opening the full ledger — lessons, fixed salary, rewards/deductions — on click). */
+ *  opening the full ledger — lessons, fixed salary, rewards/deductions — on click). The tab opens
+ *  for teacher.set_pay as well as payout.read: a supervisor sets the hourly rate without reading
+ *  payroll, so the statements below are payout.read's alone. */
 export function TeacherSalary({
   teacherId,
   onPayChanged,
@@ -28,6 +31,8 @@ export function TeacherSalary({
 }) {
   const t = useTranslations("teachers");
   const locale = useLocale();
+  const { can } = useAuth();
+  const seesPayouts = can("payout.read");
 
   const [rows, setRows] = useState<PayoutRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,8 +53,8 @@ export function TeacherSalary({
   }, [teacherId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (seesPayouts) void load();
+  }, [load, seesPayouts]);
 
   return (
     <div className="space-y-5">
@@ -57,10 +62,11 @@ export function TeacherSalary({
         teacherId={teacherId}
         onSaved={() => {
           onPayChanged?.();
-          void load();
+          if (seesPayouts) void load();
         }}
       />
 
+      {seesPayouts && (
       <div className="bg-card space-y-4 rounded-2xl border p-5 shadow-sm sm:p-6">
         <div className="flex items-center gap-2">
           <Wallet className="size-4 text-primary" aria-hidden />
@@ -142,6 +148,7 @@ export function TeacherSalary({
           </ul>
         )}
       </div>
+      )}
 
       <PayoutDetailModal
         payoutId={openId}

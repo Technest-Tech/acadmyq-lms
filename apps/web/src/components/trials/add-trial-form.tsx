@@ -14,6 +14,7 @@ import {
   listTrialTeachers,
   type StudentRow,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { COUNTRIES } from "@/lib/countries";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
@@ -122,7 +123,7 @@ export function AddTrialForm({
   useEffect(() => {
     if (who !== "student" || students !== null) return;
     let alive = true;
-    void listStudents({ pageSize: 200 })
+    void fetchRoster(listStudents)
       .then((r) => alive && setStudents(r.rows))
       .catch(() => alive && setStudents([]));
     return () => {

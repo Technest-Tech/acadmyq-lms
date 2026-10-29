@@ -21,6 +21,7 @@ import {
   sendInvoicePaymentLink,
   type InvoiceSendLinkResult,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { formatMoney } from "@/lib/money";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
@@ -106,7 +107,7 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
     if (!open) return;
     let cancelled = false;
 
-    void listStudents({ pageSize: 200 })
+    void fetchRoster(listStudents)
       .then((res) => {
         if (cancelled) return;
         setStudents(

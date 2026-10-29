@@ -71,13 +71,25 @@ final class DataTable
             return;
         }
 
-        $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term).'%';
+        $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], self::foldArabic($term)).'%';
 
+        // Arabic names are typed every which way: "احمد" must find "أحمد", "فاطمه" "فاطمة". Both
+        // sides are folded the same way; the columns come from the caller's allowlist, never input.
         $query->where(function (Builder $q) use ($searchable, $like): void {
             foreach ($searchable as $column) {
-                $q->orWhere($column, 'ilike', $like);
+                $q->orWhereRaw("translate({$column}::text, ?, ?) ilike ?", [self::FOLD_FROM, self::FOLD_TO, $like]);
             }
         });
+    }
+
+    /** Hamza seats → ا, taa marbuta → ه, alif maqsura → ي, hamza on waw/yaa → و/ي. Same length, pairwise. */
+    private const FOLD_FROM = 'أإآٱةىؤئ';
+
+    private const FOLD_TO = 'ااااهيوي';
+
+    private static function foldArabic(string $text): string
+    {
+        return strtr($text, array_combine(mb_str_split(self::FOLD_FROM), mb_str_split(self::FOLD_TO)));
     }
 
     /** Apply only the filters the entity declares; unknown filter keys are ignored. */

@@ -11,6 +11,7 @@ import {
   GraduationCap,
   ListChecks,
   MessageCircle,
+  Pencil,
   User,
   Users,
   Wallet,
@@ -84,7 +85,8 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
     { key: "calendar", icon: CalendarDays, show: can("schedule.read") },
     // When the teacher pressed Enter on each lesson — the workspace itself is teacher.read.
     { key: "punctuality", icon: AlarmClock, show: can("teacher.read") },
-    { key: "salary", icon: Wallet, show: can("payout.read") },
+    // The pay card lives here too — whoever sets the hourly rate must reach it without payroll.
+    { key: "salary", icon: Wallet, show: can("payout.read") || can("teacher.set_pay") },
     {
       key: "reports",
       icon: FileText,
@@ -148,7 +150,25 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
           label={t("colRate")}
           tone="violet"
           value={<span className="break-words">{pay.value}</span>}
-          sub={pay.sub}
+          sub={
+            // The rate is edited on the Salary tab; this is the door to it from the first screen.
+            can("teacher.set_pay") ? (
+              <>
+                {pay.sub && <span className="block">{pay.sub}</span>}
+                <button
+                  type="button"
+                  onClick={() => setTab("salary")}
+                  className="text-primary mt-1 inline-flex items-center gap-1 text-xs font-semibold hover:underline"
+                  data-testid="teacher-edit-pay"
+                >
+                  <Pencil className="size-3" aria-hidden />
+                  {t("pay.editRate")}
+                </button>
+              </>
+            ) : (
+              pay.sub
+            )
+          }
         />
         <FactCard
           icon={Users}

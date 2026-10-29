@@ -38,6 +38,7 @@ import {
   type ScheduleSlot,
   type TeacherRow,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 
@@ -174,7 +175,7 @@ export function EnrollmentWizard({
   const monthly = useMonthlyTerms({ defaultCurrency: defaults.currency });
 
   useEffect(() => {
-    void listTeachers({ pageSize: 50, filter: { status: "active" } })
+    void fetchRoster(listTeachers, { filter: { status: "active" } })
       .then((r) => setTeachers(r.rows))
       .catch(() => {});
   }, []);

@@ -1396,6 +1396,7 @@
       "loadError": "Could not load punctuality."
     },
     "pay": {
+      "editRate": "Edit pay",
       "title": "How this teacher is paid",
       "description": "Per hour, per student, or a fixed monthly salary — each month’s statement is worked out from this",
       "typeLabel": "Pay type",

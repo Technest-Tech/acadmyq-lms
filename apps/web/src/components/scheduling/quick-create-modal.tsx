@@ -3,6 +3,7 @@
 import { CalendarPlus, Clock, GraduationCap, User } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
+import { studentOption } from "@/components/scheduling/student-options";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -60,11 +61,7 @@ export function QuickCreateModal({
 
   const studentOptions = useMemo(
     () =>
-      students.map((s) => ({
-        value: s.id,
-        label: s.full_name,
-        sublabel: s.teacher_name ?? undefined,
-      })),
+      students.map(studentOption),
     [students],
   );
 

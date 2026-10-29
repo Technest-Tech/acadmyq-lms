@@ -31,6 +31,7 @@ import {
   type StudentRow,
   type TeacherRow,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { COUNTRIES } from "@/lib/countries";
 import { type ExcelColumn } from "@/lib/export-excel";
 import { formatMoney } from "@/lib/money";
@@ -218,7 +219,7 @@ export function StudentsList({
   const actors = useTeamActors();
 
   useEffect(() => {
-    void listTeachers({ pageSize: 50, filter: { status: "active" } })
+    void fetchRoster(listTeachers, { filter: { status: "active" } })
       .then((r) => setTeachers(r.rows))
       .catch(() => setTeachers([]));
   }, []);

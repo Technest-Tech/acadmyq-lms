@@ -57,6 +57,7 @@ import {
   type GuardianRow,
   type MovedAwayCharges,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { useCapability } from "@/lib/capabilities";
 import { COUNTRIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
@@ -521,7 +522,7 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
     setSelectedStudentId("");
     setLoadingStudents(true);
     const linked = new Set(children.map((c) => c.id));
-    void listStudents({ pageSize: 200 })
+    void fetchRoster(listStudents)
       .then(({ rows }) =>
         setStudentOptions(
           rows

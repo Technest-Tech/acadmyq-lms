@@ -3,6 +3,7 @@
 import { Check, ChevronDown, Search } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { searchMatches } from "@/lib/search-fold";
 import { cn } from "@/lib/utils";
 
 export interface ComboboxOption {
@@ -123,11 +124,10 @@ function useDropdown(options: ComboboxOption[], minWidth = 0) {
   const dropRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
+  // Arabic-forgiving: "احمد" finds "أحمد" — names are typed every which way.
   const filtered = query.trim()
     ? options.filter((o) =>
-        [o.label, o.sublabel, o.value].some((s) =>
-          s?.toLowerCase().includes(query.toLowerCase()),
-        ),
+        [o.label, o.sublabel, o.value].some((s) => searchMatches(s, query)),
       )
     : options;
 

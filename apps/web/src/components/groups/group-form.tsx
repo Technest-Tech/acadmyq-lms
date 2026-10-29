@@ -10,6 +10,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { ApiError, listSpecializations, listTeachers, type Specialization, type TeacherRow } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { CURRENCIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
 import {
@@ -164,7 +165,7 @@ export function GroupForm({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void listTeachers({ pageSize: 200, filter: { status: "active" } })
+    void fetchRoster(listTeachers, { filter: { status: "active" } })
       .then((res) => setTeachers(res.rows))
       .catch(() => setTeachers([]));
     void listSpecializations()

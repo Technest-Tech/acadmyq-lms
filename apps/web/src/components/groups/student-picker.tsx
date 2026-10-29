@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { fieldClass } from "@/components/groups/group-format";
 import { listStudents, type StudentRow } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { cn } from "@/lib/utils";
 
 /**
@@ -27,7 +28,7 @@ export function StudentPicker({
   const [q, setQ] = useState("");
 
   useEffect(() => {
-    void listStudents({ pageSize: 200, filter: { status: "active" } })
+    void fetchRoster(listStudents, { filter: { status: "active" } })
       .then((res) => setStudents(res.rows))
       .catch(() => setStudents([]));
   }, []);

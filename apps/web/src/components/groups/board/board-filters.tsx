@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { fieldClass } from "@/components/groups/group-format";
 import { listTeachers } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { listGroups } from "@/lib/groups-api";
 
 export interface BoardFilterOptions {
@@ -27,7 +28,7 @@ export function useBoardFilterOptions(): BoardFilterOptions {
       .then((res) => live && setOptions((o) => ({ ...o, groups: res.groups.map((g) => ({ id: g.id, name: g.name })) })))
       .catch(() => {});
     if (!isTeacher && can("teacher.read")) {
-      void listTeachers({ pageSize: 200, filter: { status: "active" } })
+      void fetchRoster(listTeachers, { filter: { status: "active" } })
         .then((res) => live && setOptions((o) => ({ ...o, teachers: res.rows.map((r) => ({ id: r.id, name: r.full_name })) })))
         .catch(() => {});
     }

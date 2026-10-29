@@ -18,6 +18,7 @@ import {
   type StudentRow,
   type TeacherRow,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 
 const inputClass =
   "border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-colors focus:ring-3";
@@ -115,7 +116,7 @@ export function CreateClassModal({
 
   useEffect(() => {
     if (!open || isTeacher) return;
-    void listTeachers({ pageSize: 100, filter: { status: "active" } })
+    void fetchRoster(listTeachers, { filter: { status: "active" } })
       .then((r) => setTeachers(r.rows))
       .catch(() => setTeachers([]));
   }, [open, isTeacher]);

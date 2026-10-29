@@ -36,6 +36,7 @@ import { AddTimetableModal } from "@/components/scheduling/add-timetable-modal";
 import { QuickCreateModal } from "@/components/scheduling/quick-create-modal";
 import { ScheduleSection } from "@/components/scheduling/schedule-editor";
 import { SessionActions } from "@/components/scheduling/session-actions";
+import { studentOption } from "@/components/scheduling/student-options";
 import { TimetableLogModal } from "@/components/scheduling/timetable-log-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
@@ -59,6 +60,7 @@ import {
   type TeacherRow,
   type TimetableSummary,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 
 type PageTab = "calendar" | "timetables";
 
@@ -246,7 +248,7 @@ export function WeeklyCalendar({
   useEffect(() => {
     // The roster powers both the teacher filter and the quick-create teacher picker.
     if (!canPickTeacher && !canManage) return;
-    void listTeachers({ pageSize: 50, filter: { status: "active" } })
+    void fetchRoster(listTeachers, { filter: { status: "active" } })
       .then((r) => setTeachers(r.rows))
       .catch(() => setTeachers([]));
   }, [canPickTeacher, canManage]);
@@ -254,7 +256,7 @@ export function WeeklyCalendar({
   useEffect(() => {
     // The roster powers both the student filter and the "new timetable" picker.
     if (!canPickStudent && !canManage) return;
-    void listStudents({ pageSize: 100, filter: { status: "active" } })
+    void fetchRoster(listStudents, { filter: { status: "active" } })
       .then((r) => setStudents(r.rows))
       .catch(() => setStudents([]));
   }, [canPickStudent, canManage]);
@@ -270,11 +272,7 @@ export function WeeklyCalendar({
   const studentOptions = useMemo<ComboboxOption[]>(
     () => [
       { value: "", label: t("calendar.allStudents") },
-      ...students.map((s) => ({
-        value: s.id,
-        label: s.full_name,
-        sublabel: s.teacher_name ?? undefined,
-      })),
+      ...students.map(studentOption),
     ],
     [students, t],
   );

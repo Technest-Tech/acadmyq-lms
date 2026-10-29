@@ -52,6 +52,20 @@ it('searches students within the academy scope only', function () {
     expect($rows[0]['full_name'])->toBe('محمد علي');
 });
 
+it('finds an Arabic name however its hamza and taa marbuta were typed', function () {
+    Sanctum::actingAs($this->owner);
+    makeStudent('أحمد إبراهيم', $this->teacher1, 10000);
+    makeStudent('فاطمة الزهراء', $this->teacher1, 10000);
+    makeStudent('Sara', $this->teacher2, 10000);
+
+    $names = fn (string $q) => collect($this->getJson('/api/students?search='.urlencode($q))->assertOk()->json('rows'))->pluck('full_name')->unique()->values()->all();
+
+    expect($names('احمد ابراهيم'))->toBe(['أحمد إبراهيم']);
+    expect($names('فاطمه'))->toBe(['فاطمة الزهراء']);
+    expect($names('أحمد'))->toBe(['أحمد إبراهيم']);
+    expect($names('sar'))->toBe(['Sara']);
+});
+
 // ── TC-4.20 / AC-4.8: filter students by teacher ─────────────────────────────
 it('filters students by teacher', function () {
     Sanctum::actingAs($this->owner);

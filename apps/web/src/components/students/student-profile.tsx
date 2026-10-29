@@ -42,6 +42,7 @@ import {
   type TeacherAssignmentHistoryItem,
   type TeacherRow,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +89,7 @@ export function StudentProfile({ studentId }: { studentId: string }) {
 
   useEffect(() => {
     void refresh();
-    void listTeachers({ pageSize: 50, filter: { status: "active" } })
+    void fetchRoster(listTeachers, { filter: { status: "active" } })
       .then((r) => setTeachers(r.rows))
       .catch(() => setTeachers([]));
   }, [refresh]);

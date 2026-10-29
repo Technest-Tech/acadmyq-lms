@@ -36,6 +36,7 @@ import {
   listTeachers,
   type TeacherRow,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { hoursText, monthLessons } from "@/components/groups/group-format";
 import { addGroupMembers, listGroups, type GroupRow } from "@/lib/groups-api";
@@ -327,7 +328,7 @@ export function StudentForm({
 
   useEffect(() => {
     if (!canPickTeachers) return;
-    void listTeachers({ pageSize: 100, filter: { status: "active" } })
+    void fetchRoster(listTeachers, { filter: { status: "active" } })
       .then((r) => setTeachers(r.rows))
       .catch(() => setTeachers([]));
   }, [canPickTeachers]);

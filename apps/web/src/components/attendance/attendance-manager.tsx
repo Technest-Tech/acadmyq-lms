@@ -69,6 +69,7 @@ import {
   type DaySession,
   type TeacherRow,
 } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { type ExcelColumn, exportRowsToExcel } from "@/lib/export-excel";
 import { cn } from "@/lib/utils";
 
@@ -326,7 +327,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
 
   useEffect(() => {
     if (isTeacher) return;
-    void listTeachers({ pageSize: 50, filter: { status: "active" } })
+    void fetchRoster(listTeachers, { filter: { status: "active" } })
       .then((r) => setTeachers(r.rows))
       .catch(() => setTeachers([]));
   }, [isTeacher]);

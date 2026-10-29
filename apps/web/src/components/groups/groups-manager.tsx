@@ -21,6 +21,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import { listTeachers } from "@/lib/api";
+import { fetchRoster } from "@/lib/roster";
 import { listGroups, type GroupRow, type GroupState } from "@/lib/groups-api";
 import { cn } from "@/lib/utils";
 
@@ -52,7 +53,7 @@ export function GroupsManager() {
 
   useEffect(() => {
     if (isTeacher || !can("teacher.read")) return;
-    void listTeachers({ pageSize: 200, filter: { status: "active" } })
+    void fetchRoster(listTeachers, { filter: { status: "active" } })
       .then((res) => setTeachers(res.rows.map((r) => ({ value: r.id, label: r.full_name }))))
       .catch(() => setTeachers([]));
   }, [isTeacher, can]);
