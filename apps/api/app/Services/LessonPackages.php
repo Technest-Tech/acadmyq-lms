@@ -1788,9 +1788,12 @@ final class LessonPackages
             'updated_at' => now(),
         ]);
 
+        // A curriculum centre's bill is voided even once its month closed: a subscription deleted
+        // must not leave its charge on the family (every other academy as it always was).
+        $voidable = Entitlement::hasCapability((string) $package->academy_id, 'centre') ? ['OPEN', 'CLOSED'] : ['OPEN'];
         $voided = $package->invoice_id !== null && DB::table('invoices')
             ->where('id', $package->invoice_id)
-            ->where('status', 'OPEN')
+            ->whereIn('status', $voidable)
             ->where('amount_paid_minor', 0)
             ->update(['status' => 'VOID', 'updated_at' => now()]) > 0;
 

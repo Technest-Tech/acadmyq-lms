@@ -336,14 +336,36 @@ final class ClassGroups
         if ($attended) {
             return 'attended';
         }
-        $settled = DB::table('invoice_line_items as li')
+        $settled = $this->membershipLines($member)
             ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
-            ->where('li.class_group_id', $member->group_id)->where('li.student_id', $member->student_id)
-            ->where('li.group_period', '>=', $member->joined_on)
             ->where('i.status', '<>', 'OPEN')
             ->exists();
 
         return $settled ? 'closed' : null;
+    }
+
+    /**
+     * The charges a membership raised: those dated from the day it began — and the calendar month it
+     * began in, whose charge is dated the 1st even for a student who joined on the 10th (unless an
+     * earlier membership of theirs in the group holds that month too). Matching only "from the day it
+     * began" left the joining month on the family's account after a delete.
+     */
+    private function membershipLines(object $member)
+    {
+        $joined = Carbon::parse($member->joined_on)->format('Y-m-d');
+        $monthStart = Carbon::parse($joined)->startOfMonth()->format('Y-m-d');
+        $monthShared = $joined > $monthStart && DB::table('class_group_members')
+            ->where('group_id', $member->group_id)->where('student_id', $member->student_id)
+            ->where('id', '<>', $member->id)
+            ->where('joined_on', '<', $joined)
+            ->where(fn ($q) => $q->whereNull('left_on')->orWhere('left_on', '>', $monthStart))
+            ->exists();
+
+        return DB::table('invoice_line_items as li')
+            ->where('li.class_group_id', $member->group_id)->where('li.student_id', $member->student_id)
+            ->where(fn ($q) => $q->where('li.group_period', '>=', $joined)
+                ->when(! $monthShared, fn ($q) => $q->orWhere(fn ($m) => $m->where('li.group_charge', GroupBilling::MONTHLY)
+                    ->whereNull('li.group_cycle')->where('li.group_period', $monthStart))));
     }
 
     /**
@@ -370,10 +392,7 @@ final class ClassGroups
                 }]]);
             }
 
-            $lines = DB::table('invoice_line_items')
-                ->where('class_group_id', $group->id)->where('student_id', $studentId)
-                ->where('group_period', '>=', $member->joined_on)
-                ->get();
+            $lines = $this->membershipLines($member)->get(['li.*']);
             // What was already paid toward them goes back to the payer as credit (cascade).
             $credited = (int) DB::table('receipt_allocations')->whereIn('invoice_line_id', $lines->pluck('id')->all())->sum('amount_minor');
             $months = [];

@@ -810,3 +810,18 @@ category is created on first use, never seeded. Found on the way: the settlement
 exception read `current_setting('app.settling_invoice_id', true)` bare — NULL on a fresh connection
 made the whole IF NULL, so plpgsql skipped the raise and a CLOSED invoice's totals could be lowered
 in any academy; now `coalesce(…, '')`, pinned by "never lets a closed bill's total change".
+
+## Deleting a subscription takes its charge with it (2026-10-29)
+
+"When I delete a group or a private subscription, its due stays" (a curriculum centre):
+
+- **Group** (`ClassGroups::undoMembership`): a calendar month's charge is dated the 1st, so a
+  membership begun on the 10th never matched "charges from the day it began" — the joining month
+  stayed on the family. `membershipLines()` now takes that month too (unless an earlier membership
+  of the student in the group holds it); `undoRefusal()` uses the same lines, so a joining month on a
+  closed bill hides Delete instead of failing half-way.
+- **Private subscription** (`LessonPackages::cancel`): an unused, unpaid block's bill is voided even
+  once its month closed — curriculum centres only; every other academy keeps "open bills only".
+- **Leftovers from before**: `php artisan subscriptions:clear-deleted-dues [--academy=] [--apply]`
+  (centres only) lists, then clears, group charges of students deleted from the group (audit
+  `class_group.member_undone`, no membership left, open bill) and unpaid bills of cancelled blocks.
