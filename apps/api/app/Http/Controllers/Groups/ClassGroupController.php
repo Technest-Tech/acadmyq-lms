@@ -605,7 +605,10 @@ final class ClassGroupController extends Controller
 
         return response()->json([
             'lesson' => $this->presentLesson($lesson, $this->lessonCounts([$lessonId])[$lessonId] ?? null),
-            'warnings' => $this->schedulingWarnings($teacherId, $start, (int) $data['duration_minutes'], $tz, excludeGroupLessonId: $lessonId),
+            'warnings' => [
+                ...$this->schedulingWarnings($teacherId, $start, (int) $data['duration_minutes'], $tz, excludeGroupLessonId: $lessonId),
+                ...$this->roomWarnings($group, $start, (int) $data['duration_minutes'], $lessonId),
+            ],
         ], 201);
     }
 

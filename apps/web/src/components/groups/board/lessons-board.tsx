@@ -7,16 +7,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AttendanceSheet } from "@/components/groups/attendance-sheet";
 import { BoardFilters, useBoardFilterOptions } from "@/components/groups/board/board-filters";
+import { TimetableBoard } from "@/components/groups/board/timetable-board";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { LESSON_TONE, fieldClass, lessonDate, lessonTime, needsMarking, todayIn } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
+import { useCapability } from "@/lib/capabilities";
 import { listBoardLessons, type BoardLesson } from "@/lib/groups-api";
 import { cn } from "@/lib/utils";
 
-type View = "day" | "week" | "owed";
+type View = "timetable" | "day" | "week" | "owed";
 
 function shiftDate(ymd: string, days: number): string {
   const d = new Date(`${ymd}T12:00:00Z`);
@@ -36,8 +38,11 @@ export function LessonsBoard() {
   const { can } = useAuth();
   const canMark = can("session.mark_attendance");
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  // A centre works from its weekly timetable (hour blocks, rooms); everyone else's views are unchanged.
+  const centre = useCapability("centre");
+  const views: View[] = centre ? ["timetable", "day", "week", "owed"] : ["day", "week", "owed"];
 
-  const [view, setView] = useState<View>("day");
+  const [view, setView] = useState<View>(centre ? "timetable" : "day");
   const [date, setDate] = useState(() => todayIn(browserTz));
   const [groupId, setGroupId] = useState("");
   const [teacherId, setTeacherId] = useState("");
@@ -53,12 +58,14 @@ export function LessonsBoard() {
     setLoading(true);
     try {
       const filters = { group_id: groupId || undefined, teacher_id: teacherId || undefined };
+      // The timetable loads its own week; here it only needs the owed counter.
+      const listed = view === "timetable" ? "owed" : view;
       const [res, owed] = await Promise.all([
-        listBoardLessons({ view, date: view === "owed" ? undefined : date, ...filters }),
-        view === "owed" ? null : listBoardLessons({ view: "owed", ...filters }),
+        listBoardLessons({ view: listed, date: listed === "owed" ? undefined : date, ...filters }),
+        listed === "owed" ? null : listBoardLessons({ view: "owed", ...filters }),
       ]);
-      setLessons(res.lessons);
-      setOwedCount(view === "owed" ? res.lessons.length : (owed?.lessons.length ?? 0));
+      setLessons(view === "timetable" ? [] : res.lessons);
+      setOwedCount(listed === "owed" ? res.lessons.length : (owed?.lessons.length ?? 0));
       setError(null);
     } catch (err) {
       setError(apiErrorMessage(err, t("board.loadFailed")));
@@ -93,7 +100,7 @@ export function LessonsBoard() {
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="no-scrollbar -mx-1 flex gap-1 overflow-x-auto px-1" role="tablist">
-          {(["day", "week", "owed"] as View[]).map((v) => (
+          {views.map((v) => (
             <button
               key={v}
               type="button"
@@ -112,16 +119,20 @@ export function LessonsBoard() {
             </button>
           ))}
         </div>
-        <BoardFilters
-          options={options}
-          groupId={groupId}
-          onGroup={setGroupId}
-          teacherId={teacherId}
-          onTeacher={setTeacherId}
-        />
+        {view !== "timetable" && (
+          <BoardFilters
+            options={options}
+            groupId={groupId}
+            onGroup={setGroupId}
+            teacherId={teacherId}
+            onTeacher={setTeacherId}
+          />
+        )}
       </div>
 
-      {view !== "owed" && (
+      {view === "timetable" && <TimetableBoard />}
+
+      {(view === "day" || view === "week") && (
         <div className="flex items-center gap-2">
           <Button type="button" variant="outline" size="icon-sm" aria-label={t("board.lessons.prev")} onClick={() => setDate((d) => shiftDate(d, view === "week" ? -7 : -1))}>
             <ChevronLeft className="size-4 rtl:rotate-180" />
@@ -139,7 +150,7 @@ export function LessonsBoard() {
       {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
       {error && <AlertBanner variant="error" message={error} />}
 
-      {loading && lessons.length === 0 ? (
+      {view === "timetable" ? null : loading && lessons.length === 0 ? (
         <p className="text-muted-foreground py-10 text-center text-sm">{t("loading")}</p>
       ) : lessons.length === 0 ? (
         <div className="rounded-2xl border border-dashed p-10 text-center">

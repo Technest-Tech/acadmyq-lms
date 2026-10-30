@@ -163,3 +163,59 @@ it('answers 404, not a database error, for an id that is not one', function () {
     $this->getJson('/api/groups/payments')->assertNotFound();
     $this->getJson('/api/group-lessons/not-a-lesson')->assertNotFound();
 });
+
+if (! function_exists('boardCentreOn')) {
+    function boardCentreOn(string $academyId): void
+    {
+        DB::statement("select set_config('app.current_academy_id', ?, true)", [$academyId]);
+        DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+        try {
+            app(\App\Services\ModuleBilling::class)->setDisabledFeatures($academyId, 'MANAGEMENT', [], ['centre']);
+        } finally {
+            DB::statement("select set_config('app.current_academy_id', '', true)");
+            DB::statement("select set_config('app.current_role', '', true)");
+        }
+    }
+}
+
+it('gives the timetable each lesson’s subject and the weekly time it came from', function () {
+    $this->postJson("/api/groups/{$this->theirs}/lessons", ['local_datetime' => '2026-06-16 18:00', 'duration_minutes' => 45])->assertCreated();
+
+    $week = collect($this->getJson('/api/group-lessons?view=week&date=2026-06-15')->assertOk()->json('lessons'));
+    $monday = $week->first(fn ($l) => $l['group']['name'] === 'English A1' && $l['occurrence_local_date'] === '2026-06-15');
+    expect($monday['slot'])->toBe(['weekday' => 1, 'start_time_local' => '17:00', 'duration_minutes' => 60]);
+    expect($monday['group'])->toHaveKey('specialization_name');
+
+    $extra = $week->first(fn ($l) => $l['extra']);
+    expect($extra['slot'])->toBeNull();
+});
+
+it('warns a centre when a moved or added lesson lands in a room another group holds', function () {
+    $this->patchJson("/api/groups/{$this->mine}", ['mode' => 'OFFLINE', 'location' => 'Room 3'])->assertOk();
+    $this->patchJson("/api/groups/{$this->theirs}", ['mode' => 'OFFLINE', 'location' => ' room 3 '])->assertOk();
+    $maths = boardLesson($this, $this->theirs, '2026-06-22');
+
+    // Not a centre: the warnings are what they always were.
+    $plain = $this->postJson("/api/group-lessons/{$maths->id}/reschedule", ['local_datetime' => '2026-06-22 17:30'])->assertOk();
+    expect(collect($plain->json('warnings'))->pluck('type'))->not->toContain('room');
+
+    boardCentreOn($this->academy);
+
+    $moved = $this->postJson("/api/group-lessons/{$maths->id}/reschedule", ['local_datetime' => '2026-06-22 17:30'])->assertOk();
+    $room = collect($moved->json('warnings'))->firstWhere('type', 'room');
+    expect($room)->not->toBeNull();
+    expect($room['detail'][0]['group_name'])->toBe('English A1');
+
+    // Straight after English ends: free.
+    $clear = $this->postJson("/api/group-lessons/{$maths->id}/reschedule", ['local_datetime' => '2026-06-22 18:00'])->assertOk();
+    expect(collect($clear->json('warnings'))->pluck('type'))->not->toContain('room');
+
+    $added = $this->postJson("/api/groups/{$this->theirs}/lessons", ['local_datetime' => '2026-06-24 17:15', 'duration_minutes' => 30])->assertCreated();
+    expect(collect($added->json('warnings'))->pluck('type'))->toContain('room');
+
+    // A cancelled lesson frees its room.
+    $wed = boardLesson($this, $this->mine, '2026-07-01');
+    $this->postJson("/api/group-lessons/{$wed->id}/cancel")->assertOk();
+    $free = $this->postJson("/api/groups/{$this->theirs}/lessons", ['local_datetime' => '2026-07-01 17:00', 'duration_minutes' => 60])->assertCreated();
+    expect(collect($free->json('warnings'))->pluck('type'))->not->toContain('room');
+});

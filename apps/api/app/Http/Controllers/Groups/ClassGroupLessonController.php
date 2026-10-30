@@ -167,7 +167,10 @@ final class ClassGroupLessonController extends Controller
             ]);
 
         return response()->json($this->payload($this->reload($id)) + [
-            'warnings' => $this->schedulingWarnings($teacherId, $start, $duration, $tz, excludeGroupLessonId: $id),
+            'warnings' => [
+                ...$this->schedulingWarnings($teacherId, $start, $duration, $tz, excludeGroupLessonId: $id),
+                ...$this->roomWarnings($group, $start, $duration, $id),
+            ],
         ]);
     }
 

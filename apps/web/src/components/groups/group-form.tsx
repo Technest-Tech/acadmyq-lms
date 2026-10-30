@@ -110,7 +110,9 @@ export function GroupForm({
   const [specializationId, setSpecializationId] = useState(group?.specialization_id ?? "");
   const [level, setLevel] = useState(group?.level ?? "");
   const [capacity, setCapacity] = useState(group?.capacity != null ? String(group.capacity) : "");
-  const [mode, setMode] = useState<GroupMode>(group?.mode ?? "ONLINE");
+  // A centre's classes are in its rooms: a new group opens in person, so its room lands on the timetable.
+  const centre = useCapability("centre");
+  const [mode, setMode] = useState<GroupMode>(group?.mode ?? (centre ? "OFFLINE" : "ONLINE"));
   const [location, setLocation] = useState(group?.location ?? "");
   const [meetingUrl, setMeetingUrl] = useState(group?.meeting_url ?? "");
   const [startDate, setStartDate] = useState(group?.start_date ?? todayIn(group?.timezone ?? browserTz));
@@ -136,7 +138,6 @@ export function GroupForm({
   // A centre counts a month in lessons and prices it by the lesson — 8 lessons × "40 minutes for 90"
   // — and the month's price is worked out (2026-10-25, lessons 2026-10-29). The length starts at the
   // group's own lesson length; the month is still kept in minutes (lessons × length).
-  const centre = useCapability("centre");
   const [lessonMinutes, setLessonMinutes] = useState(group?.slots[0]?.duration_minutes ?? 60);
   const [monthLessons, setMonthLessons] = useState(() =>
     savedMonthMinutes != null ? String(lessonsIn(savedMonthMinutes, group?.slots[0]?.duration_minutes ?? 60)) : "",

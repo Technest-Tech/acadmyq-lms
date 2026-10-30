@@ -384,7 +384,17 @@ export function rescheduleGroupLesson(
 // ── The section's cross-group pages (GroupBoardController) ─────────────────────
 
 export interface BoardLesson extends GroupLesson {
-  group: { id: string; name: string; level: string | null; timezone: string; mode: GroupMode; location: string | null };
+  group: {
+    id: string;
+    name: string;
+    level: string | null;
+    timezone: string;
+    mode: GroupMode;
+    location: string | null;
+    specialization_name?: string | null;
+  };
+  /** The weekly time this lesson came from; null = an extra lesson. */
+  slot?: GroupSlot | null;
 }
 
 export function listBoardLessons(params: {

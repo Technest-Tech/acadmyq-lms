@@ -7253,6 +7253,7 @@
         "subtitle": "Every group lesson in one place — today, the week ahead, and every sheet still owed.",
         "owedPill": "{count, plural, one {# sheet owed} other {# sheets owed}}",
         "view": {
+          "timetable": "Timetable",
           "day": "Day",
           "week": "Week",
           "owed": "Not marked"
@@ -7319,6 +7320,49 @@
         "taught": "Taught",
         "hours": "{count} h",
         "empty": "No groups to report on for this month."
+      },
+      "timetable": {
+        "allWeek": "Whole week",
+        "thisWeek": "This week",
+        "filters": {
+          "allHours": "All hours",
+          "allRooms": "All rooms",
+          "allSubjects": "All subjects",
+          "clear": "Clear filters"
+        },
+        "col": {
+          "day": "Day",
+          "date": "Date",
+          "time": "Time",
+          "group": "Group",
+          "subject": "Subject",
+          "teacher": "Teacher",
+          "room": "Room",
+          "students": "Students",
+          "status": "Status"
+        },
+        "hourCount": "{count, plural, one {# group} other {# groups}}",
+        "empty": "No group lessons on this day.",
+        "emptyFiltered": "No lessons match these filters.",
+        "clash": "Room clash",
+        "clashBanner": "{count, plural, one {# lesson shares} other {# lessons share}} a room with another group at the same time — see the red rows.",
+        "add": "Add a lesson",
+        "pickGroup": "Choose a group",
+        "move": "Change the time",
+        "moveTitle": "Change the lesson time",
+        "scope": {
+          "once": "This lesson only",
+          "weekly": "Every week (the fixed time)"
+        },
+        "weeklyHint": "From now on the group meets every {day} at {time}. Lessons already held stay as they were.",
+        "movedWeekly": "The group's weekly time was changed — every lesson from now follows it.",
+        "setRoom": "Set the room",
+        "roomTitle": "The group's room",
+        "roomHint": "Saved for the whole group: it shows on the timetable, and you are warned when two groups are booked into one room at once.",
+        "roomSaved": "Room saved.",
+        "saveRoom": "Save",
+        "export": "Download Excel",
+        "exportFile": "Groups timetable"
       }
     }
   },

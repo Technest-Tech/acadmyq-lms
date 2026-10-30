@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Groups\Concerns;
 
 use App\Domain\OutcomeLock;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Support\Entitlement;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -96,6 +97,58 @@ trait InteractsWithClassGroups
         if (DB::table('teachers')->where('id', $teacherId)->whereNull('deleted_at')->doesntExist()) {
             throw ValidationException::withMessages(['teacher_id' => ['Unknown or inactive teacher. / معلّم غير موجود أو غير نشط.']]);
         }
+    }
+
+    /**
+     * A centre's room clash: another group's lesson in the same room (`location`, compared
+     * case- and space-blind) at an overlapping time. Advice like the teacher's conflict, never a
+     * block — and a centre's only; nobody else's warnings change.
+     *
+     * @return list<array{type:string, message:string, detail:list<array>}>
+     */
+    protected function roomWarnings(object $group, Carbon $startUtc, int $durationMinutes, string $excludeLessonId): array
+    {
+        $room = trim((string) ($group->location ?? ''));
+        if ($room === '' || ! Entitlement::hasCapability((string) $group->academy_id, 'centre')) {
+            return [];
+        }
+
+        $endUtc = $startUtc->copy()->addMinutes($durationMinutes);
+        $candidates = DB::table('class_group_lessons as l')
+            ->join('class_groups as g', 'g.id', '=', 'l.group_id')
+            ->where('l.id', '!=', $excludeLessonId)
+            ->where('l.group_id', '!=', $group->id)
+            ->whereIn('l.status', ['SCHEDULED', 'HELD'])
+            ->whereRaw('lower(btrim(g.location)) = lower(?)', [$room])
+            ->whereBetween('l.scheduled_at_utc', [
+                $startUtc->copy()->subDay()->format('Y-m-d H:i:sP'),
+                $endUtc->format('Y-m-d H:i:sP'),
+            ])
+            ->get(['l.id', 'l.group_id', 'g.name as group_name', 'l.scheduled_at_utc', 'l.duration_minutes']);
+
+        $clashes = [];
+        foreach ($candidates as $row) {
+            $rowStart = Carbon::parse($row->scheduled_at_utc)->utc();
+            if ($startUtc->lessThan($rowStart->copy()->addMinutes((int) $row->duration_minutes)) && $rowStart->lessThan($endUtc)) {
+                $clashes[] = [
+                    'id' => (string) $row->id,
+                    'group_id' => (string) $row->group_id,
+                    'group_name' => (string) $row->group_name,
+                    'scheduled_at_utc' => $rowStart->toIso8601String(),
+                ];
+            }
+        }
+        if ($clashes === []) {
+            return [];
+        }
+
+        $names = implode('، ', array_unique(array_column($clashes, 'group_name')));
+
+        return [[
+            'type' => 'room',
+            'message' => "Room {$room} is already taken then by {$names}. / القاعة {$room} مشغولة في هذا الوقت بمجموعة {$names}.",
+            'detail' => $clashes,
+        ]];
     }
 
     /** The lesson as the API returns it. */

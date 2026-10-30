@@ -354,3 +354,18 @@ clash detection for offline centres.
 2. Teacher pay: **all four modes**, default `PER_LESSON`. Which one do the clients actually use?
 3. Existing clients: **off**. New clients: **on**.
 4. Offline rooms: a free-text `location`, **no clash check** until P4.
+
+## The centre timetable (2026-10-30)
+
+A centre (`centre`) opens Groups → Lessons on a **Timetable** tab — the paper sheet it ran on: a
+week from Saturday, one day (or the whole week) split into hour blocks, each row the group,
+subject, teacher, room (`class_groups.location`) and head count. Filters: hour, group, teacher,
+room, subject; Excel download of what is shown. From a row: take attendance, **change the time**
+(this lesson only → `/group-lessons/{id}/reschedule`; every week → the group's slot rewritten via
+`PATCH /groups/{id}` `slots`, only for a lesson still on its slot and not moved), **set the room**
+(`mode: OFFLINE` + `location`). "Add a lesson" = an extra lesson on any group.
+
+Room clashes: two groups in one room (case/space-blind) at overlapping times show red on the
+timetable (client-side, cancelled lessons free the room), and moving/adding a lesson returns a
+`room` warning (`roomWarnings`, centre only). A new centre group opens in person. Non-centres:
+unchanged.
