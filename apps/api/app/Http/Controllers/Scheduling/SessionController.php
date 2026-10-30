@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Scheduling;
 
+use App\Domain\OutcomeLock;
 use App\Domain\SessionClassifier;
 use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
@@ -443,6 +444,9 @@ final class SessionController extends Controller
                 'status_reason' => $session->status_reason,
                 'billed' => (bool) $session->billed,
                 'outcome_set_at' => $session->outcome_set_at !== null ? Carbon::parse($session->outcome_set_at)->utc()->toIso8601String() : null,
+                // The office recorded this outcome: the calling teacher may read it but not change or undo it.
+                'outcome_locked' => OutcomeLock::locks($this->ctx()->role, $this->ctx()->userId, (string) $session->status === 'SCHEDULED',
+                    $session->outcome_set_by !== null ? (string) $session->outcome_set_by : null),
                 'followed_at' => $firstFollow !== null ? Carbon::parse($firstFollow->followed_at)->utc()->toIso8601String() : null,
                 'followed_by_user_id' => $firstFollow !== null ? (string) $firstFollow->user_id : null,
                 'followed_by_name' => $firstFollow?->full_name,

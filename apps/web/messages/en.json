@@ -3191,6 +3191,7 @@
     "paysTeacher": "Counts for teacher",
     "overrideTiming": "Session hasn’t started — override and mark attended",
     "noPermission": "You don’t have permission to record attendance.",
+    "lockedByOffice": "The administration recorded this lesson — only they can change it.",
     "save": "Save",
     "sendWhatsapp": "Send WhatsApp",
     "reportCard": "Report card",

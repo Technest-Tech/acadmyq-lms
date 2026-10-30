@@ -194,3 +194,36 @@ it('forbids a TEACHER from undoing an outcome on their own lesson', function () 
 
     expect(($this->row)($session)->status)->toBe('CANCELLED_BY_STUDENT');
 });
+
+// ── the office's mark is final for the teacher ──────────────────────────────
+
+it('refuses a TEACHER re-marking a lesson a supervisor already recorded', function () {
+    $session = ($this->pendingSession)();
+    $supervisor = $this->makeUser($this->academy, 'SUPERVISOR', ['email' => 'supervisor-revert@test.local']);
+
+    Sanctum::actingAs($supervisor);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'CANCELLED_BY_STUDENT'])->assertOk();
+
+    // Picking another outcome would be a revert by the back door.
+    Sanctum::actingAs($this->teacherUser);
+    $this->getJson("/api/sessions/{$session}")->assertOk()->assertJsonPath('session.outcome_locked', true);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('status');
+
+    expect(($this->row)($session)->status)->toBe('CANCELLED_BY_STUDENT');
+
+    // The office itself is never locked.
+    Sanctum::actingAs($supervisor);
+    $this->getJson("/api/sessions/{$session}")->assertOk()->assertJsonPath('session.outcome_locked', false);
+});
+
+it('still lets a TEACHER correct a lesson they marked themselves', function () {
+    $session = ($this->pendingSession)();
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->getJson("/api/sessions/{$session}")->assertOk()->assertJsonPath('session.outcome_locked', false);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+});

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Scheduling;
 
+use App\Domain\OutcomeLock;
 use App\Domain\SessionClassifier;
 use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
@@ -71,6 +72,10 @@ final class AttendanceController extends Controller
             'charge_student' => ['sometimes', 'boolean'],
             'pay_teacher' => ['sometimes', 'boolean'],
         ]);
+
+        // An outcome the office recorded is final for the teacher: picking another card here would
+        // be a revert by the back door.
+        $this->assertNotLockedForTeacher($session);
 
         $isCancel = in_array($data['status'], self::CANCEL_STATUSES, true);
         $isFree = $data['status'] === 'FREE';
@@ -149,6 +154,9 @@ final class AttendanceController extends Controller
             ]);
         }
 
+        // Should an academy ever hand a teacher this capability, it still only reaches their own marks.
+        $this->assertNotLockedForTeacher($session);
+
         $result = $service->revert($session, $this->ctx()->userId, $this->ctx()->role);
 
         return response()->json([
@@ -156,6 +164,16 @@ final class AttendanceController extends Controller
             'billed' => $result['billed'],
             'classification' => SessionClassifier::classify(SessionStatus::Scheduled),
         ]);
+    }
+
+    private function assertNotLockedForTeacher(object $session): void
+    {
+        OutcomeLock::assertOpen(
+            $this->ctx()->role,
+            $this->ctx()->userId,
+            (string) $session->status === SessionStatus::Scheduled->value,
+            $session->outcome_set_by !== null ? (string) $session->outcome_set_by : null,
+        );
     }
 
     /**

@@ -218,6 +218,9 @@ export function AttendanceReport({
   // — picking FREE raises a request for the owner to approve. Owners open the billing popup.
   const freeRequestMode = !can("session.free") && can("session.free_request");
   const { session, report } = data;
+  // Once the office has recorded the outcome a teacher can no longer change or undo it (the API
+  // refuses too); they still write the report.
+  const outcomeLocked = !!session.outcome_locked;
   const dateText = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
@@ -657,7 +660,7 @@ export function AttendanceReport({
               <button
                 key={status}
                 type="button"
-                disabled={!canMark || busy || readOnly || blockedByPending}
+                disabled={!canMark || outcomeLocked || busy || readOnly || blockedByPending}
                 onClick={() => selectOutcome(status)}
                 data-testid={`outcome-${status}`}
                 className={cn(
@@ -692,6 +695,11 @@ export function AttendanceReport({
             {t("noPermission")}
           </p>
         )}
+        {canMark && outcomeLocked && !readOnly && (
+          <p data-testid="outcome-locked" className="text-muted-foreground mt-2 text-xs">
+            {t("lockedByOffice")}
+          </p>
+        )}
 
         {/* The way OUT of a recorded outcome. Picking a different card corrects a mis-marked
             lesson; this is for the other case — the lesson did not happen at all and has to go
@@ -699,6 +707,7 @@ export function AttendanceReport({
             excluded: that row was replaced by a successor, not marked. */}
         {canRevert &&
           !readOnly &&
+          !outcomeLocked &&
           session.status !== "SCHEDULED" &&
           session.status !== "RESCHEDULED" && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed px-3.5 py-3">

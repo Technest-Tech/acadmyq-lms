@@ -3856,6 +3856,8 @@ export interface SessionDetail {
   status_reason: string | null;
   billed: boolean;
   outcome_set_at: string | null;
+  /** The office recorded this outcome and the caller is a teacher: read-only for them. */
+  outcome_locked?: boolean;
   /** First "Following" click on this lesson (see PendingSession). */
   followed_at?: string | null;
   followed_by_user_id?: string | null;

@@ -434,6 +434,30 @@ it('will not mark a lesson that has not started, unless the owner overrides it',
     $this->postJson("/api/group-lessons/{$future->id}/attendance", ['override_timing' => true])->assertOk();
 });
 
+it('keeps a sheet the office saved out of the teacher\'s hands, but not one they saved themselves', function () {
+    $groupId = makeGroup($this, ['student_ids' => [$this->students['Adam']]]);
+    $officeLesson = lessonOn($this, $groupId, '2026-06-15');
+    $ownLesson = lessonOn($this, $groupId, '2026-06-10');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/group-lessons/{$officeLesson->id}/attendance", [
+        'entries' => [['student_id' => $this->students['Adam'], 'status' => 'ABSENT']],
+    ])->assertOk()->assertJsonPath('lesson.outcome_locked', false);
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->getJson("/api/group-lessons/{$officeLesson->id}")->assertOk()->assertJsonPath('lesson.outcome_locked', true);
+    $this->postJson("/api/group-lessons/{$officeLesson->id}/attendance")->assertStatus(422);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('class_group_attendance')->where('lesson_id', $officeLesson->id)->pluck('status')->all())->toBe(['ABSENT']);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson("/api/group-lessons/{$ownLesson->id}/attendance")->assertOk()
+        ->assertJsonPath('lesson.outcome_locked', false);
+    $this->postJson("/api/group-lessons/{$ownLesson->id}/attendance")->assertOk();
+});
+
 it('cancels a lesson for the whole class, and undoes it', function () {
     $groupId = makeGroup($this, ['student_ids' => [$this->students['Adam']]]);
     $lesson = lessonOn($this, $groupId, '2026-06-22');

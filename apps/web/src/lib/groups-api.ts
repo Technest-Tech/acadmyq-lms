@@ -153,6 +153,8 @@ export interface GroupLesson {
   homework: string | null;
   notes: string | null;
   outcome_set_at: string | null;
+  /** The office saved this sheet and the caller is a teacher: read-only for them. */
+  outcome_locked?: boolean;
   counts: GroupLessonCounts | null;
 }
 

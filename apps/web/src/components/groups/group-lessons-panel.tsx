@@ -138,7 +138,7 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
         onClick: () => setModal({ kind: "cancel", lesson }),
         danger: true,
       },
-      canRevert && lesson.status !== "SCHEDULED" && {
+      canRevert && lesson.status !== "SCHEDULED" && !lesson.outcome_locked && {
         key: "revert",
         icon: RotateCcw,
         label: t("lessons.revert"),
@@ -184,7 +184,8 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
           {c && lesson.status === "SCHEDULED" && (
             <span className="text-muted-foreground text-xs">{t("students", { count: c.expected })}</span>
           )}
-          {canMark && lesson.status !== "CANCELLED" && (
+          {/* A sheet the office saved is read-only for the teacher (the API refuses too). */}
+          {canMark && lesson.status !== "CANCELLED" && !lesson.outcome_locked && (
             <Button
               type="button"
               size="sm"

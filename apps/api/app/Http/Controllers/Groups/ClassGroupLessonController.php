@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Groups;
 
+use App\Domain\OutcomeLock;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Groups\Concerns\InteractsWithClassGroups;
 use App\Services\ClassGroups;
@@ -63,6 +64,8 @@ final class ClassGroupLessonController extends Controller
             'override_timing' => ['sometimes', 'boolean'],
         ]);
 
+        // A sheet the office saved is final for the teacher — re-saving it would overwrite their marks.
+        $this->assertNotLockedForTeacher($lesson);
         $this->assertTimingAllowed($lesson, (bool) ($data['override_timing'] ?? false));
 
         $this->groups->saveAttendance(
@@ -82,7 +85,10 @@ final class ClassGroupLessonController extends Controller
         Gate::authorize('group.read');
         Gate::authorize('session.revert_attendance');
 
-        $this->groups->revert($this->findLesson($id), $this->ctx()->userId, $this->ctx()->role);
+        $lesson = $this->findLesson($id);
+        $this->assertNotLockedForTeacher($lesson);
+
+        $this->groups->revert($lesson, $this->ctx()->userId, $this->ctx()->role);
 
         return response()->json($this->payload($this->reload($id)));
     }
@@ -203,6 +209,16 @@ final class ClassGroupLessonController extends Controller
                 'member' => $r->member,
             ])->values()->all(),
         ];
+    }
+
+    private function assertNotLockedForTeacher(object $lesson): void
+    {
+        OutcomeLock::assertOpen(
+            $this->ctx()->role,
+            $this->ctx()->userId,
+            (string) $lesson->status === 'SCHEDULED',
+            $lesson->outcome_set_by !== null ? (string) $lesson->outcome_set_by : null,
+        );
     }
 
     /**

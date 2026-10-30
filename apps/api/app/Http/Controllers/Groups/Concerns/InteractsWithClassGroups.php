@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Groups\Concerns;
 
+use App\Domain\OutcomeLock;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
@@ -117,6 +118,9 @@ trait InteractsWithClassGroups
             'homework' => $l->homework,
             'notes' => $l->notes,
             'outcome_set_at' => $l->outcome_set_at !== null ? Carbon::parse($l->outcome_set_at)->utc()->toIso8601String() : null,
+            // The office saved this sheet: the calling teacher may read it but not change or undo it.
+            'outcome_locked' => OutcomeLock::locks($this->ctx()->role, $this->ctx()->userId, (string) $l->status === 'SCHEDULED',
+                isset($l->outcome_set_by) ? (string) $l->outcome_set_by : null),
             'counts' => $counts,
         ];
     }
