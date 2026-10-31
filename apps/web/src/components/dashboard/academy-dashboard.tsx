@@ -62,8 +62,11 @@ import { cn } from "@/lib/utils";
 
 // ── Date helpers ───────────────────────────────────────────────────────────────
 
+/** The viewer's own calendar day, not the UTC one: `toISOString()` turned local midnight on the
+ *  1st into the 30th in Cairo, so the month's window ended a day early and its last day never
+ *  counted (Yaqen's teachers watched "hours this month" freeze on 31 Oct). */
 function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function getLast6Months(): { year: number; month: number }[] {
@@ -364,7 +367,7 @@ function WeeklyBars({ sessions, locale }: { sessions: CalendarSession[]; locale:
     const dt = new Date(d);
     dt.setDate(d.getDate() + offset + i);
     const dateStr = isoDate(dt);
-    const daySessions = sessions.filter((s) => s.scheduled_at_utc.startsWith(dateStr));
+    const daySessions = sessions.filter((s) => isoDate(new Date(s.scheduled_at_utc)) === dateStr);
     const completed = daySessions.filter((s) => s.status === "ATTENDED" || s.status === "ABSENT_EXCUSED" || s.status === "ABSENT_UNEXCUSED").length;
     const pending = daySessions.filter((s) => s.status === "SCHEDULED").length;
     const cancelled = daySessions.filter((s) => s.status === "CANCELLED_BY_TEACHER" || s.status === "CANCELLED_BY_STUDENT" || s.status === "RESCHEDULED").length;
