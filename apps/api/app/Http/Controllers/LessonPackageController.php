@@ -590,8 +590,8 @@ final class LessonPackageController extends Controller
      * package. Deliberately NOT filtered to the package's own date window: the commonest reason
      * to reach for this screen is that the window was wrong in the first place (a block sold
      * after the teaching started, a student moved onto package billing mid-month), so the owner
-     * is shown the lessons and left to judge. A lesson whose invoice has already been issued is
-     * still listed, but flagged `locked` — it cannot move without re-opening that bill.
+     * is shown the lessons and left to judge. A lesson on a bill that has been paid (even in
+     * part) is still listed, but flagged `locked` — it cannot move.
      */
     public function availableLessons(string $id): JsonResponse
     {
@@ -615,21 +615,26 @@ final class LessonPackageController extends Controller
             ->limit(200)
             ->get([
                 'sess.id', 'sess.scheduled_at_utc', 'sess.duration_minutes',
-                't.full_name as teacher_name', 'i.status as invoice_status',
+                't.full_name as teacher_name', 'li.invoice_id', 'i.status as invoice_status',
                 'li.amount_minor', 'li.currency',
-            ])
-            ->map(fn ($s) => [
-                'id' => (string) $s->id,
-                'scheduled_at_utc' => Carbon::parse($s->scheduled_at_utc)->utc()->toIso8601String(),
-                'duration_minutes' => (int) $s->duration_minutes,
-                'teacher_name' => $s->teacher_name !== null ? (string) $s->teacher_name : null,
-                'invoice_status' => $s->invoice_status !== null ? (string) $s->invoice_status : null,
-                'amount_minor' => $s->amount_minor !== null ? (int) $s->amount_minor : null,
-                'currency' => $s->currency !== null ? (string) $s->currency : null,
-                // An issued invoice is immutable, so its lesson cannot be moved onto a package
-                // until that bill is re-opened. Say so here rather than failing on submit.
-                'locked' => $s->invoice_status !== null && (string) $s->invoice_status !== 'OPEN',
             ]);
+
+        $packages = app(LessonPackages::class);
+        $movable = $rows->pluck('invoice_id')->filter()->unique()
+            ->mapWithKeys(fn ($invoiceId) => [(string) $invoiceId => $packages->canReleaseLessons((string) $invoiceId)]);
+
+        $rows = $rows->map(fn ($s) => [
+            'id' => (string) $s->id,
+            'scheduled_at_utc' => Carbon::parse($s->scheduled_at_utc)->utc()->toIso8601String(),
+            'duration_minutes' => (int) $s->duration_minutes,
+            'teacher_name' => $s->teacher_name !== null ? (string) $s->teacher_name : null,
+            'invoice_status' => $s->invoice_status !== null ? (string) $s->invoice_status : null,
+            'amount_minor' => $s->amount_minor !== null ? (int) $s->amount_minor : null,
+            'currency' => $s->currency !== null ? (string) $s->currency : null,
+            // A bill with money on it is never rewritten, so its lesson cannot move onto a
+            // package. Say so here rather than failing on submit. (Closed but unpaid moves.)
+            'locked' => $s->invoice_id !== null && ! ($movable[(string) $s->invoice_id] ?? false),
+        ]);
 
         return response()->json(['lessons' => $rows]);
     }
@@ -930,6 +935,15 @@ final class LessonPackageController extends Controller
 
     // ── internals ────────────────────────────────────────────────────────────
 
+    /**
+     * A block tied to a subject counts only that subject's lessons (its timetable's teacher, else
+     * the lesson's own) — a student taking two subjects saw both blocks claim every lesson.
+     */
+    private static function lessonOfSubject(string $alias): string
+    {
+        return "(p.teacher_id is null or coalesce((select sc.teacher_id from schedules sc where sc.id = {$alias}.schedule_id), {$alias}.teacher_id) = p.teacher_id)";
+    }
+
     private function baseQuery()
     {
         return DB::table('lesson_packages as p')
@@ -971,7 +985,8 @@ final class LessonPackageController extends Controller
                     ->selectRaw('count(*)')
                     ->whereColumn('upcoming.student_id', 'p.student_id')
                     ->whereIn('upcoming.status', ['SCHEDULED', 'RESCHEDULED'])
-                    ->where('upcoming.scheduled_at_utc', '>=', now()),
+                    ->where('upcoming.scheduled_at_utc', '>=', now())
+                    ->whereRaw(self::lessonOfSubject('upcoming')),
                 'upcoming_lesson_count',
             )
             ->selectSub(
@@ -980,9 +995,23 @@ final class LessonPackageController extends Controller
                     ->whereColumn('next_session.student_id', 'p.student_id')
                     ->whereIn('next_session.status', ['SCHEDULED', 'RESCHEDULED'])
                     ->where('next_session.scheduled_at_utc', '>=', now())
+                    ->whereRaw(self::lessonOfSubject('next_session'))
                     ->orderBy('next_session.scheduled_at_utc')
                     ->limit(1),
                 'next_lesson_at',
+            )
+            // Who closed it by hand (the owner, a supervisor) — null when it ran out by itself.
+            ->selectSub(
+                DB::table('audit_log as al')
+                    ->leftJoin('users as cu', 'cu.id', '=', 'al.actor_user_id')
+                    ->select('cu.full_name')
+                    ->whereColumn('al.academy_id', 'p.academy_id')
+                    ->where('al.entity_type', 'lesson_package')
+                    ->whereColumn('al.entity_id', 'p.id')
+                    ->whereIn('al.action', ['lesson_package.completed', 'lesson_package.cancelled'])
+                    ->orderByDesc('al.created_at')
+                    ->limit(1),
+                'closed_by_name',
             );
     }
 
@@ -1262,6 +1291,7 @@ final class LessonPackageController extends Controller
             'expires_on' => $row->expires_on !== null ? (string) $row->expires_on : null,
             'closed_at' => $row->closed_at !== null ? Carbon::parse($row->closed_at)->utc()->toIso8601String() : null,
             'closed_reason' => $row->closed_reason !== null ? (string) $row->closed_reason : null,
+            'closed_by_name' => $row->status !== 'ACTIVE' && isset($row->closed_by_name) ? (string) $row->closed_by_name : null,
             'invoice_id' => $row->invoice_id !== null ? (string) $row->invoice_id : null,
             'invoice_status' => $row->invoice_status !== null ? (string) $row->invoice_status : null,
             'invoice_token' => $row->invoice_token !== null ? (string) $row->invoice_token : null,

@@ -65,6 +65,8 @@ final class ReportFieldController extends Controller
                 'label_en' => $data['label_en'],
                 'field_type' => $data['field_type'],
                 'options' => isset($data['options']) ? json_encode($data['options']) : null,
+                'section' => $data['section'] ?? null,
+                'max_value' => $data['max_value'] ?? null,
                 'sort_order' => $data['sort_order'] ?? 0,
                 'is_required' => $data['is_required'] ?? false,
                 'is_active' => true,
@@ -94,7 +96,7 @@ final class ReportFieldController extends Controller
 
             $update = [];
             $before = [];
-            foreach (['label_ar', 'label_en', 'field_type', 'sort_order', 'is_required', 'is_active'] as $col) {
+            foreach (['label_ar', 'label_en', 'field_type', 'section', 'max_value', 'sort_order', 'is_required', 'is_active'] as $col) {
                 if (array_key_exists($col, $data)) {
                     $before[$col] = $existing->{$col};
                     $update[$col] = $data[$col];
@@ -195,6 +197,9 @@ final class ReportFieldController extends Controller
             'options.*' => ['string', 'max:255'],
             'sort_order' => ['sometimes', 'integer', 'min:0'],
             'is_required' => ['sometimes', 'boolean'],
+            // Structured lesson reports: the heading a field sits under, and a NUMBER's "out of".
+            'section' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'max_value' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1000'],
         ];
 
         if ($creating) {

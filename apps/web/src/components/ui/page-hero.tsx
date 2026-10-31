@@ -61,7 +61,7 @@ export function PageHero({
       )}
 
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+        <div className="flex min-w-0 items-center gap-3 sm:flex-1 sm:gap-4">
           {avatarName !== undefined ? (
             <HeroAvatar name={avatarName} />
           ) : (
@@ -83,8 +83,11 @@ export function PageHero({
           </div>
         </div>
 
+        {/* Capped and wrapping, never shrink-0: a page with many pills (the Due page shows one
+            per currency owed) otherwise claimed the whole row in one line and crushed the title
+            beside it into a single word per line. */}
         {actions && (
-          <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:max-w-[55%] sm:justify-end">{actions}</div>
         )}
       </div>
     </header>

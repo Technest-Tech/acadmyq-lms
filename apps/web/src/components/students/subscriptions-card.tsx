@@ -47,7 +47,7 @@ export function SubscriptionsCard({ studentId, studentName, onChanged }: { stude
 
 type Action =
   | { kind: "join" }
-  | { kind: "package" }
+  | { kind: "package"; subjectId?: string }
   | { kind: "groupEdit" | "groupEnd" | "groupDelete"; member: BoardMember }
   | { kind: "pkgEdit" | "pkgEnd" | "pkgDelete"; row: LessonPackageRow };
 
@@ -109,6 +109,15 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   const former = (members ?? []).filter((m) => m.status !== "ACTIVE");
   const openPackages = (packages ?? []).filter((p) => p.status === "ACTIVE");
   const closedPackages = (packages ?? []).filter((p) => p.status !== "ACTIVE");
+  // Per subject (or "any lesson"), the newest finished block — when nothing is open for it.
+  const renewableIds = new Set<string>();
+  const seenScopes = new Set(openPackages.map((p) => p.subject?.teacher_id ?? ""));
+  for (const p of [...closedPackages].sort((a, b) => b.sequence_no - a.sequence_no)) {
+    const scope = p.subject?.teacher_id ?? "";
+    if (seenScopes.has(scope)) continue;
+    seenScopes.add(scope);
+    renewableIds.add(p.id);
+  }
   const loaded = members !== null && packages !== null;
   const nothing = loaded && members.length === 0 && packages.length === 0;
 
@@ -244,6 +253,17 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                           </span>
                         )}
                       </p>
+                      {p.status !== "ACTIVE" && (
+                        <p className="text-muted-foreground text-xs" data-testid="subs-package-closed">
+                          {[
+                            closedReasonText(p.closed_reason, tp),
+                            p.closed_at ? dayLabel(p.closed_at.slice(0, 10), locale) : null,
+                            p.closed_by_name ? tp("closedBy", { name: p.closed_by_name }) : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      )}
                       {p.status === "ACTIVE" && p.next_lesson_at && (
                         <p className="text-muted-foreground text-xs">
                           {tp("card.nextLesson")}: {formatDateTime(p.next_lesson_at, timezone, locale)}
@@ -262,6 +282,20 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                           onDelete={packageDeletable(p) ? () => setModal({ kind: "pkgDelete", row: p }) : undefined}
                         />
                       )}
+                      {/* The latest finished block of a subject with nothing open: start it again. */}
+                      {p.status !== "ACTIVE" && managePackages && renewableIds.has(p.id) && (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() => setModal({ kind: "package", subjectId: p.subject?.teacher_id })}
+                          data-testid={`subs-renew-${p.id}`}
+                        >
+                          <RefreshCw className="size-3" aria-hidden />
+                          {t("subscriptions.renew")}
+                        </Button>
+                      )}
                     </div>
                   </li>
                 ))}
@@ -275,7 +309,16 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
         <JoinGroupModal studentId={studentId} studentName={studentName} exclude={new Set(active.map((m) => m.group_id))} onClose={() => setModal(null)} onDone={() => done(t("subscriptions.joined"))} />
       )}
       <Modal open={modal?.kind === "package"} onClose={() => setModal(null)} title={t("subscriptions.newPrivateTitle", { name: studentName })} size="lg">
-        {modal?.kind === "package" && <OpenPackageForm initialStudentId={studentId} onSaved={(msg) => done(msg)} onCancel={() => setModal(null)} />}
+        {modal?.kind === "package" && (
+          <OpenPackageForm
+            initialStudentId={studentId}
+            initialSubjectId={modal.subjectId}
+            // A finished block ended with lessons left can hand them to the new one.
+            studentsWithHistory={closedPackages.length > 0 ? new Set([studentId]) : undefined}
+            onSaved={(msg) => done(msg)}
+            onCancel={() => setModal(null)}
+          />
+        )}
       </Modal>
       {(modal?.kind === "groupEdit" || modal?.kind === "groupEnd") && (
         <MembershipModal
@@ -558,4 +601,11 @@ function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { 
       </form>
     </Modal>
   );
+}
+
+/** Why a private subscription is finished, in the desk's words; a typed reason is shown as typed. */
+export function closedReasonText(reason: string | null, tp: (key: string) => string): string | null {
+  if (!reason) return null;
+  const known = ["EXHAUSTED", "CLOSED_EARLY", "CHARGE_CANCELLED", "STUDENT_REMOVED", "CARRIED_OVER", "CANCELLED", "RENEWAL_UNDONE"];
+  return known.includes(reason) ? tp(`closedReason.${reason}`) : reason;
 }

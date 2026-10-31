@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, DatabaseBackup, MessageCircle, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { BookOpen, ClipboardList, DatabaseBackup, MessageCircle, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -8,13 +8,14 @@ import { AcademyNameCard } from "@/components/settings/academy-name-card";
 import { AdminsCard } from "@/components/settings/admins-card";
 import { ControlsManager } from "@/components/settings/controls-manager";
 import { DataExportCard } from "@/components/settings/data-export-card";
+import { LessonReportManager } from "@/components/settings/lesson-report-manager";
 import { ReportCardManager } from "@/components/settings/report-card-manager";
 import { SpecializationsManager } from "@/components/settings/specializations-manager";
 import { WhatsAppManager } from "@/components/settings/whatsapp-manager";
 import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
-type TabKey = "courses" | "reportCard" | "whatsapp" | "controls" | "account";
+type TabKey = "courses" | "lessonReport" | "reportCard" | "whatsapp" | "controls" | "account";
 
 /**
  * Each tab names the capability it needs: the course list and the report card are day-to-day
@@ -24,6 +25,7 @@ type TabKey = "courses" | "reportCard" | "whatsapp" | "controls" | "account";
  */
 const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon; permission: string }> = [
   { key: "courses", icon: BookOpen, permission: "specialization.manage" },
+  { key: "lessonReport", icon: ClipboardList, permission: "report_field.manage" },
   { key: "reportCard", icon: ScrollText, permission: "report_field.manage" },
   { key: "whatsapp", icon: MessageCircle, permission: "settings.manage" },
   { key: "controls", icon: SlidersHorizontal, permission: "settings.manage" },
@@ -38,12 +40,16 @@ export function SettingsManager() {
   const [chosen, setChosen] = useState<TabKey>("courses");
   // The report card is a per-client feature; without it the tab (and its template) do not exist.
   const hasReportCard = useCapability("report_card");
+  // The academy's own lesson-report form and message — switched on per client by a Super Admin
+  // (opt-in, so strict: no capability list means off).
+  const hasLessonReport = session?.capabilities?.includes("lesson_report") ?? false;
   // Only clients with the WhatsApp module have a number to link.
   const hasWhatsApp = useCapability("whatsapp.automation");
   const tabs = TABS.filter(
     (tab) =>
       can(tab.permission) &&
       (tab.key !== "reportCard" || hasReportCard) &&
+      (tab.key !== "lessonReport" || hasLessonReport) &&
       (tab.key !== "whatsapp" || hasWhatsApp) &&
       (tab.key !== "account" || isAdmin),
   );
@@ -99,6 +105,7 @@ export function SettingsManager() {
       {/* ── Tab panels ────────────────────────────────────────────────────── */}
       <div role="tabpanel" aria-label={t(`tabs.${active}`)}>
         {active === "courses" && <SpecializationsManager />}
+        {active === "lessonReport" && <LessonReportManager />}
         {active === "reportCard" && <ReportCardManager />}
         {active === "whatsapp" && <WhatsAppManager />}
         {active === "controls" && <ControlsManager />}

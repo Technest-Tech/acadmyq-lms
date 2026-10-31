@@ -5,7 +5,7 @@ import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /** The lesson lengths a centre prices by — 60 and 40 first, the way the desk quotes them. */
-export const LESSON_LENGTHS = [60, 40, 45, 30, 90, 120];
+export const LESSON_LENGTHS = [60, 40, 45, 30, 90, 120, 15];
 
 /** A price per lesson of `unitMinutes`, over `totalMinutes`, as the total in minor units. */
 export function totalFromLessonPrice(unitPriceMinor: number, totalMinutes: number, unitMinutes: number): number {

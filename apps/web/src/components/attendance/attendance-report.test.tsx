@@ -485,3 +485,94 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
     expect(screen.queryByTestId("revert-outcome")).not.toBeInTheDocument();
   });
 });
+
+describe("AttendanceReport — the academy's own lesson report (lesson_report)", () => {
+  const field = (over: Partial<api.ReportField>): api.ReportField => ({
+    id: over.key ?? "f",
+    academy_id: "a1",
+    key: "k",
+    label_ar: "ح",
+    label_en: "Field",
+    field_type: "TEXT",
+    options: null,
+    sort_order: 0,
+    is_required: false,
+    is_active: true,
+    section: null,
+    max_value: null,
+    ...over,
+  });
+  const structuredFields = [
+    field({ key: "hifz_score", label_en: "Memorisation", field_type: "NUMBER", max_value: 10, section: "Evaluation" }),
+    field({ key: "next_hifz", label_en: "New memorisation", section: "Next homework" }),
+  ];
+
+  function structuredSession(withCapability = true): Session {
+    return makeSession("ACADEMY_OWNER", {
+      permissions: ["session.read", "session.mark_attendance", "session.write_report"],
+      capabilities: withCapability ? ["report_card", "lesson_report"] : ["report_card"],
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getSession).mockResolvedValue(detail({ reportFields: structuredFields }));
+    vi.mocked(api.markAttendance).mockResolvedValue({
+      status: "ATTENDED",
+      billed: true,
+      classification: { billableToStudent: true, countsForTeacher: true },
+    });
+    vi.mocked(api.putSessionReport).mockResolvedValue({ ok: true, values: {} });
+  });
+
+  it("shows the academy's form under its sections instead of the free-text box, and saves the answers", async () => {
+    const user = userEvent.setup();
+    renderPanel(structuredSession());
+
+    expect(await screen.findByTestId("structured-report")).toBeInTheDocument();
+    expect(screen.queryByTestId("report-text")).not.toBeInTheDocument();
+    expect(screen.getByText("Evaluation")).toBeInTheDocument();
+    expect(screen.getByText("Next homework")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("outcome-ATTENDED"));
+    await user.click(screen.getByTestId("score-hifz_score-9"));
+    await user.type(screen.getByLabelText("New memorisation"), "Al-Ma'idah 61-81");
+    await user.click(screen.getByTestId("save-report"));
+
+    await waitFor(() =>
+      expect(api.putSessionReport).toHaveBeenCalledWith("se1", {
+        hifz_score: 9,
+        next_hifz: "Al-Ma'idah 61-81",
+        is_free_trial: false,
+      }),
+    );
+  });
+
+  it("shows a saved report as label and answer, a score with its out-of", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(
+      detail({
+        reportFields: structuredFields,
+        report: {
+          values: { hifz_score: 8 },
+          filled_by_user_id: "u1",
+          filled_at: "2026-06-01T16:00:00Z",
+          whatsapp_sent_at: null,
+          whatsapp_channel: null,
+        },
+      }),
+    );
+    renderPanel(structuredSession());
+
+    const readonly = await screen.findByTestId("report-readonly");
+    expect(readonly).toHaveTextContent("Memorisation:");
+    expect(readonly).toHaveTextContent("8 / 10");
+    expect(readonly).not.toHaveTextContent("New memorisation");
+  });
+
+  it("keeps the free-text box for a client that doesn't have it switched on", async () => {
+    renderPanel(structuredSession(false));
+
+    expect(await screen.findByTestId("report-text")).toBeInTheDocument();
+    expect(screen.queryByTestId("structured-report")).not.toBeInTheDocument();
+  });
+});

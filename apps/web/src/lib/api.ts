@@ -347,6 +347,10 @@ export interface ReportField {
   sort_order: number;
   is_required: boolean;
   is_active: boolean;
+  /** The heading the field sits under on a structured lesson report ("التقييم"). */
+  section?: string | null;
+  /** A NUMBER with a max is a score "out of" it (9 / 10). */
+  max_value?: number | null;
 }
 
 export interface Plan {
@@ -1961,6 +1965,8 @@ export interface ReportFieldInput {
   sort_order?: number;
   is_required?: boolean;
   is_active?: boolean;
+  section?: string | null;
+  max_value?: number | null;
 }
 
 export function addReportField(
@@ -2760,6 +2766,40 @@ export function saveReportCardTemplate(
     method: "PUT",
     body: JSON.stringify(content),
   });
+}
+
+// ── Lesson report (Settings → Lesson report, the `lesson_report` capability) ──
+
+export interface LessonReportSettings {
+  /** Every report field, inactive ones too (so they can be brought back). */
+  fields: ReportField[];
+  /** The academy's WhatsApp message, with {placeholders}. */
+  message: string;
+  /** The lesson facts every message can use: academy, teacher, student, day, date, … */
+  facts: string[];
+  presets: Record<string, { name_ar: string; name_en: string }>;
+}
+
+export function getLessonReport(): Promise<LessonReportSettings> {
+  return apiFetch("/api/lesson-report");
+}
+
+export function saveLessonReportMessage(message: string): Promise<{ ok: boolean }> {
+  return apiFetch("/api/lesson-report/message", {
+    method: "PUT",
+    body: JSON.stringify({ message }),
+  });
+}
+
+export function previewLessonReport(message: string): Promise<{ text: string }> {
+  return apiFetch("/api/lesson-report/preview", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
+export function applyLessonReportPreset(preset: string): Promise<LessonReportSettings> {
+  return apiFetch(`/api/lesson-report/presets/${preset}`, { method: "POST" });
 }
 
 // ── Payment Settings (Settings → Payment) ────────────────────────────────────
@@ -8206,6 +8246,8 @@ export interface LessonPackageRow {
   expires_on: string | null;
   closed_at: string | null;
   closed_reason: string | null;
+  /** Who closed it by hand; null when it ran out by itself. */
+  closed_by_name?: string | null;
   invoice_id: string | null;
   invoice_status: string | null;
   invoice_token: string | null;

@@ -27,6 +27,10 @@ final class WhatsAppReportBuilder
     {
         $values = is_string($report->values) ? (json_decode($report->values, true) ?: []) : (array) $report->values;
 
+        // An academy on structured lesson reports wrote its own message; it replaces the generic
+        // bilingual card below, word for word.
+        $template = LessonReportMessage::templateFor((string) $session->academy_id);
+
         $student = DB::table('students')->where('id', $session->student_id)->first(['full_name', 'guardian_id']);
         $guardian = $student !== null
             ? DB::table('guardians')->where('id', $student->guardian_id)->first(['full_name', 'whatsapp_phone'])
@@ -91,7 +95,9 @@ final class WhatsAppReportBuilder
         $blockAr = implode("\n", $headerAr).($linesAr !== [] ? "\n\n📝 ملاحظات:\n".implode("\n", $linesAr) : '');
         $blockEn = implode("\n", $headerEn).($linesEn !== [] ? "\n\n📝 Notes:\n".implode("\n", $linesEn) : '');
 
-        $text = $blockAr."\n\n———\n\n".$blockEn;
+        $text = $template !== null
+            ? app(LessonReportMessage::class)->forSession($template, $session, $values)
+            : $blockAr."\n\n———\n\n".$blockEn;
 
         $phone = (string) ($guardian?->whatsapp_phone ?? '');
         $digits = preg_replace('/\D+/', '', $phone) ?? '';

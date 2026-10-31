@@ -42,6 +42,7 @@ import {
 } from "./cancellation-billing-modal";
 import { ReportArchive } from "./report-archive";
 import { ReportEditor } from "./report-editor";
+import { StructuredReportForm, displayValue, type ReportValues } from "./structured-report-form";
 import { StatusBadge } from "./status-badge";
 import { DurationCorrectionModal } from "./duration-correction-modal";
 import { RevertOutcomeDialog } from "./revert-outcome-dialog";
@@ -126,6 +127,9 @@ export function AttendanceReport({
   const { can, session: auth } = useAuth();
   // Switched off per client from the Super Admin profile: then there is no card to draw.
   const hasReportCard = useCapability("report_card");
+  // The academy's own form (Settings → Lesson report) in place of the free-text box. Opt-in, so
+  // strict: a session without a capability list must not flip every academy onto it.
+  const hasLessonReport = auth?.capabilities?.includes("lesson_report") ?? false;
 
   // The four selectable outcomes are the same for everyone now (attended / free / the two
   // cancellations). A teacher's cancel still routes through approval; an owner's opens the
@@ -136,6 +140,8 @@ export function AttendanceReport({
 
   const [data, setData] = useState<SessionDetailResponse | null>(null);
   const [reportText, setReportText] = useState("");
+  // The structured form's answers, keyed by report field.
+  const [fieldValues, setFieldValues] = useState<ReportValues>({});
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [busy, setBusy] = useState(false);
   // What the user has selected (not yet saved). null = no change from server.
@@ -176,6 +182,7 @@ export function AttendanceReport({
       const detail = await getSession(sessionId);
       setData(detail);
       setReportText((detail.report?.values?.report_text as string) ?? "");
+      setFieldValues((detail.report?.values as ReportValues | undefined) ?? {});
       setSelectedStatus(null);
       // Start in read-only view when a report already exists; otherwise open the editor.
       setEditing(!detail.report?.filled_at);
@@ -218,6 +225,14 @@ export function AttendanceReport({
   // — picking FREE raises a request for the owner to approve. Owners open the billing popup.
   const freeRequestMode = !can("session.free") && can("session.free_request");
   const { session, report } = data;
+  // Structured lesson report: the academy switched it on AND built a form to fill.
+  const structured = hasLessonReport && data.reportFields.length > 0;
+  const filledFields = structured && data.reportFields.some((f) => displayValue(f, fieldValues[f.key]) !== "");
+  /** What the report saves: the form's answers (a cleared one sent empty), or the free text. */
+  const reportPayload = (): Record<string, unknown> =>
+    structured
+      ? Object.fromEntries(data.reportFields.map((f) => [f.key, fieldValues[f.key] ?? null]))
+      : { report_text: reportText };
   // Once the office has recorded the outcome a teacher can no longer change or undo it (the API
   // refuses too); they still write the report.
   const outcomeLocked = !!session.outcome_locked;
@@ -275,10 +290,11 @@ export function AttendanceReport({
         pay_teacher: values.pay_teacher,
         reason: values.reason || undefined,
       });
-      await putSessionReport(sessionId, {
-        report_text: reportText,
-        is_free_trial: false,
-      });
+      // An untouched form has nothing to say about a cancelled lesson — and may have required
+      // fields that would refuse it.
+      if (!structured || filledFields) {
+        await putSessionReport(sessionId, { ...reportPayload(), is_free_trial: false });
+      }
       const applied = cancelModal.status;
       setCancelModal(null);
       await load();
@@ -302,7 +318,7 @@ export function AttendanceReport({
         pay_teacher: values.pay_teacher,
         reason: values.reason || undefined,
       });
-      await putSessionReport(sessionId, { report_text: reportText });
+      if (!structured || filledFields) await putSessionReport(sessionId, reportPayload());
       setFreeModalOpen(false);
       await load();
       flash("success", t("saved"));
@@ -357,13 +373,19 @@ export function AttendanceReport({
       }
 
       // Save report (always, so notes are persisted)
-      const reportValues: Record<string, unknown> = { report_text: reportText };
+      const reportValues = reportPayload();
       // The FREE status now owns "this lesson is free" — the legacy is_free_trial report flag
       // no longer does. Clear that flag when a billable outcome is chosen so a legacy trial
       // (stored as ATTENDED + is_free_trial=true) re-prices correctly when switched to ATTENDED.
       if (target !== null && target !== "FREE")
         reportValues.is_free_trial = false;
-      await putSessionReport(sessionId, reportValues);
+      // An untouched structured form on a lesson that didn't happen has nothing to save (and its
+      // required fields would refuse it); on a delivered lesson it is saved, so required ones speak.
+      const outcomeNow = target ?? serverStatus;
+      const delivered = outcomeNow === "ATTENDED" || outcomeNow === "FREE";
+      if (!structured || filledFields || delivered || serverIsFreeLegacy) {
+        await putSessionReport(sessionId, reportValues);
+      }
 
       // Saved with no outcome chosen on a still-scheduled session: persist the report
       // anyway, but nudge the user to also record attendance (drives billing/payroll).
@@ -753,7 +775,7 @@ export function AttendanceReport({
                   <Pencil className="size-3.5" />
                   {t("edit")}
                 </Button>
-              ) : formatLangPicker === null ? (
+              ) : structured ? null : formatLangPicker === null ? (
                 <button
                   type="button"
                   disabled={busy}
@@ -796,7 +818,15 @@ export function AttendanceReport({
             </div>
           </div>
 
-          {editing && !readOnly ? (
+          {structured ? (
+            <StructuredReportForm
+              fields={editing && !readOnly ? data.reportFields : [...data.reportFields, ...data.inactiveReportFields]}
+              values={fieldValues}
+              onChange={setFieldValues}
+              disabled={busy}
+              readOnly={!editing || readOnly}
+            />
+          ) : editing && !readOnly ? (
             <ReportEditor
               value={reportText}
               onChange={(v) => setReportText(v)}

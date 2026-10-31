@@ -51,6 +51,13 @@ final class SessionReportController extends Controller
         // The validator also skips required-field checks when report_text is present (free-text mode).
         $clean = ReportValidator::validate((string) $session->academy_id, array_merge($before, $submitted));
         $merged = array_merge($before, $clean);
+        // A field sent back empty was cleared on the form (a score tapped off, a line wiped): drop
+        // it, or the merge above would quietly keep the old answer.
+        foreach ($submitted as $key => $value) {
+            if (($value === null || $value === '') && ! array_key_exists($key, $clean) && ! in_array($key, ['report_text', 'is_free_trial'], true)) {
+                unset($merged[$key]);
+            }
+        }
 
         // Reserved free-text keys aren't academy field definitions, so the validator strips them.
         // Persist them explicitly: report_text holds the free-text report body and is_free_trial

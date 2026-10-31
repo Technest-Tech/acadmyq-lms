@@ -227,3 +227,15 @@ it("hides every control from someone who may only read", async () => {
   expect(screen.queryByRole("button", { name: /إضافة حصة/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /تصحيح المدة/ })).not.toBeInTheDocument();
 });
+
+it("reads a block sold in lessons in lessons, with the price of one lesson — not hours", async () => {
+  // Malika (lingo, 2026-10-31): 6 lessons of 40 minutes, all used, 660 for the block.
+  const row = pkg({ lesson_minutes: 40, minutes_consumed: 240, minutes_remaining: 0, percent_used: 100, price_minor: 66000, hourly_rate_minor: 16500 });
+  getLessonPackage.mockResolvedValue({ package: row, credits: [] });
+  render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["package.read"] }), <PackageDetail row={row} timezone="Africa/Cairo" />));
+
+  expect(await screen.findByText("سعر الحصة (40 د)")).toBeInTheDocument();
+  expect(screen.getAllByText("6 حصص")).toHaveLength(2); // bought and used
+  expect(screen.getByText("0 حصة")).toBeInTheDocument();
+  expect(screen.queryByText("سعر الساعة")).toBeNull();
+});

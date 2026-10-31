@@ -22,6 +22,9 @@ final class ReportFields
         $field->is_required = (bool) $field->is_required;
         $field->is_active = (bool) $field->is_active;
         $field->options = is_string($field->options ?? null) ? (json_decode($field->options, true) ?: null) : ($field->options ?? null);
+        // A NUMBER with a max is a score "out of" it; `section` is the heading it sits under.
+        $field->max_value = isset($field->max_value) ? (int) $field->max_value : null;
+        $field->section ??= null;
 
         return $field;
     }

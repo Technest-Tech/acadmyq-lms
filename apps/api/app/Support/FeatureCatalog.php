@@ -39,6 +39,7 @@ final class FeatureCatalog
         'teacher_quality' => 'Teacher quality rubric, discounts & awards',
         'financial_statistics' => 'Financial statistics & exchange rates',
         'report_card' => 'Report card image (shareable lesson/trial report)',
+        'lesson_report' => 'Structured lesson report — the academy\'s own form and WhatsApp message',
         'groups' => 'Group classes — groups, members, timetable & attendance',
         'accounting' => 'Accounting — numbered receipts, partial payments, balances & collection sheets',
         'centre' => 'Centre mode — subscriptions wording, packages by default, any student on a manual lesson, salary blocks',
@@ -178,6 +179,7 @@ final class FeatureCatalog
             'teacher_quality',
             'financial_statistics',
             'report_card',
+            'lesson_report',
             'groups',
             'accounting',
             'centre',
@@ -201,6 +203,9 @@ final class FeatureCatalog
         // The centre's ways on the shared screens (docs/groups/01-ACCOUNTING.md): a Quran academy
         // never sees them unless a Super Admin switches the client over.
         'centre',
+        // Replaces the free-text lesson report with the academy's own form and message: a client
+        // keeps writing reports the way it always has until a Super Admin switches it on.
+        'lesson_report',
     ];
 
     /**

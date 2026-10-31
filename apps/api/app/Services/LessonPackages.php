@@ -584,16 +584,26 @@ final class LessonPackages
             $invoiceId = null;
 
             if ($line !== null) {
+                $invoiceId = (string) $line->invoice_id;
+                $standIn = null;
+
                 if ((string) $line->invoice_status !== 'OPEN') {
-                    throw ValidationException::withMessages([
-                        'session_id' => ['That lesson is on an invoice which is no longer open, so it cannot move onto a package. / هذه الحصة على فاتورة لم تعد مفتوحة، لذا لا يمكن نقلها إلى باقة.'],
-                    ]);
+                    $standIn = $this->reopenUnpaidBill($invoiceId, $actorUserId, $actorRole);
+                    if ($standIn === null) {
+                        throw ValidationException::withMessages([
+                            'session_id' => ['That lesson is on a bill that has already been paid or settled, so it cannot move onto a package. / هذه الحصة على فاتورة تم دفعها أو تسويتها، لذا لا يمكن نقلها إلى باقة.'],
+                        ]);
+                    }
+                    $invoiceId = $standIn;
                 }
 
-                $invoiceId = (string) $line->invoice_id;
                 DB::table('invoice_line_items')->where('id', $line->id)->delete();
                 $this->resettleInvoice($invoiceId);
                 app(Ledger::class)->afterLinesChanged($invoiceId);
+
+                if ($standIn !== null) {
+                    $invoiceId = $this->closeStandIn($standIn, (string) $package->academy_id, $actorUserId, $actorRole);
+                }
             }
 
             $before = (int) $package->minutes_consumed;
@@ -719,6 +729,106 @@ final class LessonPackages
             'total_minor' => $total,
             'updated_at' => now(),
         ]);
+    }
+
+    /**
+     * Let a month's bill that closed with nothing paid on it give lessons up to a package.
+     *
+     * A student moved onto a package with a start date in an earlier month (فتحية, Alrayan,
+     * 2026-10-31: package from 18 Sep, entered after September's bill had closed) had those
+     * lessons left behind, because the database freezes a closed bill's totals. A closed bill
+     * nobody paid is still just a claim, so it is voided and every line moves, as is, onto an OPEN
+     * stand-in for the same payer and month; the caller takes the package's lessons off that, and
+     * {@see closeStandIn()} closes what is left.
+     *
+     * Money anywhere on it — paid, a receipt allocated, a line let go — and it stays exactly as it
+     * is: null.
+     */
+    private function reopenUnpaidBill(string $invoiceId, ?string $actorUserId, ?string $actorRole): ?string
+    {
+        $bill = DB::table('invoices')->where('id', $invoiceId)->lockForUpdate()->first();
+
+        if ($bill === null || (string) $bill->status !== 'CLOSED' || ! $this->isUnpaidBill($bill)) {
+            return null;
+        }
+
+        $standIn = (string) Str::uuid();
+        // MANUAL: the month's AUTO slot is the voided bill's for good (unique per payer and month),
+        // and a MANUAL bill is never picked up by new lessons either.
+        DB::table('invoices')->insert([
+            'id' => $standIn,
+            'academy_id' => $bill->academy_id,
+            'kind' => 'MANUAL',
+            'guardian_id' => $bill->guardian_id,
+            'student_id' => $bill->student_id,
+            'payer_name' => $bill->payer_name,
+            'period_year' => $bill->period_year,
+            'period_month' => $bill->period_month,
+            'status' => 'OPEN',
+            'currency' => $bill->currency,
+            'subtotal_minor' => 0,
+            'total_minor' => 0,
+            'public_token' => PublicInvoiceToken::forAcademyId((string) $bill->academy_id),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('invoice_line_items')->where('invoice_id', $invoiceId)->update(['invoice_id' => $standIn]);
+        $this->resettleInvoice($standIn);
+        DB::table('invoices')->where('id', $invoiceId)->update(['status' => 'VOID', 'updated_at' => now()]);
+
+        Audit::log('invoice.voided', 'invoice', $invoiceId, (string) $bill->academy_id, $actorUserId, $actorRole,
+            after: ['status' => 'VOID', 'reason' => 'LESSONS_MOVED_TO_PACKAGE', 'replaced_by' => $standIn],
+            before: ['status' => 'CLOSED', 'total_minor' => (int) $bill->total_minor]);
+
+        return $standIn;
+    }
+
+    /**
+     * Whether a lesson on this bill can still move onto a package: the bill is OPEN, or it closed
+     * with no money anywhere on it ({@see reopenUnpaidBill()}).
+     */
+    public function canReleaseLessons(string $invoiceId): bool
+    {
+        $bill = DB::table('invoices')->where('id', $invoiceId)->first();
+
+        return $bill !== null && ((string) $bill->status === 'OPEN' || ((string) $bill->status === 'CLOSED' && $this->isUnpaidBill($bill)));
+    }
+
+    /** Nothing paid, no receipt on it, no line let go, and not a package's own bill. */
+    private function isUnpaidBill(object $bill): bool
+    {
+        $id = (string) $bill->id;
+
+        return (int) $bill->amount_paid_minor === 0
+            && $bill->paid_at === null
+            && ! DB::table('receipt_allocations')->where('invoice_id', $id)->exists()
+            && ! DB::table('invoice_line_items')->where('invoice_id', $id)->whereNotNull('cancelled_at')->exists()
+            && ! DB::table('lesson_packages')->where(fn ($q) => $q->where('invoice_id', $id)->orWhere('overdraft_invoice_id', $id))->exists();
+    }
+
+    /**
+     * Close the stand-in once the package has taken its lessons: CLOSED again with what is left, or
+     * gone when the package took every line. Returns the bill that remains, if any.
+     */
+    private function closeStandIn(string $invoiceId, string $academyId, ?string $actorUserId, ?string $actorRole): ?string
+    {
+        if (! DB::table('invoice_line_items')->where('invoice_id', $invoiceId)->exists()) {
+            DB::table('invoices')->where('id', $invoiceId)->delete();
+
+            return null;
+        }
+
+        $this->resettleInvoice($invoiceId);
+        DB::table('invoices')->where('id', $invoiceId)->update(['status' => 'CLOSED', 'closed_at' => now(), 'updated_at' => now()]);
+        // A receipt-kept academy closes it onto what the payer's credit already covers.
+        DB::select('select app.ledger_refresh_invoice(?)', [$invoiceId]);
+        app(Ledger::class)->afterLinesChanged($invoiceId);
+
+        $total = (int) DB::table('invoices')->where('id', $invoiceId)->value('total_minor');
+        Audit::log('invoice.created', 'invoice', $invoiceId, $academyId, $actorUserId, $actorRole,
+            after: ['kind' => 'MANUAL', 'mode' => 'REISSUED_WITHOUT_PACKAGE_LESSONS', 'status' => 'CLOSED', 'total_minor' => $total]);
+
+        return $invoiceId;
     }
 
     // =========================================================================
@@ -968,9 +1078,9 @@ final class LessonPackages
         );
 
         // A package may deliberately start before the day it is entered. Move lessons already
-        // billed on still-open monthly invoices onto this package immediately, so a package that
-        // starts on 24 Aug and is entered on 6 Sep does not misleadingly begin at zero. Settled
-        // invoices are immutable and are reported back instead of being touched. A renewal skips
+        // billed on monthly invoices nobody has paid onto this package immediately, so a package that
+        // starts on 24 Aug and is entered on 6 Sep does not misleadingly begin at zero. Paid
+        // invoices are never touched and are reported back instead. A renewal skips
         // it: it opens the instant the last block ran out, so there is nothing behind it to import.
         $sync = ($data['sync'] ?? true)
             ? $this->syncBackdatedLessons($packageId, $actorUserId, $actorRole)
@@ -990,11 +1100,12 @@ final class LessonPackages
     }
 
     /**
-     * Move already-billed lessons between this package's start and now from OPEN monthly bills
+     * Move already-billed lessons between this package's start and now from unpaid monthly bills
      * into the package ledger. This is both the creation-time backfill and the repair action for
      * packages created before that behavior existed.
      *
-     * A settled invoice is never modified. A lesson without an invoice line is also left alone:
+     * An OPEN bill gives its lines up in place; a CLOSED one nobody paid is voided and reissued
+     * without them ({@see reopenUnpaidBill()}). A bill with money on it is never modified. A lesson without an invoice line is also left alone:
      * `sessions.billed` is only an idempotency flag, while the line/credit ledger is the financial
      * evidence needed to move it safely.
      *
@@ -1055,41 +1166,59 @@ final class LessonPackages
         $imported = 0;
         $skippedLocked = 0;
 
-        foreach ($sessions as $session) {
-            // Once an imported lesson exhausts the package, later lessons remain on their
-            // original invoices; this mirrors real-time consumption after a package runs out.
-            if ((string) (DB::table('lesson_packages')->where('id', $packageId)->value('status') ?? '') !== 'ACTIVE') {
-                break;
+        // One unit: a bill voided and reissued must never be left half-moved.
+        DB::transaction(function () use ($sessions, $packageId, $package, $actorUserId, $actorRole, &$imported, &$skippedLocked): void {
+            // A month's bill that closed with nothing paid on it → the OPEN stand-in its lines moved to.
+            // null = that bill holds money and stays as it is.
+            $reopened = [];
+
+            foreach ($sessions as $session) {
+                // Once an imported lesson exhausts the package, later lessons remain on their
+                // original invoices; this mirrors real-time consumption after a package runs out.
+                if ((string) (DB::table('lesson_packages')->where('id', $packageId)->value('status') ?? '') !== 'ACTIVE') {
+                    break;
+                }
+
+                $invoiceId = (string) $session->invoice_id;
+
+                if ($session->invoice_status !== 'OPEN') {
+                    if (! array_key_exists($invoiceId, $reopened)) {
+                        $reopened[$invoiceId] = $this->reopenUnpaidBill($invoiceId, $actorUserId, $actorRole);
+                    }
+                    if ($reopened[$invoiceId] === null) {
+                        $skippedLocked++;
+
+                        continue;
+                    }
+                    $invoiceId = $reopened[$invoiceId];
+                }
+
+                DB::table('invoice_line_items')->where('id', $session->line_id)->delete();
+
+                // Recalculate from the remaining ledger rather than subtracting blindly. It is safe
+                // under retries and preserves unrelated children on a guardian's shared invoice.
+                $newTotal = (int) DB::table('invoice_line_items')
+                    ->where('invoice_id', $invoiceId)
+                    ->sum('amount_minor');
+                DB::table('invoices')->where('id', $invoiceId)->update([
+                    'subtotal_minor' => $newTotal,
+                    'total_minor' => $newTotal,
+                    'updated_at' => now(),
+                ]);
+                app(Ledger::class)->afterLinesChanged($invoiceId);
+
+                $before = DB::table('lesson_package_credits')->where('session_id', $session->id)->exists();
+                $this->consume($session);
+                $after = DB::table('lesson_package_credits')->where('session_id', $session->id)->exists();
+                if (! $before && $after) {
+                    $imported++;
+                }
             }
 
-            if ($session->invoice_status !== 'OPEN') {
-                $skippedLocked++;
-
-                continue;
+            foreach (array_filter($reopened) as $standIn) {
+                $this->closeStandIn($standIn, (string) $package->academy_id, $actorUserId, $actorRole);
             }
-
-            $invoiceId = (string) $session->invoice_id;
-            DB::table('invoice_line_items')->where('id', $session->line_id)->delete();
-
-            // Recalculate from the remaining ledger rather than subtracting blindly. It is safe
-            // under retries and preserves unrelated children on a guardian's shared invoice.
-            $newTotal = (int) DB::table('invoice_line_items')
-                ->where('invoice_id', $invoiceId)
-                ->sum('amount_minor');
-            DB::table('invoices')->where('id', $invoiceId)->update([
-                'subtotal_minor' => $newTotal,
-                'total_minor' => $newTotal,
-                'updated_at' => now(),
-            ]);
-            app(Ledger::class)->afterLinesChanged($invoiceId);
-
-            $before = DB::table('lesson_package_credits')->where('session_id', $session->id)->exists();
-            $this->consume($session);
-            $after = DB::table('lesson_package_credits')->where('session_id', $session->id)->exists();
-            if (! $before && $after) {
-                $imported++;
-            }
-        }
+        });
 
         if ($imported > 0 || $skippedLocked > 0) {
             Audit::log(

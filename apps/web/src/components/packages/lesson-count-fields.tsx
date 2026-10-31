@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 
 /** The lesson lengths a desk sells, shortest first. */
-export const LESSON_LENGTH_CHOICES = [20, 25, 30, 40, 45, 50, 60, 90, 120];
+export const LESSON_LENGTH_CHOICES = [15, 20, 25, 30, 40, 45, 50, 60, 90, 120];
 
 const inputClass =
   "border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3 py-2.5 text-sm outline-none transition-colors focus:ring-3";

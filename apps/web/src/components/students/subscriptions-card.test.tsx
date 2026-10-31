@@ -207,6 +207,32 @@ describe("SubscriptionsCard", () => {
     );
   });
 
+  it("says why a finished subscription ended and who ended it, and renews only a subject's latest block with nothing open", async () => {
+    const sama = { teacher_id: "t9", teacher_name: "Ms Sama", course: "Connect Plus" };
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({ id: "open", subject: { teacher_id: "t1", teacher_name: "Mr Ali", course: "English OL" }, sequence_no: 3 }),
+        pkg({ id: "ended", subject: sama, sequence_no: 2, status: "COMPLETED", closed_reason: "CLOSED_EARLY", closed_at: "2026-10-28T10:00:00Z", closed_by_name: "Nour" }),
+        pkg({ id: "older", subject: sama, sequence_no: 1, status: "COMPLETED", closed_reason: "EXHAUSTED", closed_at: "2026-10-20T10:00:00Z", closed_by_name: null }),
+        pkg({ id: "ali-old", subject: { teacher_id: "t1", teacher_name: "Mr Ali", course: "English OL" }, sequence_no: 0, status: "COMPLETED", closed_reason: "EXHAUSTED" }),
+      ],
+    });
+    const user = userEvent.setup();
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+
+    const ended = await screen.findByTestId("subs-package-ended");
+    const why = within(ended).getByTestId("subs-package-closed");
+    expect(why).toHaveTextContent(arMessages.packages.closedReason.CLOSED_EARLY);
+    expect(why).toHaveTextContent("أنهاه Nour");
+    expect(within(screen.getByTestId("subs-package-older")).getByTestId("subs-package-closed")).toHaveTextContent(arMessages.packages.closedReason.EXHAUSTED);
+
+    // Connect Plus has nothing open: its newest block renews; English OL is still running.
+    expect(screen.queryByTestId("subs-renew-older")).toBeNull();
+    expect(screen.queryByTestId("subs-renew-ali-old")).toBeNull();
+    await user.click(screen.getByTestId("subs-renew-ended"));
+    expect(await screen.findByText(ar.newPrivateTitle.replace("{name}", "Adam"))).toBeInTheDocument();
+  });
+
   it("offers no edit or end to whoever may not manage groups or packages", async () => {
     render(withAuth(makeSession("SUPERVISOR", { permissions: ["student.read", "group.read", "package.read"], capabilities: ["invoicing", "groups", "packages", "centre"] }), <SubscriptionsCard studentId="s1" studentName="Adam" />));
     await screen.findByTestId("subs-group-g1");

@@ -43,8 +43,8 @@ function lessonShapeOf(row: LessonPackageRow): { lessons: number; minutes: numbe
     const minutes = Number(m[2]);
     if (lessons * minutes === total) return { lessons, minutes };
   }
-  // The order the desk quotes them in, then the rarer lengths.
-  const minutes = [...LESSON_LENGTHS, 50, 25, 20].find((u) => total % u === 0);
+  // The order the desk quotes them in, then the rarer lengths (15 last: it divides almost anything).
+  const minutes = [...LESSON_LENGTHS.filter((u) => u !== 15), 50, 25, 20, 15].find((u) => total % u === 0);
   return minutes !== undefined ? { lessons: total / minutes, minutes } : { lessons: 1, minutes: total };
 }
 

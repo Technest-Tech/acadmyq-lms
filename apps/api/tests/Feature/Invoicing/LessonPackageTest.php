@@ -756,7 +756,7 @@ it('imports a lesson completed today when the database uses the academy Cairo ti
     }
 });
 
-it('never moves a historical lesson off a settled invoice', function () {
+it('never moves a historical lesson off a paid invoice', function () {
     $session = ($this->lesson)(60, '2026-06-02 10:00:00+00');
     Sanctum::actingAs($this->owner);
     $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
@@ -764,6 +764,7 @@ it('never moves a historical lesson off a settled invoice', function () {
     $this->asAcademy($this->academy);
     $oldInvoiceId = (string) DB::table('invoice_line_items')->where('session_id', $session)->value('invoice_id');
     app(Invoicing::class)->closeInvoice($oldInvoiceId, $this->academy, (string) $this->owner->id, 'ACADEMY_OWNER');
+    DB::table('invoices')->where('id', $oldInvoiceId)->update(['status' => 'PAID', 'amount_paid_minor' => 20000, 'paid_at' => now()]);
 
     $package = ($this->openPackage)(4, 80000);
 
@@ -773,6 +774,99 @@ it('never moves a historical lesson off a settled invoice', function () {
         ->and((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(0)
         ->and(DB::table('invoice_line_items')->where('session_id', $session)->count())->toBe(1)
         ->and(DB::table('lesson_package_credits')->where('session_id', $session)->count())->toBe(0);
+});
+
+it('moves a lesson off last month\'s closed bill when nobody has paid it', function () {
+    // فتحية (Alrayan, 2026-10-31): a package from 18 Sep entered after September's bill had
+    // closed left September's lessons behind on it.
+    $session = ($this->lesson)(60, '2026-06-02 10:00:00+00');
+    ($this->attend)($session);
+
+    $this->asAcademy($this->academy);
+    $oldInvoiceId = (string) DB::table('invoice_line_items')->where('session_id', $session)->value('invoice_id');
+    app(Invoicing::class)->closeInvoice($oldInvoiceId, $this->academy, (string) $this->owner->id, 'ACADEMY_OWNER');
+
+    $package = ($this->openPackage)(4, 80000);
+
+    $this->asAcademy($this->academy);
+    expect($package['imported_lessons'])->toBe(1)
+        ->and($package['skipped_locked_lessons'])->toBe(0)
+        ->and((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(60)
+        ->and(DB::table('invoice_line_items')->where('session_id', $session)->count())->toBe(0)
+        // The bill held only that lesson: voided, and no empty bill takes its place.
+        ->and(DB::table('invoices')->where('id', $oldInvoiceId)->value('status'))->toBe('VOID')
+        ->and(DB::table('invoices')->where('guardian_id', $this->guardian)->where('status', '<>', 'VOID')
+            ->where('id', '<>', $package['invoice_id'])->count())->toBe(0);
+});
+
+it('reissues a closed family bill without the lesson that moved onto the package', function () {
+    $sibling = $this->createStudent($this->academy, $this->guardian, ['full_name' => 'Monthly Maya']);
+    $this->asAcademy($this->academy);
+    DB::table('subscriptions')->insert([
+        'id' => (string) Str::uuid(), 'academy_id' => $this->academy, 'student_id' => $sibling,
+        'plan_label' => 'Hourly', 'price_minor' => 15000, 'currency' => 'EGP', 'price_basis' => 'PER_HOUR',
+        'sessions_per_month' => null, 'status' => 'ACTIVE', 'start_date' => '2026-01-01',
+    ]);
+    $siblingLesson = $this->createSession($this->academy, $sibling, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-03 10:00:00+00', 'duration_minutes' => 60, 'status' => 'SCHEDULED',
+    ]);
+    // She was on monthly billing then, so her lesson sits on the family's bill with her sister's.
+    DB::table('subscriptions')->where('student_id', $this->student)->update(['price_basis' => 'PER_HOUR']);
+    $session = ($this->lesson)(60, '2026-06-02 10:00:00+00');
+    ($this->attend)($session);
+    ($this->attend)($siblingLesson);
+
+    $this->asAcademy($this->academy);
+    $oldInvoiceId = (string) DB::table('invoice_line_items')->where('session_id', $session)->value('invoice_id');
+    expect((string) DB::table('invoice_line_items')->where('session_id', $siblingLesson)->value('invoice_id'))->toBe($oldInvoiceId);
+    app(Invoicing::class)->closeInvoice($oldInvoiceId, $this->academy, (string) $this->owner->id, 'ACADEMY_OWNER');
+
+    $package = ($this->openPackage)(4, 80000);
+
+    $this->asAcademy($this->academy);
+    $siblingLine = DB::table('invoice_line_items')->where('session_id', $siblingLesson)->first();
+    $reissued = DB::table('invoices')->where('id', $siblingLine->invoice_id)->first();
+    expect($package['imported_lessons'])->toBe(1)
+        ->and(DB::table('invoices')->where('id', $oldInvoiceId)->value('status'))->toBe('VOID')
+        // The sister's lesson is still owed, on a closed bill for the same family and month.
+        ->and($reissued->id)->not->toBe($oldInvoiceId)
+        ->and($reissued->status)->toBe('CLOSED')
+        ->and($reissued->guardian_id)->toBe($this->guardian)
+        ->and((int) $reissued->period_month)->toBe(6)
+        ->and((int) $reissued->total_minor)->toBe(15000)
+        ->and(DB::table('invoice_line_items')->where('invoice_id', $reissued->id)->count())->toBe(1);
+});
+
+it('puts a lesson from a closed unpaid bill onto the package by hand, but not one from a paid bill', function () {
+    // Both before the package's start, so only the hand-attach can move them.
+    $may = ($this->lesson)(60, '2026-05-20 10:00:00+00');
+    $april = ($this->lesson)(60, '2026-04-20 10:00:00+00');
+    ($this->attend)($may);
+    ($this->attend)($april);
+
+    $this->asAcademy($this->academy);
+    $mayBill = (string) DB::table('invoice_line_items')->where('session_id', $may)->value('invoice_id');
+    $aprilBill = (string) DB::table('invoice_line_items')->where('session_id', $april)->value('invoice_id');
+    foreach ([$mayBill, $aprilBill] as $bill) {
+        app(Invoicing::class)->closeInvoice($bill, $this->academy, (string) $this->owner->id, 'ACADEMY_OWNER');
+    }
+    DB::table('invoices')->where('id', $aprilBill)->update(['status' => 'PAID', 'amount_paid_minor' => 20000, 'paid_at' => now()]);
+
+    $package = ($this->openPackage)(4, 80000);
+    Sanctum::actingAs($this->owner);
+
+    $locked = collect($this->getJson("/api/packages/{$package['package_id']}/available-lessons")->assertOk()->json('lessons'))
+        ->pluck('locked', 'id');
+    expect($locked[$may])->toBeFalse()->and($locked[$april])->toBeTrue();
+
+    $this->postJson("/api/packages/{$package['package_id']}/lessons", ['session_id' => $may])->assertOk();
+    $this->postJson("/api/packages/{$package['package_id']}/lessons", ['session_id' => $april])
+        ->assertStatus(422)->assertJsonValidationErrors('session_id');
+
+    $this->asAcademy($this->academy);
+    expect((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(60)
+        ->and(DB::table('invoices')->where('id', $mayBill)->value('status'))->toBe('VOID')
+        ->and(DB::table('invoices')->where('id', $aprilBill)->value('status'))->toBe('PAID');
 });
 
 it('can sync an existing package after its start date is corrected', function () {

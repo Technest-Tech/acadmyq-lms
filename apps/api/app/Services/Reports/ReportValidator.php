@@ -52,6 +52,12 @@ final class ReportValidator
 
                         break;
                     }
+                    // A score "out of" a max (structured lesson reports) stays within 0..max.
+                    if ($field->max_value !== null && ($value < 0 || $value > $field->max_value)) {
+                        $errors["values.{$key}"][] = "{$field->label_en} must be between 0 and {$field->max_value}. / {$field->label_ar} يجب أن يكون بين 0 و {$field->max_value}.";
+
+                        break;
+                    }
                     $clean[$key] = $value + 0; // store as a JSON number (int or float)
                     break;
 

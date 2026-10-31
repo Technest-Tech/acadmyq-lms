@@ -1465,6 +1465,7 @@
     "forbidden": "You don't have access to settings.",
     "tabs": {
       "courses": "Courses",
+      "lessonReport": "Lesson report",
       "reportCard": "Report card",
       "whatsapp": "WhatsApp",
       "controls": "Controls",
@@ -1502,6 +1503,68 @@
       "pickCountry": "Pick a country",
       "pickCurrency": "Pick a currency",
       "search": "Search…"
+    },
+    "lessonReport": {
+      "presetsTitle": "Start from a template",
+      "presetsHint": "A ready-made form and message you can then change. It replaces your current ones.",
+      "usePreset": "Use “{name}”",
+      "presetConfirmTitle": "Replace your lesson report?",
+      "presetConfirmBody": "The template's fields and message replace your current form and message.",
+      "presetConfirmNote": "Fields you have now are switched off, not deleted — past reports keep their answers, and you can switch any of them back on.",
+      "presetConfirm": "Use this template",
+      "cancel": "Cancel",
+      "formTitle": "The form",
+      "formHint": "What the teacher or supervisor fills in after each lesson, in this order",
+      "noFields": "No fields yet — add one, or start from a template above.",
+      "addField": "Add field",
+      "edit": "Edit",
+      "deactivate": "Switch off",
+      "activate": "Switch on",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "inactiveTitle": "Switched-off fields ({count})",
+      "outOf": "out of {max}",
+      "kinds": {
+        "score": "Score (out of)",
+        "number": "Number",
+        "text": "Short text",
+        "textarea": "Long text",
+        "select": "Choice from a list"
+      },
+      "field": {
+        "titleNew": "New field",
+        "titleEdit": "Edit field",
+        "labelAr": "Name (Arabic)",
+        "labelEn": "Name (English, optional)",
+        "kind": "Type",
+        "max": "Out of",
+        "section": "Section (optional)",
+        "sectionHint": "e.g. التقييم — fields with the same section are grouped",
+        "options": "Choices",
+        "optionsHint": "One per line",
+        "required": "Required — the report can't be saved without it",
+        "save": "Save field"
+      },
+      "messageTitle": "The WhatsApp message",
+      "messageHint": "Write it once; every lesson's answers are filled in for you",
+      "insertFacts": "Lesson details — tap to insert",
+      "insertFields": "Your fields — tap to insert",
+      "facts": {
+        "academy": "Academy",
+        "teacher": "Teacher",
+        "student": "Student",
+        "day": "Day",
+        "date": "Date",
+        "attendance": "Attendance",
+        "duration": "Duration (min)"
+      },
+      "messagePlaceholder": "e.g. 🌺 Student: {student}",
+      "emptyLineHint": "A line whose fields were left empty is left out of the message.",
+      "saveMessage": "Save message",
+      "saved": "Saved",
+      "unsaved": "Unsaved changes",
+      "preview": "Preview — with sample answers",
+      "previewEmpty": "Write the message to see it here."
     },
     "reportCard": {
       "title": "Report card",
@@ -2105,7 +2168,8 @@
       "deletedCredited": "Subscription deleted. {amount} already paid toward it is now the family's credit.",
       "deleteFailed": "Couldn't delete the subscription.",
       "deletePrivateTitle": "Delete {name}'s private subscription {label}?",
-      "deletePrivateHint": "For a subscription opened by mistake: it disappears with its unpaid bill. Only offered while no lesson has been counted on it and nothing has been paid toward it — otherwise end it."
+      "deletePrivateHint": "For a subscription opened by mistake: it disappears with its unpaid bill. Only offered while no lesson has been counted on it and nothing has been paid toward it — otherwise end it.",
+      "renew": "Renew"
     },
     "monthly": {
       "lessons": "Lessons a month",
@@ -2979,6 +3043,7 @@
       "used": "Used",
       "remaining": "Left",
       "rate": "Per hour",
+      "ratePerLesson": "Price per lesson ({minutes} min)",
       "lessons": "Lessons on this package",
       "loading": "Loading lessons…",
       "noLessons": "No lesson has consumed this package yet.",
@@ -3056,11 +3121,11 @@
       "opened": "Package opened.",
       "openedAndBilled": "Package opened and the invoice was raised.",
       "openedWithLessons": "Package opened with {count} existing lessons imported.",
-      "openedWithLocked": "Package opened: {imported} lessons imported; {locked} remained on closed or paid invoices.",
+      "openedWithLocked": "Package opened: {imported} lessons imported; {locked} remained on paid invoices.",
       "closed": "Package closed.",
       "closeFailed": "Could not close the package.",
       "synced": "Package updated — {count} lessons imported.",
-      "syncedWithLocked": "Package updated: {imported} lessons imported; {locked} remained on closed or paid invoices.",
+      "syncedWithLocked": "Package updated: {imported} lessons imported; {locked} remained on paid invoices.",
       "syncFailed": "Could not sync lessons into this package.",
       "paymentSent": "Payment link sent by WhatsApp.",
       "paymentReady": "Payment message opened in WhatsApp.",
@@ -3180,6 +3245,16 @@
       "USAGE": "Hours used",
       "UNBILLED": "Used, not billed",
       "OVERDRAFT": "Extra hours"
+    },
+    "closedBy": "Ended by {name}",
+    "closedReason": {
+      "EXHAUSTED": "Its lessons ran out",
+      "CLOSED_EARLY": "Ended before its lessons ran out",
+      "CHARGE_CANCELLED": "Its charge was cancelled",
+      "STUDENT_REMOVED": "The student was stopped",
+      "CARRIED_OVER": "What was left moved to the next subscription",
+      "CANCELLED": "Cancelled",
+      "RENEWAL_UNDONE": "Its automatic renewal was undone"
     }
   },
   "attendance": {
@@ -3640,6 +3715,7 @@
       "teacher_quality": "Teacher quality rubric, discounts & awards",
       "financial_statistics": "Financial statistics & exchange rates",
       "report_card": "Report card image (shareable lesson/trial report)",
+      "lesson_report": "Structured lesson report — the academy's own form and WhatsApp message",
       "lms": "Online courses — course builder & learner site",
       "video": {
         "conferencing": "Video classroom — rooms & recordings"

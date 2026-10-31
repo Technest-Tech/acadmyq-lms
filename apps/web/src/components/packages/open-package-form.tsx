@@ -36,12 +36,15 @@ import { formatMoney } from "@/lib/money";
  */
 export function OpenPackageForm({
   initialStudentId,
+  initialSubjectId,
   studentsWithHistory,
   onSaved,
   onCancel,
 }: {
   /** Pre-selects a student — set when the form is opened from that student's profile. */
   initialStudentId?: string;
+  /** Pre-selects that subject (its teacher's id) — renewing a finished subscription for it. */
+  initialSubjectId?: string;
   /** Students who have a closed package to carry hours over FROM. Others never see the option. */
   studentsWithHistory?: ReadonlySet<string>;
   onSaved: (message: string) => void;
@@ -73,7 +76,13 @@ export function OpenPackageForm({
 
   // Opened from a student's page: the student is chosen already, so start where a pick would.
   useEffect(() => {
-    if (initialStudentId && students !== null) setSubjectId(defaultSubject(students.find((s) => s.id === initialStudentId)));
+    if (initialStudentId && students !== null) {
+      const picked = students.find((s) => s.id === initialStudentId);
+      const renewable = initialSubjectId !== undefined && centre
+        && (picked?.subjects ?? []).some((sub) => sub.teacher_id === initialSubjectId)
+        && !(picked?.open_subjects ?? []).includes(initialSubjectId);
+      setSubjectId(renewable ? initialSubjectId : defaultSubject(picked));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [students]);
 

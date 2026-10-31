@@ -29,6 +29,7 @@ import {
   type PackageAttachableLesson,
   type TeacherRow,
 } from "@/lib/api";
+import { lessonsIn, pricePerLesson } from "@/components/packages/lesson-price-fields";
 import { formatMoney } from "@/lib/money";
 import { formatDateTime, formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -127,6 +128,10 @@ export function PackageDetail({
 
   const isActive = pkg.status === "ACTIVE";
   const percent = Math.min(100, Math.max(0, pkg.percent_used));
+  // Sold in lessons (a centre): every amount reads in lessons and the price is one lesson's.
+  const lessonMinutes = pkg.lesson_minutes ?? null;
+  const amount = (minutes: number) =>
+    lessonMinutes ? t("card.lessonsCount", { count: lessonsIn(minutes, lessonMinutes) }) : formatHours(minutes, locale);
 
   return (
     <div className="space-y-4">
@@ -170,17 +175,17 @@ export function PackageDetail({
       {/* ── The balance, at a glance ──────────────────────────────────── */}
       <div className="space-y-2.5">
         <dl className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-          <Fact label={t("detail.sold")} value={formatHours(pkg.minutes_sold, locale)} />
-          <Fact label={t("detail.used")} value={formatHours(pkg.minutes_consumed, locale)} />
+          <Fact label={t("detail.sold")} value={amount(pkg.minutes_sold)} />
+          <Fact label={t("detail.used")} value={amount(pkg.minutes_consumed)} />
           <Fact
             label={t("detail.remaining")}
-            value={formatHours(pkg.minutes_remaining, locale)}
+            value={amount(pkg.minutes_remaining)}
             strong
           />
           <Fact
-            label={t("detail.rate")}
+            label={lessonMinutes ? t("detail.ratePerLesson", { minutes: lessonMinutes }) : t("detail.rate")}
             value={formatMoney(
-              { amount: pkg.hourly_rate_minor, currency: pkg.currency },
+              { amount: lessonMinutes ? pricePerLesson(pkg, lessonMinutes) : pkg.hourly_rate_minor, currency: pkg.currency },
               locale,
             )}
           />
@@ -249,7 +254,7 @@ export function PackageDetail({
             <p className="text-muted-foreground text-[11px]">
               {t("detail.ledgerCount", {
                 count: credits.length,
-                total: formatHours(pkg.minutes_consumed, locale),
+                total: amount(pkg.minutes_consumed),
               })}
             </p>
           )}

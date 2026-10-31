@@ -99,6 +99,7 @@ use App\Http\Controllers\Quality\QualityReportController;
 use App\Http\Controllers\Quality\QualityRubricController;
 use App\Http\Controllers\Quality\TeacherAdjustmentController;
 use App\Http\Controllers\Quality\TeacherInsightsController;
+use App\Http\Controllers\LessonReportController;
 use App\Http\Controllers\ReportCardTemplateController;
 use App\Http\Controllers\ReportFieldController;
 use App\Http\Controllers\Scheduling\AttendanceController;
@@ -850,6 +851,16 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::middleware('entitled:report_card')->group(function () {
         Route::get('/report-card-template', [ReportCardTemplateController::class, 'show']);
         Route::put('/report-card-template', [ReportCardTemplateController::class, 'update']);
+    });
+
+    // The academy's own lesson report: its form (the report fields) and the WhatsApp message those
+    // values are poured into. Switched on per client (entitled:lesson_report, opt-in); without it
+    // the report stays the free-text box. report_field.manage throughout (LessonReportController).
+    Route::middleware('entitled:lesson_report')->group(function () {
+        Route::get('/lesson-report', [LessonReportController::class, 'show']);
+        Route::put('/lesson-report/message', [LessonReportController::class, 'updateMessage']);
+        Route::post('/lesson-report/preview', [LessonReportController::class, 'preview']);
+        Route::post('/lesson-report/presets/{preset}', [LessonReportController::class, 'applyPreset']);
     });
 
     // Scheduling & sessions (Sprint 5 §8). The weekly schedule is the rule; sessions are the

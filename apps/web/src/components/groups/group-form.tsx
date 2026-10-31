@@ -42,7 +42,7 @@ export function fromMinor(value: number | null | undefined): string {
 const BILLING_MODES: GroupBillingMode[] = ["MONTHLY", "PER_LESSON", "COURSE"];
 const PAY_MODES: Exclude<GroupTeacherPayMode, null>[] = ["PER_LESSON", "PER_HOUR", "PER_STUDENT", "REVENUE_SHARE"];
 /** The lesson lengths a centre actually runs; anything else is typed under "Other". */
-export const DURATION_PRESETS = [20, 30, 40, 45, 60, 90, 120];
+export const DURATION_PRESETS = [15, 20, 30, 40, 45, 60, 90, 120];
 
 /** The first validation message an API refusal carries, else its message. */
 export function apiErrorMessage(err: unknown, fallback: string): string {
