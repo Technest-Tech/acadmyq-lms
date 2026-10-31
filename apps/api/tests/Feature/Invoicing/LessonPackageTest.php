@@ -869,6 +869,30 @@ it('puts a lesson from a closed unpaid bill onto the package by hand, but not on
         ->and(DB::table('invoices')->where('id', $aprilBill)->value('status'))->toBe('PAID');
 });
 
+it('carries the backlog on into the renewal when a backdated block fills up on it', function () {
+    // انفال (Alrayan, 2026-11-01): block 1 filled on its 8th old lesson, renewed itself, and the
+    // later lessons stayed on the monthly bill while the renewal sat empty.
+    $lessons = [];
+    foreach (['2026-06-02', '2026-06-03', '2026-06-04', '2026-06-05'] as $day) {
+        $lessons[] = $id = ($this->lesson)(45, "{$day} 10:00:00+00");
+        ($this->attend)($id);
+    }
+
+    // Two hours: the third lesson overdraws block 1 by 15 minutes, which the renewal absorbs.
+    $first = ($this->openPackage)(2, 40000, autoRenew: true);
+
+    $this->asAcademy($this->academy);
+    $renewal = DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+    expect($first['imported_lessons'])->toBe(4)
+        ->and(($this->packageRow)($first['package_id'])->status)->toBe('COMPLETED')
+        ->and($renewal->id)->not->toBe($first['package_id'])
+        ->and((int) $renewal->minutes_consumed)->toBe(60)
+        // It starts at the first lesson it took, not the day it was opened.
+        ->and((string) $renewal->starts_on)->toBe('2026-06-05')
+        ->and(DB::table('invoice_line_items')->whereIn('session_id', $lessons)->count())->toBe(0)
+        ->and(DB::table('lesson_package_credits')->where('package_id', $renewal->id)->value('session_id'))->toBe($lessons[3]);
+});
+
 it('can sync an existing package after its start date is corrected', function () {
     $session = ($this->lesson)(60, '2026-06-02 10:00:00+00');
     Sanctum::actingAs($this->owner);

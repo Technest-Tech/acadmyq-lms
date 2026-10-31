@@ -1167,16 +1167,26 @@ final class LessonPackages
         $skippedLocked = 0;
 
         // One unit: a bill voided and reissued must never be left half-moved.
-        DB::transaction(function () use ($sessions, $packageId, $package, $actorUserId, $actorRole, &$imported, &$skippedLocked): void {
+        DB::transaction(function () use ($sessions, $packageId, $package, $timezone, $actorUserId, $actorRole, &$imported, &$skippedLocked): void {
             // A month's bill that closed with nothing paid on it → the OPEN stand-in its lines moved to.
             // null = that bill holds money and stays as it is.
             $reopened = [];
 
             foreach ($sessions as $session) {
-                // Once an imported lesson exhausts the package, later lessons remain on their
-                // original invoices; this mirrors real-time consumption after a package runs out.
+                // An imported lesson exhausted the package. If it renewed itself, the later lessons
+                // are the renewal's, exactly as if they had been marked live (انفال, Alrayan,
+                // 2026-11-01: block 1 filled on 11 Oct, block 2 opened empty and the rest of
+                // October stayed on the monthly bill). The renewal then starts at the first lesson
+                // it takes. No renewal (switched off, held for payment) → they stay where they are.
                 if ((string) (DB::table('lesson_packages')->where('id', $packageId)->value('status') ?? '') !== 'ACTIVE') {
-                    break;
+                    $renewal = $this->forLesson($session);
+                    if ($renewal === null || ! (bool) $renewal->opened_automatically) {
+                        break;
+                    }
+                    $packageId = (string) $renewal->id;
+                    $day = Carbon::parse((string) $session->scheduled_at_utc)->setTimezone($timezone)->toDateString();
+                    DB::table('lesson_packages')->where('id', $packageId)->where('starts_on', '>', $day)
+                        ->update(['starts_on' => $day, 'updated_at' => now()]);
                 }
 
                 $invoiceId = (string) $session->invoice_id;
