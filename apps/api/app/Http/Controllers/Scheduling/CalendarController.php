@@ -47,10 +47,12 @@ final class CalendarController extends Controller
             'studentId' => ['sometimes', 'nullable', 'uuid'],
         ]);
 
-        $fromUtc = Carbon::parse($data['from'])->utc();
-        // `to` is an inclusive calendar day → take the end of that day so a session at any time
-        // on the last day is included.
-        $toUtc = Carbon::parse($data['to'])->endOfDay()->utc();
+        // `from` and `to` are inclusive days on the ACADEMY's calendar, not UTC's. Read as UTC, a Cairo
+        // lesson between midnight and 02:00 fell in the day before: a Yaqen teacher taught 2 hours from 00:06 on
+        // the 1st, and "hours this month" showed 1 of the 3 while the pay was right.
+        $timezone = (string) (DB::table('academies')->where('id', $this->ctx()->academyId)->value('timezone') ?: 'UTC');
+        $fromUtc = Carbon::parse($data['from'], $timezone)->utc();
+        $toUtc = Carbon::parse($data['to'], $timezone)->endOfDay()->utc();
 
         $query = DB::table('sessions as se')
             ->leftJoin('students as st', 'st.id', '=', 'se.student_id')

@@ -120,3 +120,22 @@ it('generates a deterministic instant for a non-existent spring-forward time', f
     expect(Carbon::parse($row->scheduled_at_utc)->utc()->toIso8601String())->toBe('2026-03-29T01:30:00+00:00');
     expect(TimeHelper::renderInTimezone(Carbon::parse($row->scheduled_at_utc), 'Europe/London', 'H:i'))->toBe('02:30');
 });
+
+// A date on the calendar feed is a day in the academy's timezone (Yaqen, 2026-11-01): a lesson just
+// after local midnight belongs to the new month, and one just after the next month's midnight does not.
+it('reads the calendar window as days on the academy calendar, not UTC days', function () {
+    $academy = $this->createAcademy(overrides: ['timezone' => 'Africa/Cairo']);
+    $owner = $this->makeUser($academy, 'ACADEMY_OWNER', ['email' => 'owner-window@test.local']);
+    $teacher = $this->createTeacher($academy);
+    $student = $this->createStudent($academy);
+    $firstNight = $this->createSession($academy, $student, $teacher, ['scheduled_at_utc' => '2026-10-31 22:06:00+00']); // 1 Nov 00:06 Cairo
+    $lastNight = $this->createSession($academy, $student, $teacher, ['scheduled_at_utc' => '2026-11-30 21:30:00+00']); // 30 Nov 23:30 Cairo
+    $nextMonth = $this->createSession($academy, $student, $teacher, ['scheduled_at_utc' => '2026-11-30 22:30:00+00']); // 1 Dec 00:30 Cairo
+
+    Sanctum::actingAs($owner);
+    $ids = fn (string $from, string $to) => collect($this->getJson("/api/calendar?from={$from}&to={$to}")->assertOk()->json('sessions'))->pluck('id')->all();
+
+    expect($ids('2026-11-01', '2026-11-30'))->toContain($firstNight, $lastNight)->not->toContain($nextMonth)
+        ->and($ids('2026-10-01', '2026-10-31'))->not->toContain($firstNight)
+        ->and($ids('2026-12-01', '2026-12-31'))->toContain($nextMonth);
+});
