@@ -20,9 +20,11 @@ use App\Support\Phone;
 use App\Support\StudentStatus;
 use App\Support\StudentTeachers;
 use App\Support\TeacherStudents;
+use App\Support\TimeHelper;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -673,8 +675,9 @@ final class StudentController extends Controller
 
     /**
      * POST /api/students/{id}/teacher — REPLACE one teacher with another from a date (close +
-     * open, audited). The new teacher takes over the old one's course and timetable, so their
-     * future lessons move across and nothing else about the student changes.
+     * open, audited). The new teacher takes over the old one's course and timetable, and every
+     * lesson still unmarked from that date on, past ones included. A marked lesson stays with the
+     * teacher who taught it: that is what they are paid for.
      *
      * `replaces_teacher_id` says which teacher is leaving. It may be omitted while the student has
      * at most one teacher (the original single-teacher call); with several it is required, because
@@ -737,6 +740,10 @@ final class StudentController extends Controller
         // teacher sees them immediately instead of waiting for the next schedule edit / monthly
         // roll (the generator reads each timetable's teacher, TC-5.25).
         $this->regenerateStudentSessions($id);
+
+        if ($from !== null) {
+            $this->carryUnmarkedLessons($id, $from, $to, $data['effective_date'] ?? null);
+        }
 
         return response()->json(['ok' => true]);
     }
@@ -1101,6 +1108,28 @@ final class StudentController extends Controller
         foreach ($scheduleIds as $scheduleId) {
             $this->generator->generateForSchedule((string) $scheduleId, $windowStart, $windowEnd);
         }
+    }
+
+    /**
+     * Hand the leaving teacher's unmarked lessons with this student to the new one. The generator
+     * only reaches upcoming lessons a timetable still owns, which leaves a moved lesson, a one-off
+     * class, and anything unmarked since the date of the change sitting under the old name. With no
+     * date given the change starts now: an unmarked lesson already gone by was theirs to teach.
+     */
+    private function carryUnmarkedLessons(string $studentId, string $from, string $to, ?string $effectiveDate): void
+    {
+        $since = Carbon::now();
+        if ($effectiveDate !== null) {
+            $timezone = (string) (DB::table('academies')->where('id', $this->currentAcademyId())->value('timezone') ?? 'UTC');
+            $since = $since->min(TimeHelper::toUtc(Carbon::parse($effectiveDate)->format('Y-m-d').' 00:00:00', $timezone));
+        }
+
+        SessionGenerator::whereNothingRecorded(DB::table('sessions'))
+            ->where('student_id', $studentId)
+            ->where('teacher_id', $from)
+            ->where('status', 'SCHEDULED')
+            ->where('scheduled_at_utc', '>=', $since->copy()->utc()->format('Y-m-d H:i:sP'))
+            ->update(['teacher_id' => $to, 'updated_at' => now()]);
     }
 
     /**

@@ -15,6 +15,7 @@ import { studentOption } from "@/components/scheduling/student-options";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
+import { LessonLengthWarning } from "@/components/scheduling/lesson-length-warning";
 import {
   countPastLessons,
   StartDateField,
@@ -124,8 +125,15 @@ export function AddTimetableModal({
 
   function pickStudent(id: string) {
     setStudentId(id);
+    const picked = students.find((s) => s.id === id);
     // Default to the student's first teacher; with several the user still chooses.
-    setTeacherId(students.find((s) => s.id === id)?.teacher_id ?? "");
+    setTeacherId(picked?.teacher_id ?? "");
+    // The lesson their price assumes. Left at the flat default, a student priced at 40 minutes
+    // gets 30-minute lessons, billed and paid at 30.
+    if (picked?.lesson_minutes) {
+      const minutes = picked.lesson_minutes;
+      setSlots((prev) => prev.map((s) => ({ ...s, duration_minutes: minutes })));
+    }
   }
 
   const pastLessons = countPastLessons(slots, startDate);
@@ -303,13 +311,21 @@ export function AddTimetableModal({
             </div>
           ))}
 
+          <LessonLengthWarning priced={student?.lesson_minutes} slots={slots} />
+
           <button
             type="button"
             data-testid="add-slot"
             onClick={() =>
               setSlots((prev) => [
                 ...prev,
-                { weekday: 1, start_time_local: "17:00", duration_minutes: 30 },
+                {
+                  weekday: 1,
+                  start_time_local: "17:00",
+                  // Same lesson as the others, unless someone says otherwise.
+                  duration_minutes:
+                    prev.at(-1)?.duration_minutes ?? student?.lesson_minutes ?? 30,
+                },
               ])
             }
             className="group flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border py-3 text-sm font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-primary"

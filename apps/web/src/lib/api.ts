@@ -3725,7 +3725,12 @@ function teacherQuery(teacherId?: string): string {
 export function getStudentSchedule(
   studentId: string,
   teacherId?: string,
-): Promise<{ schedule: Schedule | null; slots: ScheduleSlot[] }> {
+): Promise<{
+  schedule: Schedule | null;
+  slots: ScheduleSlot[];
+  /** The lesson length the student's price assumes, when it names one. */
+  lesson_minutes?: number | null;
+}> {
   return apiFetch(`/api/students/${studentId}/schedule${teacherQuery(teacherId)}`);
 }
 

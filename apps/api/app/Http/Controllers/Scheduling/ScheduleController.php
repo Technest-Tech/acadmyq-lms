@@ -118,8 +118,9 @@ final class ScheduleController extends Controller
         $this->assertStudentExists($studentId);
 
         $schedule = $this->activeSchedule($studentId, $this->teacherParam($request));
+        $lessonMinutes = $this->pricedLessonMinutes($studentId);
         if ($schedule === null) {
-            return response()->json(['schedule' => null, 'slots' => []]);
+            return response()->json(['schedule' => null, 'slots' => [], 'lesson_minutes' => $lessonMinutes]);
         }
 
         $slots = DB::table('schedule_slots')
@@ -127,7 +128,7 @@ final class ScheduleController extends Controller
             ->orderBy('weekday')->orderBy('start_time_local')
             ->get(['id', 'weekday', 'start_time_local', 'duration_minutes']);
 
-        return response()->json(['schedule' => $schedule, 'slots' => $slots]);
+        return response()->json(['schedule' => $schedule, 'slots' => $slots, 'lesson_minutes' => $lessonMinutes]);
     }
 
     /**
@@ -174,6 +175,7 @@ final class ScheduleController extends Controller
         $existing = $this->activeSchedule($studentId, $teacherId);
         $creating = $existing === null;
         $startDate = $this->resolveStartDate($data, $existing, $studentId);
+        $previousStart = $existing?->start_date !== null ? Carbon::parse($existing->start_date)->format('Y-m-d') : null;
 
         if ($creating) {
             $scheduleId = (string) Str::uuid();
@@ -201,16 +203,9 @@ final class ScheduleController extends Controller
 
         $this->reconcileSlots($academyId, $scheduleId, $data['slots']);
 
-        // Materialise over the rolling window (current month → end of next month, §3.8), widened
-        // BACK to the start date when the timetable begins in the past. Both halves are needed:
-        // the window decides which dates are enumerated at all, the floor decides which of those
-        // become rows — leave either at "now" and a back-dated timetable silently starts today.
-        [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
-        $floor = TimeHelper::toUtc($startDate.' 00:00:00', $timezone);
-        if ($floor->lessThan($windowStart)) {
-            $windowStart = Carbon::parse($startDate)->startOfDay();
-        }
-        $counts = $this->generator->generateForSchedule($scheduleId, $windowStart, $windowEnd, null, $floor);
+        $counts = $creating
+            ? $this->generateFrom($scheduleId, $startDate, $timezone)
+            : $this->regenerateAfterEdit($scheduleId, $startDate, $previousStart, $timezone);
 
         $action = $creating ? 'schedule.created' : 'schedule.updated';
         Audit::log($action, 'schedule', $scheduleId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
@@ -260,10 +255,62 @@ final class ScheduleController extends Controller
     // ── internals ────────────────────────────────────────────────────────────
 
     /**
+     * A new timetable: materialise over the rolling window (current month → end of next month,
+     * §3.8), widened BACK to the start date when it begins in the past. Both halves are needed:
+     * the window decides which dates are enumerated at all, the floor decides which of those become
+     * rows — leave either at "now" and a back-dated timetable silently starts today.
+     *
+     * @return array{created:int, removed:int}
+     */
+    private function generateFrom(string $scheduleId, string $startDate, string $timezone): array
+    {
+        [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
+        $floor = TimeHelper::toUtc($startDate.' 00:00:00', $timezone);
+        if ($floor->lessThan($windowStart)) {
+            $windowStart = Carbon::parse($startDate)->startOfDay();
+        }
+
+        return $this->generator->generateForSchedule($scheduleId, $windowStart, $windowEnd, null, $floor);
+    }
+
+    /**
+     * An edited timetable. The edit is a statement about the future, so an old start date is no
+     * licence to fill the past: moved from Mondays to Tuesdays, it would otherwise put every Tuesday
+     * since the start on the board, lessons nobody taught. History is only ever written where the
+     * academy reached for it: a start date moved earlier creates the stretch between the new start
+     * and the old one, and nothing else.
+     *
+     * @return array{created:int, removed:int}
+     */
+    private function regenerateAfterEdit(string $scheduleId, string $startDate, ?string $previousStart, string $timezone): array
+    {
+        $created = 0;
+        $removed = 0;
+
+        if ($previousStart !== null && $startDate < $previousStart) {
+            $stretch = $this->generator->generateForSchedule(
+                $scheduleId,
+                Carbon::parse($startDate)->startOfDay(),
+                Carbon::parse($previousStart)->subDay()->startOfDay(),
+                null,
+                TimeHelper::toUtc($startDate.' 00:00:00', $timezone),
+            );
+            $created += $stretch['created'];
+            $removed += $stretch['removed'];
+        }
+
+        [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
+        $counts = $this->generator->generateForSchedule($scheduleId, $windowStart, $windowEnd);
+
+        return ['created' => $created + $counts['created'], 'removed' => $removed + $counts['removed']];
+    }
+
+    /**
      * Reconcile slot rows to the desired set, keyed by (weekday, start_time). Kept slots reuse
-     * their id (so already-generated future sessions stay matched); removed slots have their
-     * future untouched sessions deleted and any remaining (past/touched) sessions detached
-     * (slot_id → null) before the slot row is dropped, so the FK never blocks history.
+     * their id (so already-generated future sessions stay matched); a removed slot has its sessions
+     * detached (slot_id → null) before the row is dropped, so the FK never blocks history. The
+     * generator then clears the detached ones nothing is recorded against: this edit's window now,
+     * anything further out when the window rolls over it.
      *
      * @param  list<array{weekday:int, start_time_local:string, duration_minutes:int}>  $desired
      */
@@ -286,16 +333,6 @@ final class ScheduleController extends Controller
             if (isset($desiredByKey[$k])) {
                 continue;
             }
-            // Detach every session that points at this slot; the generator already removed the
-            // future untouched ones in a prior run, but detach unconditionally keeps the FK safe.
-            DB::table('sessions')->where('slot_id', $slot->id)
-                ->where('status', 'SCHEDULED')
-                ->whereNull('original_session_id')
-                ->where('scheduled_at_utc', '>=', now())
-                ->whereNotExists(function ($q) {
-                    $q->select(DB::raw(1))->from('session_reports as sr')->whereColumn('sr.session_id', 'sessions.id');
-                })
-                ->delete();
             DB::table('sessions')->where('slot_id', $slot->id)->update(['slot_id' => null, 'updated_at' => now()]);
             DB::table('schedule_slots')->where('id', $slot->id)->delete();
         }
@@ -354,6 +391,22 @@ final class ScheduleController extends Controller
         return $subStart !== null
             ? Carbon::parse($subStart)->format('Y-m-d')
             : Carbon::now()->format('Y-m-d');
+    }
+
+    /**
+     * The lesson length the student's price assumes, if it names one. It is typed separately from
+     * the timetable, and bills and teacher pay follow the timetable, so the editor shows it.
+     */
+    private function pricedLessonMinutes(string $studentId): ?int
+    {
+        $minutes = DB::table('subscriptions')
+            ->where('student_id', $studentId)
+            ->where('status', 'ACTIVE')
+            ->whereNull('deleted_at')
+            ->orderByDesc('created_at')
+            ->value('lesson_minutes');
+
+        return $minutes !== null ? (int) $minutes : null;
     }
 
     /**

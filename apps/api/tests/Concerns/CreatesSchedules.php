@@ -41,6 +41,9 @@ trait CreatesSchedules
             'student_id' => $studentId,
             'teacher_id' => $teacherId,
             'timezone' => $timezone,
+            // The column defaults to the database's real date, which is ahead of the frozen clocks
+            // these tests run on. A fixture timetable has simply always been running.
+            'start_date' => '2020-01-01',
             'is_active' => true,
             'version' => 1,
         ], $overrides));

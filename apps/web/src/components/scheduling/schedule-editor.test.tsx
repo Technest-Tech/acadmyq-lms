@@ -102,6 +102,84 @@ describe("ScheduleSection (Sprint 5 §5.1)", () => {
     );
   });
 
+  it("gives a new day the same length as the others, not a flat default", async () => {
+    vi.mocked(api.getStudentSchedule).mockResolvedValue({
+      schedule: {
+        id: "sch1",
+        student_id: "s1",
+        teacher_id: "t1",
+        timezone: "Africa/Cairo",
+        start_date: "2026-06-01",
+        is_active: true,
+        version: 1,
+      },
+      slots: [
+        { id: "sl1", weekday: 2, start_time_local: "17:00:00", duration_minutes: 40 },
+      ],
+    });
+    renderSection();
+    await screen.findByTestId("student-schedule");
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("add-slot"));
+    await user.click(screen.getByTestId("save-schedule"));
+    await user.click(await screen.findByTestId("confirm-schedule-impact"));
+
+    await waitFor(() => expect(api.putStudentSchedule).toHaveBeenCalled());
+    const payload = vi.mocked(api.putStudentSchedule).mock.calls[0]![1];
+    expect(payload.slots.map((s) => s.duration_minutes)).toEqual([40, 40]);
+  });
+
+  it("starts a new timetable at the length the student is priced at", async () => {
+    vi.mocked(api.getStudentSchedule).mockResolvedValue({
+      schedule: null,
+      slots: [],
+      lesson_minutes: 40,
+    });
+    renderSection();
+    await screen.findByTestId("student-schedule");
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId("add-slot"));
+    await user.click(screen.getByTestId("save-schedule"));
+
+    await waitFor(() => expect(api.putStudentSchedule).toHaveBeenCalled());
+    const payload = vi.mocked(api.putStudentSchedule).mock.calls[0]![1];
+    expect(payload.slots.map((s) => s.duration_minutes)).toEqual([40]);
+    expect(screen.queryByTestId("lesson-length-warning")).not.toBeInTheDocument();
+  });
+
+  // Bills and teacher pay follow the timetable, so a price at 40 and a timetable at 30 costs money.
+  it("says so when the timetable and the price disagree on the lesson length", async () => {
+    vi.mocked(api.getStudentSchedule).mockResolvedValue({
+      schedule: {
+        id: "sch1",
+        student_id: "s1",
+        teacher_id: "t1",
+        timezone: "Africa/Cairo",
+        start_date: "2026-06-01",
+        is_active: true,
+        version: 1,
+      },
+      slots: [
+        { id: "sl1", weekday: 2, start_time_local: "17:00:00", duration_minutes: 30 },
+      ],
+      lesson_minutes: 40,
+    });
+    renderSection();
+
+    expect(await screen.findByTestId("lesson-length-warning")).toHaveTextContent(
+      "40-minute lesson, but this timetable says 30",
+    );
+  });
+
+  it("stays quiet when the student's price names no lesson length", async () => {
+    renderSection();
+    await screen.findByTestId("student-schedule");
+
+    expect(screen.queryByTestId("lesson-length-warning")).not.toBeInTheDocument();
+  });
+
   it("deletes the schedule", async () => {
     renderSection();
     await screen.findByTestId("student-schedule");

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { LessonLengthWarning } from "@/components/scheduling/lesson-length-warning";
 import {
   countPastLessons,
   StartDateField,
@@ -155,6 +156,8 @@ export function ScheduleSection({
   const [savedStart, setSavedStart] = useState<string | null>(null);
   const [confirmingBackfill, setConfirmingBackfill] = useState(false);
   const [confirmingImpact, setConfirmingImpact] = useState(false);
+  // The length this student's price assumes. A new day starts from it, and a day that differs says so.
+  const [pricedMinutes, setPricedMinutes] = useState<number | null>(null);
 
   const weekdayOptions = useMemo(
     () =>
@@ -183,6 +186,7 @@ export function ScheduleSection({
       const saved = res.schedule?.start_date?.slice(0, 10) ?? null;
       setSavedStart(saved);
       setStartDate(saved ?? todayLocal());
+      setPricedMinutes(res.lesson_minutes ?? null);
       setConfirmingBackfill(false);
       const loadedSlots = res.slots.map((s) => ({
         weekday: s.weekday,
@@ -446,6 +450,8 @@ export function ScheduleSection({
             </div>
           )}
 
+          <LessonLengthWarning priced={pricedMinutes} slots={slots} />
+
           {canManage && (
             <div className="space-y-4">
               {/* Add appointment — full-width affordance that reads as a new row */}
@@ -458,7 +464,10 @@ export function ScheduleSection({
                     {
                       weekday: 1,
                       start_time_local: "17:00",
-                      duration_minutes: 30,
+                      // A new day is almost always the same lesson as the others. A flat default
+                      // here is how a student priced at 40 minutes quietly gets 30-minute lessons.
+                      duration_minutes:
+                        prev.at(-1)?.duration_minutes ?? pricedMinutes ?? 30,
                     },
                   ])
                 }

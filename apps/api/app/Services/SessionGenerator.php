@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Support\RecurrenceCalculator;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +22,8 @@ use Illuminate\Support\Str;
  *
  * Reconciliation per schedule (the contract the tests pin down):
  *   intended            = RecurrenceCalculator over the window from the schedule's CURRENT slots
- *   future & untouched  = SCHEDULED, no report, original_session_id null, scheduled_at_utc >= now
+ *   future & untouched  = SCHEDULED, nothing recorded against it, original_session_id null,
+ *                         scheduled_at_utc >= now
  *   - intended not yet present  → INSERT (insertOrIgnore: the unique occurrence index is the
  *                                 concurrency backstop, TC-5.7)
  *   - intended already present & untouched → align time/teacher/duration in place (no-op on a
@@ -29,6 +31,7 @@ use Illuminate\Support\Str;
  *   - future & untouched no longer implied → DELETE (slot removed / schedule edited, TC-5.19)
  *   - anything past or "touched" → never read, never written (§4.5, TC-5.9/5.11/5.20)
  *   - occurrences before the FLOOR are never created (TC-5.3)
+ *   - occurrences before the timetable's OWN start date are never intended, on any run
  *
  * The floor defaults to `now` — the rolling window job and every incidental regeneration must
  * never invent history. The one caller that passes an earlier floor is saving a timetable, where
@@ -38,6 +41,24 @@ use Illuminate\Support\Str;
  */
 final class SessionGenerator
 {
+    /**
+     * Tables whose row means a lesson is a real record, not just a planned one: it stays where it
+     * is when the timetable changes. Most of these carry no cascade either, so deleting such a
+     * lesson would fail outright and take the whole timetable save down with it.
+     */
+    private const RECORDS = [
+        'session_reports',
+        'session_cancellation_requests',
+        'session_joins',
+        'session_follow_ups',
+        'teacher_quality_reports',
+        'invoice_line_items',
+        'payout_line_items',
+        'lesson_package_credits',
+        'room_participants',
+        'room_recordings',
+    ];
+
     /**
      * Generate (and reconcile) sessions for every active schedule in the current academy.
      *
@@ -104,10 +125,17 @@ final class SessionGenerator
                     'duration_minutes' => (int) $s->duration_minutes,
                 ])->all();
 
+            // The timetable implies nothing before it starts. Every run honours this, the nightly
+            // roll included: a floor of `now` alone would fill in the weeks before a future start.
+            $from = $windowStart->format('Y-m-d');
+            if ($schedule->start_date !== null) {
+                $from = max($from, Carbon::parse($schedule->start_date)->format('Y-m-d'));
+            }
+
             $intended = RecurrenceCalculator::occurrences(
                 $slots,
                 (string) $schedule->timezone,
-                $windowStart->format('Y-m-d'),
+                $from,
                 $windowEnd->format('Y-m-d'),
             );
         }
@@ -158,9 +186,12 @@ final class SessionGenerator
         //    BOUNDED to this window, so a narrower edit/regeneration never deletes legitimate
         //    sessions in a month the window doesn't cover (they reconcile when the window rolls).
         $existingFuture = $this->futureUntouched($scheduleId, $nowUtc, $windowStart, $windowEnd);
+        $untouched = [];
         foreach ($existingFuture as $row) {
             $key = $row->occurrence_local_date.'|'.$row->slot_id;
-            if (! isset($intendedByKey[$key])) {
+            if (isset($intendedByKey[$key])) {
+                $untouched[(string) $row->id] = true;
+            } else {
                 DB::table('sessions')->where('id', $row->id)->delete();
                 $removed++;
             }
@@ -210,7 +241,7 @@ final class SessionGenerator
             }
 
             // Existing & untouched → realign to the (possibly edited) template; touched → skip.
-            if ($this->isUntouched($existing, $nowUtc)) {
+            if (isset($untouched[(string) $existing->id])) {
                 DB::table('sessions')->where('id', $existing->id)->update([
                     'teacher_id' => $teacherId,
                     'scheduled_at_utc' => $utc,
@@ -235,39 +266,34 @@ final class SessionGenerator
     }
 
     /**
-     * Future, untouched sessions for a schedule (§4.5): SCHEDULED, no report, not a reschedule
-     * successor, and not yet started. These are the only rows generation may delete or realign.
+     * Future, untouched sessions for a schedule (§4.5): SCHEDULED, nothing recorded against them,
+     * not a reschedule successor, and not yet started. These are the only rows generation may
+     * delete or realign.
      *
      * @return Collection<int,object>
      */
     private function futureUntouched(string $scheduleId, Carbon $nowUtc, Carbon $windowStart, Carbon $windowEnd)
     {
-        return DB::table('sessions')
+        return self::whereNothingRecorded(DB::table('sessions'))
             ->where('schedule_id', $scheduleId)
             ->where('status', 'SCHEDULED')
             ->whereNull('original_session_id')
-            ->where('scheduled_at_utc', '>=', $nowUtc)
+            ->where('scheduled_at_utc', '>=', $nowUtc->format('Y-m-d H:i:sP'))
             // Bound to the window by the occurrence's LOCAL date (every schedule-derived row has
             // one); rows outside the window are reconciled by a later run, never deleted here.
             ->whereBetween('occurrence_local_date', [$windowStart->format('Y-m-d'), $windowEnd->format('Y-m-d')])
-            ->whereNotExists(function ($q) {
-                $q->select(DB::raw(1))
-                    ->from('session_reports as sr')
-                    ->whereColumn('sr.session_id', 'sessions.id');
-            })
             ->get(['id', 'occurrence_local_date', 'slot_id']);
     }
 
-    /** Is an already-loaded session row still untouched (regenerable)? (§4.5) */
-    private function isUntouched(object $row, Carbon $nowUtc): bool
+    /** Narrow a query on `sessions` to lessons with nothing recorded against them. */
+    public static function whereNothingRecorded(Builder $query): Builder
     {
-        if ($row->status !== 'SCHEDULED' || $row->original_session_id !== null) {
-            return false;
-        }
-        if (Carbon::parse($row->scheduled_at_utc)->lessThan($nowUtc)) {
-            return false;
+        foreach (self::RECORDS as $table) {
+            $query->whereNotExists(fn ($q) => $q->select(DB::raw(1))
+                ->from($table)
+                ->whereColumn($table.'.session_id', 'sessions.id'));
         }
 
-        return DB::table('session_reports')->where('session_id', $row->id)->doesntExist();
+        return $query;
     }
 }
