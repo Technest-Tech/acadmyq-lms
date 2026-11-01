@@ -467,6 +467,7 @@ final class GroupAlerts
                     'guardian' => $n->guardian,
                     'guardian_phone' => $n->guardian_phone,
                     'minutes_left' => $data['minutes_left'] ?? null,
+                    'lesson_minutes' => $data['lesson_minutes'] ?? null,
                     'reason' => $data['reason'] ?? null,
                     'minutes_consumed' => $data['minutes_consumed'] ?? null,
                     'minutes_overdrawn' => $data['minutes_overdrawn'] ?? null,

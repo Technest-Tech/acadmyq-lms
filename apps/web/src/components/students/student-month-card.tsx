@@ -29,10 +29,13 @@ export function StudentMonthCard({
   studentId,
   quota,
   refreshKey,
+  lessonsOnly,
 }: {
   studentId: string;
   quota: number | null;
   refreshKey?: unknown;
+  /** A centre counts lessons: no hours beside them. */
+  lessonsOnly?: boolean;
 }) {
   const t = useTranslations("students");
   const locale = useLocale();
@@ -79,7 +82,7 @@ export function StudentMonthCard({
           {quota !== null && quota > 0
             ? t("subscription.month.taughtOf", { taught: lessons.taught, quota })
             : lessons.taught}
-          {lessons.taught_minutes > 0 && (
+          {lessons.taught_minutes > 0 && !lessonsOnly && (
             <span className="text-muted-foreground ms-1.5 text-xs font-medium">
               {formatHours(lessons.taught_minutes, locale)}
             </span>

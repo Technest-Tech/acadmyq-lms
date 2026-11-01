@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Services\PayerDiscounts;
 use App\Payroll\PayoutHook;
 use App\Support\Audit;
 use App\Support\Entitlement;
+use App\Support\LessonCount;
 use App\Support\PublicInvoiceToken;
 use App\Support\StudentStatus;
 use Illuminate\Support\Carbon;
@@ -417,6 +417,7 @@ final class LessonPackages
                     'student_name' => $this->studentName($studentId),
                     'label' => (string) $package->label,
                     'minutes_left' => $left,
+                    'lesson_minutes' => self::lessonLength($package),
                 ],
             );
         }
@@ -1035,7 +1036,7 @@ final class LessonPackages
         $invoiceId = null;
         if ($billTiming === 'ON_START') {
             $lines = [[
-                'description' => $this->packageLineDescription($data['label'], $minutesTotal, $carried),
+                'description' => $this->packageLineDescription($data['label'], $minutesTotal, $carried, isset($data['lesson_minutes']) ? (int) $data['lesson_minutes'] : null),
                 'amount_minor' => $priceMinor,
             ]];
 
@@ -1374,17 +1375,20 @@ final class LessonPackages
             array_key_exists('label', $after)
             || array_key_exists('minutes_total', $after)
             || array_key_exists('price_minor', $after)
+            || array_key_exists('lesson_minutes', $after)
         );
+        $bill = [];
 
-        DB::transaction(function () use ($packageId, $package, $after, $before, $invoiceId, $billStale, $label, $minutes, $carried, $price, $actorUserId, $actorRole): void {
+        DB::transaction(function () use ($packageId, $package, $after, $before, $invoiceId, $billStale, $label, $minutes, $carried, $price, $lessonMinutes, $actorUserId, $actorRole, &$bill): void {
             if ($billStale) {
-                $this->rewritePackageInvoiceLine(
+                $bill = $this->rewritePackageInvoiceLine(
                     (string) $invoiceId,
                     $package,
                     $label,
                     $minutes,
                     $carried,
                     $price,
+                    $lessonMinutes !== null ? (int) $lessonMinutes : null,
                     $actorUserId,
                     $actorRole,
                 );
@@ -1407,7 +1411,7 @@ final class LessonPackages
             );
         });
 
-        return ['changed' => array_keys($after), 'invoice_id' => $invoiceId];
+        return ['changed' => array_keys($after), 'invoice_id' => $invoiceId] + $bill;
     }
 
     /**
@@ -1603,6 +1607,14 @@ final class LessonPackages
      * that exists — `invoice_line_items` carries no package id. That is a feature here: if the
      * invoice has been reworked by hand the match fails and this refuses, rather than guessing at
      * which line is the package's and silently rewriting the wrong one.
+     *
+     * A bill with money on it stays frozen — except a curriculum centre's on receipts, where nearly
+     * every block is prepaid, so "frozen once paid" meant no subscription could be corrected at all
+     * (lingo, 2026-11-01). There the receipts stay as they are and the ledger follows the line: a
+     * dearer block leaves the difference to pay; a cheaper one frees what was paid beyond it as the
+     * family's credit, exactly as a settlement does. A standing discount keeps applying.
+     *
+     * @return array{credited_minor?: int, due_minor?: int} what the edit did to the money, on such a bill
      */
     private function rewritePackageInvoiceLine(
         string $invoiceId,
@@ -1611,16 +1623,19 @@ final class LessonPackages
         int $minutes,
         int $carried,
         int $price,
+        ?int $lessonMinutes,
         ?string $actorUserId,
         ?string $actorRole,
-    ): void {
+    ): array {
         $invoice = DB::table('invoices')->where('id', $invoiceId)->first();
 
         if ($invoice === null) {
-            return;
+            return [];
         }
 
-        if ((string) $invoice->status !== 'OPEN' || (int) $invoice->amount_paid_minor > 0) {
+        $centre = PackageSettlement::availableFor((string) $package->academy_id);
+
+        if ((string) $invoice->status !== 'OPEN' || ((int) $invoice->amount_paid_minor > 0 && ! $centre)) {
             throw ValidationException::withMessages([
                 'price_minor' => [
                     'This package has already been billed and settled. Correct the invoice itself.'
@@ -1632,10 +1647,11 @@ final class LessonPackages
         $line = DB::table('invoice_line_items')
             ->where('invoice_id', $invoiceId)
             ->whereNull('session_id')
-            ->where('description', $this->packageLineDescription(
+            ->whereIn('description', $this->packageLineDescriptions(
                 (string) $package->label,
                 (int) $package->minutes_total,
                 $carried,
+                self::lessonLength($package),
             ))
             ->first();
 
@@ -1648,10 +1664,21 @@ final class LessonPackages
             ]);
         }
 
+        $amount = ['amount_minor' => $price];
+        if ($centre) {
+            // The same price is the same charge (its discount included); a new one is priced afresh.
+            $amount = $price === (int) $package->price_minor
+                ? []
+                : array_intersect_key(
+                    app(PayerDiscounts::class)->apply((string) $package->academy_id, (string) $package->student_id, PayerDiscounts::SCOPE_PRIVATE, null, $price, (string) $line->session_date, $package->teacher_id !== null ? (string) $package->teacher_id : null),
+                    array_flip(['amount_minor', 'list_amount_minor', 'discount_minor', 'discount_label']),
+                );
+        }
+        $paidBefore = $this->allocatedToLine((string) $line->id);
+
         DB::table('invoice_line_items')->where('id', $line->id)->update([
-            'description' => $this->packageLineDescription($label, $minutes, $carried),
-            'amount_minor' => $price,
-        ]);
+            'description' => $this->packageLineDescription($label, $minutes, $carried, $lessonMinutes),
+        ] + $amount);
 
         // Recomputed from the lines, never adjusted by a delta — a total that is derived cannot
         // drift away from what the invoice actually says.
@@ -1662,7 +1689,19 @@ final class LessonPackages
             'total_minor' => $total,
             'updated_at' => now(),
         ]);
-        app(Ledger::class)->afterLinesChanged($invoiceId);
+
+        $moved = [];
+        if ($centre) {
+            DB::select('select app.ledger_refresh_invoice(?)', [$invoiceId]);
+            $credited = $paidBefore - $this->allocatedToLine((string) $line->id);
+            app(Ledger::class)->afterLinesChanged($invoiceId);
+            $moved = [
+                'credited_minor' => max(0, $credited),
+                'due_minor' => max(0, $total - (int) DB::table('invoices')->where('id', $invoiceId)->value('amount_paid_minor')),
+            ];
+        } else {
+            app(Ledger::class)->afterLinesChanged($invoiceId);
+        }
 
         Audit::log(
             'invoice.updated',
@@ -1674,6 +1713,13 @@ final class LessonPackages
             after: ['total_minor' => $total, 'mode' => 'PACKAGE_EDITED'],
             before: ['total_minor' => (int) $invoice->total_minor],
         );
+
+        return $moved;
+    }
+
+    private function allocatedToLine(string $lineId): int
+    {
+        return (int) DB::table('receipt_allocations')->where('invoice_line_id', $lineId)->sum('amount_minor');
     }
 
     /**
@@ -1721,8 +1767,8 @@ final class LessonPackages
 
             if ($base > 0 || $insideMinutes > 0) {
                 $lines[] = [
-                    'description' => $this->packageLineDescription($package->label, (int) $package->minutes_total, (int) $package->carried_over_minutes)
-                        .' — '.$this->humanHours($insideMinutes).' used',
+                    'description' => $this->packageLineDescription($package->label, (int) $package->minutes_total, (int) $package->carried_over_minutes, self::lessonLength($package))
+                        .' — '.$this->amountText($insideMinutes, self::lessonLength($package)).' used',
                     'amount_minor' => $base,
                 ];
             }
@@ -2314,11 +2360,48 @@ final class LessonPackages
             : $label;
     }
 
-    public function packageLineDescription(string $label, int $minutesTotal, int $carried): string
+    /**
+     * What a block's bill line says. A block sold in lessons (a centre) says so in its own words —
+     * families read this line, and those academies have no hours.
+     */
+    public function packageLineDescription(string $label, int $minutesTotal, int $carried, ?int $lessonMinutes = null): string
     {
+        if ($lessonMinutes !== null && $lessonMinutes > 0) {
+            $text = 'اشتراك: '.$label.' — '.LessonCount::ar(LessonCount::whole($minutesTotal, $lessonMinutes));
+
+            return $carried > 0 ? $text.' (+'.$this->amountText($carried, $lessonMinutes).' مُرحَّلة)' : $text;
+        }
+
         $text = 'Package: '.$label.' — '.$this->humanHours($minutesTotal);
 
         return $carried > 0 ? $text.' (+'.$this->humanHours($carried).' carried over)' : $text;
+    }
+
+    /**
+     * Every way this block's line may read: bills raised before a centre's lines went to lessons
+     * still say hours, and the line is only ever found by what it says.
+     *
+     * @return list<string>
+     */
+    public function packageLineDescriptions(string $label, int $minutesTotal, int $carried, ?int $lessonMinutes): array
+    {
+        return array_values(array_unique([
+            $this->packageLineDescription($label, $minutesTotal, $carried, $lessonMinutes),
+            $this->packageLineDescription($label, $minutesTotal, $carried),
+        ]));
+    }
+
+    /** An amount of a block in its own unit: lessons when it was sold in lessons, else hours. */
+    public function amountText(int $minutes, ?int $lessonMinutes): string
+    {
+        return $lessonMinutes !== null && $lessonMinutes > 0
+            ? LessonCount::ar(LessonCount::whole($minutes, $lessonMinutes))
+            : $this->humanHours($minutes);
+    }
+
+    private static function lessonLength(object $package): ?int
+    {
+        return isset($package->lesson_minutes) ? (int) $package->lesson_minutes : null;
     }
 
     /** Minutes → "2h 30m" / "45m". Display only; the stored quantity is always minutes. */

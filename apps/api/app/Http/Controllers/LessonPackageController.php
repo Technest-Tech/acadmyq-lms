@@ -882,6 +882,7 @@ final class LessonPackageController extends Controller
             'sequence_no' => $presented['sequence_no'],
             'minutes_total' => $presented['minutes_sold'],
             'minutes_remaining' => $presented['minutes_remaining'],
+            'lesson_minutes' => $presented['lesson_minutes'] ?? null,
             'finished' => $row->status !== 'ACTIVE',
             // The day it ran out, in the academy's own calendar — what the family remembers.
             'finished_on' => $row->closed_at !== null

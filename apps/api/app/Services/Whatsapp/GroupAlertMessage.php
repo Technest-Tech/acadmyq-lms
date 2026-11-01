@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Whatsapp;
 
+use App\Support\LessonCount;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 
@@ -151,7 +152,10 @@ final class GroupAlertMessage
     /** @param array<string,mixed> $p */
     private function packageLowLine(array $p, bool $ar): string
     {
-        $left = $this->duration((int) ($p['minutes_left'] ?? 0), $ar);
+        $length = (int) ($p['lesson_minutes'] ?? 0);
+        $left = $length > 0
+            ? ($ar ? LessonCount::ar(LessonCount::whole((int) ($p['minutes_left'] ?? 0), $length)) : LessonCount::en(LessonCount::whole((int) ($p['minutes_left'] ?? 0), $length)))
+            : $this->duration((int) ($p['minutes_left'] ?? 0), $ar);
         $line = $ar
             ? '• '.$this->name($p['student'] ?? null).' — «'.$this->name($p['label'] ?? null)."»: متبقٍ {$left}"
             : '• '.$this->name($p['student'] ?? null).' — "'.$this->name($p['label'] ?? null)."\": {$left} left";

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\Ledger;
 use App\Services\LessonPackages;
 use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
@@ -73,6 +74,23 @@ beforeEach(function () {
         $v = DB::table('lesson_packages')->where('id', $packageId)->value('lesson_minutes');
 
         return $v !== null ? (int) $v : null;
+    };
+
+    /** A centre on receipts, with a block of 4 × 60-minute lessons at 800 EGP, paid in full. */
+    $this->paidBlock = function (string $student, int $priceMinor = 80000): array {
+        cplAccountsOn($this->academy);
+        $this->asAcademy($this->academy);
+        $opened = app(LessonPackages::class)->open([
+            'student_id' => $student, 'label' => 'Private English', 'minutes_total' => 240, 'lesson_minutes' => 60,
+            'price_minor' => $priceMinor, 'currency' => 'EGP', 'starts_on' => '2026-06-01', 'auto_renew' => false,
+        ], (string) $this->owner->id, 'ACADEMY_OWNER');
+        Sanctum::actingAs($this->owner);
+        $this->postJson('/api/receipts', [
+            'guardian_id' => $this->guardian, 'amount_minor' => $priceMinor, 'currency' => 'EGP', 'method' => 'CASH',
+            'received_on' => '2026-06-01', 'invoice_id' => $opened['invoice_id'],
+        ])->assertCreated();
+
+        return $opened;
     };
 
     $this->fill = fn (): int => (require base_path('database/migrations/2026_10_31_100001_centre_packages_in_lessons.php'))->fill();
@@ -170,4 +188,101 @@ it('counts only its own subject\'s upcoming lessons on a block tied to a subject
     expect($rows[$sama]['upcoming_lesson_count'])->toBe(2)
         ->and($rows[$adel]['upcoming_lesson_count'])->toBe(1)
         ->and(substr((string) $rows[$adel]['next_lesson_at'], 0, 10))->toBe('2026-06-21');
+});
+
+// ─── "No hours" + editing a paid subscription (lingo, 2026-11-01) ─────────────
+
+function cplAccountsOn(string $academyId): void
+{
+    DB::statement("select set_config('app.current_academy_id', ?, true)", [$academyId]);
+    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+    try {
+        app(ModuleBilling::class)->setDisabledFeatures($academyId, 'MANAGEMENT', [], ['centre', 'accounting']);
+        app(Ledger::class)->ensureReady($academyId);
+    } finally {
+        DB::statement("select set_config('app.current_academy_id', '', true)");
+        DB::statement("select set_config('app.current_role', '', true)");
+    }
+}
+
+it('corrects a paid subscription: the name and lessons move, what was paid stays', function () {
+    $student = ($this->packageStudent)('Hassan');
+    $opened = ($this->paidBlock)($student);
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/packages/{$opened['package_id']}", ['label' => 'Connect Plus'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $invoice = DB::table('invoices')->where('id', $opened['invoice_id'])->first();
+    expect((int) $invoice->total_minor)->toBe(80000)->and((int) $invoice->amount_paid_minor)->toBe(80000);
+    expect(DB::table('invoice_line_items')->where('invoice_id', $opened['invoice_id'])->value('description'))
+        ->toBe('اشتراك: Connect Plus — 4 حصص');
+
+    // A dearer block: the difference is left to pay.
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/packages/{$opened['package_id']}", ['hours' => 6, 'price_minor' => 120000])
+        ->assertOk()->assertJsonPath('due_minor', 40000)->assertJsonPath('credited_minor', 0);
+    $this->asAcademy($this->academy);
+    $invoice = DB::table('invoices')->where('id', $opened['invoice_id'])->first();
+    expect((int) $invoice->total_minor)->toBe(120000)->and((int) $invoice->amount_paid_minor)->toBe(80000);
+    expect(DB::table('invoice_line_items')->where('invoice_id', $opened['invoice_id'])->value('description'))
+        ->toBe('اشتراك: Connect Plus — 6 حصص');
+});
+
+it('gives back as credit what was paid beyond a cheaper subscription', function () {
+    $student = ($this->packageStudent)('Hassan');
+    $opened = ($this->paidBlock)($student);
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/packages/{$opened['package_id']}", ['hours' => 3, 'price_minor' => 60000])
+        ->assertOk()->assertJsonPath('credited_minor', 20000)->assertJsonPath('due_minor', 0);
+
+    $this->asAcademy($this->academy);
+    $invoice = DB::table('invoices')->where('id', $opened['invoice_id'])->first();
+    expect((int) $invoice->total_minor)->toBe(60000)->and((int) $invoice->amount_paid_minor)->toBe(60000);
+    $balance = app(Ledger::class)->balance($this->academy, ['guardian_id' => $this->guardian]);
+    expect($balance[0]['credit_minor'])->toBe(20000);
+});
+
+it('still refuses a paid package for an academy that is not a centre', function () {
+    $student = ($this->packageStudent)('Omar');
+    $this->asAcademy($this->academy);
+    $opened = app(LessonPackages::class)->open([
+        'student_id' => $student, 'label' => 'Block', 'minutes_total' => 240,
+        'price_minor' => 80000, 'currency' => 'EGP', 'starts_on' => '2026-06-01', 'auto_renew' => false,
+    ], (string) $this->owner->id, 'ACADEMY_OWNER');
+    $this->asAcademy($this->academy);
+    DB::table('invoices')->where('id', $opened['invoice_id'])->update(['amount_paid_minor' => 80000]);
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/packages/{$opened['package_id']}", ['label' => 'Renamed'])->assertUnprocessable();
+});
+
+it('takes the last hours out of a centre\'s old blocks, labels and bills alike', function () {
+    $student = ($this->packageStudent)('Hajar');
+    $this->asAcademy($this->academy);
+    $opened = app(LessonPackages::class)->open([
+        'student_id' => $student, 'label' => '8 ساعة — أكتوبر 2026', 'minutes_total' => 480,
+        'price_minor' => 80000, 'currency' => 'EGP', 'starts_on' => '2026-06-01', 'auto_renew' => false,
+    ], (string) $this->owner->id, 'ACADEMY_OWNER');
+    $typed = ($this->open)(($this->packageStudent)('Malak'), 4);
+    $fill = fn (): array => (require base_path('database/migrations/2026_11_01_000001_centre_packages_no_hours.php'))->fill();
+
+    // Not a centre: nothing moves.
+    expect($fill())->toBe(['lengths' => 0, 'labels' => 0, 'lines' => 0]);
+
+    cplCentreOn($this->academy);
+    expect($fill()['labels'])->toBe(1);
+
+    $this->asAcademy($this->academy);
+    $block = DB::table('lesson_packages')->where('id', $opened['package_id'])->first();
+    expect((int) $block->lesson_minutes)->toBe(60)
+        ->and($block->label)->toBe('8 × 60 د — أكتوبر 2026')
+        ->and((int) $block->minutes_total)->toBe(480)
+        ->and(DB::table('invoice_line_items')->where('invoice_id', $opened['invoice_id'])->value('description'))
+        ->toBe('اشتراك: 8 × 60 د — أكتوبر 2026 — 8 حصص');
+    // A label somebody typed is theirs.
+    expect(DB::table('lesson_packages')->where('id', $typed)->value('label'))->toBe('4 hours');
+
+    expect($fill())->toBe(['lengths' => 0, 'labels' => 0, 'lines' => 0]);
 });

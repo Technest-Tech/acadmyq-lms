@@ -98,7 +98,7 @@ export function usePackageActions({
     try {
       await billPackageOverdraft(row.id);
       onChanged();
-      onAlert("success", t("alerts.overdraftBilled"));
+      onAlert("success", row.lesson_minutes ? t("alerts.overdraftBilledLessons") : t("alerts.overdraftBilled"));
     } catch {
       onAlert("error", t("alerts.overdraftFailed"));
     }

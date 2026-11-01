@@ -5607,6 +5607,7 @@ export interface NotificationRow {
     student_id?: string;
     label?: string;
     minutes_left?: number;
+    lesson_minutes?: number | null;
     minutes_consumed?: number;
     minutes_overdrawn?: number;
     outstanding_minor?: number;
@@ -8421,6 +8422,7 @@ export interface PackageAttachableLesson {
 
 /** What the next automatic renewal will be, where it differs from the running block. */
 export interface PackageNextTerms {
+  lesson_minutes?: number | null;
   label?: string;
   minutes_total?: number;
   price_minor?: number;
@@ -8535,7 +8537,15 @@ export function updateLessonPackage(
     /** The new label / hours / price: this block (and so the next ones), or the next renewal only. */
     applies_to?: "CURRENT" | "NEXT";
   },
-): Promise<{ ok: boolean; changed: string[]; invoice_id: string | null; next_terms?: PackageNextTerms | null }> {
+): Promise<{
+  ok: boolean;
+  changed: string[];
+  invoice_id: string | null;
+  next_terms?: PackageNextTerms | null;
+  /** A centre's bill: what the edit freed as the family's credit, and what is left to pay. */
+  credited_minor?: number;
+  due_minor?: number;
+}> {
   return apiFetch(`/api/packages/${id}`, {
     method: "PATCH",
     body: JSON.stringify(input),

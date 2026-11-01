@@ -91,6 +91,7 @@ export interface PortalChild {
     course: string | null;
     total_minutes: number;
     remaining_minutes: number;
+    lesson_minutes?: number | null;
     expires_on: string | null;
   }[];
   month: { attended: number; absent: number; minutes: number };

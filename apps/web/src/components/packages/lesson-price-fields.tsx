@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { formatMoney } from "@/lib/money";
+import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /** The lesson lengths a centre prices by — 60 and 40 first, the way the desk quotes them. */
@@ -22,6 +23,29 @@ export function lessonPriceFromTotal(totalMinor: number, totalMinutes: number, u
 /** Minutes counted in lessons of `lessonMinutes`: whole, or to one decimal for a lesson cut short. */
 export function lessonsIn(minutes: number, lessonMinutes: number): number {
   return lessonMinutes > 0 ? Math.round((minutes / lessonMinutes) * 10) / 10 : 0;
+}
+
+/**
+ * A centre's block counted the way it was sold: whole lessons, never a fraction. It runs on minutes
+ * underneath, so a stray remainder (one 60-minute lesson on a 40-minute block) is not a lesson: left
+ * is what can still be taught, and used is the rest of what was bought.
+ */
+export function lessonBalance(block: { minutes_sold: number; minutes_remaining: number }, lessonMinutes: number): { sold: number; left: number; used: number } {
+  const sold = Math.floor(block.minutes_sold / lessonMinutes);
+  const left = Math.floor(Math.max(0, block.minutes_remaining) / lessonMinutes);
+  return { sold, left, used: Math.max(0, sold - left) };
+}
+
+type PackagesT = (key: string, values?: Record<string, string | number>) => string;
+
+/** An amount of a block in its own unit: lessons when it was sold in lessons, else hours. */
+export function blockAmount(minutes: number, lessonMinutes: number | null | undefined, t: PackagesT, locale: string): string {
+  return lessonMinutes ? t("card.lessonsCount", { count: Math.floor(Math.max(0, minutes) / lessonMinutes) }) : formatHours(minutes, locale);
+}
+
+/** A lesson's length or an overrun: real minutes on a block sold in lessons, never "1h 30m". */
+export function blockMinutes(minutes: number, lessonMinutes: number | null | undefined, t: PackagesT, locale: string): string {
+  return lessonMinutes ? t("form.minutesOption", { minutes }) : formatHours(minutes, locale);
 }
 
 /** What one lesson costs in a block sold in lessons of `lessonMinutes`. */

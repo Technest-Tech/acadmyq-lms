@@ -247,7 +247,7 @@ final class PackageSettlement
                 'amount_minor' => $used,
                 'list_amount_minor' => $list !== null ? max($list, $used) : null,
                 'discount_minor' => $list !== null ? max($list, $used) - $used : $line->discount_minor,
-                'description' => $line->description.' — '.$packages->humanHours($bought - $preview['unused_minutes']).' used',
+                'description' => $line->description.' — '.$packages->amountText($bought - $preview['unused_minutes'], $preview['lesson_minutes']).' used',
             ]);
             DB::table('invoices')->where('id', $line->invoice_id)->update([
                 'subtotal_minor' => DB::raw("subtotal_minor - {$cut}"),
@@ -272,7 +272,7 @@ final class PackageSettlement
             ->where('li.invoice_id', $package->invoice_id)
             ->where('i.status', '<>', 'VOID')
             ->whereNull('li.session_id')
-            ->where('li.description', app(LessonPackages::class)->packageLineDescription((string) $package->label, (int) $package->minutes_total, (int) $package->carried_over_minutes))
+            ->whereIn('li.description', app(LessonPackages::class)->packageLineDescriptions((string) $package->label, (int) $package->minutes_total, (int) $package->carried_over_minutes, isset($package->lesson_minutes) ? (int) $package->lesson_minutes : null))
             ->first(['li.*', DB::raw('coalesce(a.allocated, 0) as allocated')]);
     }
 }

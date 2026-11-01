@@ -29,9 +29,9 @@ import {
   type PackageAttachableLesson,
   type TeacherRow,
 } from "@/lib/api";
-import { lessonsIn, pricePerLesson } from "@/components/packages/lesson-price-fields";
+import { blockAmount, blockMinutes, lessonBalance, pricePerLesson } from "@/components/packages/lesson-price-fields";
 import { formatMoney } from "@/lib/money";
-import { formatDateTime, formatHours } from "@/lib/time";
+import { formatDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 const inputBase =
@@ -131,7 +131,8 @@ export function PackageDetail({
   // Sold in lessons (a centre): every amount reads in lessons and the price is one lesson's.
   const lessonMinutes = pkg.lesson_minutes ?? null;
   const amount = (minutes: number) =>
-    lessonMinutes ? t("card.lessonsCount", { count: lessonsIn(minutes, lessonMinutes) }) : formatHours(minutes, locale);
+    blockAmount(minutes, lessonMinutes, t, locale);
+  const minutesText = (minutes: number) => blockMinutes(minutes, lessonMinutes, t, locale);
 
   return (
     <div className="space-y-4">
@@ -176,7 +177,10 @@ export function PackageDetail({
       <div className="space-y-2.5">
         <dl className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           <Fact label={t("detail.sold")} value={amount(pkg.minutes_sold)} />
-          <Fact label={t("detail.used")} value={amount(pkg.minutes_consumed)} />
+          <Fact
+            label={t("detail.used")}
+            value={lessonMinutes ? t("card.lessonsCount", { count: lessonBalance(pkg, lessonMinutes).used }) : amount(pkg.minutes_consumed)}
+          />
           <Fact
             label={t("detail.remaining")}
             value={amount(pkg.minutes_remaining)}
@@ -210,7 +214,7 @@ export function PackageDetail({
       {pkg.absorbed_overdraft_minutes > 0 && (
         <p className="rounded-xl bg-sky-500/10 px-3 py-2.5 text-xs font-medium text-sky-700 dark:text-sky-300">
           {t("card.absorbedFromPrevious", {
-            over: formatHours(pkg.absorbed_overdraft_minutes, locale),
+            over: minutesText(pkg.absorbed_overdraft_minutes),
             previous: pkg.sequence_no - 1,
           })}
         </p>
@@ -219,7 +223,7 @@ export function PackageDetail({
       {pkg.minutes_overdrawn > 0 && pkg.overdraft_absorbed_into !== null && (
         <p className="rounded-xl bg-sky-500/10 px-3 py-2.5 text-xs font-medium text-sky-700 dark:text-sky-300">
           {t("card.overdraftAbsorbed", {
-            over: formatHours(pkg.minutes_overdrawn, locale),
+            over: minutesText(pkg.minutes_overdrawn),
             next: pkg.overdraft_absorbed_into,
           })}
         </p>
@@ -228,7 +232,7 @@ export function PackageDetail({
       {pkg.minutes_overdrawn > 0 && pkg.overdraft_absorbed_into === null && (
         <p className="bg-destructive/8 text-destructive rounded-xl px-3 py-2.5 text-xs font-medium">
           {t("detail.overdraftNote", {
-            over: formatHours(pkg.minutes_overdrawn, locale),
+            over: minutesText(pkg.minutes_overdrawn),
             amount: formatMoney(
               {
                 amount: Math.round((pkg.hourly_rate_minor * pkg.minutes_overdrawn) / 60),
@@ -252,10 +256,12 @@ export function PackageDetail({
           <h4 className="text-sm font-semibold">{t("detail.lessons")}</h4>
           {credits !== null && credits.length > 0 && (
             <p className="text-muted-foreground text-[11px]">
-              {t("detail.ledgerCount", {
-                count: credits.length,
-                total: amount(pkg.minutes_consumed),
-              })}
+              {lessonMinutes
+                ? t("detail.ledgerCountLessons", { count: credits.length })
+                : t("detail.ledgerCount", {
+                    count: credits.length,
+                    total: amount(pkg.minutes_consumed),
+                  })}
             </p>
           )}
         </div>
@@ -272,6 +278,7 @@ export function PackageDetail({
         <AddLessonPanel
           packageId={pkg.id}
           timezone={timezone}
+          lessonMinutes={lessonMinutes}
           busy={busy}
           onCancel={() => setAdding(false)}
           onSubmit={(input) => run(() => addPackageLesson(pkg.id, input))}
@@ -331,7 +338,7 @@ export function PackageDetail({
                           {credit.minutes_overdrawn > 0 && (
                             <Flag tone="destructive">
                               {t("detail.overBy", {
-                                over: formatHours(credit.minutes_overdrawn, locale),
+                                over: minutesText(credit.minutes_overdrawn),
                                 amount: formatMoney(
                                   { amount: credit.amount_minor, currency: credit.currency },
                                   locale,
@@ -355,7 +362,7 @@ export function PackageDetail({
                         {credit.teacher_name ?? "—"}
                       </td>
                       <td className="px-2 py-2 text-end font-semibold tabular-nums">
-                        {formatHours(credit.minutes, locale)}
+                        {minutesText(credit.minutes)}
                       </td>
                       <td
                         className={cn(
@@ -363,7 +370,7 @@ export function PackageDetail({
                           left < 0 ? "text-destructive font-semibold" : "text-muted-foreground",
                         )}
                       >
-                        {formatHours(Math.max(0, left), locale)}
+                        {amount(Math.max(0, left))}
                       </td>
                       {canManage && (
                         <td className="px-2 py-2">
@@ -566,12 +573,14 @@ function RemoveLessonRow({
 function AddLessonPanel({
   packageId,
   timezone,
+  lessonMinutes,
   busy,
   onCancel,
   onSubmit,
 }: {
   packageId: string;
   timezone: string;
+  lessonMinutes: number | null;
   busy: boolean;
   onCancel: () => void;
   onSubmit: (
@@ -593,7 +602,7 @@ function AddLessonPanel({
   const [picked, setPicked] = useState<string | null>(null);
 
   const [when, setWhen] = useState("");
-  const [duration, setDuration] = useState("60");
+  const [duration, setDuration] = useState(String(lessonMinutes ?? 60));
   const [teacherId, setTeacherId] = useState("");
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
 
@@ -678,7 +687,7 @@ function AddLessonPanel({
                     </Flag>
                   )}
                   <span className="font-semibold">
-                    {formatHours(lesson.duration_minutes, locale)}
+                    {blockMinutes(lesson.duration_minutes, lessonMinutes, t, locale)}
                   </span>
                 </label>
               ))}
@@ -702,7 +711,7 @@ function AddLessonPanel({
         <div className="space-y-2.5">
           <p className="text-muted-foreground flex items-start gap-1.5 text-[11px]">
             <AlertTriangle className="mt-px size-3 shrink-0" aria-hidden />
-            {t("detail.newHint")}
+            {lessonMinutes ? t("detail.newHintLessons") : t("detail.newHint")}
           </p>
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">

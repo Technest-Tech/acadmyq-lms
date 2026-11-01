@@ -1274,6 +1274,8 @@ export function SubscriptionSection({
 
       {sub ? (
         <>
+        {/* A centre's terms are each subscription's own lessons and price, on the card above: no hour rate. */}
+        {!(isPackaged && centre) && (
         <ProfileCard
           icon={BookOpen}
           // A package student's terms live on the package card above; what is left here is the
@@ -1356,12 +1358,14 @@ export function SubscriptionSection({
             </Figure>
           </div>
         </ProfileCard>
+        )}
         {/* Where the agreed terms stand this month: taught vs the quota, the bill, the family's debt.
             The quota is lessons only when it counts lessons — an old hourly plan's count was hours. */}
         <StudentMonthCard
           studentId={studentId}
           quota={isPackaged || (isHourly && sub.lesson_minutes == null) ? null : sub.sessions_per_month}
           refreshKey={sub}
+          lessonsOnly={centre}
         />
         </>
       ) : (

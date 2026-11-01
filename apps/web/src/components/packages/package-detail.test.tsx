@@ -239,3 +239,14 @@ it("reads a block sold in lessons in lessons, with the price of one lesson — n
   expect(screen.getByText("0 حصة")).toBeInTheDocument();
   expect(screen.queryByText("سعر الساعة")).toBeNull();
 });
+
+it("never reads a block sold in lessons in hours or fractions", async () => {
+  // 4 × 90 sold, one lesson that ran 60 and one that ran 90.
+  const row = pkg({ lesson_minutes: 90, minutes_total: 360, minutes_sold: 360, minutes_consumed: 150, minutes_remaining: 210, lesson_count: 2 });
+  getLessonPackage.mockResolvedValue({ package: row, credits: [] });
+  render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["package.read"] }), <PackageDetail row={row} timezone="UTC" />));
+
+  expect(await screen.findAllByText("حصتان")).toHaveLength(2);
+  expect(screen.getByText("4 حصص")).toBeInTheDocument();
+  expect(screen.queryByText(/٣س|3h|2\.3|٢٫٣/)).toBeNull();
+});

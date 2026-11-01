@@ -16,10 +16,11 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
+import { blockAmount, blockMinutes } from "@/components/packages/lesson-price-fields";
 import { nextTermsText, PackageActions, type PackageActionProps } from "@/components/packages/package-card";
 import { createFamilyPayLink, type LessonPackageRow, type PackagePurpose } from "@/lib/api";
 import { formatMoney, formatNumber } from "@/lib/money";
-import { formatDateTime, formatHours } from "@/lib/time";
+import { formatDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /** One family on the Due page: a parent and every package their children still owe on. */
@@ -68,6 +69,11 @@ function owed(rows: LessonPackageRow[]): { currency: string; amount_minor: numbe
     if (r.outstanding_minor > 0) by.set(r.currency, (by.get(r.currency) ?? 0) + r.outstanding_minor);
   }
   return [...by.entries()].map(([currency, amount_minor]) => ({ currency, amount_minor }));
+}
+
+/** Why the row is owed — a block sold in lessons has no "hours used" to bill. */
+function purposeText(row: LessonPackageRow, purpose: string, t: (key: string) => string): string {
+  return row.lesson_minutes && (purpose === "USAGE" || purpose === "OVERDRAFT") ? t(`purposeLessons.${purpose}`) : t(`purpose.${purpose}`);
 }
 
 function initials(name: string): string {
@@ -142,7 +148,7 @@ export function FamilyDueGroup({
       ...payable.map((r) =>
         t("family.messageLine", {
           child: r.student_name,
-          purpose: t(`purpose.${r.purpose ?? "NEW"}`),
+          purpose: purposeText(r, r.purpose ?? "NEW", t),
           label: r.label,
           amount: money(r.outstanding_minor, r.currency),
         }),
@@ -309,7 +315,7 @@ function DueRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: s
               className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-bold", PURPOSE_TONE[purpose])}
               data-testid="due-package-purpose"
             >
-              {t(`purpose.${purpose}`)}
+              {purposeText(row, purpose, t)}
             </span>
             <span className="text-muted-foreground shrink-0 font-semibold tabular-nums">#{formatNumber(row.sequence_no, locale)}</span>
             <span className="text-muted-foreground truncate">{row.label}</span>
@@ -331,7 +337,7 @@ function DueRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: s
               ? formatMoney({ amount: row.outstanding_minor, currency: row.currency }, locale)
               : unbilled
                 ? t("family.notBilled")
-                : t("card.overdrawn", { over: formatHours(row.minutes_overdrawn, locale) })}
+                : t("card.overdrawn", { over: blockMinutes(row.minutes_overdrawn, row.lesson_minutes, t, locale) })}
           </p>
           <p className="text-muted-foreground flex items-center justify-end gap-1 text-[10px]">
             {row.reminders_sent > 0 && row.last_reminded_at !== null && (
@@ -354,7 +360,7 @@ function DueRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: s
 
       <div className="mt-1.5 flex items-center justify-between gap-2">
         <p className="text-muted-foreground min-w-0 truncate text-[11px]" data-testid="due-package-usage">
-          {formatHours(row.minutes_sold, locale)} · {t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}
+          {blockAmount(row.minutes_sold, row.lesson_minutes, t, locale)} · {t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}
           {row.status === "ACTIVE" ? ` · ${formatNumber(row.percent_used, locale)}%` : ` · ${t(`status.${row.status}`)}`}
           {row.gap !== null && (
             <span className="ms-1 inline-flex items-center gap-0.5 font-semibold text-rose-600 dark:text-rose-400" title={t("card.gapTitle")}>
@@ -381,7 +387,7 @@ function OpenRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: 
   const low = row.minutes_remaining <= 60;
   const paid = row.invoice_id !== null && !owes;
   const money = (amount: number) => formatMoney({ amount, currency: row.currency }, locale);
-  const next = nextTermsText(row, locale);
+  const next = nextTermsText(row, locale, t);
 
   return (
     <li
@@ -400,7 +406,7 @@ function OpenRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: 
           </button>
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px]">
             <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-bold", PURPOSE_TONE[purpose])}>
-              {t(`purpose.${purpose}`)}
+              {purposeText(row, purpose, t)}
             </span>
             <span className="text-muted-foreground font-semibold tabular-nums">#{formatNumber(row.sequence_no, locale)}</span>
             <span className="text-muted-foreground truncate">{row.label}</span>
@@ -440,7 +446,7 @@ function OpenRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: 
       <div>
         <div className="mb-1 flex items-center justify-between text-[11px]">
           <span className={cn("font-semibold", low ? "text-amber-600 dark:text-amber-400" : "text-foreground")}>
-            {t("family.left", { left: formatHours(row.minutes_remaining, locale), total: formatHours(row.minutes_sold, locale) })}
+            {t("family.left", { left: blockAmount(row.minutes_remaining, row.lesson_minutes, t, locale), total: blockAmount(row.minutes_sold, row.lesson_minutes, t, locale) })}
           </span>
           <span className="text-muted-foreground tabular-nums">{formatNumber(row.percent_used, locale)}%</span>
         </div>
@@ -509,7 +515,7 @@ function OpenRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: 
         <p className="rounded-lg bg-sky-500/10 px-2 py-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300" data-testid="package-renewed">
           {row.opened_automatically && t("card.autoOpened", { previous: row.sequence_no - 1 })}
           {row.absorbed_overdraft_minutes > 0 &&
-            ` ${t("card.absorbedFromPrevious", { over: formatHours(row.absorbed_overdraft_minutes, locale), previous: row.sequence_no - 1 })}`}
+            ` ${t("card.absorbedFromPrevious", { over: blockMinutes(row.absorbed_overdraft_minutes, row.lesson_minutes, t, locale), previous: row.sequence_no - 1 })}`}
         </p>
       )}
       {row.auto_renew && next !== null && (

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Whatsapp;
 
+use App\Support\LessonCount;
 use Illuminate\Support\Carbon;
 
 /**
@@ -54,7 +55,7 @@ final class PackageReminderMessage
         if ($p['finished'] && ($p['finished_on'] ?? null) !== null) {
             $lines[] = '• انتهت في: '.Carbon::parse($p['finished_on'])->locale('ar')->translatedFormat('j F Y');
         } elseif (! $p['finished'] && isset($p['minutes_remaining'])) {
-            $lines[] = '• المتبقي: '.self::hoursAr((int) $p['minutes_remaining']);
+            $lines[] = '• المتبقي: '.self::amountAr((int) $p['minutes_remaining'], $p);
         }
 
         if (! $renewal) {
@@ -97,7 +98,7 @@ final class PackageReminderMessage
         if ($p['finished'] && ($p['finished_on'] ?? null) !== null) {
             $lines[] = '• Ended on: '.Carbon::parse($p['finished_on'])->format('j F Y');
         } elseif (! $p['finished'] && isset($p['minutes_remaining'])) {
-            $lines[] = '• Remaining: '.self::hoursEn((int) $p['minutes_remaining']);
+            $lines[] = '• Remaining: '.self::amountEn((int) $p['minutes_remaining'], $p);
         }
 
         if (! $renewal) {
@@ -135,7 +136,7 @@ final class PackageReminderMessage
 
         $text = 'رقم '.(int) $p['sequence_no'];
 
-        return isset($p['minutes_total']) ? $text.' — '.self::hoursAr((int) $p['minutes_total']) : $text;
+        return isset($p['minutes_total']) ? $text.' — '.self::amountAr((int) $p['minutes_total'], $p) : $text;
     }
 
     private static function packageEn(array $p): string
@@ -146,7 +147,24 @@ final class PackageReminderMessage
 
         $text = '#'.(int) $p['sequence_no'];
 
-        return isset($p['minutes_total']) ? $text.' — '.self::hoursEn((int) $p['minutes_total']) : $text;
+        return isset($p['minutes_total']) ? $text.' — '.self::amountEn((int) $p['minutes_total'], $p) : $text;
+    }
+
+    /** @param  array<string,mixed>  $p */
+    private static function amountAr(int $minutes, array $p): string
+    {
+        // A block sold in lessons (a centre) is counted in lessons: those families never heard of hours.
+        return ! empty($p['lesson_minutes'])
+            ? LessonCount::ar(LessonCount::whole($minutes, (int) $p['lesson_minutes']))
+            : self::hoursAr($minutes);
+    }
+
+    /** @param  array<string,mixed>  $p */
+    private static function amountEn(int $minutes, array $p): string
+    {
+        return ! empty($p['lesson_minutes'])
+            ? LessonCount::en(LessonCount::whole($minutes, (int) $p['lesson_minutes']))
+            : self::hoursEn($minutes);
     }
 
     /** Minutes in Arabic, with the right noun for the count: ساعة / ساعتان / ٣–١٠ ساعات / ١١+ ساعة. */

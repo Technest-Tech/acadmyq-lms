@@ -127,7 +127,7 @@ final class GuardianPortal
             ->whereIn('p.student_id', $ids)
             ->where('p.status', 'ACTIVE')
             ->orderBy('p.starts_on')
-            ->get(['p.student_id', 'p.label', 'p.minutes_total', 'p.carried_over_minutes', 'p.minutes_consumed', 'p.expires_on',
+            ->get(['p.student_id', 'p.label', 'p.minutes_total', 'p.carried_over_minutes', 'p.minutes_consumed', 'p.lesson_minutes', 'p.expires_on',
                 DB::raw("to_jsonb(p) ->> 'course' as course")])
             ->groupBy('student_id');
 
@@ -186,6 +186,7 @@ final class GuardianPortal
                         'course' => $p->course,
                         'total_minutes' => (int) $p->minutes_total + (int) $p->carried_over_minutes,
                         'remaining_minutes' => $lessons->remainingMinutes($p),
+                        'lesson_minutes' => $p->lesson_minutes !== null ? (int) $p->lesson_minutes : null,
                         'expires_on' => $p->expires_on,
                     ])->values()->all(),
                 'month' => [

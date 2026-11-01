@@ -6,14 +6,13 @@ import { useState } from "react";
 import { toMajorText, toMinor } from "@/components/accounting/accounting-ui";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
-import { lessonsIn } from "@/components/packages/lesson-price-fields";
+import { blockAmount } from "@/components/packages/lesson-price-fields";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { refundFamilyCredit, type UnsettledPackage } from "@/lib/accounting-api";
 import { settlePackage, type SettlementChoice, type SettlementMode, type SettlementPreview } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
-import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 type Account = { id: string; name: string };
@@ -44,7 +43,7 @@ export function SettlementFields({
   const tp = useTranslations("packages");
   const locale = useLocale();
   const money = (amount: number) => formatMoney({ amount, currency: preview.currency }, locale);
-  const left = preview.lesson_minutes ? tp("card.lessonsCount", { count: lessonsIn(preview.unused_minutes, preview.lesson_minutes) }) : formatHours(preview.unused_minutes, locale);
+  const left = blockAmount(preview.unused_minutes, preview.lesson_minutes, tp, locale);
   const modes: { mode: SettlementMode | null; icon: typeof PiggyBank; disabled?: boolean }[] = [
     { mode: "CREDIT", icon: PiggyBank },
     { mode: "REFUND", icon: Banknote, disabled: !canRefund || accounts.length === 0 },

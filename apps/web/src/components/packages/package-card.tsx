@@ -28,7 +28,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
-import { lessonsIn, pricePerLesson } from "@/components/packages/lesson-price-fields";
+import { blockAmount, blockMinutes, pricePerLesson } from "@/components/packages/lesson-price-fields";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -110,12 +110,12 @@ export interface PackageActionProps {
  * What the next renewal will be, where new terms were parked for it ("from the next renewal only"):
  * label · hours · price, each falling back to the running block's. Null when it renews as it is.
  */
-export function nextTermsText(row: LessonPackageRow, locale: string): string | null {
+export function nextTermsText(row: LessonPackageRow, locale: string, t: (key: string, values?: Record<string, string | number>) => string): string | null {
   const next = row.next_terms;
   if (!next) return null;
   return [
     next.label ?? row.label,
-    formatHours(next.minutes_total ?? row.minutes_total, locale),
+    blockAmount(next.minutes_total ?? row.minutes_total, next.lesson_minutes ?? row.lesson_minutes, t, locale),
     formatMoney({ amount: next.price_minor ?? row.price_minor, currency: row.currency }, locale),
   ].join(" · ");
 }
@@ -127,7 +127,7 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
   const locale = useLocale();
   // Sold in lessons (a centre): count and price in lessons, not hours.
   const lessonMinutes = row.lesson_minutes ?? null;
-  const lessons = (minutes: number) => t("card.lessonsCount", { count: lessonsIn(minutes, lessonMinutes ?? 60) });
+  const lessons = (minutes: number) => blockAmount(minutes, lessonMinutes, t, locale);
 
   const isActive = row.status === "ACTIVE";
   const low = isActive && row.minutes_remaining <= 60;
@@ -284,7 +284,7 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
                 {row.absorbed_overdraft_minutes > 0 && (
                   <span className="block font-normal opacity-90">
                     {t("card.absorbedFromPrevious", {
-                      over: formatHours(row.absorbed_overdraft_minutes, locale),
+                      over: blockMinutes(row.absorbed_overdraft_minutes, lessonMinutes, t, locale),
                       previous: previousNo,
                     })}
                   </span>
@@ -325,7 +325,7 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
 
         <div className="mt-3.5">
           <div className="mb-1.5 flex items-center justify-between text-[11px]">
-            <span className="text-muted-foreground">{t("card.progress")}</span>
+            <span className="text-muted-foreground">{lessonMinutes ? t("card.progressLessons") : t("card.progress")}</span>
             <span className="font-bold tabular-nums">
               {formatNumber(row.percent_used, locale)}%
             </span>
@@ -349,12 +349,12 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
                 : t("card.autoRenewOff")}
             </p>
           )}
-          {isActive && row.auto_renew && nextTermsText(row, locale) !== null && (
+          {isActive && row.auto_renew && nextTermsText(row, locale, t) !== null && (
             <p
               className="mt-1 rounded-lg bg-sky-500/10 px-2 py-1 text-[11px] font-semibold text-sky-700 dark:text-sky-300"
               data-testid="package-next-terms"
             >
-              {t("card.nextTerms", { terms: nextTermsText(row, locale) ?? "" })}
+              {t("card.nextTerms", { terms: nextTermsText(row, locale, t) ?? "" })}
             </p>
           )}
         </div>
@@ -449,7 +449,7 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
             >
               <RefreshCw className="size-3.5 shrink-0" aria-hidden />
               {t("card.overdraftAbsorbed", {
-                over: formatHours(row.minutes_overdrawn, locale),
+                over: blockMinutes(row.minutes_overdrawn, lessonMinutes, t, locale),
                 next: row.overdraft_absorbed_into,
               })}
             </p>
@@ -457,7 +457,7 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
             <p className="bg-destructive/8 text-destructive mt-3 flex items-center gap-1.5 rounded-xl px-2.5 py-2 text-[11px] font-semibold">
               <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
               {t("card.overdrawn", {
-                over: formatHours(row.minutes_overdrawn, locale),
+                over: blockMinutes(row.minutes_overdrawn, lessonMinutes, t, locale),
               })}
             </p>
           ))}
@@ -482,10 +482,10 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
           >
             <p className="flex items-center gap-1.5 font-bold text-rose-700 dark:text-rose-300">
               <CalendarX className="size-3.5 shrink-0" aria-hidden />
-              {t("card.gapTitle")}
+              {lessonMinutes ? t("card.gapTitleLessons") : t("card.gapTitle")}
             </p>
             <p className="mt-0.5 leading-4 text-rose-900/80 dark:text-rose-200/85">
-              {t("card.gapBody", {
+              {t(lessonMinutes ? "card.gapBodyLessons" : "card.gapBody", {
                 count: row.gap.lessons,
                 // Pre-formatted so the count wears the same digits as the hours beside it.
                 n: formatNumber(row.gap.lessons, locale),
@@ -702,7 +702,7 @@ export function PackageActions({
   add(canManage && !isActive && strandedOverdraft && !row.awaiting_next_package, {
     key: "billOverdraft",
     icon: AlertTriangle,
-    label: t("actions.billOverdraft"),
+    label: row.lesson_minutes ? t("actions.billOverdraftLessons") : t("actions.billOverdraft"),
     onClick: onBillOverdraft,
     danger: true,
     testId: "bill-overdraft",

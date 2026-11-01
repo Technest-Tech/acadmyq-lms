@@ -12,7 +12,7 @@ import { fieldClass } from "@/components/groups/group-format";
 import { JoinDateForm, leftReasonText, MemberPriceForm, MoveMemberForm, RemoveMemberForm } from "@/components/groups/group-members-panel";
 import { ClosePackageModal } from "@/components/packages/close-package-modal";
 import { EditPackageForm } from "@/components/packages/edit-package-form";
-import { lessonsIn, pricePerLesson } from "@/components/packages/lesson-price-fields";
+import { lessonBalance, pricePerLesson } from "@/components/packages/lesson-price-fields";
 import { OpenPackageForm } from "@/components/packages/open-package-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -226,17 +226,17 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                           p.status !== "ACTIVE"
                             ? tp(`status.${p.status}`)
                             : p.lesson_minutes
-                              ? t("subscriptions.remainingLessons", { count: lessonsIn(p.minutes_remaining, p.lesson_minutes) })
+                              ? t("subscriptions.remainingLessons", { count: lessonBalance(p, p.lesson_minutes).left })
                               : t("subscriptions.remaining", { hours: (p.minutes_remaining / 60).toLocaleString(locale, { maximumFractionDigits: 1 }) }),
                         ]
                           .filter(Boolean)
                           .join(" · ")}
                       </p>
-                      {/* The block itself: hours used of bought, lessons, the hour's price, the bill, renewal. */}
+                      {/* The block itself: used of bought, lessons, the lesson's price, the bill, renewal. */}
                       <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs" data-testid="subs-package-details">
                         <span>
                           {p.lesson_minutes
-                            ? tp("card.used", { used: lessonsIn(p.minutes_consumed, p.lesson_minutes).toLocaleString(locale), total: tp("card.lessonsCount", { count: lessonsIn(p.minutes_sold, p.lesson_minutes) }) })
+                            ? tp("card.used", { used: lessonBalance(p, p.lesson_minutes).used.toLocaleString(locale), total: tp("card.lessonsCount", { count: lessonBalance(p, p.lesson_minutes).sold }) })
                             : tp("card.used", { used: formatHours(p.minutes_consumed, locale), total: formatHours(p.minutes_sold, locale) })}
                         </span>
                         <span>· {tp("card.lessonsUsed")}: {p.lesson_count}</span>

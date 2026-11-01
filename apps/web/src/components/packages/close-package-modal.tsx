@@ -17,7 +17,7 @@ import {
   type SettlementResult,
 } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
-import { formatHours } from "@/lib/time";
+import { blockAmount } from "@/components/packages/lesson-price-fields";
 
 /**
  * Close a package early — the packages page's own modal, shared with the student's subscriptions
@@ -163,7 +163,7 @@ function CloseBody({
       )}
       <p className="text-muted-foreground text-sm">
         {t("close.remaining", {
-          left: formatHours(row.minutes_remaining, locale),
+          left: blockAmount(row.minutes_remaining, row.lesson_minutes, t, locale),
         })}
       </p>
       {asksSettlement && settle.preview && (

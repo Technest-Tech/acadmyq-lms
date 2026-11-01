@@ -801,12 +801,14 @@ function PackagesTab({
                 </div>
                 <div className="min-w-0">
                   <p className="font-semibold leading-tight">
-                    {t(`package.${n.type}.title`, { student: n.data.student_name ?? "—" })}
+                    {t(n.type === "PACKAGE_LOW" && n.data.lesson_minutes ? "package.PACKAGE_LOW.titleLessons" : `package.${n.type}.title`, { student: n.data.student_name ?? "—" })}
                   </p>
                   <p className="text-muted-foreground mt-1 text-sm">
                     {t(`package.${n.type}.body`, {
                       label: n.data.label ?? "—",
-                      left: formatHours(n.data.minutes_left ?? 0, locale),
+                      left: n.data.lesson_minutes
+                        ? t("package.lessonsLeft", { count: Math.floor((n.data.minutes_left ?? 0) / n.data.lesson_minutes) })
+                        : formatHours(n.data.minutes_left ?? 0, locale),
                       over: formatHours(n.data.minutes_overdrawn ?? 0, locale),
                       amount:
                         n.data.outstanding_minor !== undefined

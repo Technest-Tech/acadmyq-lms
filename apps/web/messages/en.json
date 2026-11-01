@@ -1887,7 +1887,7 @@
       "savedWithPackage": "Student added, and their package is open on the Packages page.",
       "teachers": "Teachers",
       "billingSubscription": "Subscription",
-      "billingSubscriptionHint": "A block of hours paid up front; lessons draw on it and it renews when it runs out.",
+      "billingSubscriptionHint": "A prepaid subscription by the lesson; lessons come off it and it renews when it ends.",
       "groupSubs": "Group subscriptions",
       "groupSubsHint": "Pick every group the student joins — as many as needed. Each one is billed from the date beside it.",
       "addGroup": "Add a group",
@@ -2454,7 +2454,8 @@
       "open": "Open the packages page",
       "PACKAGE_LOW": {
         "title": "{student} is running low on hours",
-        "body": "Only {left} left on “{label}”. The next lesson may run past the end of the package."
+        "body": "Only {left} left on “{label}”. The next lesson may run past the end of the package.",
+        "titleLessons": "{student}'s lessons are running low"
       },
       "PACKAGE_COMPLETED": {
         "title": "{student} finished their package",
@@ -2467,7 +2468,8 @@
       "NO_ACTIVE_PACKAGE": {
         "title": "{student} has no open package",
         "body": "A lesson was delivered with no package to take it. It has been billed the ordinary way — open the next block."
-      }
+      },
+      "lessonsLeft": "{count, plural, =0 {less than a lesson} one {one lesson} other {# lessons}}"
     },
     "attended": {
       "title": "{teacher} taught {student}",
@@ -2960,7 +2962,10 @@
       "nothingDue": "Nothing due",
       "paidOn": "Paid · {date}",
       "renewalHeld": "Pay first: the next block opens by itself once the package bill is paid.",
-      "nextTerms": "Next renewal: {terms}"
+      "nextTerms": "Next renewal: {terms}",
+      "progressLessons": "Lessons used",
+      "gapTitleLessons": "Lessons ran out — and lessons continue",
+      "gapBodyLessons": "{count, plural, one {One lesson} other {{n} lessons}} since this subscription ended, charged on the student's monthly bill: {amount}."
     },
     "actions": {
       "open": "Open a package",
@@ -2981,7 +2986,8 @@
       "more": "More actions",
       "renew": "Open next package",
       "toMonthly": "Switch to monthly",
-      "remind": "Send reminder"
+      "remind": "Send reminder",
+      "billOverdraftLessons": "Bill the extra time"
     },
     "form": {
       "title": "Open a package",
@@ -3079,7 +3085,9 @@
       "record": "Record & add",
       "removeChargeStudent": "Charge the student for it?",
       "removePayTeacher": "Pay the teacher for it?",
-      "removeConfirm": "Confirm removal"
+      "removeConfirm": "Confirm removal",
+      "ledgerCountLessons": "{count, plural, one {One lesson} other {# lessons}}",
+      "newHintLessons": "This creates a real attended lesson — the teacher is paid for it and it comes off this subscription's lessons."
     },
     "edit": {
       "title": "Edit this package",
@@ -3097,7 +3105,10 @@
           "title": "New packages only",
           "body": "Package #{n} and its bill stay as they are; the new terms start with package #{next} when it renews."
         }
-      }
+      },
+      "consumedLessons": "{count, plural, =0 {No lessons} one {One lesson} other {# lessons}} taken so far.",
+      "billNoteCentre": "This subscription's bill is corrected with it.",
+      "billNotePaid": "{amount} is paid on it. What was paid stays counted: a higher price leaves the difference to pay, a lower one returns the rest to the family as credit."
     },
     "close": {
       "title": "Close this package early",
@@ -3143,7 +3154,10 @@
       "reminderFailed": "Could not send the reminder.",
       "cancelled": "Cancelled. Its unpaid bill was voided.",
       "cancelFailed": "Could not cancel it.",
-      "nextTermsSaved": "Saved — the new terms start with the next renewal; the current package and its bill are unchanged."
+      "nextTermsSaved": "Saved — the new terms start with the next renewal; the current package and its bill are unchanged.",
+      "overdraftBilledLessons": "The extra time was billed.",
+      "editedCredit": "Saved. {amount} went back to the family as credit.",
+      "editedDue": "Saved. The family now owes {amount}."
     },
     "panel": {
       "title": "Lesson package",
@@ -3212,7 +3226,7 @@
     "centre": {
       "open": {
         "title": "Open subscriptions",
-        "subtitle": "Blocks of hours paid up front. Each lesson uses its length; a finished subscription renews and is billed."
+        "subtitle": "Prepaid subscriptions by the lesson. Each lesson comes off; when it ends it renews and its bill is issued."
       },
       "finished": {
         "title": "Finished subscriptions",
@@ -3255,6 +3269,10 @@
       "CARRIED_OVER": "What was left moved to the next subscription",
       "CANCELLED": "Cancelled",
       "RENEWAL_UNDONE": "Its automatic renewal was undone"
+    },
+    "purposeLessons": {
+      "USAGE": "For lessons used",
+      "OVERDRAFT": "Extra time"
     }
   },
   "attendance": {

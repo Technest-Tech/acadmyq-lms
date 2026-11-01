@@ -446,7 +446,9 @@ function ChildCard({ child, ctx }: { child: PortalChild; ctx: ViewCtx }) {
       <dl className="mt-1.5 grid grid-cols-3 gap-2 text-center">
         <MonthStat label={t.attended} value={num(child.month.attended, lang)} tone="text-emerald-700" />
         <MonthStat label={t.absent} value={num(child.month.absent, lang)} tone={child.month.absent > 0 ? "text-rose-600" : "text-slate-700"} />
-        <MonthStat label={t.hoursLabel} value={num(Math.round((child.month.minutes / 60) * 10) / 10, lang)} tone="text-slate-700" />
+        {!child.packages.some((p) => p.lesson_minutes) && (
+          <MonthStat label={t.hoursLabel} value={num(Math.round((child.month.minutes / 60) * 10) / 10, lang)} tone="text-slate-700" />
+        )}
       </dl>
 
       {child.packages.map((p, i) => {
@@ -455,7 +457,11 @@ function ChildCard({ child, ctx }: { child: PortalChild; ctx: ViewCtx }) {
           <div key={i} className="mt-4">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-xs">
               <span className="font-semibold text-slate-700">{p.course ?? p.label}</span>
-              <span className="text-slate-500">{t.hoursLeft(hours(p.remaining_minutes, lang), hours(p.total_minutes, lang))}</span>
+              <span className="text-slate-500">
+                {p.lesson_minutes
+                  ? t.hoursLeft(lessons(Math.floor(p.remaining_minutes / p.lesson_minutes), lang), lessons(Math.floor(p.total_minutes / p.lesson_minutes), lang))
+                  : t.hoursLeft(hours(p.remaining_minutes, lang), hours(p.total_minutes, lang))}
+              </span>
             </div>
             <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
               <div className={`h-full rounded-full ${pct <= 20 ? "bg-amber-500" : hue.bar}`} style={{ width: `${pct}%` }} />

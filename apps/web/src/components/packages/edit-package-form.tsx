@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { nextTermsText } from "@/components/packages/package-card";
 import { LessonCountFields, lessonCountOf } from "@/components/packages/lesson-count-fields";
 import {
+  blockAmount,
   LESSON_LENGTHS,
   LessonPriceFields,
   lessonPriceFromTotal,
@@ -83,9 +84,10 @@ export function EditPackageForm({
   const [unitMinutes, setUnitMinutes] = useState(shape.minutes);
   const [lessons, setLessons] = useState(String(shape.lessons));
   const [price, setPrice] = useState((row.price_minor / 100).toFixed(2));
-  const [unitPrice, setUnitPrice] = useState(() =>
+  const [savedUnitPrice] = useState(() =>
     majorText(lessonPriceFromTotal(row.price_minor, row.minutes_total, shape.minutes)),
   );
+  const [unitPrice, setUnitPrice] = useState(savedUnitPrice);
   const [expiresOn, setExpiresOn] = useState(row.expires_on ?? "");
   const [autoRenew, setAutoRenew] = useState(row.auto_renew);
   // Asked, never assumed, whenever the terms move on a block that renews itself.
@@ -96,8 +98,13 @@ export function EditPackageForm({
   const lessonCount = lessonCountOf(lessons);
   const hoursNum = lessonCount !== null ? (lessonCount * unitMinutes) / 60 : Number.NaN;
   const totalMinutes = Number.isFinite(hoursNum) && hoursNum > 0 ? Math.round(hoursNum * 60) : 0;
+  // Lessons, length and lesson price untouched: the price is what it was, to the piastre — a rounded
+  // lesson price must not move a bill somebody only renamed.
+  const dealUntouched = lessons === String(shape.lessons) && unitMinutes === shape.minutes && unitPrice === savedUnitPrice;
   const priceMinor = perLesson
-    ? totalFromLessonPrice(Math.round(Number.parseFloat((unitPrice || "0").replace(",", ".")) * 100), totalMinutes, unitMinutes)
+    ? dealUntouched
+      ? row.price_minor
+      : totalFromLessonPrice(Math.round(Number.parseFloat((unitPrice || "0").replace(",", ".")) * 100), totalMinutes, unitMinutes)
     : Math.round(Number.parseFloat(price || "0") * 100);
 
   /** The same deal read the other way round — what one hour of this package costs. */
@@ -132,13 +139,16 @@ export function EditPackageForm({
     priceMinor >= 0 &&
     !tooSmall &&
     (!askScope || appliesTo !== null);
-  const parked = nextTermsText(row, locale);
+  const parked = nextTermsText(row, locale, t);
+  // A centre's prepaid block is corrected with its money on it: the receipts stay, the bill follows.
+  const paidOnBill = perLesson && row.invoice_paid_minor > 0;
+  const money = (amount: number) => formatMoney({ amount, currency: row.currency }, locale);
 
   async function save() {
     setBusy(true);
     setError(null);
     try {
-      await updateLessonPackage(row.id, {
+      const res = await updateLessonPackage(row.id, {
         label: label.trim(),
         hours: hoursNum,
         price_minor: priceMinor,
@@ -147,7 +157,15 @@ export function EditPackageForm({
         ...(perLesson ? { lesson_minutes: unitMinutes } : {}),
         ...(askScope && appliesTo !== null ? { applies_to: appliesTo } : {}),
       });
-      onSaved(nextOnly ? t("alerts.nextTermsSaved") : t("alerts.edited"));
+      onSaved(
+        nextOnly
+          ? t("alerts.nextTermsSaved")
+          : (res.credited_minor ?? 0) > 0
+            ? t("alerts.editedCredit", { amount: money(res.credited_minor ?? 0) })
+            : paidOnBill && (res.due_minor ?? 0) > 0
+              ? t("alerts.editedDue", { amount: money(res.due_minor ?? 0) })
+              : t("alerts.edited"),
+      );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -174,10 +192,12 @@ export function EditPackageForm({
 
       {/* What is already spent, stated before the fields that must respect it. */}
       <p className="bg-muted/40 text-muted-foreground rounded-xl px-3 py-2.5 text-xs">
-        {t("edit.consumed", {
-          used: formatHours(row.minutes_consumed, locale),
-          lessons: row.lesson_count,
-        })}
+        {row.lesson_minutes
+          ? t("edit.consumedLessons", { count: row.lesson_count })
+          : t("edit.consumed", {
+              used: formatHours(row.minutes_consumed, locale),
+              lessons: row.lesson_count,
+            })}
       </p>
 
       {!perLesson && (
@@ -244,7 +264,7 @@ export function EditPackageForm({
       {tooSmall && (
         <p className="text-destructive text-xs" data-testid="package-too-small">
           {t("edit.tooSmall", {
-            used: formatHours(row.minutes_consumed, locale),
+            used: blockAmount(row.minutes_consumed, row.lesson_minutes, t, locale),
           })}
         </p>
       )}
@@ -333,7 +353,7 @@ export function EditPackageForm({
       {/* The bill is the hard edge, and it is cheaper to say so here than to be refused on save. */}
       {row.invoice_id !== null && !nextOnly && (
         <p className="rounded-xl bg-amber-500/10 px-3 py-2.5 text-xs font-medium text-amber-700 dark:text-amber-400">
-          {t("edit.billNote")}
+          {paidOnBill ? t("edit.billNotePaid", { amount: money(row.invoice_paid_minor) }) : perLesson ? t("edit.billNoteCentre") : t("edit.billNote")}
         </p>
       )}
 
