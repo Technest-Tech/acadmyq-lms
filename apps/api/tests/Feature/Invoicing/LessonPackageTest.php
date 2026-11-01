@@ -893,6 +893,20 @@ it('carries the backlog on into the renewal when a backdated block fills up on i
         ->and(DB::table('lesson_package_credits')->where('package_id', $renewal->id)->value('session_id'))->toBe($lessons[3]);
 });
 
+it('ends the trial when a package is opened, so the lessons burn the package', function () {
+    // ميرنا (Alrayan, 2026-11-01): left on TRIAL with a package; 18 lessons, nothing charged.
+    $this->asAcademy($this->academy);
+    DB::table('students')->where('id', $this->student)->update(['status' => 'TRIAL']);
+
+    $package = ($this->openPackage)(4, 80000);
+    $session = ($this->lesson)(60);
+    ($this->attend)($session);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('students')->where('id', $this->student)->value('status'))->toBe('REGULAR')
+        ->and((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(60);
+});
+
 it('can sync an existing package after its start date is corrected', function () {
     $session = ($this->lesson)(60, '2026-06-02 10:00:00+00');
     Sanctum::actingAs($this->owner);

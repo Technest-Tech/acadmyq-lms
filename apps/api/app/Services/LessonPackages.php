@@ -9,6 +9,7 @@ use App\Payroll\PayoutHook;
 use App\Support\Audit;
 use App\Support\Entitlement;
 use App\Support\PublicInvoiceToken;
+use App\Support\StudentStatus;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -964,6 +965,15 @@ final class LessonPackages
             $actorUserId,
             $actorRole,
         );
+
+        // Buying a block ends the trial. A student left on TRIAL is never billed (a trial is a free
+        // taster), so nothing burnt their package either: ميرنا (Alrayan) took 18 lessons on a
+        // block that stayed at zero. A booked trial still to come is left alone — that one is free.
+        if (DB::table('students')->where('id', $studentId)->value('status') === StudentStatus::TRIAL) {
+            DB::table('students')->where('id', $studentId)->update(['status' => StudentStatus::REGULAR, 'updated_at' => now()]);
+            Audit::log('student.update', 'student', $studentId, $academyId, $actorUserId, $actorRole,
+                after: ['status' => StudentStatus::REGULAR, 'reason' => 'PACKAGE_OPENED'], before: ['status' => StudentStatus::TRIAL]);
+        }
 
         $packageId = (string) Str::uuid();
         $sequenceNo = ((int) DB::table('lesson_packages')->where('student_id', $studentId)->max('sequence_no')) + 1;
