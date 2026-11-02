@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\Invoicing;
 use App\Services\Ledger;
 use App\Services\LessonPackages;
 use App\Services\ModuleBilling;
@@ -192,6 +193,19 @@ it('counts only its own subject\'s upcoming lessons on a block tied to a subject
 
 // ─── "No hours" + editing a paid subscription (lingo, 2026-11-01) ─────────────
 
+function cplAccountsOff(string $academyId): void
+{
+    DB::statement("select set_config('app.current_academy_id', ?, true)", [$academyId]);
+    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+    try {
+        // Receipts stay on; only the centre rule goes.
+        app(ModuleBilling::class)->setDisabledFeatures($academyId, 'MANAGEMENT', [], ['accounting']);
+    } finally {
+        DB::statement("select set_config('app.current_academy_id', '', true)");
+        DB::statement("select set_config('app.current_role', '', true)");
+    }
+}
+
 function cplAccountsOn(string $academyId): void
 {
     DB::statement("select set_config('app.current_academy_id', ?, true)", [$academyId]);
@@ -285,4 +299,69 @@ it('takes the last hours out of a centre\'s old blocks, labels and bills alike',
     expect(DB::table('lesson_packages')->where('id', $typed)->value('label'))->toBe('4 hours');
 
     expect($fill())->toBe(['lengths' => 0, 'labels' => 0, 'lines' => 0]);
+});
+
+// ─── A centre's month never closes (lingo, 2026-11-02) ───────────────────────
+
+it('never closes a centre on receipts, and still closes everyone else', function () {
+    $student = ($this->packageStudent)('Lara');
+    $opened = ($this->paidBlock)($student);
+
+    $this->asAcademy($this->academy);
+    expect(app(Invoicing::class)->closePeriodInvoices($this->academy, 2026, 6, (string) $this->owner->id, 'ACADEMY_OWNER'))->toBe(0);
+    expect(DB::table('invoices')->where('id', $opened['invoice_id'])->value('status'))->toBe('OPEN');
+
+    // Off the centre rule, the month closes as it always has.
+    cplAccountsOff($this->academy);
+    $this->asAcademy($this->academy);
+    expect(app(Invoicing::class)->closePeriodInvoices($this->academy, 2026, 6, (string) $this->owner->id, 'ACADEMY_OWNER'))->toBe(1);
+    expect(DB::table('invoices')->where('id', $opened['invoice_id'])->value('status'))->not->toBe('OPEN');
+});
+
+it('takes back a month-end close: a discount, an edit and the reports reach those bills again', function () {
+    $paidStudent = ($this->packageStudent)('Lara');
+    $paid = ($this->paidBlock)($paidStudent);
+    $this->asAcademy($this->academy);
+    $unpaid = app(LessonPackages::class)->open([
+        'student_id' => ($this->packageStudent)('Mohamed'), 'label' => 'Private Math', 'minutes_total' => 240, 'lesson_minutes' => 60,
+        'price_minor' => 100000, 'currency' => 'EGP', 'starts_on' => '2026-06-01', 'auto_renew' => false,
+    ], (string) $this->owner->id, 'ACADEMY_OWNER');
+
+    // What happened at 02:00 on the 2nd: closed before the rule existed.
+    cplAccountsOff($this->academy);
+    $this->asAcademy($this->academy);
+    app(Invoicing::class)->closePeriodInvoices($this->academy, 2026, 6, (string) $this->owner->id, 'ACADEMY_OWNER');
+    expect(DB::table('invoices')->where('id', $paid['invoice_id'])->value('status'))->toBe('PAID')
+        ->and(DB::table('invoices')->where('id', $unpaid['invoice_id'])->value('status'))->toBe('CLOSED');
+
+    $fill = fn (): int => (require base_path('database/migrations/2026_11_02_000001_centre_bills_stay_open.php'))->fill();
+    expect($fill())->toBe(0); // not a centre: left closed
+
+    cplAccountsOn($this->academy);
+    expect($fill())->toBe(2)->and($fill())->toBe(0);
+
+    $this->asAcademy($this->academy);
+    $bill = DB::table('invoices')->where('id', $paid['invoice_id'])->first();
+    expect($bill->status)->toBe('OPEN')->and($bill->closed_at)->toBeNull()
+        ->and((int) $bill->total_minor)->toBe(80000)->and((int) $bill->amount_paid_minor)->toBe(80000);
+
+    // The family's 10% now reaches the bill that was closed.
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/accounting/family/{$this->guardian}/discounts", [
+        'kind' => 'PERCENT', 'value' => 10, 'label' => 'Siblings', 'scope' => 'ALL', 'apply_to_existing' => true,
+    ])->assertSuccessful();
+    $this->asAcademy($this->academy);
+    expect((int) DB::table('invoices')->where('id', $unpaid['invoice_id'])->value('total_minor'))->toBe(90000);
+
+    // The paid subscription can be corrected again.
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/packages/{$paid['package_id']}", ['label' => 'Connect Plus'])->assertOk();
+
+    // What was received still counts (the discount freed 80 of the paid bill, and that credit paid
+    // the other one), and the counts and the filter read the money on the bill.
+    $this->getJson('/api/reports/profit-summary?year=2026&month=6')->assertOk()->assertJsonPath('rows.0.revenue_minor', 80000);
+    $counts = $this->getJson('/api/invoices/summary?period_year=2026&period_month=6')->assertOk()->json('counts');
+    expect($counts['PAID'])->toBe(1)->and($counts['PARTIALLY_PAID'])->toBe(1)->and($counts['OPEN'])->toBe(0);
+    $rows = $this->getJson('/api/invoices?filter[status]=PAID')->assertOk()->json('rows');
+    expect(collect($rows)->pluck('id')->all())->toBe([$paid['invoice_id']]);
 });

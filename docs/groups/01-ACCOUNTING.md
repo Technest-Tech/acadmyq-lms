@@ -761,6 +761,21 @@ Tests: CancelDuesTest (advance dues + suspend cancel + never re-raised + discoun
 one charge part-paid; package unused/used; non-accounting; lesson_minutes through edit and renewal),
 family-profile / accounting-treasury / subscriptions-card / groups / open-package-form tests.
 
+## A centre's bills never close (2026-11-02)
+
+The month-end close (`CloseMonthlyInvoicesJob`, 01:00 on the 2nd) froze 201 of lingo's bills on its
+first run. Their charges run by the group's month and the prepaid block, not the calendar, so a group
+month nine days old was frozen: a discount found "nothing to apply to", and subscriptions, charges
+and lessons on those bills could no longer be corrected.
+
+- A centre on receipts (`PackageSettlement::availableFor`) never closes: `closePeriodInvoices`
+  returns 0, by the job and by hand, and the invoices page has no close button for it.
+- Overdue never depended on closing: it is read from the charge's month.
+- All its bills stay OPEN, so the invoices page's counts, filter and amounts read the money on the
+  bill, and the profit summary counts what OPEN bills hold.
+- `2026_11_02_000001_centre_bills_stay_open` reopened what the first run closed (`status` and
+  `closed_at` only). Every other academy closes exactly as before.
+
 ## A subscription that ends early — the money paid for lessons not taken (2026-10-29)
 
 A curriculum centre asked: a family paid a whole private subscription up front, the child stopped

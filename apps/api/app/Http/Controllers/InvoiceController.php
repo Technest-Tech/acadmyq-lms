@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Services\Invoicing;
 use App\Services\Ledger;
+use App\Services\PackageSettlement;
 use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
@@ -137,7 +138,7 @@ final class InvoiceController extends Controller
         $result = DataTable::paginate($query, $request, [
             'searchable' => [],
             'filters' => [
-                'status' => fn ($q, $v) => $q->where('inv.status', $v),
+                'status' => fn ($q, $v) => $this->whereStatus($q, (string) $v),
                 'kind' => fn ($q, $v) => $q->where('inv.kind', $v),
                 'follow_up' => function ($q, $v): void {
                     if ((string) $v === '1') {
@@ -433,6 +434,24 @@ final class InvoiceController extends Controller
         return response()->json(['id' => $result['invoice_id'], 'count' => $result['count']], 201);
     }
 
+    /** A centre's bills all stay OPEN, so for them the status filter reads what is paid on the bill. */
+    private function whereStatus($query, string $status): void
+    {
+        if (! PackageSettlement::availableFor((string) app(AuthContext::class)->academyId)) {
+            $query->where('inv.status', $status);
+
+            return;
+        }
+
+        $query->where('inv.status', '<>', 'VOID');
+        match ($status) {
+            'PAID' => $query->whereRaw('inv.total_minor > 0 and inv.amount_paid_minor >= inv.total_minor'),
+            'PARTIALLY_PAID' => $query->whereRaw('inv.amount_paid_minor > 0 and inv.amount_paid_minor < inv.total_minor'),
+            'OPEN' => $query->where('inv.amount_paid_minor', 0),
+            default => $query->whereRaw('false'),
+        };
+    }
+
     // -------------------------------------------------------------------------
     // GET /api/invoices/summary
     // -------------------------------------------------------------------------
@@ -459,9 +478,13 @@ final class InvoiceController extends Controller
             $base->where('period_month', (int) $request->query('period_month'));
         }
 
+        // A centre's bills all stay OPEN: for them the counts read what is paid on the bill.
+        $statusOf = PackageSettlement::availableFor((string) app(AuthContext::class)->academyId)
+            ? "case when status = 'VOID' then 'VOID' when total_minor > 0 and amount_paid_minor >= total_minor then 'PAID' when amount_paid_minor > 0 then 'PARTIALLY_PAID' else 'OPEN' end"
+            : 'status';
         $statusRows = (clone $base)
-            ->select('status', DB::raw('count(*) as cnt'))
-            ->groupBy('status')
+            ->select(DB::raw("{$statusOf} as status"), DB::raw('count(*) as cnt'))
+            ->groupBy(DB::raw($statusOf))
             ->get();
 
         $counts = ['all' => 0, 'OPEN' => 0, 'CLOSED' => 0, 'PAID' => 0, 'PARTIALLY_PAID' => 0];
@@ -1029,16 +1052,16 @@ final class InvoiceController extends Controller
      */
     private function buildInvoiceWhatsAppMessage(object $invoice, string $url): string
     {
-        $academy  = trim((string) ($invoice->academy_name ?? '')) ?: 'Academy';
-        $payer    = trim((string) ($invoice->payer_name ?? ''));
+        $academy = trim((string) ($invoice->academy_name ?? '')) ?: 'Academy';
+        $payer = trim((string) ($invoice->payer_name ?? ''));
         $currency = (string) ($invoice->currency ?? '');
-        $period   = sprintf('%04d-%02d', (int) $invoice->period_year, (int) $invoice->period_month);
+        $period = sprintf('%04d-%02d', (int) $invoice->period_year, (int) $invoice->period_month);
 
-        $totalMinor   = (int) $invoice->total_minor;
+        $totalMinor = (int) $invoice->total_minor;
         $balanceMinor = max(0, $totalMinor - (int) $invoice->amount_paid_minor);
-        $isPaid       = (string) $invoice->status === 'PAID' || $balanceMinor === 0;
+        $isPaid = (string) $invoice->status === 'PAID' || $balanceMinor === 0;
 
-        $total   = $this->formatMoney($totalMinor, $currency);
+        $total = $this->formatMoney($totalMinor, $currency);
         $balance = $this->formatMoney($balanceMinor, $currency);
 
         // Arabic block.

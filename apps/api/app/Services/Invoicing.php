@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Services\PayerDiscounts;
 use App\Billing\BillingHook;
 use App\Support\Audit;
 use App\Support\PublicInvoiceToken;
@@ -442,6 +441,11 @@ final class Invoicing implements BillingHook
     /**
      * Close all OPEN invoices for an academy in the given period.
      *
+     * A curriculum centre on receipts never closes (lingo, 2026-11-02): its charges run by the group's
+     * month and the prepaid block, not the calendar, and its money is on the receipts. Closing on the
+     * 2nd froze a group month nine days old, so no discount, correction or cancelled charge could reach
+     * it any more.
+     *
      * @return int number of invoices actually closed
      */
     public function closePeriodInvoices(
@@ -451,6 +455,10 @@ final class Invoicing implements BillingHook
         string $actorUserId,
         string $actorRole,
     ): int {
+        if (PackageSettlement::availableFor($academyId)) {
+            return 0;
+        }
+
         $invoices = DB::table('invoices')
             ->where('academy_id', $academyId)
             ->where('period_year', $year)

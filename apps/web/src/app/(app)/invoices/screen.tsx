@@ -12,6 +12,7 @@ import {
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { useCapability } from "@/lib/capabilities";
 import { Octagram } from "@/components/ornaments";
 import { ClosePeriodModal } from "@/components/invoices/close-period-modal";
 import { InvoiceDetailModal } from "@/components/invoices/invoice-detail-modal";
@@ -125,6 +126,8 @@ function SummaryCards({
   summary: InvoiceSummary | null;
   locale: string;
 }) {
+  // A centre's bills stay open however much is paid: what is outstanding is everything still owed.
+  const centre = useCapability("centre");
   const t = useTranslations("invoices");
 
   if (!summary) {
@@ -175,7 +178,7 @@ function SummaryCards({
             />
             <Stat
               label={t("summaryOutstanding")}
-              value={fmt(bucket.outstanding_minor)}
+              value={fmt(centre ? bucket.due_minor : bucket.outstanding_minor)}
               tone="text-amber-600 dark:text-amber-400"
             />
             <span className="inline-flex items-center gap-1.5" title={t("summaryCollectionRate")}>
@@ -296,6 +299,8 @@ function CreatedCell({ row }: { row: InvoiceRow }) {
  *  cluster handle opening / acting on a bill, so there is no inline action column.
  *  The manual tab adds when each bill was raised (its follow-up clock). */
 function useInvoiceColumns({ manual = false }: { manual?: boolean } = {}): ColumnDef<InvoiceRow>[] {
+  // A centre's bills stay open however much is paid, so they read by the money on them.
+  const centre = useCapability("centre");
   const t = useTranslations("invoices");
   const locale = useLocale();
   const monthFmt = useMemo(
@@ -364,11 +369,11 @@ function useInvoiceColumns({ manual = false }: { manual?: boolean } = {}): Colum
                 locale,
               )}
             </span>
-            {row.status === "PAID" ? (
+            {row.status === "PAID" || (centre && row.total_minor > 0 && due === 0) ? (
               <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 {t("paidInFull")}
               </span>
-            ) : (row.status === "CLOSED" || row.status === "PARTIALLY_PAID") &&
+            ) : (row.status === "CLOSED" || row.status === "PARTIALLY_PAID" || centre) &&
               due > 0 ? (
               <span className="text-xs font-medium text-amber-700 tabular-nums dark:text-amber-300">
                 {t("dueAmount", {
@@ -472,6 +477,8 @@ function AutomaticTab() {
   const t = useTranslations("invoices");
   const locale = useLocale();
   const { can } = useAuth();
+  // A centre's bills never close: there is no month to shut.
+  const centre = useCapability("centre");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -531,7 +538,7 @@ function AutomaticTab() {
 
   return (
     <div className="space-y-6">
-      {can("invoice.close") && (
+      {can("invoice.close") && !centre && (
         <div className="flex justify-end">
           <Button
             type="button"

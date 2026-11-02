@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Services\PackageSettlement;
 use App\Services\Payroll;
 use App\Support\AuthContext;
 use App\Support\DataTable;
@@ -437,7 +438,10 @@ final class PayoutController extends Controller
         $revenue = DB::table('invoices')
             ->where('period_year', $year)
             ->where('period_month', $month)
-            ->whereIn('status', ['CLOSED', 'PAID', 'PARTIALLY_PAID'])
+            // A centre's bills stay OPEN (Invoicing::closePeriodInvoices): what they hold is still received.
+            ->whereIn('status', PackageSettlement::availableFor((string) app(AuthContext::class)->academyId)
+                ? ['OPEN', 'CLOSED', 'PAID', 'PARTIALLY_PAID']
+                : ['CLOSED', 'PAID', 'PARTIALLY_PAID'])
             ->groupBy('currency')
             ->select('currency', DB::raw('sum(amount_paid_minor) as revenue_minor'))
             ->get();
