@@ -246,6 +246,22 @@ final class TeacherController extends Controller
                 'is_current' => in_array((string) $r->student_id, $currentIds, true),
             ]);
 
+        // Students this teacher has actually taught but no longer holds: their lessons are still on
+        // the salary statements, so the pay editor must be able to price them (a teacher who lost
+        // every student would otherwise have an empty list and a month to recalculate).
+        $listed = [...$currentIds, ...$studentRates->pluck('student_id')->all()];
+        $pastStudents = $this->seesPay()
+            ? DB::table('payout_line_items as li')
+                ->join('payouts as p', 'p.id', '=', 'li.payout_id')
+                ->join('sessions as se', 'se.id', '=', 'li.session_id')
+                ->join('students as s', 's.id', '=', 'se.student_id')
+                ->where('p.teacher_id', $id)
+                ->whereNotIn('s.id', $listed)
+                ->distinct()
+                ->orderBy('s.full_name')
+                ->get(['s.id', 's.full_name'])
+            : collect();
+
         // The teacher's linked sign-in login (optional). Surfaced so the detail page can show the
         // current email and let an owner set/change the account (see updateLogin).
         $login = ['has_login' => false, 'email' => null, 'is_active' => null];
@@ -271,6 +287,7 @@ final class TeacherController extends Controller
             'teacher' => $teacher,
             'students' => $students,
             'student_rates' => $studentRates,
+            'past_students' => $pastStudents,
             'login' => $login,
         ]);
     }

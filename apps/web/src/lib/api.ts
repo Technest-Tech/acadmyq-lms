@@ -2340,6 +2340,8 @@ export function getTeacher(id: string): Promise<{
   teacher: TeacherRow;
   students: TeacherStudent[];
   student_rates: TeacherStudentRate[];
+  /** Taught by this teacher, on their statements, but neither assigned now nor holding a rate. */
+  past_students?: { id: string; full_name: string }[];
   login: TeacherLogin;
 }> {
   return apiFetch(`/api/teachers/${id}`);
@@ -4793,6 +4795,33 @@ export function repricePayout(
   payoutId: string,
 ): Promise<{ ok: boolean; delta_minor: number }> {
   return apiFetch(`/api/payouts/${payoutId}/reprice`, { method: "POST" });
+}
+
+/** One statement the teacher's current pay can still reach, and what it would change there. */
+export interface PayRecalcStatement {
+  id: string;
+  period_year: number;
+  period_month: number;
+  finalized: boolean;
+  currency: string;
+  total_minor: number;
+  delta_minor: number;
+  lines_changed: number;
+  carried_minor: number;
+  /** The teacher is now paid in another currency, so this statement cannot be re-priced. */
+  currency_changed: boolean;
+}
+
+/** GET /api/payouts/recalc-preview — every open statement, plus last month's even once sealed. */
+export function getPayRecalc(teacherId: string): Promise<{ statements: PayRecalcStatement[] }> {
+  return apiFetch(`/api/payouts/recalc-preview?teacher_id=${teacherId}`);
+}
+
+/** Carry a sealed statement's difference onto the teacher's open one; the sealed one stays as paid. */
+export function carryPayoutReprice(
+  payoutId: string,
+): Promise<{ ok: boolean; delta_minor: number }> {
+  return apiFetch(`/api/payouts/${payoutId}/carry-reprice`, { method: "POST" });
 }
 
 /** Remove an adjustment from an OPEN payout. */

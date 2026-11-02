@@ -10,6 +10,7 @@ import {
   payDraftToInput,
   TeacherPayEditor,
 } from "@/components/teachers/teacher-pay-editor";
+import { TeacherPayRecalc } from "@/components/teachers/teacher-pay-recalc";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ProfileCard } from "@/components/ui/profile-card";
@@ -35,6 +36,8 @@ export function TeacherPayCard({
   const canEdit = can("teacher.set_pay");
 
   const [draft, setDraft] = useState<PayDraft | null>(null);
+  const [saved, setSaved] = useState<PayDraft | null>(null);
+  const [savedCount, setSavedCount] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -42,7 +45,9 @@ export function TeacherPayCard({
   const load = useCallback(async () => {
     try {
       const res = await getTeacher(teacherId);
-      setDraft(payDraftFromTeacher(res.teacher, res.students, res.student_rates ?? []));
+      const fresh = payDraftFromTeacher(res.teacher, res.students, res.student_rates ?? [], res.past_students ?? []);
+      setDraft(fresh);
+      setSaved(fresh);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     }
@@ -59,10 +64,12 @@ export function TeacherPayCard({
     setSaving(true);
     try {
       await updateTeacher(teacherId, payDraftToInput(draft));
-      // Lessons already marked keep the rate they were paid at — say so, and where to change that.
+      // Lessons already marked keep the rate they were paid at — say so, and where to change that
+      // (the recalculation list right under this button).
       setNotice(t("pay.saved"));
       onSaved?.();
       await load();
+      setSavedCount((n) => n + 1);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -117,6 +124,15 @@ export function TeacherPayCard({
               )}
             </Button>
           </div>
+        )}
+
+        {draft !== null && (
+          <TeacherPayRecalc
+            teacherId={teacherId}
+            refreshKey={savedCount}
+            dirty={JSON.stringify(draft) !== JSON.stringify(saved)}
+            onApplied={onSaved}
+          />
         )}
       </div>
     </ProfileCard>

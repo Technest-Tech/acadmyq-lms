@@ -11,6 +11,9 @@ vi.mock("@/lib/api", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/api")>()),
   getTeacher: vi.fn(),
   updateTeacher: vi.fn(),
+  getPayRecalc: vi.fn(),
+  repricePayout: vi.fn(),
+  carryPayoutReprice: vi.fn(),
   listStudents: vi.fn().mockResolvedValue({ rows: [], total: 0, page: 1, pageSize: 8 }),
 }));
 
@@ -35,10 +38,15 @@ const TEACHER: api.TeacherRow = {
   created_at: "",
 };
 
-function renderCard(role: "ACADEMY_OWNER" | "ACCOUNTANT" | "STAFF" | "CUSTOMER_SERVICE" = "ACADEMY_OWNER") {
+function renderCard(
+  role: "ACADEMY_OWNER" | "ACCOUNTANT" | "STAFF" | "CUSTOMER_SERVICE" = "ACADEMY_OWNER",
+  extraPermissions: string[] = [],
+) {
+  const session = makeSession(role);
+  session.permissions = [...session.permissions, ...extraPermissions];
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <AuthContext.Provider value={authValue(makeSession(role))}>
+      <AuthContext.Provider value={authValue(session)}>
         <TeacherPayCard teacherId="t1" />
       </AuthContext.Provider>
     </NextIntlClientProvider>,
@@ -62,6 +70,7 @@ describe("TeacherPayCard", () => {
       login: { has_login: false, email: null, is_active: null },
     });
     vi.mocked(api.updateTeacher).mockResolvedValue({ ok: true, changed: [] });
+    vi.mocked(api.getPayRecalc).mockResolvedValue({ statements: [] });
   });
 
   it("lists every current student plus any rate still on file", async () => {
@@ -95,6 +104,87 @@ describe("TeacherPayCard", () => {
       { student_id: "s1", rate_minor: 12000 },
       { student_id: "s2", rate_minor: 9500 },
     ]);
+  });
+
+  // Alrayan: a teacher who has lost their students still has their lessons on last month's salary.
+  it("lists students they taught before, so last month's lessons can be priced", async () => {
+    vi.mocked(api.getTeacher).mockResolvedValue({
+      teacher: TEACHER,
+      students: [],
+      student_rates: [],
+      past_students: [{ id: "s7", full_name: "Salma" }],
+      login: { has_login: false, email: null, is_active: null },
+    });
+    renderCard();
+    expect(await screen.findByLabelText("Hourly rate for Salma")).toHaveValue(null);
+  });
+
+  describe("recalculating statements already written", () => {
+    const statement = (over: Partial<api.PayRecalcStatement>): api.PayRecalcStatement => ({
+      id: "p10",
+      period_year: 2026,
+      period_month: 10,
+      finalized: false,
+      currency: "EGP",
+      total_minor: 400000,
+      delta_minor: 50000,
+      lines_changed: 5,
+      carried_minor: 0,
+      currency_changed: false,
+      ...over,
+    });
+
+    it("re-prices an open month only after a confirm", async () => {
+      vi.mocked(api.getPayRecalc).mockResolvedValue({ statements: [statement({})] });
+      vi.mocked(api.repricePayout).mockResolvedValue({ ok: true, delta_minor: 50000 });
+      renderCard("ACADEMY_OWNER", ["payout.adjust"]);
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByTestId("recalc-open-2026-10"));
+      expect(api.repricePayout).not.toHaveBeenCalled();
+      await user.click(screen.getByTestId("recalc-confirm"));
+
+      await waitFor(() => expect(api.repricePayout).toHaveBeenCalledWith("p10"));
+      expect(api.carryPayoutReprice).not.toHaveBeenCalled();
+    });
+
+    it("carries a finalized month's difference instead of touching it", async () => {
+      vi.mocked(api.getPayRecalc).mockResolvedValue({ statements: [statement({ finalized: true })] });
+      vi.mocked(api.carryPayoutReprice).mockResolvedValue({ ok: true, delta_minor: 50000 });
+      renderCard("ACADEMY_OWNER", ["payout.adjust"]);
+      const user = userEvent.setup();
+
+      await user.click(await screen.findByTestId("recalc-open-2026-10"));
+      await user.click(screen.getByTestId("recalc-confirm"));
+
+      await waitFor(() => expect(api.carryPayoutReprice).toHaveBeenCalledWith("p10"));
+      expect(api.repricePayout).not.toHaveBeenCalled();
+    });
+
+    it("waits for unsaved rates, and offers nothing where nothing moves", async () => {
+      vi.mocked(api.getPayRecalc).mockResolvedValue({
+        statements: [statement({}), statement({ id: "p9", period_month: 9, delta_minor: 0 })],
+      });
+      renderCard("ACADEMY_OWNER", ["payout.adjust"]);
+      const user = userEvent.setup();
+
+      const button = await screen.findByTestId("recalc-open-2026-10");
+      expect(button).toBeEnabled();
+      expect(screen.queryByTestId("recalc-open-2026-9")).not.toBeInTheDocument();
+
+      await user.type(screen.getByLabelText("Hourly rate for Maryam"), "95");
+      expect(button).toBeDisabled();
+      await user.click(screen.getByTestId("save-teacher-pay"));
+      await waitFor(() => expect(api.getPayRecalc).toHaveBeenCalledTimes(2));
+    });
+
+    it("is not offered without payout.adjust", async () => {
+      vi.mocked(api.getPayRecalc).mockResolvedValue({ statements: [statement({})] });
+      renderCard();
+      await screen.findByTestId("teacher-pay-editor");
+      expect(api.getPayRecalc).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("pay-recalc")).not.toBeInTheDocument();
+    });
   });
 
   it("switches to a fixed monthly salary", async () => {

@@ -9,6 +9,7 @@ use App\Support\AuthContext;
 use App\Support\DataTable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
@@ -322,6 +323,64 @@ final class PayoutController extends Controller
             (string) $ctx->userId,
             $ctx->role,
         );
+
+        return response()->json(['ok' => true, 'delta_minor' => $delta]);
+    }
+
+    /**
+     * GET /api/payouts/recalc-preview?teacher_id= — what the teacher's current pay would change on
+     * each statement it can still reach: every open one, and last month's even once it is sealed.
+     */
+    public function recalcPreview(Request $request): JsonResponse
+    {
+        Gate::authorize('payout.adjust');
+
+        $teacherId = $request->validate(['teacher_id' => ['required', 'uuid']])['teacher_id'];
+        $teacher = DB::table('teachers')->where('id', $teacherId)->first();
+        if ($teacher === null) {
+            abort(404, 'Teacher not found.');
+        }
+
+        $timezone = (string) (DB::table('academies')->where('id', $teacher->academy_id)->value('timezone') ?: 'UTC');
+        $last = Carbon::now($timezone)->startOfMonth()->subMonthNoOverflow();
+        $payroll = app(Payroll::class);
+
+        $statements = DB::table('payouts')
+            ->where('teacher_id', $teacherId)
+            ->where(fn ($q) => $q->whereNull('finalized_at')->orWhere(fn ($q) => $q
+                ->where('period_year', $last->year)->where('period_month', $last->month)))
+            ->orderByDesc('period_year')->orderByDesc('period_month')
+            ->get()
+            ->map(function (object $payout) use ($payroll, $teacher): array {
+                // A statement in a currency the teacher has since left cannot be re-priced.
+                $comparable = $payout->currency === $teacher->currency;
+                $quote = $comparable ? $payroll->repriceQuote($payout, $teacher) : null;
+
+                return [
+                    'id' => (string) $payout->id,
+                    'period_year' => (int) $payout->period_year,
+                    'period_month' => (int) $payout->period_month,
+                    'finalized' => $payout->finalized_at !== null,
+                    'currency' => (string) $payout->currency,
+                    'total_minor' => (int) $payout->total_minor,
+                    'delta_minor' => $quote['delta_minor'] ?? 0,
+                    'lines_changed' => $quote['lines_changed'] ?? 0,
+                    'carried_minor' => $quote['carried_minor'] ?? 0,
+                    'currency_changed' => ! $comparable,
+                ];
+            });
+
+        return response()->json(['statements' => $statements]);
+    }
+
+    /** POST /api/payouts/{id}/carry-reprice — carry a sealed statement's difference onto the open one. */
+    public function carryReprice(string $id): JsonResponse
+    {
+        Gate::authorize('payout.adjust');
+
+        $ctx = app(AuthContext::class);
+
+        $delta = app(Payroll::class)->carryReprice($id, (string) $ctx->academyId, (string) $ctx->userId, $ctx->role);
 
         return response()->json(['ok' => true, 'delta_minor' => $delta]);
     }

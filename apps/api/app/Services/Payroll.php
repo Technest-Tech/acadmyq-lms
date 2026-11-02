@@ -308,6 +308,7 @@ final class Payroll implements PayoutHook
         ?string $details,
         string $actorUserId,
         string $actorRole,
+        ?string $repricedPayoutId = null,
     ): string {
         $type = strtoupper($type);
 
@@ -346,6 +347,7 @@ final class Payroll implements PayoutHook
             'currency'     => $payout->currency,   // inherit the statement currency (no FX)
             'reason'       => $reason,
             'details'      => $details,
+            'repriced_payout_id' => $repricedPayoutId,
             'created_by'   => $actorUserId,
             'created_at'   => now(),
             'updated_at'   => now(),
@@ -725,40 +727,13 @@ final class Payroll implements PayoutHook
             ]);
         }
 
-        $teacher = DB::table('teachers')->where('id', $payout->teacher_id)->first();
-        if ($teacher === null) {
-            throw ValidationException::withMessages(['payout' => ['The teacher on this statement no longer exists.']]);
-        }
-        if ($teacher->currency !== $payout->currency) {
-            throw ValidationException::withMessages([
-                'payout' => [
-                    "This statement is in {$payout->currency} but the teacher is now paid in {$teacher->currency}; it cannot be recalculated. / "
-                    ."هذا الكشف بعملة {$payout->currency} بينما أجر المعلم الآن بعملة {$teacher->currency}؛ لا يمكن إعادة حسابه.",
-                ],
-            ]);
-        }
-
-        $lines = DB::table('payout_line_items as li')
-            ->join('sessions as se', 'se.id', '=', 'li.session_id')
-            ->where('li.payout_id', $payoutId)
-            ->get(['li.id', 'li.amount_minor', 'se.id as session_id', 'se.student_id', 'se.duration_minutes']);
+        $teacher = $this->teacherForReprice($payout);
 
         $linesDelta = 0;
         $linesChanged = 0;
-        foreach ($lines as $line) {
-            $session = (object) [
-                'id' => $line->session_id,
-                'student_id' => $line->student_id,
-                'duration_minutes' => $line->duration_minutes,
-            ];
-            $fresh = $this->linePayMinor($teacher, $session);
-            $delta = $fresh - (int) $line->amount_minor;
-            if ($delta === 0) {
-                continue;
-            }
-
-            DB::table('payout_line_items')->where('id', $line->id)->update(['amount_minor' => $fresh]);
-            $linesDelta += $delta;
+        foreach ($this->repricedLines($payoutId, $teacher) as $line) {
+            DB::table('payout_line_items')->where('id', $line['id'])->update(['amount_minor' => $line['fresh']]);
+            $linesDelta += $line['delta'];
             $linesChanged++;
         }
 
@@ -801,6 +776,125 @@ final class Payroll implements PayoutHook
         $this->quality()->syncPayout($payoutId);
 
         return $linesDelta + $baseAfter - $baseBefore;
+    }
+
+    /**
+     * What re-pricing this statement would change, without changing it. On a finalized statement
+     * the difference already carried forward is taken off, so a second run owes only what moved since.
+     *
+     * @return array{lines_changed: int, delta_minor: int, carried_minor: int}
+     */
+    public function repriceQuote(object $payout, object $teacher): array
+    {
+        $lines = $this->repricedLines((string) $payout->id, $teacher);
+        $gross = array_sum(array_column($lines, 'delta'))
+            + self::baseSalaryMinor($teacher) - (int) $payout->base_minor;
+
+        $carried = (int) DB::table('payout_adjustments')
+            ->where('repriced_payout_id', $payout->id)
+            ->selectRaw("coalesce(sum(case when type = 'REWARD' then amount_minor else -amount_minor end), 0) as net")
+            ->value('net');
+
+        return ['lines_changed' => count($lines), 'delta_minor' => $gross - $carried, 'carried_minor' => $carried];
+    }
+
+    /**
+     * Re-price a FINALIZED statement: it stays exactly as it was paid, and the difference lands on
+     * the teacher's first open statement as a reward (underpaid) or a deduction (overpaid). Without
+     * this "recalculate last month" would stop working on the 3rd, when the month is sealed.
+     *
+     * @return int the difference carried (may be negative or zero)
+     *
+     * @throws ValidationException missing statement, one still open, or a currency that no longer matches
+     */
+    public function carryReprice(string $payoutId, string $academyId, string $actorUserId, string $actorRole): int
+    {
+        $payout = DB::table('payouts')->where('id', $payoutId)->where('academy_id', $academyId)->first();
+
+        if ($payout === null) {
+            throw ValidationException::withMessages(['payout' => ['Payout not found.']]);
+        }
+        if ($payout->finalized_at === null) {
+            throw ValidationException::withMessages([
+                'payout' => ['This statement is still open: recalculate it directly. / هذا الكشف ما زال مفتوحًا: أعد حسابه مباشرة.'],
+            ]);
+        }
+
+        $teacher = $this->teacherForReprice($payout);
+        $delta = $this->repriceQuote($payout, $teacher)['delta_minor'];
+        if ($delta === 0) {
+            return 0;
+        }
+
+        $academy = DB::table('academies')->where('id', $academyId)->first();
+        [$year, $month] = $this->currentPeriod($academy);
+        $period = sprintf('%02d/%d', $payout->period_month, $payout->period_year);
+
+        // One unit: a statement opened here must not outlive a refused adjustment.
+        DB::transaction(fn () => $this->addAdjustment(
+            $this->openPayoutForLesson($academy, $teacher, $year, $month),
+            $academyId,
+            $delta > 0 ? 'REWARD' : 'DEDUCTION',
+            abs($delta),
+            "Salary recalculated for {$period} / فرق إعادة حساب راتب {$period}",
+            null,
+            $actorUserId,
+            $actorRole,
+            $payoutId,
+        ));
+
+        return $delta;
+    }
+
+    /**
+     * The teacher to re-price a statement against; refused when their pay moved to another currency.
+     *
+     * @throws ValidationException
+     */
+    private function teacherForReprice(object $payout): object
+    {
+        $teacher = DB::table('teachers')->where('id', $payout->teacher_id)->first();
+        if ($teacher === null) {
+            throw ValidationException::withMessages(['payout' => ['The teacher on this statement no longer exists.']]);
+        }
+        if ($teacher->currency !== $payout->currency) {
+            throw ValidationException::withMessages([
+                'payout' => [
+                    "This statement is in {$payout->currency} but the teacher is now paid in {$teacher->currency}; it cannot be recalculated. / "
+                    ."هذا الكشف بعملة {$payout->currency} بينما أجر المعلم الآن بعملة {$teacher->currency}؛ لا يمكن إعادة حسابه.",
+                ],
+            ]);
+        }
+
+        return $teacher;
+    }
+
+    /**
+     * The statement's lesson lines whose price differs from what the teacher's pay says today.
+     *
+     * @return list<array{id: string, fresh: int, delta: int}>
+     */
+    private function repricedLines(string $payoutId, object $teacher): array
+    {
+        $lines = DB::table('payout_line_items as li')
+            ->join('sessions as se', 'se.id', '=', 'li.session_id')
+            ->where('li.payout_id', $payoutId)
+            ->get(['li.id', 'li.amount_minor', 'se.id as session_id', 'se.student_id', 'se.duration_minutes']);
+
+        $changed = [];
+        foreach ($lines as $line) {
+            $fresh = $this->linePayMinor($teacher, (object) [
+                'id' => $line->session_id,
+                'student_id' => $line->student_id,
+                'duration_minutes' => $line->duration_minutes,
+            ]);
+            $delta = $fresh - (int) $line->amount_minor;
+            if ($delta !== 0) {
+                $changed[] = ['id' => (string) $line->id, 'fresh' => $fresh, 'delta' => $delta];
+            }
+        }
+
+        return $changed;
     }
 
     // -------------------------------------------------------------------------

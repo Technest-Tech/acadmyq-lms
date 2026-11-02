@@ -288,6 +288,95 @@ it('re-prices an open month at the teacher\'s current rates only when asked', fu
     $this->postJson("/api/payouts/{$payoutId}/reprice")->assertUnprocessable();
 });
 
+it('previews what the new rates change on the open statements and last month\'s, and applies it to an open one', function () {
+    // Alrayan, 2026-11-02: October ran on one rate; the per-student rates were entered afterwards.
+    $teacher = $this->createTeacher($this->academy, ['session_rate_minor' => 5000, 'pay_type' => 'HOURLY']);
+    $june = ($this->lesson)($teacher, $this->yusuf);
+    $may = ($this->lesson)($teacher, $this->maryam, '2026-05-15 10:00:00+00');
+    Carbon::setTestNow('2026-07-02 12:00:00');
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/teachers/{$teacher}", [
+        'pay_type' => 'PER_STUDENT',
+        'student_rates' => [['student_id' => $this->yusuf, 'rate_minor' => 8000]],
+    ])->assertOk();
+
+    $statements = $this->getJson("/api/payouts/recalc-preview?teacher_id={$teacher}")->assertOk()->json('statements');
+    expect($statements)->toHaveCount(2)
+        ->and($statements[0]['period_month'])->toBe(6)
+        ->and($statements[0]['finalized'])->toBeFalse()
+        ->and($statements[0]['delta_minor'])->toBe(3000)
+        ->and($statements[0]['lines_changed'])->toBe(1)
+        // An older month still open is offered too; Maryam has no rate of her own, so nothing moves.
+        ->and($statements[1]['period_month'])->toBe(5)
+        ->and($statements[1]['delta_minor'])->toBe(0);
+    // The preview changed nothing.
+    expect(($this->lineFor)($june))->toBe(5000)->and(($this->lineFor)($may))->toBe(5000);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/payouts/{$statements[0]['id']}/reprice")->assertOk()->assertJsonPath('delta_minor', 3000);
+    expect(($this->lineFor)($june))->toBe(8000);
+});
+
+it('carries a sealed statement\'s difference onto the open one, once, and only what moved since', function () {
+    $teacher = $this->createTeacher($this->academy, ['session_rate_minor' => 5000, 'pay_type' => 'PER_STUDENT']);
+    $june = ($this->lesson)($teacher, $this->yusuf);
+    $juneId = (string) ($this->payoutOf)($teacher)->id;
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/payouts/finalize', ['year' => 2026, 'month' => 6])->assertOk();
+    Carbon::setTestNow('2026-07-05 12:00:00');
+
+    $setRate = function (int $rate) use ($teacher): void {
+        Sanctum::actingAs($this->owner);
+        $this->patchJson("/api/teachers/{$teacher}", ['student_rates' => [['student_id' => $this->yusuf, 'rate_minor' => $rate]]])->assertOk();
+    };
+    $preview = fn () => $this->getJson("/api/payouts/recalc-preview?teacher_id={$teacher}")->assertOk()->json('statements.0');
+
+    $setRate(8000);
+    expect($preview())->toMatchArray(['id' => $juneId, 'finalized' => true, 'delta_minor' => 3000]);
+
+    $this->postJson("/api/payouts/{$juneId}/carry-reprice")->assertOk()->assertJsonPath('delta_minor', 3000);
+
+    // June is sealed as it was paid; July owes the difference.
+    $sealed = ($this->payoutOf)($teacher);
+    $july = ($this->payoutOf)($teacher, 7);
+    expect((int) $sealed->total_minor)->toBe(5000)
+        ->and(($this->lineFor)($june))->toBe(5000)
+        ->and((int) $july->rewards_minor)->toBe(3000)
+        ->and((int) $july->total_minor)->toBe(3000);
+
+    // A second run owes nothing.
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/payouts/{$juneId}/carry-reprice")->assertOk()->assertJsonPath('delta_minor', 0);
+    expect((int) ($this->payoutOf)($teacher, 7)->total_minor)->toBe(3000);
+
+    // The rate was too high: only the move since comes back, as a deduction.
+    $setRate(7000);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/payouts/{$juneId}/carry-reprice")->assertOk()->assertJsonPath('delta_minor', -1000);
+    $july = ($this->payoutOf)($teacher, 7);
+    expect((int) $july->deductions_minor)->toBe(1000)->and((int) $july->total_minor)->toBe(2000);
+
+    // An open statement is recalculated in place, never carried.
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/payouts/{$july->id}/carry-reprice")->assertUnprocessable();
+});
+
+it('offers the students a teacher has taught but no longer holds for pricing', function () {
+    $teacher = $this->createTeacher($this->academy, ['session_rate_minor' => 5000]);
+    ($this->lesson)($teacher, $this->yusuf);
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/teachers/{$teacher}")->assertOk()
+        ->assertJsonPath('past_students.0.id', $this->yusuf)
+        ->assertJsonCount(1, 'past_students');
+
+    // Once they have a rate on file they are listed there instead, not twice.
+    $this->patchJson("/api/teachers/{$teacher}", ['student_rates' => [['student_id' => $this->yusuf, 'rate_minor' => 8000]]])->assertOk();
+    $this->getJson("/api/teachers/{$teacher}")->assertOk()->assertJsonCount(0, 'past_students');
+});
+
 it('reports fixed salaries in the salary window, anchored on the month they are for', function () {
     $fixed = $this->createTeacher($this->academy, ['pay_type' => 'FIXED', 'fixed_salary_minor' => 400000]);
     app(Payroll::class)->syncFixedSalary($fixed);

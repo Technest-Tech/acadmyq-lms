@@ -69,12 +69,14 @@ function toMajor(minor: number): string {
 
 /**
  * The draft for an existing teacher: every current student gets a row (their rate, or empty for
- * the default), plus any rate still on file for a student who is not currently theirs.
+ * the default), plus any rate still on file for a student who is not currently theirs, plus anyone
+ * else they have taught — those lessons are on their statements and may need a price.
  */
 export function payDraftFromTeacher(
   teacher: TeacherRow,
   students: TeacherStudent[],
   rates: TeacherStudentRate[],
+  pastStudents: { id: string; full_name: string }[] = [],
 ): PayDraft {
   const rows: StudentRateDraft[] = students.map((s) => ({
     student_id: s.id,
@@ -91,6 +93,11 @@ export function payDraftFromTeacher(
       rate: toMajor(r.rate_minor),
       is_current: false,
     });
+    seen.add(r.student_id);
+  }
+  for (const p of pastStudents) {
+    if (seen.has(p.id)) continue;
+    rows.push({ student_id: p.id, full_name: p.full_name, rate: "", is_current: false });
   }
 
   return {

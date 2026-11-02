@@ -1281,10 +1281,12 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/payouts/range/lessons', [PayoutController::class, 'rangeLessons']);
         Route::post('/payouts/finalize', [PayoutController::class, 'finalize']);
         Route::get('/me/payouts', [PayoutController::class, 'mePayouts']);
+        Route::get('/payouts/recalc-preview', [PayoutController::class, 'recalcPreview']);
         Route::get('/payouts/{id}', [PayoutController::class, 'show']);
         Route::post('/payouts/{id}/adjustments', [PayoutController::class, 'addAdjustment']);
         Route::delete('/payouts/{id}/adjustments/{adjustmentId}', [PayoutController::class, 'removeAdjustment']);
         Route::post('/payouts/{id}/reprice', [PayoutController::class, 'reprice']);
+        Route::post('/payouts/{id}/carry-reprice', [PayoutController::class, 'carryReprice']);
         Route::get('/reports/profit-summary', [PayoutController::class, 'profitSummary']);
 
         // Teacher quality + Discounts & Awards — payroll's two management surfaces, so they sit

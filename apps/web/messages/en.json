@@ -1426,7 +1426,23 @@
       "summaryFixed": "Fixed / month",
       "summaryPerStudent": "Default {rate} / hr",
       "save": "Save pay",
-      "saved": "Pay saved. Lessons already marked this month keep their old rate — open this month’s statement and press “Recalculate” to apply the new one."
+      "saved": "Pay saved. Lessons already marked keep their old rate — use “Recalculate” below to apply the new one.",
+      "recalc": {
+        "title": "Apply to salaries already calculated",
+        "hint": "Lessons keep the rate they were marked at. The difference your saved rates make on each statement:",
+        "saveFirst": "Save the changes first, then recalculate.",
+        "open": "Open",
+        "sealed": "Finalized",
+        "upToDate": "Up to date",
+        "currencyChanged": "Paid in another currency now",
+        "action": "Recalculate",
+        "cancel": "Cancel",
+        "confirmTitle": "Recalculate {month}?",
+        "confirmOpen": "Every lesson on this statement is re-priced at the current rate for its student ({delta}). Rewards and deductions you added stay as they are.",
+        "confirmCarried": "This statement is finalized, so it stays as it is. The difference ({delta}) is added to the teacher's open statement as a reward or deduction.",
+        "done": "{month} recalculated: {delta}",
+        "doneCarried": "{month}: {delta} added to the open statement"
+      }
     },
     "lessons": {
       "title": "All lessons",
