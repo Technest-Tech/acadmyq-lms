@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { HolidaysManager } from "@/components/holidays/holidays-manager";
+import { AbsenceAlertManager } from "@/components/settings/absence-alert-manager";
 import { AcademyNameCard } from "@/components/settings/academy-name-card";
 import { AdminsCard } from "@/components/settings/admins-card";
 import { ControlsManager } from "@/components/settings/controls-manager";
@@ -58,6 +59,10 @@ export function SettingsManager() {
   // Reminders in WhatsApp groups — switched on per client by a Super Admin (opt-in, so strict).
   const hasLessonReminders = session?.capabilities?.includes("whatsapp.group_reminders") ?? false;
   const isCentre = useCapability("centre");
+  // A centre's absence alert rides the WhatsApp tab: it is a WhatsApp send, and it needs the number
+  // linked there. Opt-in (`centre`), so strict, and the groups it reads must be on.
+  const hasGroups = useCapability("groups");
+  const hasAbsenceAlert = (session?.capabilities?.includes("centre") ?? false) && hasGroups;
   const tabs = TABS.filter(
     (tab) =>
       can(tab.permission) &&
@@ -130,7 +135,12 @@ export function SettingsManager() {
         )}
         {active === "lessonReport" && <LessonReportManager />}
         {active === "reportCard" && <ReportCardManager />}
-        {active === "whatsapp" && <WhatsAppManager />}
+        {active === "whatsapp" && (
+          <div className="space-y-6">
+            <WhatsAppManager />
+            {hasAbsenceAlert && <AbsenceAlertManager />}
+          </div>
+        )}
         {active === "lessonReminders" && <LessonRemindersManager />}
         {active === "holidays" && <HolidaysManager />}
         {active === "controls" && <ControlsManager />}

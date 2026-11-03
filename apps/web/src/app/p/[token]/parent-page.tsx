@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ClipboardCheck,
   FileText,
   GraduationCap,
   Languages,
@@ -19,7 +20,11 @@ import {
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { KhatamLattice } from "@/components/ornaments";
 import type {
+  PortalAttendanceMark,
   PortalChild,
+  PortalFamilyAccount,
+  PortalGroup,
+  PortalGroupLesson,
   PortalInvoice,
   PortalLesson,
   PortalLessonStatus,
@@ -40,8 +45,11 @@ import {
   monthText,
   num,
   PARENT_LANG_COOKIE,
+  plainDate,
   shortDate,
   timeText,
+  wallTime,
+  weekdayName,
   yearMonthText,
 } from "./copy";
 
@@ -94,6 +102,14 @@ const STATUS_TONE: Record<PortalLessonStatus, string> = {
   CANCELLED_BY_TEACHER: "bg-slate-100 text-slate-600 ring-slate-200",
   CANCELLED_BY_STUDENT: "bg-slate-100 text-slate-600 ring-slate-200",
   HELD: "bg-slate-100 text-slate-600 ring-slate-200",
+};
+
+/** A group sheet's mark, in the lesson statuses' colours. */
+const MARK_TONE: Record<PortalAttendanceMark, string> = {
+  PRESENT: STATUS_TONE.ATTENDED,
+  LATE: STATUS_TONE.LATE,
+  ABSENT: STATUS_TONE.ABSENT,
+  EXCUSED: STATUS_TONE.EXCUSED,
 };
 
 const INVOICE_TONE: Record<PortalInvoice["state"], string> = {
@@ -191,6 +207,8 @@ export function ParentPage({
 
   const ctx: ViewCtx = { lang, tz, now, hueOf, nameOf, showChild: severalChildren && childId === null };
   const next = data.upcoming[0] ?? null;
+  // A centre's page: the payload carries each child's groups, sheets and the family's account.
+  const centreChildren = data.children.filter((c) => c.group_lessons !== undefined);
 
   return (
     <div dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="parent-page min-h-dvh bg-[#f5f3ec] font-sans text-slate-900">
@@ -278,6 +296,18 @@ export function ParentPage({
           )}
         </section>
 
+        {/* ── A centre: the groups, their timetable, the sheets and the week ahead ── */}
+        {centreChildren.length > 0 && (
+          <section className="mt-7" data-testid="parent-groups">
+            <SectionTitle icon={Users}>{t.groups.title}</SectionTitle>
+            <div className="space-y-3">
+              {centreChildren.map((child) => (
+                <ChildGroupsCard key={child.id} child={child} ctx={ctx} />
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* ── Tabs (+ the child filter), kept in reach while scrolling ── */}
         <div className="sticky top-0 z-10 -mx-4 mt-7 bg-[#f5f3ec]/90 px-4 pt-3 pb-3 backdrop-blur">
           <div role="tablist" className="grid grid-cols-3 gap-1 rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-900/[0.06]">
@@ -304,7 +334,7 @@ export function ParentPage({
         <div role="tabpanel" className="mt-2">
           {tab === "lessons" && <LessonsTab upcoming={upcoming} recent={recent} ctx={ctx} />}
           {tab === "reports" && <ReportsTab progress={progress} lessons={lessonReports} ctx={ctx} />}
-          {tab === "invoices" && <InvoicesTab invoices={data.invoices} balance={data.balance} lang={lang} />}
+          {tab === "invoices" && <InvoicesTab invoices={data.invoices} balance={data.balance} account={data.family_account} lang={lang} />}
         </div>
 
         <footer className="mt-12 space-y-1.5 text-center text-xs text-slate-500">
@@ -727,17 +757,22 @@ function ReportsTab({ progress, lessons: withReports, ctx }: { progress: PortalP
 function InvoicesTab({
   invoices,
   balance,
+  account,
   lang,
 }: {
   invoices: PortalInvoice[];
   balance: PortalPayload["balance"];
+  account?: PortalFamilyAccount;
   lang: Lang;
 }) {
   const t = COPY[lang];
 
   return (
     <div className="space-y-4">
-      {balance.length > 0 ? (
+      {account ? (
+        // On receipts the ledger is the account: it replaces the bills' own total.
+        <FamilyAccountCard account={account} lang={lang} />
+      ) : balance.length > 0 ? (
         <div className="flex items-center gap-3 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-200/80">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-400 text-amber-950">
             <Wallet className="size-5" aria-hidden />
@@ -815,5 +850,274 @@ function InvoicesTab({
         </ul>
       )}
     </div>
+  );
+}
+
+// ── A centre's groups ───────────────────────────────────────────────────────
+
+/** One child's groups and their timetable, the 30-day marks, the week ahead and the latest sheets. */
+function ChildGroupsCard({ child, ctx }: { child: PortalChild; ctx: ViewCtx }) {
+  const { lang } = ctx;
+  const t = COPY[lang].groups;
+  const hue = ctx.hueOf.get(child.id) ?? HUES[0];
+  const summary = child.attendance_summary;
+  const upcoming = child.group_lessons?.upcoming ?? [];
+  const recent = child.group_lessons?.recent ?? [];
+
+  return (
+    <article className={`${CARD} overflow-hidden`} data-testid="parent-child-groups">
+      <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
+        <Avatar name={child.name} hue={hue} />
+        <h3 className="min-w-0 truncate text-[15px] font-bold text-slate-900">{t.childGroups(child.name)}</h3>
+      </div>
+
+      <div className="divide-y divide-slate-100">
+        {child.groups.map((g) => (
+          <GroupRow key={g.id ?? g.name} group={g} lang={lang} />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 border-t border-slate-100 px-4 py-4 sm:grid-cols-2">
+        <section data-testid="parent-attendance">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+            <ClipboardCheck className="size-3.5 text-emerald-700" aria-hidden />
+            {t.attendance} <span className="font-normal text-slate-400">· {t.attendanceWindow}</span>
+          </p>
+          {summary && summary.rate !== null ? (
+            <div className="mt-2 flex items-center gap-4">
+              <AttendanceRing rate={summary.rate} lang={lang} />
+              <dl className="grid flex-1 grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                {(["PRESENT", "LATE", "ABSENT", "EXCUSED"] as const).map((mark) => {
+                  const count = summary[mark.toLowerCase() as "present" | "late" | "absent" | "excused"];
+                  return (
+                    <div key={mark} className="flex items-baseline justify-between gap-2">
+                      <dt className="text-slate-500">{t.marks[mark]}</dt>
+                      <dd className={`font-bold tabular-nums ${mark === "ABSENT" && count > 0 ? "text-rose-600" : "text-slate-800"}`}>
+                        {num(count, lang)}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">{t.noAttendance}</p>
+          )}
+        </section>
+
+        <section data-testid="parent-group-upcoming">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+            <CalendarClock className="size-3.5 text-emerald-700" aria-hidden />
+            {t.upcoming}
+          </p>
+          {upcoming.length === 0 ? (
+            <p className="mt-2 text-xs text-slate-500">{t.noUpcoming}</p>
+          ) : (
+            <ul className="mt-2 space-y-1.5">
+              {upcoming.map((l) => (
+                <li key={l.id} className="flex items-center gap-2 text-xs">
+                  <span className="rounded-md bg-sky-50 px-1.5 py-0.5 font-bold text-sky-800 tabular-nums ring-1 ring-sky-200 ring-inset">
+                    {dayLabel(l.starts_at, ctx.tz, ctx.now, lang)} · {timeText(l.starts_at, ctx.tz, lang)}
+                  </span>
+                  <span className="min-w-0 truncate text-slate-600">{l.group_name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      <section className="border-t border-slate-100" data-testid="parent-group-recent">
+        <p className="flex items-center gap-1.5 px-4 pt-3 text-xs font-semibold text-slate-700">
+          <BookOpen className="size-3.5 text-emerald-700" aria-hidden />
+          {t.recent}
+        </p>
+        {recent.length === 0 ? (
+          <p className="px-4 pt-2 pb-4 text-xs text-slate-500">{t.noRecent}</p>
+        ) : (
+          <ul className="mt-1 divide-y divide-slate-100">
+            {recent.map((l) => (
+              <GroupLessonRow key={l.id} lesson={l} ctx={ctx} />
+            ))}
+          </ul>
+        )}
+      </section>
+    </article>
+  );
+}
+
+/** A group's name, level and teacher, with its weekly slots in the centre's own wall time. */
+function GroupRow({ group, lang }: { group: PortalGroup; lang: Lang }) {
+  const t = COPY[lang].groups;
+  const teacher = group.teacher_name ?? group.teacher;
+  const meta = [group.level ? t.level(group.level) : null, teacher ? t.teacher(teacher) : null, group.joined_on ? t.since(plainDate(group.joined_on, lang, true)) : null]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <div className="px-4 py-3" data-testid="parent-group">
+      <div className="flex items-center gap-2">
+        <Users className="size-4 shrink-0 text-slate-400" aria-hidden />
+        <p className="min-w-0 truncate text-sm font-bold text-slate-900">{group.name}</p>
+      </div>
+      {meta && <p className="mt-0.5 text-xs text-slate-500">{meta}</p>}
+      {group.slots !== undefined && (
+        <ul className="mt-2 flex flex-wrap gap-1.5" aria-label={t.weekly}>
+          {group.slots.length === 0 ? (
+            <li className="text-xs text-slate-400">{t.noSlots}</li>
+          ) : (
+            group.slots.map((slot) => (
+              <li
+                key={`${slot.weekday}-${slot.start_time_local}`}
+                className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700 tabular-nums"
+              >
+                <span className="font-semibold">{weekdayName(slot.weekday, lang)}</span> · {wallTime(slot.start_time_local, lang)} · {minutesText(slot.duration_minutes, lang)}
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** The attendance rate as a ring — the one number a parent looks for. */
+function AttendanceRing({ rate, lang }: { rate: number; lang: Lang }) {
+  const t = COPY[lang].groups;
+  const r = 26;
+  const c = 2 * Math.PI * r;
+  const tone = rate >= 90 ? "stroke-emerald-500" : rate >= 75 ? "stroke-amber-500" : "stroke-rose-500";
+
+  return (
+    <div className="relative size-16 shrink-0" role="img" aria-label={`${t.rate}: ${num(rate, lang)}%`} data-testid="parent-attendance-rate">
+      <svg viewBox="0 0 64 64" className="size-16 -rotate-90">
+        <circle cx="32" cy="32" r={r} className="fill-none stroke-slate-100" strokeWidth="6" />
+        <circle
+          cx="32"
+          cy="32"
+          r={r}
+          className={`fill-none ${tone}`}
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - Math.min(100, Math.max(0, rate)) / 100)}
+        />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-slate-900 tabular-nums">
+        {num(rate, lang)}%
+      </span>
+    </div>
+  );
+}
+
+/** A held group lesson with the child's mark, and the topic/homework when the teacher wrote them. */
+function GroupLessonRow({ lesson, ctx }: { lesson: PortalGroupLesson; ctx: ViewCtx }) {
+  const { lang, tz } = ctx;
+  const t = COPY[lang];
+  const mark = lesson.attendance ?? null;
+
+  return (
+    <li className="px-4 py-2.5" data-testid="parent-group-lesson">
+      <div className="flex items-center gap-3">
+        <div className="w-16 shrink-0 text-center">
+          <p className="text-xs font-bold text-slate-900">{shortDate(lesson.starts_at, tz, lang)}</p>
+          <p className="text-[11px] text-slate-500 tabular-nums">{timeText(lesson.starts_at, tz, lang)}</p>
+        </div>
+        <span className="h-8 w-px shrink-0 bg-slate-200" aria-hidden />
+        <p className="min-w-0 flex-1 truncate text-sm text-slate-800">{lesson.group_name}</p>
+        <Pill tone={mark ? MARK_TONE[mark] : STATUS_TONE.HELD}>{mark ? t.groups.marks[mark] : t.groups.noMark}</Pill>
+      </div>
+      {(lesson.topic || lesson.homework) && (
+        <dl className="mt-2 space-y-1 rounded-xl bg-slate-50 px-3 py-2 text-xs">
+          {lesson.topic && (
+            <div>
+              <dt className="inline font-semibold text-slate-500">{t.topic}: </dt>
+              <dd className="inline whitespace-pre-line text-slate-800">{lesson.topic}</dd>
+            </div>
+          )}
+          {lesson.homework && (
+            <div>
+              <dt className="inline font-semibold text-slate-500">{t.homework}: </dt>
+              <dd className="inline whitespace-pre-line text-slate-800">{lesson.homework}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </li>
+  );
+}
+
+// ── The family's account (receipts) ─────────────────────────────────────────
+
+/** What the family owes on the ledger — overdue called out — its credit, the latest receipts, and the pay button when a card can be taken. */
+function FamilyAccountCard({ account, lang }: { account: PortalFamilyAccount; lang: Lang }) {
+  const t = COPY[lang].groups;
+  const owes = account.due_minor > 0;
+
+  return (
+    <section className={`${CARD} overflow-hidden`} data-testid="parent-account">
+      <div className={`flex items-center gap-3 p-4 ${owes ? "bg-amber-50" : "bg-emerald-50"}`}>
+        <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${owes ? "bg-amber-400 text-amber-950" : "bg-emerald-600 text-white"}`}>
+          {owes ? <Wallet className="size-5" aria-hidden /> : <Check className="size-5" aria-hidden />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className={`text-xs font-medium ${owes ? "text-amber-900/80" : "text-emerald-900/80"}`}>{t.account} · {t.due}</p>
+          <p className={`text-xl font-bold tabular-nums ${owes ? "text-amber-950" : "text-emerald-900"}`} data-testid="parent-account-due">
+            {owes ? money(account.due_minor, account.currency, lang) : t.allClear}
+          </p>
+        </div>
+        {account.pay_url && owes && (
+          <a
+            href={account.pay_url}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800"
+            data-testid="parent-account-pay"
+          >
+            <Wallet className="size-4" aria-hidden />
+            {t.payFamily}
+          </a>
+        )}
+      </div>
+
+      {(account.overdue_minor > 0 || account.credit_minor > 0) && (
+        <dl className="grid grid-cols-1 gap-2 border-t border-slate-100 px-4 py-3 text-sm sm:grid-cols-2">
+          {account.overdue_minor > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-rose-50 px-3 py-2 ring-1 ring-rose-200 ring-inset" data-testid="parent-account-overdue">
+              <dt className="text-xs font-semibold text-rose-800">{t.overdue}</dt>
+              <dd className="font-bold text-rose-700 tabular-nums">{money(account.overdue_minor, account.currency, lang)}</dd>
+            </div>
+          )}
+          {account.credit_minor > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-emerald-50 px-3 py-2 ring-1 ring-emerald-200 ring-inset" data-testid="parent-account-credit">
+              <dt className="text-xs font-semibold text-emerald-800">{t.credit}</dt>
+              <dd className="font-bold text-emerald-700 tabular-nums">{money(account.credit_minor, account.currency, lang)}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+
+      <div className="border-t border-slate-100 px-4 py-3">
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+          <Receipt className="size-3.5 text-emerald-700" aria-hidden />
+          {t.receipts}
+        </p>
+        {account.recent_receipts.length === 0 ? (
+          <p className="mt-2 text-xs text-slate-500">{t.noReceipts}</p>
+        ) : (
+          <ul className="mt-2 divide-y divide-slate-100">
+            {account.recent_receipts.map((r) => (
+              <li key={r.number} className="flex items-center justify-between gap-3 py-2 text-sm" data-testid="parent-receipt">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-slate-800">{t.receiptNo(r.number)}</p>
+                  <p className="text-xs text-slate-500">
+                    {plainDate(r.received_on, lang)} · {t.methods[r.method] ?? r.method}
+                  </p>
+                </div>
+                <p className="shrink-0 font-bold text-slate-900 tabular-nums">{money(r.amount_minor, r.currency, lang)}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
   );
 }

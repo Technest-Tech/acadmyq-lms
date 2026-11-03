@@ -3,7 +3,7 @@
  * language is the PARENT's choice (`?lang=`), not the staff locale cookie that drives the app — the
  * same reason the report card keeps its own copy.
  */
-import type { PortalInvoice, PortalLessonStatus } from "@/lib/portal-api";
+import type { PortalAttendanceMark, PortalInvoice, PortalLessonStatus } from "@/lib/portal-api";
 import { formatMoney } from "@/lib/money";
 
 export type Lang = "ar" | "en";
@@ -104,6 +104,36 @@ export function yearMonthText(ym: string, lang: Lang): string {
   return monthText(y ?? 1970, m ?? 1, lang);
 }
 
+// ── A group's weekly timetable: a weekday and a wall-clock time, no zone to convert ──────────────
+
+/** Sunday 7 June 2026 — any week will do; `weekday` 0–6 counts from it. */
+const A_SUNDAY = Date.UTC(2026, 5, 7);
+
+/** "الاثنين" / "Monday" for a slot's weekday (0 = Sunday). */
+export function weekdayName(weekday: number, lang: Lang): string {
+  return new Intl.DateTimeFormat(locale(lang), { weekday: "long", timeZone: "UTC" }).format(
+    new Date(A_SUNDAY + weekday * 86_400_000),
+  );
+}
+
+/** "17:00" on the academy's clock → "٥:٠٠ م" / "5:00 pm". It is the centre's wall time, so no zone shift. */
+export function wallTime(hm: string, lang: Lang): string {
+  const [h, m] = hm.split(":").map(Number);
+  return new Intl.DateTimeFormat(locale(lang), { hour: "numeric", minute: "2-digit", timeZone: "UTC" }).format(
+    new Date(Date.UTC(2026, 5, 7, h ?? 0, m ?? 0)),
+  );
+}
+
+/** "2026-06-05" (a date with no time) → "5 June". */
+export function plainDate(ymd: string, lang: Lang, withYear = false): string {
+  return new Intl.DateTimeFormat(locale(lang), {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: withYear ? "numeric" : undefined,
+  }).format(new Date(`${ymd}T00:00:00Z`));
+}
+
 // ── The words ────────────────────────────────────────────────────────────────
 
 type Copy = {
@@ -150,6 +180,36 @@ type Copy = {
   noChildren: string;
   timesNote: string;
   privateNote: string;
+  /** A centre's blocks — rendered only when the payload carries them. */
+  groups: {
+    title: string;
+    childGroups: (name: string) => string;
+    level: (level: string) => string;
+    teacher: (name: string) => string;
+    since: (date: string) => string;
+    weekly: string;
+    noSlots: string;
+    attendance: string;
+    attendanceWindow: string;
+    noAttendance: string;
+    rate: string;
+    marks: Record<PortalAttendanceMark, string>;
+    noMark: string;
+    upcoming: string;
+    noUpcoming: string;
+    recent: string;
+    noRecent: string;
+    account: string;
+    due: string;
+    overdue: string;
+    credit: string;
+    receipts: string;
+    noReceipts: string;
+    receiptNo: (n: string) => string;
+    methods: Record<string, string>;
+    payFamily: string;
+    allClear: string;
+  };
 };
 
 export const COPY: Record<Lang, Copy> = {
@@ -206,6 +266,35 @@ export const COPY: Record<Lang, Copy> = {
     noChildren: "لا يوجد أبناء مسجّلون حالياً.",
     timesNote: "المواعيد معروضة بتوقيتك المحلي.",
     privateNote: "هذه الصفحة خاصة بعائلتك — من فضلك لا تشارك الرابط.",
+    groups: {
+      title: "المجموعات",
+      childGroups: (name) => `مجموعات ${name}`,
+      level: (level) => `المستوى: ${level}`,
+      teacher: (name) => `مع ${name}`,
+      since: (date) => `منذ ${date}`,
+      weekly: "المواعيد الأسبوعية",
+      noSlots: "لم تُحدَّد مواعيد أسبوعية بعد.",
+      attendance: "الحضور",
+      attendanceWindow: "آخر ٣٠ يوماً",
+      noAttendance: "لم تُسجَّل حصص بعد.",
+      rate: "نسبة الحضور",
+      marks: { PRESENT: "حضر", LATE: "حضر متأخراً", ABSENT: "غاب", EXCUSED: "غياب بعذر" },
+      noMark: "لم يُسجَّل",
+      upcoming: "الحصص القادمة",
+      noUpcoming: "لا توجد حصص في الأسبوع القادم.",
+      recent: "آخر الحصص",
+      noRecent: "لا توجد حصص مسجّلة بعد.",
+      account: "الحساب",
+      due: "المستحق",
+      overdue: "متأخرات من أشهر سابقة",
+      credit: "رصيد لكم",
+      receipts: "آخر الإيصالات",
+      noReceipts: "لا توجد إيصالات بعد.",
+      receiptNo: (n) => `إيصال ${n}`,
+      methods: { CASH: "نقداً", INSTAPAY: "إنستاباي", WALLET: "محفظة", BANK_TRANSFER: "تحويل بنكي", CARD: "بطاقة", OTHER: "أخرى" },
+      payFamily: "ادفع المستحق",
+      allClear: "لا توجد مستحقات — شكراً لكم",
+    },
   },
   en: {
     hello: (name) => `Hello, ${name}`,
@@ -260,5 +349,34 @@ export const COPY: Record<Lang, Copy> = {
     noChildren: "No children are enrolled at the moment.",
     timesNote: "Times are shown in your local time.",
     privateNote: "This page is private to your family — please don’t share the link.",
+    groups: {
+      title: "Groups",
+      childGroups: (name) => `${name}’s groups`,
+      level: (level) => `Level: ${level}`,
+      teacher: (name) => `with ${name}`,
+      since: (date) => `since ${date}`,
+      weekly: "Weekly timetable",
+      noSlots: "No weekly times set yet.",
+      attendance: "Attendance",
+      attendanceWindow: "Last 30 days",
+      noAttendance: "No lessons recorded yet.",
+      rate: "Attendance rate",
+      marks: { PRESENT: "Present", LATE: "Late", ABSENT: "Absent", EXCUSED: "Excused" },
+      noMark: "Not recorded",
+      upcoming: "Coming up",
+      noUpcoming: "No lessons in the coming week.",
+      recent: "Latest lessons",
+      noRecent: "No lessons recorded yet.",
+      account: "Account",
+      due: "Amount due",
+      overdue: "Overdue from earlier months",
+      credit: "Your credit",
+      receipts: "Latest receipts",
+      noReceipts: "No receipts yet.",
+      receiptNo: (n) => `Receipt ${n}`,
+      methods: { CASH: "Cash", INSTAPAY: "InstaPay", WALLET: "Wallet", BANK_TRANSFER: "Bank transfer", CARD: "Card", OTHER: "Other" },
+      payFamily: "Pay what is due",
+      allClear: "Nothing due — thank you",
+    },
   },
 };
