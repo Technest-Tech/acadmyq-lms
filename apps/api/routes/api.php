@@ -63,6 +63,8 @@ use App\Http\Controllers\Learner\QuizController as LearnerQuizController;
 use App\Http\Controllers\Learner\RedemptionController as LearnerRedemptionController;
 use App\Http\Controllers\Learner\SiteController as LearnerSiteController;
 use App\Http\Controllers\LessonPackageController;
+use App\Http\Controllers\Levels\LevelController;
+use App\Http\Controllers\Levels\StudentLevelController;
 use App\Http\Controllers\Lms\CodeController;
 use App\Http\Controllers\Lms\CourseController;
 use App\Http\Controllers\Lms\DashboardController as LmsDashboardController;
@@ -923,6 +925,19 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // the week's attendance, running groups and the subscriptions about to run out. Behind the
     // centre switch — a Quran academy keeps its own dashboard and never calls this.
     Route::middleware('entitled:centre')->get('/dashboard/centre', [CentreDashboardController::class, 'show']);
+
+    // ── Levels / grades (docs/centre-profile, Phase 2.1) ─────────────────────────────────────
+    // The academy's own ordered list of levels (Settings, specialization.manage to change), the
+    // level a student stands at, and the promotion that moves them up with a history. A centre's
+    // only (entitled:centre): a Quran academy's student and group endpoints never see a level.
+    Route::middleware('entitled:centre')->group(function () {
+        Route::get('/levels', [LevelController::class, 'index']);
+        Route::post('/levels', [LevelController::class, 'store']);
+        Route::patch('/levels/{id}', [LevelController::class, 'update'])->whereUuid('id');
+        Route::delete('/levels/{id}', [LevelController::class, 'destroy'])->whereUuid('id');
+        Route::post('/students/{id}/promote', [StudentLevelController::class, 'promote'])->whereUuid('id');
+        Route::get('/students/{id}/level-history', [StudentLevelController::class, 'history'])->whereUuid('id');
+    });
 
     // Group classes (docs/groups) — one teacher, several students, a weekly timetable, its own
     // lessons and attendance sheet. A group lesson is NOT a `sessions` row; it lives in

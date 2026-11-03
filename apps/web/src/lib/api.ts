@@ -3253,6 +3253,9 @@ export interface StudentRow {
   guardian_phone?: string | null;
   /** Set while the family is suspended — the child is paused with it. */
   family_suspended_at?: string | null;
+  /** A centre's level / grade (levels-api); null for a student — or an academy — without one. */
+  level_id?: string | null;
+  level_name?: string | null;
   subscription_id: string | null;
   price_minor: number | null;
   price_currency: string | null;
@@ -3353,6 +3356,8 @@ export interface StudentInput {
   notes?: string | null;
   is_self_guardian?: boolean;
   guardian_id?: string | null;
+  /** A centre's level / grade — one of the academy's active levels (levels-api). */
+  level_id?: string | null;
   /**
    * Create only, instead of `guardian_id`: no parent on file yet, so they are created in the same
    * save. Needs `guardian.create`.

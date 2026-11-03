@@ -27,6 +27,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { GuardianForm } from "@/components/guardians/guardian-form";
+import { LevelCard } from "@/components/levels/level-card";
 import { TeacherTimetables } from "@/components/scheduling/schedule-editor";
 import { MonthlyTermsFields, useMonthlyTerms } from "@/components/students/monthly-terms";
 import { PersonGroupCard } from "@/components/lesson-reminders/person-group-card";
@@ -170,6 +171,8 @@ export function StudentDetail({
   const t = useTranslations("students");
   const locale = useLocale();
   const { can } = useAuth();
+  // A centre's level / grade: the badge up top and the promotion card (docs/centre-profile, Phase 2.1).
+  const centre = useCapability("centre");
 
   const [data, setData] = useState<StudentDetailData | null>(null);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
@@ -240,6 +243,12 @@ export function StudentDetail({
                 {data.subscription.plan_label}
               </span>
             )}
+            {centre && typeof data.student.level_name === "string" && data.student.level_name !== "" && (
+              <span className="inline-flex items-center gap-1 rounded-md bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" data-testid="student-level-badge">
+                <Layers className="size-3" />
+                {data.student.level_name}
+              </span>
+            )}
           </div>
           {data.guardian && (
             <div className="mt-2.5 flex items-center gap-1.5">
@@ -265,6 +274,9 @@ export function StudentDetail({
 
       {/* ── Subscriptions: a centre's view of everything the student pays for ── */}
       <SubscriptionsCard studentId={studentId} studentName={data.student.full_name} onChanged={() => void refresh()} />
+
+      {/* ── Level / grade: where the student stands, "ترقية", and the trail of promotions — a centre's only ── */}
+      {centre && <LevelCard studentId={studentId} studentName={data.student.full_name} onChanged={() => void refresh()} />}
 
       {/* ── Alerts ──────────────────────────────────────────────────── */}
       {error && (

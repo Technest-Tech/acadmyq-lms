@@ -10667,5 +10667,58 @@
     "theTeacher": "The lesson's teacher",
     "off": "off",
     "everyone": "Everyone"
+  },
+  "levels": {
+    "cardTitle": "Levels / grades",
+    "hint": "The academy's ordered list of levels (A1…C2, or school grades). Students and groups point at it, and a student is promoted from one to the next.",
+    "add": "Add",
+    "namePlaceholder": "e.g. A1, Level 3, Grade 7…",
+    "empty": "No levels yet — add the first one above.",
+    "rename": "Rename",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "confirmDelete": "Delete this level?",
+    "inUse": "{students} students · {groups} groups",
+    "inactive": "Off",
+    "activate": "Switch on",
+    "deactivate": "Switch off",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "addLink": "Add a level",
+    "select": {
+      "label": "Level / grade",
+      "none": "No level",
+      "loading": "Loading…"
+    },
+    "filter": "Level",
+    "allLevels": "All levels",
+    "promote": {
+      "button": "Promote",
+      "title": "Promote student",
+      "subtitle": "Move {name} to a new level — and, if you like, into a group of that level on the same day.",
+      "current": "Current level",
+      "noCurrent": "Not set yet",
+      "toLevel": "New level",
+      "toLevelPlaceholder": "Choose a level",
+      "toGroup": "New group",
+      "toGroupNone": "Keep groups as they are",
+      "toGroupHint": "Leaves the old level's group on that day and joins the new one from the same day.",
+      "noGroups": "No active groups at this level.",
+      "effectiveOn": "From",
+      "note": "Note",
+      "notePlaceholder": "e.g. Passed the end-of-level test",
+      "submit": "Promote",
+      "saving": "Saving…",
+      "done": "{name} was promoted to {level}."
+    },
+    "history": {
+      "title": "Level history",
+      "hint": "Every promotion: from which level and group to which, and from when.",
+      "empty": "No promotions yet.",
+      "none": "—",
+      "by": "by {name}",
+      "group": "Group: {from} → {to}"
+    }
   }
 }

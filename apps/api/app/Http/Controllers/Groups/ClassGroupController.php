@@ -10,6 +10,7 @@ use App\Services\ClassGroups;
 use App\Services\GroupBilling;
 use App\Services\GroupLessonGenerator;
 use App\Services\GroupPayroll;
+use App\Services\StudentLevels;
 use App\Support\Audit;
 use App\Support\TimeHelper;
 use Illuminate\Http\JsonResponse;
@@ -59,6 +60,7 @@ final class ClassGroupController extends Controller
         $data = $request->validate([
             'state' => ['sometimes', 'nullable', Rule::in([...self::STATES, 'ACTIVE'])],
             'teacher_id' => ['sometimes', 'nullable', 'uuid'],
+            'level_id' => ['sometimes', 'nullable', 'uuid'],
             'q' => ['sometimes', 'nullable', 'string', 'max:120'],
         ]);
 
@@ -73,6 +75,9 @@ final class ClassGroupController extends Controller
 
         if (! empty($data['teacher_id'])) {
             $query->where('g.teacher_id', $data['teacher_id']);
+        }
+        if (! empty($data['level_id'])) {
+            $query->where('g.level_id', $data['level_id']);
         }
         if (! empty($data['q'])) {
             $like = '%'.str_replace(['%', '_'], ['\%', '\_'], trim((string) $data['q'])).'%';
@@ -124,6 +129,7 @@ final class ClassGroupController extends Controller
                 'name' => trim($data['name']),
                 'specialization_id' => $data['specialization_id'] ?? null,
                 'level' => $data['level'] ?? null,
+                'level_id' => $data['level_id'] ?? null,
                 'teacher_id' => $data['teacher_id'],
                 'capacity' => $data['capacity'] ?? null,
                 'mode' => $data['mode'] ?? 'ONLINE',
@@ -192,7 +198,7 @@ final class ClassGroupController extends Controller
         }
 
         $fields = array_intersect_key($data, array_flip([
-            'name', 'specialization_id', 'level', 'teacher_id', 'capacity', 'mode', 'location',
+            'name', 'specialization_id', 'level', 'level_id', 'teacher_id', 'capacity', 'mode', 'location',
             'meeting_url', 'timezone', 'start_date', 'end_date', 'notes',
             ...self::PRICE_FIELDS, ...self::TEACHER_PAY_FIELDS,
         ]));
@@ -678,6 +684,7 @@ final class ClassGroupController extends Controller
             'specialization_id' => $g->specialization_id !== null ? (string) $g->specialization_id : null,
             'specialization_name' => $g->specialization_name ?? null,
             'level' => $g->level,
+            'level_id' => $g->level_id !== null ? (string) $g->level_id : null,
             'teacher_id' => (string) $g->teacher_id,
             'teacher_name' => $g->teacher_name ?? null,
             'capacity' => $g->capacity !== null ? (int) $g->capacity : null,
@@ -791,6 +798,9 @@ final class ClassGroupController extends Controller
             'teacher_id' => [$req, 'uuid'],
             'specialization_id' => ['sometimes', 'nullable', 'uuid', Rule::exists('specializations', 'id')],
             'level' => ['sometimes', 'nullable', 'string', 'max:60'],
+            // A centre's level from the academy's list (StudentLevels); it also writes `level` as the
+            // level's name, so every reader of the text keeps working. Nothing passes it elsewhere.
+            'level_id' => ['sometimes', 'nullable', 'uuid'],
             'capacity' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1000'],
             'mode' => ['sometimes', Rule::in(['ONLINE', 'OFFLINE'])],
             'location' => ['sometimes', 'nullable', 'string', 'max:200'],
@@ -858,6 +868,13 @@ final class ClassGroupController extends Controller
 
         if (isset($data['capacity']) && $current !== null && $data['capacity'] < $this->groups->activeMemberCount((string) $current->id)) {
             throw ValidationException::withMessages(['capacity' => ['The group already has more students than that. / عدد طلاب المجموعة أكبر من ذلك بالفعل.']]);
+        }
+
+        // A level from the list names the group's level text too (and clearing it clears the text).
+        if (array_key_exists('level_id', $data)) {
+            $levels = app(StudentLevels::class);
+            $levels->assertUsable($data['level_id']);
+            $data['level'] = $levels->nameOf($data['level_id']);
         }
 
         return $data;

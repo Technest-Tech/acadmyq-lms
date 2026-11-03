@@ -67,6 +67,8 @@ export interface GroupRow {
   specialization_id: string | null;
   specialization_name: string | null;
   level: string | null;
+  /** A centre's level from the academy's list (levels-api); `level` then carries its name. */
+  level_id?: string | null;
   teacher_id: string;
   teacher_name: string | null;
   /** null = no seat limit. */
@@ -193,6 +195,8 @@ export interface GroupInput {
   teacher_id: string;
   specialization_id?: string | null;
   level?: string | null;
+  /** A centre picks a level from the list; the server writes `level` as its name. */
+  level_id?: string | null;
   capacity?: number | null;
   mode?: GroupMode;
   location?: string | null;
@@ -242,6 +246,8 @@ type Generated = { created: number; removed: number };
 export function listGroups(params: {
   state?: GroupState | "ACTIVE";
   teacher_id?: string;
+  /** A centre's level filter (levels-api). */
+  level_id?: string;
   q?: string;
 } = {}): Promise<{ groups: GroupRow[]; counts: Record<GroupState, number> }> {
   const qs = new URLSearchParams();
@@ -446,6 +452,8 @@ export function listBoardMembers(params: {
   flag?: MemberFlag;
   group_id?: string;
   teacher_id?: string;
+  /** A centre's level filter — the group's level (levels-api). */
+  level_id?: string;
   student_id?: string;
   q?: string;
 } = {}): Promise<{ members: BoardMember[]; thresholds: { streak: number; low_rate: number }; sees_money: boolean }> {
