@@ -37,6 +37,8 @@ export function StudentsBoard() {
   const [q, setQ] = useState("");
   const [groupId, setGroupId] = useState("");
   const [teacherId, setTeacherId] = useState("");
+  // A centre's level filter — the filters row offers it only for a centre.
+  const [levelId, setLevelId] = useState("");
   const [rows, setRows] = useState<BoardMember[]>([]);
   const [seesMoney, setSeesMoney] = useState(false);
   const [streak, setStreak] = useState(3);
@@ -55,6 +57,7 @@ export function StudentsBoard() {
         q: q.trim() || undefined,
         group_id: groupId || undefined,
         teacher_id: teacherId || undefined,
+        level_id: levelId || undefined,
       });
       setRows(res.members);
       setSeesMoney(res.sees_money);
@@ -65,7 +68,7 @@ export function StudentsBoard() {
     } finally {
       setLoading(false);
     }
-  }, [status, flag, q, groupId, teacherId, t]);
+  }, [status, flag, q, groupId, teacherId, levelId, t]);
 
   useEffect(() => {
     const id = setTimeout(() => void load(), q ? 250 : 0);
@@ -120,7 +123,7 @@ export function StudentsBoard() {
             </button>
           ))}
         </div>
-        <BoardFilters options={options} groupId={groupId} onGroup={setGroupId} teacherId={teacherId} onTeacher={setTeacherId} />
+        <BoardFilters options={options} groupId={groupId} onGroup={setGroupId} teacherId={teacherId} onTeacher={setTeacherId} levelId={levelId} onLevel={setLevelId} />
       </div>
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">

@@ -4,9 +4,12 @@ import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { fieldClass } from "@/components/groups/group-format";
+import { LevelSelect } from "@/components/levels/level-select";
 import { listTeachers } from "@/lib/api";
+import { useCapability } from "@/lib/capabilities";
 import { fetchRoster } from "@/lib/roster";
 import { listGroups } from "@/lib/groups-api";
+import { cn } from "@/lib/utils";
 
 export interface BoardFilterOptions {
   groups: { id: string; name: string }[];
@@ -46,17 +49,25 @@ export function BoardFilters({
   onGroup,
   teacherId,
   onTeacher,
+  levelId,
+  onLevel,
 }: {
   options: BoardFilterOptions;
   groupId: string;
   onGroup: (id: string) => void;
   teacherId?: string;
   onTeacher?: (id: string) => void;
+  /** A centre's level filter (docs/centre-profile, Phase 2.1) — offered only when the page passes it. */
+  levelId?: string;
+  onLevel?: (id: string) => void;
 }) {
   const t = useTranslations("groups");
+  const tLevels = useTranslations("levels");
+  const centre = useCapability("centre");
+  const withLevel = centre && onLevel !== undefined;
 
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:w-[28rem]">
+    <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", withLevel ? "lg:w-[40rem] lg:grid-cols-3" : "lg:w-[28rem]")}>
       <select className={fieldClass} value={groupId} onChange={(e) => onGroup(e.target.value)} aria-label={t("board.filters.group")} data-testid="board-filter-group">
         <option value="">{t("board.filters.allGroups")}</option>
         {options.groups.map((g) => (
@@ -75,6 +86,7 @@ export function BoardFilters({
           ))}
         </select>
       )}
+      {withLevel && <LevelSelect value={levelId ?? ""} onChange={onLevel} noneLabel={tLevels("allLevels")} testId="board-filter-level" />}
     </div>
   );
 }

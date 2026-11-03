@@ -23,6 +23,8 @@ import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import { listTeachers } from "@/lib/api";
 import { fetchRoster } from "@/lib/roster";
 import { listGroups, type GroupRow, type GroupState } from "@/lib/groups-api";
+import { LevelSelect } from "@/components/levels/level-select";
+import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 type Tab = "ACTIVE" | GroupState;
@@ -36,6 +38,7 @@ const TABS: Tab[] = ["ACTIVE", "RUNNING", "UPCOMING", "FINISHED", "ARCHIVED"];
  */
 export function GroupsManager() {
   const t = useTranslations("groups");
+  const tLevels = useTranslations("levels");
   const { can, session } = useAuth();
   const router = useRouter();
   const canManage = can("group.manage");
@@ -45,6 +48,9 @@ export function GroupsManager() {
   const [q, setQ] = useState("");
   const [teacherId, setTeacherId] = useState("");
   const [teachers, setTeachers] = useState<{ value: string; label: string }[]>([]);
+  // A centre narrows the list to one of its levels (docs/centre-profile, Phase 2.1).
+  const centre = useCapability("centre");
+  const [levelId, setLevelId] = useState("");
   const [groups, setGroups] = useState<GroupRow[]>([]);
   const [counts, setCounts] = useState<Record<GroupState, number> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,7 +68,7 @@ export function GroupsManager() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listGroups({ state: tab, q: q.trim() || undefined, teacher_id: teacherId || undefined });
+      const res = await listGroups({ state: tab, q: q.trim() || undefined, teacher_id: teacherId || undefined, level_id: levelId || undefined });
       setGroups(res.groups);
       setCounts(res.counts);
     } catch {
@@ -71,7 +77,7 @@ export function GroupsManager() {
     } finally {
       setLoading(false);
     }
-  }, [tab, q, teacherId, t]);
+  }, [tab, q, teacherId, levelId, t]);
 
   useEffect(() => {
     const id = setTimeout(() => void load(), q ? 250 : 0);
@@ -129,7 +135,7 @@ export function GroupsManager() {
             );
           })}
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:w-[28rem]">
+        <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", centre ? "lg:w-[40rem] lg:grid-cols-3" : "lg:w-[28rem]")}>
           <label className="relative">
             <Search className="text-muted-foreground absolute top-1/2 size-4 -translate-y-1/2 ltr:left-3 rtl:right-3" />
             <input
@@ -149,6 +155,7 @@ export function GroupsManager() {
               searchPlaceholder={t("form.search")}
             />
           )}
+          {centre && <LevelSelect value={levelId} onChange={setLevelId} noneLabel={tLevels("allLevels")} testId="groups-filter-level" />}
         </div>
       </div>
 

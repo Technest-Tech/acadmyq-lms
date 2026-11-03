@@ -12,6 +12,7 @@ use App\Services\FamilyCharges;
 use App\Services\Invoicing;
 use App\Services\LessonPackages;
 use App\Services\SessionGenerator;
+use App\Services\StudentLevels;
 use App\Services\StudentMonth;
 use App\Support\Audit;
 use App\Support\DataTable;
@@ -88,6 +89,7 @@ final class StudentController extends Controller
                 }),
                 'subscription_status' => fn (Builder $q, $value) => $q->where('sub.status', (string) $value),
                 'student_status' => fn (Builder $q, $value) => $q->where('s.status', (string) $value),
+                'level_id' => fn (Builder $q, $value) => $q->where('s.level_id', (string) $value),
                 'trial_any' => fn (Builder $q, $value) => $value === '1' ? $q->whereIn('s.status', [StudentStatus::TRIAL, StudentStatus::TRIAL_BOOKED]) : null,
                 'added_by' => DoneBy::addedByFilter(),
             ],
@@ -146,6 +148,8 @@ final class StudentController extends Controller
         if ($newGuardian !== null) {
             Gate::authorize('guardian.create');
         }
+        // The level must be one of ours and on — checked before the first write like everything else.
+        app(StudentLevels::class)->assertUsable($data['level_id'] ?? null);
 
         // Every write below in one unit: the request transaction COMMITS what was written before a
         // refusal further down (an inactive teacher, a package that will not open), which left a
@@ -179,6 +183,7 @@ final class StudentController extends Controller
                 'status' => $data['status'] ?? StudentStatus::REGULAR,
                 'is_self_guardian' => $selfGuardian,
                 'notes' => $data['notes'] ?? null,
+                'level_id' => $data['level_id'] ?? null,
             ]);
             Audit::log('student.create', 'student', $studentId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
                 'full_name' => $data['full_name'],
@@ -263,6 +268,9 @@ final class StudentController extends Controller
                 ->whereNotIn('status', ['SCHEDULED', 'RESCHEDULED'])
                 ->exists();
 
+        // The centre's level, by name (null for a student — or an academy — without one).
+        $student->level_name = app(StudentLevels::class)->nameOf($student->level_id !== null ? (string) $student->level_id : null);
+
         return response()->json([
             'student' => $student,
             'guardian' => $guardian,
@@ -324,11 +332,14 @@ final class StudentController extends Controller
 
         $before = [];
         $after = [];
-        foreach (['full_name', 'whatsapp_phone', 'secondary_phone', 'country', 'status', 'notes'] as $col) {
+        foreach (['full_name', 'whatsapp_phone', 'secondary_phone', 'country', 'status', 'notes', 'level_id'] as $col) {
             if (array_key_exists($col, $data) && (string) $data[$col] !== (string) $existing->{$col}) {
                 $before[$col] = $existing->{$col};
                 $after[$col] = $data[$col];
             }
+        }
+        if (array_key_exists('level_id', $after)) {
+            app(StudentLevels::class)->assertUsable($after['level_id']);
         }
 
         // The move between families, kept apart from the field diff above so it gets its own
@@ -928,9 +939,12 @@ final class StudentController extends Controller
                     ->where('sub.status', '=', 'ACTIVE');
             })
             ->leftJoinSub(StudentTeachers::summary(), 'sta', 'sta.student_id', '=', 's.id')
+            // The centre's level / grade — null, with no rows, for an academy that keeps none.
+            ->leftJoin('academy_levels as lv', 'lv.id', '=', 's.level_id')
             ->select([
                 's.id', 's.full_name', 's.whatsapp_phone', 's.secondary_phone', 's.country', 's.status', 's.is_self_guardian',
                 's.guardian_id', 's.deleted_at', 's.created_at',
+                's.level_id', 'lv.name as level_name',
                 'g.full_name as guardian_name', 'g.whatsapp_phone as guardian_phone',
                 // The family is paused (suspend): the list marks the child as suspended too.
                 'g.suspended_at as family_suspended_at',
@@ -1323,6 +1337,9 @@ final class StudentController extends Controller
             // On create, presence is enforced in store(): required unless is_self_guardian
             // (R-STU-2). On update it is the reassignment — the student changes family.
             'guardian_id' => ['nullable', 'uuid'],
+            // A centre's level / grade (StudentLevels): one of the academy's own active levels. An
+            // academy with no levels has none to pass, so nothing changes for it.
+            'level_id' => ['sometimes', 'nullable', 'uuid'],
         ];
 
         if ($creating) {

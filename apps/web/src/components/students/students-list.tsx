@@ -34,6 +34,7 @@ import {
 import { fetchRoster } from "@/lib/roster";
 import { COUNTRIES } from "@/lib/countries";
 import { type ExcelColumn } from "@/lib/export-excel";
+import { type Level, listLevels } from "@/lib/levels-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -216,6 +217,9 @@ export function StudentsList({
   // "Family suspended" is a centre's (a Quran academy's list stays as it was).
   const centre = session?.capabilities?.includes("centre") ?? false;
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  // A centre's levels / grades: the badge on each row and the filter (docs/centre-profile, Phase 2.1).
+  const tLevels = useTranslations("levels");
+  const [levels, setLevels] = useState<Level[]>([]);
   const actors = useTeamActors();
 
   useEffect(() => {
@@ -223,6 +227,13 @@ export function StudentsList({
       .then((r) => setTeachers(r.rows))
       .catch(() => setTeachers([]));
   }, []);
+
+  useEffect(() => {
+    if (!centre) return;
+    void listLevels()
+      .then((r) => setLevels(r.levels))
+      .catch(() => setLevels([]));
+  }, [centre]);
 
   const priceSuffix = useMemo(
     () => ({
@@ -255,6 +266,12 @@ export function StudentsList({
                 <div className="flex items-center gap-1.5">
                   <span className="truncate font-semibold">{r.full_name}</span>
                   <StageBadge status={r.status} />
+                  {/* A centre's level / grade, as the academy names it. */}
+                  {centre && r.level_name && (
+                    <span className="inline-flex shrink-0 items-center rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" data-testid={`student-level-${r.id}`}>
+                      {r.level_name}
+                    </span>
+                  )}
                   {/* Paused with the family (suspend): no lessons, no group months, off the group sheets. */}
                   {centre && r.family_suspended_at && (
                     <span className="inline-flex shrink-0 items-center rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300" data-testid={`student-suspended-${r.id}`}>
@@ -458,7 +475,7 @@ export function StudentsList({
 
       return cols;
     },
-    [t, tDone, locale, isTeacher, canPrice, priceSuffix],
+    [t, tDone, locale, isTeacher, canPrice, priceSuffix, centre],
   );
 
   const filters = useMemo<FilterDef[]>(
@@ -496,6 +513,10 @@ export function StudentsList({
           label: t(`subStatus.${s}`),
         })),
       },
+      // A centre's level / grade — only once the academy has written its list.
+      ...(centre && levels.length > 0
+        ? [{ key: "level_id", label: tLevels("filter"), options: levels.map((l) => ({ value: l.id, label: l.name })) }]
+        : []),
       // Set only by the "Trials" tile above the table — TRIAL and TRIAL_BOOKED at once, which no
       // single `student_status` value can express. Declared so the chip row can name and clear it.
       {
@@ -506,7 +527,7 @@ export function StudentsList({
       },
       ...addedByFilter(actors, tDone),
     ],
-    [t, tDone, teachers, actors],
+    [t, tDone, tLevels, teachers, actors, centre, levels],
   );
 
   const exportColumns = useMemo<ExcelColumn<StudentRow>[]>(() => {

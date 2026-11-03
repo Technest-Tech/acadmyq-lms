@@ -25,6 +25,7 @@ import {
 } from "@/lib/groups-api";
 import { LessonPriceFields, lessonPriceFromTotal, lessonsIn, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
+import { LevelSelect } from "@/components/levels/level-select";
 import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
@@ -109,6 +110,8 @@ export function GroupForm({
   const [teacherId, setTeacherId] = useState(group?.teacher_id ?? "");
   const [specializationId, setSpecializationId] = useState(group?.specialization_id ?? "");
   const [level, setLevel] = useState(group?.level ?? "");
+  // A centre's level comes from the academy's list (docs/centre-profile, Phase 2.1), not typed.
+  const [levelId, setLevelId] = useState(group?.level_id ?? "");
   const [capacity, setCapacity] = useState(group?.capacity != null ? String(group.capacity) : "");
   // A centre's classes are in its rooms: a new group opens in person, so its room lands on the timetable.
   const centre = useCapability("centre");
@@ -267,7 +270,8 @@ export function GroupForm({
       name: name.trim(),
       teacher_id: teacherId,
       specialization_id: specializationId || null,
-      level: level.trim() || null,
+      // A centre picks from its list and the server names the text; everyone else types the text.
+      ...(centre ? { level_id: levelId || null } : { level: level.trim() || null }),
       capacity: capacity ? Number(capacity) : null,
       mode,
       location: mode === "OFFLINE" ? location.trim() || null : null,
@@ -355,13 +359,17 @@ export function GroupForm({
         </Field>
 
         <Field label={t("form.level")}>
-          <input
-            className={fieldClass}
-            value={level}
-            onChange={(e) => setLevel(e.target.value)}
-            placeholder={t("form.levelPlaceholder")}
-            maxLength={60}
-          />
+          {centre ? (
+            <LevelSelect value={levelId} onChange={setLevelId} withAddLink testId="group-level" />
+          ) : (
+            <input
+              className={fieldClass}
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+              placeholder={t("form.levelPlaceholder")}
+              maxLength={60}
+            />
+          )}
         </Field>
 
         <Field label={t("form.capacity")} hint={t("form.capacityHint")}>

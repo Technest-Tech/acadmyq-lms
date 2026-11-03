@@ -10,6 +10,7 @@ import { ControlsManager } from "@/components/settings/controls-manager";
 import { DataExportCard } from "@/components/settings/data-export-card";
 import { LessonRemindersManager } from "@/components/settings/lesson-reminders-manager";
 import { LessonReportManager } from "@/components/settings/lesson-report-manager";
+import { LevelsManager } from "@/components/settings/levels-manager";
 import { ReportCardManager } from "@/components/settings/report-card-manager";
 import { SpecializationsManager } from "@/components/settings/specializations-manager";
 import { WhatsAppManager } from "@/components/settings/whatsapp-manager";
@@ -48,6 +49,8 @@ export function SettingsManager() {
   const hasLessonReport = session?.capabilities?.includes("lesson_report") ?? false;
   // Only clients with the WhatsApp module have a number to link.
   const hasWhatsApp = useCapability("whatsapp.automation");
+  // A learning centre keeps a list of levels / grades next to its courses.
+  const hasCentre = useCapability("centre");
   // Reminders in WhatsApp groups — switched on per client by a Super Admin (opt-in, so strict).
   const hasLessonReminders = session?.capabilities?.includes("whatsapp.group_reminders") ?? false;
   const tabs = TABS.filter(
@@ -110,7 +113,13 @@ export function SettingsManager() {
 
       {/* ── Tab panels ────────────────────────────────────────────────────── */}
       <div role="tabpanel" aria-label={t(`tabs.${active}`)}>
-        {active === "courses" && <SpecializationsManager />}
+        {active === "courses" && (
+          <div className="space-y-6">
+            <SpecializationsManager />
+            {/* A centre's levels / grades sit under the same catalogue tab (docs/centre-profile, Phase 2.1). */}
+            {hasCentre && <LevelsManager />}
+          </div>
+        )}
         {active === "lessonReport" && <LessonReportManager />}
         {active === "reportCard" && <ReportCardManager />}
         {active === "whatsapp" && <WhatsAppManager />}

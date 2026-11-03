@@ -40,6 +40,7 @@ import { fetchRoster } from "@/lib/roster";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { hoursText, monthLessons } from "@/components/groups/group-format";
 import { addGroupMembers, listGroups, type GroupRow } from "@/lib/groups-api";
+import { LevelSelect } from "@/components/levels/level-select";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -196,6 +197,7 @@ export function StudentForm({
   onCancel: () => void;
 }) {
   const t = useTranslations("students");
+  const tLevels = useTranslations("levels");
   const locale = useLocale();
   const { can, session } = useAuth();
   // Naming a price is a pricing act wherever it happens — the API enforces `student.set_price`
@@ -269,6 +271,8 @@ export function StudentForm({
   // A centre student may take groups alone: the first tile is then "no private subscription".
   const groupsOnlyChoice = centre && groupsOn;
   const [groupOptions, setGroupOptions] = useState<GroupRow[] | null>(null);
+  // A centre's level / grade (docs/centre-profile, Phase 2.1) — optional, from the academy's list.
+  const [levelId, setLevelId] = useState("");
   // Each group picked, from the day the student joins it.
   const [groupPicks, setGroupPicks] = useState<{ id: string; joinedOn: string }[]>([]);
   const groupIds = groupPicks.map((g) => g.id);
@@ -445,6 +449,7 @@ export function StudentForm({
             }
           : {}),
         status: enrolling ? "REGULAR" : "TRIAL",
+        ...(centre && levelId ? { level_id: levelId } : {}),
         ...(links.length > 0 ? { teachers: links } : {}),
         // The package path opens the package in the same request, which also creates the
         // student's package-billing subscription — so it sends no `subscription` of its own.
@@ -727,6 +732,13 @@ export function StudentForm({
           searchPlaceholder={t("form.searchCountry")}
         />
       </Field>
+
+      {/* ── Level / grade — a centre's classification, from its own list (Settings) ── */}
+      {centre && (
+        <Field label={tLevels("select.label")}>
+          <LevelSelect value={levelId} onChange={setLevelId} withAddLink testId="student-level" />
+        </Field>
+      )}
 
       {/* ── Teachers ────────────────────────────────────────────────────────
           A list, because a student may study different courses with different teachers. */}
