@@ -728,8 +728,8 @@ Ahmed for the curriculum centres: a subscription is "8 lessons of 40 minutes at 
 must be cancellable — the child may not come back, yet the charge stayed.
 
 - **Private subscription in lessons.** `lesson_packages.lesson_minutes` (migration
-  2026_10_29_000001, nullable): the length of one lesson the block was sold in. Display only — the
-  engine still runs on minutes and the hourly rate. Under `centre` every form (open / new student /
+  2026_10_29_000001, nullable): the length of one lesson the block was sold in. The engine still runs
+  on minutes and the hourly rate, with a lesson worth one length (below). Under `centre` every form (open / new student /
   trial wizard / subscriptions card / edit) asks **lessons** + length + one lesson's price; the
   server gets `hours = lessons × length / 60`, `price_minor = lessons × price` and `lesson_minutes`.
   Since 2026-11-03 a lesson on such a block is one lesson whatever its length
