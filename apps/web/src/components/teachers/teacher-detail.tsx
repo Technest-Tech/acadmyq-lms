@@ -20,6 +20,7 @@ import { useAuth } from "@/components/auth-provider";
 import { AvailabilityEditor } from "@/components/teachers/availability-editor";
 import { usePaySummary } from "@/components/teachers/teacher-pay-editor";
 import { TeacherLoginSection } from "@/components/teachers/teacher-login-section";
+import { PersonGroupCard } from "@/components/lesson-reminders/person-group-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -518,6 +519,9 @@ export function TeacherDetail({
           onChanged={refresh}
         />
       )}
+
+      {/* ── WhatsApp group: where this teacher's lesson reminders go (opt-in per client) ── */}
+      {isActive && <PersonGroupCard kind="teacher" personId={teacherId} />}
 
       {/* ── Students ─────────────────────────────────────────────────── */}
       <ProfileCard

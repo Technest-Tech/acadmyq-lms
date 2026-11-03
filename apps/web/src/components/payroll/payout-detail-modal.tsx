@@ -9,6 +9,7 @@ import {
   Gift,
   Loader2,
   MinusCircle,
+  Pencil,
   Receipt,
   RefreshCw,
   Send,
@@ -24,6 +25,7 @@ import {
 } from "@/components/adjustments/source-badge";
 import { useAuth } from "@/components/auth-provider";
 import { AdjustmentFormModal } from "@/components/payroll/adjustment-form-modal";
+import { TeacherRangeLessonsModal } from "@/components/payroll/teacher-range-lessons-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -103,6 +105,7 @@ export function PayoutDetailModal({
   const [repriceOpen, setRepriceOpen] = useState(false);
   const [repricing, setRepricing] = useState(false);
   const [repriceNotice, setRepriceNotice] = useState<string | null>(null);
+  const [lessonsOpen, setLessonsOpen] = useState(false);
 
   const load = useCallback(async (id: string) => {
     setLoading(true);
@@ -207,6 +210,20 @@ export function PayoutDetailModal({
 
   const isOpen = payout?.status === "OPEN";
   const canAdjust = isOpen && can("payout.adjust");
+  // Unlike a bonus this stays available on a finalized statement: a correction carries forward.
+  const canCorrectLessons = can("payout.adjust");
+
+  // The month's lessons, for correcting them. Plain dates: the end is the month's last day.
+  const lessonWindow = useMemo(() => {
+    if (!payout) return null;
+    const month = String(payout.period_month).padStart(2, "0");
+    const lastDay = String(new Date(Date.UTC(payout.period_year, payout.period_month, 0)).getUTCDate()).padStart(2, "0");
+    return {
+      from: `${payout.period_year}-${month}-01`,
+      to: `${payout.period_year}-${month}-${lastDay}`,
+      target: { teacherId: payout.teacher_id, teacherName: payout.teacher_name ?? null, currency: payout.currency },
+    };
+  }, [payout]);
 
   function openAdjustment(type: AdjustmentType) {
     setAdjType(type);
@@ -339,6 +356,23 @@ export function PayoutDetailModal({
                 >
                   <RefreshCw className="size-3" aria-hidden />
                   {t("reprice")}
+                </Button>
+              </div>
+            )}
+
+            {canCorrectLessons && (
+              <div className="bg-muted/30 flex flex-col gap-2 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-muted-foreground min-w-0 text-xs">{t("lessonEditMonthHint")}</p>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  className="shrink-0 gap-1.5"
+                  onClick={() => setLessonsOpen(true)}
+                  data-testid="edit-salary-lessons"
+                >
+                  <Pencil className="size-3" aria-hidden />
+                  {t("lessonEditMonth")}
                 </Button>
               </div>
             )}
@@ -627,6 +661,19 @@ export function PayoutDetailModal({
         sessionId={reportSessionId}
         onClose={() => setReportSessionId(null)}
       />
+
+      {lessonWindow && (
+        <TeacherRangeLessonsModal
+          target={lessonsOpen ? lessonWindow.target : null}
+          from={lessonWindow.from}
+          to={lessonWindow.to}
+          onClose={() => setLessonsOpen(false)}
+          onMutated={() => {
+            if (payoutId) void load(payoutId);
+            onMutated?.();
+          }}
+        />
+      )}
     </>
   );
 }

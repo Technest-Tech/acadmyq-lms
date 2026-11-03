@@ -213,6 +213,11 @@ export class ManagedSession {
     }
   }
 
+  /** How busy the send queue is: the app holds back time-critical messages rather than bury them. */
+  sendLoad(): { queueDepth: number; sentToday: number; dailyCap: number } {
+    return { queueDepth: this.queue.depth, sentToday: this.queue.sentTodayCount, dailyCap: this.queue.dailyCap }
+  }
+
   messageState(messageId: string): { state: MessageState; error?: string } {
     return this.queue.stateOf(messageId)
   }

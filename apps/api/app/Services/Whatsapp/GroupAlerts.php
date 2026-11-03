@@ -69,10 +69,26 @@ final class GroupAlerts
     /** Local hour an unpaid-invoice reminder goes out on its day — office hours, not the midnight close. */
     private const PAYMENT_REMINDER_HOUR = 10;
 
+    /**
+     * Lesson reminders are handed to the gateway a few at a time, keeping its queue about two
+     * minutes deep. The gateway paces a number to some five messages a minute, keeps its queue in
+     * memory and never gives up on an item — so a burst handed over whole would announce "starting
+     * now" long after the fact, and past the daily cap, in the small hours. Held back here a
+     * reminder can still be retired: the lesson gets cancelled, or its time passes.
+     */
+    private const REMINDER_QUEUE_DEPTH = 10;
+
+    /** How many reminders one run may hand over when the gateway does not report its queue. */
+    private const REMINDER_BLIND_BATCH = 5;
+
+    /** Reminders stop at this share of the number's daily cap: bills and reports need the rest. */
+    private const REMINDER_DAILY_SHARE = 0.9;
+
     public function __construct(
         private readonly WasenderClient $client,
         private readonly WhatsAppSender $sender,
         private readonly GroupAlertMessage $messages,
+        private readonly LessonGroupReminders $reminders,
     ) {}
 
     /**
@@ -108,7 +124,8 @@ final class GroupAlerts
                 return null;
             }
             // A paused or unsold WhatsApp module stops the alerts; the groups stay linked for when it returns.
-            if (! in_array('whatsapp.automation', Entitlement::resolve($academyId)['capabilities'], true)) {
+            $capabilities = Entitlement::resolve($academyId)['capabilities'];
+            if (! in_array('whatsapp.automation', $capabilities, true)) {
                 return null;
             }
 
@@ -116,6 +133,7 @@ final class GroupAlerts
                 'groups' => $groups,
                 'timezone' => $this->timezone($academyId),
                 'token' => $this->sender->tokenFor($academyId),
+                'reminders' => in_array('whatsapp.group_reminders', $capabilities, true) ? $this->reminders->settings($academyId) : null,
             ];
         });
 
@@ -124,14 +142,23 @@ final class GroupAlerts
         }
 
         $token = $setup['token'];
-        $connected = $token !== null && $this->client->sessionStatus($token) === 'CONNECTED';
+        $probe = $token !== null ? $this->client->status($token) : null;
+        $connected = ($probe['status'] ?? null) === 'CONNECTED';
+        $reminderBudget = $connected ? $this->reminderBudget($probe) : 0;
 
-        [$detected, $claimed] = $this->inAcademy($academyId, function () use ($academyId, $setup, $connected, $now): array {
-            [$inserted, $candidates] = $this->detect($academyId, $setup['groups'], $now);
+        [$detected, $claimed] = $this->inAcademy($academyId, function () use ($academyId, $setup, $connected, $reminderBudget, $now): array {
+            [$inserted, $candidates] = $this->detect($academyId, $setup['groups'], $now, $setup['reminders']);
             $this->retire($academyId, $setup['groups'], $candidates, $now);
             $this->recoverStaleClaims($academyId, $now);
 
-            return [$inserted, $connected ? $this->claim($academyId, $now) : []];
+            if (! $connected) {
+                return [$inserted, []];
+            }
+
+            return [$inserted, [
+                ...$this->claim($academyId, $now, reminders: false),
+                ...($reminderBudget > 0 ? $this->claim($academyId, $now, reminders: true, limit: $reminderBudget) : []),
+            ]];
         });
         $result['detected'] = $detected;
 
@@ -153,7 +180,7 @@ final class GroupAlerts
      *
      * @return array{ok: bool, error: ?string, alert: ?object}
      */
-    public function sendTest(string $academyId, string $groupId, ?string $sentBy, CarbonImmutable $now): array
+    public function sendTest(string $academyId, string $groupId, ?string $sentBy, CarbonImmutable $now, bool $lessonReminders = false): array
     {
         $setup = $this->inAcademy($academyId, function () use ($academyId, $groupId): ?array {
             $group = $this->activeGroups($academyId)[$groupId] ?? null;
@@ -174,7 +201,7 @@ final class GroupAlerts
         }
 
         $group = $setup['group'];
-        $claimed = $this->inAcademy($academyId, function () use ($academyId, $group, $sentBy, $now): array {
+        $claimed = $this->inAcademy($academyId, function () use ($academyId, $group, $sentBy, $now, $lessonReminders): array {
             $id = (string) Str::uuid();
             DB::table('whatsapp_group_alerts')->insert([
                 'id' => $id,
@@ -182,7 +209,7 @@ final class GroupAlerts
                 'group_id' => $group->id,
                 'event_type' => GroupAlertCatalog::TEST,
                 'subject_key' => $id,
-                'payload' => json_encode(['label' => $group->label ?? $group->name, 'by' => $sentBy], JSON_UNESCAPED_UNICODE),
+                'payload' => json_encode(['label' => $group->label ?? $group->name, 'by' => $sentBy, 'lesson_reminders' => $lessonReminders], JSON_UNESCAPED_UNICODE),
                 'due_at' => $now->format(self::TS),
                 'status' => 'PENDING',
                 'next_attempt_at' => $now->format(self::TS),
@@ -235,10 +262,11 @@ final class GroupAlerts
 
     /**
      * @param  array<string, object>  $groups
+     * @param  array{lead_minutes: int, at_start: bool, language: string}|null  $reminders  null = the academy does not have lesson reminders
      * @return array{0: int, 1: array<string, array<string, array<string, true>>>} inserted count, and
      *                                                                             group → type → subject set
      */
-    private function detect(string $academyId, array $groups, CarbonImmutable $now): array
+    private function detect(string $academyId, array $groups, CarbonImmutable $now, ?array $reminders = null): array
     {
         $inserted = 0;
         $candidates = [];
@@ -282,6 +310,28 @@ final class GroupAlerts
                 }
 
                 $inserted += DB::table('whatsapp_group_alerts')->insertOrIgnore($rows);
+            }
+        }
+
+        if ($reminders !== null) {
+            $rows = [];
+            foreach ($this->reminders->due($academyId, $groups, $reminders, $now) as $hit) {
+                $candidates[$hit['group_id']][$hit['type']][$hit['subject']] = true;
+                $rows[] = [
+                    'id' => (string) Str::uuid(),
+                    'academy_id' => $academyId,
+                    'group_id' => $hit['group_id'],
+                    'event_type' => $hit['type'],
+                    'subject_key' => $hit['subject'],
+                    'payload' => json_encode($hit['payload'], JSON_UNESCAPED_UNICODE),
+                    'due_at' => $hit['due_at']->format(self::TS),
+                    'status' => 'PENDING',
+                    'next_attempt_at' => $now->format(self::TS),
+                    'updated_at' => $now->format(self::TS),
+                ];
+            }
+            foreach (array_chunk($rows, 500) as $chunk) {
+                $inserted += DB::table('whatsapp_group_alerts')->insertOrIgnore($chunk);
             }
         }
 
@@ -656,6 +706,16 @@ final class GroupAlerts
                 ->update(['status' => 'EXPIRED', 'updated_at' => $iso]);
         }
 
+        // A reminder ahead of a lesson has missed its moment once the lesson starts, however close
+        // to the start it fell due. EXPIRED, not SKIPPED: the family was owed it and did not get it.
+        DB::table('whatsapp_group_alerts')
+            ->where('academy_id', $academyId)
+            ->where('event_type', GroupAlertCatalog::LESSON_REMINDER)
+            ->whereIn('status', ['PENDING', 'FAILED'])
+            ->where('attempts', '<', self::MAX_ATTEMPTS)
+            ->whereRaw("(payload->>'starts_at')::timestamptz <= ?::timestamptz", [$iso])
+            ->update(['status' => 'EXPIRED', 'updated_at' => $iso]);
+
         $open = DB::table('whatsapp_group_alerts')
             ->where('academy_id', $academyId)
             ->whereIn('status', ['PENDING', 'FAILED'])
@@ -668,7 +728,10 @@ final class GroupAlerts
         $resolved = [];
         foreach ($open as $row) {
             $group = $groups[(string) $row->group_id] ?? null;
-            if ($group === null || ! in_array($row->event_type, $group->events, true)) {
+            // A lesson reminder is not a ticked alert: whether it is still owed is all that counts.
+            $ticked = $group !== null && (in_array($row->event_type, $group->events, true)
+                || in_array($row->event_type, GroupAlertCatalog::LESSON_REMINDERS, true));
+            if ($group === null || ! $ticked) {
                 $disabled[] = $row->id;
             } elseif (in_array($row->event_type, GroupAlertCatalog::CONDITIONAL, true)
                 && ! isset($candidates[$group->id][$row->event_type][$row->subject_key])) {
@@ -698,17 +761,40 @@ final class GroupAlerts
     // =========================================================================
 
     /**
+     * How many lesson reminders the gateway has room for right now: what keeps its queue shallow, and
+     * never past the share of the day's sends they may use. A gateway that does not report its queue
+     * gets a small fixed batch.
+     *
+     * @param  array{status: string, queue_depth: ?int, sent_today: ?int, daily_cap: ?int}|null  $probe
+     */
+    private function reminderBudget(?array $probe): int
+    {
+        if (($probe['queue_depth'] ?? null) === null) {
+            return self::REMINDER_BLIND_BATCH;
+        }
+
+        $room = self::REMINDER_QUEUE_DEPTH - $probe['queue_depth'];
+        if (($probe['daily_cap'] ?? null) !== null) {
+            $room = min($room, (int) floor($probe['daily_cap'] * self::REMINDER_DAILY_SHARE) - (int) $probe['sent_today'] - $probe['queue_depth']);
+        }
+
+        return max(0, $room);
+    }
+
+    /**
      * Atomically take due alerts for this run. `skip locked` + the status flip mean two overlapping
-     * runs can never both send the same row.
+     * runs can never both send the same row. Lesson reminders are claimed apart from everything else
+     * ($reminders true/false), to their own budget: a "starting now" goes first, because the one
+     * ahead of a later lesson can still afford to wait and it cannot.
      *
      * @param  list<string>|null  $onlyIds
      * @return list<object>
      */
-    private function claim(string $academyId, CarbonImmutable $now, ?array $onlyIds = null): array
+    private function claim(string $academyId, CarbonImmutable $now, ?array $onlyIds = null, ?bool $reminders = null, int $limit = self::CLAIM_LIMIT): array
     {
         $iso = $now->format(self::TS);
         $filter = '';
-        $bindings = [$iso, $academyId, self::MAX_ATTEMPTS, $iso];
+        $bindings = [$academyId, self::MAX_ATTEMPTS, $iso];
 
         if ($onlyIds !== null) {
             if ($onlyIds === []) {
@@ -717,21 +803,30 @@ final class GroupAlerts
             $filter = ' and id in ('.implode(',', array_fill(0, count($onlyIds), '?')).')';
             $bindings = [...$bindings, ...$onlyIds];
         }
-        $bindings[] = self::CLAIM_LIMIT;
+        if ($reminders !== null) {
+            $filter .= ' and event_type '.($reminders ? 'in' : 'not in')." ('".implode("', '", GroupAlertCatalog::LESSON_REMINDERS)."')";
+        }
+        $order = $reminders === true ? "(event_type = '".GroupAlertCatalog::LESSON_STARTING."') desc, due_at" : 'due_at';
+        $bindings[] = $limit;
+        $bindings[] = $iso;
 
+        // Materialized: as a plain `in (select … limit n)` the planner may run the subquery again for
+        // each outer row, and the update then takes more rows than the limit allows.
         return DB::select(<<<SQL
+            with picked as materialized (
+              select id from whatsapp_group_alerts
+               where academy_id = ?
+                 and status in ('PENDING', 'FAILED')
+                 and attempts < ?
+                 and next_attempt_at <= ?{$filter}
+               order by {$order}
+               limit ?
+               for update skip locked
+            )
             update whatsapp_group_alerts a
                set status = 'SENDING', attempts = a.attempts + 1, updated_at = ?
-             where a.id in (
-               select id from whatsapp_group_alerts
-                where academy_id = ?
-                  and status in ('PENDING', 'FAILED')
-                  and attempts < ?
-                  and next_attempt_at <= ?{$filter}
-                order by due_at
-                limit ?
-                for update skip locked
-             )
+              from picked
+             where a.id = picked.id
             returning a.id, a.group_id, a.event_type, a.subject_key, a.payload, a.due_at, a.attempts
         SQL, $bindings);
     }

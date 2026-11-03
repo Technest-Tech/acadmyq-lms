@@ -2163,6 +2163,19 @@ export function updateGuardian(
  * Remove a parent (soft-delete, restorable). With active children it needs `withChildren`: each
  * child is removed exactly as deleting a student does, and the parent with them.
  */
+/** What deleting this family or student would let go: a centre's unpaid charges, per currency. */
+export interface RemovalDues {
+  dues: { currency: string; amount_minor: number }[];
+}
+
+export function getGuardianRemovalDues(id: string): Promise<RemovalDues> {
+  return apiFetch(`/api/guardians/${id}/removal-dues`);
+}
+
+export function getStudentRemovalDues(id: string): Promise<RemovalDues> {
+  return apiFetch(`/api/students/${id}/removal-dues`);
+}
+
 export function deleteGuardian(id: string, withChildren: boolean): Promise<{ ok: boolean; removed_children: number }> {
   return apiFetch(`/api/guardians/${id}`, {
     method: "DELETE",
@@ -4045,7 +4058,8 @@ export function markAttendance(
  * The server reverses whatever the marking moved — the invoice line (or the package minutes) and
  * the teacher's payout accrual — and refuses (422) when that money can no longer be moved: a
  * closed invoice or a finalized payout. It also refuses a lesson that was RESCHEDULED, because its
- * replacement already exists as a separate occurrence.
+ * replacement already exists as a separate occurrence. A centre's finalized payout does not refuse:
+ * `carried` says what came off the teacher's open statement instead.
  *
  * Gated by `session.revert_attendance`, which a teacher does not hold.
  */
@@ -4053,6 +4067,7 @@ export function revertAttendance(sessionId: string): Promise<{
   status: string;
   billed: boolean;
   classification: SessionClassification;
+  carried?: { amount_minor: number; currency: string } | null;
 }> {
   return apiFetch(`/api/sessions/${sessionId}/attendance/revert`, {
     method: "POST",
@@ -4949,8 +4964,73 @@ export interface PayrollRangeLesson {
   scheduled_at_utc: string | null;
   amount_minor: number;
   currency: string;
-  /** The monthly statement it sits on is finalized — the lesson can no longer move. */
+  /** The monthly statement it sits on is finalized: a correction is carried to an open one. */
   finalized: boolean;
+  /** Taken off a finalized statement: the paid line stays, its difference went on an open one. */
+  removed: boolean;
+}
+
+/** A past lesson of the teacher's in the window that pays nothing (unmarked, cancelled, free). */
+export interface PayrollLessonNotOnSalary {
+  id: string;
+  status: SessionStatus;
+  duration_minutes: number;
+  student_name: string | null;
+  session_date: string;
+  local_time: string;
+}
+
+export interface PayrollLessonRemoval {
+  amount_minor: number;
+  currency: string | null;
+  payout_sealed: boolean;
+  student_locked: boolean;
+}
+
+export interface PayrollAddedLesson {
+  session_id: string;
+  statement_year: number;
+  statement_month: number;
+  /** The lesson's own month is finalized, so it went on this later statement. */
+  carried: boolean;
+}
+
+export function addPayrollLesson(input: {
+  teacher_id: string;
+  student_id: string;
+  local_datetime: string;
+  duration_minutes: number;
+}): Promise<PayrollAddedLesson> {
+  return apiFetch("/api/payouts/lessons", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function attendPayrollLesson(sessionId: string): Promise<PayrollAddedLesson> {
+  return apiFetch(`/api/payouts/lessons/${sessionId}/attend`, { method: "POST" });
+}
+
+export function getPayrollLessonRemovalPreview(sessionId: string): Promise<PayrollLessonRemoval> {
+  return apiFetch(`/api/payouts/lessons/${sessionId}/removal-preview`);
+}
+
+export function removePayrollLesson(sessionId: string): Promise<PayrollLessonRemoval> {
+  return apiFetch(`/api/payouts/lessons/${sessionId}`, { method: "DELETE" });
+}
+
+export function previewPayrollLessonDuration(
+  sessionId: string,
+  durationMinutes: number,
+): Promise<SessionDurationImpact> {
+  return apiFetch(`/api/payouts/lessons/${sessionId}/duration-preview?duration_minutes=${durationMinutes}`);
+}
+
+export function updatePayrollLessonDuration(
+  sessionId: string,
+  durationMinutes: number,
+): Promise<SessionDurationImpact> {
+  return apiFetch(`/api/payouts/lessons/${sessionId}/duration`, {
+    method: "PATCH",
+    body: JSON.stringify({ duration_minutes: durationMinutes }),
+  });
 }
 
 export function getPayrollRangeLessons(
@@ -4958,7 +5038,7 @@ export function getPayrollRangeLessons(
   from: string,
   to: string,
   currency?: string,
-): Promise<{ lessons: PayrollRangeLesson[] }> {
+): Promise<{ lessons: PayrollRangeLesson[]; not_on_salary: PayrollLessonNotOnSalary[] }> {
   const q = new URLSearchParams({ teacher_id: teacherId, from, to });
   if (currency) q.set("currency", currency);
   return apiFetch(`/api/payouts/range/lessons?${q.toString()}`);

@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Services\PackageSettlement;
 use App\Services\Payroll;
+use App\Services\PayrollLessonCorrection;
 use App\Support\AuthContext;
 use App\Support\DataTable;
 use Illuminate\Http\JsonResponse;
@@ -533,17 +534,68 @@ final class PayoutController extends Controller
                 DB::raw('cg.name as group_name'),
                 'li.description',
                 DB::raw('(p.finalized_at is not null) as finalized'),
+                'se.status',
+                'se.bill_override',
+                'se.teacher_override',
             ])
             ->get()
             ->map(static function (object $row): object {
                 $row->amount_minor = (int) $row->amount_minor;
                 $row->duration_minutes = $row->duration_minutes !== null ? (int) $row->duration_minutes : null;
                 $row->finalized = (bool) $row->finalized;
+                // Taken off a sealed statement: the paid line stays, its difference went on an open one.
+                $row->removed = $row->session_id !== null && ! PayrollLessonCorrection::paysTeacher($row);
+                unset($row->status, $row->bill_override, $row->teacher_override);
 
                 return $row;
             });
 
-        return response()->json(['lessons' => $lessons]);
+        return response()->json([
+            'lessons' => $lessons,
+            'not_on_salary' => $this->lessonsNotOnSalary($validated['teacher_id'], $validated['from'], $validated['to'], $validated['currency'] ?? null),
+        ]);
+    }
+
+    /**
+     * The teacher's past lessons in the window that pay nothing (unmarked, cancelled, free). A
+     * "missing" lesson is usually one of these rather than one that never existed. A lesson would be
+     * paid in the teacher's current currency, so another currency's row lists none.
+     *
+     * @return list<object>
+     */
+    private function lessonsNotOnSalary(string $teacherId, string $from, string $to, ?string $currency): array
+    {
+        $teacher = DB::table('teachers as t')
+            ->join('academies as a', 'a.id', '=', 't.academy_id')
+            ->where('t.id', $teacherId)
+            ->first(['t.currency', 'a.timezone']);
+
+        if ($teacher === null || ($currency !== null && $currency !== $teacher->currency)) {
+            return [];
+        }
+
+        $timezone = (string) ($teacher->timezone ?: 'UTC');
+
+        return DB::table('sessions as se')
+            ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
+            ->where('se.teacher_id', $teacherId)
+            ->where('se.paid_to_teacher', false)
+            ->whereNull('se.hidden_at')
+            ->whereNotIn('se.status', ['RESCHEDULED', 'ATTENDED'])
+            ->where('se.scheduled_at_utc', '<', now()->toIso8601String())
+            ->whereRaw('(se.scheduled_at_utc at time zone ?)::date between ?::date and ?::date', [$timezone, $from, $to])
+            ->orderBy('se.scheduled_at_utc')
+            ->limit(200)
+            ->select(['se.id', 'se.status', 'se.duration_minutes', DB::raw('st.full_name as student_name')])
+            ->selectRaw("to_char(se.scheduled_at_utc at time zone ?, 'YYYY-MM-DD') as session_date", [$timezone])
+            ->selectRaw("to_char(se.scheduled_at_utc at time zone ?, 'HH24:MI') as local_time", [$timezone])
+            ->get()
+            ->map(static function (object $row): object {
+                $row->duration_minutes = (int) $row->duration_minutes;
+
+                return $row;
+            })
+            ->all();
     }
 
     // -------------------------------------------------------------------------

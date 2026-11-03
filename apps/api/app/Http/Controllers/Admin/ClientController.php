@@ -482,6 +482,10 @@ final class ClientController extends Controller
         foreach (FeatureCatalog::CLIENT_TYPE_MODULES[$clientType] ?? [] as $module) {
             $capabilities = [];
             foreach (FeatureCatalog::capabilitiesOfModule($module) as $key) {
+                // Lesson reminders need students and teachers, which a WhatsApp-only client does not have.
+                if ($key === 'whatsapp.group_reminders' && $clientType !== 'MANAGEMENT') {
+                    continue;
+                }
                 $capabilities[$key] = FeatureCatalog::CAPABILITIES[$key] ?? $key;
             }
 

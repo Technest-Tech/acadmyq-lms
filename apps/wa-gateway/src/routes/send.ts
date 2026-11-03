@@ -53,11 +53,11 @@ export function registerSendRoutes(app: FastifyInstance, manager: SessionManager
     return reply.send({ exists })
   })
 
-  // GET /api/status -> { status }
+  // GET /api/status -> { status, queueDepth, sentToday, dailyCap }
   app.get('/api/status', { preHandler: guard }, async (req, reply) => {
     const session = req.waSession
     if (!session) return reply.code(401).send({ error: 'invalid_token' })
-    return reply.send({ status: session.statusUpper() })
+    return reply.send({ status: session.statusUpper(), ...session.sendLoad() })
   })
 
   // GET /api/groups -> { groups: GroupView[] }  — the groups this number can be told to post into.

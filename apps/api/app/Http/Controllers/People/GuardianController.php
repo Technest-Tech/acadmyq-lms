@@ -274,11 +274,19 @@ final class GuardianController extends Controller
         }
 
         $academyId = $this->currentAcademyId();
-        DB::transaction(function () use ($id, $academyId, $children): void {
+        $charges = app(ChargeCancellation::class);
+        $childIds = $children->pluck('id')->map(fn ($c) => (string) $c)->all();
+        // Deleting takes what they still owe with it: a money decision, for a role that has it.
+        if ($charges->duesOf($academyId, $childIds, $id)->isNotEmpty() && ! Gate::allows('invoice.mark_paid')) {
+            abort(422, 'This family still owes money, and removing it lets that go. Ask someone who handles payments. / على هذه الأسرة مستحقات تُلغى مع حذفها. اطلب ذلك ممن يتولى المدفوعات.');
+        }
+
+        DB::transaction(function () use ($id, $academyId, $children, $charges): void {
             $students = app(StudentController::class);
             foreach ($children as $child) {
                 $students->removeFromAcademy((string) $child->id, $academyId, $child);
             }
+            $charges->letGoAllOf($academyId, [], $id, 'Family removed from the academy / حذف الأسرة', $this->ctx()->userId, $this->ctx()->role);
 
             DB::table('guardians')->where('id', $id)->update(['deleted_at' => now(), 'updated_at' => now()]);
             Audit::log('guardian.delete', 'guardian', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
@@ -286,6 +294,22 @@ final class GuardianController extends Controller
         });
 
         return response()->json(['ok' => true, 'removed_children' => $children->count()]);
+    }
+
+    /** GET /api/guardians/{id}/removal-dues — what deleting this family would let go, for the confirm dialog. */
+    public function removalDues(string $id): JsonResponse
+    {
+        Gate::authorize('guardian.update');
+        if (! DB::table('guardians')->where('id', $id)->exists()) {
+            abort(404, 'Guardian not found.');
+        }
+        $childIds = DB::table('students')->where('guardian_id', $id)->whereNull('deleted_at')->pluck('id')->map(fn ($c) => (string) $c)->all();
+
+        return response()->json([
+            'dues' => Gate::allows('invoice.read')
+                ? ChargeCancellation::totals(app(ChargeCancellation::class)->duesOf($this->currentAcademyId(), $childIds, $id))
+                : [],
+        ]);
     }
 
     /**

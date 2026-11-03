@@ -14,14 +14,17 @@ use Illuminate\Validation\ValidationException;
  * drift apart. The preview and write deliberately share one calculation: the confirmation shown
  * to the owner is therefore the operation that is applied, not an approximation made by the UI.
  *
- * Open records may move; issued invoices, completed packages and finalized payroll never do.
+ * Open records may move; issued invoices, completed packages and finalized payroll never do. With
+ * `carrySealed` (the payroll page) those closed documents stop being a refusal: the lesson's length
+ * is corrected, a closed bill or finished package stays as it is, and a finalized statement's
+ * difference goes on the teacher's first open one ({@see Payroll::carryLessonDifference}).
  */
 final class SessionDurationCorrection
 {
     public function __construct(private readonly LessonPackages $packages) {}
 
     /** @return array<string,mixed> */
-    public function preview(object $session, int $newDuration): array
+    public function preview(object $session, int $newDuration, bool $carrySealed = false): array
     {
         $currentDuration = max(1, (int) $session->duration_minutes);
         $blockers = [];
@@ -48,7 +51,7 @@ final class SessionDurationCorrection
             $newOverdrawn = max(0, $newConsumed - $capacity);
             $newCreditOverdrawn = max(0, $newOverdrawn - max(0, (int) $credit->minutes_overdrawn - (int) $credit->credit_overdrawn));
 
-            if ((string) $credit->package_status !== 'ACTIVE') {
+            if (! $carrySealed && (string) $credit->package_status !== 'ACTIVE') {
                 $blockers[] = 'PACKAGE_CLOSED';
             }
 
@@ -95,7 +98,7 @@ final class SessionDurationCorrection
                 $amountAfter = (int) round((int) $invoiceLine->amount_minor * $newDuration / $currentDuration);
             }
 
-            if ((string) $invoiceLine->invoice_status !== 'OPEN') {
+            if (! $carrySealed && (string) $invoiceLine->invoice_status !== 'OPEN') {
                 $blockers[] = 'INVOICE_LOCKED';
             }
 
@@ -119,7 +122,7 @@ final class SessionDurationCorrection
 
         $payout = null;
         if ($payoutLine !== null) {
-            if ($payoutLine->finalized_at !== null) {
+            if (! $carrySealed && $payoutLine->finalized_at !== null) {
                 $blockers[] = 'PAYOUT_FINALIZED';
             }
 
@@ -150,9 +153,9 @@ final class SessionDurationCorrection
     }
 
     /** @return array<string,mixed> */
-    public function update(string $sessionId, int $newDuration, ?string $actorUserId, ?string $actorRole): array
+    public function update(string $sessionId, int $newDuration, ?string $actorUserId, ?string $actorRole, bool $carrySealed = false): array
     {
-        return DB::transaction(function () use ($sessionId, $newDuration, $actorUserId, $actorRole): array {
+        return DB::transaction(function () use ($sessionId, $newDuration, $actorUserId, $actorRole, $carrySealed): array {
             $session = DB::table('sessions')->where('id', $sessionId)->lockForUpdate()->first();
             if ($session === null) {
                 throw ValidationException::withMessages(['session' => ['Session not found. / الحصة غير موجودة.']]);
@@ -162,7 +165,7 @@ final class SessionDurationCorrection
             // the race where an invoice/package/payout could be finalized between confirmation
             // and the write, leaving only part of the cycle corrected.
             $this->lockFinancialDocuments($sessionId);
-            $preview = $this->preview($session, $newDuration);
+            $preview = $this->preview($session, $newDuration, $carrySealed);
             if (! $preview['can_change']) {
                 throw ValidationException::withMessages([
                     'duration_minutes' => [$this->blockedMessage($preview['blockers'])],
@@ -179,14 +182,26 @@ final class SessionDurationCorrection
                 'updated_at' => now(),
             ]);
 
-            if ($preview['invoice'] !== null) {
+            // Without carrySealed the blockers above have already refused anything closed.
+            if ($preview['invoice'] !== null && $preview['invoice']['status'] === 'OPEN') {
                 $this->updateInvoice($session, $preview['invoice'], $actorUserId, $actorRole);
             }
-            if ($preview['package'] !== null) {
+            if ($preview['package'] !== null && $preview['package']['status'] === 'ACTIVE') {
                 $this->updatePackage($session, $preview['package'], $newDuration, $actorUserId, $actorRole);
             }
             if ($preview['payout'] !== null) {
-                $this->updatePayout($session, $preview['payout'], $actorUserId, $actorRole);
+                if ($preview['payout']['finalized']) {
+                    $reason = "Lesson length corrected ({$before} → {$newDuration} min) / تصحيح مدة حصة ({$before} ← {$newDuration} د)";
+                    app(Payroll::class)->carryLessonDifference(
+                        $preview['payout']['payout_id'],
+                        $preview['payout']['amount_after'] - $preview['payout']['amount_before'],
+                        $reason,
+                        (string) $actorUserId,
+                        (string) $actorRole,
+                    );
+                } else {
+                    $this->updatePayout($session, $preview['payout'], $actorUserId, $actorRole);
+                }
             }
 
             Audit::log(

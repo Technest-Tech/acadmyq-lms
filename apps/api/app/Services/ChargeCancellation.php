@@ -129,33 +129,7 @@ final class ChargeCancellation
                 }
             }
 
-            foreach ($owed as $l) {
-                $remaining = (int) $l->amount_minor - (int) $l->allocated;
-                DB::table('invoice_line_items')->where('id', $l->id)->update([
-                    'amount_minor' => (int) $l->allocated,
-                    'cancelled_minor' => DB::raw("cancelled_minor + {$remaining}"),
-                    'cancelled_at' => now(),
-                    'cancelled_by' => $userId,
-                    'cancel_reason' => $reason,
-                ]);
-            }
-            DB::table('invoices')->where('id', $invoiceId)->update([
-                'subtotal_minor' => DB::raw("subtotal_minor - {$total}"),
-                'total_minor' => DB::raw("total_minor - {$total}"),
-                'updated_at' => now(),
-            ]);
-            DB::select('select app.ledger_refresh_invoice(?)', [$invoiceId]);
-            $this->ledger->afterLinesChanged($invoiceId);
-
-            // A teacher paid a share of the group's charges is paid on what the families now owe.
-            foreach ($owed->whereNotNull('class_group_id')->whereNotNull('group_period')->unique(fn ($l) => $l->class_group_id.'|'.$l->group_period) as $l) {
-                $group = DB::table('class_groups')->where('id', $l->class_group_id)->first();
-                $period = Carbon::parse($l->group_period);
-                if ($group !== null) {
-                    app(GroupPayroll::class)->syncRevenueShare($group, (int) $period->year, (int) $period->month);
-                }
-            }
-            $this->audit($academyId, $invoiceId, $owed, $total, $reason, $userId, $role, voided: false);
+            $this->takeOff($academyId, $invoiceId, $owed, $total, $reason, $userId, $role);
 
             return ['lines' => $owed->count(), 'cancelled_minor' => $total, 'currency' => $currency];
         });
@@ -173,8 +147,105 @@ final class ChargeCancellation
         $this->packages->complete((string) $package->id, 'CHARGE_CANCELLED', $userId, $role);
     }
 
-    /** Lines still owed (not cancelled, something unpaid), with what was paid toward each. */
-    private function linesQuery(string $academyId)
+    /**
+     * What leaves with a child or a family deleted from the academy: everything still unpaid on open
+     * bills for those children, and — a whole family going — the bills addressed to the parent with
+     * no child on them. Includes a line let go earlier that still owes (its receipt was voided since).
+     *
+     * @param  list<string>  $studentIds
+     * @return Collection<int, object>
+     */
+    public function duesOf(string $academyId, array $studentIds, ?string $guardianId = null): Collection
+    {
+        if (! self::availableFor($academyId) || ($studentIds === [] && $guardianId === null)) {
+            return collect();
+        }
+
+        return $this->linesQuery($academyId, includeLetGo: true)
+            ->where(function ($q) use ($studentIds, $guardianId): void {
+                $q->whereIn('li.student_id', $studentIds);
+                if ($guardianId !== null) {
+                    $q->orWhere(fn ($own) => $own->where('i.guardian_id', $guardianId)->whereNull('li.student_id'));
+                }
+            })
+            ->get();
+    }
+
+    /**
+     * Delete means delete (lingo, 2026-11-03): a family removed and added again left every bill behind
+     * on the dues pages, for a child nobody could see any more. What was paid stays paid; a subscription
+     * already wound down stays where it stopped. A no-op anywhere but a centre on the accounts.
+     *
+     * @param  list<string>  $studentIds
+     * @return int how many charges were let go
+     */
+    public function letGoAllOf(string $academyId, array $studentIds, ?string $guardianId, string $reason, ?string $userId, ?string $role): int
+    {
+        return DB::transaction(function () use ($academyId, $studentIds, $guardianId, $reason, $userId, $role): int {
+            $dues = $this->duesOf($academyId, $studentIds, $guardianId);
+            foreach ($dues->groupBy('invoice_id') as $invoiceId => $owed) {
+                DB::table('invoices')->where('id', $invoiceId)->lockForUpdate()->first();
+                $total = (int) $owed->sum(fn ($l) => (int) $l->amount_minor - (int) $l->allocated);
+                $this->takeOff($academyId, (string) $invoiceId, $owed, $total, $reason, $userId, $role);
+            }
+
+            return $dues->count();
+        });
+    }
+
+    /**
+     * What a list of owed lines comes to, per currency.
+     *
+     * @param  Collection<int, object>  $lines
+     * @return list<array{currency: string, amount_minor: int}>
+     */
+    public static function totals(Collection $lines): array
+    {
+        return $lines->groupBy('currency')
+            ->map(fn ($of, $currency) => ['currency' => (string) $currency, 'amount_minor' => (int) $of->sum(fn ($l) => (int) $l->amount_minor - (int) $l->allocated)])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Take what is unpaid off these lines of one bill: what was paid stays, and the ledger, the bill
+     * and any teacher paid a share of the group's charges follow.
+     *
+     * @param  Collection<int, object>  $owed
+     */
+    private function takeOff(string $academyId, string $invoiceId, Collection $owed, int $total, ?string $reason, ?string $userId, ?string $role): void
+    {
+        foreach ($owed as $l) {
+            $remaining = (int) $l->amount_minor - (int) $l->allocated;
+            DB::table('invoice_line_items')->where('id', $l->id)->update([
+                'amount_minor' => (int) $l->allocated,
+                'cancelled_minor' => DB::raw("cancelled_minor + {$remaining}"),
+                'cancelled_at' => now(),
+                'cancelled_by' => $userId,
+                'cancel_reason' => $reason,
+            ]);
+        }
+        DB::table('invoices')->where('id', $invoiceId)->update([
+            'subtotal_minor' => DB::raw("subtotal_minor - {$total}"),
+            'total_minor' => DB::raw("total_minor - {$total}"),
+            'updated_at' => now(),
+        ]);
+        DB::select('select app.ledger_refresh_invoice(?)', [$invoiceId]);
+        $this->ledger->afterLinesChanged($invoiceId);
+
+        // A teacher paid a share of the group's charges is paid on what the families now owe.
+        foreach ($owed->whereNotNull('class_group_id')->whereNotNull('group_period')->unique(fn ($l) => $l->class_group_id.'|'.$l->group_period) as $l) {
+            $group = DB::table('class_groups')->where('id', $l->class_group_id)->first();
+            $period = Carbon::parse($l->group_period);
+            if ($group !== null) {
+                app(GroupPayroll::class)->syncRevenueShare($group, (int) $period->year, (int) $period->month);
+            }
+        }
+        $this->audit($academyId, $invoiceId, $owed, $total, $reason, $userId, $role, voided: false);
+    }
+
+    /** Lines still owed (something unpaid; not already let go, unless asked), with what was paid toward each. */
+    private function linesQuery(string $academyId, bool $includeLetGo = false)
     {
         $allocated = DB::table('receipt_allocations')
             ->selectRaw('invoice_line_id, sum(amount_minor) as allocated')
@@ -186,7 +257,7 @@ final class ChargeCancellation
             ->leftJoin('students as st', 'st.id', '=', 'li.student_id')
             ->where('i.academy_id', $academyId)
             ->where('i.status', 'OPEN')
-            ->whereNull('li.cancelled_at')
+            ->when(! $includeLetGo, fn ($q) => $q->whereNull('li.cancelled_at'))
             ->whereRaw('li.amount_minor > coalesce(a.allocated, 0)')
             ->select([
                 'li.id', 'li.invoice_id', 'li.student_id', 'li.description', 'li.amount_minor', 'li.currency',

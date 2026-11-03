@@ -29,6 +29,8 @@ import { useAuth } from "@/components/auth-provider";
 import { GuardianForm } from "@/components/guardians/guardian-form";
 import { TeacherTimetables } from "@/components/scheduling/schedule-editor";
 import { MonthlyTermsFields, useMonthlyTerms } from "@/components/students/monthly-terms";
+import { PersonGroupCard } from "@/components/lesson-reminders/person-group-card";
+import { RemovalDuesNote } from "@/components/guardians/removal-dues-note";
 import { StudentMonthCard } from "@/components/students/student-month-card";
 import { SubscriptionsCard } from "@/components/students/subscriptions-card";
 import { DetailRow, ProfileCard } from "@/components/ui/profile-card";
@@ -47,6 +49,7 @@ import {
   ApiError,
   deactivateStudent,
   deleteStudent,
+  getStudentRemovalDues,
   getGuardian,
   getRepricePreview,
   getStudent,
@@ -290,6 +293,9 @@ export function StudentDetail({
         }}
         onError={setError}
       />
+
+      {/* ── WhatsApp group: where this student's lesson reminders go (opt-in per client) ── */}
+      {isActive && <PersonGroupCard kind="student" personId={studentId} />}
 
       {/* ── Subscription section ─────────────────────────────────────── */}
       <SubscriptionSection
@@ -2158,6 +2164,7 @@ export function DangerZone({
       >
         <div className="space-y-3">
           <p className="text-sm">{t("detail.deleteConfirmBody")}</p>
+          {confirmDelete && <RemovalDuesNote load={() => getStudentRemovalDues(studentId)} />}
           <p className="text-muted-foreground text-xs">
             {t("detail.deleteRecoverableNote")}
           </p>

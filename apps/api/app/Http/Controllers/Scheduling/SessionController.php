@@ -363,18 +363,7 @@ final class SessionController extends Controller
             $service->record($session, SessionStatus::CancelledByTeacher, 'Deleted / حُذفت', $this->ctx()->userId, $this->ctx()->role, false, false);
         }
 
-        DB::table('sessions')->where('id', $sessionId)->update(['hidden_at' => now(), 'updated_at' => now()]);
-
-        // A request to cancel or free a lesson that no longer exists has nothing left to decide.
-        DB::table('session_cancellation_requests')
-            ->where('session_id', $sessionId)->where('status', 'PENDING')
-            ->update([
-                'status' => 'REJECTED',
-                'decided_by_user_id' => $this->ctx()->userId,
-                'decided_at' => now(),
-                'decision_note' => 'Lesson deleted',
-                'updated_at' => now(),
-            ]);
+        $service->hide($sessionId, $this->ctx()->userId);
 
         Audit::log('session.deleted', 'session', $sessionId, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role,
             before: ['status' => $prevStatus, 'billed' => (bool) $session->billed, 'paid_to_teacher' => (bool) $session->paid_to_teacher]);

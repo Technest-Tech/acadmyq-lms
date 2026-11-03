@@ -248,9 +248,11 @@ function SalarySummaryPanel({
 function SalaryByTeacher({
   range,
   loading,
+  onMutated,
 }: {
   range: PayrollRange | null;
   loading: boolean;
+  onMutated: () => void;
 }) {
   const t = useTranslations("payroll");
   const locale = useLocale();
@@ -416,6 +418,7 @@ function SalaryByTeacher({
         from={range.from}
         to={range.to}
         onClose={closeLessons}
+        onMutated={onMutated}
       />
     </section>
   );
@@ -663,7 +666,7 @@ export function PayrollScreen() {
 
       {/* Salary figures for exactly that window — owner only */}
       {isOwner && <SalarySummaryPanel range={range} loading={rangeLoading} />}
-      {isOwner && <SalaryByTeacher range={range} loading={rangeLoading} />}
+      {isOwner && <SalaryByTeacher range={range} loading={rangeLoading} onMutated={refreshAll} />}
 
       {/* The monthly statements the window touches — the place you open one or finalize it. */}
       <div className="flex items-center gap-2">

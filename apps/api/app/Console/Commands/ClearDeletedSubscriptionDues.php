@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Services\ChargeCancellation;
 use App\Services\Invoicing;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -15,13 +16,15 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * The dues a deleted subscription left behind before deleting took them along (a curriculum centre,
- * 2026-10-29) — a one-off repair for curriculum centres only. Two leftovers:
+ * 2026-10-29) — a one-off repair for curriculum centres only. Three leftovers:
  *
  *   - a group membership deleted as a mistake (`class_group.member_undone`) that began mid-month:
  *     its month's charge (dated the 1st) stayed. Removed when the student has no membership in that
  *     group any more and the bill is still open — what was paid toward it becomes their credit.
  *   - a private subscription deleted unused whose bill had already closed with its month: the bill
  *     stayed. Voided when nothing was paid toward it.
+ *   - a child or family deleted before deleting took their dues along (2026-11-03): what they still
+ *     owe is let go, as deleting now does; what they paid stays.
  *
  * Lists what it would do; `--apply` does it.
  *
@@ -37,16 +40,21 @@ final class ClearDeletedSubscriptionDues extends Command
 
     protected $description = 'Take off the dues that deleted group / private subscriptions left behind (curriculum centres).';
 
-    public function handle(Invoicing $invoicing): int
+    public function handle(Invoicing $invoicing, ChargeCancellation $charges): int
     {
         $apply = (bool) $this->option('apply');
         foreach ($this->academies() as $academyId => $name) {
             $ctx = new AuthContext(userId: self::SYSTEM_USER_ID, academyId: $academyId, role: 'SUPER_ADMIN', permissions: []);
             // A curriculum centre's only (read inside its own context: entitlements are tenant rows).
-            [$lines, $bills] = Tenancy::withContext($ctx, fn () => Entitlement::hasCapability($academyId, 'centre')
-                ? [$this->groupLeftovers(), $this->packageLeftovers()]
-                : [collect(), collect()]);
-            if ($lines->isEmpty() && $bills->isEmpty()) {
+            [$lines, $bills, $removed, $dues] = Tenancy::withContext($ctx, function () use ($academyId, $charges): array {
+                if (! Entitlement::hasCapability($academyId, 'centre')) {
+                    return [collect(), collect(), [], collect()];
+                }
+                $removed = DB::table('students')->whereNotNull('deleted_at')->pluck('id')->map(fn ($v) => (string) $v)->all();
+
+                return [$this->groupLeftovers(), $this->packageLeftovers(), $removed, $charges->duesOf($academyId, $removed)];
+            });
+            if ($lines->isEmpty() && $bills->isEmpty() && $dues->isEmpty()) {
                 continue;
             }
 
@@ -57,11 +65,14 @@ final class ClearDeletedSubscriptionDues extends Command
             foreach ($bills as $b) {
                 $this->line(sprintf('  subscription  %s · %s · bill %04d-%02d  %d %s', $b->student_name, $b->label, $b->period_year, $b->period_month, $b->total_minor, $b->currency));
             }
+            foreach ($dues as $d) {
+                $this->line(sprintf('  removed       %s · %s  %d %s', $d->student_name, $d->description, (int) $d->amount_minor - (int) $d->allocated, $d->currency));
+            }
             if (! $apply) {
                 continue;
             }
 
-            Tenancy::withContext($ctx, function () use ($lines, $bills, $invoicing, $academyId): void {
+            Tenancy::withContext($ctx, function () use ($lines, $bills, $removed, $invoicing, $charges, $academyId): void {
                 foreach ($lines as $l) {
                     $invoicing->removeGroupLine(DB::table('invoice_line_items')->where('id', $l->id)->first());
                 }
@@ -69,8 +80,9 @@ final class ClearDeletedSubscriptionDues extends Command
                     DB::table('invoices')->where('id', $b->invoice_id)->where('amount_paid_minor', 0)->update(['status' => 'VOID', 'updated_at' => now()]);
                     DB::table('lesson_packages')->where('overdraft_invoice_id', $b->invoice_id)->update(['overdraft_invoice_id' => null, 'updated_at' => now()]);
                 }
+                $letGo = $charges->letGoAllOf($academyId, $removed, null, 'Student removed from the academy / حذف الطالب', null, 'SUPER_ADMIN');
                 Audit::log('subscriptions.deleted_dues_cleared', 'academy', $academyId, $academyId, null, 'SUPER_ADMIN',
-                    after: ['group_lines' => $lines->pluck('id')->all(), 'voided_invoices' => $bills->pluck('invoice_id')->all()]);
+                    after: ['group_lines' => $lines->pluck('id')->all(), 'voided_invoices' => $bills->pluck('invoice_id')->all(), 'removed_students_lines' => $letGo]);
             });
             $this->info('  → cleared');
         }

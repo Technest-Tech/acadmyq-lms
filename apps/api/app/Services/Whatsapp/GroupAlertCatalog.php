@@ -46,6 +46,18 @@ final class GroupAlertCatalog
      */
     public const PAYMENT_OVERDUE = 'PAYMENT_OVERDUE';
 
+    /** A lesson of a student or teacher with an assigned group starts soon (the academy picks how soon). */
+    public const LESSON_REMINDER = 'LESSON_REMINDER';
+
+    /** That lesson's start time has arrived. */
+    public const LESSON_STARTING = 'LESSON_STARTING';
+
+    /**
+     * The lesson reminders ({@see LessonGroupReminders}). A group does not tick these: having a student
+     * or teacher assigned to it is what earns them, so they are outside `selectable()` and the panel.
+     */
+    public const LESSON_REMINDERS = [self::LESSON_REMINDER, self::LESSON_STARTING];
+
     /** The operator's "send a test" from the panel. Never selectable. */
     public const TEST = 'TEST';
 
@@ -55,11 +67,12 @@ final class GroupAlertCatalog
     ];
 
     /** The alerts whose truth can lapse before they go out, so they are re-checked at send time. */
-    public const CONDITIONAL = [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE, self::TRIAL_STARTED, self::TRIAL_NOT_MARKED, self::PAYMENT_OVERDUE];
+    public const CONDITIONAL = [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE, self::TRIAL_STARTED, self::TRIAL_NOT_MARKED, self::PAYMENT_OVERDUE, self::LESSON_REMINDER, self::LESSON_STARTING];
 
     /**
      * How long an alert may wait for a connected number before it stops being worth sending. A
      * "starting now" twenty minutes late is noise; a payment a day late is still news.
+     * LESSON_REMINDER is not here: it lapses when its lesson starts, however long ago it fell due.
      */
     public const MAX_AGE_MINUTES = [
         self::SESSION_STARTED => 20,
@@ -72,6 +85,8 @@ final class GroupAlertCatalog
         self::PAYMENT_RECEIVED => 48 * 60,
         // A missed reminder is not chased: the next one is only days away.
         self::PAYMENT_OVERDUE => 24 * 60,
+        // Goes to the family, not to staff watching a board: late is worse than never.
+        self::LESSON_STARTING => 10,
         self::TEST => 30,
     ];
 

@@ -10,6 +10,7 @@ use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
+use App\Services\Payroll;
 use App\Support\Audit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -132,7 +133,7 @@ final class AttendanceController extends Controller
      * The reconciliation and its guards live in {@see AttendanceService::revert} — a closed invoice
      * or a finalized payout refuses the revert rather than silently leaving the money behind.
      */
-    public function revert(AttendanceService $service, string $sessionId): JsonResponse
+    public function revert(AttendanceService $service, Payroll $payroll, string $sessionId): JsonResponse
     {
         Gate::authorize('session.revert_attendance');
 
@@ -157,12 +158,15 @@ final class AttendanceController extends Controller
         // Should an academy ever hand a teacher this capability, it still only reaches their own marks.
         $this->assertNotLockedForTeacher($session);
 
+        // Read first: once reverted the lesson no longer says it was paid.
+        $carried = $payroll->sealedLessonPay($session);
         $result = $service->revert($session, $this->ctx()->userId, $this->ctx()->role);
 
         return response()->json([
             'status' => $result['status'],
             'billed' => $result['billed'],
             'classification' => SessionClassifier::classify(SessionStatus::Scheduled),
+            'carried' => $carried,
         ]);
     }
 

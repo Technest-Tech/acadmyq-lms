@@ -2130,6 +2130,17 @@ final class LessonPackages
             ->first();
     }
 
+    /** Whether {@see release()} would refuse this session: its package is closed and already billed. */
+    public function releaseRefused(string $sessionId): bool
+    {
+        $package = DB::table('lesson_package_credits as c')
+            ->join('lesson_packages as p', 'p.id', '=', 'c.package_id')
+            ->where('c.session_id', $sessionId)
+            ->first(['p.status', 'p.invoice_id']);
+
+        return $package !== null && $package->status !== 'ACTIVE' && $this->packageIsSettled($package);
+    }
+
     /** Whether a package's bill has moved past OPEN (and so can no longer be edited). */
     private function packageIsSettled(object $package): bool
     {

@@ -6,6 +6,7 @@ namespace App\Http\Controllers\People;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
+use App\Services\ChargeCancellation;
 use App\Services\ClassGroups;
 use App\Services\FamilyCharges;
 use App\Services\Invoicing;
@@ -457,12 +458,32 @@ final class StudentController extends Controller
             abort(404, 'Student not found.');
         }
 
+        // Deleting takes what they still owe with it: a money decision, for a role that has it.
+        if (app(ChargeCancellation::class)->duesOf($academyId, [$id])->isNotEmpty() && ! Gate::allows('invoice.mark_paid')) {
+            abort(422, 'This student still owes money, and removing them lets it go. Ask someone who handles payments. / على هذا الطالب مستحقات تُلغى مع حذفه. اطلب ذلك ممن يتولى المدفوعات.');
+        }
+
         $this->removeFromAcademy($id, $academyId, $student);
 
         return response()->json([
             'ok' => true,
             'recoverable' => true,
             'message' => 'Student removed from your academy. The record and its history are retained and can be restored.',
+        ]);
+    }
+
+    /** GET /api/students/{id}/removal-dues — what deleting this student would let go, for the confirm dialog. */
+    public function removalDues(string $id): JsonResponse
+    {
+        Gate::authorize('student.deactivate');
+        if (! DB::table('students')->where('id', $id)->exists()) {
+            abort(404, 'Student not found.');
+        }
+
+        return response()->json([
+            'dues' => Gate::allows('invoice.read')
+                ? ChargeCancellation::totals(app(ChargeCancellation::class)->duesOf($this->currentAcademyId(), [$id]))
+                : [],
         ]);
     }
 
@@ -476,6 +497,7 @@ final class StudentController extends Controller
         $now = now();
         DB::transaction(function () use ($id, $academyId, $now, $student): void {
             $wound = $this->endActiveBilling($id, $now);
+            $duesLetGo = app(ChargeCancellation::class)->letGoAllOf($academyId, [$id], null, 'Student removed from the academy / حذف الطالب', $this->ctx()->userId, $this->ctx()->role);
 
             DB::table('students')->where('id', $id)->update([
                 'deleted_at' => $now,
@@ -494,6 +516,7 @@ final class StudentController extends Controller
                     'cancelled_unmarked_sessions' => $wound['sessions_cancelled'],
                     'hidden_sessions' => $wound['sessions_hidden'],
                     'left_groups' => $wound['groups_left'],
+                    'dues_let_go' => $duesLetGo,
                 ],
                 before: ['status' => $student->status]);
         });

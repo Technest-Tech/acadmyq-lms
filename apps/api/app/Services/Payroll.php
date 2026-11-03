@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Payroll\PayoutHook;
 use App\Support\Audit;
+use App\Support\AuthContext;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -128,12 +129,15 @@ final class Payroll implements PayoutHook
     /**
      * A session is no longer ATTENDED (corrected before the payout was finalized) → remove its
      * pending line item and reverse the payout total. Rejects if the payout is finalized.
+     *
+     * Except a curriculum centre on receipts (lingo, 2026-11-03): a lesson recorded on the wrong day
+     * is found after the 3rd, and refusing left it stuck on the wrong day for good. There the sealed
+     * statement stays as it was paid and the pay comes off the teacher's open one, the same carry the
+     * payroll page's corrections use; marking the lesson again pays it on the open statement.
      */
     public function onSessionUnattended(object $session): void
     {
-        $line = DB::table('payout_line_items')
-            ->where('session_id', $session->id)
-            ->first();
+        $line = $this->lessonLine((string) $session->id);
 
         if ($line === null) {
             return; // Already gone — idempotent.
@@ -146,6 +150,13 @@ final class Payroll implements PayoutHook
         $payout = DB::table('payouts')->where('id', $payoutId)->first();
 
         if ($payout !== null && $payout->finalized_at !== null) {
+            $ctx = app()->bound(AuthContext::class) ? app(AuthContext::class) : null;
+            if ($ctx !== null && PackageSettlement::availableFor($academyId)) {
+                $this->carryLessonDifference($payoutId, -$amountMinor, $this->lessonUndoneReason($session), (string) $ctx->userId, (string) $ctx->role);
+
+                return;
+            }
+
             // R-PAY immutability: a finalized payout reflects money paid in the real world.
             throw ValidationException::withMessages([
                 'payout' => [
@@ -529,6 +540,44 @@ final class Payroll implements PayoutHook
     }
 
     /**
+     * The pay that undoing this lesson would carry to the teacher's open statement, or null when it
+     * would simply reverse (or refuse): the amount the undo dialog reports back.
+     *
+     * @return array{amount_minor: int, currency: string}|null
+     */
+    public function sealedLessonPay(object $session): ?array
+    {
+        if (! (bool) $session->paid_to_teacher || ! PackageSettlement::availableFor((string) $session->academy_id)) {
+            return null;
+        }
+        $line = $this->lessonLine((string) $session->id);
+
+        return $line !== null && $line->finalized_at !== null
+            ? ['amount_minor' => (int) $line->amount_minor, 'currency' => (string) $line->currency]
+            : null;
+    }
+
+    /** The lesson's line that still counts: an open statement's first, then the latest sealed one. */
+    private function lessonLine(string $sessionId): ?object
+    {
+        return DB::table('payout_line_items as li')
+            ->join('payouts as p', 'p.id', '=', 'li.payout_id')
+            ->where('li.session_id', $sessionId)
+            ->orderByRaw('p.finalized_at is not null')
+            ->orderByDesc('li.created_at')
+            ->first(['li.*', 'p.finalized_at']);
+    }
+
+    private function lessonUndoneReason(object $session): string
+    {
+        $timezone = (string) (DB::table('academies')->where('id', $session->academy_id)->value('timezone') ?: 'UTC');
+        $name = DB::table('students')->where('id', $session->student_id)->value('full_name') ?? '—';
+        $text = Carbon::parse($session->scheduled_at_utc)->setTimezone($timezone)->format('d/m/Y').' · '.$name;
+
+        return "Lesson undone: {$text} / تراجع عن حصة: {$text}";
+    }
+
+    /**
      * Take a group line off its statement. Refused on a finalized statement (or, when `$quiet`,
      * skipped) — returns whether it was removed.
      */
@@ -820,30 +869,50 @@ final class Payroll implements PayoutHook
             ]);
         }
 
-        $teacher = $this->teacherForReprice($payout);
-        $delta = $this->repriceQuote($payout, $teacher)['delta_minor'];
-        if ($delta === 0) {
-            return 0;
+        $delta = $this->repriceQuote($payout, $this->teacherForReprice($payout))['delta_minor'];
+        $period = sprintf('%02d/%d', $payout->period_month, $payout->period_year);
+
+        $this->carryLessonDifference(
+            $payoutId,
+            $delta,
+            "Salary recalculated for {$period} / فرق إعادة حساب راتب {$period}",
+            $actorUserId,
+            $actorRole,
+        );
+
+        return $delta;
+    }
+
+    /**
+     * Put a difference owed on a FINALIZED statement onto the teacher's first open one, as a reward
+     * (underpaid) or a deduction (overpaid). `repriced_payout_id` ties it to the sealed statement, so
+     * {@see repriceQuote()} nets it off and a later recalculation does not owe it a second time.
+     *
+     * @throws ValidationException the teacher is gone, or now paid in another currency
+     */
+    public function carryLessonDifference(string $sealedPayoutId, int $deltaMinor, string $reason, string $actorUserId, string $actorRole): void
+    {
+        if ($deltaMinor === 0) {
+            return;
         }
 
-        $academy = DB::table('academies')->where('id', $academyId)->first();
+        $payout = DB::table('payouts')->where('id', $sealedPayoutId)->first();
+        $teacher = $this->teacherForReprice($payout);
+        $academy = DB::table('academies')->where('id', $payout->academy_id)->first();
         [$year, $month] = $this->currentPeriod($academy);
-        $period = sprintf('%02d/%d', $payout->period_month, $payout->period_year);
 
         // One unit: a statement opened here must not outlive a refused adjustment.
         DB::transaction(fn () => $this->addAdjustment(
             $this->openPayoutForLesson($academy, $teacher, $year, $month),
-            $academyId,
-            $delta > 0 ? 'REWARD' : 'DEDUCTION',
-            abs($delta),
-            "Salary recalculated for {$period} / فرق إعادة حساب راتب {$period}",
+            (string) $payout->academy_id,
+            $deltaMinor > 0 ? 'REWARD' : 'DEDUCTION',
+            abs($deltaMinor),
+            $reason,
             null,
             $actorUserId,
             $actorRole,
-            $payoutId,
+            $sealedPayoutId,
         ));
-
-        return $delta;
     }
 
     /**
@@ -879,15 +948,21 @@ final class Payroll implements PayoutHook
         $lines = DB::table('payout_line_items as li')
             ->join('sessions as se', 'se.id', '=', 'li.session_id')
             ->where('li.payout_id', $payoutId)
-            ->get(['li.id', 'li.amount_minor', 'se.id as session_id', 'se.student_id', 'se.duration_minutes']);
+            ->get(['li.id', 'li.amount_minor', 'se.id as session_id', 'se.student_id', 'se.duration_minutes', 'se.status', 'se.bill_override', 'se.teacher_override',
+                // Undone on a sealed statement and marked again: its pay now lives on the later line.
+                DB::raw('exists (select 1 from payout_line_items later where later.session_id = li.session_id and later.created_at > li.created_at) as paid_later')]);
 
         $changed = [];
         foreach ($lines as $line) {
-            $fresh = $this->linePayMinor($teacher, (object) [
-                'id' => $line->session_id,
-                'student_id' => $line->student_id,
-                'duration_minutes' => $line->duration_minutes,
-            ]);
+            // A lesson removed from a sealed statement keeps its line there but no longer earns it;
+            // the deduction already carried for it is netted off by repriceQuote().
+            $fresh = PayrollLessonCorrection::paysTeacher($line) && ! $line->paid_later
+                ? $this->linePayMinor($teacher, (object) [
+                    'id' => $line->session_id,
+                    'student_id' => $line->student_id,
+                    'duration_minutes' => $line->duration_minutes,
+                ])
+                : 0;
             $delta = $fresh - (int) $line->amount_minor;
             if ($delta !== 0) {
                 $changed[] = ['id' => (string) $line->id, 'fresh' => $fresh, 'delta' => $delta];

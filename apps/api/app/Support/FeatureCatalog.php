@@ -27,6 +27,7 @@ final class FeatureCatalog
         'payroll' => 'Teacher payout calculation',
         'certificates' => 'Student certificates',
         'whatsapp.automation' => 'WhatsApp automation & notifications',
+        'whatsapp.group_reminders' => 'Lesson reminders in WhatsApp groups — a group per student and teacher',
         'staff' => 'Non-teaching staff management',
         'custom_roles' => 'Custom roles & permissions builder',
         'trials' => 'Free trials pipeline & availability matcher',
@@ -185,7 +186,7 @@ final class FeatureCatalog
             'centre',
         ],
         'VIDEO' => ['video.conferencing'],
-        'WHATSAPP' => ['whatsapp.automation'],
+        'WHATSAPP' => ['whatsapp.automation', 'whatsapp.group_reminders'],
         'LMS' => ['lms'],
     ];
 
@@ -206,6 +207,8 @@ final class FeatureCatalog
         // Replaces the free-text lesson report with the academy's own form and message: a client
         // keeps writing reports the way it always has until a Super Admin switches it on.
         'lesson_report',
+        // Starts posting into the WhatsApp groups of a client's families: never a surprise.
+        'whatsapp.group_reminders',
     ];
 
     /**

@@ -428,6 +428,14 @@
             "label": "Unpaid invoice reminder",
             "desc": "A repeating reminder for every invoice still unpaid (from the day it fell due or its pay link was sent) until payment is recorded — every:"
           },
+          "LESSON_REMINDER": {
+            "label": "Lesson reminder",
+            "desc": "Before a lesson of a student or teacher assigned to this group."
+          },
+          "LESSON_STARTING": {
+            "label": "Lesson starting",
+            "desc": "When that lesson starts."
+          },
           "TEST": "Test message"
         },
         "status": {
@@ -1483,6 +1491,7 @@
       "courses": "Courses",
       "lessonReport": "Lesson report",
       "reportCard": "Report card",
+      "lessonReminders": "Lesson reminders",
       "whatsapp": "WhatsApp",
       "controls": "Controls",
       "account": "Account & data"
@@ -1627,6 +1636,92 @@
           "title": "Teachers can add a class",
           "desc": "Shows the \"Add class\" button in the teacher's attendance page, for a one-off lesson outside the timetable. Turn it off so only you and your admins add lessons."
         }
+      }
+    },
+    "lessonReminders": {
+      "cardTitle": "WhatsApp group",
+      "cardDescStudent": "This student's lesson reminders go to this group.",
+      "cardDescTeacher": "This teacher's lesson reminders go to this group.",
+      "notConnectedTitle": "Reminders are on hold: your WhatsApp number is not connected",
+      "notConnectedBody": "Reconnect it from the WhatsApp tab. Reminders that come due in the meantime are dropped rather than sent late.",
+      "stats": {
+        "sent": "Sent",
+        "waiting": "On the way",
+        "failed": "Failed",
+        "missed": "Missed"
+      },
+      "statsHint": "Last 24 hours",
+      "assignedStudents": "{assigned} of {total} students have a group",
+      "assignedTeachers": "{assigned} of {total} teachers have a group",
+      "sentToday": "{sent} of {cap} messages sent today",
+      "capacityWarn": "About {expected} reminders are due in the next 24 hours, and this number sends up to {cap} messages a day. Reminders stop at 90% so bills and reports still go out. To stay under it, use one group for a student and their teacher, or turn off one of the two reminders.",
+      "timingTitle": "When to send",
+      "timingDesc": "Applies to every student and teacher who has a group.",
+      "lead": "Reminder before the lesson",
+      "leadOff": "No reminder before",
+      "leadMinutes": "{n} minutes before",
+      "language": "Message language",
+      "arabic": "Arabic",
+      "english": "English",
+      "atStart": "Also when the lesson starts",
+      "atStartHint": "A second message at the lesson's start time.",
+      "silentWarn": "With both off, no reminders go out.",
+      "save": "Save",
+      "saved": "Saved.",
+      "assignTitle": "Assign groups",
+      "assignDesc": "Only groups your connected number is in appear here. Where only admins can post, make the number an admin first.",
+      "students": "Students",
+      "teachers": "Teachers",
+      "search": "Search by name or group",
+      "filter": "Show",
+      "filterAll": "Everyone",
+      "filterWithout": "Without a group",
+      "filterWith": "With a group",
+      "refreshGroups": "Refresh groups",
+      "noRows": "Nobody matches.",
+      "noGroup": "No group",
+      "pickGroup": "Choose a group",
+      "searchGroups": "Search groups…",
+      "members": "{count, plural, one {# member} other {# members}}",
+      "usedBy": "used by {count}",
+      "adminsOnly": "admins only",
+      "notListedShort": "number not in it",
+      "notListed": "Your number is no longer in this group, so reminders will not reach it. Add the number back, or choose another group.",
+      "adminsOnlyWarning": "Only admins can post in this group now, so reminders will not reach it. Make your number an admin.",
+      "test": "Test",
+      "testSent": "Test message sent to {group}.",
+      "last": {
+        "ok": "Last message went through",
+        "failed": "Last message failed",
+        "missed": "Last reminder was missed"
+      },
+      "pageOf": "Page {page} of {pages}",
+      "previous": "Previous",
+      "next": "Next",
+      "logTitle": "Latest reminders",
+      "logDesc": "What went out, to which group, and whether it arrived.",
+      "logProblems": "Only the ones that did not arrive",
+      "logEmpty": "No reminders yet. They appear here once a lesson with a group comes up.",
+      "logNoProblems": "Nothing failed or was missed.",
+      "stage": {
+        "LESSON_REMINDER": "Before the lesson",
+        "LESSON_STARTING": "At the start"
+      },
+      "status": {
+        "PENDING": "Waiting",
+        "SENDING": "Sending",
+        "QUEUED": "On the way",
+        "SENT": "Sent",
+        "DELIVERED": "Delivered",
+        "FAILED": "Failed",
+        "EXPIRED": "Missed",
+        "SKIPPED": "Not needed"
+      },
+      "errors": {
+        "not_connected": "Your WhatsApp number is not connected. Connect it from the WhatsApp tab first.",
+        "gateway_unavailable": "Could not reach the WhatsApp service. Please try again in a minute.",
+        "not_a_member": "Your connected number is not in that group. Add it to the group, then press Refresh groups.",
+        "admins_only": "Only admins can post in that group. Make your number an admin, then try again."
       }
     },
     "whatsapp": {
@@ -3502,8 +3597,9 @@
       "hint": "You can then mark it again, or reschedule it — a lesson can only be moved while it is pending.",
       "confirm": "Undo and set to pending",
       "cancel": "Keep it as it is",
-      "done": "The lesson is back to pending.",
-      "inlineHint": "Didn't happen after all? Put the lesson back to pending so it can be marked again or moved."
+      "done": "Done",
+      "inlineHint": "Didn't happen after all? Put the lesson back to pending so it can be marked again or moved.",
+      "carried": "The lesson is pending again. Its month's salary statement is final, so {amount} came off the teacher's open statement. Marking it again pays it on the open statement."
     },
     "tabs": {
       "private": "Private lessons",
@@ -3655,7 +3751,40 @@
     "rangeLessonsWindow": "{from} → {to}",
     "rangeLessonsLoading": "Loading lessons…",
     "rangeLessonsEmpty": "No paid lessons in this period.",
-    "rangeTapHint": "Tap a teacher to see their lessons",
+    "lessonAdd": "Add lesson",
+    "lessonAddTitle": "Add a missing lesson",
+    "lessonAddHint": "Recorded as attended: it goes on the teacher's salary and the student's bill like any marked lesson.",
+    "lessonAddSave": "Add lesson",
+    "lessonWhen": "Lesson time",
+    "lessonMinutes": "Length in minutes",
+    "lessonEditTitle": "Edit lesson length",
+    "lessonEditSave": "Save change",
+    "lessonEditNotAttended": "Only an attended lesson's length can be edited.",
+    "lessonEditSalary": "Teacher's salary: from {before} to {after}.",
+    "lessonEditSalarySealed": "This month's statement is sealed: it stays as it is, and the difference between {before} and {after} goes on the open statement.",
+    "lessonEditBill": "Student's bill: from {before} to {after}.",
+    "lessonEditPackage": "The minutes taken from the “{label}” package are updated.",
+    "lessonPackageLocked": "The “{label}” package is finished: it stays as it is.",
+    "lessonBillLocked": "The student's bill is closed: it stays as it is. Correct it from the invoices page if needed.",
+    "lessonRemoveTitle": "Remove lesson",
+    "lessonRemoveConfirm": "Remove lesson",
+    "lessonRemoveSalary": "{amount} comes off the teacher's statement.",
+    "lessonRemoveSalarySealed": "This month's statement is sealed: it stays as it is, and a {amount} deduction goes on the open statement.",
+    "lessonRemoveBill": "The lesson comes off the student's bill, or its minutes go back to their package.",
+    "lessonRemovedTag": "Removed: its amount was deducted on the open statement.",
+    "lessonEdited": "Lesson updated.",
+    "lessonRemoved": "Lesson removed.",
+    "lessonCounted": "Lesson added to the salary.",
+    "lessonCarried": "The lesson's month is sealed, so it went on the {period} statement.",
+    "lessonCount": "Count it",
+    "lessonCorrectHint": "Change a lesson's length, remove it, or add a missing one. The salary and the student's bill move together.",
+    "lessonSealedHint": "Lessons with a lock are on a sealed statement: it doesn't change, and any correction's difference goes on the open statement.",
+    "lessonGroupHint": "Group lessons are corrected from the group's own sheet.",
+    "lessonNotOnSalaryTitle": "Lessons in this period not on the salary",
+    "lessonNotOnSalaryHint": "Unmarked or cancelled lessons. “Count it” records one as attended, so it goes on the salary and the student's bill.",
+    "lessonEditMonth": "Edit this month's lessons",
+    "lessonEditMonthHint": "A lesson extra, missing or the wrong length? Correct it here.",
+    "rangeTapHint": "Tap a teacher to see or correct their lessons",
     "blocksHint": "Click a row to see its lessons."
   },
   "audit": {
@@ -3737,7 +3866,8 @@
       },
       "whatsapp": {
         "auto": "Automated WhatsApp",
-        "automation": "WhatsApp automation & notifications"
+        "automation": "WhatsApp automation & notifications",
+        "group_reminders": "Lesson reminders in WhatsApp groups — a group per student and teacher"
       },
       "payments": {
         "gateway": "Payment gateway"
@@ -10456,7 +10586,8 @@
         "REFUND": "{amount} paid back to the family (expense {number}).",
         "KEEP": "Recorded: the academy keeps {amount}."
       }
-    }
+    },
+    "removalDues": "They owe {amount} unpaid, which goes with the deletion. What was paid stays counted."
   },
   "doneBy": {
     "col": "Done by",

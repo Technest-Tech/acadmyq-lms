@@ -1,11 +1,12 @@
 "use client";
 
 import { AlertTriangle, Loader2, Undo2 } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { revertAttendance } from "@/lib/api";
+import { formatMoney } from "@/lib/money";
 
 /**
  * Undo a recorded outcome, putting the lesson back to pending.
@@ -17,7 +18,9 @@ import { revertAttendance } from "@/lib/api";
  * lesson can only be rescheduled while it is pending.
  *
  * When the money has already been settled — a closed invoice, a finalized payout — the server
- * refuses and its message is shown here rather than as a toast that outlives the dialog.
+ * refuses and its message is shown here rather than as a toast that outlives the dialog. A centre's
+ * finalized payout does not refuse: the pay comes off the teacher's open statement, and the dialog
+ * stays to say so, because that is money nobody asked about in the words "undo".
  */
 export function RevertOutcomeDialog({
   sessionId,
@@ -42,18 +45,52 @@ export function RevertOutcomeDialog({
   const tStatus = useTranslations("scheduling.status");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const locale = useLocale();
+  const [carried, setCarried] = useState<string | null>(null);
 
   async function confirm() {
     setBusy(true);
     setError(null);
     try {
-      await revertAttendance(sessionId);
-      onReverted();
+      const result = await revertAttendance(sessionId);
+      if (result.carried) {
+        setCarried(formatMoney({ amount: result.carried.amount_minor, currency: result.carried.currency }, locale));
+      } else {
+        onReverted();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
+  }
+
+  function finish() {
+    setCarried(null);
+    onReverted();
+  }
+
+  if (carried !== null) {
+    return (
+      <Modal
+        open={open}
+        onClose={finish}
+        title={t("title")}
+        description={studentName ?? undefined}
+        size="sm"
+        footer={
+          <div className="flex w-full justify-end">
+            <Button type="button" size="sm" onClick={finish} data-testid="revert-done">
+              {t("done")}
+            </Button>
+          </div>
+        }
+      >
+        <p className="text-sm leading-relaxed" data-testid="revert-carried">
+          {t("carried", { amount: carried })}
+        </p>
+      </Modal>
+    );
   }
 
   return (

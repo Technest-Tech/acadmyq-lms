@@ -106,6 +106,18 @@ final class WasenderClient
      */
     public function sessionStatus(string $token): ?string
     {
+        return $this->status($token)['status'] ?? null;
+    }
+
+    /**
+     * The session's status with what the gateway says about its send queue: how many messages wait,
+     * how many went out today, and the number's cap for the day. The three are null on a gateway that
+     * does not report them. Null altogether when unreachable.
+     *
+     * @return array{status: string, queue_depth: ?int, sent_today: ?int, daily_cap: ?int}|null
+     */
+    public function status(string $token): ?array
+    {
         try {
             $res = $this->http($token)->get('/api/status');
             if (! $res->successful()) {
@@ -113,8 +125,18 @@ final class WasenderClient
             }
             $body = $res->json();
             $status = $body['status'] ?? $body['data']['status'] ?? null;
+            if ($status === null) {
+                return null;
+            }
 
-            return $status !== null ? strtoupper((string) $status) : null;
+            $number = fn (string $key): ?int => is_numeric($body[$key] ?? null) ? (int) $body[$key] : null;
+
+            return [
+                'status' => strtoupper((string) $status),
+                'queue_depth' => $number('queueDepth'),
+                'sent_today' => $number('sentToday'),
+                'daily_cap' => $number('dailyCap'),
+            ];
         } catch (Throwable) {
             return null;
         }

@@ -81,6 +81,7 @@ use App\Http\Controllers\Lms\SiteProfileController as LmsSiteProfileController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentSettingsController;
 use App\Http\Controllers\PayoutController;
+use App\Http\Controllers\PayrollLessonController;
 use App\Http\Controllers\PaypalOrderController;
 use App\Http\Controllers\People\GuardianController;
 use App\Http\Controllers\FamilyXpayController;
@@ -99,6 +100,7 @@ use App\Http\Controllers\Quality\QualityReportController;
 use App\Http\Controllers\Quality\QualityRubricController;
 use App\Http\Controllers\Quality\TeacherAdjustmentController;
 use App\Http\Controllers\Quality\TeacherInsightsController;
+use App\Http\Controllers\LessonReminderController;
 use App\Http\Controllers\LessonReportController;
 use App\Http\Controllers\ReportCardTemplateController;
 use App\Http\Controllers\ReportFieldController;
@@ -712,6 +714,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/guardians/{id}/reactivate', [GuardianController::class, 'reactivate']);
     // A family paused for a while, and the way back (docs/groups/01-ACCOUNTING.md).
     Route::get('/guardians/{id}/advance-dues', [GuardianController::class, 'advanceDues'])->whereUuid('id');
+    Route::get('/guardians/{id}/removal-dues', [GuardianController::class, 'removalDues'])->whereUuid('id');
     Route::post('/guardians/{id}/suspend', [GuardianController::class, 'suspend']);
     Route::post('/guardians/{id}/resume', [GuardianController::class, 'resume']);
     // The family's private page link (`/p/{token}`): read, make / replace, switch off, WhatsApp it.
@@ -730,6 +733,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // Owner-facing "remove from the system" — a recoverable soft-delete (design §3.7); the row
     // and its history are retained and restorable via reactivate.
     Route::delete('/students/{id}', [StudentController::class, 'destroy']);
+    Route::get('/students/{id}/removal-dues', [StudentController::class, 'removalDues'])->whereUuid('id');
     Route::put('/students/{id}/subscription', [StudentController::class, 'setSubscription']);
     Route::patch('/students/{id}/subscription/price', [StudentController::class, 'changePrice']);
     Route::get('/students/{id}/subscription/reprice-preview', [StudentController::class, 'repricePreview']);
@@ -822,6 +826,22 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/academy/whatsapp', [AcademyWhatsAppController::class, 'show']);
         Route::post('/academy/whatsapp/connect', [AcademyWhatsAppController::class, 'connect']);
         Route::post('/academy/whatsapp/logout', [AcademyWhatsAppController::class, 'logout']);
+    });
+
+    // Lesson reminders in WhatsApp groups: a group per student and teacher, reminders ahead of a
+    // lesson and when it starts. Switched on per client by a Super Admin (opt-in); gates inside.
+    Route::middleware('entitled:whatsapp.group_reminders')->group(function () {
+        Route::get('/lesson-reminders', [LessonReminderController::class, 'show']);
+        Route::put('/lesson-reminders/settings', [LessonReminderController::class, 'updateSettings']);
+        Route::get('/lesson-reminders/groups', [LessonReminderController::class, 'groups']);
+        Route::post('/lesson-reminders/groups/{groupId}/test', [LessonReminderController::class, 'test'])
+            ->whereUuid('groupId')->middleware('throttle:10,1');
+        Route::get('/lesson-reminders/assignments', [LessonReminderController::class, 'assignments']);
+        Route::get('/lesson-reminders/assignments/{kind}/{id}', [LessonReminderController::class, 'person'])
+            ->whereIn('kind', ['student', 'teacher'])->whereUuid('id');
+        Route::put('/lesson-reminders/assignments/{kind}/{id}', [LessonReminderController::class, 'assign'])
+            ->whereIn('kind', ['student', 'teacher'])->whereUuid('id');
+        Route::get('/lesson-reminders/log', [LessonReminderController::class, 'log']);
     });
 
     // Per-academy teacher specializations (Settings). Read for the teacher-form dropdown;
@@ -1279,6 +1299,13 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         // so the literal segment is never read as a payout ID.
         Route::get('/payouts/range', [PayoutController::class, 'range']);
         Route::get('/payouts/range/lessons', [PayoutController::class, 'rangeLessons']);
+        // Corrections to the lessons behind a salary, sealed months included.
+        Route::post('/payouts/lessons', [PayrollLessonController::class, 'store']);
+        Route::post('/payouts/lessons/{id}/attend', [PayrollLessonController::class, 'attend']);
+        Route::get('/payouts/lessons/{id}/removal-preview', [PayrollLessonController::class, 'removalPreview']);
+        Route::delete('/payouts/lessons/{id}', [PayrollLessonController::class, 'destroy']);
+        Route::get('/payouts/lessons/{id}/duration-preview', [PayrollLessonController::class, 'durationPreview']);
+        Route::patch('/payouts/lessons/{id}/duration', [PayrollLessonController::class, 'updateDuration']);
         Route::post('/payouts/finalize', [PayoutController::class, 'finalize']);
         Route::get('/me/payouts', [PayoutController::class, 'mePayouts']);
         Route::get('/payouts/recalc-preview', [PayoutController::class, 'recalcPreview']);

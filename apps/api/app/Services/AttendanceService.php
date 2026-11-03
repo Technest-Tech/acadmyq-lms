@@ -62,6 +62,7 @@ final class AttendanceService
      * minutes) and reverses the payout accrual on its own, under the same guards. A closed invoice
      * or a finalized payout therefore refuses the revert with the same message it refuses any
      * other un-billing: the money has left the building and the lesson can no longer be un-marked.
+     * (A curriculum centre's finalized payout carries the difference instead: Payroll::onSessionUnattended.)
      *
      * What a revert additionally clears is the record of the marking itself — the reason, the
      * per-occurrence billing overrides, and who marked it when — so the lesson re-enters the
@@ -76,11 +77,39 @@ final class AttendanceService
     }
 
     /**
+     * Hide a deleted lesson from every planning surface and close any request still pending on it:
+     * a request to cancel or free a lesson that no longer exists has nothing left to decide.
+     */
+    public function hide(string $sessionId, string $actorUserId): void
+    {
+        DB::table('sessions')->where('id', $sessionId)->update(['hidden_at' => now(), 'updated_at' => now()]);
+
+        DB::table('session_cancellation_requests')
+            ->where('session_id', $sessionId)->where('status', 'PENDING')
+            ->update([
+                'status' => 'REJECTED',
+                'decided_by_user_id' => $actorUserId,
+                'decided_at' => now(),
+                'decision_note' => 'Lesson deleted',
+                'updated_at' => now(),
+            ]);
+    }
+
+    /**
      * @param  bool  $recorded  True when a human is RECORDING an outcome (stamp who/when), false
      *                          when they are taking one back (clear the stamp).
      * @return array{status: string, billed: bool, billingAction: ?string}
      */
     private function apply(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride, ?bool $teacherOverride, bool $recorded): array
+    {
+        // One unit. The request's own transaction COMMITS after a 422 (Laravel renders the exception
+        // inside it), so without this a payout refusing here left the package minutes or invoice line
+        // already taken off: "cannot undo" on screen, the lesson gone from its package underneath.
+        return DB::transaction(fn (): array => $this->applyOutcome($session, $next, $reason, $actorUserId, $actorRole, $billOverride, $teacherOverride, $recorded));
+    }
+
+    /** @return array{status: string, billed: bool, billingAction: ?string} */
+    private function applyOutcome(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride, ?bool $teacherOverride, bool $recorded): array
     {
         $prev = (string) $session->status;
         $wasBilled = (bool) $session->billed;
@@ -123,7 +152,7 @@ final class AttendanceService
         // by `paid_to_teacher`. Only ATTENDED counts for the teacher (countsForTeacher), so e.g.
         // ABSENT_UNEXCUSED bills the student above but pays nothing here (AC-8.2). onSessionUnattended
         // rejects if the payout is already finalized (AC-8.5) — that throw also rolls back any
-        // invoice line just removed, keeping both documents consistent.
+        // invoice line just removed ({@see apply()}), keeping both documents consistent.
         if ($verdict['countsForTeacher'] && ! $wasPaidToTeacher) {
             $this->payoutHook->onSessionAttended($session);    // accrue the payout line (snapshot rate)
             $paidToTeacher = true;

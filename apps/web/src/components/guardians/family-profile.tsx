@@ -45,6 +45,7 @@ import {
   ApiError,
   carryStudentCharges,
   deleteGuardian,
+  getGuardianRemovalDues,
   getGuardian,
   listStudents,
   reactivateGuardian,
@@ -57,6 +58,7 @@ import {
   type GuardianRow,
   type MovedAwayCharges,
 } from "@/lib/api";
+import { RemovalDuesNote } from "@/components/guardians/removal-dues-note";
 import { fetchRoster } from "@/lib/roster";
 import { useCapability } from "@/lib/capabilities";
 import { COUNTRIES } from "@/lib/countries";
@@ -1296,6 +1298,7 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
       >
         <div className="space-y-3 text-sm">
           <p>{t("detail.deleteConfirmBody")}</p>
+          {modal === "deactivate" && <RemovalDuesNote load={() => getGuardianRemovalDues(guardianId)} />}
           {activeChildren > 0 && (
             <label
               className="border-destructive/30 bg-destructive/5 flex cursor-pointer items-start gap-2.5 rounded-xl border p-3"

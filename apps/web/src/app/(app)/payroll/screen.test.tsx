@@ -87,13 +87,15 @@ describe("PayrollScreen (salary period)", () => {
     renderScreen();
 
     // A statement is a month, so the window reaches the list as month bounds, not as days.
+    const now = new Date();
+    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     await waitFor(() => {
       const urls = apiFetch.mock.calls.map((c) => String(c[0]));
       expect(
         urls.some(
           (u) =>
             u.includes("period_from") &&
-            decodeURIComponent(u).includes("2026-09") &&
+            decodeURIComponent(u).includes(thisMonth) &&
             u.includes("period_to"),
         ),
       ).toBe(true);

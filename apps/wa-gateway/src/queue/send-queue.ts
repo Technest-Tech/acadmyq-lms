@@ -77,7 +77,13 @@ export class SendQueue {
   }
 
   get sentTodayCount(): number {
+    this.rollDay()
     return this.sentToday
+  }
+
+  /** The number's send cap for the day: the slower warm-up cap while it is newly paired. */
+  get dailyCap(): number {
+    return this.pacing().cap
   }
 
   enqueue(jid: string, messageId: string, payload: SendPayload): void {

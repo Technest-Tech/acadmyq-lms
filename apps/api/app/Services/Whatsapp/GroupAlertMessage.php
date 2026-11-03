@@ -93,6 +93,14 @@ final class GroupAlertMessage
                     : 'A reminder every '.$settings['payment_reminder_days'].' day(s) until payment is recorded.',
                 ...array_map(fn (array $p): string => $this->overdueLine($p, $ar), $payloads),
             ],
+            GroupAlertCatalog::LESSON_REMINDER => [
+                $ar ? ($many ? '⏰ *تذكير بمواعيد الحصص*' : '⏰ *تذكير بموعد الحصة*') : ($many ? '⏰ *Lesson reminders*' : '⏰ *Lesson reminder*'),
+                ...$this->reminderLines($payloads, $ar, $timezone, $now, true),
+            ],
+            GroupAlertCatalog::LESSON_STARTING => [
+                $ar ? ($many ? '🔔 *حان موعد الحصص*' : '🔔 *حان موعد الحصة*') : ($many ? '🔔 *Lessons starting now*' : '🔔 *Lesson starting now*'),
+                ...$this->reminderLines($payloads, $ar, $timezone, $now, false),
+            ],
             GroupAlertCatalog::TEST => $this->testLines($payloads[0] ?? [], $ar),
             default => [],
         };
@@ -114,6 +122,39 @@ final class GroupAlertMessage
             return $ar
                 ? "• {$time} — المعلم {$teacher} مع {$student}"
                 : "• {$time} — {$teacher} with {$student}";
+        }, $payloads);
+    }
+
+    /**
+     * One line per lesson for a family or a teacher, so unlike the staff lines it carries no phone
+     * number — and it says how long is left, because the family may not share the academy's clock.
+     *
+     * @param  list<array<string,mixed>>  $payloads
+     * @return list<string>
+     */
+    private function reminderLines(array $payloads, bool $ar, string $timezone, CarbonImmutable $now, bool $countdown): array
+    {
+        return array_map(function (array $p) use ($ar, $timezone, $now, $countdown): string {
+            $startsAt = (string) ($p['starts_at'] ?? '');
+            $teacher = $this->name($p['teacher'] ?? null);
+            $student = $this->name($p['student'] ?? null);
+            $class = $this->name($p['class'] ?? null);
+
+            $who = match ($p['kind'] ?? 'LESSON') {
+                'CLASS' => $ar ? "المعلم {$teacher} — مجموعة {$class}" : "{$teacher} — group {$class}",
+                'TRIAL' => $ar ? "حصة تجريبية: المعلم {$teacher} مع {$student}" : "Trial: {$teacher} with {$student}",
+                default => $ar ? "المعلم {$teacher} مع {$student}" : "{$teacher} with {$student}",
+            };
+            $line = '• '.$this->when($startsAt, $timezone, $now, $ar)." — {$who}";
+
+            if ($countdown && $startsAt !== '') {
+                $left = (int) ceil($now->diffInSeconds(CarbonImmutable::parse($startsAt)) / 60);
+                if ($left > 0) {
+                    $line .= $ar ? ' (بعد '.$this->arMinutes($left).')' : " (in {$left} min)";
+                }
+            }
+
+            return $line;
         }, $payloads);
     }
 
@@ -260,6 +301,12 @@ final class GroupAlertMessage
     private function testLines(array $p, bool $ar): array
     {
         $label = trim((string) ($p['label'] ?? ''));
+
+        if (! empty($p['lesson_reminders'])) {
+            return $ar
+                ? ['✅ *رسالة تجريبية*', 'هذه المجموعة مربوطة بتذكيرات الحصص، وستصل التذكيرات هنا.']
+                : ['✅ *Test message*', 'This group is linked to lesson reminders — they will arrive here.'];
+        }
 
         return $ar
             ? ['✅ *رسالة تجريبية*', $label !== '' ? "هذه المجموعة مربوطة بتنبيهات «{$label}»، وستصل التنبيهات هنا." : 'هذه المجموعة مربوطة بالتنبيهات، وستصل هنا.']

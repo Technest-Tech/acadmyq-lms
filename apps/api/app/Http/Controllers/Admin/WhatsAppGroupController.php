@@ -43,7 +43,9 @@ final class WhatsAppGroupController extends Controller
         $this->assertAcademy($id);
 
         $groups = $this->inAcademyContext($id, function () use ($id): array {
-            $rows = DB::table('whatsapp_groups')->where('academy_id', $id)->orderBy('created_at')->get();
+            // Staff groups only: a group that is here because a student or teacher was assigned to it
+            // belongs to the academy's own screen.
+            $rows = DB::table('whatsapp_groups')->where('academy_id', $id)->where('kind', 'STAFF')->orderBy('created_at')->get();
             if ($rows->isEmpty()) {
                 return [];
             }
@@ -95,7 +97,7 @@ final class WhatsAppGroupController extends Controller
         }
 
         $linked = $this->inAcademyContext($id, fn () => DB::table('whatsapp_groups')
-            ->where('academy_id', $id)->pluck('jid')->map(fn ($j) => (string) $j)->all());
+            ->where('academy_id', $id)->where('kind', 'STAFF')->pluck('jid')->map(fn ($j) => (string) $j)->all());
 
         return response()->json([
             'groups' => array_map(fn (array $g): array => $g + ['linked' => in_array($g['id'], $linked, true)], $listing),
@@ -137,26 +139,37 @@ final class WhatsAppGroupController extends Controller
         $events = GroupAlertCatalog::normaliseEvents($data['events'] ?? []);
 
         $group = $this->inAcademyContext($id, function () use ($id, $data, $match, $events, $ctx, $now): ?object {
-            if (DB::table('whatsapp_groups')->where('academy_id', $id)->where('jid', $data['jid'])->exists()) {
+            $existing = DB::table('whatsapp_groups')->where('academy_id', $id)->where('jid', $data['jid'])->first();
+            if ($existing !== null && $existing->kind !== 'LESSON') {
                 return null;
             }
 
-            $groupId = (string) Str::uuid();
-            DB::table('whatsapp_groups')->insert([
-                'id' => $groupId,
-                'academy_id' => $id,
-                'jid' => $data['jid'],
+            $fields = [
                 'name' => $match['subject'] !== '' ? $match['subject'] : $data['jid'],
                 'label' => $this->cleanLabel($data['label'] ?? null),
                 'language' => $data['language'] ?? 'ar',
                 'events' => json_encode($events),
-                'event_since' => json_encode(array_fill_keys($events, $now->toIso8601String())),
+                'event_since' => json_encode((object) array_fill_keys($events, $now->toIso8601String())),
                 'settings' => json_encode(GroupAlertCatalog::settings($data['settings'] ?? null)),
                 'is_active' => $data['is_active'] ?? true,
-                'created_by' => $this->realUserId($ctx),
-                'created_at' => $now->toIso8601String(),
+                'kind' => 'STAFF',
                 'updated_at' => $now->toIso8601String(),
-            ]);
+            ];
+
+            // The academy already assigned this group to a student or teacher: same WhatsApp group,
+            // same row, and those assignments carry on while it takes staff alerts too.
+            $groupId = $existing !== null ? (string) $existing->id : (string) Str::uuid();
+            if ($existing !== null) {
+                DB::table('whatsapp_groups')->where('id', $groupId)->update($fields);
+            } else {
+                DB::table('whatsapp_groups')->insert($fields + [
+                    'id' => $groupId,
+                    'academy_id' => $id,
+                    'jid' => $data['jid'],
+                    'created_by' => $this->realUserId($ctx),
+                    'created_at' => $now->toIso8601String(),
+                ]);
+            }
 
             Audit::log('whatsapp.group_linked', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: [
                 'group_id' => $groupId, 'name' => $match['subject'], 'events' => $events,
@@ -234,7 +247,7 @@ final class WhatsAppGroupController extends Controller
                 ->where('group_id', $groupId)
                 ->whereIn('status', ['PENDING', 'FAILED'])
                 ->where('attempts', '<', GroupAlerts::MAX_ATTEMPTS)
-                ->when(! $paused, fn ($q) => $q->whereNotIn('event_type', [...$events, GroupAlertCatalog::TEST]))
+                ->when(! $paused, fn ($q) => $q->whereNotIn('event_type', [...$events, ...GroupAlertCatalog::LESSON_REMINDERS, GroupAlertCatalog::TEST]))
                 ->update(['status' => 'SKIPPED', 'error' => 'alert_turned_off', 'updated_at' => $now]);
             Audit::log('whatsapp.group_updated', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: [
                 'group_id' => $groupId, 'fields' => array_keys($data),
@@ -258,7 +271,24 @@ final class WhatsAppGroupController extends Controller
         $ctx = app(AuthContext::class);
 
         $deleted = $this->inAcademyContext($id, function () use ($id, $groupId, $ctx): int {
-            $n = DB::table('whatsapp_groups')->where('academy_id', $id)->where('id', $groupId)->delete();
+            // Students or teachers still assigned to it: it stops taking staff alerts but stays
+            // linked for their lesson reminders, rather than silently forgetting those assignments.
+            $assigned = DB::table('students')->where('whatsapp_group_id', $groupId)->exists()
+                || DB::table('teachers')->where('whatsapp_group_id', $groupId)->exists();
+
+            if ($assigned) {
+                $now = CarbonImmutable::now()->toIso8601String();
+                $n = DB::table('whatsapp_groups')->where('academy_id', $id)->where('id', $groupId)
+                    ->update(['kind' => 'LESSON', 'label' => null, 'events' => '[]', 'event_since' => '{}', 'updated_at' => $now]);
+                DB::table('whatsapp_group_alerts')
+                    ->where('group_id', $groupId)
+                    ->whereIn('status', ['PENDING', 'FAILED'])
+                    ->whereNotIn('event_type', GroupAlertCatalog::LESSON_REMINDERS)
+                    ->update(['status' => 'SKIPPED', 'error' => 'alert_turned_off', 'updated_at' => $now]);
+            } else {
+                $n = DB::table('whatsapp_groups')->where('academy_id', $id)->where('id', $groupId)->delete();
+            }
+
             if ($n > 0) {
                 Audit::log('whatsapp.group_unlinked', 'academy', $id, $id, $ctx->userId, 'SUPER_ADMIN', after: ['group_id' => $groupId]);
             }
