@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Services\Whatsapp\GroupAbsenceAlert;
 use App\Support\Audit;
 use App\Support\Entitlement;
 use Illuminate\Support\Carbon;
@@ -35,6 +36,7 @@ final class ClassGroups
     public function __construct(
         private readonly GroupBilling $billing,
         private readonly GroupPayroll $payroll,
+        private readonly GroupAbsenceAlert $absenceAlert,
     ) {}
 
     public const ATTENDANCE_STATUSES = ['PRESENT', 'LATE', 'ABSENT', 'EXCUSED'];
@@ -525,14 +527,19 @@ final class ClassGroups
      */
     public function saveAttendance(object $lesson, array $entries, array $extras, string $actorUserId, string $actorRole): void
     {
-        DB::transaction(fn () => $this->recordSheet($lesson, $entries, $extras, $actorUserId, $actorRole));
+        $marks = DB::transaction(fn (): array => $this->recordSheet($lesson, $entries, $extras, $actorUserId, $actorRole));
+
+        // The sheet is written; whoever wants to hear about it (a centre's absence alert) is told
+        // once, after the fact, and decides for itself whether it has anything to do.
+        $this->absenceAlert->sheetSaved($lesson, $marks);
     }
 
     /**
      * @param  list<array{student_id:string, status:string, note?:?string}>  $entries
      * @param  array{topic?:?string, homework?:?string, notes?:?string}  $extras
+     * @return array<string, string> every expected student's mark, by student id
      */
-    private function recordSheet(object $lesson, array $entries, array $extras, string $actorUserId, string $actorRole): void
+    private function recordSheet(object $lesson, array $entries, array $extras, string $actorUserId, string $actorRole): array
     {
         if ($lesson->status === 'CANCELLED') {
             throw ValidationException::withMessages([
@@ -555,11 +562,13 @@ final class ClassGroups
         $actor = $this->userOrNull($actorUserId);
         $now = now();
         $counts = array_fill_keys(self::ATTENDANCE_STATUSES, 0);
+        $marks = [];
 
         foreach ($roster as $id => $row) {
             $status = (string) ($byStudent[$id]['status'] ?? 'PRESENT');
             $note = $byStudent[$id]['note'] ?? null;
             $counts[$status]++;
+            $marks[(string) $id] = $status;
 
             DB::table('class_group_attendance')->upsert(
                 [[
@@ -602,6 +611,8 @@ final class ClassGroups
             'class_group_lesson', (string) $lesson->id, (string) $lesson->academy_id, $actorUserId, $actorRole,
             after: ['counts' => $counts, 'group_id' => (string) $lesson->group_id],
             before: ['status' => $lesson->status]);
+
+        return $marks;
     }
 
     /**

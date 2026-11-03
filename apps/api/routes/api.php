@@ -40,6 +40,7 @@ use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
 use App\Http\Controllers\Groups\ClassGroupController;
 use App\Http\Controllers\Groups\ClassGroupLessonController;
+use App\Http\Controllers\Groups\GroupAbsenceAlertController;
 use App\Http\Controllers\Groups\GroupBoardController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Accounting\AccountingController;
@@ -959,6 +960,16 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/group-lessons/{id}/students/{studentId}/remove', [ClassGroupLessonController::class, 'removeStudent'])->whereUuid(['id', 'studentId']);
         Route::post('/group-lessons/{id}/cancel', [ClassGroupLessonController::class, 'cancel'])->whereUuid(['id']);
         Route::post('/group-lessons/{id}/reschedule', [ClassGroupLessonController::class, 'reschedule'])->whereUuid(['id']);
+    });
+
+    // ── Centre parent portal: the absence alert (docs/centre-profile, Phase 2 §4) ──────────────
+    // A centre's switch that WhatsApps a family the moment a group sheet marks their child absent
+    // (GroupAbsenceAlert), and the wording it sends. The parent's page itself is `/p/{token}` above;
+    // its group blocks come from GuardianPortalCentre, keyed on the academy's switches, no route.
+    Route::middleware(['entitled:centre', 'entitled:groups'])->group(function () {
+        Route::get('/group-absence-alert', [GroupAbsenceAlertController::class, 'show']);
+        Route::put('/group-absence-alert', [GroupAbsenceAlertController::class, 'update']);
+        Route::post('/group-absence-alert/preview', [GroupAbsenceAlertController::class, 'preview']);
     });
 
     // CRM / Leads (CRM module). Sales/support staff capture prospective students as leads and

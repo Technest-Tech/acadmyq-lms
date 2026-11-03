@@ -10667,5 +10667,25 @@
     "theTeacher": "The lesson's teacher",
     "off": "off",
     "everyone": "Everyone"
+  },
+  "portalGroups": {
+    "title": "Absence alert to the parent",
+    "description": "A WhatsApp message reaches the parent the moment their child is marked absent on a group attendance sheet. Sent once per lesson; never for late or excused.",
+    "enabled": "Send the alert",
+    "enabledHint": "When on, the message goes out from the academy's connected WhatsApp number.",
+    "message": "Message text",
+    "messageHint": "Leave empty to use the default text. Tap a fact to insert it into the message.",
+    "useDefault": "Use the default text",
+    "placeholders": {
+      "student": "Student name",
+      "group": "Group name",
+      "date": "Lesson date",
+      "time": "Lesson time",
+      "academy": "Academy name"
+    },
+    "preview": "As the parent will read it",
+    "save": "Save",
+    "saved": "Absence alert settings saved.",
+    "loadError": "Could not load the absence alert settings."
   }
 }

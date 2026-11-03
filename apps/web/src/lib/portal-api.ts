@@ -81,11 +81,72 @@ export interface PortalLesson {
   homework?: string | null;
 }
 
+/**
+ * A child's group as a CENTRE's page shows it (GuardianPortalCentre): the chip's `name`/`teacher`
+ * plus the timetable. The extra fields exist only when the academy holds `groups`.
+ */
+export interface PortalGroup {
+  name: string;
+  teacher: string | null;
+  id?: string;
+  level?: string | null;
+  teacher_name?: string | null;
+  slots?: PortalGroupSlot[];
+  /** "YYYY-MM-DD" */
+  joined_on?: string;
+}
+
+export interface PortalGroupSlot {
+  /** 0 = Sunday … 6 = Saturday. */
+  weekday: number;
+  /** "HH:MM" on the academy's clock. */
+  start_time_local: string;
+  duration_minutes: number;
+}
+
+export type PortalAttendanceMark = "PRESENT" | "LATE" | "ABSENT" | "EXCUSED";
+
+export interface PortalGroupLesson {
+  id: string;
+  group_id: string;
+  group_name: string;
+  /** UTC instant, ISO-8601. */
+  starts_at: string;
+  duration_minutes: number;
+  /** Upcoming lessons carry the lesson's status. */
+  status?: string;
+  /** Held lessons carry the child's own mark — null when the sheet skipped them. */
+  attendance?: PortalAttendanceMark | null;
+  topic?: string | null;
+  homework?: string | null;
+}
+
+/** Marks over the last 30 days; `rate` (percent, late counts as present) is null without a sheet. */
+export interface PortalAttendanceSummary {
+  present: number;
+  late: number;
+  absent: number;
+  excused: number;
+  rate: number | null;
+}
+
+/** Where the family stands on the receipts ledger (academies holding `accounting`). */
+export interface PortalFamilyAccount {
+  currency: string;
+  due_minor: number;
+  /** Still owed from a month before this one. */
+  overdue_minor: number;
+  credit_minor: number;
+  recent_receipts: { number: string; received_on: string; amount_minor: number; currency: string; method: string }[];
+  /** The family's card-payment page, when a payment can be taken; null otherwise. */
+  pay_url: string | null;
+}
+
 export interface PortalChild {
   id: string;
   name: string;
   teachers: { name: string; course: string | null }[];
-  groups: { name: string; teacher: string | null }[];
+  groups: PortalGroup[];
   packages: {
     label: string;
     course: string | null;
@@ -96,6 +157,9 @@ export interface PortalChild {
   }[];
   month: { attended: number; absent: number; minutes: number };
   next_lesson: PortalLesson | null;
+  /** A centre's blocks (`groups` held): the week ahead and the latest sheets, and the 30-day marks. */
+  group_lessons?: { upcoming: PortalGroupLesson[]; recent: PortalGroupLesson[] };
+  attendance_summary?: PortalAttendanceSummary;
 }
 
 export interface PortalProgressReport {
@@ -136,4 +200,6 @@ export interface PortalPayload {
   progress_reports: PortalProgressReport[];
   invoices: PortalInvoice[];
   balance: { currency: string; due_minor: number }[];
+  /** Only for an academy holding `accounting`. */
+  family_account?: PortalFamilyAccount;
 }

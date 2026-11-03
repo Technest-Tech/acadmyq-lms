@@ -81,6 +81,10 @@ final class GuardianPortal
         $upcoming = $this->upcoming($ids, $now);
         $recent = $this->recent($ids, $now);
 
+        // A centre's extras (its groups' timetable and sheets, the receipts account) — both empty
+        // for an academy without those switches, so nothing below changes shape for it.
+        $centre = app(GuardianPortalCentre::class)->blocks($guardianId, $academyId, $ids, $tz, $now);
+
         return [
             'academy' => [
                 'name' => trim((string) ($academy->brand_display_name ?? '')) ?: (string) ($academy->name ?? ''),
@@ -88,11 +92,15 @@ final class GuardianPortal
                 'timezone' => $tz,
             ],
             'guardian' => ['name' => (string) ($guardian->full_name ?? '')],
-            'children' => $this->children($children, $ids, $upcoming, $tz, $now),
+            'children' => array_map(
+                fn (array $child): array => [...$child, ...($centre['children'][$child['id']] ?? [])],
+                $this->children($children, $ids, $upcoming, $tz, $now),
+            ),
             'upcoming' => $upcoming,
             'recent' => $recent,
             'progress_reports' => $this->progressReports($ids),
             ...$this->invoices($guardianId, $academyId, $tz, $now),
+            ...$centre['family'],
         ];
     }
 
