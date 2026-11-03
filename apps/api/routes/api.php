@@ -1311,6 +1311,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/me/payouts', [PayoutController::class, 'mePayouts']);
         Route::get('/payouts/recalc-preview', [PayoutController::class, 'recalcPreview']);
         Route::get('/payouts/{id}', [PayoutController::class, 'show']);
+        Route::delete('/payouts/{id}', [PayoutController::class, 'destroy'])->whereUuid('id');
         Route::post('/payouts/{id}/adjustments', [PayoutController::class, 'addAdjustment']);
         Route::delete('/payouts/{id}/adjustments/{adjustmentId}', [PayoutController::class, 'removeAdjustment']);
         Route::post('/payouts/{id}/reprice', [PayoutController::class, 'reprice']);

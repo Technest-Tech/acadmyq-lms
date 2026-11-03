@@ -33,6 +33,7 @@ import {
   type AdjustmentType,
   ApiError,
   apiFetch,
+  deletePayoutStatement,
   getSession,
   type PayoutAdjustment,
   type PayoutDetail,
@@ -77,8 +78,8 @@ export interface PayoutDetailModalProps {
 /**
  * Premium payout statement (Sprint 8+). Shows a full ledger breakdown — per-session gross,
  * rewards, deductions, net — plus the session line items and the rewards/deductions ledger with
- * reasons and details. Owners with payout.adjust can add or remove rewards/deductions while the
- * statement is OPEN; a FINALIZED statement is read-only.
+ * reasons and details. Owners with payout.adjust can correct or delete it, an old sealed statement
+ * included; only one paid from the treasury stays read-only until that payment is voided.
  */
 export function PayoutDetailModal({
   payoutId,
@@ -106,6 +107,8 @@ export function PayoutDetailModal({
   const [repricing, setRepricing] = useState(false);
   const [repriceNotice, setRepriceNotice] = useState<string | null>(null);
   const [lessonsOpen, setLessonsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async (id: string) => {
     setLoading(true);
@@ -144,6 +147,23 @@ export function PayoutDetailModal({
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
       setRemovingId(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!payoutId) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await deletePayoutStatement(payoutId);
+      setDeleteOpen(false);
+      onMutated?.();
+      onClose();
+    } catch (err) {
+      setDeleteOpen(false);
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -208,9 +228,9 @@ export function PayoutDetailModal({
     ? `${t("detailTitle")} · ${String(payout.period_month).padStart(2, "0")}/${payout.period_year}`
     : t("detailTitle");
 
-  const isOpen = payout?.status === "OPEN";
-  const canAdjust = isOpen && can("payout.adjust");
-  // Unlike a bonus this stays available on a finalized statement: a correction carries forward.
+  const paidOut = payout?.paid_out_minor ?? 0;
+  const canAdjust = paidOut === 0 && can("payout.adjust");
+  // Stays available on a paid statement too: there the correction carries to an open one.
   const canCorrectLessons = can("payout.adjust");
 
   // The month's lessons, for correcting them. Plain dates: the end is the month's last day.
@@ -375,6 +395,12 @@ export function PayoutDetailModal({
                   {t("lessonEditMonth")}
                 </Button>
               </div>
+            )}
+
+            {paidOut > 0 && can("payout.adjust") && (
+              <p className="rounded-xl bg-amber-500/10 px-4 py-3 text-xs font-medium text-amber-700 dark:text-amber-400" data-testid="payout-paid-out">
+                {t("paidOutNote", { amount: fmt(paidOut) })}
+              </p>
             )}
 
             {/* Per-student summary */}
@@ -603,6 +629,22 @@ export function PayoutDetailModal({
                 <p className="mt-0.5 text-sm">{payout.notes}</p>
               </div>
             )}
+
+            {canAdjust && (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  className="text-destructive gap-1.5"
+                  onClick={() => setDeleteOpen(true)}
+                  data-testid="delete-statement"
+                >
+                  <Trash2 className="size-3" aria-hidden />
+                  {t("deleteStatement")}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </Modal>
@@ -642,6 +684,42 @@ export function PayoutDetailModal({
         }
       >
         <p className="text-sm">{t("repriceConfirmBody")}</p>
+      </Modal>
+
+      <Modal
+        open={deleteOpen}
+        onClose={() => !deleting && setDeleteOpen(false)}
+        title={t("deleteStatementTitle")}
+        size="sm"
+        footer={
+          <>
+            <Button type="button" variant="outline" size="sm" disabled={deleting} onClick={() => setDeleteOpen(false)}>
+              {t("cancel")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void handleDelete()}
+              data-testid="confirm-delete-statement"
+              className="gap-1.5"
+            >
+              {deleting ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Trash2 className="size-3.5" aria-hidden />}
+              {t("deleteStatement")}
+            </Button>
+          </>
+        }
+      >
+        {payout && (
+          <p className="text-sm">
+            {t("deleteStatementBody", {
+              period: `${String(payout.period_month).padStart(2, "0")}/${payout.period_year}`,
+              name: payout.teacher_name ?? "—",
+              amount: fmt(payout.total_minor),
+            })}
+          </p>
+        )}
       </Modal>
 
       <AdjustmentFormModal

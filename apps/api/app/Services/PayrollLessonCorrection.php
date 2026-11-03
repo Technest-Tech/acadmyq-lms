@@ -49,7 +49,8 @@ final class PayrollLessonCorrection
         return [
             'amount_minor' => (int) ($line->amount_minor ?? 0),
             'currency' => $line->currency ?? null,
-            'payout_sealed' => $line !== null && $line->finalized_at !== null,
+            // Only a statement paid from the treasury stays as it is; any other is corrected in place.
+            'payout_sealed' => $line !== null && $this->payroll->carriesCorrections((string) $line->payout_id),
             'student_locked' => $this->studentLocked((string) $session->id),
         ];
     }
@@ -62,7 +63,7 @@ final class PayrollLessonCorrection
      */
     public function remove(string $sessionId, string $actorUserId, string $actorRole): array
     {
-        return DB::transaction(function () use ($sessionId, $actorUserId, $actorRole): array {
+        return $this->payroll->correcting($this->payoutLine($sessionId)?->payout_id, function () use ($sessionId, $actorUserId, $actorRole): array {
             $session = $this->lockedSession($sessionId);
             if (! self::paysTeacher($session)) {
                 throw ValidationException::withMessages([
@@ -126,9 +127,14 @@ final class PayrollLessonCorrection
 
             if ($existing !== null) {
                 if (self::paysTeacher($existing)) {
-                    throw ValidationException::withMessages([
-                        'session' => ['This lesson is already on the salary. / هذه الحصة موجودة بالفعل في الراتب.'],
-                    ]);
+                    // Taught but on no statement: the one it was on was deleted. Count it again.
+                    if ($this->payoutLine((string) $existing->id) !== null) {
+                        throw ValidationException::withMessages([
+                            'session' => ['This lesson is already on the salary. / هذه الحصة موجودة بالفعل في الراتب.'],
+                        ]);
+                    }
+
+                    return $this->payAgain($existing);
                 }
                 DB::table('sessions')->where('id', $existing->id)->update(['duration_minutes' => $duration, 'updated_at' => now()]);
                 $sessionId = (string) $existing->id;
@@ -200,8 +206,37 @@ final class PayrollLessonCorrection
     private function markAttended(string $sessionId, string $actorUserId, string $actorRole): array
     {
         $session = DB::table('sessions')->where('id', $sessionId)->first();
-        $this->attendance->record($session, SessionStatus::Attended, null, $actorUserId, $actorRole);
+        $this->payroll->correcting($this->ownStatement($session), fn () => $this->attendance->record($session, SessionStatus::Attended, null, $actorUserId, $actorRole));
 
+        return $this->counted($sessionId);
+    }
+
+    /** @return array{session_id: string, statement_year: int, statement_month: int, carried: bool} */
+    private function payAgain(object $session): array
+    {
+        $this->payroll->correcting($this->ownStatement($session), fn () => $this->payroll->onSessionAttended($session));
+
+        return $this->counted((string) $session->id);
+    }
+
+    /** The teacher's statement for the lesson's own month, if there is one. */
+    private function ownStatement(object $session): ?string
+    {
+        $timezone = (string) (DB::table('academies')->where('id', $session->academy_id)->value('timezone') ?: 'UTC');
+        $local = Carbon::parse($session->scheduled_at_utc)->setTimezone($timezone);
+
+        $id = DB::table('payouts')
+            ->where('teacher_id', $session->teacher_id)
+            ->where('period_year', $local->year)
+            ->where('period_month', $local->month)
+            ->value('id');
+
+        return $id !== null ? (string) $id : null;
+    }
+
+    /** @return array{session_id: string, statement_year: int, statement_month: int, carried: bool} */
+    private function counted(string $sessionId): array
+    {
         $line = $this->payoutLine($sessionId);
         $own = Carbon::parse((string) $line->session_date);
 

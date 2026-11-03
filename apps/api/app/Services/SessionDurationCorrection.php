@@ -136,7 +136,9 @@ final class SessionDurationCorrection
             $payout = [
                 'payout_id' => (string) $payoutLine->payout_id,
                 'currency' => (string) $payoutLine->currency,
-                'finalized' => $payoutLine->finalized_at !== null,
+                // From the payroll page only a statement paid from the treasury carries the difference.
+                'finalized' => $payoutLine->finalized_at !== null
+                    && (! $carrySealed || app(Payroll::class)->carriesCorrections((string) $payoutLine->payout_id)),
                 'amount_before' => (int) $payoutLine->amount_minor,
                 'amount_after' => $amountAfter,
             ];
@@ -156,6 +158,18 @@ final class SessionDurationCorrection
 
     /** @return array<string,mixed> */
     public function update(string $sessionId, int $newDuration, ?string $actorUserId, ?string $actorRole, bool $carrySealed = false): array
+    {
+        if ($carrySealed) {
+            $payoutId = DB::table('payout_line_items')->where('session_id', $sessionId)->value('payout_id');
+
+            return app(Payroll::class)->correcting($payoutId !== null ? (string) $payoutId : null, fn () => $this->apply($sessionId, $newDuration, $actorUserId, $actorRole, true));
+        }
+
+        return $this->apply($sessionId, $newDuration, $actorUserId, $actorRole, false);
+    }
+
+    /** @return array<string,mixed> */
+    private function apply(string $sessionId, int $newDuration, ?string $actorUserId, ?string $actorRole, bool $carrySealed): array
     {
         return DB::transaction(function () use ($sessionId, $newDuration, $actorUserId, $actorRole, $carrySealed): array {
             $session = DB::table('sessions')->where('id', $sessionId)->lockForUpdate()->first();

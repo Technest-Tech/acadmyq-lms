@@ -285,7 +285,9 @@ it('re-prices an open month at the teacher\'s current rates only when asked', fu
     // And the statement still passes finalize's integrity check afterwards.
     $this->postJson('/api/payouts/finalize', ['year' => 2026, 'month' => 6])->assertOk();
 
-    $this->postJson("/api/payouts/{$payoutId}/reprice")->assertUnprocessable();
+    // A sealed statement can be recalculated too, and it stays sealed.
+    $this->postJson("/api/payouts/{$payoutId}/reprice")->assertOk()->assertJsonPath('delta_minor', 0);
+    expect(($this->payoutOf)($teacher)->finalized_at)->not->toBeNull();
 });
 
 it('previews what the new rates change on the open statements and last month\'s, and applies it to an open one', function () {

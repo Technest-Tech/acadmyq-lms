@@ -148,8 +148,19 @@ describe("TeacherPayCard", () => {
       expect(api.carryPayoutReprice).not.toHaveBeenCalled();
     });
 
-    it("carries a finalized month's difference instead of touching it", async () => {
+    it("re-prices a sealed month in place", async () => {
       vi.mocked(api.getPayRecalc).mockResolvedValue({ statements: [statement({ finalized: true })] });
+      vi.mocked(api.repricePayout).mockResolvedValue({ ok: true, delta_minor: 50000 });
+      renderCard("ACADEMY_OWNER", ["payout.adjust"]);
+      const user = userEvent.setup();
+      await user.click(await screen.findByTestId("recalc-open-2026-10"));
+      await user.click(screen.getByTestId("recalc-confirm"));
+      await waitFor(() => expect(api.repricePayout).toHaveBeenCalledWith("p10"));
+      expect(api.carryPayoutReprice).not.toHaveBeenCalled();
+    });
+
+    it("carries the difference of a month paid from the treasury instead of touching it", async () => {
+      vi.mocked(api.getPayRecalc).mockResolvedValue({ statements: [statement({ finalized: true, carries: true })] });
       vi.mocked(api.carryPayoutReprice).mockResolvedValue({ ok: true, delta_minor: 50000 });
       renderCard("ACADEMY_OWNER", ["payout.adjust"]);
       const user = userEvent.setup();

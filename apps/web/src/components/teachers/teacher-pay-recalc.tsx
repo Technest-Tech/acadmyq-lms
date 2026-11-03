@@ -18,8 +18,8 @@ import { formatMoney } from "@/lib/money";
 
 /**
  * Applies the teacher's saved pay to statements already written: lessons keep the rate they were
- * marked at, so a rate entered afterwards reaches them only through here. An open statement is
- * re-priced in place; a sealed one stays as it was paid and its difference lands on the open one.
+ * marked at, so a rate entered afterwards reaches them only through here. A statement is re-priced in
+ * place, sealed or not; one paid from the treasury stays and its difference lands on the open one.
  */
 export function TeacherPayRecalc({
   teacherId,
@@ -74,11 +74,11 @@ export function TeacherPayRecalc({
     setError(null);
     setNotice(null);
     try {
-      const res = statement.finalized
+      const res = statement.carries
         ? await carryPayoutReprice(statement.id)
         : await repricePayout(statement.id);
       setNotice(
-        t(statement.finalized ? "doneCarried" : "done", {
+        t(statement.carries ? "doneCarried" : "done", {
           month: monthName(statement),
           delta: signed(res.delta_minor, statement.currency),
         }),
@@ -180,7 +180,7 @@ export function TeacherPayRecalc({
       >
         {confirming && (
           <p className="text-sm">
-            {t(confirming.finalized ? "confirmCarried" : "confirmOpen", {
+            {t(confirming.carries ? "confirmCarried" : "confirmOpen", {
               delta: signed(confirming.delta_minor, confirming.currency),
             })}
           </p>

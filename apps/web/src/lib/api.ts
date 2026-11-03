@@ -4778,6 +4778,8 @@ export interface PayoutDetail extends PayoutRow {
   sessions_minor: number;
   rewards_minor: number;
   deductions_minor: number;
+  /** Paid out of it through the treasury. Above zero, it cannot be edited or deleted. */
+  paid_out_minor?: number;
 }
 
 export interface PayoutDetailResponse {
@@ -4818,6 +4820,8 @@ export interface PayRecalcStatement {
   period_year: number;
   period_month: number;
   finalized: boolean;
+  /** Paid from the treasury: it stays as it is and the difference goes on an open statement. */
+  carries?: boolean;
   currency: string;
   total_minor: number;
   delta_minor: number;
@@ -4832,7 +4836,12 @@ export function getPayRecalc(teacherId: string): Promise<{ statements: PayRecalc
   return apiFetch(`/api/payouts/recalc-preview?teacher_id=${teacherId}`);
 }
 
-/** Carry a sealed statement's difference onto the teacher's open one; the sealed one stays as paid. */
+/** Delete a whole statement, open or sealed. Refused while treasury money is out of it. */
+export function deletePayoutStatement(payoutId: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/payouts/${payoutId}`, { method: "DELETE" });
+}
+
+/** Carry a difference off a statement paid from the treasury onto the teacher's open one. */
 export function carryPayoutReprice(
   payoutId: string,
 ): Promise<{ ok: boolean; delta_minor: number }> {
@@ -4964,8 +4973,10 @@ export interface PayrollRangeLesson {
   scheduled_at_utc: string | null;
   amount_minor: number;
   currency: string;
-  /** The monthly statement it sits on is finalized: a correction is carried to an open one. */
+  /** The monthly statement it sits on is finalized. */
   finalized: boolean;
+  /** That statement was paid from the treasury: a correction is carried to an open one. */
+  carries?: boolean;
   /** Taken off a finalized statement: the paid line stays, its difference went on an open one. */
   removed: boolean;
 }

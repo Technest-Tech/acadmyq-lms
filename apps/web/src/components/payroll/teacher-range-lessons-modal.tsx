@@ -160,7 +160,7 @@ export function TeacherRangeLessonsModal({
   const formatDate = (date: string | null) =>
     date ? dateFmt.format(new Date(`${date}T00:00:00Z`)) : "—";
 
-  const anySealed = lessons?.some((l) => l.finalized && !l.removed) ?? false;
+  const anySealed = lessons?.some((l) => l.carries && !l.removed) ?? false;
   const anyGroup = lessons?.some((l) => l.session_id === null) ?? false;
 
   return (
@@ -231,7 +231,7 @@ export function TeacherRangeLessonsModal({
                       </p>
                     )}
                   </div>
-                  {l.finalized && (
+                  {l.carries && (
                     <Lock
                       className="text-muted-foreground size-3.5 shrink-0"
                       aria-label={t("status.FINALIZED")}

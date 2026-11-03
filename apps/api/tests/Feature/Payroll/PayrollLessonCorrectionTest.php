@@ -17,10 +17,9 @@ use Tests\Concerns\InteractsWithTenancy;
 uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::class, CreatesAuthUsers::class);
 
 /**
- * Correcting the lessons behind a salary from the payroll page. An open month moves in place, like
- * the attendance page. A sealed month is the case this exists for: wrong lessons are found when the
- * salary is checked, after the 3rd, so the paid statement and closed bill stay and the difference
- * lands on the teacher's open statement.
+ * Correcting the lessons behind a salary from the payroll page. A statement paid from the treasury is
+ * the case that carries: the money left, so it stays and the difference lands on the teacher's open
+ * statement. Every other statement moves in place, sealed or not (SealedStatementCorrectionTest).
  */
 beforeEach(function () {
     Carbon::setTestNow('2026-06-20 12:00:00');
@@ -71,6 +70,19 @@ beforeEach(function () {
         Carbon::setTestNow('2026-07-05 12:00:00');
         Sanctum::actingAs($this->owner);
     };
+    /** The June statement was paid out of the treasury, so corrections carry instead of rewriting it. */
+    $this->paidJuneFromTreasury = function (): void {
+        $this->asAcademy($this->academy);
+        $account = (string) Str::uuid();
+        DB::table('cash_accounts')->insert(['id' => $account, 'academy_id' => $this->academy, 'name' => 'Drawer', 'kind' => 'CASH', 'currency' => 'EGP', 'opening_on' => '2026-01-01']);
+        $category = (string) Str::uuid();
+        DB::table('expense_categories')->insert(['id' => $category, 'academy_id' => $this->academy, 'name' => 'Salaries']);
+        DB::table('expenses')->insert([
+            'id' => (string) Str::uuid(), 'academy_id' => $this->academy, 'number' => 'E-1', 'spent_on' => '2026-07-01', 'category_id' => $category,
+            'amount_minor' => 100, 'currency' => 'EGP', 'cash_account_id' => $account,
+            'payout_id' => DB::table('payouts')->where('teacher_id', $this->teacher)->where('period_year', 2026)->where('period_month', 6)->value('id'),
+        ]);
+    };
     $this->payout = function (int $month): ?object {
         $this->asAcademy($this->academy);
 
@@ -108,11 +120,12 @@ it('removes a lesson from an open month, on the salary and the bill', function (
         ->and(($this->row)($wrong)->status)->toBe('CANCELLED_BY_TEACHER');
 });
 
-it('removes a lesson from a sealed month by carrying a deduction, never touching what was paid', function () {
+it('removes a lesson from a statement paid from the treasury by carrying a deduction, never touching what was paid', function () {
     ($this->attended)('2026-06-10 10:00:00+00');
     $wrong = ($this->attended)('2026-06-12 10:00:00+00');
     $invoiceLineBefore = ($this->invoiceLine)($wrong);
     ($this->closeJune)();
+    ($this->paidJuneFromTreasury)();
 
     $this->getJson("/api/payouts/lessons/{$wrong}/removal-preview")
         ->assertJsonPath('payout_sealed', true)
@@ -146,11 +159,12 @@ it('removes a lesson from a sealed month by carrying a deduction, never touching
     $this->deleteJson("/api/payouts/lessons/{$wrong}")->assertUnprocessable();
 });
 
-it('does not owe a sealed correction twice when the month is recalculated', function () {
+it('does not owe a carried correction twice when the month is recalculated', function () {
     ($this->attended)('2026-06-10 10:00:00+00');
     $removed = ($this->attended)('2026-06-12 10:00:00+00');
     $shortened = ($this->attended)('2026-06-14 10:00:00+00');
     ($this->closeJune)();
+    ($this->paidJuneFromTreasury)();
 
     $this->deleteJson("/api/payouts/lessons/{$removed}")->assertOk();
     $this->patchJson("/api/payouts/lessons/{$shortened}/duration", ['duration_minutes' => 30])->assertOk();
@@ -162,9 +176,10 @@ it('does not owe a sealed correction twice when the month is recalculated', func
     expect($sealed['delta_minor'])->toBe(0);
 });
 
-it('corrects a length on a sealed month: difference carried, closed bill left, lesson updated', function () {
+it('corrects a length on a paid statement: difference carried, closed bill left, lesson updated', function () {
     $lesson = ($this->attended)('2026-06-10 10:00:00+00');
     ($this->closeJune)();
+    ($this->paidJuneFromTreasury)();
 
     $this->getJson("/api/payouts/lessons/{$lesson}/duration-preview?duration_minutes=90")
         ->assertOk()
@@ -211,9 +226,10 @@ it('adds a missing lesson to its month, on the salary and the bill', function ()
         ->and(($this->invoiceLine)($session->id))->not->toBeNull();
 });
 
-it('adds a lesson to a sealed month on the next open statement', function () {
+it('adds a lesson to a month paid from the treasury on the next open statement', function () {
     ($this->attended)('2026-06-10 10:00:00+00');
     ($this->closeJune)();
+    ($this->paidJuneFromTreasury)();
 
     $this->postJson('/api/payouts/lessons', [
         'teacher_id' => $this->teacher,

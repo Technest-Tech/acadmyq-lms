@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -33,34 +34,34 @@ beforeEach(function () {
 
     $this->academy = $this->createAcademy(overrides: [
         'default_currency' => 'EGP',
-        'timezone'         => 'Africa/Cairo',
+        'timezone' => 'Africa/Cairo',
         'invoice_grouping' => 'PER_GUARDIAN',
-        'plan_id'          => $proPlan,
+        'plan_id' => $proPlan,
     ]);
 
-    $this->owner       = $this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-adj@test.local']);
+    $this->owner = $this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-adj@test.local']);
     $this->teacherUser = $this->makeUser($this->academy, 'TEACHER', ['email' => 'teacher-adj@test.local']);
-    $this->teacher     = $this->createTeacher($this->academy, [
-        'user_id'            => $this->teacherUser->id,
+    $this->teacher = $this->createTeacher($this->academy, [
+        'user_id' => $this->teacherUser->id,
         'session_rate_minor' => 5000,
-        'currency'           => 'EGP',
+        'currency' => 'EGP',
     ]);
 
     $this->guardian = $this->createGuardian($this->academy, ['currency' => 'EGP']);
-    $this->student  = $this->createStudent($this->academy, $this->guardian);
+    $this->student = $this->createStudent($this->academy, $this->guardian);
 
     $this->asAcademy($this->academy);
     DB::table('subscriptions')->insert([
-        'id'                 => (string) Str::uuid(),
-        'academy_id'         => $this->academy,
-        'student_id'         => $this->student,
-        'plan_label'         => '1:1 EGP',
-        'price_minor'        => 10000,
-        'currency'           => 'EGP',
-        'price_basis'        => 'PER_SESSION',
+        'id' => (string) Str::uuid(),
+        'academy_id' => $this->academy,
+        'student_id' => $this->student,
+        'plan_label' => '1:1 EGP',
+        'price_minor' => 10000,
+        'currency' => 'EGP',
+        'price_basis' => 'PER_SESSION',
         'sessions_per_month' => null,
-        'status'             => 'ACTIVE',
-        'start_date'         => '2026-01-01',
+        'status' => 'ACTIVE',
+        'start_date' => '2026-01-01',
     ]);
 
     // Accrue one ATTENDED session so an OPEN payout (total 5000) exists for the teacher.
@@ -68,7 +69,7 @@ beforeEach(function () {
     $this->session = $this->createSession($this->academy, $this->student, $this->teacher, [
         'scheduled_at_utc' => '2026-06-01 10:00:00+00',
         'duration_minutes' => 60,
-        'status'           => 'SCHEDULED',
+        'status' => 'SCHEDULED',
     ]);
     Sanctum::actingAs($this->owner);
     $this->postJson("/api/sessions/{$this->session}/attendance", ['status' => 'ATTENDED'])->assertOk();
@@ -175,13 +176,12 @@ it('TC-8.26: the detail endpoint returns the breakdown and the adjustments list'
 
 // ─── Immutability ───────────────────────────────────────────────────────────
 
-it('TC-8.27: adjustments are rejected once the payout is finalized (service guard)', function () {
+it('TC-8.27: the service alone still refuses an adjustment on a sealed payout: only a correction lifts the seal', function () {
     $payout = ($this->payout)();
     app(Payroll::class)->finalizePeriodPayouts($this->academy, 2026, 6, $this->owner->id, 'ACADEMY_OWNER');
 
-    Sanctum::actingAs($this->owner);
-    $this->postJson("/api/payouts/{$payout->id}/adjustments", ['type' => 'REWARD', 'amount_minor' => 2000, 'reason' => 'Bonus'])
-        ->assertStatus(422);
+    expect(fn () => app(Payroll::class)->addAdjustment($payout->id, $this->academy, 'REWARD', 2000, 'Bonus', null, $this->owner->id, 'ACADEMY_OWNER'))
+        ->toThrow(ValidationException::class);
 
     expect((int) ($this->payout)()->total_minor)->toBe(5000);
 });
@@ -192,13 +192,13 @@ it('TC-8.28: inserting an adjustment on a finalized payout is rejected by the DB
 
     $this->asAcademy($this->academy);
     expect(fn () => DB::table('payout_adjustments')->insert([
-        'id'           => (string) Str::uuid(),
-        'academy_id'   => $this->academy,
-        'payout_id'    => $payout->id,
-        'type'         => 'REWARD',
+        'id' => (string) Str::uuid(),
+        'academy_id' => $this->academy,
+        'payout_id' => $payout->id,
+        'type' => 'REWARD',
         'amount_minor' => 2000,
-        'currency'     => 'EGP',
-        'reason'       => 'Bonus',
+        'currency' => 'EGP',
+        'reason' => 'Bonus',
     ]))->toThrow(QueryException::class);
 });
 
@@ -253,8 +253,8 @@ it('TC-8.33: adjustments are RLS-isolated — academy B cannot adjust academy A\
     // entitlement gate and be stopped by tenant isolation — not 402 before it is ever reached.
     $academyB = $this->createAcademy(overrides: [
         'default_currency' => 'EGP',
-        'timezone'         => 'Africa/Cairo',
-        'plan_id'          => DB::table('plans')->where('code', 'PRO')->value('id'),
+        'timezone' => 'Africa/Cairo',
+        'plan_id' => DB::table('plans')->where('code', 'PRO')->value('id'),
     ]);
     $ownerB = $this->makeUser($academyB, 'ACADEMY_OWNER', ['email' => 'owner-b-adj@test.local']);
 

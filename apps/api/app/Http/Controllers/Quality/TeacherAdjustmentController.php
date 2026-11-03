@@ -9,6 +9,7 @@ use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\Payroll;
 use App\Support\Audit;
 use App\Support\DataTable;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -45,18 +46,18 @@ final class TeacherAdjustmentController extends Controller
         Gate::authorize('payout.read');
 
         $result = DataTable::paginate($this->baseQuery(), $request, [
-            'idColumn'   => 'pa.id',
+            'idColumn' => 'pa.id',
             'searchable' => ['te.full_name', 'pa.reason', 'pa.details'],
-            'sortable'   => [
+            'sortable' => [
                 'created_at' => 'pa.created_at',
-                'teacher'    => 'te.full_name',
-                'amount'     => 'pa.amount_minor',
+                'teacher' => 'te.full_name',
+                'amount' => 'pa.amount_minor',
             ],
             'filters' => [
                 'teacher_id' => fn ($q, $value) => $q->where('p.teacher_id', $value),
-                'type'       => fn ($q, $value) => $q->where('pa.type', strtoupper((string) $value)),
-                'source'     => fn ($q, $value) => $q->where('pa.source', strtoupper((string) $value)),
-                'period'     => function ($q, $value) {
+                'type' => fn ($q, $value) => $q->where('pa.type', strtoupper((string) $value)),
+                'source' => fn ($q, $value) => $q->where('pa.source', strtoupper((string) $value)),
+                'period' => function ($q, $value) {
                     [$year, $month] = array_pad(explode('-', (string) $value), 2, null);
                     if ($year !== null && $month !== null) {
                         $q->where('p.period_year', (int) $year)->where('p.period_month', (int) $month);
@@ -80,9 +81,9 @@ final class TeacherAdjustmentController extends Controller
         Gate::authorize('payout.read');
 
         $academyId = $this->currentAcademyId();
-        $now       = Carbon::now($this->academyTimezone($academyId));
-        $year      = (int) $request->integer('year', $now->year);
-        $month     = (int) $request->integer('month', $now->month);
+        $now = Carbon::now($this->academyTimezone($academyId));
+        $year = (int) $request->integer('year', $now->year);
+        $month = (int) $request->integer('month', $now->month);
 
         $rows = DB::table('payout_adjustments as pa')
             ->join('payouts as p', 'p.id', '=', 'pa.payout_id')
@@ -108,12 +109,12 @@ final class TeacherAdjustmentController extends Controller
             ->count();
 
         return response()->json([
-            'year'        => $year,
-            'month'       => $month,
-            'totals'      => array_values($byCurrency),
-            'reward_count'    => (int) $rows->where('type', 'REWARD')->sum('row_count'),
+            'year' => $year,
+            'month' => $month,
+            'totals' => array_values($byCurrency),
+            'reward_count' => (int) $rows->where('type', 'REWARD')->sum('row_count'),
             'deduction_count' => (int) $rows->where('type', 'DEDUCTION')->sum('row_count'),
-            'auto_count'      => $autoCount,
+            'auto_count' => $autoCount,
         ]);
     }
 
@@ -129,11 +130,11 @@ final class TeacherAdjustmentController extends Controller
         Gate::authorize('payout.adjust');
 
         $data = $request->validate([
-            'type'         => ['required', Rule::in(['REWARD', 'DEDUCTION'])],
+            'type' => ['required', Rule::in(['REWARD', 'DEDUCTION'])],
             'amount_minor' => ['required', 'integer', 'min:1'],
-            'reason'       => ['required', 'string', 'max:200'],
-            'details'      => ['nullable', 'string', 'max:2000'],
-            'period_year'  => ['nullable', 'integer', 'min:2000', 'max:2100'],
+            'reason' => ['required', 'string', 'max:200'],
+            'details' => ['nullable', 'string', 'max:2000'],
+            'period_year' => ['nullable', 'integer', 'min:2000', 'max:2100'],
             'period_month' => ['nullable', 'integer', 'min:1', 'max:12'],
         ]);
 
@@ -144,8 +145,8 @@ final class TeacherAdjustmentController extends Controller
             abort(404, 'Teacher not found.');
         }
 
-        $now   = Carbon::now($this->academyTimezone($academyId));
-        $year  = isset($data['period_year']) ? (int) $data['period_year'] : (int) $now->year;
+        $now = Carbon::now($this->academyTimezone($academyId));
+        $year = isset($data['period_year']) ? (int) $data['period_year'] : (int) $now->year;
         $month = isset($data['period_month']) ? (int) $data['period_month'] : (int) $now->month;
 
         $payoutId = $this->payroll->ensureOpenPayoutFor($academyId, $id, $year, $month);
@@ -155,9 +156,8 @@ final class TeacherAdjustmentController extends Controller
 
         $ctx = $this->ctx();
 
-        // addAdjustment rejects a finalized statement itself (422), so the immutability rule is
-        // stated in exactly one place.
-        $adjustmentId = $this->payroll->addAdjustment(
+        // An old month's statement is corrected in place; addAdjustment refuses one paid from the treasury.
+        $adjustmentId = $this->payroll->correcting($payoutId, fn () => $this->payroll->addAdjustment(
             payoutId: $payoutId,
             academyId: $academyId,
             type: $data['type'],
@@ -166,11 +166,11 @@ final class TeacherAdjustmentController extends Controller
             details: $data['details'] ?? null,
             actorUserId: (string) $ctx->userId,
             actorRole: $ctx->role,
-        );
+        ));
 
         return response()->json([
             'adjustmentId' => $adjustmentId,
-            'payoutId'     => $payoutId,
+            'payoutId' => $payoutId,
         ], 201);
     }
 
@@ -205,7 +205,7 @@ final class TeacherAdjustmentController extends Controller
             ]);
         }
 
-        $this->payroll->removeAdjustment($id, $this->currentAcademyId(), (string) $this->ctx()->userId, $this->ctx()->role);
+        $this->payroll->correcting((string) $adjustment->payout_id, fn () => $this->payroll->removeAdjustment($id, $this->currentAcademyId(), (string) $this->ctx()->userId, $this->ctx()->role));
 
         return response()->json(['ok' => true]);
     }
@@ -283,9 +283,9 @@ final class TeacherAdjustmentController extends Controller
             $ctx->role,
             after: [
                 'deduction_id' => $id,
-                'reward_id'    => $rewardId,
+                'reward_id' => $rewardId,
                 'amount_minor' => (int) $adjustment->amount_minor,
-                'reason'       => $data['reason'],
+                'reason' => $data['reason'],
             ],
         );
 
@@ -318,15 +318,15 @@ final class TeacherAdjustmentController extends Controller
         Gate::authorize('payout.adjust');
 
         $data = $request->validate([
-            'auto_deduct_enabled'      => ['required', 'boolean'],
-            'auto_deduct_grace_hours'  => ['required', 'integer', 'min:1', 'max:168'],
-            'auto_deduct_basis'        => ['required', Rule::in(['FIXED', 'PERCENT_SESSION'])],
+            'auto_deduct_enabled' => ['required', 'boolean'],
+            'auto_deduct_grace_hours' => ['required', 'integer', 'min:1', 'max:168'],
+            'auto_deduct_basis' => ['required', Rule::in(['FIXED', 'PERCENT_SESSION'])],
             'auto_deduct_amount_minor' => ['required', 'integer', 'min:0'],
-            'auto_deduct_percent'      => ['required', 'numeric', 'min:0', 'max:100'],
+            'auto_deduct_percent' => ['required', 'numeric', 'min:0', 'max:100'],
         ]);
 
         $academyId = $this->currentAcademyId();
-        $before    = $this->settingsRow($academyId);
+        $before = $this->settingsRow($academyId);
 
         // The wire speaks percent; the column stores integer basis points, because this number
         // multiplies a teacher's pay (AC-1.10 — no float anywhere in the money path).
@@ -373,10 +373,10 @@ final class TeacherAdjustmentController extends Controller
         }
 
         $result = DataTable::paginate($this->baseQuery()->where('p.teacher_id', $teacherId), $request, [
-            'idColumn'    => 'pa.id',
-            'sortable'    => ['created_at' => 'pa.created_at'],
-            'filters'     => [
-                'type'   => fn ($q, $value) => $q->where('pa.type', strtoupper((string) $value)),
+            'idColumn' => 'pa.id',
+            'sortable' => ['created_at' => 'pa.created_at'],
+            'filters' => [
+                'type' => fn ($q, $value) => $q->where('pa.type', strtoupper((string) $value)),
                 'source' => fn ($q, $value) => $q->where('pa.source', strtoupper((string) $value)),
             ],
             'defaultSort' => '-created_at',
@@ -391,7 +391,7 @@ final class TeacherAdjustmentController extends Controller
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private function baseQuery(): \Illuminate\Database\Query\Builder
+    private function baseQuery(): Builder
     {
         return DB::table('payout_adjustments as pa')
             ->join('payouts as p', 'p.id', '=', 'pa.payout_id')
@@ -412,14 +412,14 @@ final class TeacherAdjustmentController extends Controller
     {
         $timezone = $this->academyTimezone($this->currentAcademyId());
 
-        $r->id           = (string) $r->id;
-        $r->payout_id    = (string) $r->payout_id;
-        $r->teacher_id   = (string) $r->teacher_id;
+        $r->id = (string) $r->id;
+        $r->payout_id = (string) $r->payout_id;
+        $r->teacher_id = (string) $r->teacher_id;
         $r->amount_minor = (int) $r->amount_minor;
-        $r->period_year  = (int) $r->period_year;
+        $r->period_year = (int) $r->period_year;
         $r->period_month = (int) $r->period_month;
-        $r->finalized    = $r->finalized_at !== null;
-        $r->created_at   = Carbon::parse($r->created_at)->utc()->toIso8601String();
+        $r->finalized = $r->finalized_at !== null;
+        $r->created_at = Carbon::parse($r->created_at)->utc()->toIso8601String();
 
         // The lesson a system row is about, in the academy's own clock — the UI states the reason
         // in the reader's language and needs the date, not a parsed string.
@@ -439,20 +439,20 @@ final class TeacherAdjustmentController extends Controller
 
         if ($row === null) {
             return [
-                'auto_deduct_enabled'      => false,
-                'auto_deduct_grace_hours'  => 6,
-                'auto_deduct_basis'        => 'FIXED',
+                'auto_deduct_enabled' => false,
+                'auto_deduct_grace_hours' => 6,
+                'auto_deduct_basis' => 'FIXED',
                 'auto_deduct_amount_minor' => 0,
-                'auto_deduct_percent'      => 0.0,
+                'auto_deduct_percent' => 0.0,
             ];
         }
 
         return [
-            'auto_deduct_enabled'      => (bool) $row->auto_deduct_enabled,
-            'auto_deduct_grace_hours'  => (int) $row->auto_deduct_grace_hours,
-            'auto_deduct_basis'        => (string) $row->auto_deduct_basis,
+            'auto_deduct_enabled' => (bool) $row->auto_deduct_enabled,
+            'auto_deduct_grace_hours' => (int) $row->auto_deduct_grace_hours,
+            'auto_deduct_basis' => (string) $row->auto_deduct_basis,
             'auto_deduct_amount_minor' => (int) $row->auto_deduct_amount_minor,
-            'auto_deduct_percent'      => ((int) $row->auto_deduct_bp) / 100,
+            'auto_deduct_percent' => ((int) $row->auto_deduct_bp) / 100,
         ];
     }
 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Domain\SessionClassifier;
+use App\Jobs\OpenFixedSalaryPayoutsJob;
 use App\Payroll\PayoutHook;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -15,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * Sprint 8 real payroll implementation — the SECOND money document, structurally parallel to
  * {@see Invoicing}. Where invoicing bills the student, this pays the teacher, from the SAME
- * session data and the SAME {@see \App\Domain\SessionClassifier} truth: only an ATTENDED session
+ * session data and the SAME {@see SessionClassifier} truth: only an ATTENDED session
  * pays, at the teacher's hourly rate pro-rated by the session length + currency, snapshotted at
  * attendance time (R-PAY-1/3, decision §2). One payout per teacher per period; totals maintained
  * transactionally; immutable after finalize.
@@ -34,6 +36,9 @@ use Illuminate\Validation\ValidationException;
  */
 final class Payroll implements PayoutHook
 {
+    /** What a correction meets on a sealed statement: every other one lifts its seal ({@see correcting()}). */
+    private const PAID_OUT_MESSAGE = 'This statement was paid out from the treasury: void that payment first. / هذا الكشف مصروف من الخزنة: ألغِ الصرف أولًا.';
+
     // -------------------------------------------------------------------------
     // PayoutHook
     // -------------------------------------------------------------------------
@@ -57,14 +62,14 @@ final class Payroll implements PayoutHook
             return; // Defensive: a session with no resolvable teacher cannot accrue pay.
         }
 
-        $tz    = $academy->timezone ?: 'UTC';
+        $tz = $academy->timezone ?: 'UTC';
         $local = Carbon::parse($session->scheduled_at_utc)->setTimezone($tz);
-        $year  = (int) $local->year;
+        $year = (int) $local->year;
         $month = (int) $local->month;
 
         // Snapshot NOW — later rate edits (Sprint 4) must not rewrite this line (R-PAY-1/3).
         $amountMinor = $this->linePayMinor($teacher, $session);
-        $currency    = (string) $teacher->currency;
+        $currency = (string) $teacher->currency;
 
         $payoutId = $this->openPayoutForLesson($academy, $teacher, $year, $month);
         $carried = DB::table('payouts')->where('id', $payoutId)
@@ -85,14 +90,14 @@ final class Payroll implements PayoutHook
         // insertOrIgnore is the concurrency backstop for the unique (payout_id, session_id)
         // constraint — even in a race a duplicate line cannot be created (R-PAY-2).
         $inserted = DB::table('payout_line_items')->insertOrIgnore([
-            'id'           => (string) Str::uuid(),
-            'academy_id'   => $session->academy_id,
-            'payout_id'    => $payoutId,
-            'session_id'   => $session->id,
+            'id' => (string) Str::uuid(),
+            'academy_id' => $session->academy_id,
+            'payout_id' => $payoutId,
+            'session_id' => $session->id,
             'amount_minor' => $amountMinor,
-            'currency'     => $currency,
+            'currency' => $currency,
             'session_date' => $sessionDate,
-            'created_at'   => now(),
+            'created_at' => now(),
         ]);
 
         if ($inserted) {
@@ -100,7 +105,7 @@ final class Payroll implements PayoutHook
                 ->where('id', $payoutId)
                 ->update([
                     'total_minor' => DB::raw("total_minor + {$amountMinor}"),
-                    'updated_at'  => now(),
+                    'updated_at' => now(),
                 ]);
 
             Audit::log(
@@ -111,10 +116,10 @@ final class Payroll implements PayoutHook
                 null,
                 'SUPER_ADMIN',
                 after: [
-                    'session_id'   => $session->id,
-                    'teacher_id'   => $session->teacher_id,
+                    'session_id' => $session->id,
+                    'teacher_id' => $session->teacher_id,
                     'amount_minor' => $amountMinor,
-                    'currency'     => $currency,
+                    'currency' => $currency,
                     // The lesson's own month, when its statement was finalized and it was paid on a later one.
                     ...($carried ? ['carried_from' => sprintf('%04d-%02d', $year, $month)] : []),
                 ],
@@ -143,9 +148,9 @@ final class Payroll implements PayoutHook
             return; // Already gone — idempotent.
         }
 
-        $payoutId    = (string) $line->payout_id;
+        $payoutId = (string) $line->payout_id;
         $amountMinor = (int) $line->amount_minor;
-        $academyId   = (string) $line->academy_id;
+        $academyId = (string) $line->academy_id;
 
         $payout = DB::table('payouts')->where('id', $payoutId)->first();
 
@@ -171,7 +176,7 @@ final class Payroll implements PayoutHook
             ->where('id', $payoutId)
             ->update([
                 'total_minor' => DB::raw("total_minor - {$amountMinor}"),
-                'updated_at'  => now(),
+                'updated_at' => now(),
             ]);
 
         Audit::log(
@@ -182,7 +187,7 @@ final class Payroll implements PayoutHook
             null,
             'SUPER_ADMIN',
             before: [
-                'session_id'   => $session->id,
+                'session_id' => $session->id,
                 'amount_minor' => $amountMinor,
             ],
         );
@@ -241,7 +246,7 @@ final class Payroll implements PayoutHook
         if ((int) $payout->total_minor !== $expected) {
             throw new \RuntimeException(
                 "Payout {$payoutId} integrity failure: total_minor={$payout->total_minor} but "
-                . "base({$payout->base_minor}) + sessions({$lineSum}) + rewards({$payout->rewards_minor}) − deductions({$payout->deductions_minor}) = {$expected}."
+                ."base({$payout->base_minor}) + sessions({$lineSum}) + rewards({$payout->rewards_minor}) − deductions({$payout->deductions_minor}) = {$expected}."
             );
         }
 
@@ -251,7 +256,7 @@ final class Payroll implements PayoutHook
             ->where('id', $payoutId)
             ->update([
                 'finalized_at' => $finalizedAt,
-                'updated_at'   => $finalizedAt,
+                'updated_at' => $finalizedAt,
             ]);
 
         Audit::log(
@@ -263,9 +268,126 @@ final class Payroll implements PayoutHook
             $actorRole,
             after: [
                 'finalized_at' => $finalizedAt->toIso8601String(),
-                'total_minor'  => (int) $payout->total_minor,
+                'total_minor' => (int) $payout->total_minor,
             ],
         );
+    }
+
+    /**
+     * What was actually paid out of this statement through the treasury. A statement with money out
+     * of it is the one thing a correction does not rewrite: its difference carries to an open one.
+     */
+    public function paidOutMinor(string $payoutId): int
+    {
+        return (int) DB::table('expenses')->where('payout_id', $payoutId)->whereNull('voided_at')->sum('amount_minor');
+    }
+
+    /**
+     * Whether a correction to this statement carries forward instead of changing it: sealed, and
+     * paid from the treasury. Any other sealed statement is corrected in place ({@see correcting()}).
+     */
+    public function carriesCorrections(string $payoutId): bool
+    {
+        return DB::table('payouts')->where('id', $payoutId)->whereNotNull('finalized_at')->exists()
+            && $this->paidOutMinor($payoutId) > 0;
+    }
+
+    /**
+     * Run a correction on a statement, sealed or not. The seal is lifted for `$change` and put back
+     * with its own date, so the statement reads as it did, with the corrected figures, and every open
+     * statement's rules apply inside: lines and totals move on it, not on next month (Alrayan,
+     * 2026-11-03). A statement paid from the treasury keeps its seal, so `$change` meets it as sealed.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $change
+     * @return T
+     */
+    public function correcting(?string $payoutId, callable $change): mixed
+    {
+        return DB::transaction(function () use ($payoutId, $change) {
+            $payout = $payoutId !== null
+                ? DB::table('payouts')->where('id', $payoutId)->lockForUpdate()->first(['id', 'academy_id', 'finalized_at', 'total_minor'])
+                : null;
+
+            if ($payout === null || $payout->finalized_at === null || $this->paidOutMinor((string) $payoutId) > 0) {
+                return $change();
+            }
+
+            $this->unseal((string) $payoutId);
+            $result = $change();
+
+            DB::table('payouts')->where('id', $payoutId)->update(['finalized_at' => $payout->finalized_at, 'updated_at' => now()]);
+
+            $ctx = app()->bound(AuthContext::class) ? app(AuthContext::class) : null;
+            Audit::log('payout.corrected_after_seal', 'payout', (string) $payoutId, (string) $payout->academy_id, $ctx?->userId, $ctx?->role ?? 'SUPER_ADMIN',
+                after: ['total_minor' => (int) DB::table('payouts')->where('id', $payoutId)->value('total_minor')],
+                before: ['total_minor' => (int) $payout->total_minor]);
+
+            return $result;
+        });
+    }
+
+    private function unseal(string $payoutId): void
+    {
+        DB::statement("select set_config('app.correcting_payout_id', ?, true)", [$payoutId]);
+        DB::table('payouts')->where('id', $payoutId)->update(['finalized_at' => null, 'updated_at' => now()]);
+        DB::statement("select set_config('app.correcting_payout_id', '', true)");
+    }
+
+    /**
+     * Delete a teacher's statement for a month, open or sealed: its lessons stay as they were taught
+     * and earn nothing until counted again. The lines and adjustments are kept in the audit row, the
+     * only way back. Refused while treasury money is out of it: void that payment first.
+     *
+     * @throws ValidationException
+     */
+    public function deleteStatement(string $payoutId, string $academyId, string $actorUserId, string $actorRole): void
+    {
+        DB::transaction(function () use ($payoutId, $academyId, $actorUserId, $actorRole): void {
+            $payout = DB::table('payouts')->where('id', $payoutId)->where('academy_id', $academyId)->lockForUpdate()->first();
+            if ($payout === null) {
+                throw ValidationException::withMessages(['payout' => ['Payout not found.']]);
+            }
+            if ($this->paidOutMinor($payoutId) > 0) {
+                throw ValidationException::withMessages(['payout' => [self::PAID_OUT_MESSAGE]]);
+            }
+
+            $lines = DB::table('payout_line_items')->where('payout_id', $payoutId)->get(['id', 'session_id', 'amount_minor', 'session_date', 'description']);
+            $adjustments = DB::table('payout_adjustments')->where('payout_id', $payoutId)->get(['id', 'type', 'source', 'amount_minor', 'reason', 'session_id']);
+
+            $this->dropCarriedFrom($payoutId, $academyId, $actorUserId, $actorRole);
+            if ($payout->finalized_at !== null) {
+                $this->unseal($payoutId);
+            }
+            // A voided payment keeps its row; it no longer points at anything.
+            DB::table('expenses')->where('payout_id', $payoutId)->update(['payout_id' => null]);
+            DB::table('payouts')->where('id', $payoutId)->delete();
+
+            Audit::log('payout.deleted', 'payout', $payoutId, $academyId, $actorUserId, $actorRole, before: [
+                'teacher_id' => (string) $payout->teacher_id,
+                'period' => sprintf('%04d-%02d', $payout->period_year, $payout->period_month),
+                'finalized_at' => $payout->finalized_at,
+                'total_minor' => (int) $payout->total_minor,
+                'base_minor' => (int) $payout->base_minor,
+                'lines' => $lines->all(),
+                'adjustments' => $adjustments->all(),
+            ]);
+        });
+    }
+
+    /** Differences carried from this statement, on open ones: once it is itself corrected they would count twice. */
+    private function dropCarriedFrom(string $payoutId, string $academyId, string $actorUserId, string $actorRole): void
+    {
+        $carried = DB::table('payout_adjustments as a')
+            ->join('payouts as p', 'p.id', '=', 'a.payout_id')
+            ->where('a.repriced_payout_id', $payoutId)
+            ->whereNull('p.finalized_at')
+            ->pluck('a.id');
+
+        foreach ($carried as $id) {
+            $this->removeAdjustment((string) $id, $academyId, $actorUserId, $actorRole);
+        }
     }
 
     /**
@@ -342,26 +464,24 @@ final class Payroll implements PayoutHook
             throw ValidationException::withMessages(['payout' => ['Payout not found.']]);
         }
         if ($payout->finalized_at !== null) {
-            throw ValidationException::withMessages([
-                'payout' => ['Cannot adjust a finalized payout. / لا يمكن تعديل كشف راتب نهائي.'],
-            ]);
+            throw ValidationException::withMessages(['payout' => [self::PAID_OUT_MESSAGE]]);
         }
 
         $id = (string) Str::uuid();
 
         DB::table('payout_adjustments')->insert([
-            'id'           => $id,
-            'academy_id'   => $academyId,
-            'payout_id'    => $payoutId,
-            'type'         => $type,
+            'id' => $id,
+            'academy_id' => $academyId,
+            'payout_id' => $payoutId,
+            'type' => $type,
             'amount_minor' => $amountMinor,
-            'currency'     => $payout->currency,   // inherit the statement currency (no FX)
-            'reason'       => $reason,
-            'details'      => $details,
+            'currency' => $payout->currency,   // inherit the statement currency (no FX)
+            'reason' => $reason,
+            'details' => $details,
             'repriced_payout_id' => $repricedPayoutId,
-            'created_by'   => $actorUserId,
-            'created_at'   => now(),
-            'updated_at'   => now(),
+            'created_by' => $actorUserId,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         $delta = $type === 'REWARD' ? 'rewards_minor' : 'deductions_minor';
@@ -370,9 +490,9 @@ final class Payroll implements PayoutHook
         DB::table('payouts')
             ->where('id', $payoutId)
             ->update([
-                $delta        => DB::raw("{$delta} + {$amountMinor}"),
+                $delta => DB::raw("{$delta} + {$amountMinor}"),
                 'total_minor' => DB::raw("total_minor {$totalOp} {$amountMinor}"),
-                'updated_at'  => now(),
+                'updated_at' => now(),
             ]);
 
         Audit::log(
@@ -384,9 +504,9 @@ final class Payroll implements PayoutHook
             $actorRole,
             after: [
                 'adjustment_id' => $id,
-                'type'          => $type,
-                'amount_minor'  => $amountMinor,
-                'reason'        => $reason,
+                'type' => $type,
+                'amount_minor' => $amountMinor,
+                'reason' => $reason,
             ],
         );
 
@@ -415,25 +535,23 @@ final class Payroll implements PayoutHook
         $payout = DB::table('payouts')->where('id', $adjustment->payout_id)->first();
 
         if ($payout !== null && $payout->finalized_at !== null) {
-            throw ValidationException::withMessages([
-                'payout' => ['Cannot adjust a finalized payout. / لا يمكن تعديل كشف راتب نهائي.'],
-            ]);
+            throw ValidationException::withMessages(['payout' => [self::PAID_OUT_MESSAGE]]);
         }
 
         $amountMinor = (int) $adjustment->amount_minor;
-        $isReward    = $adjustment->type === 'REWARD';
+        $isReward = $adjustment->type === 'REWARD';
 
         DB::table('payout_adjustments')->where('id', $adjustmentId)->delete();
 
-        $delta   = $isReward ? 'rewards_minor' : 'deductions_minor';
+        $delta = $isReward ? 'rewards_minor' : 'deductions_minor';
         $totalOp = $isReward ? '-' : '+';
 
         DB::table('payouts')
             ->where('id', $adjustment->payout_id)
             ->update([
-                $delta        => DB::raw("{$delta} - {$amountMinor}"),
+                $delta => DB::raw("{$delta} - {$amountMinor}"),
                 'total_minor' => DB::raw("total_minor {$totalOp} {$amountMinor}"),
-                'updated_at'  => now(),
+                'updated_at' => now(),
             ]);
 
         Audit::log(
@@ -445,9 +563,9 @@ final class Payroll implements PayoutHook
             $actorRole,
             before: [
                 'adjustment_id' => $adjustmentId,
-                'type'          => $adjustment->type,
-                'amount_minor'  => $amountMinor,
-                'reason'        => $adjustment->reason,
+                'type' => $adjustment->type,
+                'amount_minor' => $amountMinor,
+                'reason' => $adjustment->reason,
             ],
         );
     }
@@ -711,7 +829,7 @@ final class Payroll implements PayoutHook
 
     /**
      * Open this month's statement for every active fixed-salary teacher who has none yet. Run
-     * daily by {@see \App\Jobs\OpenFixedSalaryPayoutsJob}: a salaried teacher is owed their pay
+     * daily by {@see OpenFixedSalaryPayoutsJob}: a salaried teacher is owed their pay
      * whether or not they taught, so their statement cannot wait for an attended lesson to exist.
      *
      * @return int statements opened
@@ -771,12 +889,11 @@ final class Payroll implements PayoutHook
             throw ValidationException::withMessages(['payout' => ['Payout not found.']]);
         }
         if ($payout->finalized_at !== null) {
-            throw ValidationException::withMessages([
-                'payout' => ['Cannot recalculate a finalized payout. / لا يمكن إعادة حساب كشف راتب نهائي.'],
-            ]);
+            throw ValidationException::withMessages(['payout' => [self::PAID_OUT_MESSAGE]]);
         }
 
         $teacher = $this->teacherForReprice($payout);
+        $this->dropCarriedFrom($payoutId, $academyId, $actorUserId, $actorRole);
 
         $linesDelta = 0;
         $linesChanged = 0;
@@ -1201,20 +1318,20 @@ final class Payroll implements PayoutHook
             return (string) $existing->id;
         }
 
-        $id   = (string) Str::uuid();
+        $id = (string) Str::uuid();
         $base = self::baseSalaryMinor($teacher);
 
         DB::table('payouts')->insert([
-            'id'           => $id,
-            'academy_id'   => $academy->id,
-            'teacher_id'   => $teacher->id,
-            'period_year'  => $year,
+            'id' => $id,
+            'academy_id' => $academy->id,
+            'teacher_id' => $teacher->id,
+            'period_year' => $year,
             'period_month' => $month,
-            'base_minor'   => $base,
-            'total_minor'  => $base,
-            'currency'     => (string) $teacher->currency,
-            'created_at'   => now(),
-            'updated_at'   => now(),
+            'base_minor' => $base,
+            'total_minor' => $base,
+            'currency' => (string) $teacher->currency,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
 
         return $id;

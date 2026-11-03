@@ -187,6 +187,8 @@ final class PayoutController extends Controller
         // How the teacher is paid NOW — lets the statement say "fixed salary" / "per student" and
         // offer to re-price an open month after the rates changed.
         $payout->pay_type = DB::table('teachers')->where('id', $payout->teacher_id)->value('pay_type');
+        // Money already out through the treasury is what stops a correction on this statement.
+        $payout->paid_out_minor = app(Payroll::class)->paidOutMinor((string) $payout->id);
 
         // Teacher self-scope (§3.6): without payout.read, you may only open your own statement.
         if (! $canReadAll) {
@@ -270,7 +272,8 @@ final class PayoutController extends Controller
 
         $ctx = app(AuthContext::class);
 
-        $adjustmentId = app(Payroll::class)->addAdjustment(
+        $payroll = app(Payroll::class);
+        $adjustmentId = $payroll->correcting($id, fn () => $payroll->addAdjustment(
             $id,
             (string) $ctx->academyId,
             $validated['type'],
@@ -279,7 +282,7 @@ final class PayoutController extends Controller
             $validated['details'] ?? null,
             (string) $ctx->userId,
             $ctx->role,
-        );
+        ));
 
         return response()->json(['ok' => true, 'id' => $adjustmentId], 201);
     }
@@ -294,12 +297,13 @@ final class PayoutController extends Controller
 
         $ctx = app(AuthContext::class);
 
-        app(Payroll::class)->removeAdjustment(
+        $payroll = app(Payroll::class);
+        $payroll->correcting($id, fn () => $payroll->removeAdjustment(
             $adjustmentId,
             (string) $ctx->academyId,
             (string) $ctx->userId,
             $ctx->role,
-        );
+        ));
 
         return response()->json(['ok' => true]);
     }
@@ -319,14 +323,26 @@ final class PayoutController extends Controller
 
         $ctx = app(AuthContext::class);
 
-        $delta = app(Payroll::class)->repricePayout(
+        $payroll = app(Payroll::class);
+        $delta = $payroll->correcting($id, fn () => $payroll->repricePayout(
             $id,
             (string) $ctx->academyId,
             (string) $ctx->userId,
             $ctx->role,
-        );
+        ));
 
         return response()->json(['ok' => true, 'delta_minor' => $delta]);
+    }
+
+    /** DELETE /api/payouts/{id} — delete a statement, open or sealed. */
+    public function destroy(string $id): JsonResponse
+    {
+        Gate::authorize('payout.adjust');
+
+        $ctx = app(AuthContext::class);
+        app(Payroll::class)->deleteStatement($id, (string) $ctx->academyId, (string) $ctx->userId, $ctx->role);
+
+        return response()->json(['ok' => true]);
     }
 
     /**
@@ -363,6 +379,8 @@ final class PayoutController extends Controller
                     'period_year' => (int) $payout->period_year,
                     'period_month' => (int) $payout->period_month,
                     'finalized' => $payout->finalized_at !== null,
+                    // Paid from the treasury: its difference goes on an open statement instead.
+                    'carries' => $payroll->carriesCorrections((string) $payout->id),
                     'currency' => (string) $payout->currency,
                     'total_minor' => (int) $payout->total_minor,
                     'delta_minor' => $quote['delta_minor'] ?? 0,
@@ -534,6 +552,7 @@ final class PayoutController extends Controller
                 DB::raw('cg.name as group_name'),
                 'li.description',
                 DB::raw('(p.finalized_at is not null) as finalized'),
+                DB::raw('(p.finalized_at is not null and exists (select 1 from expenses e where e.payout_id = p.id and e.voided_at is null)) as carries'),
                 'se.status',
                 'se.bill_override',
                 'se.teacher_override',
@@ -543,6 +562,7 @@ final class PayoutController extends Controller
                 $row->amount_minor = (int) $row->amount_minor;
                 $row->duration_minutes = $row->duration_minutes !== null ? (int) $row->duration_minutes : null;
                 $row->finalized = (bool) $row->finalized;
+                $row->carries = (bool) $row->carries;
                 // Taken off a sealed statement: the paid line stays, its difference went on an open one.
                 $row->removed = $row->session_id !== null && ! PayrollLessonCorrection::paysTeacher($row);
                 unset($row->status, $row->bill_override, $row->teacher_override);
