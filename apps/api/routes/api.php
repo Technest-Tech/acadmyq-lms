@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\ClientErrorController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Centre\HolidayController;
 use App\Http\Controllers\CentreDashboardController;
 use App\Http\Controllers\CertificateTemplateController;
 use App\Http\Controllers\Crm\LeadController;
@@ -41,6 +42,7 @@ use App\Http\Controllers\ExchangeRateController;
 use App\Http\Controllers\Groups\ClassGroupController;
 use App\Http\Controllers\Groups\ClassGroupLessonController;
 use App\Http\Controllers\Groups\GroupBoardController;
+use App\Http\Controllers\Groups\SubstituteController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Accounting\AccountingController;
 use App\Http\Controllers\Accounting\DiscountPresetController;
@@ -959,6 +961,20 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/group-lessons/{id}/students/{studentId}/remove', [ClassGroupLessonController::class, 'removeStudent'])->whereUuid(['id', 'studentId']);
         Route::post('/group-lessons/{id}/cancel', [ClassGroupLessonController::class, 'cancel'])->whereUuid(['id']);
         Route::post('/group-lessons/{id}/reschedule', [ClassGroupLessonController::class, 'reschedule'])->whereUuid(['id']);
+    });
+
+    // ── Centre holidays + substitute teacher (docs/centre-profile, Phase 2 §3) ─────────────────────
+    // The days a learning centre is closed: generation skips them, declaring one cancels the pending
+    // lessons inside it (reason HOLIDAY), deleting it brings them back. Reads for anyone signed in,
+    // writes are the academy's settings (settings.manage). A colleague covering ONE group lesson
+    // (group.manage) is a centre's and a groups' feature both — the payout line follows the lesson's
+    // teacher. All behind `entitled:centre`; a Quran academy gets 402 and nothing of it runs.
+    Route::middleware('entitled:centre')->group(function () {
+        Route::get('/holidays', [HolidayController::class, 'index']);
+        Route::get('/holidays/preview', [HolidayController::class, 'preview']);
+        Route::post('/holidays', [HolidayController::class, 'store']);
+        Route::delete('/holidays/{id}', [HolidayController::class, 'destroy'])->whereUuid('id');
+        Route::middleware('entitled:groups')->post('/group-lessons/{id}/substitute', [SubstituteController::class, 'set'])->whereUuid('id');
     });
 
     // CRM / Leads (CRM module). Sales/support staff capture prospective students as leads and

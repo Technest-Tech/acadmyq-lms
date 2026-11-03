@@ -28,10 +28,17 @@ use Illuminate\Support\Str;
  * per-date count guard stops an edited slot time from producing a second copy of every lesson
  * already taught (the slot row is replaced, which detaches those lessons from it).
  *
+ * A centre's holidays (docs/centre-profile, Phase 2 §3) take dates OUT of the intended set before any
+ * of the above runs: a closed date is never created, and a lesson already on it is only ever
+ * cancelled by {@see HolidayClosures} (CANCELLED is touched, so it is neither deleted nor realigned
+ * here). An academy with no holiday rows has every date open — its output is what it always was.
+ *
  * Every method runs inside the caller's tenant context; RLS is the backstop on every write.
  */
 final class GroupLessonGenerator
 {
+    public function __construct(private readonly Holidays $holidays = new Holidays) {}
+
     /** Does the academy hold the group-classes feature? The nightly roll skips the ones that don't. */
     public static function enabledFor(string $academyId): bool
     {
@@ -119,6 +126,7 @@ final class GroupLessonGenerator
                     ])->all();
 
                 $intended = RecurrenceCalculator::occurrences($slots, (string) $group->timezone, $from, $to);
+                $intended = array_values(array_filter($intended, fn ($o) => ! $this->holidays->isClosed((string) $group->academy_id, $o['occurrence_local_date'])));
             }
         }
 
@@ -198,12 +206,16 @@ final class GroupLessonGenerator
             }
 
             if ($this->isUntouched($existing, $nowUtc)) {
-                DB::table('class_group_lessons')->where('id', $existing->id)->update([
-                    'teacher_id' => (string) $group->teacher_id,
+                $update = [
                     'scheduled_at_utc' => $utc,
                     'duration_minutes' => $o['duration_minutes'],
                     'updated_at' => now(),
-                ]);
+                ];
+                // A substitute put on this one lesson stays; every other lesson follows the group's teacher.
+                if ($existing->original_teacher_id === null) {
+                    $update['teacher_id'] = (string) $group->teacher_id;
+                }
+                DB::table('class_group_lessons')->where('id', $existing->id)->update($update);
             }
         }
 

@@ -38,9 +38,16 @@ use Illuminate\Support\Str;
  * a start date in the past is a deliberate statement: "these lessons happened, put them on the
  * board so we can mark them." Back-filling stays idempotent (the unique occurrence index), and a
  * back-filled row is still SCHEDULED, so nothing is billed until somebody records an outcome.
+ *
+ * A centre's holidays (docs/centre-profile, Phase 2 §3) take dates OUT of the intended set before
+ * reconciliation: a closed date is never created, and a lesson already on it is only ever cancelled
+ * by {@see HolidayClosures} (a cancelled row is touched, so it is neither deleted nor realigned here).
+ * An academy with no holiday rows has every date open — its output is what it always was.
  */
 final class SessionGenerator
 {
+    public function __construct(private readonly Holidays $holidays = new Holidays) {}
+
     /**
      * Tables whose row means a lesson is a real record, not just a planned one: it stays where it
      * is when the timetable changes. Most of these carry no cascade either, so deleting such a
@@ -138,6 +145,7 @@ final class SessionGenerator
                 $from,
                 $windowEnd->format('Y-m-d'),
             );
+            $intended = array_values(array_filter($intended, fn ($o) => ! $this->holidays->isClosed((string) $schedule->academy_id, $o['occurrence_local_date'])));
         }
 
         // Teacher for newly generated / realigned future rows: the timetable's OWN teacher. A

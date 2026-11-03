@@ -22,6 +22,9 @@ trait InteractsWithClassGroups
 {
     use InteractsWithScheduling;
 
+    /** @var array<string, ?string> group id → its own teacher's name, read once per request */
+    private array $groupTeacherNames = [];
+
     protected function isTeacher(): bool
     {
         return $this->ctx()->role === 'TEACHER';
@@ -159,6 +162,10 @@ trait InteractsWithClassGroups
             'group_id' => (string) $l->group_id,
             'teacher_id' => (string) $l->teacher_id,
             'teacher_name' => $l->teacher_name ?? DB::table('teachers')->where('id', $l->teacher_id)->value('full_name'),
+            // A colleague covering this one lesson (SubstituteController): the lesson's teacher above
+            // is who takes it and is paid for it; the group's own teacher is named beside them.
+            'is_substitute' => ($l->original_teacher_id ?? null) !== null,
+            'group_teacher_name' => $l->group_teacher_name ?? $this->groupTeacherName((string) $l->group_id),
             'slot_id' => $l->slot_id !== null ? (string) $l->slot_id : null,
             'occurrence_local_date' => Carbon::parse($l->occurrence_local_date)->format('Y-m-d'),
             'scheduled_at_utc' => Carbon::parse($l->scheduled_at_utc)->utc()->toIso8601String(),
@@ -176,6 +183,17 @@ trait InteractsWithClassGroups
                 isset($l->outcome_set_by) ? (string) $l->outcome_set_by : null),
             'counts' => $counts,
         ];
+    }
+
+    private function groupTeacherName(string $groupId): ?string
+    {
+        if (! array_key_exists($groupId, $this->groupTeacherNames)) {
+            $name = DB::table('class_groups as g')->join('teachers as te', 'te.id', '=', 'g.teacher_id')
+                ->where('g.id', $groupId)->value('te.full_name');
+            $this->groupTeacherNames[$groupId] = $name !== null ? (string) $name : null;
+        }
+
+        return $this->groupTeacherNames[$groupId];
     }
 
     /**

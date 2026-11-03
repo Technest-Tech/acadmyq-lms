@@ -10667,5 +10667,58 @@
     "theTeacher": "The lesson's teacher",
     "off": "off",
     "everyone": "Everyone"
+  },
+  "holidays": {
+    "tab": "Centre holidays",
+    "title": "Centre holidays",
+    "description": "Days the centre is closed (Eid, the mid-year break…): no lessons are generated on them, and the lessons already scheduled are cancelled.",
+    "add": "Add a holiday",
+    "name": "Holiday name",
+    "namePlaceholder": "e.g. Eid al-Fitr",
+    "from": "From",
+    "to": "To",
+    "next": "Next",
+    "back": "Back",
+    "cancel": "Cancel",
+    "loading": "Loading…",
+    "loadFailed": "Could not load the holidays.",
+    "actionFailed": "That did not go through.",
+    "empty": "No holidays yet.",
+    "cancelled": "{count} lessons cancelled",
+    "cancelledDetail": "{groups} group · {sessions} private",
+    "makeUp": "A make-up lesson is added from the group's page (extra lesson) under",
+    "makeUpLink": "Groups",
+    "preview": {
+      "title": "Confirm the holiday",
+      "willCancel": "{count} lessons in this range will be cancelled:",
+      "groups": "{count} group lessons",
+      "sessions": "{count} private lessons",
+      "none": "No lessons are scheduled in this range.",
+      "pastNote": "Past lessons and saved sheets are not affected.",
+      "confirm": "Confirm holiday"
+    },
+    "created": "Holiday added; {count} lessons cancelled.",
+    "delete": {
+      "action": "Delete",
+      "title": "Delete this holiday",
+      "hint": "The upcoming lessons it cancelled go back on the timetable.",
+      "confirm": "Delete holiday",
+      "done": "Holiday deleted; {count} lessons restored."
+    },
+    "badge": "Holiday",
+    "substitute": {
+      "action": "Substitute teacher",
+      "title": "A substitute for this lesson",
+      "hint": "The substitute takes this lesson only; the group's other lessons stay with its teacher.",
+      "teacher": "Who takes the lesson?",
+      "own": "The group's teacher ({name})",
+      "ownPlain": "The group's teacher",
+      "label": "Substitute: {name}",
+      "payNote": "This lesson's pay goes to whoever takes it.",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saved": "The lesson's teacher was updated.",
+      "failed": "Could not change the lesson's teacher."
+    }
   }
 }
