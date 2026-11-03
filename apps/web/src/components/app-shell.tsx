@@ -13,6 +13,7 @@ import {
   CalendarDays,
   ChevronDown,
   ClipboardCheck,
+  ClipboardList,
   CreditCard,
   Eye,
   Gauge,
@@ -91,6 +92,7 @@ import {
   OrnateRule,
 } from "@/components/ornaments";
 import { applyBranding, loadBranding } from "@/lib/branding";
+import { getEnrolmentSummary } from "@/lib/enrolment-api";
 import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { roleLabel } from "@/lib/roles";
 import { cn } from "@/lib/utils";
@@ -121,6 +123,7 @@ type NavKey =
   | "schedule"
   | "videoClassroom"
   | "trials"
+  | "enrolment"
   | "crm"
   | "lmsHome"
   | "courses"
@@ -222,6 +225,7 @@ const CENTRE_GROUP_OF: Partial<Record<NavKey, NavGroup>> = {
   packages: "teaching",
   packagesFinished: "teaching",
   trials: "teaching",
+  enrolment: "teaching",
   certificates: "teaching",
   videoClassroom: "teaching",
   crm: "people",
@@ -236,6 +240,7 @@ const CENTRE_ORDER: readonly NavKey[] = [
   "packages",
   "packagesFinished",
   "trials",
+  "enrolment",
   "certificates",
   "videoClassroom",
   "students",
@@ -359,6 +364,14 @@ const NAV: ReadonlyArray<{
     icon: CalendarClock,
     permission: "trial.read",
     href: "/trials",
+    group: "people",
+  },
+  // The centre's enrolment inbox (docs/centre-profile Phase 2 §6) — the front of the trials pipeline.
+  {
+    key: "enrolment",
+    icon: ClipboardList,
+    permission: "trial.read",
+    href: "/enrolment",
     group: "people",
   },
   {
@@ -746,6 +759,7 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string | readonly string[]>> = {
   staff: "staff",
   academyRoles: "custom_roles",
   trials: "trials",
+  enrolment: "centre",
   crm: "crm",
   groups: "groups",
   groupsAll: "groups",
@@ -881,6 +895,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [salesCount, setSalesCount] = useState(0);
   const [bookingCount, setBookingCount] = useState(0);
   const [trialCount, setTrialCount] = useState(0);
+  const [enrolCount, setEnrolCount] = useState(0);
   const [groupOwedCount, setGroupOwedCount] = useState(0);
   const [invoiceFollowUpCount, setInvoiceFollowUpCount] = useState(0);
   // Which sidebar dropdowns are open. Closed by default — only a click opens or closes one.
@@ -1048,6 +1063,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const refresh = () =>
       getTrialSummary()
         .then((s) => alive && setTrialCount(s.needs_decision ?? 0))
+        .catch(() => {});
+    const stop = pollWhileVisible(refresh);
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, [session, can, capabilities, pathname]);
+
+  // Enrolment badge (docs/centre-profile Phase 2 §6): requests from the public form nobody has picked
+  // up yet. Derived like the bookings badge — it clears when someone moves the request on.
+  useEffect(() => {
+    if (session === null || !can("trial.read") || !(capabilities?.includes("centre") ?? false)) {
+      setEnrolCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () =>
+      getEnrolmentSummary()
+        .then((s) => alive && setEnrolCount(s.new ?? 0))
         .catch(() => {});
     const stop = pollWhileVisible(refresh);
     return () => {
@@ -1292,6 +1326,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return {
         count: bookingCount,
         label: `${bookingCount} new booking requests`,
+      };
+    }
+    if (key === "enrolment" && enrolCount > 0) {
+      return {
+        count: enrolCount,
+        label: `${enrolCount} new enrolment requests`,
       };
     }
     if (key === "studentReportReviews" && srCount > 0) {

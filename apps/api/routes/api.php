@@ -36,6 +36,8 @@ use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\CentreDashboardController;
 use App\Http\Controllers\CertificateTemplateController;
 use App\Http\Controllers\Crm\LeadController;
+use App\Http\Controllers\Enrolment\EnrolmentFormController;
+use App\Http\Controllers\Enrolment\EnrolmentRequestController;
 use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
 use App\Http\Controllers\Groups\ClassGroupController;
@@ -95,6 +97,7 @@ use App\Http\Controllers\People\TeamActorController;
 use App\Http\Controllers\Public\AcademyPaymentController;
 use App\Http\Controllers\Public\BrandAssetController;
 use App\Http\Controllers\Public\DemoRequestController as PublicDemoRequestController;
+use App\Http\Controllers\Public\EnrolmentController as PublicEnrolmentController;
 use App\Http\Controllers\Public\TenantSiteController;
 use App\Http\Controllers\Public\WhatsAppConnectController;
 use App\Http\Controllers\Quality\QualityReportController;
@@ -199,6 +202,14 @@ Route::middleware(['throttle:60,1'])->group(function () {
     Route::get('/p/{token}', [GuardianPortalController::class, 'publicShow']);
     // One payment link per family: every child's due package bill and the total, on one page.
     Route::get('/f/{token}', [FamilyPayController::class, 'publicShow']);
+    // ── Centre enrolment form (docs/centre-profile Phase 2 §6) ───────────────────────────────────
+    // The centre's public registration page: one stable link per academy, resolved by token like
+    // /p and /f. The submit shares the course site's booking throttle: an anonymous write that
+    // lands in a human's inbox needs no more than a real visitor could.
+    Route::get('/e/{token}', [PublicEnrolmentController::class, 'show'])->where('token', '[A-Za-z0-9]+');
+    Route::post('/e/{token}', [PublicEnrolmentController::class, 'store'])
+        ->middleware('throttle:learn-booking')->where('token', '[A-Za-z0-9]+');
+    // ── end centre enrolment form ──────────────────────────────────────────────────────────────
 
     // Public video join-by-link (archive/video-platform/docs/06 + 08-ROOM-ACCESS §2/§3). Role-separated
     // links: a guest/host/monitor token (/r/{token}) OR a readable per-academy slug
@@ -960,6 +971,23 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/group-lessons/{id}/cancel', [ClassGroupLessonController::class, 'cancel'])->whereUuid(['id']);
         Route::post('/group-lessons/{id}/reschedule', [ClassGroupLessonController::class, 'reschedule'])->whereUuid(['id']);
     });
+
+    // ── Centre enrolment (docs/centre-profile Phase 2 §6) ─────────────────────────────────────────
+    // The public form's settings card and the inbox of what it collected, with the one-click handoff
+    // to a placement lesson (a `trials` row through TrialBooking). `trial.read` reads, `trial.manage`
+    // changes, `settings.manage` edits the form. Centre-only: a Quran academy gets a 402.
+    Route::middleware('entitled:centre')->group(function () {
+        Route::get('/enrolment/form', [EnrolmentFormController::class, 'show']);
+        Route::patch('/enrolment/form', [EnrolmentFormController::class, 'update']);
+        Route::post('/enrolment/form/rotate-token', [EnrolmentFormController::class, 'rotateToken']);
+        Route::get('/enrolment/requests', [EnrolmentRequestController::class, 'index']);
+        Route::get('/enrolment/requests/summary', [EnrolmentRequestController::class, 'summary']);
+        Route::patch('/enrolment/requests/{id}', [EnrolmentRequestController::class, 'update'])->whereUuid('id');
+        // Booking the placement lesson needs the trials board too — it is where the lesson is run.
+        Route::post('/enrolment/requests/{id}/placement', [EnrolmentRequestController::class, 'placement'])
+            ->middleware('entitled:trials')->whereUuid('id');
+    });
+    // ── end centre enrolment ──────────────────────────────────────────────────────────────────────
 
     // CRM / Leads (CRM module). Sales/support staff capture prospective students as leads and
     // walk them through one pipeline board (NEW → CONTACTED → INTERESTED → TRIAL → SUBSCRIBED,

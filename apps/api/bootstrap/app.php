@@ -58,6 +58,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // priming a session cookie on every anonymous visitor of acadmyq.com to protect a write
             // that carries no authority. Volume is bounded by throttle:demo-requests instead.
             'api/public/demo-requests',
+            // The centre's public enrolment form (docs/centre-profile Phase 2 §6): the same stranger with
+            // no credential, on a client subdomain the stateful wildcard matches. Bounded by its throttle.
+            'api/e/*',
             // The LMS public course site (docs/lms). The same shape again, and the one that bites
             // hardest: a client's site is served from `<handle>.acadmyq.com`, which MATCHES the
             // `*.acadmyq.com` wildcard in SANCTUM_STATEFUL_DOMAINS, so statefulApi() puts session

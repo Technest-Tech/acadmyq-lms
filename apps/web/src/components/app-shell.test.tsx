@@ -552,3 +552,22 @@ describe("AppShell — the learning centre's shape (`academy.profile === CENTRE`
     expect(screen.queryByText(arMessages.navGroup.teaching)).toBeNull();
   });
 });
+
+describe("AppShell — the centre's enrolment inbox (docs/centre-profile Phase 2 §6)", () => {
+  const academy = { name: "Lingo", displayName: "Lingo", logoUrl: null, country: "EG", defaultCurrency: "EGP", profile: "CENTRE" as const };
+  const permissions = ["trial.read", "group.read", "student.read", "guardian.read", "teacher.read", "notification.read"];
+
+  it("lists طلبات التسجيل right after the placement lessons for a centre, and not at all for a Quran academy", async () => {
+    const { unmount } = renderShell("ACADEMY_OWNER", { academy, permissions, capabilities: ["groups", "trials", "centre"] });
+    await ready();
+    const keys = navKeys();
+    expect(keys.indexOf("enrolment")).toBe(keys.indexOf("trials") + 1);
+    expect(document.querySelector('[data-nav="enrolment"]')?.textContent).toContain(arMessages.nav.enrolment);
+    unmount();
+
+    renderShell("ACADEMY_OWNER", { academy: { ...academy, profile: "QURAN" as const }, permissions, capabilities: ["trials"] });
+    await ready();
+    expect(navKeys()).toContain("trials");
+    expect(navKeys()).not.toContain("enrolment");
+  });
+});
