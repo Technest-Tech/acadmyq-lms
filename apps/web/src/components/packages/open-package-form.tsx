@@ -1,20 +1,23 @@
 "use client";
 
-import { Info, Repeat, TriangleAlert } from "lucide-react";
+import { Info, Plus, Repeat, TriangleAlert } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import {
   PackageTermsFields,
   usePackageTerms,
 } from "@/components/packages/package-terms";
+import { TopUpPackageForm } from "@/components/packages/top-up-package-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import {
   ApiError,
+  listLessonPackages,
   listPackageStudents,
   listTeachers,
   openLessonPackage,
+  type LessonPackageRow,
   type PackageStudent,
   type TeacherRow,
 } from "@/lib/api";
@@ -143,6 +146,37 @@ export function OpenPackageForm({
   const tiedTeacher = subjectId === NEW ? newTeacherId : subjectId;
   const alreadyOpen =
     student !== null && (tiedTeacher === "" ? subjectId !== NEW && student.active_package_id != null : openSubjects.has(tiedTeacher));
+  // A subject holds one open block, so buying more with the same teacher means adding to that block.
+  const [openBlocks, setOpenBlocks] = useState<LessonPackageRow[]>([]);
+  const [topUp, setTopUp] = useState<LessonPackageRow | null>(null);
+  const looksForBlock = centre && alreadyOpen;
+  useEffect(() => {
+    if (!looksForBlock || studentId === "") return;
+    let live = true;
+    void listLessonPackages({ student_id: studentId, scope: "open" })
+      .then((r) => {
+        if (live) setOpenBlocks(r.packages);
+      })
+      .catch(() => {
+        if (live) setOpenBlocks([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [looksForBlock, studentId]);
+  const blockToAddTo = looksForBlock
+    ? openBlocks.find(
+        (p) => p.student_id === studentId && p.lesson_minutes !== null && (p.subject?.teacher_id ?? "") === tiedTeacher,
+      ) ?? null
+    : null;
+  // How long this subject's lessons really are. The length starts there, and says so if changed.
+  const timetableMinutes = centre
+    ? ((tiedTeacher !== "" ? subjects.find((sub) => sub.teacher_id === tiedTeacher)?.lesson_minutes : student?.lesson_minutes) ?? null)
+    : null;
+  useEffect(() => {
+    if (timetableMinutes !== null) terms.setUnitMinutes(timetableMinutes);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timetableMinutes]);
   const newSubjectReady = subjectId !== NEW || (newTeacherId !== "" && newCourse.trim() !== "");
   /** Saving will also move this student onto package billing. Said out loud, before they commit. */
   const willSwitch = student !== null && !student.on_package_billing;
@@ -189,6 +223,10 @@ export function OpenPackageForm({
     } finally {
       setBusy(false);
     }
+  }
+
+  if (topUp !== null) {
+    return <TopUpPackageForm row={topUp} onSaved={onSaved} onCancel={() => setTopUp(null)} />;
   }
 
   return (
@@ -297,6 +335,20 @@ export function OpenPackageForm({
         </p>
       )}
 
+      {blockToAddTo !== null && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="w-full gap-1.5"
+          onClick={() => setTopUp(blockToAddTo)}
+          data-testid="package-add-lessons"
+        >
+          <Plus className="size-3.5" aria-hidden />
+          {t("topUp.action")}
+        </Button>
+      )}
+
       {willSwitch && !alreadyOpen && (
         <p
           className="flex items-start gap-2 rounded-xl border border-sky-300/60 bg-sky-500/[0.07] px-3 py-2.5 text-xs text-sky-800 dark:border-sky-800/50 dark:text-sky-300"
@@ -309,6 +361,16 @@ export function OpenPackageForm({
             </span>
             <span className="block opacity-90">{t("form.switchHint")}</span>
           </span>
+        </p>
+      )}
+
+      {timetableMinutes !== null && terms.unitMinutes !== timetableMinutes && (
+        <p
+          className="flex items-start gap-2 rounded-xl bg-amber-500/10 px-3 py-2.5 text-xs font-medium text-amber-700 dark:text-amber-400"
+          data-testid="package-length-differs"
+        >
+          <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
+          {t("form.lengthDiffers", { timetable: timetableMinutes, length: terms.unitMinutes })}
         </p>
       )}
 

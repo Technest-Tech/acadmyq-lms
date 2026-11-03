@@ -45,7 +45,7 @@ export interface InvoiceDetail {
   payer_phone: string | null;
   period_month: number;
   period_year: number;
-  status: "OPEN" | "CLOSED" | "PAID" | "PARTIALLY_PAID";
+  status: "OPEN" | "CLOSED" | "PAID" | "PARTIALLY_PAID" | "VOID";
   total_minor: number;
   subtotal_minor: number;
   amount_paid_minor: number;
@@ -100,6 +100,7 @@ const STATUS_STYLES: Record<InvoiceDetail["status"], string> = {
   PAID: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
   PARTIALLY_PAID:
     "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300",
+  VOID: "bg-muted text-muted-foreground",
 };
 
 function StatusBadge({ status }: { status: InvoiceDetail["status"] }) {

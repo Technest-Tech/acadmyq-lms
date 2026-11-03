@@ -48,7 +48,7 @@ export interface InvoiceRow {
   payer_type: "GUARDIAN" | "STUDENT";
   period_month: number;
   period_year: number;
-  status: "OPEN" | "CLOSED" | "PAID" | "PARTIALLY_PAID";
+  status: "OPEN" | "CLOSED" | "PAID" | "PARTIALLY_PAID" | "VOID";
   total_minor: number;
   amount_paid_minor: number;
   currency: string;
@@ -71,6 +71,7 @@ const STATUS_STYLES: Record<InvoiceRow["status"], string> = {
   PAID: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
   PARTIALLY_PAID:
     "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300",
+  VOID: "bg-muted text-muted-foreground",
 };
 
 const STATUS_DOT: Record<InvoiceRow["status"], string> = {
@@ -78,6 +79,7 @@ const STATUS_DOT: Record<InvoiceRow["status"], string> = {
   CLOSED: "bg-amber-500",
   PAID: "bg-emerald-500",
   PARTIALLY_PAID: "bg-orange-500",
+  VOID: "bg-muted-foreground/50",
 };
 
 function InvoiceStatusBadge({ status }: { status: InvoiceRow["status"] }) {
@@ -360,16 +362,20 @@ function useInvoiceColumns({ manual = false }: { manual?: boolean } = {}): Colum
       sortKey: "total_minor",
       className: "text-end",
       render: (row) => {
-        const due = Math.max(0, row.total_minor - row.amount_paid_minor);
+        // A voided bill owes nothing, whatever its total still says.
+        const voided = row.status === "VOID";
+        const due = voided ? 0 : Math.max(0, row.total_minor - row.amount_paid_minor);
         return (
           <div className="flex flex-col items-end">
-            <span className="font-semibold tabular-nums">
+            <span className={cn("font-semibold tabular-nums", voided && "text-muted-foreground line-through")}>
               {formatMoney(
                 { amount: row.total_minor, currency: row.currency },
                 locale,
               )}
             </span>
-            {row.status === "PAID" || (centre && row.total_minor > 0 && due === 0) ? (
+            {voided ? (
+              <span className="text-muted-foreground text-xs">{t("status.VOID")}</span>
+            ) : row.status === "PAID" || (centre && row.total_minor > 0 && due === 0) ? (
               <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 {t("paidInFull")}
               </span>
@@ -446,7 +452,7 @@ function useInvoiceExportColumns({ manual = false }: { manual?: boolean } = {}):
       value: (row) =>
         formatMoney(
           {
-            amount: Math.max(0, row.total_minor - row.amount_paid_minor),
+            amount: row.status === "VOID" ? 0 : Math.max(0, row.total_minor - row.amount_paid_minor),
             currency: row.currency,
           },
           locale,
@@ -457,6 +463,8 @@ function useInvoiceExportColumns({ manual = false }: { manual?: boolean } = {}):
 
 const STATUS_FILTER_OPTIONS = (
   t: ReturnType<typeof useTranslations>,
+  /** A centre's list leaves voided bills out, so this is where they can still be found. */
+  centre: boolean,
 ): FilterDef => ({
   key: "status",
   label: t("filterStatus"),
@@ -465,6 +473,7 @@ const STATUS_FILTER_OPTIONS = (
     { value: "CLOSED", label: t("status.CLOSED") },
     { value: "PAID", label: t("status.PAID") },
     { value: "PARTIALLY_PAID", label: t("status.PARTIALLY_PAID") },
+    ...(centre ? [{ value: "VOID", label: t("status.VOID") }] : []),
   ],
 });
 
@@ -620,7 +629,7 @@ function AutomaticTab() {
           columns={columns}
           getRowId={(row) => row.id}
           searchable
-          filters={[STATUS_FILTER_OPTIONS(t)]}
+          filters={[STATUS_FILTER_OPTIONS(t, centre)]}
           defaultSort="-period"
           onRowClick={(row) => setSelectedId(row.id)}
           rowActions={(row) => (
@@ -675,6 +684,7 @@ function ManualTab({
   followUpCount: number;
   onChanged: () => void;
 }) {
+  const centre = useCapability("centre");
   const t = useTranslations("invoices");
   const locale = useLocale();
   const { can } = useAuth();
@@ -814,7 +824,7 @@ function ManualTab({
           columns={columns}
           getRowId={(row) => row.id}
           searchable
-          filters={[STATUS_FILTER_OPTIONS(t)]}
+          filters={[STATUS_FILTER_OPTIONS(t, centre)]}
           defaultSort="-created_at"
           onRowClick={(row) => setSelectedId(row.id)}
           rowClassName={(row) => (row.needs_follow_up ? "bg-red-50/70 dark:bg-red-950/20" : undefined)}

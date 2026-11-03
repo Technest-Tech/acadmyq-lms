@@ -338,6 +338,54 @@ final class LessonPackages
     }
 
     /**
+     * A curriculum centre sells lessons, so on a block sold in lessons a lesson is one lesson, however
+     * long it ran (Ahmed, 2026-11-03): a family that bought 4 has 4, and neither a short lesson stretches
+     * the block nor a long one eats two. Everywhere else a lesson burns its minutes. The teacher is paid
+     * from the lesson's real length either way, so this is only about what the family's block counts.
+     */
+    public static function countsLessons(object $package): bool
+    {
+        $length = self::lessonLength($package);
+
+        return $length !== null && $length > 0 && Entitlement::hasCapability((string) $package->academy_id, 'centre');
+    }
+
+    /**
+     * What one lesson takes off a block counted in lessons. The last whole lesson takes any stray
+     * remainder with it (a block of 200 minutes in 60s is 3 lessons), so the block ends on its last
+     * lesson with nothing left over, and a remainder never turns into a free lesson or an overdraft.
+     */
+    private function lessonTake(int $lessonMinutes, int $available): int
+    {
+        return $available > 0 && $available < 2 * $lessonMinutes ? $available : $lessonMinutes;
+    }
+
+    /**
+     * A running block's books, read as lessons: each lesson on it counts one of `$lessonMinutes`.
+     * For a block whose lessons were counted by their minutes, or whose length just changed. Only
+     * what the block counts moves, never money. Returns the minutes it now has used.
+     */
+    public function recountLessons(string $packageId, int $lessonMinutes): int
+    {
+        $package = DB::table('lesson_packages')->where('id', $packageId)->first(['absorbed_overdraft_minutes']);
+        $lessons = DB::table('lesson_package_credits')->where('package_id', $packageId)->count();
+        $consumed = $lessons * $lessonMinutes + (int) ($package->absorbed_overdraft_minutes ?? 0);
+
+        DB::table('lesson_package_credits')->where('package_id', $packageId)->update([
+            'minutes' => $lessonMinutes,
+            'minutes_overdrawn' => 0,
+            'amount_minor' => 0,
+        ]);
+        DB::table('lesson_packages')->where('id', $packageId)->update([
+            'minutes_consumed' => $consumed,
+            'minutes_overdrawn' => 0,
+            'updated_at' => now(),
+        ]);
+
+        return $consumed;
+    }
+
+    /**
      * Burn one lesson out of ONE NAMED package — the single consumption rule set.
      *
      * Split out of {@see consume()} so a hand-made attachment ({@see attachSession()}) and the
@@ -351,8 +399,11 @@ final class LessonPackages
     {
         $studentId = (string) $session->student_id;
 
-        $minutes = max(1, (int) $session->duration_minutes);
+        $length = max(1, (int) $session->duration_minutes);
         $available = $this->remainingMinutes($package);
+        $minutes = self::countsLessons($package)
+            ? $this->lessonTake((int) $package->lesson_minutes, $available)
+            : $length;
 
         // The whole lesson lands on THIS package. Whatever part of it exceeds the balance is an
         // overdraw, priced at the package's snapshotted hourly rate — never a second package.
@@ -369,7 +420,7 @@ final class LessonPackages
             'minutes_overdrawn' => $overdrawn,
             'amount_minor' => $overdraftAmount,
             'currency' => $package->currency,
-            'description' => $this->creditDescription($session, $minutes, $overdrawn),
+            'description' => $this->creditDescription($session, $length, $overdrawn),
             'consumed_at' => now(),
             'created_at' => now(),
         ]);
@@ -990,7 +1041,7 @@ final class LessonPackages
             'course' => $course,
             'label' => (string) $data['label'],
             'minutes_total' => $minutesTotal,
-            // The length of one lesson it was sold in — display only (null = read in hours).
+            // The length of one lesson it was sold in (null = read in hours). {@see countsLessons()}
             'lesson_minutes' => isset($data['lesson_minutes']) ? (int) $data['lesson_minutes'] : null,
             // The previous block's last lesson ran past its end; those minutes are this block's.
             'minutes_consumed' => $absorbed,
@@ -1328,6 +1379,14 @@ final class LessonPackages
 
         $carried = (int) $package->carried_over_minutes;
         $consumed = (int) $package->minutes_consumed;
+        // A new length on a block counted in lessons: the lessons taught are still that many lessons.
+        $recount = $lessonMinutes !== null
+            && (int) $lessonMinutes !== (int) $package->lesson_minutes
+            && self::countsLessons((object) ['academy_id' => $package->academy_id, 'lesson_minutes' => $lessonMinutes]);
+        if ($recount) {
+            $consumed = DB::table('lesson_package_credits')->where('package_id', $packageId)->count() * (int) $lessonMinutes
+                + (int) $package->absorbed_overdraft_minutes;
+        }
 
         // Shrinking a package to exactly (or below) what has been taught leaves it ACTIVE with no
         // balance — a state the engine itself never produces, since a lesson that empties a
@@ -1379,7 +1438,7 @@ final class LessonPackages
         );
         $bill = [];
 
-        DB::transaction(function () use ($packageId, $package, $after, $before, $invoiceId, $billStale, $label, $minutes, $carried, $price, $lessonMinutes, $actorUserId, $actorRole, &$bill): void {
+        DB::transaction(function () use ($packageId, $package, $after, $before, $invoiceId, $billStale, $label, $minutes, $carried, $price, $lessonMinutes, $recount, $actorUserId, $actorRole, &$bill): void {
             if ($billStale) {
                 $bill = $this->rewritePackageInvoiceLine(
                     (string) $invoiceId,
@@ -1398,6 +1457,9 @@ final class LessonPackages
             // next one" is superseded by them.
             $termsMoved = array_intersect_key($after, array_flip(['label', 'minutes_total', 'lesson_minutes', 'price_minor'])) !== [];
             DB::table('lesson_packages')->where('id', $packageId)->update($after + ['updated_at' => now()] + ($termsMoved ? ['next_terms' => null] : []));
+            if ($recount) {
+                $this->recountLessons($packageId, (int) $lessonMinutes);
+            }
 
             Audit::log(
                 'lesson_package.edited',
@@ -1412,6 +1474,59 @@ final class LessonPackages
         });
 
         return ['changed' => array_keys($after), 'invoice_id' => $invoiceId] + $bill;
+    }
+
+    /**
+     * A curriculum centre sells more lessons on a block still running. A subject holds one open block,
+     * so this is how a family buys ahead with the same teacher without closing what they have (lingo,
+     * 2026-11-03). The added lessons land on the block's own bill, so its receipts stay and the
+     * difference is what is due. It is a one-off: a block that renews itself renews at the size it
+     * had, which is parked as the next terms.
+     *
+     * @return array{changed: list<string>, invoice_id: ?string, lessons_added: int, lessons_total: int, added_minor: int}
+     */
+    public function topUp(string $packageId, int $lessons, int $lessonPriceMinor, ?string $actorUserId, ?string $actorRole): array
+    {
+        $package = DB::table('lesson_packages')->where('id', $packageId)->first();
+
+        if ($package === null) {
+            throw ValidationException::withMessages(['package_id' => ['Package not found. / الباقة غير موجودة.']]);
+        }
+
+        $lessonMinutes = self::lessonLength($package);
+
+        if ($lessonMinutes === null || $lessonMinutes <= 0 || ! Entitlement::hasCapability((string) $package->academy_id, 'centre')) {
+            throw ValidationException::withMessages(['lessons' => ['Adding lessons is for a subscription sold in lessons. / إضافة الحصص متاحة لاشتراك مبيع بالحصة فقط.']]);
+        }
+
+        $added = $lessons * $lessonPriceMinor;
+        $minutes = (int) $package->minutes_total + $lessons * $lessonMinutes;
+
+        return DB::transaction(function () use ($packageId, $package, $lessons, $added, $minutes, $lessonMinutes, $actorUserId, $actorRole): array {
+            $result = $this->edit($packageId, [
+                'minutes_total' => $minutes,
+                'price_minor' => (int) $package->price_minor + $added,
+            ], $actorUserId, $actorRole);
+
+            // edit() drops parked terms, since new terms normally are the next ones. These are not.
+            if ((bool) $package->auto_renew) {
+                $parked = $package->next_terms !== null ? (array) json_decode((string) $package->next_terms, true) : [];
+                $this->setNextTerms($packageId, $parked + [
+                    'minutes_total' => (int) $package->minutes_total,
+                    'price_minor' => (int) $package->price_minor,
+                ], $actorUserId, $actorRole);
+            }
+
+            Audit::log('lesson_package.topped_up', 'lesson_package', $packageId, (string) $package->academy_id, $actorUserId, $actorRole,
+                after: ['lessons' => $lessons, 'added_minor' => $added, 'minutes_total' => $minutes],
+                before: ['minutes_total' => (int) $package->minutes_total, 'price_minor' => (int) $package->price_minor]);
+
+            return $result + [
+                'lessons_added' => $lessons,
+                'lessons_total' => LessonCount::whole($minutes + (int) $package->carried_over_minutes, $lessonMinutes),
+                'added_minor' => $added,
+            ];
+        });
     }
 
     /**

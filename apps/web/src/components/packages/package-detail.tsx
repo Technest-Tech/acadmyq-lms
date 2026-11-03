@@ -362,7 +362,7 @@ export function PackageDetail({
                         {credit.teacher_name ?? "—"}
                       </td>
                       <td className="px-2 py-2 text-end font-semibold tabular-nums">
-                        {minutesText(credit.minutes)}
+                        {minutesText(credit.duration_minutes ?? credit.minutes)}
                       </td>
                       <td
                         className={cn(
@@ -414,7 +414,7 @@ export function PackageDetail({
                       <tr className="bg-muted/40">
                         <td colSpan={canManage ? 6 : 5} className="px-3 pb-3">
                           <EditLengthRow
-                            minutes={credit.minutes}
+                            minutes={credit.duration_minutes ?? credit.minutes}
                             busy={busy}
                             onCancel={() => setRowMode(null)}
                             onSave={(minutes) =>

@@ -13,6 +13,7 @@ import { JoinDateForm, leftReasonText, MemberPriceForm, MoveMemberForm, RemoveMe
 import { ClosePackageModal } from "@/components/packages/close-package-modal";
 import { EditPackageForm } from "@/components/packages/edit-package-form";
 import { lessonBalance, pricePerLesson } from "@/components/packages/lesson-price-fields";
+import { TopUpPackageForm } from "@/components/packages/top-up-package-form";
 import { OpenPackageForm } from "@/components/packages/open-package-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,7 @@ type Action =
   | { kind: "join" }
   | { kind: "package"; subjectId?: string }
   | { kind: "groupEdit" | "groupEnd" | "groupDelete"; member: BoardMember }
-  | { kind: "pkgEdit" | "pkgEnd" | "pkgDelete"; row: LessonPackageRow };
+  | { kind: "pkgEdit" | "pkgEnd" | "pkgDelete" | "pkgTopUp"; row: LessonPackageRow };
 
 /**
  * A private subscription opened by mistake can go — while nothing has happened on it: no lesson
@@ -67,6 +68,8 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   const { can } = useAuth();
   const manageGroups = can("group.manage");
   const managePackages = can("package.manage");
+  // A centre sells more lessons on a running subscription.
+  const centre = useCapability("centre");
   // Renewal policy lives with the money: only an academy on receipts knows what is paid.
   const policyOn = useCapability("accounting") && can("invoice.read");
   const [policy, setPolicy] = useState<StudentRenewalPolicy | null>(null);
@@ -278,6 +281,7 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                       {p.status === "ACTIVE" && managePackages && (
                         <RowActions
                           onEdit={() => setModal({ kind: "pkgEdit", row: p })}
+                          onTopUp={centre && p.lesson_minutes !== null ? () => setModal({ kind: "pkgTopUp", row: p }) : undefined}
                           onEnd={() => setModal({ kind: "pkgEnd", row: p })}
                           onDelete={packageDeletable(p) ? () => setModal({ kind: "pkgDelete", row: p }) : undefined}
                         />
@@ -332,6 +336,9 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
       {modal?.kind === "groupDelete" && (
         <DeleteMembershipModal member={modal.member} studentName={studentName} onClose={() => setModal(null)} onDone={(msg) => done(msg)} />
       )}
+      <Modal open={modal?.kind === "pkgTopUp"} onClose={() => setModal(null)} title={t("subscriptions.addLessonsTitle", { name: studentName })} size="md">
+        {modal?.kind === "pkgTopUp" && <TopUpPackageForm row={modal.row} onSaved={(msg) => done(msg)} onCancel={() => setModal(null)} />}
+      </Modal>
       <Modal open={modal?.kind === "pkgEdit"} onClose={() => setModal(null)} title={t("subscriptions.editPrivateTitle", { name: studentName })} description={tp("edit.description")} size="md">
         {modal?.kind === "pkgEdit" && <EditPackageForm row={modal.row} onSaved={(msg) => done(msg)} onCancel={() => setModal(null)} />}
       </Modal>
@@ -341,7 +348,7 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   );
 }
 
-function RowActions({ onEdit, onEnd, onDelete }: { onEdit: () => void; onEnd: () => void; onDelete?: () => void }) {
+function RowActions({ onEdit, onTopUp, onEnd, onDelete }: { onEdit: () => void; onTopUp?: () => void; onEnd: () => void; onDelete?: () => void }) {
   const t = useTranslations("students");
   return (
     <div className="flex flex-wrap justify-end gap-1">
@@ -349,6 +356,12 @@ function RowActions({ onEdit, onEnd, onDelete }: { onEdit: () => void; onEnd: ()
         <Pencil className="size-3" aria-hidden />
         {t("subscriptions.edit")}
       </Button>
+      {onTopUp && (
+        <Button type="button" size="xs" variant="ghost" className="gap-1" onClick={onTopUp} data-testid="subs-add-lessons">
+          <Plus className="size-3" aria-hidden />
+          {t("subscriptions.addLessons")}
+        </Button>
+      )}
       <Button type="button" size="xs" variant="ghost" className="gap-1 text-rose-600 dark:text-rose-400" onClick={onEnd} data-testid="subs-end">
         <Square className="size-3" aria-hidden />
         {t("subscriptions.end")}

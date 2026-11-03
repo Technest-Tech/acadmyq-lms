@@ -135,6 +135,14 @@ final class InvoiceController extends Controller
             });
         }
 
+        // A centre's list is money to collect or money collected. A voided bill, or one whose charges
+        // were all let go, has neither: it is gone as far as the desk is concerned (lingo, 2026-11-03,
+        // "deleted, but still in the bills"). The status filter can still bring the voided ones up.
+        if (PackageSettlement::availableFor((string) app(AuthContext::class)->academyId)
+            && data_get($request->query('filter'), 'status') !== 'VOID') {
+            $query->where('inv.status', '<>', 'VOID')->whereRaw('(inv.total_minor > 0 or inv.amount_paid_minor > 0)');
+        }
+
         $result = DataTable::paginate($query, $request, [
             'searchable' => [],
             'filters' => [
@@ -443,6 +451,12 @@ final class InvoiceController extends Controller
             return;
         }
 
+        if ($status === 'VOID') {
+            $query->where('inv.status', 'VOID');
+
+            return;
+        }
+
         $query->where('inv.status', '<>', 'VOID');
         match ($status) {
             'PAID' => $query->whereRaw('inv.total_minor > 0 and inv.amount_paid_minor >= inv.total_minor'),
@@ -478,9 +492,14 @@ final class InvoiceController extends Controller
             $base->where('period_month', (int) $request->query('period_month'));
         }
 
-        // A centre's bills all stay OPEN: for them the counts read what is paid on the bill.
-        $statusOf = PackageSettlement::availableFor((string) app(AuthContext::class)->academyId)
-            ? "case when status = 'VOID' then 'VOID' when total_minor > 0 and amount_paid_minor >= total_minor then 'PAID' when amount_paid_minor > 0 then 'PARTIALLY_PAID' else 'OPEN' end"
+        // A centre's bills all stay OPEN: for them the counts read what is paid on the bill, over the
+        // same bills the list shows (see index()).
+        $centre = PackageSettlement::availableFor((string) app(AuthContext::class)->academyId);
+        if ($centre) {
+            $base->where('status', '<>', 'VOID')->whereRaw('(total_minor > 0 or amount_paid_minor > 0)');
+        }
+        $statusOf = $centre
+            ? "case when total_minor > 0 and amount_paid_minor >= total_minor then 'PAID' when amount_paid_minor > 0 then 'PARTIALLY_PAID' else 'OPEN' end"
             : 'status';
         $statusRows = (clone $base)
             ->select(DB::raw("{$statusOf} as status"), DB::raw('count(*) as cnt'))

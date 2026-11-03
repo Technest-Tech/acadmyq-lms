@@ -118,7 +118,10 @@ export function EditPackageForm({
   // operation for "it ends here" — the API says the same thing, this just says it sooner.
   const minutesFloor = Math.max(
     0,
-    row.minutes_consumed - row.carried_over_minutes,
+    // A centre's block counts lessons: what was taught is that many lessons at the length typed.
+    (perLesson && row.lesson_minutes
+      ? row.lesson_count * unitMinutes + row.absorbed_overdraft_minutes
+      : row.minutes_consumed) - row.carried_over_minutes,
   );
   const termsChanged =
     label.trim() !== row.label ||

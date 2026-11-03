@@ -732,6 +732,10 @@ must be cancellable — the child may not come back, yet the charge stayed.
   engine still runs on minutes and the hourly rate. Under `centre` every form (open / new student /
   trial wizard / subscriptions card / edit) asks **lessons** + length + one lesson's price; the
   server gets `hours = lessons × length / 60`, `price_minor = lessons × price` and `lesson_minutes`.
+  Since 2026-11-03 a lesson on such a block is one lesson whatever its length
+  (`LessonPackages::countsLessons`): the credit takes one `lesson_minutes`, never an overdraft, and
+  the teacher is still paid from the lesson's real length. `packages:count-by-lesson` brings older
+  running blocks onto this and corrects a block's length (`--length=<id>:<minutes>`).
   Renewal copies it; a NEXT-only edit parks it in `next_terms`. Cards (package card, subscriptions
   card) read "6 lessons left", "2 of 8 lessons", "90/lesson (40 min)" when it is set. Quran
   academies never send it, so their cards are unchanged.

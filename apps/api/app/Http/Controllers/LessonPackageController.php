@@ -15,6 +15,7 @@ use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\Entitlement;
 use App\Support\PackagePurpose;
 use App\Support\StudentTeachers;
 use Illuminate\Http\JsonResponse;
@@ -306,14 +307,19 @@ final class LessonPackageController extends Controller
             ->get(['student_id', 'teacher_id'])
             ->groupBy(fn ($p) => (string) $p->student_id);
 
+        $lengths = $this->timetableLengths($ids);
+
         $rows = $rows
             ->map(fn ($row) => [
                 'id' => (string) $row->id,
                 'full_name' => (string) $row->full_name,
+                // How long their lessons really are: where a new block's lesson length starts.
+                'lesson_minutes' => $lengths[(string) $row->id]['all'] ?? null,
                 'subjects' => ($subjects[(string) $row->id] ?? collect())->map(fn ($a) => [
                     'teacher_id' => (string) $a->teacher_id,
                     'teacher_name' => $a->teacher_name,
                     'course' => $a->course,
+                    'lesson_minutes' => $lengths[(string) $row->id][(string) $a->teacher_id] ?? null,
                 ])->values()->all(),
                 'open_subjects' => ($openScopes[(string) $row->id] ?? collect())->pluck('teacher_id')->map(fn ($v) => (string) $v)->values()->all(),
                 'currency' => (string) ($row->currency ?? $this->academyCurrency()),
@@ -335,6 +341,34 @@ final class LessonPackageController extends Controller
             ]);
 
         return response()->json(['students' => $rows]);
+    }
+
+    /**
+     * The usual lesson length on each student's live timetable, per teacher and overall (`all`). A
+     * centre's form only: every other academy gets nothing and no extra query.
+     *
+     * @param  list<mixed>  $studentIds
+     * @return array<string, array<string, int>>
+     */
+    private function timetableLengths(array $studentIds): array
+    {
+        if ($studentIds === [] || ! Entitlement::hasCapability((string) app(AuthContext::class)->academyId, 'centre')) {
+            return [];
+        }
+
+        $slots = DB::table('schedules as sc')
+            ->join('schedule_slots as sl', 'sl.schedule_id', '=', 'sc.id')
+            ->whereIn('sc.student_id', $studentIds)
+            ->where('sc.is_active', true)
+            ->whereNull('sc.deleted_at')
+            ->get(['sc.student_id', 'sc.teacher_id', 'sl.duration_minutes']);
+
+        $usual = fn ($group): int => (int) $group->countBy('duration_minutes')->sortDesc()->keys()->first();
+
+        return $slots->groupBy(fn ($s) => (string) $s->student_id)
+            ->map(fn ($own) => ['all' => $usual($own)] + $own->whereNotNull('teacher_id')
+                ->groupBy(fn ($s) => (string) $s->teacher_id)->map($usual)->all())
+            ->all();
     }
 
     /** The academy's default currency — the fallback for a student who has no subscription yet. */
@@ -475,6 +509,22 @@ final class LessonPackageController extends Controller
 
         $ctx = app(AuthContext::class);
         $result = app(LessonPackages::class)->edit($id, $changes, $ctx->userId, $ctx->role, ($validated['applies_to'] ?? 'CURRENT') === 'NEXT');
+
+        return response()->json(['ok' => true] + $result);
+    }
+
+    /** POST /api/packages/{id}/top-up — a centre sells more lessons on a block still running. */
+    public function topUp(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('package.manage');
+
+        $validated = $request->validate([
+            'lessons' => ['required', 'integer', 'min:1', 'max:200'],
+            'lesson_price_minor' => ['required', 'integer', 'min:0'],
+        ]);
+
+        $ctx = app(AuthContext::class);
+        $result = app(LessonPackages::class)->topUp($id, (int) $validated['lessons'], (int) $validated['lesson_price_minor'], $ctx->userId, $ctx->role);
 
         return response()->json(['ok' => true] + $result);
     }

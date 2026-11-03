@@ -8489,6 +8489,8 @@ export interface PackageStudent {
   subjects?: PackageSubject[];
   /** The subjects (teacher ids) already holding an open subscription. */
   open_subjects?: string[];
+  /** The usual lesson length on their timetable (a centre; null = none yet). */
+  lesson_minutes?: number | null;
 }
 
 /** One of the student's subjects: the teacher they take it with, and its name. */
@@ -8496,6 +8498,8 @@ export interface PackageSubject {
   teacher_id: string;
   teacher_name: string | null;
   course: string | null;
+  /** The usual lesson length on their timetable with this teacher (a centre; null = none yet). */
+  lesson_minutes?: number | null;
 }
 
 /** Why a lesson can no longer be moved: its bill went out, or its payroll was finalized. */
@@ -8662,6 +8666,25 @@ export function updateLessonPackage(
 }> {
   return apiFetch(`/api/packages/${id}`, {
     method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+/** A centre sells more lessons on a block still running; the money goes on the block's own bill. */
+export function topUpLessonPackage(
+  id: string,
+  input: { lessons: number; lesson_price_minor: number },
+): Promise<{
+  ok: boolean;
+  invoice_id: string | null;
+  lessons_added: number;
+  lessons_total: number;
+  added_minor: number;
+  /** On receipts: what is left to pay on the bill. */
+  due_minor?: number;
+}> {
+  return apiFetch(`/api/packages/${id}/top-up`, {
+    method: "POST",
     body: JSON.stringify(input),
   });
 }

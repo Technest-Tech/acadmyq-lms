@@ -42,10 +42,12 @@ final class SessionDurationCorrection
                 'p.id as package_id', 'p.label as package_label', 'p.status as package_status',
                 'p.minutes_total', 'p.carried_over_minutes', 'p.minutes_consumed',
                 'p.minutes_overdrawn', 'p.hourly_rate_minor', 'p.currency',
+                'p.academy_id', 'p.lesson_minutes',
             ]);
 
+        // On a block counted in lessons the lesson's length moves the teacher's pay, not the block.
         $package = null;
-        if ($credit !== null) {
+        if ($credit !== null && ! LessonPackages::countsLessons($credit)) {
             $capacity = (int) $credit->minutes_total + (int) $credit->carried_over_minutes;
             $newConsumed = max(0, (int) $credit->minutes_consumed - (int) $credit->credit_minutes + $newDuration);
             $newOverdrawn = max(0, $newConsumed - $capacity);

@@ -2280,7 +2280,9 @@
       "deleteFailed": "Couldn't delete the subscription.",
       "deletePrivateTitle": "Delete {name}'s private subscription {label}?",
       "deletePrivateHint": "For a subscription opened by mistake: it disappears with its unpaid bill. Only offered while no lesson has been counted on it and nothing has been paid toward it — otherwise end it.",
-      "renew": "Renew"
+      "renew": "Renew",
+      "addLessons": "Add lessons",
+      "addLessonsTitle": "Add lessons for {name}"
     },
     "monthly": {
       "lessons": "Lessons a month",
@@ -2839,7 +2841,8 @@
       "OPEN": "Open",
       "CLOSED": "Closed",
       "PAID": "Paid",
-      "PARTIALLY_PAID": "Partial"
+      "PARTIALLY_PAID": "Partial",
+      "VOID": "Void"
     },
     "detailTitle": "Invoice",
     "total": "Total",
@@ -3148,13 +3151,14 @@
       "subjectAny": "Any lesson — no particular subject",
       "subjectOpen": "(open)",
       "subjectHint": "Lessons with this subject's teacher draw from this subscription; a student can hold one per subject.",
-      "alreadyOpenSubject": "This student already has an open subscription for this subject. Pick another subject, or close that one first.",
+      "alreadyOpenSubject": "This student already has an open subscription for this subject. Add lessons to it, pick another subject, or close it first.",
       "subjectNew": "+ New subject…",
       "subjectName": "Subject",
       "subjectNamePlaceholder": "e.g. Maths",
       "subjectTeacher": "Teacher",
       "subjectTeacherPick": "Choose the teacher",
-      "subjectNewHint": "The student is linked to this teacher for this subject as the subscription opens; their lessons with that teacher draw from it."
+      "subjectNewHint": "The student is linked to this teacher for this subject as the subscription opens; their lessons with that teacher draw from it.",
+      "lengthDiffers": "The student's timetable lessons are {timetable} minutes; this subscription says {length}."
     },
     "detail": {
       "sold": "Bought",
@@ -3385,6 +3389,17 @@
     "purposeLessons": {
       "USAGE": "For lessons used",
       "OVERDRAFT": "Extra time"
+    },
+    "topUp": {
+      "action": "Add lessons to the open subscription",
+      "balance": "{left} left of {total}",
+      "lessons": "Lessons to add",
+      "price": "Lesson price ({minutes} min)",
+      "readout": "Becomes {total} · {amount} added to the subscription's bill",
+      "renewalNote": "This time only: the next renewal stays {total}.",
+      "save": "Add lessons",
+      "saved": "Added {lessons}. {amount} to collect on the bill.",
+      "savedNoBill": "Added {lessons} to the subscription."
     }
   },
   "attendance": {

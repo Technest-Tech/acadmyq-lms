@@ -18,6 +18,8 @@ import { OpenPackageForm } from "./open-package-form";
 
 const listPackageStudents = vi.fn();
 const openLessonPackage = vi.fn();
+const listLessonPackages = vi.fn();
+const topUpLessonPackage = vi.fn();
 const listTeachers = vi.fn();
 
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -25,6 +27,8 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   listPackageStudents: () => listPackageStudents(),
   openLessonPackage: (input: unknown) => openLessonPackage(input),
   listTeachers: (...a: unknown[]) => listTeachers(...a),
+  listLessonPackages: (...a: unknown[]) => listLessonPackages(...a),
+  topUpLessonPackage: (...a: unknown[]) => topUpLessonPackage(...a),
 }));
 
 const SARA = {
@@ -65,6 +69,8 @@ async function pickStudent(name: string) {
 }
 
 beforeEach(() => {
+  listLessonPackages.mockResolvedValue({ packages: [] });
+  topUpLessonPackage.mockReset();
   listPackageStudents.mockResolvedValue({ students: [SARA, OMAR] });
   openLessonPackage.mockResolvedValue({
     id: "p1",
@@ -322,6 +328,76 @@ describe("OpenPackageForm — a centre sells one subscription per subject", () =
     await userEvent.type(screen.getByTestId("pkg-lesson-unit-price"), "100");
     await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.open }));
     await waitFor(() => expect(openLessonPackage).toHaveBeenCalledWith(expect.objectContaining({ teacher_id: "t-eng", hours: 8, lesson_minutes: 60 })));
+  });
+
+  describe("adding lessons to the subject's open subscription", () => {
+    const BLOCK = {
+      id: "p-maths", student_id: "s3", label: "Maths", status: "ACTIVE", currency: "USD", auto_renew: true, lesson_minutes: 60,
+      minutes_total: 480, minutes_sold: 480, minutes_remaining: 240, minutes_consumed: 240, price_minor: 200000, hourly_rate_minor: 25000,
+      subject: { teacher_id: "t-maths", teacher_name: "Ms Rahma", course: "Maths" },
+    };
+
+    async function refuseMaths() {
+      listPackageStudents.mockResolvedValue({ students: [LAYLA] });
+      listLessonPackages.mockResolvedValue({ packages: [{ ...BLOCK, student_id: LAYLA.id }] });
+      const onSaved = vi.fn();
+      render(withAuth(centreSession(), <OpenPackageForm onSaved={onSaved} onCancel={() => {}} />));
+      await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
+      await pickStudent("Layla");
+      await userEvent.selectOptions(screen.getByTestId("package-subject"), "t-maths");
+      return onSaved;
+    }
+
+    it("offers the block from the refusal, at its own lesson price, and sends what was typed", async () => {
+      topUpLessonPackage.mockResolvedValue({ ok: true, invoice_id: "i1", lessons_added: 8, lessons_total: 16, added_minor: 200000, due_minor: 200000 });
+      const onSaved = await refuseMaths();
+
+      await userEvent.click(await screen.findByTestId("package-add-lessons"));
+      expect(screen.getByTestId("pkg-top-up-price")).toHaveValue(250);
+      expect(screen.getByTestId("pkg-top-up-renewal")).toBeInTheDocument();
+      expect(screen.getByTestId("save-package-top-up")).toBeDisabled();
+
+      await userEvent.type(screen.getByTestId("pkg-top-up-lessons"), "8");
+      expect(screen.getByTestId("pkg-top-up-readout").textContent).toContain("16");
+      await userEvent.click(screen.getByTestId("save-package-top-up"));
+
+      await waitFor(() => expect(topUpLessonPackage).toHaveBeenCalledWith("p-maths", { lessons: 8, lesson_price_minor: 25000 }));
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    });
+
+    it("comes back to the refusal on cancel", async () => {
+      await refuseMaths();
+      await userEvent.click(await screen.findByTestId("package-add-lessons"));
+      await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.cancel }));
+      expect(screen.getByTestId("package-already-open")).toBeInTheDocument();
+      expect(topUpLessonPackage).not.toHaveBeenCalled();
+    });
+
+    it("does not offer it for a block sold in hours", async () => {
+      listPackageStudents.mockResolvedValue({ students: [LAYLA] });
+      listLessonPackages.mockResolvedValue({ packages: [{ ...BLOCK, student_id: LAYLA.id, lesson_minutes: null }] });
+      render(withAuth(centreSession(), <OpenPackageForm onSaved={() => {}} onCancel={() => {}} />));
+      await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
+      await pickStudent("Layla");
+      await userEvent.selectOptions(screen.getByTestId("package-subject"), "t-maths");
+      await waitFor(() => expect(listLessonPackages).toHaveBeenCalled());
+      expect(screen.queryByTestId("package-add-lessons")).toBeNull();
+    });
+  });
+
+  it("starts the lesson length at the subject's timetable, and says so if it is changed", async () => {
+    const TIMED = { ...LAYLA, subjects: LAYLA.subjects.map((sub) => (sub.teacher_id === "t-eng" ? { ...sub, lesson_minutes: 40 } : sub)) };
+    listPackageStudents.mockResolvedValue({ students: [TIMED] });
+    render(withAuth(centreSession(), <OpenPackageForm onSaved={() => {}} onCancel={() => {}} />));
+    await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
+    await pickStudent("Layla");
+
+    const unit = await screen.findByTestId("pkg-lesson-unit");
+    await waitFor(() => expect(unit).toHaveValue("40"));
+    expect(screen.queryByTestId("package-length-differs")).toBeNull();
+
+    await userEvent.selectOptions(unit, "60");
+    expect(screen.getByTestId("package-length-differs")).toBeInTheDocument();
   });
 
   it("shows no subject picker to an academy that is not a centre", async () => {
