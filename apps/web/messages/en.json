@@ -5,6 +5,55 @@
   },
   "dashboard": {
     "title": "Dashboard",
+    "centre": {
+      "subtitle": "A live view of your centre today.",
+      "sections": {
+        "today": "Today",
+        "todayDesc": "What needs your attention now",
+        "money": "Money",
+        "moneyDesc": "This month's collections and dues",
+        "actions": "Quick actions",
+        "actionsDesc": "Jump straight to what you need"
+      },
+      "kpi": {
+        "todayClasses": "Classes today",
+        "todayClassesSub": "{groups, plural, one {# group class} other {# group classes}} · {privateCount, plural, =0 {no private lessons} one {# private lesson} other {# private lessons}}",
+        "unmarked": "No attendance sheet",
+        "unmarkedSub": "Classes whose time passed unmarked",
+        "unmarkedClear": "Every class is marked",
+        "attendanceRate": "Attendance this week",
+        "attendanceRateSub": "{present} present · {absent} absent",
+        "attendanceRateEmpty": "No sheet marked yet",
+        "runningGroups": "Running groups",
+        "runningGroupsSub": "{members, plural, =0 {no enrolled students} one {# enrolled student} other {# enrolled students}}",
+        "freeSeats": "Free seats",
+        "freeSeatsSub": "Across the capped groups",
+        "collected": "Collected this month",
+        "collectedSub": "{count, plural, =0 {no receipts yet} one {# receipt} other {# receipts}}",
+        "outstanding": "Owed by families",
+        "outstandingSub": "{overdue} of it overdue",
+        "endingSoon": "Subscriptions ending soon",
+        "endingSoonSub": "Within {days} days, or one lesson left",
+        "salaries": "Salaries this month",
+        "salariesSub": "Earned by teachers so far",
+        "trials": "Placements awaiting a decision",
+        "trialsSub": "Trial lessons that ended undecided"
+      },
+      "actions": {
+        "groups": "Groups",
+        "groupsDesc": "Classes and attendance sheets",
+        "timetable": "Timetable",
+        "timetableDesc": "Slots and rooms",
+        "collect": "Collect",
+        "collectDesc": "Record a new receipt",
+        "arrears": "Arrears",
+        "arrearsDesc": "Who has not paid yet",
+        "addStudent": "Add student",
+        "addStudentDesc": "Enrol a new student",
+        "payroll": "Payroll",
+        "payrollDesc": "What teachers are owed"
+      }
+    },
     "kpi": {
       "students": "Total Students",
       "activeStudents": "Active enrolments",
@@ -210,7 +259,9 @@
     "packagesCentre": "Open subscriptions",
     "packagesFinishedCentre": "Finished subscriptions",
     "packagesDue": "Due packages",
-    "packagesDueCentre": "Due subscriptions"
+    "packagesDueCentre": "Due subscriptions",
+    "trialsCentre": "Placement lessons",
+    "scheduleCentre": "Timetable"
   },
   "navGroup": {
     "general": "General",
@@ -221,7 +272,8 @@
     "academics": "Academics",
     "scheduling": "Scheduling",
     "platform": "Platform",
-    "lms": "Course platform"
+    "lms": "Course platform",
+    "teaching": "Teaching"
   },
   "adminModule": {
     "platform": "Platform",

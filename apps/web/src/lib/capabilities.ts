@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@/components/auth-provider";
+import type { AcademyKind } from "@/lib/api";
 
 /**
  * Does the signed-in academy hold `capability`?
@@ -16,4 +17,16 @@ export function useCapability(capability: string): boolean {
   return (
     session?.capabilities == null || session.capabilities.includes(capability)
   );
+}
+
+/**
+ * Which kind of school the signed-in academy is (`SessionAcademy.profile`): QURAN — the one-to-one
+ * academy — or CENTRE — a learning centre that teaches groups. The profile shapes the WORKSPACE
+ * (sidebar order, dashboard, wording) and nothing else: a behaviour that differs between the two
+ * keys on its own feature switch through `useCapability`, never on this. A session with no academy
+ * (a platform Super Admin), or one from before profiles existed, reads as QURAN.
+ */
+export function useProfile(): AcademyKind {
+  const { session } = useAuth();
+  return session?.academy?.profile ?? "QURAN";
 }

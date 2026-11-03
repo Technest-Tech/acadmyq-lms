@@ -90,7 +90,7 @@ function getCurrentWeek(): { from: string; to: string } {
 
 // ── Skeleton / Spinner ─────────────────────────────────────────────────────────
 
-function Sk({ className }: { className?: string }) {
+export function Sk({ className }: { className?: string }) {
   return <div className={cn("animate-pulse rounded-md bg-muted", className)} />;
 }
 
@@ -438,7 +438,7 @@ function WeeklyBars({ sessions, locale }: { sessions: CalendarSession[]; locale:
 
 // ── SVG: Animated ring gauge for plan usage ────────────────────────────────────
 
-function RingGauge({
+export function RingGauge({
   value,
   max,
   color,
@@ -513,7 +513,7 @@ function TrendBadge({ delta }: { delta: number }) {
 
 // ── Sleek SaaS stat card ─────────────────────────────────────────────────────────
 
-interface StatCardProps {
+export interface StatCardProps {
   Icon: LucideIcon;
   color: string;
   label: string;
@@ -533,7 +533,7 @@ interface StatCardProps {
   locale: string;
 }
 
-function StatCard({
+export function StatCard({
   Icon, color, label, value, sub, loading, href, alert,
   trend, spark, sparkData, progress, progressLabel, isMoney,
   moneyAmount, moneyCurrency, locale,
@@ -668,7 +668,7 @@ function PendingRow({
 
 // ── Quick action card ──────────────────────────────────────────────────────────
 
-function ActionCard({
+export function ActionCard({
   href,
   Icon,
   color,
@@ -710,7 +710,7 @@ function ActionCard({
 
 // ── Section header (inside cards) ────────────────────────────────────────────────
 
-function SectionHeader({
+export function SectionHeader({
   icon,
   title,
   action,
@@ -732,7 +732,7 @@ function SectionHeader({
 
 // ── Section title (page-level group heading) ─────────────────────────────────────
 
-function SectionTitle({
+export function SectionTitle({
   Icon,
   color = "violet",
   title,
@@ -764,7 +764,7 @@ function SectionTitle({
   );
 }
 
-function ViewAllLink({ href, label }: { href: string; label: string }) {
+export function ViewAllLink({ href, label }: { href: string; label: string }) {
   return (
     <Link href={href} className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline">
       {label} <ArrowRight className="h-3 w-3" />

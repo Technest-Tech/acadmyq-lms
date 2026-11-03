@@ -170,6 +170,7 @@ type NavKey =
  */
 type NavGroup =
   | "general"
+  | "teaching"
   | "people"
   | "academics"
   | "lms"
@@ -188,6 +189,83 @@ const NAV_GROUPS: readonly NavGroup[] = [
   "platform",
   "system",
 ];
+
+/**
+ * The learning centre's sidebar (`SessionAcademy.profile === "CENTRE"`, App\Support\AcademyProfile).
+ * Same items, a different shape: a centre's day is its GROUPS, their timetable and their sheets, so
+ * those open a "Teaching" group of their own at the top; the people follow; the money keeps its
+ * group. Nothing here changes what a link does — only where it sits and what it is called. A Quran
+ * academy never reads any of it: its sidebar is NAV_GROUPS and `item.group`, byte for byte.
+ */
+const CENTRE_NAV_GROUPS: readonly NavGroup[] = [
+  "general",
+  "teaching",
+  "people",
+  "lms",
+  "financial",
+  "platform",
+  "system",
+];
+
+/** Where an item sits for a centre when that differs from its home group. */
+const CENTRE_GROUP_OF: Partial<Record<NavKey, NavGroup>> = {
+  groups: "teaching",
+  groupsAll: "teaching",
+  groupsLessons: "teaching",
+  groupsStudents: "teaching",
+  groupsPayments: "teaching",
+  groupsReports: "teaching",
+  schedule: "teaching",
+  attendance: "teaching",
+  // A centre's packages ARE its lesson subscriptions (the `*Centre` labels below).
+  packagesDue: "teaching",
+  packages: "teaching",
+  packagesFinished: "teaching",
+  trials: "teaching",
+  certificates: "teaching",
+  videoClassroom: "teaching",
+  crm: "people",
+};
+
+/** The order inside each group for a centre; anything unlisted keeps its NAV order after these. */
+const CENTRE_ORDER: readonly NavKey[] = [
+  "groups",
+  "schedule",
+  "attendance",
+  "packagesDue",
+  "packages",
+  "packagesFinished",
+  "trials",
+  "certificates",
+  "videoClassroom",
+  "students",
+  "guardians",
+  "teachers",
+  "crm",
+  "accounting",
+  "payroll",
+  "discountsAwards",
+  "myPayroll",
+  "financialStats",
+  "billing",
+];
+
+/**
+ * Items a centre does not list. The month-bill page is the Quran academy's money screen; a centre on
+ * receipts has the Accounting section for the same job. The Quran-only FEATURES (supervision, the
+ * teacher rubric, the memorisation report) are not here: the centre preset switches them off, so
+ * NAV_CAPABILITY already hides them — and the server refuses them, which a hidden link never does.
+ */
+const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices"]);
+
+/** Items whose label a centre reads differently (`nav.<key>Centre`). */
+const CENTRE_LABEL_KEYS = new Set<NavKey>([
+  "packages",
+  "packagesDue",
+  "packagesFinished",
+  "trials",
+  "schedule",
+]);
 
 /**
  * Nav items gated by capability code (Sprint 2 §6.3). `dashboard` is always shown; others appear
@@ -812,10 +890,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // is no separate loading state to guard, and no window in which a video-only ("Meet Plan") academy
   // could flash the full academy chrome. `null` = a platform Super Admin, who has no plan.
   const capabilities = session?.capabilities ?? null;
-  // A centre (`centre`, opt-in) sells "subscriptions"; a Quran academy keeps "packages".
-  const centre = capabilities?.includes("centre") ?? false;
+  // The workspace's SHAPE follows the academy's profile (CENTRE_* above); an older session with no
+  // profile is a Quran academy. The `centre` feature switch alone still turns "packages" into
+  // "subscriptions", as it did before profiles — a Quran academy switched onto the centre's ways
+  // keeps reading its money the centre's way.
+  const centreShape = (session?.academy?.profile ?? "QURAN") === "CENTRE";
+  const centre = (capabilities?.includes("centre") ?? false) || centreShape;
   const navLabel = (key: NavKey): string =>
-    centre && (key === "packages" || key === "packagesDue" || key === "packagesFinished") ? t(`nav.${key}Centre`) : t(`nav.${key}`);
+    (centre && (key === "packages" || key === "packagesDue" || key === "packagesFinished")) ||
+    (centreShape && CENTRE_LABEL_KEYS.has(key))
+      ? t(`nav.${key}Centre`)
+      : t(`nav.${key}`);
 
   // The preference is read after mount, never during render — reading localStorage while
   // rendering would make the server and client markup disagree.
@@ -1098,8 +1183,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (!hasLms && LMS_EXTRA_KEYS.has(item.key)) return false;
     if (isLocked(item.key)) return false;
     if (isReplaced(item.key)) return false;
+    // A centre's shape (CENTRE_HIDDEN_KEYS): the month-bill page gives way to Accounting.
+    if (centreShape && CENTRE_HIDDEN_KEYS.has(item.key)) return false;
     return true;
   });
+  // The centre's sidebar regroups and reorders the same items (CENTRE_GROUP_OF / CENTRE_ORDER);
+  // a Quran academy's is the NAV order inside each item's own group, as it always was.
+  const navGroups = centreShape ? CENTRE_NAV_GROUPS : NAV_GROUPS;
+  const groupOf = (item: (typeof NAV)[number]): NavGroup =>
+    centreShape ? (CENTRE_GROUP_OF[item.key] ?? item.group) : item.group;
+  const orderIn = (list: (typeof NAV)[number][]): (typeof NAV)[number][] => {
+    if (!centreShape) return list;
+    const rank = (key: NavKey) => {
+      const i = CENTRE_ORDER.indexOf(key);
+      return i === -1 ? CENTRE_ORDER.length : i;
+    };
+    return [...list].sort((a, b) => rank(a.key) - rank(b.key));
+  };
   const inEnteredAcademy =
     session.role === "SUPER_ADMIN" && session.academyId !== null;
 
@@ -1507,10 +1607,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               ) : (
                 // Tenant (or an admin acting inside an academy): the flat labelled groups.
-                NAV_GROUPS.map((group) => {
+                navGroups.map((group) => {
                   // Sub-pages render inside their parent's dropdown, not on the group's own list.
-                  const groupItems = items.filter(
-                    (item) => item.group === group && item.parent === undefined,
+                  const groupItems = orderIn(
+                    items.filter(
+                      (item) => groupOf(item) === group && item.parent === undefined,
+                    ),
                   );
                   if (groupItems.length === 0) return null;
                   return (

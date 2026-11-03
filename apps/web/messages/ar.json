@@ -5,6 +5,55 @@
   },
   "dashboard": {
     "title": "لوحة التحكم",
+    "centre": {
+      "subtitle": "نظرة حية على مركزك اليوم.",
+      "sections": {
+        "today": "اليوم",
+        "todayDesc": "ما يحتاج انتباهك الآن",
+        "money": "المال",
+        "moneyDesc": "التحصيل والمستحقات هذا الشهر",
+        "actions": "الإجراءات السريعة",
+        "actionsDesc": "انتقل مباشرةً إلى ما تحتاجه"
+      },
+      "kpi": {
+        "todayClasses": "حصص اليوم",
+        "todayClassesSub": "{groups, plural, one {مجموعة واحدة} two {مجموعتان} few {# مجموعات} many {# مجموعة} other {# مجموعة}} · {privateCount, plural, =0 {بدون حصص خاصة} one {حصة خاصة واحدة} two {حصتان خاصتان} few {# حصص خاصة} many {# حصة خاصة} other {# حصة خاصة}}",
+        "unmarked": "بدون كشف حضور",
+        "unmarkedSub": "حصص انتهى وقتها ولم تُسجَّل",
+        "unmarkedClear": "كل الحصص مسجَّلة",
+        "attendanceRate": "نسبة الحضور هذا الأسبوع",
+        "attendanceRateSub": "{present} حاضر · {absent} غائب",
+        "attendanceRateEmpty": "لم يُسجَّل كشف بعد",
+        "runningGroups": "مجموعات شغّالة",
+        "runningGroupsSub": "{members, plural, =0 {بدون طلاب مسجّلين} one {طالب واحد مسجّل} two {طالبان مسجّلان} few {# طلاب مسجّلون} many {# طالبًا مسجّلًا} other {# طالب مسجّل}}",
+        "freeSeats": "مقاعد متاحة",
+        "freeSeatsSub": "في المجموعات ذات السعة المحدودة",
+        "collected": "تحصيل الشهر",
+        "collectedSub": "{count, plural, =0 {لا إيصالات بعد} one {إيصال واحد} two {إيصالان} few {# إيصالات} many {# إيصالًا} other {# إيصال}}",
+        "outstanding": "المستحق على العائلات",
+        "outstandingSub": "منه {overdue} متأخر",
+        "endingSoon": "اشتراكات تنتهي قريبًا",
+        "endingSoonSub": "خلال {days} أيام أو بقيت حصة واحدة",
+        "salaries": "رواتب الشهر",
+        "salariesSub": "ما استحق للمدرسين حتى الآن",
+        "trials": "تحديد مستوى بانتظار قرار",
+        "trialsSub": "حصص تجريبية انتهت ولم تُحسم"
+      },
+      "actions": {
+        "groups": "المجموعات",
+        "groupsDesc": "الحصص وكشوف الحضور",
+        "timetable": "الجدول الأسبوعي",
+        "timetableDesc": "المواعيد والقاعات",
+        "collect": "تحصيل",
+        "collectDesc": "تسجيل إيصال جديد",
+        "arrears": "المتأخرات",
+        "arrearsDesc": "من لم يدفع بعد",
+        "addStudent": "إضافة طالب",
+        "addStudentDesc": "تسجيل طالب جديد",
+        "payroll": "الرواتب",
+        "payrollDesc": "مستحقات المدرسين"
+      }
+    },
     "kpi": {
       "students": "إجمالي الطلاب",
       "activeStudents": "التسجيلات النشطة",
@@ -210,7 +259,9 @@
     "packagesCentre": "الاشتراكات المفتوحة",
     "packagesFinishedCentre": "الاشتراكات المنتهية",
     "packagesDue": "الباقات المستحقة",
-    "packagesDueCentre": "الاشتراكات المستحقة"
+    "packagesDueCentre": "الاشتراكات المستحقة",
+    "trialsCentre": "حصص تحديد المستوى",
+    "scheduleCentre": "الجدول الأسبوعي"
   },
   "navGroup": {
     "general": "عام",
@@ -221,7 +272,8 @@
     "academics": "الشؤون الأكاديمية",
     "scheduling": "الجدولة",
     "platform": "المنصّة",
-    "lms": "منصّة الدورات"
+    "lms": "منصّة الدورات",
+    "teaching": "التدريس"
   },
   "adminModule": {
     "platform": "المنصة",

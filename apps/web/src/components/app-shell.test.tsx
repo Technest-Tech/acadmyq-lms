@@ -492,3 +492,63 @@ describe("AppShell — badge polling", () => {
     }
   });
 });
+
+describe("AppShell — the learning centre's shape (`academy.profile === CENTRE`)", () => {
+  const centreAcademy = { name: "Lingo", displayName: "Lingo", logoUrl: null, country: "EG", defaultCurrency: "EGP", profile: "CENTRE" as const };
+  const centreSession = {
+    academy: centreAcademy,
+    capabilities: ["invoicing", "packages", "groups", "trials", "accounting", "centre", "payroll", "certificates"],
+    permissions: [
+      "group.read", "schedule.read", "session.read", "invoice.read", "package.read", "trial.read",
+      "student.read", "guardian.read", "teacher.read", "payout.read", "certificate.read", "notification.read",
+    ],
+  };
+
+  it("opens on Teaching — groups, timetable, attendance, subscriptions — before the people", async () => {
+    renderShell("ACADEMY_OWNER", centreSession);
+    await ready();
+    const keys = navKeys();
+
+    expect(keys.indexOf("groups")).toBeLessThan(keys.indexOf("students"));
+    expect(keys.indexOf("schedule")).toBeLessThan(keys.indexOf("students"));
+    expect(keys.indexOf("attendance")).toBeLessThan(keys.indexOf("students"));
+    expect(keys.indexOf("packagesDue")).toBeLessThan(keys.indexOf("students"));
+    expect(keys.indexOf("trials")).toBeLessThan(keys.indexOf("students"));
+    // The group header exists only for a centre.
+    expect(screen.getByText(arMessages.navGroup.teaching)).toBeInTheDocument();
+  });
+
+  it("drops the month-bill page (Accounting replaces it) and reads the centre's words", async () => {
+    renderShell("ACADEMY_OWNER", centreSession);
+    await ready();
+    const keys = navKeys();
+
+    expect(keys).not.toContain("invoices");
+    expect(keys).toContain("accounting");
+    expect(document.querySelector('[data-nav="trials"]')?.textContent).toContain(arMessages.nav.trialsCentre);
+    expect(document.querySelector('[data-nav="schedule"]')?.textContent).toContain(arMessages.nav.scheduleCentre);
+    expect(document.querySelector('[data-nav="packagesDue"]')?.textContent).toContain(arMessages.nav.packagesDueCentre);
+  });
+
+  it("leaves a Quran academy's sidebar exactly as it was", async () => {
+    renderShell("ACADEMY_OWNER", {
+      ...centreSession,
+      academy: { ...centreAcademy, profile: "QURAN" as const },
+    });
+    await ready();
+    const keys = navKeys();
+
+    expect(keys).toContain("invoices");
+    expect(screen.queryByText(arMessages.navGroup.teaching)).toBeNull();
+    expect(keys.indexOf("students")).toBeLessThan(keys.indexOf("groups"));
+    expect(document.querySelector('[data-nav="trials"]')?.textContent).toContain(arMessages.nav.trials);
+    expect(document.querySelector('[data-nav="trials"]')?.textContent).not.toContain(arMessages.nav.trialsCentre);
+  });
+
+  it("reads as a Quran academy when the session carries no profile at all", async () => {
+    renderShell("ACADEMY_OWNER", { ...centreSession, academy: { ...centreAcademy, profile: undefined } });
+    await ready();
+    expect(navKeys()).toContain("invoices");
+    expect(screen.queryByText(arMessages.navGroup.teaching)).toBeNull();
+  });
+});

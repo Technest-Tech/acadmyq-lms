@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Support\AcademyProfile;
 use App\Support\AuthContext;
 use App\Support\Entitlement;
 use Illuminate\Http\JsonResponse;
@@ -29,6 +30,7 @@ final class EntitlementController extends Controller
         if ($ctx->academyId === null) {
             return response()->json([
                 'plan' => null,
+                'profile' => null,
                 'capabilities' => [],
                 'limits' => [],
                 'addOns' => [],
@@ -46,6 +48,8 @@ final class EntitlementController extends Controller
 
         return response()->json([
             'plan' => $resolved['plan'],
+            // Which kind of school (App\Support\AcademyProfile): QURAN or CENTRE.
+            'profile' => AcademyProfile::forAcademy($ctx->academyId),
             'capabilities' => $resolved['capabilities'],
             'limits' => $resolved['limits'],
             'addOns' => $resolved['addOns'],

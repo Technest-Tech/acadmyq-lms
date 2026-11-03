@@ -206,7 +206,17 @@ export interface SessionAcademy {
    * payers are built on it — see `useInvoiceUrl`.
    */
   publicOrigin?: string;
+  /**
+   * Which kind of school this is (the API's App\Support\AcademyProfile): the one-to-one Quran
+   * academy the system grew up with, or a learning centre (English courses, curriculum centres)
+   * that teaches groups. The shell shapes its sidebar, dashboard and wording on it; every
+   * behaviour still keys on the feature switch that owns it (`centre`, `accounting`, `groups`).
+   * Absent on an older session ⇒ QURAN.
+   */
+  profile?: AcademyKind;
 }
+
+export type AcademyKind = "QURAN" | "CENTRE";
 
 export interface LoginResult {
   role: AppRole;
@@ -5086,6 +5096,8 @@ export function getExchangeRates(): Promise<ExchangeRates> {
 /** Resolved plan features + limits for the current academy (GET /api/entitlements). */
 export interface Entitlements {
   plan: string | null;
+  /** The academy's profile (see `SessionAcademy.profile`); null outside an academy. */
+  profile?: AcademyKind | null;
   capabilities: string[];
   limits: Record<string, number | null>;
   addOns: string[];

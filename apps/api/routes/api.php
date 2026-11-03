@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\ClientErrorController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\CentreDashboardController;
 use App\Http\Controllers\CertificateTemplateController;
 use App\Http\Controllers\Crm\LeadController;
 use App\Http\Controllers\EntitlementController;
@@ -917,6 +918,11 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::delete('/trials/{id}', [TrialController::class, 'destroy']); // cancel — row stays as CANCELLED
         Route::delete('/trials/{id}/permanent', [TrialController::class, 'remove']); // delete — gone from the record
     });
+
+    // The learning centre's home-screen numbers (App\Support\AcademyProfile, CENTRE): today's classes,
+    // the week's attendance, running groups and the subscriptions about to run out. Behind the
+    // centre switch — a Quran academy keeps its own dashboard and never calls this.
+    Route::middleware('entitled:centre')->get('/dashboard/centre', [CentreDashboardController::class, 'show']);
 
     // Group classes (docs/groups) — one teacher, several students, a weekly timetable, its own
     // lessons and attendance sheet. A group lesson is NOT a `sessions` row; it lives in

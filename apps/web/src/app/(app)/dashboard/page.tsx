@@ -1,5 +1,5 @@
-import { AcademyDashboard } from "@/components/dashboard/academy-dashboard";
+import { DashboardHome } from "@/components/dashboard/dashboard-home";
 
 export default async function DashboardPage() {
-  return <AcademyDashboard />;
+  return <DashboardHome />;
 }

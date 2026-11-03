@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\AcademyBilling;
 use App\Services\ModuleBilling;
+use App\Support\AcademyProfile;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\FeatureCatalog;
@@ -188,6 +189,24 @@ final class AcademyController extends Controller
                         currency: $data['default_currency'],
                         interval: $pricing['billing_interval'],
                     );
+                }
+
+                // The type names the client's PROFILE (App\Support\AcademyProfile), and the profile
+                // decides the preset: a learning centre starts with receipts and the centre's ways
+                // on, and the one-to-one Quran features off. A Quran academy's preset is empty —
+                // it starts exactly as every client always has.
+                $profile = AcademyProfile::fromTypeCode(
+                    (string) DB::table('academy_types')->where('id', $data['academy_type_id'])->value('code'),
+                );
+                $preset = AcademyProfile::applyPreset($engine, $academyId, $profile);
+                if ($preset !== null && ($preset['enabled'] !== [] || $preset['disabled'] !== [])) {
+                    Audit::log('module_subscription.features', 'module_subscription', null, $academyId, $ctx->userId, 'SUPER_ADMIN', after: [
+                        'module' => 'MANAGEMENT',
+                        'profile' => $profile,
+                        'enabled' => $preset['enabled'],
+                        'disabled' => $preset['disabled'],
+                        'source' => 'academy_profile_preset',
+                    ]);
                 }
             });
         } catch (Throwable $e) {

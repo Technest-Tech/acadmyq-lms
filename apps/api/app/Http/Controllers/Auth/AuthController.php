@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Support\AcademyProfile;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -217,6 +218,9 @@ final class AuthController extends Controller
             // Where links we hand to the academy's payers point (custom domain → subdomain →
             // platform), so a copied invoice link carries the academy's address, not the tab's.
             'publicOrigin' => AcademyUrl::origin($academyId),
+            // Which kind of school this is (App\Support\AcademyProfile) — the shell shapes its
+            // sidebar, dashboard and wording on it. QURAN unless the type says CENTRE.
+            'profile' => AcademyProfile::forAcademy($academyId),
         ];
     }
 
