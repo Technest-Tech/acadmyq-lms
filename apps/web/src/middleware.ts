@@ -81,14 +81,15 @@ export async function middleware(req: NextRequest) {
   // own address, and it must render there whichever product that host serves — a course-platform
   // client's host would otherwise rewrite it into `/learn/<handle>/i/…`, a 404. `/rc/<token>` is
   // the public payment receipt, linked from WhatsApp the same way, `/p/<token>` the parent's page and
-  // `/f/<token>` the family's one payment link.
+  // `/f/<token>` the family's one payment link, `/e/<token>` the centre's public enrolment form.
   const routedAlready =
     url.pathname.startsWith("/learn/") ||
     url.pathname.startsWith("/api") ||
     url.pathname.startsWith("/i/") ||
     url.pathname.startsWith("/rc/") ||
     url.pathname.startsWith("/p/") ||
-    url.pathname.startsWith("/f/");
+    url.pathname.startsWith("/f/") ||
+    url.pathname.startsWith("/e/");
 
   /**
    * Serve `handle`'s product on this host. Identical for both kinds of address — the only thing the

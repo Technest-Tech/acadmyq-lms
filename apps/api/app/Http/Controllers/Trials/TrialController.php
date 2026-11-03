@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Trials;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Services\Enrolment\EnrolmentHandoff;
 use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\DoneBy;
@@ -435,6 +436,9 @@ final class TrialController extends Controller
         Audit::log('trial.convert', 'trial', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
             after: ['converted_student_id' => $data['student_id'], 'status' => 'CONVERTED'],
             before: ['status' => $trial->status]);
+
+        // An enrolment request that booked this trial from the centre's inbox is ENROLLED now.
+        app(EnrolmentHandoff::class)->trialConverted($id, (string) $data['student_id'], $this->ctx()->userId, $this->ctx()->role);
 
         if ($trial->lead_id !== null) {
             $subscribed = DB::table('crm_leads')

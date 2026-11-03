@@ -196,6 +196,7 @@
     "guardians": "Parents",
     "students": "Students",
     "trials": "Trials",
+    "enrolment": "Enrolment requests",
     "crm": "CRM",
     "courses": "Courses",
     "teachers": "Teachers",
@@ -10772,6 +10773,105 @@
       "cancel": "Cancel",
       "saved": "The lesson's teacher was updated.",
       "failed": "Could not change the lesson's teacher."
+    }
+  },
+  "enrolment": {
+    "title": "Enrolment requests",
+    "subtitle": "What the public registration form collected: call back, book a placement lesson, then enrol.",
+    "newCount": "{n} new",
+    "total": "{n} requests",
+    "search": "Search by name or phone",
+    "failed": "That did not go through. Try again.",
+    "notAllowed": "This page is not available on your account.",
+    "tabs": {
+      "ALL": "All"
+    },
+    "status": {
+      "NEW": "New",
+      "CONTACTED": "Contacted",
+      "PLACEMENT_BOOKED": "Placement booked",
+      "ENROLLED": "Enrolled",
+      "CLOSED": "Closed"
+    },
+    "weekdays": {
+      "0": "Sun",
+      "1": "Mon",
+      "2": "Tue",
+      "3": "Wed",
+      "4": "Thu",
+      "5": "Fri",
+      "6": "Sat"
+    },
+    "empty": {
+      "none": "No requests yet.",
+      "tab": "No requests in this state.",
+      "hint": "Copy the registration link above into your adverts or WhatsApp."
+    },
+    "link": {
+      "title": "Registration link",
+      "description": "One stable link for the centre; it opens the registration form under the centre's name and logo.",
+      "copy": "Copy link",
+      "copied": "Copied",
+      "open": "Open",
+      "isOpen": "Registration open",
+      "isClosed": "Registration closed",
+      "edit": "Edit form",
+      "editTitle": "Registration form",
+      "editDescription": "The title, intro and thank-you text, and what it asks.",
+      "rotate": "New link",
+      "rotateConfirm": "The old link stops working at once. Sure?",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "save": "Save",
+      "failed": "Not saved. Try again.",
+      "fields": {
+        "title": "Form title",
+        "intro": "Intro",
+        "introPlaceholder": "A line or two under the title",
+        "success": "Message after sending",
+        "successPlaceholder": "Thank you — we will call you within a working day.",
+        "asks": "What it asks",
+        "askSubject": "Subject / course wanted",
+        "askLevel": "Current level / grade",
+        "askSchedule": "Days and time that suit",
+        "openHint": "Open and close registration with the switch on the card; the link does not change."
+      }
+    },
+    "card": {
+      "age": "{n} yrs",
+      "guardian": "Guardian: {name}",
+      "call": "Call",
+      "received": "Received {date}",
+      "waMessage": "Hello, about {name}'s registration request with us.",
+      "trialBooked": "Placement lesson:",
+      "trialCancelled": "Placement lesson cancelled",
+      "enrolledAs": "Enrolled as {name}",
+      "note": "Note",
+      "addNote": "Add note",
+      "saveNote": "Save note",
+      "cancel": "Cancel",
+      "markContacted": "Contacted",
+      "bookPlacement": "Book placement lesson",
+      "close": "Close request",
+      "reopen": "Reopen"
+    },
+    "placement": {
+      "title": "Placement lesson",
+      "description": "Booked as a lesson on the placements board under the student's name and number.",
+      "teacher": "Teacher",
+      "selectTeacher": "Pick a teacher",
+      "searchTeacher": "Search teachers…",
+      "date": "Date",
+      "time": "Time",
+      "duration": "Length",
+      "minutes": "{n} min",
+      "clock": "On the centre's clock ({tz})",
+      "teacherRequired": "Pick a teacher first.",
+      "slotRequired": "Set the date and time.",
+      "submit": "Book the lesson",
+      "cancel": "Cancel",
+      "booked": "Placement lesson booked.",
+      "failed": "Not booked. Try again."
     }
   }
 }
