@@ -54,12 +54,27 @@ changes, so moving back is instant. Never hide a page that holds data: the surve
 academy actually uses — a mixed academy stays QURAN with its own switches until someone decides by
 name.
 
-## What comes next (Phase 2, in order)
+## Phase 2 — the centre's features (all behind `entitled:centre`)
 
-1. Levels / grades as an academy-defined list; student level + promotion history.
-2. A group as a course with a start, an end and a lesson count; renew / promote / close; a waiting
-   list when it is full.
-3. Centre holidays that pause lesson generation; make-up lessons; a substitute teacher for one lesson.
-4. The parent portal for a centre: group attendance, dues, an absence alert.
-5. Exams and grades, a term report, a certificate on completing a level.
-6. A public enrolment form → placement lesson → group.
+| # | Feature | Where | State |
+|---|---|---|---|
+| 1 | **Levels / grades** — academy-defined ordered list on students and groups, promotion with history | `academy_levels`, `students.level_id`, `class_groups.level_id`, `student_level_history`; `App\Services\StudentLevels`; `/levels`, `POST /students/{id}/promote`; Settings → الدورات → المستويات; `components/levels/*` | merged 2026-11-04 |
+| 3 | **Holidays + substitute** — closed dates skip generation and cancel pending lessons (reason `HOLIDAY`), delete restores; a colleague covers one lesson and is the one paid | `academy_holidays`, `class_group_lessons.original_teacher_id`; `App\Services\Holidays` (seam in both generators), `HolidayClosures`; `/holidays*`, `POST /group-lessons/{id}/substitute`; Settings → أجازات المركز | merged 2026-11-04 |
+| 4 | **Parent portal for a centre** — the child's groups, sheets, attendance; the family's dues on receipts; a WhatsApp absence alert (opt-in) | `App\Services\GuardianPortalCentre`, `Whatsapp\GroupAbsenceAlert` (+ job), `academy_automation_settings.group_absence_alert_*`, template `GROUP_ABSENCE`; `/group-absence-alert`; Settings → واتساب | merged 2026-11-04 |
+| 6 | **Public enrolment form → placement** — one stable `/e/{token}` link, an inbox at `/enrolment`, one click books a `trials` row; convert marks the request ENROLLED | `enrolment_forms`, `enrolment_requests`; `Services\Enrolment\*`; `/enrolment/*`, public `/e/{token}`; sidebar "طلبات التسجيل" | merged 2026-11-04 |
+| 2 | **Course term** — lessons planned / held, ending-soon, renew / promote / close into a successor group, waiting list | `feat/centre-course-term` | in progress |
+| 5 | **Assessments + term report + certificate** — grade sheet per group, per-student report (attendance + grades + comment) published to the parent, handoff to the certificate gallery | `feat/centre-assessments` | in progress |
+
+Make-up lessons already existed (`ClassGroupController::addLesson`, `is_extra`) and were not rebuilt.
+
+## Working on it with several agents
+
+Each feature was built on its own branch in its own git worktree, then merged here. Two things bit:
+- **A symlinked `apps/api/vendor` in a worktree runs the MAIN checkout's code** — PHP resolves `__DIR__`
+  through the symlink, so composer autoloads `App\` from the main `app/` and Pest's root is the main
+  checkout. Build `vendor/` as a real directory (copy `autoload.php`, `composer/`, `bin/`, `pestphp/`,
+  symlink the other packages) and prove it with a `ReflectionClass(...)->getFileName()`.
+- Shared files conflict on merge in predictable places: `routes/api.php` (keep both blocks), the two
+  locale files (both append a namespace before the final `}` — keep both, mind the closers), and
+  `settings-manager.tsx`. Everything else stayed disjoint because each feature owns its own
+  namespace, API client file and component directory.
