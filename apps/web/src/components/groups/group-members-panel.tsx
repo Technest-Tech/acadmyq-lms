@@ -22,8 +22,18 @@ import {
   type GroupMember,
   type GroupRow,
 } from "@/lib/groups-api";
+import { useCapability } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
+
+/**
+ * The earliest join date a form offers. A centre's running group has none: it was entered with the day
+ * it went on the system, and its students began earlier. The server keeps the same rule.
+ */
+function useJoinFloor(group: { start_date: string; timezone: string }): string | undefined {
+  const centre = useCapability("centre");
+  return centre && group.start_date <= todayIn(group.timezone) ? undefined : group.start_date;
+}
 
 type ModalState =
   | { kind: "closed" }
@@ -260,6 +270,7 @@ export function AddMembersForm({
 }) {
   const t = useTranslations("groups");
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const joinFloor = useJoinFloor(group);
   // A class nobody has attended yet takes a new student from its first lesson: the desk creates
   // the group and adds the students the same day, and expects them on every lesson, the ones
   // already on the calendar included. Once a lesson has been held, a newcomer joins today.
@@ -314,7 +325,7 @@ export function AddMembersForm({
 
       <label className="block space-y-1.5">
         <span className="text-sm font-medium">{t("members.joinedOn")}</span>
-        <input className={fieldClass} type="date" value={joinedOn} min={group.start_date} onChange={(e) => setJoinedOn(e.target.value)} />
+        <input className={fieldClass} type="date" value={joinedOn} min={joinFloor} onChange={(e) => setJoinedOn(e.target.value)} />
         <span className="text-muted-foreground block text-xs">{t("members.joinedOnHint")}</span>
       </label>
 
@@ -569,6 +580,7 @@ export function JoinDateForm({
   onSaved: (g: GroupDetail) => void;
 }) {
   const t = useTranslations("groups");
+  const joinFloor = useJoinFloor(group);
   const [joinedOn, setJoinedOn] = useState(member.joined_on);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -591,7 +603,7 @@ export function JoinDateForm({
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
       <label className="block space-y-1.5">
         <span className="text-sm font-medium">{t("members.joinedOn")}</span>
-        <input className={fieldClass} type="date" value={joinedOn} min={group.start_date} onChange={(e) => setJoinedOn(e.target.value)} data-testid="join-date" />
+        <input className={fieldClass} type="date" value={joinedOn} min={joinFloor} onChange={(e) => setJoinedOn(e.target.value)} data-testid="join-date" />
       </label>
       <p className="text-muted-foreground text-xs">{t("members.joinDateHint")}</p>
       <div className="flex justify-end gap-2 border-t pt-4">

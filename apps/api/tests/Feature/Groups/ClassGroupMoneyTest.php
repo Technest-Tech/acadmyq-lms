@@ -14,6 +14,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesSchedules;
@@ -498,15 +499,92 @@ it('a fixed amount per lesson, and nothing once the sheet is undone', function (
     expect(groupPayLines($this, $groupId))->toHaveCount(0);
 });
 
-it('refuses to undo a lesson whose teacher statement is finalized', function () {
+it('corrects a sealed statement in place when a sheet is saved or undone after the seal', function () {
     $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);
-    $lesson = heldLesson($this, $groupId, '2026-06-15');
+    $first = heldLesson($this, $groupId, '2026-06-15');
     $payoutId = groupPayLines($this, $groupId)->first()->payout_id;
-    asTenant($this->academy, fn () => DB::table('payouts')->where('id', $payoutId)->update(['finalized_at' => now()]));
+    $sealedAt = '2026-07-03 02:30:00+02';
+    asTenant($this->academy, fn () => DB::table('payouts')->where('id', $payoutId)->update(['finalized_at' => $sealedAt]));
+    $statement = fn () => asTenant($this->academy, fn () => DB::table('payouts')->where('id', $payoutId)->first());
+    $sealed = $statement()->finalized_at;
+
+    // A lesson of the sealed month marked now: lingo's "the 29th won't save".
+    Carbon::setTestNow('2026-07-05 12:00:00');
+    heldLesson($this, $groupId, '2026-06-17');
+    expect(groupPayLines($this, $groupId))->toHaveCount(2)
+        ->and((int) $statement()->total_minor)->toBe(12000)
+        ->and($statement()->finalized_at)->toBe($sealed);
 
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/group-lessons/{$lesson->id}/attendance/revert")->assertStatus(422);
+    $this->postJson("/api/group-lessons/{$first->id}/attendance/revert")->assertOk();
+    expect(lessonOn($this, $groupId, '2026-06-15')->status)->toBe('SCHEDULED')
+        ->and(groupPayLines($this, $groupId))->toHaveCount(1)
+        ->and((int) $statement()->total_minor)->toBe(6000)
+        ->and($statement()->finalized_at)->toBe($sealed);
+});
+
+it('leaves a statement paid from the treasury as paid: a new lesson goes on the next one, an undo is refused', function () {
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);
+    $first = heldLesson($this, $groupId, '2026-06-15');
+    $payoutId = groupPayLines($this, $groupId)->first()->payout_id;
+    asTenant($this->academy, function () use ($payoutId): void {
+        DB::table('payouts')->where('id', $payoutId)->update(['finalized_at' => now()]);
+        $account = (string) Str::uuid();
+        DB::table('cash_accounts')->insert(['id' => $account, 'academy_id' => $this->academy, 'name' => 'Drawer', 'kind' => 'CASH', 'currency' => 'EGP', 'opening_on' => '2026-01-01']);
+        $category = (string) Str::uuid();
+        DB::table('expense_categories')->insert(['id' => $category, 'academy_id' => $this->academy, 'name' => 'Salaries']);
+        DB::table('expenses')->insert([
+            'id' => (string) Str::uuid(), 'academy_id' => $this->academy, 'number' => 'E-1', 'spent_on' => '2026-06-15', 'category_id' => $category,
+            'amount_minor' => 100, 'currency' => 'EGP', 'cash_account_id' => $account, 'payout_id' => $payoutId,
+        ]);
+    });
+    Carbon::setTestNow('2026-07-05 12:00:00');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/group-lessons/{$first->id}/attendance/revert")->assertStatus(422);
     expect(lessonOn($this, $groupId, '2026-06-15')->status)->toBe('HELD');
+
+    heldLesson($this, $groupId, '2026-06-17');
+    $lines = groupPayLines($this, $groupId);
+    expect($lines)->toHaveCount(2);
+    $later = $lines->firstWhere('payout_id', '!=', $payoutId);
+    expect((int) $later->amount_minor)->toBe(6000)
+        ->and($later->finalized_at)->toBeNull()
+        ->and(Carbon::parse($later->session_date)->format('Y-m-d'))->toBe('2026-06-17');
+});
+
+it('lets a centre date a member before its running group started, without billing what the group never ran', function () {
+    Carbon::setTestNow('2026-06-20 12:00:00');
+    asTenant($this->academy, function (): void {
+        DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+        app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['centre']);
+    });
+    $groupId = moneyGroup($this, ['start_date' => '2026-06-10', 'student_ids' => [$this->kids['Adam']]]);
+    $before = groupLines($this, $groupId)->count();
+
+    Sanctum::actingAs($this->owner);
+    // Before the group's start, in a month it did not run in: the date stands, nothing new is owed.
+    $res = $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['joined_on' => '2026-05-20'])->assertOk();
+    expect(collect($res->json('group.members'))->firstWhere('student_id', $this->kids['Adam'])['joined_on'])->toBe('2026-05-20')
+        ->and(groupLines($this, $groupId))->toHaveCount($before);
+
+    // A new member too, on a group already running.
+    $res = $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Dina']], 'joined_on' => '2026-06-02'])->assertCreated();
+    expect(asTenant($this->academy, fn () => Carbon::parse(DB::table('class_group_members')->where('group_id', $groupId)->where('student_id', $this->kids['Dina'])->value('joined_on'))->format('Y-m-d')))->toBe('2026-06-02');
+
+    // A group yet to start keeps its floor.
+    $future = moneyGroup($this, ['name' => 'Later', 'start_date' => '2026-08-01']);
+    $this->postJson("/api/groups/{$future}/members", ['student_ids' => [$this->kids['Bassel']], 'joined_on' => '2026-06-20'])->assertCreated();
+    expect(asTenant($this->academy, fn () => Carbon::parse(DB::table('class_group_members')->where('group_id', $future)->value('joined_on'))->format('Y-m-d')))->toBe('2026-08-01');
+});
+
+it('keeps the start date as the floor for an academy that is not a centre', function () {
+    Carbon::setTestNow('2026-06-20 12:00:00');
+    $groupId = moneyGroup($this, ['start_date' => '2026-06-10', 'student_ids' => [$this->kids['Adam']]]);
+
+    Sanctum::actingAs($this->owner);
+    $res = $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['joined_on' => '2026-06-02'])->assertOk();
+    expect(collect($res->json('group.members'))->firstWhere('student_id', $this->kids['Adam'])['joined_on'])->toBe('2026-06-10');
 });
 
 it('revenue share: the teacher earns their share of what the group billed in the month', function () {

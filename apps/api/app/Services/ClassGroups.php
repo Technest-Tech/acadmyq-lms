@@ -43,6 +43,18 @@ final class ClassGroups
     public const ATTENDED_STATUSES = ['PRESENT', 'LATE'];
 
     /** Today's date in the group's own calendar. */
+    /**
+     * A centre's group already running can take a join date before its start date (lingo, 2026-11-03):
+     * every group was entered with the day it went on the system, while its students began earlier and
+     * its earlier lessons get added by hand. A group yet to start keeps the floor: joining ahead of it
+     * must not bill months it does not run in.
+     */
+    private static function joinsBeforeStart(object $group): bool
+    {
+        return Entitlement::hasCapability((string) $group->academy_id, 'centre')
+            && Carbon::parse($group->start_date)->format('Y-m-d') <= self::localToday((string) $group->timezone);
+    }
+
     public static function localToday(string $timezone): string
     {
         return Carbon::now($timezone)->format('Y-m-d');
@@ -207,7 +219,7 @@ final class ClassGroups
             }
         }
 
-        if (Carbon::parse($joinedOn)->format('Y-m-d') < Carbon::parse($group->start_date)->format('Y-m-d')) {
+        if (! self::joinsBeforeStart($group) && Carbon::parse($joinedOn)->format('Y-m-d') < Carbon::parse($group->start_date)->format('Y-m-d')) {
             $joinedOn = Carbon::parse($group->start_date)->format('Y-m-d');
         }
 
@@ -276,7 +288,10 @@ final class ClassGroups
         }
 
         $old = Carbon::parse($member->joined_on)->format('Y-m-d');
-        $new = max(Carbon::parse($joinedOn)->format('Y-m-d'), Carbon::parse($group->start_date)->format('Y-m-d'));
+        $new = Carbon::parse($joinedOn)->format('Y-m-d');
+        if (! self::joinsBeforeStart($group)) {
+            $new = max($new, Carbon::parse($group->start_date)->format('Y-m-d'));
+        }
         if ($new === $old) {
             return;
         }

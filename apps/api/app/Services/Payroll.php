@@ -582,7 +582,9 @@ final class Payroll implements PayoutHook
      *
      * A FINALIZED statement is money already paid: a needed change there is refused (the throw rolls
      * the caller back) unless `$quietWhenFinalized`, which the revenue-share sync uses so billing a
-     * late member never fails because last month's salaries are sealed.
+     * late member never fails because last month's salaries are sealed. A lesson's caller lifts the
+     * seal first ({@see correcting()}), so what still arrives sealed was paid from the treasury: a
+     * lesson with no line yet goes on the next open statement, as a late private lesson does.
      *
      * @param  array<string, string>  $anchor
      */
@@ -618,9 +620,12 @@ final class Payroll implements PayoutHook
             if ($quietWhenFinalized || ($existing === null && $amountMinor === 0)) {
                 return;
             }
-            throw ValidationException::withMessages([
-                'payout' => ['This teacher\'s statement for that month is already finalized. / كشف راتب المدرس لهذا الشهر نهائي بالفعل.'],
-            ]);
+            if ($existing !== null) {
+                throw ValidationException::withMessages([
+                    'payout' => [$this->paidOutMinor($payoutId) > 0 ? self::PAID_OUT_MESSAGE : 'This teacher\'s statement for that month is already finalized. / كشف راتب المدرس لهذا الشهر نهائي بالفعل.'],
+                ]);
+            }
+            $payoutId = $this->openPayoutForLesson(DB::table('academies')->where('id', $academyId)->first(), DB::table('teachers')->where('id', $teacherId)->first(), $year, $month);
         }
 
         $currency = (string) DB::table('payouts')->where('id', $payoutId)->value('currency');
@@ -706,7 +711,7 @@ final class Payroll implements PayoutHook
                 return false;
             }
             throw ValidationException::withMessages([
-                'payout' => ['Cannot reverse: this teacher\'s payout is already finalized. / لا يمكن التراجع: كشف راتب هذا المدرس نهائي بالفعل.'],
+                'payout' => [$this->paidOutMinor((string) $line->payout_id) > 0 ? self::PAID_OUT_MESSAGE : 'Cannot reverse: this teacher\'s payout is already finalized. / لا يمكن التراجع: كشف راتب هذا المدرس نهائي بالفعل.'],
             ]);
         }
 

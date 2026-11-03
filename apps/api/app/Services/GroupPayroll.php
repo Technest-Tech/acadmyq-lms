@@ -12,7 +12,9 @@ use Illuminate\Support\Facades\DB;
  * What a group class pays its teacher (docs/groups §Money) — the teacher side. The one rule that
  * matters: ONE payout line per held lesson, never one per student. The line sits on the statement of
  * whoever took the lesson (a substitute included), for the lesson's month, and is re-priced or
- * removed as its sheet changes — refused once that statement is finalized, like a private lesson.
+ * removed as its sheet changes. A sealed statement is corrected in place ({@see Payroll::correcting()}),
+ * like a private lesson; one paid from the treasury stays as paid: a lesson newly held goes on the
+ * teacher's next open statement, and changing or undoing one already on it is refused.
  *
  * `teacher_pay_mode` on the group:
  *   null           the teacher's own rule, as for a private lesson of that length (Payroll::lessonPayMinor;
@@ -43,10 +45,11 @@ final class GroupPayroll
             return;
         }
 
+        $line = DB::table('payout_line_items')->where('class_group_lesson_id', $lesson->id)->first();
+
         if ($lesson->status !== 'HELD') {
-            $line = DB::table('payout_line_items')->where('class_group_lesson_id', $lesson->id)->first();
             if ($line !== null) {
-                $this->payroll->removeGroupLine($line);
+                $this->payroll->correcting((string) $line->payout_id, fn () => $this->payroll->removeGroupLine($line));
             }
 
             return;
@@ -61,7 +64,10 @@ final class GroupPayroll
         $marked = DB::table('class_group_attendance')->where('lesson_id', $lesson->id)->count();
         $period = $this->periodOf((string) $group->academy_id, (string) $lesson->scheduled_at_utc);
 
-        $this->payroll->upsertGroupLine(
+        // Both statements a line can touch: where it is now (the lesson changed hands, or months) and
+        // where it belongs. A sheet saved after the 3rd must not be refused for the month being sealed.
+        $statement = $this->payroll->ensureOpenPayoutFor((string) $group->academy_id, (string) $teacher->id, $period['year'], $period['month']);
+        $this->payroll->correcting($line !== null ? (string) $line->payout_id : null, fn () => $this->payroll->correcting($statement, fn () => $this->payroll->upsertGroupLine(
             (string) $group->academy_id,
             (string) $teacher->id,
             $period['year'],
@@ -70,7 +76,7 @@ final class GroupPayroll
             $this->lessonAmount($group, $teacher, (int) $lesson->duration_minutes, $came),
             "{$group->name} — {$came}/{$marked}",
             $period['date'],
-        );
+        )));
     }
 
     /**
