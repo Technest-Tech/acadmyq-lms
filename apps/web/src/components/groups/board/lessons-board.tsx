@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, MapPin, Video } from "lucide-react";
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, MapPin, UserRoundCog, Video } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -8,6 +8,7 @@ import { useAuth } from "@/components/auth-provider";
 import { AttendanceSheet } from "@/components/groups/attendance-sheet";
 import { BoardFilters, useBoardFilterOptions } from "@/components/groups/board/board-filters";
 import { TimetableBoard } from "@/components/groups/board/timetable-board";
+import { SubstituteModal } from "@/components/holidays/substitute-modal";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { LESSON_TONE, fieldClass, lessonDate, lessonTime, needsMarking, todayIn } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
@@ -16,6 +17,7 @@ import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import { useCapability } from "@/lib/capabilities";
 import { listBoardLessons, type BoardLesson } from "@/lib/groups-api";
+import { HOLIDAY_REASON } from "@/lib/holidays-api";
 import { cn } from "@/lib/utils";
 
 type View = "timetable" | "day" | "week" | "owed";
@@ -34,9 +36,11 @@ function shiftDate(ymd: string, days: number): string {
  */
 export function LessonsBoard() {
   const t = useTranslations("groups");
+  const tHolidays = useTranslations("holidays");
   const locale = useLocale();
   const { can } = useAuth();
   const canMark = can("session.mark_attendance");
+  const canManage = can("group.manage");
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   // A centre works from its weekly timetable (hour blocks, rooms); everyone else's views are unchanged.
   const centre = useCapability("centre");
@@ -52,6 +56,7 @@ export function LessonsBoard() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [sheet, setSheet] = useState<BoardLesson | null>(null);
+  const [substituting, setSubstituting] = useState<BoardLesson | null>(null);
   const options = useBoardFilterOptions();
 
   const load = useCallback(async () => {
@@ -183,16 +188,21 @@ export function LessonsBoard() {
                               {overdue ? t("lessonStatus.OVERDUE") : t(`lessonStatus.${l.status}`)}
                             </span>
                             {l.extra && <span className="text-muted-foreground text-xs">{t("lessons.extra")}</span>}
+                            {l.status === "CANCELLED" && l.cancel_reason === HOLIDAY_REASON && (
+                              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                                {tHolidays("badge")}
+                              </span>
+                            )}
                           </p>
                           <p className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
                             {l.group.level && <span>{l.group.level}</span>}
-                            {l.teacher_name && <span>{l.teacher_name}</span>}
+                            {l.teacher_name && <span>{l.is_substitute ? tHolidays("substitute.label", { name: l.teacher_name }) : l.teacher_name}</span>}
                             <span className="inline-flex items-center gap-1">
                               {l.group.mode === "ONLINE" ? <Video className="size-3" aria-hidden /> : <MapPin className="size-3" aria-hidden />}
                               {l.group.mode === "OFFLINE" && l.group.location ? l.group.location : t(`mode.${l.group.mode}`)}
                             </span>
                             <span>{t("minutes", { count: l.duration_minutes })}</span>
-                            {l.status === "CANCELLED" && l.cancel_reason && <span>· {l.cancel_reason}</span>}
+                            {l.status === "CANCELLED" && l.cancel_reason && l.cancel_reason !== HOLIDAY_REASON && <span>· {l.cancel_reason}</span>}
                           </p>
                         </div>
                       </div>
@@ -208,6 +218,18 @@ export function LessonsBoard() {
                               <span className="text-muted-foreground">{t("students", { count: c.expected })}</span>
                             )}
                           </span>
+                        )}
+                        {canManage && l.status !== "CANCELLED" && (
+                          <button
+                            type="button"
+                            aria-label={tHolidays("substitute.action")}
+                            title={tHolidays("substitute.action")}
+                            className="hover:bg-muted text-muted-foreground inline-flex size-8 items-center justify-center rounded-lg"
+                            onClick={() => setSubstituting(l)}
+                            data-testid={`board-substitute-${l.id}`}
+                          >
+                            <UserRoundCog className="size-4" />
+                          </button>
                         )}
                         {canMark && l.status !== "CANCELLED" && (
                           <Button
@@ -230,6 +252,19 @@ export function LessonsBoard() {
             </section>
           ))}
         </div>
+      )}
+
+      {substituting && (
+        <SubstituteModal
+          lesson={substituting}
+          open
+          onClose={() => setSubstituting(null)}
+          onSaved={(_lesson, message) => {
+            setSubstituting(null);
+            setNotice(message);
+            void load();
+          }}
+        />
       )}
 
       <Modal open={sheet !== null} onClose={() => setSheet(null)} title={t("sheet.title")} size="lg">

@@ -142,6 +142,9 @@ export interface GroupLesson {
   group_id: string;
   teacher_id: string;
   teacher_name: string | null;
+  /** A colleague covers this one lesson (and is paid for it); the group's own teacher is named beside them. */
+  is_substitute?: boolean;
+  group_teacher_name?: string | null;
   slot_id: string | null;
   occurrence_local_date: string;
   scheduled_at_utc: string;

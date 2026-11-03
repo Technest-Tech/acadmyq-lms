@@ -8,11 +8,13 @@ import {
   Ellipsis,
   MoveRight,
   RotateCcw,
+  UserRoundCog,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { AttendanceSheet } from "@/components/groups/attendance-sheet";
+import { SubstituteModal } from "@/components/holidays/substitute-modal";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import {
   LESSON_TONE,
@@ -41,11 +43,13 @@ import {
   type GroupDetail,
   type GroupLesson,
 } from "@/lib/groups-api";
+import { HOLIDAY_REASON } from "@/lib/holidays-api";
 import { cn } from "@/lib/utils";
 
 type ModalState =
   | { kind: "closed" }
   | { kind: "sheet"; lesson: GroupLesson }
+  | { kind: "substitute"; lesson: GroupLesson }
   | { kind: "move"; lesson: GroupLesson }
   | { kind: "cancel"; lesson: GroupLesson }
   | { kind: "revert"; lesson: GroupLesson }
@@ -60,6 +64,7 @@ const UPCOMING_PREVIEW = 6;
  */
 export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; onChanged: () => void }) {
   const t = useTranslations("groups");
+  const tHolidays = useTranslations("holidays");
   const locale = useLocale();
   const { can } = useAuth();
   const canMark = can("session.mark_attendance");
@@ -131,6 +136,13 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
         label: t("lessons.move"),
         onClick: () => setModal({ kind: "move", lesson }),
       },
+      // A colleague covers this one lesson — pending or held (the pay follows them).
+      canManage && lesson.status !== "CANCELLED" && {
+        key: "substitute",
+        icon: UserRoundCog,
+        label: tHolidays("substitute.action"),
+        onClick: () => setModal({ kind: "substitute", lesson }),
+      },
       canManage && lesson.status === "SCHEDULED" && {
         key: "cancel",
         icon: Ban,
@@ -163,13 +175,16 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
             </span>
             {lesson.extra && <span className="text-muted-foreground text-xs">{t("lessons.extra")}</span>}
             {lesson.moved && <span className="text-muted-foreground text-xs">{t("lessons.moved")}</span>}
+            {lesson.status === "CANCELLED" && lesson.cancel_reason === HOLIDAY_REASON && (
+              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
+                {tHolidays("badge")}
+              </span>
+            )}
           </p>
           <p className="text-muted-foreground mt-0.5 truncate text-xs">
             {t("minutes", { count: lesson.duration_minutes })}
-            {lesson.teacher_id !== group.teacher_id && lesson.teacher_name
-              ? ` · ${t("lessons.substitute", { name: lesson.teacher_name })}`
-              : ""}
-            {lesson.status === "CANCELLED" && lesson.cancel_reason ? ` · ${lesson.cancel_reason}` : ""}
+            {lesson.is_substitute && lesson.teacher_name ? ` · ${tHolidays("substitute.label", { name: lesson.teacher_name })}` : ""}
+            {lesson.status === "CANCELLED" && lesson.cancel_reason && lesson.cancel_reason !== HOLIDAY_REASON ? ` · ${lesson.cancel_reason}` : ""}
             {lesson.status === "HELD" && lesson.topic ? ` · ${lesson.topic}` : ""}
           </p>
         </div>
@@ -299,6 +314,15 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
           />
         )}
       </Modal>
+
+      {modal.kind === "substitute" && (
+        <SubstituteModal
+          lesson={modal.lesson}
+          open
+          onClose={() => setModal({ kind: "closed" })}
+          onSaved={(_lesson, message) => done(message)}
+        />
+      )}
 
       <Modal open={modal.kind === "move"} onClose={() => setModal({ kind: "closed" })} title={t("lessons.moveTitle")}>
         {modal.kind === "move" && (

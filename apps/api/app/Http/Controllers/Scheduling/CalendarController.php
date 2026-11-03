@@ -129,15 +129,16 @@ final class CalendarController extends Controller
         $query = DB::table('class_group_lessons as l')
             ->join('class_groups as g', 'g.id', '=', 'l.group_id')
             ->leftJoin('teachers as te', 'te.id', '=', 'l.teacher_id')
+            ->leftJoin('teachers as gte', 'gte.id', '=', 'g.teacher_id')
             ->whereBetween('l.scheduled_at_utc', [
                 $fromUtc->format('Y-m-d H:i:sP'),
                 $toUtc->format('Y-m-d H:i:sP'),
             ])
             ->select([
                 'l.id', 'l.group_id', 'l.teacher_id', 'l.scheduled_at_utc', 'l.duration_minutes',
-                'l.status', 'l.cancel_reason', 'l.is_extra',
+                'l.status', 'l.cancel_reason', 'l.is_extra', 'l.original_teacher_id',
                 'g.name as group_name', 'g.level', 'g.mode', 'g.location',
-                'te.full_name as teacher_name',
+                'te.full_name as teacher_name', 'gte.full_name as group_teacher_name',
             ])
             ->selectRaw(<<<'SQL'
                 (select count(*) from class_group_members m
@@ -175,6 +176,9 @@ final class CalendarController extends Controller
             $r->duration_minutes = (int) $r->duration_minutes;
             $r->member_count = (int) $r->member_count;
             $r->is_extra = (bool) $r->is_extra;
+            // A substitute on this one lesson: `teacher_name` is who takes it, the group's own beside it.
+            $r->is_substitute = $r->original_teacher_id !== null;
+            unset($r->original_teacher_id);
 
             return $r;
         });

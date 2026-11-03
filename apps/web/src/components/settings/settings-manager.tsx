@@ -1,9 +1,10 @@
 "use client";
 
-import { BellRing, BookOpen, ClipboardList, DatabaseBackup, MessageCircle, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { BellRing, BookOpen, CalendarOff, ClipboardList, DatabaseBackup, MessageCircle, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { HolidaysManager } from "@/components/holidays/holidays-manager";
 import { AcademyNameCard } from "@/components/settings/academy-name-card";
 import { AdminsCard } from "@/components/settings/admins-card";
 import { ControlsManager } from "@/components/settings/controls-manager";
@@ -17,7 +18,7 @@ import { WhatsAppManager } from "@/components/settings/whatsapp-manager";
 import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
-type TabKey = "courses" | "lessonReport" | "reportCard" | "whatsapp" | "lessonReminders" | "controls" | "account";
+type TabKey = "courses" | "lessonReport" | "reportCard" | "whatsapp" | "lessonReminders" | "holidays" | "controls" | "account";
 
 /**
  * Each tab names the capability it needs: the course list and the report card are day-to-day
@@ -32,6 +33,8 @@ const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon; permission: string }>
   { key: "reportCard", icon: ScrollText, permission: "report_field.manage" },
   { key: "whatsapp", icon: MessageCircle, permission: "settings.manage" },
   { key: "lessonReminders", icon: BellRing, permission: "student.update" },
+  // A centre's closed days (docs/centre-profile, Phase 2 §3) — its own settings, centre only.
+  { key: "holidays", icon: CalendarOff, permission: "settings.manage" },
   { key: "controls", icon: SlidersHorizontal, permission: "settings.manage" },
   { key: "account", icon: DatabaseBackup, permission: "settings.manage" },
 ];
@@ -39,6 +42,7 @@ const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon; permission: string }>
 /** The Settings container: academy configuration, organized into top tabs. */
 export function SettingsManager() {
   const t = useTranslations("settings");
+  const tHolidays = useTranslations("holidays");
   const { can, session } = useAuth();
   const isAdmin = session?.role === "ACADEMY_OWNER" || (session?.role === "SUPER_ADMIN" && session.academyId !== null);
   const [chosen, setChosen] = useState<TabKey>("courses");
@@ -53,6 +57,7 @@ export function SettingsManager() {
   const hasCentre = useCapability("centre");
   // Reminders in WhatsApp groups — switched on per client by a Super Admin (opt-in, so strict).
   const hasLessonReminders = session?.capabilities?.includes("whatsapp.group_reminders") ?? false;
+  const isCentre = useCapability("centre");
   const tabs = TABS.filter(
     (tab) =>
       can(tab.permission) &&
@@ -60,9 +65,12 @@ export function SettingsManager() {
       (tab.key !== "lessonReport" || hasLessonReport) &&
       (tab.key !== "whatsapp" || hasWhatsApp) &&
       (tab.key !== "lessonReminders" || hasLessonReminders) &&
+      (tab.key !== "holidays" || isCentre) &&
       (tab.key !== "account" || isAdmin),
   );
   const active: TabKey = tabs.some((tab) => tab.key === chosen) ? chosen : (tabs[0]?.key ?? "courses");
+  // The holidays tab names itself from its own namespace (one namespace per feature).
+  const tabLabel = (key: TabKey) => (key === "holidays" ? tHolidays("tab") : t(`tabs.${key}`));
   const setActive = setChosen;
 
   return (
@@ -105,14 +113,14 @@ export function SettingsManager() {
               )}
             >
               <Icon className="size-4" aria-hidden />
-              <span>{t(`tabs.${key}`)}</span>
+              <span>{tabLabel(key)}</span>
             </button>
           );
         })}
       </div>
 
       {/* ── Tab panels ────────────────────────────────────────────────────── */}
-      <div role="tabpanel" aria-label={t(`tabs.${active}`)}>
+      <div role="tabpanel" aria-label={tabLabel(active)}>
         {active === "courses" && (
           <div className="space-y-6">
             <SpecializationsManager />
@@ -124,6 +132,7 @@ export function SettingsManager() {
         {active === "reportCard" && <ReportCardManager />}
         {active === "whatsapp" && <WhatsAppManager />}
         {active === "lessonReminders" && <LessonRemindersManager />}
+        {active === "holidays" && <HolidaysManager />}
         {active === "controls" && <ControlsManager />}
         {active === "account" && (
           <div className="space-y-6">
