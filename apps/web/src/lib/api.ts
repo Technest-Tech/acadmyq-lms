@@ -3621,6 +3621,8 @@ export interface ScheduleSlot {
   weekday: number; // 0=Sun … 6=Sat
   start_time_local: string; // "17:00" or "17:00:00"
   duration_minutes: number;
+  /** The subject its lessons are for, when the teacher teaches this student two. */
+  course?: string | null;
 }
 
 export interface Schedule {
@@ -3760,6 +3762,8 @@ export function getStudentSchedule(
   slots: ScheduleSlot[];
   /** The lesson length the student's price assumes, when it names one. */
   lesson_minutes?: number | null;
+  /** The subjects open under this teacher. With two or more, each slot says which it is. */
+  subjects?: string[];
 }> {
   return apiFetch(`/api/students/${studentId}/schedule${teacherQuery(teacherId)}`);
 }
@@ -4728,6 +4732,13 @@ export interface PayoutRow {
   currency: string;
   finalized_at: string | null;
   created_at: string;
+  /** The office's "transferred" tick. Only the owner's list carries these, not a teacher's own. */
+  transferred_at?: string | null;
+  /** What the statement stood at when ticked; a later correction can move the total away from it. */
+  transferred_minor?: number | null;
+  transferred_by_name?: string | null;
+  /** Paid out of the treasury so far. */
+  paid_out_minor?: number;
 }
 
 /** Report state of a delivered session, derived from its session_reports row. */
@@ -4964,6 +4975,17 @@ export interface PayrollRange {
   to: string;
   currencies: PayrollRangeCurrency[];
   teachers: PayrollRangeTeacher[];
+}
+
+/** Tick or untick "transferred" on a statement. Moves no money. */
+export function setPayoutTransferred(
+  id: string,
+  transferred: boolean,
+): Promise<{ transferred_at: string | null; transferred_minor: number | null }> {
+  return apiFetch(`/api/payouts/${id}/transfer`, {
+    method: "PATCH",
+    body: JSON.stringify({ transferred }),
+  });
 }
 
 export function getPayrollRange(
@@ -8517,6 +8539,8 @@ export interface PackageStudent {
   subjects?: PackageSubject[];
   /** The subjects (teacher ids) already holding an open subscription. */
   open_subjects?: string[];
+  /** Those open subscriptions, by subject: one teacher can teach a student two. */
+  open_blocks?: { teacher_id: string; course: string | null }[];
   /** The usual lesson length on their timetable (a centre; null = none yet). */
   lesson_minutes?: number | null;
 }

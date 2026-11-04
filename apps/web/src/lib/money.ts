@@ -1,4 +1,5 @@
 import type { Money } from "@academiq/contracts";
+import { numeralLocale } from "@/lib/numerals";
 
 export interface MoneyFormatOptions {
   /**
@@ -32,10 +33,7 @@ export function formatMoney(
 
   // Arabic locales render Eastern Arabic (Arabic-Indic) numerals (٠-٩); modern
   // CLDR defaults plain "ar" to Latin digits, so request the numbering system.
-  const bcp47 =
-    locale.startsWith("ar") && !locale.includes("-nu-")
-      ? `${locale}-u-nu-arab`
-      : locale;
+  const bcp47 = numeralLocale(locale);
 
   // Only a WHOLE amount loses its decimals: 400 → "400 ج.م", but 399.50 keeps them, because
   // rounding a real price away would misstate it.
@@ -54,10 +52,7 @@ export function formatMoney(
  * rather than the Latin digits modern CLDR defaults plain "ar" to (R-LOC / AC-9.12).
  */
 export function formatNumber(value: number, locale: string): string {
-  const bcp47 =
-    locale.startsWith("ar") && !locale.includes("-nu-")
-      ? `${locale}-u-nu-arab`
-      : locale;
+  const bcp47 = numeralLocale(locale);
 
   return new Intl.NumberFormat(bcp47).format(value);
 }

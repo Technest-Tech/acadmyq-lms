@@ -736,6 +736,12 @@ must be cancellable — the child may not come back, yet the charge stayed.
   (`LessonPackages::countsLessons`): the credit takes one `lesson_minutes`, never an overdraft, and
   the teacher is still paid from the lesson's real length. `packages:count-by-lesson` brings older
   running blocks onto this and corrects a block's length (`--length=<id>:<minutes>`).
+- **Two subjects with one teacher.** A subject is teacher + `course`: one open block per
+  (student, teacher, course). Each timetable slot can name its subject (`schedule_slots.course`), its
+  lessons keep it (`sessions.course`), and `LessonPackages::forLesson` takes the lesson off that
+  block. A lesson naming none goes on the older block; with one block under the teacher it takes
+  everything, so nobody with one subject per teacher sees a change. The student's link
+  (`student_teacher_assignments`) still holds one row per teacher; the other subjects live on blocks.
   Renewal copies it; a NEXT-only edit parks it in `next_terms`. Cards (package card, subscriptions
   card) read "6 lessons left", "2 of 8 lessons", "90/lesson (40 min)" when it is set. Quran
   academies never send it, so their cards are unchanged.

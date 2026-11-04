@@ -130,3 +130,99 @@ it('counts a class whose time has passed with no sheet as unmarked', function ()
         ->assertJsonPath('today.group_unmarked', 1)
         ->assertJsonPath('week.attendance_rate', null);
 });
+
+it('compares against 30 days ago, and shows no percentage when there was nothing to compare with', function () {
+    centreDashSwitchOn($this->academy);
+    Sanctum::actingAs($this->owner);
+
+    // The three students were made "now": on the books then, there were none.
+    $this->getJson('/api/dashboard/centre')->assertOk()
+        ->assertJsonPath('students.total', 3)
+        ->assertJsonPath('students.delta_pct', null)
+        ->assertJsonPath('groups.delta_pct', null)
+        ->assertJsonPath('subscriptions.delta_pct', null);
+
+    // Two of them joined two months ago: 2 then, 3 now, so up 50%.
+    centreDashInContext($this->academy, fn () => DB::table('students')
+        ->whereIn('id', [$this->students[0], $this->students[1]])
+        ->update(['created_at' => '2026-04-01 09:00:00+00']));
+
+    $this->getJson('/api/dashboard/centre')->assertOk()->assertJsonPath('students.delta_pct', 50);
+});
+
+it('splits the students into slices that add up to the total', function () {
+    centreDashSwitchOn($this->academy);
+
+    centreDashInContext($this->academy, function () {
+        // Adam is an old active student, Bassel is on trial, Celine has left; Dina joined this week.
+        DB::table('students')->where('id', $this->students[0])->update(['created_at' => '2026-04-01 09:00:00+00']);
+        DB::table('students')->where('id', $this->students[1])->update(['status' => 'TRIAL']);
+        DB::table('students')->where('id', $this->students[2])->update(['status' => 'WITHDRAWN']);
+    });
+    $this->createStudent($this->academy, null, ['full_name' => 'Dina', 'status' => 'REGULAR']);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson('/api/dashboard/centre')->assertOk()
+        ->assertJsonPath('students.total', 4)
+        ->assertJsonPath('students.active', 1)
+        ->assertJsonPath('students.new_recent', 1)
+        ->assertJsonPath('students.trial', 1)
+        ->assertJsonPath('students.inactive', 1);
+});
+
+it('lists the newest groups and what just happened', function () {
+    centreDashSwitchOn($this->academy);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/groups', [
+        'name' => 'English B1', 'teacher_id' => $this->teacher, 'capacity' => 8, 'start_date' => '2026-06-01',
+        'slots' => [['weekday' => 3, 'start_time_local' => '17:00', 'duration_minutes' => 60]],
+    ])->assertCreated();
+
+    $res = $this->getJson('/api/dashboard/centre')->assertOk()
+        ->assertJsonPath('latest_groups.0.name', 'English B1')
+        ->assertJsonPath('latest_groups.0.capacity', 8)
+        ->assertJsonPath('latest_groups.0.members', 0);
+
+    expect(collect($res->json('activity'))->pluck('type')->all())->toContain('group', 'student');
+    expect(count($res->json('activity')))->toBeLessThanOrEqual(4);
+});
+
+it('adds receipts up by month, with every month present and voided ones out', function () {
+    centreDashSwitchOn($this->academy);
+
+    centreDashInContext($this->academy, function () {
+        foreach ([
+            ['2026-06-02', 10_000, null],
+            ['2026-06-10', 5_000, null],
+            ['2026-06-11', 99_000, '2026-06-12 09:00:00+00'],
+            ['2026-04-20', 7_000, null],
+        ] as $i => [$on, $amount, $voidedAt]) {
+            DB::table('receipts')->insert([
+                'id' => (string) Str::uuid(), 'academy_id' => $this->academy, 'number' => 'R-'.$i, 'amount_minor' => $amount,
+                'currency' => 'EGP', 'method' => 'CASH', 'received_on' => $on, 'payer_name' => 'Walk-in', 'voided_at' => $voidedAt,
+                'void_reason' => $voidedAt !== null ? 'typo' : null, 'public_token' => (string) Str::uuid(),
+            ]);
+        }
+    });
+
+    Sanctum::actingAs($this->owner);
+    $res = $this->getJson('/api/dashboard/centre/trend?months=3')->assertOk();
+
+    $res->assertJsonPath('months', ['2026-04', '2026-05', '2026-06'])
+        ->assertJsonPath('collected.0.currency', 'EGP')
+        ->assertJsonPath('collected.0.by_month.0.amount_minor', 7_000)
+        ->assertJsonPath('collected.0.by_month.1.amount_minor', 0)
+        ->assertJsonPath('collected.0.by_month.2.amount_minor', 15_000);
+    expect($res->json('lessons'))->toHaveCount(3);
+});
+
+it('keeps the money out of the trend for someone who cannot read invoices', function () {
+    centreDashSwitchOn($this->academy);
+    $teacher = $this->makeUser($this->academy, 'TEACHER', ['email' => 't2-cdash@test.local']);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($teacher);
+    $this->getJson('/api/dashboard/centre/trend')->assertOk()->assertJsonPath('collected', null);
+});

@@ -1,6 +1,7 @@
 "use client";
 
-import { useAuth } from "@/components/auth-provider";
+import { useContext } from "react";
+import { AuthContext, useAuth } from "@/components/auth-provider";
 import type { AcademyKind } from "@/lib/api";
 
 /**
@@ -29,4 +30,12 @@ export function useCapability(capability: string): boolean {
 export function useProfile(): AcademyKind {
   const { session } = useAuth();
   return session?.academy?.profile ?? "QURAN";
+}
+
+/**
+ * Is this workspace in a learning centre's look (`centre-look.css`)? Safe outside an AuthProvider, so a
+ * shared component can ask without every test around it having to supply a session.
+ */
+export function useCentreLook(): boolean {
+  return useContext(AuthContext)?.session?.academy?.profile === "CENTRE";
 }

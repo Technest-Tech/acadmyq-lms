@@ -19,6 +19,14 @@ export const fieldClass =
 export const textareaClass =
   "border-input bg-background focus:border-primary focus:ring-primary/15 min-h-20 w-full rounded-xl border px-3 py-2 text-sm outline-none transition-colors focus:ring-3";
 
+/**
+ * "12 / 16" inside Arabic text keeps its reading order: without the isolate, the bidi algorithm lays
+ * the two numbers out right to left and it reads as 16 / 12.
+ */
+export function isolateFractions(text: string): string {
+  return text.replace(/(\d+)\s*\/\s*(\d+)/g, "\u2066$1 / $2\u2069");
+}
+
 /** Minutes → the hours a person reads: 480 → "8", 450 → "7.5". */
 export function hoursText(minutes: number, locale = "en"): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 2, useGrouping: false }).format(minutes / 60);

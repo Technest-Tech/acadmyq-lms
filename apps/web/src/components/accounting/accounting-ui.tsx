@@ -126,19 +126,19 @@ export function Tile({
   const a = ACCENTS[accent ?? accentOf(tone)];
   return (
     <div
-      className={cn("bg-card relative overflow-hidden rounded-xl border bg-gradient-to-br to-transparent p-3.5 shadow-sm", a.wash)}
+      className={cn("centre-tile bg-card relative overflow-hidden rounded-xl border bg-gradient-to-br to-transparent p-3.5 shadow-sm", a.wash)}
       data-testid={testId}
     >
-      <span className={cn("absolute inset-y-3 start-0 w-1 rounded-e-full", a.bar)} aria-hidden />
+      <span className={cn("centre-tile__bar absolute inset-y-3 start-0 w-1 rounded-e-full", a.bar)} aria-hidden />
       <div className="flex items-start justify-between gap-2">
-        <p className="text-muted-foreground text-xs font-medium">{label}</p>
+        <p className="centre-tile__label text-muted-foreground text-xs font-medium">{label}</p>
         {Icon && (
-          <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg ring-1", a.chip)}>
+          <span className={cn("centre-tile__chip flex size-8 shrink-0 items-center justify-center rounded-lg ring-1", a.chip)}>
             <Icon className="size-4" aria-hidden />
           </span>
         )}
       </div>
-      <p className={cn("mt-1 text-xl font-bold break-words tabular-nums", tone)}>{value}</p>
+      <p className={cn("centre-tile__value mt-1 text-xl font-bold break-words tabular-nums", tone)}>{value}</p>
       {hint && <p className="text-muted-foreground mt-0.5 text-xs">{hint}</p>}
     </div>
   );

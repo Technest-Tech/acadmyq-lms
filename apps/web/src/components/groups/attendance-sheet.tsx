@@ -12,6 +12,7 @@ import {
   textareaClass,
 } from "@/components/groups/group-format";
 import { apiErrorMessage } from "@/components/groups/group-form";
+import { PersonAvatar } from "@/components/groups/group-look";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,16 @@ import {
   type GroupAttendanceStatus,
   type GroupLessonSheet,
 } from "@/lib/groups-api";
+import { useCentreLook } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
+
+/** A centre's sheet opens on the four counts as coloured blocks. */
+const COUNT_BLOCK: Record<GroupAttendanceStatus, string> = {
+  PRESENT: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  LATE: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+  ABSENT: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
+  EXCUSED: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+};
 
 type Row = { status: GroupAttendanceStatus; note: string; showNote: boolean };
 
@@ -50,6 +60,7 @@ export function AttendanceSheet({
   const locale = useLocale();
   const { session, can } = useAuth();
   const canRemove = can("group.manage");
+  const look = useCentreLook();
   const isOwner = session?.role === "ACADEMY_OWNER" || session?.role === "SUPER_ADMIN";
 
   const [sheet, setSheet] = useState<GroupLessonSheet | null>(null);
@@ -190,14 +201,25 @@ export function AttendanceSheet({
       ) : (
         <>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm" data-testid="sheet-counts">
-              {ATTENDANCE_STATUSES.map((s) => (
-                <span key={s} className="me-3 inline-flex items-center gap-1">
-                  <span className={cn("inline-block size-2 rounded-full", ATTENDANCE_TONE[s].on)} />
-                  {t(`attendance.${s}`)} <strong className="tabular-nums">{counts[s]}</strong>
-                </span>
-              ))}
-            </p>
+            {look ? (
+              <div className="grid w-full grid-cols-4 gap-2" data-testid="sheet-counts">
+                {ATTENDANCE_STATUSES.map((s) => (
+                  <div key={s} className={cn("rounded-xl px-2 py-2 text-center", COUNT_BLOCK[s])}>
+                    <p className="text-lg leading-tight font-extrabold tabular-nums">{counts[s]}</p>
+                    <p className="mt-0.5 truncate text-xs font-semibold">{t(`attendance.${s}`)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm" data-testid="sheet-counts">
+                {ATTENDANCE_STATUSES.map((s) => (
+                  <span key={s} className="me-3 inline-flex items-center gap-1">
+                    <span className={cn("inline-block size-2 rounded-full", ATTENDANCE_TONE[s].on)} />
+                    {t(`attendance.${s}`)} <strong className="tabular-nums">{counts[s]}</strong>
+                  </span>
+                ))}
+              </p>
+            )}
             <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={allPresent}>
               <CheckCheck className="size-3.5" />
               {t("sheet.allPresent")}
@@ -211,8 +233,9 @@ export function AttendanceSheet({
               return (
                 <li key={r.student_id} className="space-y-2 p-3" data-testid={`sheet-row-${r.student_id}`}>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate font-medium">{r.full_name}</span>
+                    <div className={cn("flex min-w-0 items-center gap-2", look && "gap-3")}>
+                      {look && <PersonAvatar name={r.full_name} className="size-9" />}
+                      <span className={cn("truncate font-medium", look && "font-bold")}>{r.full_name}</span>
                       {!r.member && (
                         <span className="text-muted-foreground shrink-0 text-xs">{t("sheet.formerMember")}</span>
                       )}
@@ -226,6 +249,7 @@ export function AttendanceSheet({
                           onClick={() => set(r.student_id, { status: s })}
                           className={cn(
                             "rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors",
+                            look && "rounded-full px-3 py-1.5 font-bold",
                             row.status === s ? ATTENDANCE_TONE[s].on : ATTENDANCE_TONE[s].off,
                           )}
                           data-testid={`mark-${r.student_id}-${s}`}

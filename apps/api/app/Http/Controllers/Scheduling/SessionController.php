@@ -287,6 +287,7 @@ final class SessionController extends Controller
             'duration_minutes' => $duration,
             'status' => 'SCHEDULED',
             'original_session_id' => $sessionId,
+            'course' => $session->course ?? null,
         ]);
 
         Audit::log('session.rescheduled', 'session', $sessionId, $academyId, $this->ctx()->userId, $this->ctx()->role,
@@ -573,7 +574,9 @@ final class SessionController extends Controller
 
         return DB::table('lesson_packages')
             ->where('student_id', $session->student_id)
-            ->where(fn ($q) => $q->whereNull('teacher_id')->when($teacherId !== null, fn ($w) => $w->orWhere('teacher_id', $teacherId)))
+            ->where(fn ($q) => $q->whereNull('teacher_id')->when($teacherId !== null, fn ($w) => $w->orWhere(fn ($own) => $own
+                ->where('teacher_id', $teacherId)
+                ->when(($session->course ?? null) !== null, fn ($c) => $c->whereRaw("lower(trim(coalesce(course, ''))) = ?", [LessonPackages::courseKey($session->course)])))))
             ->whereIn('status', ['ACTIVE', 'COMPLETED'])
             ->where('starts_on', '<=', $localDate)
             ->where(fn ($q) => $q->whereNull('expires_on')->orWhere('expires_on', '>=', $localDate))

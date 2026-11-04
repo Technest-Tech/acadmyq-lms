@@ -8,9 +8,11 @@ import { CollectModal, type CollectTarget } from "@/components/accounting/collec
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass, todayIn } from "@/components/groups/group-format";
+import { PersonAvatar } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { getGroupAccounts, type GroupAccountRow, type GroupAccounts } from "@/lib/accounting-api";
+import { useCentreLook } from "@/lib/capabilities";
 import type { GroupDetail } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -265,9 +267,10 @@ export function GroupAccountsPanel({ group }: { group: GroupDetail }) {
 
 function StudentCell({ row }: { row: GroupAccountRow }) {
   const t = useTranslations("accounting");
-  return (
+  const look = useCentreLook();
+  const cell = (
     <div className="min-w-0">
-      <p className="font-medium break-words">
+      <p className={cn("font-medium break-words", look && "font-bold")}>
         {row.student_name}
         {row.member_status !== "ACTIVE" && <span className="text-muted-foreground ms-1.5 text-xs font-normal">({t("sheet.left")})</span>}
       </p>
@@ -278,6 +281,14 @@ function StudentCell({ row }: { row: GroupAccountRow }) {
         </p>
       )}
     </div>
+  );
+  return look ? (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <PersonAvatar name={row.student_name} className="size-9" />
+      {cell}
+    </div>
+  ) : (
+    cell
   );
 }
 

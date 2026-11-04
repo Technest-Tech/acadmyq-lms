@@ -1,13 +1,15 @@
 "use client";
 
-import { ChevronLeft, MessageSquareText, Send } from "lucide-react";
+import { ChevronLeft, FileText, MessageSquareText, Send } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { formatPercent } from "@/components/grades/grade-sheet";
 import { TermReportView } from "@/components/grades/term-report-view";
 import { apiErrorMessage } from "@/components/groups/group-form";
+import { PersonAvatar, SectionCard, SoftBadge, rateTone, type PastelTone } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { useCentreLook } from "@/lib/capabilities";
 import { listTermReports, percentTone, publishAllTermReports, type TermReportList } from "@/lib/grades-api";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +20,8 @@ const TONE: Record<ReturnType<typeof percentTone>, string> = {
   none: "text-muted-foreground",
 };
 
+const TONE_BADGE: Record<ReturnType<typeof percentTone>, PastelTone> = { low: "rose", high: "emerald", mid: "amber", none: "slate" };
+
 /**
  * The group's term reports (docs/centre-profile, Phase 2 §5): one row per student with their
  * attendance rate, weighted total and whether the parent can already read it; a row opens the
@@ -25,6 +29,7 @@ const TONE: Record<ReturnType<typeof percentTone>, string> = {
  */
 export function TermReportsPanel({ groupId }: { groupId: string }) {
   const t = useTranslations("grades");
+  const look = useCentreLook();
   const [data, setData] = useState<TermReportList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -67,6 +72,68 @@ export function TermReportsPanel({ groupId }: { groupId: string }) {
   }
 
   const unpublished = data.reports.filter((r) => r.published_at === null).length;
+
+  if (look) {
+    return (
+      <div className="space-y-4" data-testid="term-reports">
+        {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
+        {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
+        <SectionCard
+          icon={FileText}
+          tone="indigo"
+          title={t("tabs.reports")}
+          count={data.reports.length}
+          action={
+            data.can_publish && data.reports.length > 0 ? (
+              <Button type="button" onClick={() => void publishAll()} disabled={busy || unpublished === 0} data-testid="reports-publish-all">
+                <Send className="size-4" />
+                {t("reports.publishAll")}
+                {unpublished > 0 && <span className="ms-1 rounded-full bg-white/20 px-1.5 text-xs tabular-nums">{unpublished}</span>}
+              </Button>
+            ) : undefined
+          }
+          flush
+        >
+          {data.reports.length === 0 ? (
+            <p className="text-muted-foreground p-8 text-center text-sm">{t("reports.empty")}</p>
+          ) : (
+            <ul className="divide-y">
+              {data.reports.map((r) => (
+                <li key={r.student_id}>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(r.student_id)}
+                    className="hover:bg-muted/40 flex w-full flex-col gap-3 px-4 py-3 text-start transition-colors sm:flex-row sm:items-center sm:justify-between sm:px-5"
+                    data-testid={`report-row-${r.student_id}`}
+                  >
+                    <span className="flex min-w-0 items-center gap-3">
+                      <PersonAvatar name={r.full_name} />
+                      <span className="truncate font-bold">{r.full_name}</span>
+                      {r.left && <span className="text-muted-foreground text-xs">({t("reports.left")})</span>}
+                      {r.has_comment && <MessageSquareText className="text-muted-foreground size-3.5 shrink-0" aria-label={t("reports.hasComment")} />}
+                    </span>
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <SoftBadge tone={rateTone(r.attendance.rate === null ? null : r.attendance.rate / 100)} className="tabular-nums">
+                        {t("reports.attendance")} <span dir="ltr">{r.attendance.rate === null ? "—" : `${r.attendance.rate}%`}</span>
+                      </SoftBadge>
+                      <SoftBadge tone={TONE_BADGE[percentTone(r.total.weighted_percent)]} className="tabular-nums">
+                        {t("reports.total")} <span dir="ltr">{formatPercent(r.total.weighted_percent)}</span>
+                      </SoftBadge>
+                      {r.overall_grade && <SoftBadge tone="violet">{r.overall_grade}</SoftBadge>}
+                      <SoftBadge tone={r.published_at ? "emerald" : "slate"}>
+                        <span data-testid={`report-state-${r.student_id}`}>{r.published_at ? t("reports.published") : t("reports.draft")}</span>
+                      </SoftBadge>
+                      <ChevronLeft className="text-muted-foreground size-4 ltr:rotate-180" aria-hidden />
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4" data-testid="term-reports">

@@ -120,11 +120,16 @@ final class SessionGenerator
         // Active schedule → its current slots define the intended set; inactive/deleted → empty,
         // which deletes the future untouched rows without touching history.
         $intended = [];
+        // Each slot's subject, which its lessons keep (a teacher can teach a student two).
+        $slotCourses = [];
         if ($schedule->is_active && $schedule->deleted_at === null) {
             $slots = DB::table('schedule_slots')
                 ->where('schedule_id', $scheduleId)
                 ->orderBy('id')
-                ->get(['id', 'weekday', 'start_time_local', 'duration_minutes'])
+                ->get(['id', 'weekday', 'start_time_local', 'duration_minutes', 'course'])
+                ->each(function ($s) use (&$slotCourses): void {
+                    $slotCourses[(string) $s->id] = $s->course;
+                })
                 ->map(fn ($s) => [
                     'id' => (string) $s->id,
                     'weekday' => (int) $s->weekday,
@@ -239,6 +244,7 @@ final class SessionGenerator
                     'scheduled_at_utc' => $utc,
                     'duration_minutes' => $o['duration_minutes'],
                     'status' => 'SCHEDULED',
+                    'course' => $slotCourses[$o['slot_id']] ?? null,
                 ]);
                 $created += $inserted; // 0 if a concurrent run won the unique index (TC-5.7)
                 if ($isBackfill) {

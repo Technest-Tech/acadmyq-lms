@@ -304,7 +304,16 @@ final class LessonPackageController extends Controller
         $openScopes = DB::table('lesson_packages')
             ->whereIn('student_id', $ids ?: ['00000000-0000-0000-0000-000000000000'])
             ->where('status', 'ACTIVE')->whereNotNull('teacher_id')
-            ->get(['student_id', 'teacher_id'])
+            ->get(['student_id', 'teacher_id', 'course'])
+            ->groupBy(fn ($p) => (string) $p->student_id);
+        // A second subject with one of their teachers lives on its blocks: the link holds one name.
+        $blockSubjects = DB::table('lesson_packages as p')
+            ->join('teachers as t', 't.id', '=', 'p.teacher_id')
+            ->whereIn('p.student_id', $ids ?: ['00000000-0000-0000-0000-000000000000'])
+            ->whereIn('p.status', ['ACTIVE', 'COMPLETED'])
+            ->whereNotNull('p.course')
+            ->orderBy('p.sequence_no')
+            ->get(['p.student_id', 'p.teacher_id', 't.full_name as teacher_name', 'p.course'])
             ->groupBy(fn ($p) => (string) $p->student_id);
 
         $lengths = $this->timetableLengths($ids);
@@ -315,13 +324,15 @@ final class LessonPackageController extends Controller
                 'full_name' => (string) $row->full_name,
                 // How long their lessons really are: where a new block's lesson length starts.
                 'lesson_minutes' => $lengths[(string) $row->id]['all'] ?? null,
-                'subjects' => ($subjects[(string) $row->id] ?? collect())->map(fn ($a) => [
-                    'teacher_id' => (string) $a->teacher_id,
-                    'teacher_name' => $a->teacher_name,
-                    'course' => $a->course,
-                    'lesson_minutes' => $lengths[(string) $row->id][(string) $a->teacher_id] ?? null,
-                ])->values()->all(),
-                'open_subjects' => ($openScopes[(string) $row->id] ?? collect())->pluck('teacher_id')->map(fn ($v) => (string) $v)->values()->all(),
+                'subjects' => $this->subjectsOf($subjects[(string) $row->id] ?? collect(), $blockSubjects[(string) $row->id] ?? collect())
+                    ->map(fn ($a) => [
+                        'teacher_id' => (string) $a->teacher_id,
+                        'teacher_name' => $a->teacher_name,
+                        'course' => $a->course,
+                        'lesson_minutes' => $lengths[(string) $row->id][(string) $a->teacher_id] ?? null,
+                    ])->values()->all(),
+                'open_subjects' => ($openScopes[(string) $row->id] ?? collect())->pluck('teacher_id')->map(fn ($v) => (string) $v)->unique()->values()->all(),
+                'open_blocks' => ($openScopes[(string) $row->id] ?? collect())->map(fn ($p) => ['teacher_id' => (string) $p->teacher_id, 'course' => $p->course])->values()->all(),
                 'currency' => (string) ($row->currency ?? $this->academyCurrency()),
                 // Only an hourly figure pre-fills a package sensibly. A PER_MONTH or PER_SESSION
                 // price is a different unit, so it is reported as zero rather than multiplied by
@@ -341,6 +352,26 @@ final class LessonPackageController extends Controller
             ]);
 
         return response()->json(['students' => $rows]);
+    }
+
+    /**
+     * The student's links with their teachers, plus any other subject sold with one of those teachers.
+     *
+     * @param  Collection<int, object>  $links
+     * @param  Collection<int, object>  $blocks
+     * @return Collection<int, object>
+     */
+    private function subjectsOf($links, $blocks)
+    {
+        $linked = $links->pluck('teacher_id')->map(fn ($v) => (string) $v)->all();
+        $key = fn ($s) => (string) $s->teacher_id.'|'.LessonPackages::courseKey($s->course);
+        $seen = $links->map($key)->all();
+
+        $extra = $blocks
+            ->filter(fn ($b) => in_array((string) $b->teacher_id, $linked, true) && ! in_array($key($b), $seen, true))
+            ->unique($key);
+
+        return $links->concat($extra)->sortBy('teacher_name')->values();
     }
 
     /**
@@ -992,7 +1023,9 @@ final class LessonPackageController extends Controller
      */
     private static function lessonOfSubject(string $alias): string
     {
-        return "(p.teacher_id is null or coalesce((select sc.teacher_id from schedules sc where sc.id = {$alias}.schedule_id), {$alias}.teacher_id) = p.teacher_id)";
+        return "(p.teacher_id is null or (coalesce((select sc.teacher_id from schedules sc where sc.id = {$alias}.schedule_id), {$alias}.teacher_id) = p.teacher_id"
+            // A lesson naming its subject is that subject's block's only.
+            ." and ({$alias}.course is null or lower(trim({$alias}.course)) = lower(trim(coalesce(p.course, ''))))))";
     }
 
     private function baseQuery()
@@ -1126,6 +1159,7 @@ final class LessonPackageController extends Controller
             ->leftJoin('session_reports as report', 'report.session_id', '=', 'li.session_id')
             ->whereIn('p.id', $candidates)
             ->whereRaw('(p.teacher_id is null or coalesce(gsch.teacher_id, sess.teacher_id) = p.teacher_id)')
+            ->whereRaw("(p.teacher_id is null or sess.course is null or lower(trim(sess.course)) = lower(trim(coalesce(p.course, ''))))")
             ->whereNull('credit.id')
             ->whereColumn('li.created_at', '>=', 'p.closed_at')
             ->whereRaw("coalesce((report.values->>'is_free_trial')::boolean, false) = false")

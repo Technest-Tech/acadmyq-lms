@@ -52,6 +52,7 @@ import {
   UsersRound,
   UserCheck,
   UserCog,
+  Crown,
   UserPlus,
   Video,
   ShoppingBag,
@@ -91,7 +92,7 @@ import {
   Octagram,
   OrnateRule,
 } from "@/components/ornaments";
-import { applyWorkspaceTheme } from "@/lib/branding";
+import { applyWorkspaceTheme, rememberedCentre, rememberWorkspace } from "@/lib/branding";
 import { getEnrolmentSummary } from "@/lib/enrolment-api";
 import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { roleLabel } from "@/lib/roles";
@@ -151,6 +152,8 @@ type NavKey =
   | "packages"
   | "packagesDue"
   | "packagesFinished"
+  | "centreSubscriptions"
+  | "centreAdmissions"
   | "payroll"
   | "teacherQuality"
   | "discountsAwards"
@@ -224,6 +227,8 @@ const CENTRE_GROUP_OF: Partial<Record<NavKey, NavGroup>> = {
   packagesDue: "teaching",
   packages: "teaching",
   packagesFinished: "teaching",
+  centreSubscriptions: "teaching",
+  centreAdmissions: "teaching",
   trials: "teaching",
   enrolment: "teaching",
   certificates: "teaching",
@@ -236,6 +241,8 @@ const CENTRE_ORDER: readonly NavKey[] = [
   "groups",
   "schedule",
   "attendance",
+  "centreSubscriptions",
+  "centreAdmissions",
   "packagesDue",
   "packages",
   "packagesFinished",
@@ -257,15 +264,31 @@ const CENTRE_ORDER: readonly NavKey[] = [
 
 /**
  * Items a centre does not list. The month-bill page is the Quran academy's money screen; a centre on
- * receipts has the Accounting section for the same job. The Quran-only FEATURES (supervision, the
- * teacher rubric, the memorisation report) are not here: the centre preset switches them off, so
- * NAV_CAPABILITY already hides them — and the server refuses them, which a hidden link never does.
+ * receipts has the Accounting section for the same job. The groups' lessons board is the very
+ * component the Attendance page shows a centre, and "group students" is every student a centre has
+ * — the Students page carries that board's call-list flags for a centre instead. The Quran-only
+ * FEATURES (supervision, the teacher rubric, the memorisation report) are not here: the centre
+ * preset switches them off, so NAV_CAPABILITY already hides them — and the server refuses them,
+ * which a hidden link never does.
  */
-const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices"]);
+const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices", "groupsLessons", "groupsStudents"]);
 
 /**
- * A centre's phone bar: the first four of these the signed-in person can reach, then the full menu.
- * The screens a front desk or a teacher returns to all day, one thumb away instead of behind a drawer.
+ * The two dropdowns only a centre's sidebar has, gathering pages that were each a row of their own.
+ * Links to nothing by themselves: they exist for the children below, and are dropped without any.
+ */
+const CENTRE_ONLY_PARENTS = new Set<NavKey>(["centreSubscriptions", "centreAdmissions"]);
+const CENTRE_PARENT_OF: Partial<Record<NavKey, NavKey>> = {
+  packagesDue: "centreSubscriptions",
+  packages: "centreSubscriptions",
+  packagesFinished: "centreSubscriptions",
+  trials: "centreAdmissions",
+  enrolment: "centreAdmissions",
+};
+
+/**
+ * A centre's phone bar: the first four of these the signed-in person can reach. The full menu stays
+ * behind the header's button. The screens a front desk or a teacher returns to all day, one thumb away instead of behind a drawer.
  */
 const CENTRE_BOTTOM_NAV: readonly NavKey[] = [
   "dashboard",
@@ -284,6 +307,7 @@ const CENTRE_LABEL_KEYS = new Set<NavKey>([
   "packagesFinished",
   "trials",
   "schedule",
+  "groupsReports",
 ]);
 
 /**
@@ -314,6 +338,9 @@ const NAV: ReadonlyArray<{
     href: "/notifications",
     group: "general",
   },
+
+  { key: "centreSubscriptions", icon: Crown, permission: null, href: "/packages/due", group: "teaching" },
+  { key: "centreAdmissions", icon: UserPlus, permission: null, href: "/trials", group: "teaching" },
 
   // ── People ──────────────────────────────────────────────────────────────
   {
@@ -1142,11 +1169,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [session, can, capabilities, pathname]);
 
-  // Before paint, so a centre's first frame is already violet. Signing out clears the session, so
-  // the login screen is back on the default colours.
+  // Before paint. While the session is still on its way, the workspace this browser last opened
+  // stands in for it (a sign-in, which the script in the (app) layout does not see), so a centre's
+  // loading screen is violet too. Signing out clears the session, so the login screen is back on the
+  // default colours.
   useLayoutEffect(() => {
+    if (loading) {
+      applyWorkspaceTheme(rememberedCentre());
+      return;
+    }
     applyWorkspaceTheme(centreShape);
-  }, [centreShape]);
+    if (session !== null) rememberWorkspace(centreShape);
+  }, [loading, session, centreShape]);
+
+  // Off the (app) area altogether (a shared link opened in this tab): not a centre's page any more.
+  useEffect(
+    () => () => {
+      delete document.documentElement.dataset.profile;
+    },
+    [],
+  );
+
+  // A centre's dropdown opens by itself on the page it holds, so the sidebar always shows where you are.
+  useEffect(() => {
+    if (!centreShape) return;
+    const holder = NAV.find((item) => {
+      const parent = CENTRE_PARENT_OF[item.key] ?? item.parent;
+      return parent !== undefined && pathname.startsWith(item.href);
+    });
+    const parent = holder ? (CENTRE_PARENT_OF[holder.key] ?? holder.parent) : undefined;
+    if (parent !== undefined) setOpenParents((prev) => (prev.has(parent) ? prev : new Set(prev).add(parent)));
+  }, [centreShape, pathname]);
 
   useEffect(() => {
     if (!loading && session === null) {
@@ -1235,8 +1288,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (isReplaced(item.key)) return false;
     // A centre's shape (CENTRE_HIDDEN_KEYS): the month-bill page gives way to Accounting.
     if (centreShape && CENTRE_HIDDEN_KEYS.has(item.key)) return false;
+    if (!centreShape && CENTRE_ONLY_PARENTS.has(item.key)) return false;
     return true;
-  });
+  })
+    .map((item) => {
+      const parent = centreShape ? CENTRE_PARENT_OF[item.key] : undefined;
+      return parent !== undefined ? { ...item, parent } : item;
+    })
+    .filter((item, _, all) => !CENTRE_ONLY_PARENTS.has(item.key) || all.some((other) => other.parent === item.key));
   // The centre's sidebar regroups and reorders the same items (CENTRE_GROUP_OF / CENTRE_ORDER);
   // a Quran academy's is the NAV order inside each item's own group, as it always was.
   const navGroups = centreShape ? CENTRE_NAV_GROUPS : NAV_GROUPS;
@@ -1388,12 +1447,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         data-active={isActive || undefined}
         aria-current={isActive ? "page" : undefined}
         className={cn(
-          "group relative flex items-center rounded-lg text-sm font-medium transition-colors duration-150",
+          "group relative flex items-center font-medium transition-colors duration-150",
+          centreShape ? "rounded-xl text-[0.9375rem]" : "rounded-lg text-sm",
           "focus-visible:ring-ring/50 outline-none focus-visible:ring-2",
-          collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
+          collapsed ? "justify-center px-0 py-2.5" : centreShape ? "gap-3 px-3.5 py-2.5" : "gap-3 px-3 py-2.5",
           isActive
             ? centreShape
-              ? "bg-sidebar-primary text-sidebar-primary-foreground font-semibold shadow-sm"
+              ? "centre-nav-active text-sidebar-primary-foreground font-bold"
               : "bg-primary/[0.12] text-primary font-semibold"
             : "text-sidebar-foreground hover:bg-sidebar-accent",
         )}
@@ -1408,12 +1468,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         )}
         <Icon
           className={cn(
-            "size-4 shrink-0 transition-colors",
+            "shrink-0 transition-colors",
+            centreShape ? "size-5" : "size-4",
             isActive
               ? centreShape
                 ? "text-sidebar-primary-foreground"
                 : "text-primary"
-              : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
+              : centreShape
+                ? "text-sidebar-foreground/80 group-hover:text-sidebar-foreground"
+                : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
           )}
           aria-hidden
         />
@@ -1480,35 +1543,51 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           aria-expanded={isOpen}
           data-nav={item.key}
           className={cn(
-            "group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-start text-sm font-medium transition-colors duration-150",
+            "group relative flex w-full items-center gap-3 text-start font-medium transition-colors duration-150",
+            centreShape ? "rounded-xl px-3.5 py-2.5 text-[0.9375rem]" : "rounded-lg px-3 py-2.5 text-sm",
             "focus-visible:ring-ring/50 outline-none focus-visible:ring-2",
             holdsPage
               ? centreShape
-                ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                ? "bg-sidebar-accent text-sidebar-accent-foreground font-bold"
                 : "text-primary font-semibold"
               : "text-sidebar-foreground hover:bg-sidebar-accent",
           )}
         >
           <Icon
             className={cn(
-              "size-4 shrink-0 transition-colors",
+              "shrink-0 transition-colors",
+              centreShape ? "size-5" : "size-4",
               holdsPage
                 ? centreShape
                   ? "text-sidebar-accent-foreground"
                   : "text-primary"
-                : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
+                : centreShape
+                  ? "text-sidebar-foreground/80 group-hover:text-sidebar-foreground"
+                  : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
             )}
             aria-hidden
           />
           <span className="flex-1 truncate">{label}</span>
           {!isOpen && waiting > 0 && <NavBadge count={waiting} label={`${waiting} waiting`} />}
           <ChevronDown
-            className={cn("text-sidebar-foreground/50 size-3.5 shrink-0 transition-transform", isOpen && "rotate-180")}
+            className={cn(
+              "shrink-0 transition-transform",
+              centreShape ? "text-sidebar-foreground/70 size-4" : "text-sidebar-foreground/50 size-3.5",
+              isOpen && "rotate-180",
+            )}
             aria-hidden
           />
         </button>
         {isOpen && (
-          <div className="border-sidebar-border ms-5 mt-0.5 space-y-0.5 border-s ps-2" data-nav-children={item.key}>
+          <div
+            // A centre's sub-pages stay on their parent's level: the same icon column and the same
+            // width, so a long name is never cut. The soft panel is what says they belong to it.
+            className={cn(
+              "mt-0.5 space-y-0.5",
+              centreShape ? "bg-sidebar-accent/50 rounded-xl" : "border-sidebar-border ms-5 border-s ps-2",
+            )}
+            data-nav-children={item.key}
+          >
             {children.map(renderNavItem)}
           </div>
         )}
@@ -1522,14 +1601,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const groupLabel = (label: string) =>
     collapsed ? (
       <div className="bg-sidebar-border mx-auto mb-1.5 h-px w-6" aria-hidden />
+    ) : centreShape ? (
+      <p className="text-sidebar-foreground/75 mb-2 flex select-none items-center gap-2.5 px-3.5 text-[0.8125rem] font-semibold">
+        <span className="shrink-0">{label}</span>
+        <span className="bg-sidebar-border h-px flex-1" aria-hidden />
+      </p>
     ) : (
-      <p
-        className={cn(
-          "mb-1.5 flex select-none items-center gap-1.5 px-2.5 text-[10px] font-bold tracking-[0.1em] uppercase",
-          centreShape ? "text-sidebar-foreground/65" : "text-sidebar-foreground/40",
-        )}
-      >
-        <Octagram className="ornament text-gold/70 size-2 shrink-0" />
+      <p className="text-sidebar-foreground/40 mb-1.5 flex select-none items-center gap-1.5 px-2.5 text-[10px] font-bold tracking-[0.1em] uppercase">
+        <Octagram className="text-gold/70 size-2 shrink-0" />
         {label}
       </p>
     );
@@ -1554,7 +1633,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={cn(
             "bg-sidebar text-sidebar-foreground border-sidebar-border relative fixed inset-y-0 z-30 flex shrink-0 flex-col border-e transition-[width,transform] duration-200 md:static md:h-full md:translate-x-0",
             // The rail keeps the icons on the same optical axis as the expanded list.
-            collapsed ? "w-[4.5rem]" : "w-60",
+            collapsed ? "w-[4.5rem]" : centreShape ? "w-[17rem]" : "w-60",
+            centreShape && "overflow-hidden border-e-0",
             open
               ? "translate-x-0"
               : "max-md:-translate-x-full max-md:rtl:translate-x-full",
@@ -1595,8 +1675,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               under it are the same ornament the sign-in door wears, at chrome strength. */}
           <div
             className={cn(
-              "border-sidebar-border relative flex h-14 shrink-0 items-center overflow-hidden border-b",
-              collapsed ? "justify-center px-2" : "justify-between px-4",
+              "border-sidebar-border relative flex shrink-0 items-center overflow-hidden",
+              centreShape && "border-b",
+              // A centre's brand block is exactly the header's height, so the logo and the profile
+              // picture across the top sit on one line.
+              centreShape ? "h-16 md:h-[4.5rem]" : "h-14 border-b",
+              collapsed ? "justify-center px-2" : centreShape ? "justify-between gap-1 px-3" : "justify-between px-4",
             )}
           >
             <div
@@ -1615,20 +1699,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="ornament via-gold/50 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
             />
 
-            <div className="relative flex min-w-0 items-center gap-2.5">
+            <div
+              className={cn(
+                "relative flex min-w-0 items-center",
+                centreShape
+                  ? cn("gap-3", !collapsed && "flex-1 rounded-2xl bg-white/[0.06] px-2 py-1.5 ring-1 ring-white/10")
+                  : "gap-2.5",
+              )}
+            >
               {academyLogo ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={academyLogo}
                   alt={academyName}
-                  className="ring-gold/30 size-8 shrink-0 rounded-lg bg-white object-contain p-0.5 ring-1"
+                  className={cn(
+                    "shrink-0 bg-white object-contain p-0.5",
+                    centreShape ? "size-10 rounded-xl" : "ring-gold/30 size-8 rounded-lg ring-1",
+                  )}
                 />
               ) : session.academy ? (
                 <span
                   aria-hidden
                   className={cn(
-                    "flex size-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1",
-                    centreShape ? "bg-sidebar-primary text-sidebar-primary-foreground ring-white/15" : "bg-primary/12 text-primary ring-gold/30",
+                    "flex shrink-0 items-center justify-center font-bold",
+                    centreShape
+                      ? "centre-nav-active text-sidebar-primary-foreground size-10 rounded-xl text-sm"
+                      : "bg-primary/12 text-primary ring-gold/30 size-8 rounded-lg text-[11px] ring-1",
                   )}
                 >
                   {academyInitials}
@@ -1643,12 +1739,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
               {!collapsed && (
                 <div className="min-w-0">
-                  <div className="text-sidebar-foreground truncate text-[13px] font-semibold leading-tight">
+                  <div
+                    className={cn(
+                      "text-sidebar-foreground",
+                      centreShape ? "line-clamp-2 text-sm leading-[1.3] font-bold" : "truncate text-[13px] leading-tight font-semibold",
+                    )}
+                  >
                     {academyName}
                   </div>
-                  <div className="text-sidebar-foreground/35 truncate text-[10px] leading-tight tracking-wide">
-                    {roleLabel(tRoles, session.role, session.roleName)}
-                  </div>
+                  {/* A centre shows the role once, beside the profile picture in the header. */}
+                  {!centreShape && (
+                    <div className="text-sidebar-foreground/35 truncate text-[10px] leading-tight tracking-wide">
+                      {roleLabel(tRoles, session.role, session.roleName)}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1693,7 +1797,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   if (groupItems.length === 0) return null;
                   return (
                     <div key={group}>
-                      {groupLabel(t(`navGroup.${group}`))}
+                      {!(centreShape && group === "general") && groupLabel(t(`navGroup.${group}`))}
                       <div className="space-y-0.5">
                         {groupItems.map((item) => {
                           const children = childrenOf(item.key);
@@ -1708,7 +1812,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           {/* ── Footer ─────────────────────────────────────────────────── */}
-          <div className="border-sidebar-border border-t p-3">
+          <div className="border-sidebar-border relative border-t p-3">
+            {/* On a phone a centre's header keeps only what a thumb needs; these two move here. */}
+            {centreShape && (
+              <div className="centre-drawer-tools mb-2 flex items-center justify-center gap-2 md:hidden">
+                <ThemeToggle />
+                <LocaleSwitcher onSwitch={changeLocale} compact />
+              </div>
+            )}
             {inEnteredAcademy &&
               (collapsed ? (
                 <Tooltip content={t("header.enteredAcademy")} side="right">
@@ -1755,8 +1866,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 }
                 aria-pressed={collapsed}
                 className={cn(
-                  "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-ring/50 hidden w-full items-center rounded-lg px-2 py-2 text-[12px] font-medium transition-colors outline-none focus-visible:ring-2 md:flex",
-                  collapsed ? "justify-center" : "gap-2.5",
+                  "focus-visible:ring-ring/50 hidden w-full items-center font-medium transition-colors outline-none focus-visible:ring-2 md:flex",
+                  centreShape
+                    ? "text-sidebar-foreground border-sidebar-border bg-sidebar/50 hover:bg-sidebar-accent rounded-xl border px-3 py-2.5 text-sm backdrop-blur-sm"
+                    : "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground rounded-lg px-2 py-2 text-[12px]",
+                  collapsed ? "justify-center" : centreShape ? "justify-center gap-2.5" : "gap-2.5",
                 )}
               >
                 {collapsed ? (
@@ -1781,7 +1895,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* ── Main area ───────────────────────────────────────────────── */}
         <div className="flex min-w-0 flex-1 flex-col">
           {/* ── Header ───────────────────────────────────────────────── */}
-          <header className="bg-background border-border relative flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4 md:px-5">
+          <header
+            className={cn(
+              "border-border relative flex shrink-0 items-center gap-2 border-b sm:gap-3",
+              centreShape ? "bg-card h-16 px-3 md:h-[4.5rem] md:px-6" : "bg-background h-14 px-3 sm:px-4 md:px-5",
+            )}
+          >
             <span
               aria-hidden
               className="ornament via-gold/35 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
@@ -1789,7 +1908,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* Mobile menu toggle */}
             <button
               type="button"
-              className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/50 rounded-lg p-1.5 transition-colors outline-none focus-visible:ring-2 md:hidden"
+              className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/50 order-0 rounded-lg p-1.5 transition-colors outline-none focus-visible:ring-2 md:hidden"
               aria-label={t("header.menu")}
               aria-expanded={open}
               onClick={() => setOpen((v) => !v)}
@@ -1797,17 +1916,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Menu className="size-5" aria-hidden />
             </button>
 
+            {/* A centre's phone header names the academy; its desktop header opens on the search. */}
+            {centreShape && (
+              <>
+                <Link href="/dashboard" className="order-1 flex min-w-0 flex-1 items-center justify-center gap-2 md:hidden">
+                  {academyLogo && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={academyLogo} alt="" className="size-8 shrink-0 rounded-lg bg-white object-contain p-0.5" />
+                  )}
+                  <span dir="auto" className="truncate text-base font-extrabold">
+                    {academyName}
+                  </span>
+                </Link>
+                <div className="order-2 shrink-0 md:order-1 md:max-w-[32rem] md:min-w-0 md:flex-1">
+                  <CommandPalette items={commandItems} variant="bar" />
+                </div>
+              </>
+            )}
+
             {/* Breadcrumb. The group is context, the page is the anchor, and on a detail route the
                 page name becomes a link back to its list — which is the one thing the old header
                 (an icon, a slash, and a page name that never changed) could not do. */}
-            {activeItem && (
+            {activeItem && (!centreShape || pathname !== activeItem.href) && (
               <nav
                 aria-label={t("header.breadcrumb")}
                 data-testid="breadcrumb"
-                className="hidden min-w-0 items-center gap-1.5 text-sm md:flex"
+                className={cn(
+                  "hidden min-w-0 items-center gap-1.5 text-sm",
+                  centreShape ? "order-1 xl:flex" : "md:flex",
+                )}
               >
                 <span className="text-muted-foreground/70 select-none">
-                  {t(`navGroup.${activeItem.group}`)}
+                  {t(`navGroup.${groupOf(activeItem)}`)}
                 </span>
                 <span className="text-muted-foreground/40 select-none">/</span>
                 {pathname === activeItem.href ? (
@@ -1834,10 +1974,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
 
             {/* Right-side actions */}
-            <div className="ms-auto flex items-center gap-0.5 sm:gap-1.5">
+            <div className={cn("flex items-center", centreShape ? "order-3 ms-auto gap-1 md:gap-2" : "ms-auto gap-0.5 sm:gap-1.5")}>
               {/* A desk on receipts collects from anywhere (docs/groups/01-ACCOUNTING.md). */}
               <CollectQuickAction />
-              <CommandPalette items={commandItems} />
+              {!centreShape && <CommandPalette items={commandItems} />}
 
               {can("notification.read") && (
                 <Tooltip content={t("nav.notifications")} side="bottom">
@@ -1845,9 +1985,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     href="/notifications"
                     data-testid="header-notifications"
                     aria-label={t("nav.notifications")}
-                    className="text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/50 relative rounded-lg p-2 transition-colors outline-none focus-visible:ring-2"
+                    className={cn(
+                      "text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/50 relative transition-colors outline-none focus-visible:ring-2",
+                      centreShape ? "flex size-10 items-center justify-center rounded-xl" : "rounded-lg p-2",
+                    )}
                   >
-                    <BellRing className="size-4" aria-hidden />
+                    <BellRing className={centreShape ? "size-5" : "size-4"} aria-hidden />
                     {notifCount > 0 && (
                       <span className="bg-destructive text-white absolute -end-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums">
                         {notifCount > 9 ? "9+" : notifCount}
@@ -1857,15 +2000,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Tooltip>
               )}
 
-              <ThemeToggle />
+              {/* A centre's phone keeps these two in the drawer (the sidebar's footer). */}
+              <div className={centreShape ? "hidden md:contents" : "contents"}>
+                <ThemeToggle />
 
-              {/* The two-segment pill is a third of a phone's header on its own — which pushed the
-                  user menu off the edge at 320px — so a phone gets the one-button form. */}
-              <div className="hidden sm:block">
-                <LocaleSwitcher onSwitch={changeLocale} />
-              </div>
-              <div className="sm:hidden">
-                <LocaleSwitcher onSwitch={changeLocale} compact />
+                {/* The two-segment pill is a third of a phone's header on its own — which pushed the
+                    user menu off the edge at 320px — so a phone gets the one-button form. */}
+                <div className="hidden sm:block">
+                  <LocaleSwitcher onSwitch={changeLocale} />
+                </div>
+                <div className="sm:hidden">
+                  <LocaleSwitcher onSwitch={changeLocale} compact />
+                </div>
               </div>
 
               <div className="bg-border mx-1 hidden h-5 w-px sm:block" aria-hidden />
@@ -1877,14 +2023,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     data-testid="header-user"
-                    className="hover:bg-muted focus-visible:ring-ring/50 flex items-center gap-2 rounded-lg px-1.5 py-1.5 transition-colors outline-none focus-visible:ring-2"
+                    className={cn(
+                      "hover:bg-muted focus-visible:ring-ring/50 flex items-center transition-colors outline-none focus-visible:ring-2",
+                      centreShape ? "gap-2.5 rounded-xl p-1 md:px-2" : "gap-2 rounded-lg px-1.5 py-1.5",
+                    )}
                   >
-                    <span className="from-primary/20 to-primary/[0.08] ring-primary/20 text-primary flex size-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-[11px] font-bold ring-1">
+                    <span
+                      className={cn(
+                        "flex shrink-0 items-center justify-center font-bold",
+                        centreShape
+                          ? "centre-button-primary size-10 rounded-full text-[0.8125rem]"
+                          : "from-primary/20 to-primary/[0.08] ring-primary/20 text-primary size-7 rounded-lg bg-gradient-to-br text-[11px] ring-1",
+                      )}
+                    >
                       {initials}
                     </span>
-                    <span className="text-foreground hidden text-[13px] font-medium leading-none sm:block">
-                      {session.user.fullName.split(" ")[0]}
-                    </span>
+                    {centreShape ? (
+                      <span className="hidden min-w-0 text-start leading-tight md:block">
+                        <span className="text-foreground block max-w-40 truncate text-sm font-bold">{session.user.fullName}</span>
+                        <span className="text-muted-foreground block max-w-40 truncate text-xs">
+                          {roleLabel(tRoles, session.role, session.roleName)}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-foreground hidden text-[13px] font-medium leading-none sm:block">
+                        {session.user.fullName.split(" ")[0]}
+                      </span>
+                    )}
                     <ChevronDown
                       className="text-muted-foreground/50 hidden size-3.5 sm:block"
                       aria-hidden
@@ -1990,7 +2155,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {centreShape && !videoOnly && !lmsOnly && (
             <nav
               data-testid="bottom-nav"
-              className="bg-card border-border flex shrink-0 items-stretch border-t pb-[env(safe-area-inset-bottom)] md:hidden"
+              className="bg-card border-border flex shrink-0 items-stretch gap-1 border-t px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] md:hidden"
             >
               {CENTRE_BOTTOM_NAV.map((key) => items.find((item) => item.key === key))
                 .filter((item) => item !== undefined)
@@ -2011,8 +2176,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       data-bottom-nav={item.key}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "relative flex min-w-0 flex-1 flex-col items-center gap-1 py-2 text-[11px] font-medium",
-                        active ? "text-primary font-semibold" : "text-muted-foreground",
+                        "relative flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-xs font-semibold",
+                        active ? "text-primary bg-primary/[0.08] font-bold" : "text-muted-foreground",
                       )}
                     >
                       <Icon className="size-5 shrink-0" aria-hidden />
@@ -2026,17 +2191,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </Link>
                   );
                 })}
-              <button
-                type="button"
-                data-bottom-nav="more"
-                aria-label={t("header.menu")}
-                aria-expanded={open}
-                onClick={() => setOpen((v) => !v)}
-                className="text-muted-foreground flex min-w-0 flex-1 flex-col items-center gap-1 py-2 text-[11px] font-medium"
-              >
-                <Menu className="size-5 shrink-0" aria-hidden />
-                <span className="max-w-full truncate px-1">{t("header.menu")}</span>
-              </button>
             </nav>
           )}
         </div>

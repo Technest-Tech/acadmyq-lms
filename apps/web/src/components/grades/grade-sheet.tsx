@@ -1,10 +1,11 @@
 "use client";
 
-import { Pencil, Plus, Save, Trash2, UserX } from "lucide-react";
+import { AlertTriangle, BookOpenCheck, ClipboardList, Pencil, Plus, Save, Sigma, Trash2, Trophy, UserX } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AssessmentForm } from "@/components/grades/assessment-form";
 import { apiErrorMessage } from "@/components/groups/group-form";
+import { PersonAvatar, SectionCard, SoftBadge, StatCard, type PastelTone } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -17,6 +18,7 @@ import {
   type GradeSheet as Sheet,
   type ScoreEntry,
 } from "@/lib/grades-api";
+import { useCentreLook } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 /** What a cell looks like while it is being typed: the score as text, and the absence flag. */
@@ -33,6 +35,9 @@ const TONE: Record<ReturnType<typeof percentTone>, string> = {
   mid: "text-foreground",
   none: "text-muted-foreground",
 };
+
+/** A total as a soft badge in a centre's look. */
+const TONE_BADGE: Record<ReturnType<typeof percentTone>, PastelTone> = { low: "rose", high: "emerald", mid: "amber", none: "slate" };
 
 export function formatPercent(p: number | null): string {
   if (p === null) return "—";
@@ -65,6 +70,7 @@ function sameCell(d: CellDraft, saved: { score: number | null; absent: boolean }
  */
 export function GradeSheet({ groupId }: { groupId: string }) {
   const t = useTranslations("grades");
+  const look = useCentreLook();
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [drafts, setDrafts] = useState<Drafts>({});
   const [error, setError] = useState<string | null>(null);
@@ -163,11 +169,12 @@ export function GradeSheet({ groupId }: { groupId: string }) {
 
   const canMark = sheet.can_mark;
   const { members, assessments } = sheet;
+  const totals = members.map((m) => sheet.totals[m.student_id] ?? null).filter((v): v is number => v !== null);
+  const average = totals.length > 0 ? totals.reduce((sum, v) => sum + v, 0) / totals.length : null;
+  const top = totals.length > 0 ? Math.max(...totals) : null;
+  const below = totals.filter((v) => percentTone(v) === "low").length;
 
-  return (
-    <div className="space-y-4" data-testid="grade-sheet">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-muted-foreground text-sm">{!canMark && t("sheet.readOnly")}</p>
+  const toolbar = (
         <div className="flex flex-wrap items-center gap-2">
           {dirtyColumns.size > 0 && (
             <>
@@ -187,23 +194,21 @@ export function GradeSheet({ groupId }: { groupId: string }) {
             </Button>
           )}
         </div>
-      </div>
+  );
 
-      {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
-      {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
-
-      {assessments.length === 0 ? (
-        <p className="text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm">{t("sheet.empty")}</p>
+  const body =
+    assessments.length === 0 ? (
+        <p className={cn("text-muted-foreground p-6 text-center text-sm", !look && "rounded-xl border border-dashed")}>{t("sheet.empty")}</p>
       ) : members.length === 0 ? (
-        <p className="text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm">{t("sheet.noMembers")}</p>
+        <p className={cn("text-muted-foreground p-6 text-center text-sm", !look && "rounded-xl border border-dashed")}>{t("sheet.noMembers")}</p>
       ) : (
         <>
           {/* ── Desktop: the grid ── */}
-          <div className="hidden overflow-x-auto rounded-xl border md:block">
+          <div className={cn("hidden overflow-x-auto md:block", !look && "rounded-xl border")}>
             <table className="w-full text-sm" data-testid="grade-table">
-              <thead className="bg-muted/40 text-xs">
+              <thead className={cn("text-xs", look ? "bg-muted" : "bg-muted/40")}>
                 <tr>
-                  <th className="sticky start-0 bg-muted/40 px-3 py-2 text-start font-semibold">{t("sheet.student")}</th>
+                  <th className={cn("sticky start-0 px-3 py-2 text-start font-semibold", look ? "bg-muted px-5" : "bg-muted/40")}>{t("sheet.student")}</th>
                   {assessments.map((a) => (
                     <th key={a.id} className="min-w-[9rem] px-2 py-2 text-start align-top font-semibold" data-testid={`assessment-col-${a.id}`}>
                       <div className="flex items-start justify-between gap-1">
@@ -257,9 +262,14 @@ export function GradeSheet({ groupId }: { groupId: string }) {
               <tbody className="divide-y">
                 {members.map((m) => (
                   <tr key={m.student_id} data-testid={`grade-row-${m.student_id}`}>
-                    <td className="sticky start-0 bg-background px-3 py-2 font-medium">
-                      {m.full_name}
-                      {m.left && <span className="text-muted-foreground ms-1.5 text-xs font-normal">({t("sheet.left")})</span>}
+                    <td className={cn("sticky start-0 px-3 py-2 font-medium", look ? "bg-card px-5 font-bold" : "bg-background")}>
+                      <span className={look ? "flex items-center gap-2.5" : undefined}>
+                        {look && <PersonAvatar name={m.full_name} className="size-9" />}
+                        <span>
+                          {m.full_name}
+                          {m.left && <span className="text-muted-foreground ms-1.5 text-xs font-normal">({t("sheet.left")})</span>}
+                        </span>
+                      </span>
                     </td>
                     {assessments.map((a) => (
                       <td key={a.id} className="px-2 py-1.5">
@@ -273,8 +283,12 @@ export function GradeSheet({ groupId }: { groupId: string }) {
                         />
                       </td>
                     ))}
-                    <td className={cn("px-3 py-2 text-end font-bold tabular-nums", TONE[percentTone(sheet.totals[m.student_id] ?? null)])}>
-                      {formatPercent(sheet.totals[m.student_id] ?? null)}
+                    <td className={cn("px-3 py-2 text-end font-bold tabular-nums", look ? "px-5" : TONE[percentTone(sheet.totals[m.student_id] ?? null)])}>
+                      {look ? (
+                        <SoftBadge tone={TONE_BADGE[percentTone(sheet.totals[m.student_id] ?? null)]}>{formatPercent(sheet.totals[m.student_id] ?? null)}</SoftBadge>
+                      ) : (
+                        formatPercent(sheet.totals[m.student_id] ?? null)
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -283,7 +297,7 @@ export function GradeSheet({ groupId }: { groupId: string }) {
           </div>
 
           {/* ── Mobile: one card per student ── */}
-          <ul className="grid grid-cols-1 gap-3 md:hidden">
+          <ul className={cn("grid grid-cols-1 gap-3 md:hidden", look && "p-3")}>
             {members.map((m) => (
               <li key={m.student_id} className="rounded-xl border p-3" data-testid={`grade-card-${m.student_id}`}>
                 <div className="flex items-center justify-between gap-2">
@@ -315,6 +329,42 @@ export function GradeSheet({ groupId }: { groupId: string }) {
               </li>
             ))}
           </ul>
+        </>
+      );
+
+  return (
+    <div className="space-y-4" data-testid="grade-sheet">
+      {look && assessments.length > 0 && members.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+          <StatCard icon={ClipboardList} tone="violet" label={t("look.assessments")} value={assessments.length} />
+          <StatCard icon={Sigma} tone="sky" label={t("look.average")} value={formatPercent(average === null ? null : Math.round(average * 10) / 10)} />
+          <StatCard icon={Trophy} tone="emerald" label={t("look.top")} value={formatPercent(top)} />
+          <StatCard
+            icon={AlertTriangle}
+            tone={below > 0 ? "rose" : "slate"}
+            label={t("look.low")}
+            value={<span className={below > 0 ? "text-rose-600 dark:text-rose-400" : undefined}>{below}</span>}
+          />
+        </div>
+      )}
+
+      {look ? (
+        <>
+          {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
+          {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
+          <SectionCard icon={BookOpenCheck} tone="violet" title={t("tabs.grades")} hint={!canMark ? t("sheet.readOnly") : undefined} action={toolbar} flush>
+            {body}
+          </SectionCard>
+        </>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-muted-foreground text-sm">{!canMark && t("sheet.readOnly")}</p>
+            {toolbar}
+          </div>
+          {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
+          {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
+          {body}
         </>
       )}
 

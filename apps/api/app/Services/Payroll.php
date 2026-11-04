@@ -352,6 +352,10 @@ final class Payroll implements PayoutHook
             if ($this->paidOutMinor($payoutId) > 0) {
                 throw ValidationException::withMessages(['payout' => [self::PAID_OUT_MESSAGE]]);
             }
+            // The tick is the only record that this money went out; it should not vanish with the statement.
+            if ($payout->transferred_at !== null) {
+                throw ValidationException::withMessages(['payout' => ['This salary is marked as transferred: remove the mark first. / هذا المرتب مُعلَّم بأنه تم تحويله: ألغِ العلامة أولًا.']]);
+            }
 
             $lines = DB::table('payout_line_items')->where('payout_id', $payoutId)->get(['id', 'session_id', 'amount_minor', 'session_date', 'description']);
             $adjustments = DB::table('payout_adjustments')->where('payout_id', $payoutId)->get(['id', 'type', 'source', 'amount_minor', 'reason', 'session_id']);

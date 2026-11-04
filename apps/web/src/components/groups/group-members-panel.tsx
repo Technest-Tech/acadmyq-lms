@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRightLeft, CalendarDays, ChevronDown, Tag, UserMinus, UserPlus } from "lucide-react";
+import { ArrowRightLeft, CalendarDays, ChevronDown, Tag, UserMinus, UserPlus, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
@@ -8,6 +8,7 @@ import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fromMinor, toMinor } from "@/components/groups/group-form";
 import { fieldClass, hoursText, percent, todayIn } from "@/components/groups/group-format";
+import { PersonAvatar, SectionCard, SoftBadge, rateTone } from "@/components/groups/group-look";
 import { StudentPicker } from "@/components/groups/student-picker";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import {
   type GroupMember,
   type GroupRow,
 } from "@/lib/groups-api";
-import { useCapability } from "@/lib/capabilities";
+import { useCapability, useCentreLook } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +58,7 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
   const locale = useLocale();
   // A member's own price only means something on a priced group the caller may price.
   const canPrice = can("student.set_price") && group.pricing !== null;
+  const look = useCentreLook();
 
   const [modal, setModal] = useState<ModalState>({ kind: "closed" });
   const [notice, setNotice] = useState<string | null>(null);
@@ -74,9 +76,15 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
 
   function memberRow(m: GroupMember) {
     return (
-      <li key={m.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between" data-testid={`member-${m.student_id}`}>
-        <div className="min-w-0">
-          <p className="truncate font-medium">
+      <li
+        key={m.id}
+        className={cn("flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between", look && "hover:bg-muted/40 gap-3 px-4 transition-colors sm:px-5")}
+        data-testid={`member-${m.student_id}`}
+      >
+        <div className={cn("min-w-0", look && "flex items-center gap-3")}>
+          {look && <PersonAvatar name={m.full_name} />}
+          <div className="min-w-0">
+          <p className={cn("truncate font-medium", look && "font-bold")}>
             {canOpenStudent && !m.student_removed ? (
               <Link href={`/students/${m.student_id}`} className="hover:underline">
                 {m.full_name}
@@ -103,8 +111,21 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
               })}
             </p>
           )}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-3">
+          {look ? (
+            <span className="flex items-center gap-1.5" title={t("members.rateTitle")}>
+              <SoftBadge tone={rateTone(m.attendance?.rate)} className="tabular-nums">
+                {percent(m.attendance?.rate)}
+              </SoftBadge>
+              {m.attendance && m.attendance.absent > 0 && (
+                <SoftBadge tone="slate" className="font-semibold">
+                  {t("members.absences", { count: m.attendance.absent })}
+                </SoftBadge>
+              )}
+            </span>
+          ) : (
           <span className="text-sm" title={t("members.rateTitle")}>
             <strong
               className={cn(
@@ -118,6 +139,7 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
               <span className="text-muted-foreground ms-1 text-xs">{t("members.absences", { count: m.attendance.absent })}</span>
             )}
           </span>
+          )}
           {canManage && m.status === "ACTIVE" && (
             <>
               {canPrice && (
@@ -153,50 +175,98 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
     <div className="space-y-4">
       {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm">
-          <strong className="tabular-nums">{active.length}</strong>{" "}
-          {group.capacity !== null ? t("members.ofSeats", { capacity: group.capacity }) : t("members.noLimit")}
-          {seatsLeft !== null && (
-            <span className={cn("ms-2 text-xs", seatsLeft === 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
-              {seatsLeft === 0 ? t("members.full") : t("members.seatsLeft", { count: seatsLeft })}
-            </span>
+      {look ? (
+        <SectionCard
+          icon={UsersRound}
+          tone="violet"
+          title={t("detail.tabs.members")}
+          count={active.length}
+          hint={[
+            group.capacity !== null ? (seatsLeft === 0 ? t("members.full") : t("members.seatsLeft", { count: seatsLeft ?? 0 })) : t("members.noLimit"),
+            (group.waiting_count ?? 0) > 0 ? tTerm("waitlist.waitingCount", { count: group.waiting_count ?? 0 }) : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          action={
+            canManage && group.status === "ACTIVE" ? (
+              <Button type="button" className="gap-1.5" onClick={() => setModal({ kind: "add" })} data-testid="members-add">
+                <UserPlus className="size-4" />
+                {t("members.add")}
+              </Button>
+            ) : undefined
+          }
+          flush
+        >
+          {active.length === 0 ? (
+            <p className="text-muted-foreground p-8 text-center text-sm">{t("members.empty")}</p>
+          ) : (
+            <ul className="divide-y" data-testid="members-active">
+              {active.map(memberRow)}
+            </ul>
           )}
-          {(group.waiting_count ?? 0) > 0 && (
-            <span className="text-muted-foreground ms-2 text-xs" data-testid="members-waiting">
-              {tTerm("waitlist.waitingCount", { count: group.waiting_count ?? 0 })}
-            </span>
+          {former.length > 0 && (
+            <div className="border-t">
+              <button
+                type="button"
+                className="text-muted-foreground hover:bg-muted/40 flex w-full items-center gap-1 px-4 py-3 text-sm font-semibold sm:px-5"
+                onClick={() => setShowFormer((v) => !v)}
+                aria-expanded={showFormer}
+              >
+                <ChevronDown className={cn("size-4 transition-transform", showFormer && "rotate-180")} />
+                {t("members.former", { count: former.length })}
+              </button>
+              {showFormer && <ul className="divide-y border-t opacity-80">{former.map(memberRow)}</ul>}
+            </div>
           )}
-        </p>
-        {canManage && group.status === "ACTIVE" && (
-          <Button type="button" size="sm" className="gap-1.5" onClick={() => setModal({ kind: "add" })} data-testid="members-add">
-            <UserPlus className="size-3.5" />
-            {t("members.add")}
-          </Button>
-        )}
-      </div>
-
-      {active.length === 0 ? (
-        <p className="text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm">{t("members.empty")}</p>
+        </SectionCard>
       ) : (
-        <ul className="divide-y overflow-hidden rounded-xl border" data-testid="members-active">
-          {active.map(memberRow)}
-        </ul>
-      )}
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm">
+              <strong className="tabular-nums">{active.length}</strong>{" "}
+              {group.capacity !== null ? t("members.ofSeats", { capacity: group.capacity }) : t("members.noLimit")}
+              {seatsLeft !== null && (
+                <span className={cn("ms-2 text-xs", seatsLeft === 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+                  {seatsLeft === 0 ? t("members.full") : t("members.seatsLeft", { count: seatsLeft })}
+                </span>
+              )}
+              {(group.waiting_count ?? 0) > 0 && (
+                <span className="text-muted-foreground ms-2 text-xs" data-testid="members-waiting">
+                  {tTerm("waitlist.waitingCount", { count: group.waiting_count ?? 0 })}
+                </span>
+              )}
+            </p>
+            {canManage && group.status === "ACTIVE" && (
+              <Button type="button" size="sm" className="gap-1.5" onClick={() => setModal({ kind: "add" })} data-testid="members-add">
+                <UserPlus className="size-3.5" />
+                {t("members.add")}
+              </Button>
+            )}
+          </div>
 
-      {former.length > 0 && (
-        <div className="space-y-2">
-          <button
-            type="button"
-            className="text-muted-foreground inline-flex items-center gap-1 text-sm font-medium"
-            onClick={() => setShowFormer((v) => !v)}
-            aria-expanded={showFormer}
-          >
-            <ChevronDown className={cn("size-4 transition-transform", showFormer && "rotate-180")} />
-            {t("members.former", { count: former.length })}
-          </button>
-          {showFormer && <ul className="divide-y overflow-hidden rounded-xl border opacity-80">{former.map(memberRow)}</ul>}
-        </div>
+          {active.length === 0 ? (
+            <p className="text-muted-foreground rounded-xl border border-dashed p-6 text-center text-sm">{t("members.empty")}</p>
+          ) : (
+            <ul className="divide-y overflow-hidden rounded-xl border" data-testid="members-active">
+              {active.map(memberRow)}
+            </ul>
+          )}
+
+          {former.length > 0 && (
+            <div className="space-y-2">
+              <button
+                type="button"
+                className="text-muted-foreground inline-flex items-center gap-1 text-sm font-medium"
+                onClick={() => setShowFormer((v) => !v)}
+                aria-expanded={showFormer}
+              >
+                <ChevronDown className={cn("size-4 transition-transform", showFormer && "rotate-180")} />
+                {t("members.former", { count: former.length })}
+              </button>
+              {showFormer && <ul className="divide-y overflow-hidden rounded-xl border opacity-80">{former.map(memberRow)}</ul>}
+            </div>
+          )}
+        </>
       )}
 
       <Modal open={modal.kind === "add"} onClose={() => setModal({ kind: "closed" })} title={t("members.addTitle")} description={t("members.addHint")} size="lg">

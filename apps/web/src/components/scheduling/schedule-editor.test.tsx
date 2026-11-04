@@ -102,6 +102,46 @@ describe("ScheduleSection (Sprint 5 §5.1)", () => {
     );
   });
 
+  describe("two subjects with this teacher", () => {
+    const withSubjects = (subjects: string[]) =>
+      vi.mocked(api.getStudentSchedule).mockResolvedValue({
+        schedule: { id: "sch1", student_id: "s1", teacher_id: "t1", timezone: "Africa/Cairo", start_date: "2026-06-01", is_active: true, version: 1 },
+        slots: [{ id: "sl1", weekday: 2, start_time_local: "17:00:00", duration_minutes: 60, course: "Science" }],
+        subjects,
+      });
+
+    it("asks each slot's subject, and saves it", async () => {
+      withSubjects(["Science", "Maths"]);
+      renderSection();
+      const user = userEvent.setup();
+
+      const select = await screen.findByTestId("slot-subject-0");
+      expect(select).toHaveValue("Science");
+      expect(screen.getByTestId("slot-subject-hint")).toBeInTheDocument();
+      await user.selectOptions(select, "Maths");
+      // Only the subject moved: no lesson comes or goes, so there is no impact to confirm.
+      await user.click(screen.getByTestId("save-schedule"));
+      await waitFor(() => expect(api.putStudentSchedule).toHaveBeenCalled());
+      const body = vi.mocked(api.putStudentSchedule).mock.calls[0]?.[1];
+      expect(body?.slots[0]).toMatchObject({ weekday: 2, course: "Maths" });
+    });
+
+    it("stays out of the way with one subject, and leaves the slot's subject to the server", async () => {
+      withSubjects(["Science"]);
+      renderSection();
+      const user = userEvent.setup();
+
+      await waitFor(() => expect(api.getStudentSchedule).toHaveBeenCalled());
+      await screen.findByTestId("schedule-slots");
+      expect(screen.queryByTestId("slot-subject-0")).toBeNull();
+      await user.click(screen.getByTestId("add-slot"));
+      await user.click(screen.getByTestId("save-schedule"));
+      await user.click(await screen.findByTestId("confirm-schedule-impact"));
+      await waitFor(() => expect(api.putStudentSchedule).toHaveBeenCalled());
+      expect(vi.mocked(api.putStudentSchedule).mock.calls[0]?.[1].slots[0]).not.toHaveProperty("course");
+    });
+  });
+
   it("gives a new day the same length as the others, not a flat default", async () => {
     vi.mocked(api.getStudentSchedule).mockResolvedValue({
       schedule: {

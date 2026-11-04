@@ -8,7 +8,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { getGroupMoney, type GroupDetail, type GroupMoney } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { useCapability } from "@/lib/capabilities";
+import { useCapability, useCentreLook } from "@/lib/capabilities";
 
 const PAID_TONE: Record<string, string> = {
   PAID: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
@@ -27,6 +27,7 @@ export function GroupMoneyPanel({ group }: { group: GroupDetail }) {
   const t = useTranslations("groups");
   // A centre reads a month sold by time in lessons.
   const centre = useCapability("centre");
+  const look = useCentreLook();
   const locale = useLocale();
   const [month, setMonth] = useState(() => todayIn(group.timezone).slice(0, 7));
   const [money, setMoney] = useState<GroupMoney | null>(null);
@@ -106,7 +107,7 @@ export function GroupMoneyPanel({ group }: { group: GroupDetail }) {
           )}
 
           {money.lines.length > 0 && (
-            <ul className="divide-y overflow-hidden rounded-xl border" data-testid="money-lines">
+            <ul className={cn("divide-y overflow-hidden rounded-xl border", look && "centre-surface bg-card rounded-2xl")} data-testid="money-lines">
               {money.lines.map((l) => (
                 <li key={l.id} className="flex flex-col gap-1 p-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
@@ -130,8 +131,9 @@ export function GroupMoneyPanel({ group }: { group: GroupDetail }) {
 }
 
 function Tile({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  const look = useCentreLook();
   return (
-    <div className="rounded-xl border p-3">
+    <div className={cn("rounded-xl border p-3", look && "centre-surface bg-card rounded-2xl p-4")}>
       <p className="text-muted-foreground text-xs">{label}</p>
       {/* Money is never truncated (mobile conventions): it wraps instead. */}
       <p className={cn("mt-1 text-lg font-bold break-words tabular-nums", tone)}>{value}</p>

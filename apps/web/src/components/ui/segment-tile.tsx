@@ -88,7 +88,7 @@ export function SegmentTile({
       aria-pressed={selected}
       data-testid={`segment-${testKey}`}
       className={cn(
-        "group bg-card relative overflow-hidden rounded-xl border p-3.5 text-start transition-all",
+        "segment-tile group bg-card relative overflow-hidden rounded-xl border p-3.5 text-start transition-all",
         "bg-gradient-to-br to-transparent hover:shadow-md",
         c.wash,
         selected
@@ -105,38 +105,38 @@ export function SegmentTile({
         />
       )}
 
-      <div className="flex items-start justify-between gap-2">
+      <div className="segment-tile__top flex items-start justify-between gap-2">
         <div
           className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-xl ring-1",
+            "segment-tile__chip flex size-9 shrink-0 items-center justify-center rounded-xl ring-1",
             c.chip,
           )}
         >
           <Icon className={cn("size-4", c.icon)} aria-hidden />
         </div>
         {share !== null && (
-          <span className="text-muted-foreground/70 text-[10px] font-semibold tabular-nums">
+          <span className="segment-tile__share text-muted-foreground/70 text-[10px] font-semibold tabular-nums">
             {share}%
           </span>
         )}
       </div>
 
-      <div className="mt-2.5">
+      <div className="segment-tile__body mt-2.5">
         {value === null ? (
-          <div className="bg-muted h-7 w-14 animate-pulse rounded" />
+          <div className="segment-tile__value bg-muted h-7 w-14 animate-pulse rounded" />
         ) : (
-          <div className="text-2xl font-bold leading-none tracking-tight tabular-nums">
+          <div className="segment-tile__value text-2xl font-bold leading-none tracking-tight tabular-nums">
             {value.toLocaleString()}
           </div>
         )}
-        <div className="text-foreground/90 mt-1.5 text-xs font-semibold">{label}</div>
+        <div className="segment-tile__label text-foreground/90 mt-1.5 text-xs font-semibold">{label}</div>
         {hint && (
-          <div className="text-muted-foreground truncate text-[11px]">{hint}</div>
+          <div className="segment-tile__hint text-muted-foreground truncate text-[11px]">{hint}</div>
         )}
       </div>
 
       {/* Share of the whole. The track always renders so the tiles keep one baseline. */}
-      <div className="bg-muted mt-2.5 h-1 overflow-hidden rounded-full">
+      <div className="segment-tile__bar bg-muted mt-2.5 h-1 overflow-hidden rounded-full">
         <div
           className={cn("h-full rounded-full transition-all duration-500", c.bar)}
           style={{ width: `${share ?? 100}%` }}

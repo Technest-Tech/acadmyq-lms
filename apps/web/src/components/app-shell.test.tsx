@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../messages/ar.json";
@@ -512,8 +512,8 @@ describe("AppShell — the learning centre's shape (`academy.profile === CENTRE`
     expect(keys.indexOf("groups")).toBeLessThan(keys.indexOf("students"));
     expect(keys.indexOf("schedule")).toBeLessThan(keys.indexOf("students"));
     expect(keys.indexOf("attendance")).toBeLessThan(keys.indexOf("students"));
-    expect(keys.indexOf("packagesDue")).toBeLessThan(keys.indexOf("students"));
-    expect(keys.indexOf("trials")).toBeLessThan(keys.indexOf("students"));
+    expect(keys.indexOf("centreSubscriptions")).toBeLessThan(keys.indexOf("students"));
+    expect(keys.indexOf("centreAdmissions")).toBeLessThan(keys.indexOf("students"));
     // The group header exists only for a centre.
     expect(screen.getByText(arMessages.navGroup.teaching)).toBeInTheDocument();
   });
@@ -525,9 +525,33 @@ describe("AppShell — the learning centre's shape (`academy.profile === CENTRE`
 
     expect(keys).not.toContain("invoices");
     expect(keys).toContain("accounting");
-    expect(document.querySelector('[data-nav="trials"]')?.textContent).toContain(arMessages.nav.trialsCentre);
     expect(document.querySelector('[data-nav="schedule"]')?.textContent).toContain(arMessages.nav.scheduleCentre);
+    // The groups' lessons board IS the Attendance page for a centre, and "group students" is every
+    // student it has: neither gets a row of its own. The groups' statistics page keeps its row
+    // under a name that no longer collides with a group's own term reports.
+    fireEvent.click(document.querySelector('[data-nav="groups"]')!);
+    const opened = navKeys();
+    expect(opened).not.toContain("groupsLessons");
+    expect(opened).not.toContain("groupsStudents");
+    expect(opened).toContain("groupsReports");
+    expect(document.querySelector('[data-nav="groupsReports"]')?.textContent).toContain(arMessages.nav.groupsReportsCentre);
+
+    // Subscriptions and admissions are a dropdown each, closed until opened.
+    expect(keys).not.toContain("packagesDue");
+    expect(keys).not.toContain("trials");
+    fireEvent.click(document.querySelector('[data-nav="centreAdmissions"]')!);
+    fireEvent.click(document.querySelector('[data-nav="centreSubscriptions"]')!);
+    expect(document.querySelector('[data-nav="trials"]')?.textContent).toContain(arMessages.nav.trialsCentre);
     expect(document.querySelector('[data-nav="packagesDue"]')?.textContent).toContain(arMessages.nav.packagesDueCentre);
+  });
+
+  it("drops a centre's dropdown when nothing inside it is reachable", async () => {
+    renderShell("ACADEMY_OWNER", { ...centreSession, capabilities: ["groups", "centre"], permissions: ["group.read", "student.read"] });
+    await ready();
+    const keys = navKeys();
+
+    expect(keys).not.toContain("centreSubscriptions");
+    expect(keys).not.toContain("centreAdmissions");
   });
 
   it("leaves a Quran academy's sidebar exactly as it was", async () => {
@@ -560,6 +584,7 @@ describe("AppShell — the centre's enrolment inbox (docs/centre-profile Phase 2
   it("lists طلبات التسجيل right after the placement lessons for a centre, and not at all for a Quran academy", async () => {
     const { unmount } = renderShell("ACADEMY_OWNER", { academy, permissions, capabilities: ["groups", "trials", "centre"] });
     await ready();
+    fireEvent.click(document.querySelector('[data-nav="centreAdmissions"]')!);
     const keys = navKeys();
     expect(keys.indexOf("enrolment")).toBe(keys.indexOf("trials") + 1);
     expect(document.querySelector('[data-nav="enrolment"]')?.textContent).toContain(arMessages.nav.enrolment);
@@ -586,6 +611,20 @@ describe("AppShell — the learning centre's look", () => {
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("");
   });
 
+  it("remembers a centre, so the next reload's loading screen is already in its colours", async () => {
+    localStorage.removeItem("acq.workspace");
+    renderShell("ACADEMY_OWNER", { permissions, capabilities, academy: { ...academy, profile: "CENTRE" as const } });
+    await ready();
+    expect(localStorage.getItem("acq.workspace")).toBe("centre");
+  });
+
+  it("forgets it once a Quran academy opens in the same browser", async () => {
+    localStorage.setItem("acq.workspace", "centre");
+    renderShell("ACADEMY_OWNER", { permissions, capabilities, academy: { ...academy, profile: "QURAN" as const } });
+    await ready();
+    expect(localStorage.getItem("acq.workspace")).toBeNull();
+  });
+
   it("leaves a Quran academy on the default colours, with no phone bar", async () => {
     delete document.documentElement.dataset.profile;
     renderShell("ACADEMY_OWNER", { permissions, capabilities, academy: { ...academy, profile: "QURAN" as const } });
@@ -596,13 +635,13 @@ describe("AppShell — the learning centre's look", () => {
     expect(screen.queryByTestId("bottom-nav")).toBeNull();
   });
 
-  it("gives a centre a phone bar of four screens it can reach, plus the menu", async () => {
+  it("gives a centre a phone bar of four screens it can reach", async () => {
     renderShell("ACADEMY_OWNER", { permissions, capabilities, academy: { ...academy, profile: "CENTRE" as const } });
     await ready();
 
     const keys = Array.from(screen.getByTestId("bottom-nav").querySelectorAll("[data-bottom-nav]")).map((el) =>
       el.getAttribute("data-bottom-nav"),
     );
-    expect(keys).toEqual(["dashboard", "groups", "attendance", "students", "more"]);
+    expect(keys).toEqual(["dashboard", "groups", "attendance", "students"]);
   });
 });

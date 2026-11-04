@@ -2,7 +2,8 @@
 
 import { CalendarX2, ChevronsDownUp, ChevronsUpDown, Sparkles, UsersRound } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AuthContext } from "@/components/auth-provider";
 import type { AvailabilityWindow, CalendarSession } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -175,6 +176,7 @@ export function TimeGridView({
 }) {
   const t = useTranslations("scheduling");
   const locale = useLocale();
+  const centreLook = useContext(AuthContext)?.session?.academy?.profile === "CENTRE";
   const byDay = useMemo(() => bucketByDay(sessions, tz), [sessions, tz]);
   const isDayView = days.length === 1;
 
@@ -403,7 +405,8 @@ export function TimeGridView({
                   isToday ? "text-primary" : "text-muted-foreground",
                 )}
               >
-                {t(`weekday.${weekdayOf(day)}`).slice(0, 3)}
+                {/* Three letters of an Arabic day name is "الأ" for both الأحد and الأربعاء. */}
+                {centreLook ? t(`weekday.${weekdayOf(day)}`) : t(`weekday.${weekdayOf(day)}`).slice(0, 3)}
               </span>
               <span
                 className={cn(

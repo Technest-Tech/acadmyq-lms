@@ -6,60 +6,71 @@
   "dashboard": {
     "title": "Dashboard",
     "centre": {
-      "chart": {
-        "title": "Collections this month",
-        "sub": "Running total up to today",
-        "empty": "No receipts this month yet.",
-        "attendanceTitle": "Attendance this week",
-        "present": "{n} present",
-        "absent": "{n} absent"
-      },
-      "subtitle": "A live view of your centre today.",
-      "sections": {
-        "today": "Today",
-        "todayDesc": "What needs your attention now",
-        "money": "Money",
-        "moneyDesc": "This month's collections and dues",
-        "actions": "Quick actions",
-        "actionsDesc": "Jump straight to what you need"
+      "hero": {
+        "greeting": "Welcome, {name}",
+        "subtitle": "Here is how your centre is doing today.",
+        "addNew": "Add new",
+        "addStudent": "New student",
+        "addGroup": "New group",
+        "collect": "Collect",
+        "timetable": "Weekly timetable"
       },
       "kpi": {
-        "todayClasses": "Classes today",
-        "todayClassesSub": "{groups, plural, one {# group class} other {# group classes}} · {privateCount, plural, =0 {no private lessons} one {# private lesson} other {# private lessons}}",
-        "unmarked": "No attendance sheet",
-        "unmarkedSub": "Classes whose time passed unmarked",
-        "unmarkedClear": "Every class is marked",
-        "attendanceRate": "Attendance this week",
-        "attendanceRateSub": "{present} present · {absent} absent",
-        "attendanceRateEmpty": "No sheet marked yet",
-        "runningGroups": "Running groups",
-        "runningGroupsSub": "{members, plural, =0 {no enrolled students} one {# enrolled student} other {# enrolled students}}",
-        "freeSeats": "Free seats",
-        "freeSeatsSub": "Across the capped groups",
-        "collected": "Collected this month",
-        "collectedSub": "{count, plural, =0 {no receipts yet} one {# receipt} other {# receipts}}",
-        "outstanding": "Owed by families",
-        "outstandingSub": "{overdue} of it overdue",
-        "endingSoon": "Subscriptions ending soon",
-        "endingSoonSub": "Within {days} days, or one lesson left",
-        "salaries": "Salaries this month",
-        "salariesSub": "Earned by teachers so far",
-        "trials": "Placements awaiting a decision",
-        "trialsSub": "Trial lessons that ended undecided"
-      },
-      "actions": {
+        "students": "Total students",
+        "todayClasses": "Today's classes",
         "groups": "Groups",
-        "groupsDesc": "Classes and attendance sheets",
-        "timetable": "Timetable",
-        "timetableDesc": "Slots and rooms",
-        "collect": "Collect",
-        "collectDesc": "Record a new receipt",
-        "arrears": "Arrears",
-        "arrearsDesc": "Who has not paid yet",
-        "addStudent": "Add student",
-        "addStudentDesc": "Enrol a new student",
-        "payroll": "Payroll",
-        "payrollDesc": "What teachers are owed"
+        "subscriptions": "Active subscriptions",
+        "vsLastMonth": "vs last month",
+        "unmarked": "{count} without a sheet",
+        "attendanceWeek": "Week's attendance {rate}%"
+      },
+      "distribution": {
+        "title": "Students",
+        "unit": "students",
+        "active": "Active students",
+        "inactive": "Inactive",
+        "trial": "Placement",
+        "new": "New (last 30 days)",
+        "empty": "No students yet."
+      },
+      "trend": {
+        "collected": "Collections",
+        "lessons": "Lessons held",
+        "period": "Last {months} months",
+        "owed": "Owed by families: {amount}",
+        "emptyMoney": "No receipts in this period yet.",
+        "emptyLessons": "No lessons held in this period yet."
+      },
+      "groups": {
+        "title": "Latest groups",
+        "members": "{count, plural, one {# student} other {# students}}",
+        "manage": "Manage groups",
+        "open": "Open group",
+        "lessons": "Group lessons",
+        "more": "Options for {name}",
+        "empty": "No groups yet."
+      },
+      "followUp": {
+        "title": "Subscriptions and follow-up",
+        "endingSoon": "Subscriptions ending soon",
+        "arrears": "Payments overdue",
+        "trials": "Placements to decide",
+        "freeSeats": "Free seats",
+        "manage": "Manage subscriptions",
+        "subscriber": "subscribers",
+        "course": "courses",
+        "family": "families",
+        "student": "students",
+        "seat": "seats"
+      },
+      "activity": {
+        "title": "Latest activity",
+        "student": "New student registered",
+        "group": "New group created",
+        "subscription": "Subscription opened",
+        "receipt": "Collected {amount}",
+        "all": "View all activity",
+        "empty": "No activity yet."
       }
     },
     "kpi": {
@@ -267,10 +278,13 @@
     "accountingReports": "Reports",
     "packagesCentre": "Open subscriptions",
     "packagesFinishedCentre": "Finished subscriptions",
+    "centreSubscriptions": "Subscriptions",
+    "centreAdmissions": "Admissions",
     "packagesDue": "Due packages",
     "packagesDueCentre": "Due subscriptions",
     "trialsCentre": "Placement lessons",
-    "scheduleCentre": "Timetable"
+    "scheduleCentre": "Timetable",
+    "groupsReportsCentre": "Group statistics"
   },
   "navGroup": {
     "general": "General",
@@ -1895,6 +1909,18 @@
       "inactiveSub": "Deactivated",
       "filterHint": "Pick a tile to narrow the list below — pick it again to see everyone."
     },
+    "followUp": {
+      "title": "Follow-up",
+      "hint": "Who deserves a call today: an absence streak, a low attendance rate, or an unpaid month.",
+      "absent_streak": "Absence streak",
+      "low_attendance": "Low attendance",
+      "unpaid": "Unpaid",
+      "streak": "{count} absences in a row",
+      "rate": "{rate}% attendance",
+      "owes": "Owes {amount}",
+      "empty": "Nobody — good news.",
+      "loadFailed": "Could not load the follow-up list."
+    },
     "tabs": {
       "all": "All Students",
       "trials": "Trials"
@@ -2578,7 +2604,10 @@
         "HELD": "Held",
         "CANCELLED": "Cancelled"
       }
-    }
+    },
+    "slotSubject": "Subject",
+    "slotSubjectNone": "Not set",
+    "slotSubjectHint": "This student takes more than one subject with this teacher. Pick each lesson's subject; a lesson with none comes off the oldest subscription."
   },
   "notifications": {
     "title": "Notifications",
@@ -3334,7 +3363,8 @@
       "nextTermsSaved": "Saved — the new terms start with the next renewal; the current package and its bill are unchanged.",
       "overdraftBilledLessons": "The extra time was billed.",
       "editedCredit": "Saved. {amount} went back to the family as credit.",
-      "editedDue": "Saved. The family now owes {amount}."
+      "editedDue": "Saved. The family now owes {amount}.",
+      "secondSubjectHint": "Set on the teacher's timetable which lessons belong to this subject."
     },
     "panel": {
       "title": "Lesson package",
@@ -3808,6 +3838,13 @@
       "lastMonth": "Last month",
       "last30": "Last 30 days"
     },
+    "colTransfer": "Transfer",
+    "transferDone": "Transferred",
+    "transferPending": "Not transferred yet",
+    "transferMark": "{name}'s salary was transferred",
+    "transferTreasury": "Paid from the treasury",
+    "transferTreasuryPart": "From the treasury: {amount}",
+    "transferDiffers": "{sent} sent, the statement is now {total}",
     "statementsTitle": "Monthly statements",
     "statementsHint": "Every statement the period touches — open one to see its lessons or finalize it",
     "breakdownFixed": "Fixed salary",
@@ -7249,7 +7286,43 @@
       "manage": "Create a group, give it a teacher and its weekly times, then add the students.",
       "read": "Groups you teach will appear here."
     },
+    "card": {
+      "upcomingCount": "{count} upcoming",
+      "allMarked": "All sheets marked",
+      "noSheets": "No sheets yet",
+      "ofPlanned": "of {planned} lessons",
+      "held": "Held",
+      "upcoming": "Upcoming",
+      "overdue": "No sheet",
+      "nextLesson": "Next lesson",
+      "teacher": "Teacher",
+      "place": "Place",
+      "times": "Times",
+      "next": "Next",
+      "seatsLeft": "{count} left",
+      "full": "Full"
+    },
     "form": {
+      "sections": {
+        "basics": "Group details",
+        "basicsHint": "Its name, teacher, level and seats.",
+        "place": "Where it meets",
+        "placeHint": "In a room at the centre, or online.",
+        "modeHintONLINE": "Zoom or Meet link",
+        "modeHintOFFLINE": "A room at the centre",
+        "schedule": "Dates and timetable",
+        "scheduleHint": "When it starts and ends, and its days each week.",
+        "pricingHint": "What the student pays and how it is worked out.",
+        "teacherHint": "What the teacher earns for this group.",
+        "studentsHint": "Optional: you can add them after creating the group.",
+        "notes": "Notes",
+        "summary": "Group summary",
+        "summaryName": "No name yet",
+        "summaryTeacher": "No teacher picked yet",
+        "summaryNoPrice": "No price",
+        "summarySeats": "{count} seats",
+        "summaryNoSeats": "No seat limit"
+      },
       "subtitle": "Its lessons are created from the weekly times — from the start date, up to the end of next month.",
       "name": "Group name",
       "namePlaceholder": "e.g. English A1 — evening",
@@ -11016,6 +11089,12 @@
     }
   },
   "grades": {
+    "look": {
+      "assessments": "Assessments",
+      "average": "Group average",
+      "top": "Top total",
+      "low": "Below 50%"
+    },
     "tabs": {
       "grades": "Grades",
       "reports": "Term reports"

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { FinalizePeriodModal } from "@/components/payroll/finalize-period-modal";
 import { PayoutDetailModal } from "@/components/payroll/payout-detail-modal";
+import { PayoutTransferCell, transferState } from "@/components/payroll/payout-transfer-cell";
 import {
   TeacherRangeLessonsModal,
   type TeacherRangeTarget,
@@ -442,6 +443,8 @@ export function PayrollScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  // A tick changes no salary figure, so it reloads the list without blanking the panels above it.
+  const [transferToken, setTransferToken] = useState(0);
   // ONE control drives the whole page: the window. It feeds the salary figures exactly (they are
   // re-added from lessons and adjustments by date) and the statements table by overlap (a payout
   // is a month, so it is "in" a window it touches).
@@ -492,6 +495,8 @@ export function PayrollScreen() {
     return <p className="text-muted-foreground text-sm">{t("noPermission")}</p>;
   }
 
+  const period = (row: PayoutRow) => `${String(row.period_month).padStart(2, "0")}/${row.period_year}`;
+
   const columns: ColumnDef<PayoutRow>[] = [
     ...(isOwner
       ? [
@@ -510,6 +515,13 @@ export function PayrollScreen() {
           } satisfies ColumnDef<PayoutRow>,
         ]
       : []),
+    {
+      // A window can touch several months, and a tick is for one of them.
+      key: "period",
+      header: t("colPeriod"),
+      sortKey: "period",
+      render: (row) => <span className="tabular-nums">{period(row)}</span>,
+    },
     {
       key: "status",
       header: t("colStatus"),
@@ -531,6 +543,21 @@ export function PayrollScreen() {
         </span>
       ),
     },
+    ...(isOwner
+      ? [
+          {
+            key: "transfer",
+            header: t("colTransfer"),
+            render: (row: PayoutRow) => (
+              <PayoutTransferCell
+                row={row}
+                canMark={can("payout.adjust")}
+                onChanged={() => setTransferToken((n) => n + 1)}
+              />
+            ),
+          } satisfies ColumnDef<PayoutRow>,
+        ]
+      : []),
     {
       key: "actions",
       header: "",
@@ -561,17 +588,27 @@ export function PayrollScreen() {
           } satisfies ExcelColumn<PayoutRow>,
         ]
       : []),
-    {
-      header: t("colPeriod"),
-      value: (row) =>
-        `${String(row.period_month).padStart(2, "0")}/${row.period_year}`,
-    },
+    { header: t("colPeriod"), value: period },
     { header: t("colStatus"), value: (row) => t(`status.${row.status}`) },
     {
       header: t("colTotal"),
       value: (row) =>
         formatMoney({ amount: row.total_minor, currency: row.currency }, locale),
     },
+    ...(isOwner
+      ? [
+          {
+            header: t("colTransfer"),
+            value: (row: PayoutRow) =>
+              ({
+                DONE: t("transferDone"),
+                TREASURY: t("transferTreasury"),
+                PENDING: t("transferPending"),
+                NOTHING_DUE: "",
+              })[transferState(row)],
+          } satisfies ExcelColumn<PayoutRow>,
+        ]
+      : []),
   ];
 
   const statusFilter: FilterDef = {
@@ -580,6 +617,15 @@ export function PayrollScreen() {
     options: [
       { value: "OPEN", label: t("status.OPEN") },
       { value: "FINALIZED", label: t("status.FINALIZED") },
+    ],
+  };
+
+  const transferFilter: FilterDef = {
+    key: "transfer",
+    label: t("colTransfer"),
+    options: [
+      { value: "DONE", label: t("transferDone") },
+      { value: "PENDING", label: t("transferPending") },
     ],
   };
 
@@ -679,7 +725,7 @@ export function PayrollScreen() {
         fetcher={fetcher}
         columns={columns}
         getRowId={(row) => row.id}
-        filters={isOwner ? [statusFilter] : []}
+        filters={isOwner ? [statusFilter, transferFilter] : []}
         defaultSort="-period"
         onRowClick={(row) => setSelectedId(row.id)}
         emptyMessage={t("empty")}
@@ -689,7 +735,7 @@ export function PayrollScreen() {
           sheetName: t("title"),
           columns: exportColumns,
         }}
-        refreshToken={refreshToken}
+        refreshToken={refreshToken + transferToken}
       />
 
       <PayoutDetailModal

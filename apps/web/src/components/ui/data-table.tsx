@@ -584,7 +584,7 @@ export function DataTable<T>({
               className="scroll-ornate overflow-auto rounded-xl"
               style={maxBodyHeight ? { maxHeight: maxBodyHeight } : undefined}
             >
-              <table className="w-full text-sm" data-testid="dt-table">
+              <table className="dt-table w-full text-sm" data-testid="dt-table">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-card/95 backdrop-blur">
                     {showIndex && (

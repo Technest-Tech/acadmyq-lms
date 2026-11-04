@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Services\PackageSettlement;
 use App\Services\Payroll;
 use App\Services\PayrollLessonCorrection;
+use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\DataTable;
 use Illuminate\Http\JsonResponse;
@@ -23,6 +24,9 @@ use Illuminate\Support\Facades\Gate;
  */
 final class PayoutController extends Controller
 {
+    /** What the treasury has paid out on a statement, for a query aliasing `payouts` as `p`. */
+    private const PAID_OUT_SQL = '(select coalesce(sum(e.amount_minor), 0)::bigint from expenses e where e.payout_id = p.id and e.voided_at is null)';
+
     // -------------------------------------------------------------------------
     // GET /api/payouts  — owner: all teachers' payouts
     // -------------------------------------------------------------------------
@@ -33,6 +37,7 @@ final class PayoutController extends Controller
 
         $query = DB::table('payouts as p')
             ->leftJoin('teachers as t', 't.id', '=', 'p.teacher_id')
+            ->leftJoin('users as tu', 'tu.id', '=', 'p.transferred_by')
             ->select([
                 'p.id',
                 'p.teacher_id',
@@ -42,6 +47,10 @@ final class PayoutController extends Controller
                 'p.currency',
                 'p.finalized_at',
                 'p.created_at',
+                'p.transferred_at',
+                'p.transferred_minor',
+                DB::raw('tu.full_name as transferred_by_name'),
+                DB::raw(self::PAID_OUT_SQL.' as paid_out_minor'),
                 DB::raw('t.full_name as teacher_name'),
                 DB::raw("case when p.finalized_at is null then 'OPEN' else 'FINALIZED' end as status"),
             ]);
@@ -63,6 +72,16 @@ final class PayoutController extends Controller
                         $q->whereNull('p.finalized_at');
                     } elseif ($v === 'FINALIZED') {
                         $q->whereNotNull('p.finalized_at');
+                    }
+                },
+                // Who got their money and who is still waiting. A statement paid in full from the
+                // treasury has gone out too; one that owes nothing is waiting for nothing.
+                'transfer' => function ($q, $v): void {
+                    $sent = '(p.transferred_at is not null or ('.self::PAID_OUT_SQL.' > 0 and '.self::PAID_OUT_SQL.' >= p.total_minor))';
+                    if ($v === 'DONE') {
+                        $q->whereRaw($sent);
+                    } elseif ($v === 'PENDING') {
+                        $q->whereRaw("not {$sent} and p.total_minor > 0");
                     }
                 },
             ],
@@ -332,6 +351,55 @@ final class PayoutController extends Controller
         ));
 
         return response()->json(['ok' => true, 'delta_minor' => $delta]);
+    }
+
+    /**
+     * PATCH /api/payouts/{id}/transfer — tick or untick "transferred". Open or sealed: an academy pays
+     * when it pays, and the tick moves no money. Ticking twice keeps the first date and amount.
+     */
+    public function markTransfer(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('payout.adjust');
+
+        $data = $request->validate(['transferred' => ['required', 'boolean']]);
+        $ctx = app(AuthContext::class);
+        $academyId = (string) $ctx->academyId;
+
+        $statement = DB::table('payouts')->where('id', $id)->where('academy_id', $academyId);
+        if ((clone $statement)->doesntExist()) {
+            abort(404);
+        }
+
+        $changed = $data['transferred']
+            ? (clone $statement)->whereNull('transferred_at')->update([
+                'transferred_at' => Carbon::now()->format('Y-m-d H:i:sP'),
+                'transferred_by' => $ctx->userId,
+                'transferred_minor' => DB::raw('total_minor'),
+            ])
+            : (clone $statement)->whereNotNull('transferred_at')->update([
+                'transferred_at' => null,
+                'transferred_by' => null,
+                'transferred_minor' => null,
+            ]);
+
+        $payout = $statement->first(['transferred_at', 'transferred_minor', 'total_minor']);
+
+        if ($changed > 0) {
+            Audit::log(
+                $data['transferred'] ? 'payout.transferred' : 'payout.transfer_undone',
+                'payout',
+                $id,
+                $academyId,
+                (string) $ctx->userId,
+                $ctx->role,
+                after: ['total_minor' => (int) $payout->total_minor],
+            );
+        }
+
+        return response()->json([
+            'transferred_at' => $payout->transferred_at,
+            'transferred_minor' => $payout->transferred_minor !== null ? (int) $payout->transferred_minor : null,
+        ]);
     }
 
     /** DELETE /api/payouts/{id} — delete a statement, open or sealed. */

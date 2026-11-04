@@ -14,7 +14,7 @@ import { ClosePackageModal } from "@/components/packages/close-package-modal";
 import { EditPackageForm } from "@/components/packages/edit-package-form";
 import { lessonBalance, pricePerLesson } from "@/components/packages/lesson-price-fields";
 import { TopUpPackageForm } from "@/components/packages/top-up-package-form";
-import { OpenPackageForm } from "@/components/packages/open-package-form";
+import { OpenPackageForm, subjectKey } from "@/components/packages/open-package-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -114,9 +114,10 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   const closedPackages = (packages ?? []).filter((p) => p.status !== "ACTIVE");
   // Per subject (or "any lesson"), the newest finished block — when nothing is open for it.
   const renewableIds = new Set<string>();
-  const seenScopes = new Set(openPackages.map((p) => p.subject?.teacher_id ?? ""));
+  const scopeOf = (p: LessonPackageRow) => (p.subject ? subjectKey(p.subject.teacher_id, p.subject.course) : "");
+  const seenScopes = new Set(openPackages.map(scopeOf));
   for (const p of [...closedPackages].sort((a, b) => b.sequence_no - a.sequence_no)) {
-    const scope = p.subject?.teacher_id ?? "";
+    const scope = scopeOf(p);
     if (seenScopes.has(scope)) continue;
     seenScopes.add(scope);
     renewableIds.add(p.id);
@@ -293,7 +294,7 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                           size="xs"
                           variant="outline"
                           className="gap-1"
-                          onClick={() => setModal({ kind: "package", subjectId: p.subject?.teacher_id })}
+                          onClick={() => setModal({ kind: "package", subjectId: scopeOf(p) || undefined })}
                           data-testid={`subs-renew-${p.id}`}
                         >
                           <RefreshCw className="size-3" aria-hidden />

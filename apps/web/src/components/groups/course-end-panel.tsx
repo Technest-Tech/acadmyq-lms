@@ -6,10 +6,12 @@ import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass, textareaClass } from "@/components/groups/group-format";
+import { PASTEL } from "@/components/groups/group-look";
 import { LevelSelect } from "@/components/levels/level-select";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { useCentreLook } from "@/lib/capabilities";
 import { closeGroup, promoteGroup, renewGroup, type GroupDetail } from "@/lib/groups-api";
 import { type Level, listLevels } from "@/lib/levels-api";
 import { cn } from "@/lib/utils";
@@ -44,25 +46,34 @@ export function CourseEndPanel({ group, onClosed }: { group: GroupDetail; onClos
   const t = useTranslations("courseTerm");
   const [action, setAction] = useState<Action | null>(null);
   const endingSoon = group.ending_soon === true;
+  const look = useCentreLook();
 
   return (
     <section
       className={cn(
         "rounded-2xl border p-4",
+        look && "centre-surface",
         endingSoon ? "border-amber-400/60 bg-amber-500/5 dark:border-amber-500/40" : "bg-card",
       )}
       data-testid="course-end-panel"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <p className="flex items-center gap-1.5 font-semibold">
-            <Hourglass className={cn("size-4", endingSoon ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")} aria-hidden />
-            {t("panel.title")}
-          </p>
-          <p className="text-muted-foreground mt-0.5 text-sm">
-            {endingSoon && <span className="text-amber-700 dark:text-amber-300">{t("panel.endingSoon")} </span>}
-            {group.state === "FINISHED" ? t("panel.subtitleFinished") : t("panel.subtitleRunning")}
-          </p>
+        <div className={cn("min-w-0", look && "flex items-center gap-3")}>
+          {look && (
+            <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl", endingSoon ? PASTEL.amber : PASTEL.indigo)}>
+              <Hourglass className="size-5" aria-hidden />
+            </span>
+          )}
+          <div className="min-w-0">
+            <p className={cn("flex items-center gap-1.5 font-semibold", look && "text-base font-extrabold")}>
+              {!look && <Hourglass className={cn("size-4", endingSoon ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")} aria-hidden />}
+              {t("panel.title")}
+            </p>
+            <p className={cn("text-muted-foreground mt-0.5 text-sm", look && "text-xs")}>
+              {endingSoon && <span className="text-amber-700 dark:text-amber-300">{t("panel.endingSoon")} </span>}
+              {group.state === "FINISHED" ? t("panel.subtitleFinished") : t("panel.subtitleRunning")}
+            </p>
+          </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <Button type="button" size="sm" className="gap-1.5" onClick={() => setAction("renew")} data-testid="course-renew">

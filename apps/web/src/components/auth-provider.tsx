@@ -16,6 +16,7 @@ import {
   SESSION_EXPIRED_EVENT,
   type Session,
 } from "@/lib/api";
+import { setLatinDigits } from "@/lib/numerals";
 
 interface AuthValue {
   session: Session | null;
@@ -52,8 +53,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      setSession(await getMe());
+      const me = await getMe();
+      // Before the session lands, so the first number the shell renders is already in its digits.
+      setLatinDigits(me.academy?.profile === "CENTRE");
+      setSession(me);
     } catch {
+      setLatinDigits(false);
       setSession(null);
     } finally {
       setLoading(false);

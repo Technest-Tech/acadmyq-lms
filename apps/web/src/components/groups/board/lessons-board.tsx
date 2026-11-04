@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, MapPin, UserRoundCog, Video } from "lucide-react";
+import { AlertTriangle, CalendarDays, CalendarRange, ChevronLeft, ChevronRight, ClipboardCheck, LayoutGrid, MapPin, Sun, UserRoundCog, Video } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -11,16 +11,19 @@ import { TimetableBoard } from "@/components/groups/board/timetable-board";
 import { SubstituteModal } from "@/components/holidays/substitute-modal";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { LESSON_TONE, fieldClass, lessonDate, lessonTime, needsMarking, todayIn } from "@/components/groups/group-format";
+import { EmptyCard, PillTabs, SectionCard, SoftBadge, TimeTile, pastelFor } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
-import { useCapability } from "@/lib/capabilities";
+import { useCapability, useCentreLook } from "@/lib/capabilities";
 import { listBoardLessons, type BoardLesson } from "@/lib/groups-api";
 import { HOLIDAY_REASON } from "@/lib/holidays-api";
+import { formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 type View = "timetable" | "day" | "week" | "owed";
+const VIEW_ICONS = { timetable: LayoutGrid, day: Sun, week: CalendarRange, owed: AlertTriangle } as const;
 
 function shiftDate(ymd: string, days: number): string {
   const d = new Date(`${ymd}T12:00:00Z`);
@@ -45,6 +48,9 @@ export function LessonsBoard() {
   // A centre works from its weekly timetable (hour blocks, rooms); everyone else's views are unchanged.
   const centre = useCapability("centre");
   const views: View[] = centre ? ["timetable", "day", "week", "owed"] : ["day", "week", "owed"];
+  // A learning centre reads this board in its own look (group-look): white cards, pastel blocks,
+  // soft badges. Everyone else's markup is exactly what it was.
+  const look = useCentreLook();
 
   const [view, setView] = useState<View>(centre ? "timetable" : "day");
   const [date, setDate] = useState(() => todayIn(browserTz));
@@ -104,6 +110,20 @@ export function LessonsBoard() {
       />
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        {look ? (
+          <PillTabs<View>
+            tabs={views.map((v) => ({
+              key: v,
+              label: t(`board.lessons.view.${v}`),
+              icon: VIEW_ICONS[v],
+              badge: v === "owed" && (owedCount ?? 0) > 0 ? formatNumber(owedCount ?? 0, locale) : undefined,
+              alert: v === "owed" && (owedCount ?? 0) > 0,
+            }))}
+            value={view}
+            onChange={setView}
+            testIdPrefix="lessons-view"
+          />
+        ) : (
         <div className="no-scrollbar -mx-1 flex gap-1 overflow-x-auto px-1" role="tablist">
           {views.map((v) => (
             <button
@@ -124,6 +144,7 @@ export function LessonsBoard() {
             </button>
           ))}
         </div>
+        )}
         {view !== "timetable" && (
           <BoardFilters
             options={options}
@@ -138,7 +159,7 @@ export function LessonsBoard() {
       {view === "timetable" && <TimetableBoard />}
 
       {(view === "day" || view === "week") && (
-        <div className="flex items-center gap-2">
+        <div className={cn("flex items-center gap-2", look && "centre-surface bg-card w-fit rounded-2xl border p-1.5")}>
           <Button type="button" variant="outline" size="icon-sm" aria-label={t("board.lessons.prev")} onClick={() => setDate((d) => shiftDate(d, view === "week" ? -7 : -1))}>
             <ChevronLeft className="size-4 rtl:rotate-180" />
           </Button>
@@ -156,11 +177,114 @@ export function LessonsBoard() {
       {error && <AlertBanner variant="error" message={error} />}
 
       {view === "timetable" ? null : loading && lessons.length === 0 ? (
-        <p className="text-muted-foreground py-10 text-center text-sm">{t("loading")}</p>
+        look ? (
+          <div className="bg-muted h-48 animate-pulse rounded-2xl" aria-label={t("loading")} />
+        ) : (
+          <p className="text-muted-foreground py-10 text-center text-sm">{t("loading")}</p>
+        )
       ) : lessons.length === 0 ? (
-        <div className="rounded-2xl border border-dashed p-10 text-center">
-          <CalendarDays className="text-muted-foreground mx-auto size-8" aria-hidden />
-          <p className="text-muted-foreground mt-2 text-sm">{t(`board.lessons.empty.${view}`)}</p>
+        look ? (
+          <EmptyCard icon={view === "owed" ? ClipboardCheck : CalendarDays} tone={view === "owed" ? "emerald" : "violet"} text={t(`board.lessons.empty.${view}`)} />
+        ) : (
+          <div className="rounded-2xl border border-dashed p-10 text-center">
+            <CalendarDays className="text-muted-foreground mx-auto size-8" aria-hidden />
+            <p className="text-muted-foreground mt-2 text-sm">{t(`board.lessons.empty.${view}`)}</p>
+          </div>
+        )
+      ) : look ? (
+        <div className="space-y-4" data-testid="board-lessons">
+          {byDay.map(([day, rows]) => (
+            <SectionCard
+              key={day}
+              icon={view === "owed" ? AlertTriangle : CalendarDays}
+              tone={view === "owed" ? "rose" : "violet"}
+              title={view === "day" ? t("board.lessons.view.day") : lessonDate(`${day}T12:00:00Z`, "UTC", locale)}
+              hint={view === "day" ? lessonDate(`${day}T12:00:00Z`, "UTC", locale) : undefined}
+              count={rows.length}
+              flush
+            >
+              <ul className="divide-y">
+                {rows.map((l) => {
+                  const overdue = needsMarking(l);
+                  const c = l.counts;
+                  const tone = overdue ? "rose" : l.status === "HELD" ? "emerald" : l.status === "CANCELLED" ? "slate" : "violet";
+                  return (
+                    <li key={l.id} className={cn("flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between", overdue && "bg-rose-500/[0.04]")} data-testid={`board-lesson-${l.id}`}>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <TimeTile tone={tone}>{lessonTime(l.scheduled_at_utc, l.group.timezone, locale)}</TimeTile>
+                        <div className="min-w-0">
+                          <p className="flex flex-wrap items-center gap-2">
+                            <Link href={`/groups/${l.group.id}`} className="truncate font-bold hover:underline">
+                              {l.group.name}
+                            </Link>
+                            <SoftBadge tone={overdue ? "rose" : l.status === "HELD" ? "emerald" : l.status === "CANCELLED" ? "slate" : "sky"}>
+                              {overdue ? t("lessonStatus.OVERDUE") : t(`lessonStatus.${l.status}`)}
+                            </SoftBadge>
+                            {l.extra && <SoftBadge tone="indigo">{t("lessons.extra")}</SoftBadge>}
+                            {l.status === "CANCELLED" && l.cancel_reason === HOLIDAY_REASON && <SoftBadge tone="amber">{tHolidays("badge")}</SoftBadge>}
+                          </p>
+                          <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                            {l.group.level && <span className={cn("rounded-md px-1.5 py-0.5 font-bold", pastelFor(l.group.level))}>{l.group.level}</span>}
+                            {l.teacher_name && <span>{l.is_substitute ? tHolidays("substitute.label", { name: l.teacher_name }) : l.teacher_name}</span>}
+                            <span className="inline-flex items-center gap-1">
+                              {l.group.mode === "ONLINE" ? <Video className="size-3" aria-hidden /> : <MapPin className="size-3" aria-hidden />}
+                              {l.group.mode === "OFFLINE" && l.group.location ? l.group.location : t(`mode.${l.group.mode}`)}
+                            </span>
+                            <span>{t("minutes", { count: l.duration_minutes })}</span>
+                            {l.status === "CANCELLED" && l.cancel_reason && l.cancel_reason !== HOLIDAY_REASON && <span>· {l.cancel_reason}</span>}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        {c &&
+                          (l.status === "HELD" ? (
+                            <span className="flex items-center gap-1">
+                              <SoftBadge tone="emerald" className="tabular-nums">
+                                <span dir="ltr">
+                                  {c.present + c.late} / {c.expected}
+                                </span>
+                              </SoftBadge>
+                              {c.absent > 0 && (
+                                <SoftBadge tone="rose" className="tabular-nums">
+                                  <span dir="ltr">−{c.absent}</span>
+                                </SoftBadge>
+                              )}
+                            </span>
+                          ) : (
+                            <SoftBadge tone="slate">{t("students", { count: c.expected })}</SoftBadge>
+                          ))}
+                        {canManage && l.status !== "CANCELLED" && (
+                          <button
+                            type="button"
+                            aria-label={tHolidays("substitute.action")}
+                            title={tHolidays("substitute.action")}
+                            className="hover:bg-muted text-muted-foreground inline-flex size-9 items-center justify-center rounded-xl"
+                            onClick={() => setSubstituting(l)}
+                            data-testid={`board-substitute-${l.id}`}
+                          >
+                            <UserRoundCog className="size-4" />
+                          </button>
+                        )}
+                        {canMark && l.status !== "CANCELLED" && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={l.status === "HELD" ? "outline" : "default"}
+                            className="gap-1.5"
+                            onClick={() => setSheet(l)}
+                            data-testid={`board-mark-${l.id}`}
+                          >
+                            {overdue ? <AlertTriangle className="size-3.5" /> : <ClipboardCheck className="size-3.5" />}
+                            {l.status === "HELD" ? t("lessons.editSheet") : t("lessons.takeAttendance")}
+                          </Button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </SectionCard>
+          ))}
         </div>
       ) : (
         <div className="space-y-4" data-testid="board-lessons">

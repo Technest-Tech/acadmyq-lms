@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass, textareaClass, todayIn } from "@/components/groups/group-format";
+import { PASTEL } from "@/components/groups/group-look";
 import { StudentPicker } from "@/components/groups/student-picker";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import {
   type Waitlist,
   type WaitlistEntry,
 } from "@/lib/groups-api";
+import { useCentreLook } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 /**
@@ -32,6 +34,7 @@ export function WaitlistPanel({ group, onGroupChanged }: { group: GroupDetail; o
   const t = useTranslations("courseTerm");
   const { can } = useAuth();
   const canManage = can("group.manage") && group.status === "ACTIVE";
+  const look = useCentreLook();
   const [list, setList] = useState<Waitlist | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -92,15 +95,22 @@ export function WaitlistPanel({ group, onGroupChanged }: { group: GroupDetail; o
   const freeSeats = list?.free_seats ?? null;
 
   return (
-    <section className="space-y-3 rounded-2xl border p-4" data-testid="waitlist-panel">
+    <section className={cn("space-y-3 rounded-2xl border p-4", look && "centre-surface bg-card sm:p-5")} data-testid="waitlist-panel">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <p className="flex items-center gap-1.5 font-semibold">
-            <ListOrdered className="text-muted-foreground size-4" aria-hidden />
-            {t("waitlist.title")}
-            {list && <span className="text-muted-foreground text-sm font-normal tabular-nums">({list.waiting_count})</span>}
-          </p>
-          <p className="text-muted-foreground mt-0.5 text-xs">{t("waitlist.hint")}</p>
+        <div className={cn("min-w-0", look && "flex items-center gap-3")}>
+          {look && (
+            <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl", PASTEL.amber)}>
+              <ListOrdered className="size-5" aria-hidden />
+            </span>
+          )}
+          <div className="min-w-0">
+            <p className={cn("flex items-center gap-1.5 font-semibold", look && "text-base font-extrabold")}>
+              {!look && <ListOrdered className="text-muted-foreground size-4" aria-hidden />}
+              {t("waitlist.title")}
+              {list && <span className="text-muted-foreground text-sm font-normal tabular-nums">({list.waiting_count})</span>}
+            </p>
+            <p className="text-muted-foreground mt-0.5 text-xs">{t("waitlist.hint")}</p>
+          </div>
         </div>
         {canManage && (
           <Button type="button" size="sm" variant="secondary" className="gap-1.5" onClick={() => setAdding(true)} data-testid="waitlist-add">
@@ -128,7 +138,7 @@ export function WaitlistPanel({ group, onGroupChanged }: { group: GroupDetail; o
           {entries.map((e, i) => (
             <li key={e.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between" data-testid={`waitlist-entry-${e.id}`}>
               <div className="flex min-w-0 items-center gap-3">
-                <span className="bg-muted text-muted-foreground flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums">{e.position}</span>
+                <span className={cn("flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold tabular-nums", look ? PASTEL.violet : "bg-muted text-muted-foreground")}>{e.position}</span>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
                     {e.name}

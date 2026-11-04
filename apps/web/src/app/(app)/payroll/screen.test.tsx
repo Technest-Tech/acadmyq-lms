@@ -121,6 +121,37 @@ describe("PayrollScreen (salary period)", () => {
     expect(within(table).getByText(arMessages.payroll.status.OPEN)).toBeInTheDocument();
   });
 
+  it("puts the transferred switch beside each month's salary, and only on the owner's list", async () => {
+    apiFetch.mockResolvedValue({
+      rows: [
+        {
+          id: "p1",
+          teacher_id: "t1",
+          teacher_name: "Mona Adel",
+          period_month: 10,
+          period_year: 2026,
+          status: "FINALIZED",
+          total_minor: 248000,
+          currency: "EGP",
+          finalized_at: "2026-11-03T00:00:00Z",
+          created_at: "2026-10-01T00:00:00Z",
+          transferred_at: null,
+          transferred_minor: null,
+          transferred_by_name: null,
+          paid_out_minor: 0,
+        },
+      ],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+    renderScreen();
+
+    const switches = await screen.findAllByTestId("transfer-p1");
+    expect(switches.length).toBeGreaterThan(0);
+    expect(screen.getAllByText("10/2026").length).toBeGreaterThan(0);
+  });
+
   it("no longer leads with revenue or student dues — they are not salaries", async () => {
     renderScreen();
     await screen.findByTestId("salary-card-EGP");

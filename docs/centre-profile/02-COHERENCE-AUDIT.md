@@ -1,0 +1,76 @@
+# The centre workspace as one piece — coherence audit
+
+2026-11-04, from the three inventories behind `01-PRIVATE-SUBSCRIPTION-SPLIT.md` plus direct
+reads of the suspects. Question asked: does every screen and section a centre sees serve the
+centre and connect to the rest, or is it a Quran feature that merely shows up, a page with no job,
+or a section nobody needs? Verdicts per surface: **keep**, **fix**, **move**, **hide**, **remove**,
+**missing**.
+
+## 1. Quran features that still show up for a centre
+
+| Surface | What a centre sees | Why it is wrong | Verdict |
+|---|---|---|---|
+| Notifications → "Reports" tab | REPORT_OVERDUE rows: "teacher X has not filed the lesson report" | `FlagOverdueReportsJob` runs for every academy with attended `sessions` and no `session_reports` row; no capability gate found in the job. A centre's private lessons get flagged although the centre never asked teachers for a memorisation-style report | **hide** the tab unless `lesson_report` / `student_reports`; gate the job on the same; same for the REPORT_OVERDUE staff WhatsApp alert |
+| Notifications → "Classes" (cancellation requests) and "Attended classes" | sessions only | Group lessons never appear: a cancelled or held group lesson is invisible here. Half a log | **fix**: group lessons feed both, or the page says "private lessons" |
+| Notifications → "Packages" tab + sidebar badge | package alerts | replaced by the split | **remove** (split, step 3) |
+| Attendance → private tab → "Follow" control | the Supervision "Following" button | `supervision` is OFF in the centre preset but the button is gated by permission only | **hide** when `supervision` is off |
+| Attendance → private tab → lesson-report modal, report archive | free-text lesson report per private lesson | the report machinery the Quran academy lives on; for a centre it is optional at best | **hide** unless `lesson_report` (the structured one) — keep the outcome and WhatsApp message |
+| Teacher profile fact "Rate" (hourly), student profile fact "Rate", students list "Rate" and "Subscription" columns (monthly plan badge, plan label, since) | hourly rate, monthly plan | a centre has no hourly rate and no monthly plan; the group teacher is paid per lesson, the student holds groups + blocks | **fix**: teacher fact = pay type; student fact/column = groups count + open private blocks |
+| Student profile → Subscription tab, under the centre card | hourly terms card, `StudentMonthCard`, monthly-terms form when there is no subscription | Quran billing clock rendered under the centre's own card | **remove** for a centre (split, step 4) |
+| Staff WhatsApp alerts — Supervision group: SESSION_STARTED, SESSION_NOT_MARKED, REPORT_OVERDUE, TRIAL_*; Accounting group: PACKAGE_LOW, PACKAGE_ENDED | alert types list | `GroupAlerts` is gated on `whatsapp.automation` only. For a centre: the "not marked" alert fires for private lessons but never for a group sheet left unmarked; REPORT_OVERDUE is noise; PACKAGE_* goes with the split | **fix**: add GROUP_LESSON_NOT_MARKED; drop REPORT_OVERDUE when `lesson_report` is off; PACKAGE_* → SUBSCRIPTION_* |
+| Enter button, meeting links, punctuality tab | on every lesson, teacher form, teacher profile | right for an online English centre, pure noise for a room-based centre like lingo (every group OFFLINE) | **fix**: one academy setting "online lessons" (default = any ONLINE group or any teacher meeting URL); hide the three behind it |
+| Teacher form "availability" windows | weekly availability editor | used by trial booking and the calendar conflict warning; a centre's teacher time is the group timetable | **keep**, but optional and collapsed for a centre |
+| Parent portal → "Reports" tab | monthly progress reports + lesson reports | both are Quran feeds; a centre's term reports already have their own section above the tabs | **fix**: tab hidden when both feeds are empty; term reports stay |
+
+## 2. Things that exist twice or sit in the wrong place
+
+| What | Where | Problem | Verdict |
+|---|---|---|---|
+| Two timetables | nav "الجدول الأسبوعي" → `/calendar` (mixed feed: sessions + trials + group lessons, month/week/day/list); the real centre timetable (day → hour blocks → group/teacher/room rows, the one lingo asked for) lives under Attendance → Groups tab → "timetable" view, and its own page `/groups/lessons` is hidden from the sidebar | the menu item named "timetable" opens the generic calendar; the centre's timetable board has no menu entry | **move**: "الجدول الأسبوعي" → the timetable board page; the calendar becomes "التقويم" (keep, it is the only place private + group + trial sit together) |
+| Two money reports | `/financial-statistics` (revenue vs payouts chart, profit by teacher, FX) and Accounting ▸ Reports (daily, income, groups profit) | same question answered twice, from different sources (invoices vs receipts) and with different numbers once bills never close | **hide** financial statistics for a centre on `accounting`; the FX card moves to Accounting ▸ Reports if anyone needs it |
+| "Subscriptions" section vs the student's subscriptions card | sidebar section lists private blocks only; the card on the profile lists groups + blocks | the section's name promises both | **fix** (split, step 3): `/subscriptions` with a group-months tab or a one-line pointer to Groups ▸ accounts |
+| Groups ▸ "Group statistics" vs Accounting ▸ Reports ▸ Groups | attendance stats per group / collection + profit per group | fine as two pages, but they do not link to each other | **fix**: cross-link |
+| Settings → "Courses" tab | specializations (= subjects) + levels | the label says courses; for a curriculum centre these are subjects, for an English centre levels are the courses | **fix**: label "المواد والمستويات" for a centre |
+| CRM in "People" | leads pipeline ending in SUBSCRIBED on convert | convert → student form; after the split that is subscription/groups. OK | **keep** |
+| Trials → "حصص تحديد المستوى" | needs a teacher + a time, outcome form, convert | a placement is a real appointment, so the shape fits; the convert wizard must land on subscription + groups (split, step 3) | **keep**, wizard fixed in the split |
+
+## 3. What the block is missing to be one piece
+
+| Gap | Evidence | Verdict |
+|---|---|---|
+| **Rooms are free text** | `class_groups.location` is a string; the room-clash check compares text equality; no `academy_rooms` table; the timetable board groups by that text | **missing**: a rooms list in Settings (name, capacity), `class_groups.room_id`, clash by id, the board's filter by room |
+| **What the classification is called** | `00-OVERVIEW.md` says "a level vs a grade … is an academy setting"; `LevelsManager` has no such setting; the UI says "المستوى" everywhere | **missing**: one setting (level / grade / year) used by every label |
+| **Group defaults** | lesson length, billing mode, monthly lessons, teacher pay mode are typed per group; the spec's defaults questions were never answered | **missing**: Settings → Groups defaults, pre-filling the group form |
+| **Group lesson not marked → nobody told** | overdue sheets exist as an in-app counter only; the WhatsApp staff alert covers private lessons | **missing**: GROUP_LESSON_NOT_MARKED in the Supervision staff group |
+| **Group lessons in the activity logs** | notifications "attended" and "classes" are sessions only | **missing** (see §1) |
+| **Guardian suspend and group lessons** | suspend pauses `schedules`; group lessons keep generating; the roster drops the children and billing skips them | works by accident; **fix** so the children's memberships are paused explicitly (left with reason SUSPENDED, re-joined on resume) |
+| **PER_STUDENT-paid teachers on group lessons** | `GroupPayroll` calls `lessonPayMinor($teacher, null, …)`, so the per-student rate never applies | **fix** |
+| **Level card on the live student profile** | rendered only by the legacy `student-detail.tsx`; the route uses `student-profile.tsx` | **fix** (bug) |
+| **Teacher ↔ group on the teacher page** | teacher profile tabs are Lessons / Calendar / Punctuality / Salary / Reports; the groups a teacher teaches show only through `PersonGroupCard` on the Profile tab | **fix**: a Groups tab (their groups, this week's sheets owed) |
+| **Enrolment request → group** | `/enrolment` books a trial; the placement outcome then converts | fine once the wizard lands on groups; **keep** |
+
+## 4. What is right and should not be touched
+
+- Groups: list, detail (hero, members, lessons, accounts, grades, reports, term, waitlist), timetable
+  board, attendance sheet, substitute, holidays, levels, promotion, assessments, term reports,
+  certificate handoff, absence alert, parent portal groups section. This is the centre's spine and
+  it hangs together.
+- Accounting: overview, arrears, treasury, receipts, expenses, daily closing, income, group
+  collection + profit, family account with discounts / renewal policy / settlement, quick bills,
+  family pay link, XPay. Centre-native, one money model, used by every charge writer.
+- Payroll with the blocks view, teacher pay types, corrections after the seal.
+- Attendance → Groups tab opening first; overdue private lessons board; calendar with the three feeds.
+- Admissions: enrolment form, placement lessons, CRM convert — one funnel into the student form.
+- The look (centre-look.css, Almarai, violet, Latin digits), the dashboard, the phone bottom bar.
+- Everything the preset switches off (supervision, teacher rubric, memorisation report, report card)
+  is both hidden and refused by the server.
+
+## 5. Order (after the split's steps 1–4, before step 5)
+
+1. Hide the Quran feeds: Reports tab + job gate, Follow control, lesson-report modal, financial
+   statistics, parent-portal Reports tab. Each pinned by a shell / page test with `centre` on and off.
+2. Timetable to the menu; calendar renamed.
+3. Rooms list + classification label + group defaults (three small settings cards).
+4. Group lessons into the two logs and the staff alert; suspend pauses memberships; PER_STUDENT
+   pay on group lessons; teacher Groups tab; level card on the live profile.
+5. The "online lessons" setting and the three surfaces behind it.

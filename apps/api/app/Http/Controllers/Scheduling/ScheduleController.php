@@ -126,9 +126,17 @@ final class ScheduleController extends Controller
         $slots = DB::table('schedule_slots')
             ->where('schedule_id', $schedule->id)
             ->orderBy('weekday')->orderBy('start_time_local')
-            ->get(['id', 'weekday', 'start_time_local', 'duration_minutes']);
+            ->get(['id', 'weekday', 'start_time_local', 'duration_minutes', 'course']);
 
-        return response()->json(['schedule' => $schedule, 'slots' => $slots, 'lesson_minutes' => $lessonMinutes]);
+        return response()->json([
+            'schedule' => $schedule,
+            'slots' => $slots,
+            'lesson_minutes' => $lessonMinutes,
+            // With two subjects open under this teacher, each slot says which one it is.
+            'subjects' => DB::table('lesson_packages')
+                ->where('student_id', $studentId)->where('teacher_id', $schedule->teacher_id)->where('status', 'ACTIVE')
+                ->orderBy('sequence_no')->pluck('course')->filter()->values(),
+        ]);
     }
 
     /**
@@ -344,6 +352,14 @@ final class ScheduleController extends Controller
                     DB::table('schedule_slots')->where('id', $currentByKey[$k]->id)
                         ->update(['duration_minutes' => $slot['duration_minutes'], 'updated_at' => now()]);
                 }
+                // Absent from the request = left as it is: only the form that shows it sends it.
+                if (array_key_exists('course', $slot) && $this->slotCourse($slot) !== $currentByKey[$k]->course) {
+                    DB::table('schedule_slots')->where('id', $currentByKey[$k]->id)
+                        ->update(['course' => $this->slotCourse($slot), 'updated_at' => now()]);
+                    // Its lessons not marked yet follow; one already marked stays on its block.
+                    DB::table('sessions')->where('slot_id', $currentByKey[$k]->id)->where('status', 'SCHEDULED')
+                        ->update(['course' => $this->slotCourse($slot), 'updated_at' => now()]);
+                }
 
                 continue;
             }
@@ -354,8 +370,17 @@ final class ScheduleController extends Controller
                 'weekday' => $slot['weekday'],
                 'start_time_local' => $this->normaliseTime($slot['start_time_local']),
                 'duration_minutes' => $slot['duration_minutes'],
+                'course' => $this->slotCourse($slot),
             ]);
         }
+    }
+
+    /** @param  array<string,mixed>  $slot */
+    private function slotCourse(array $slot): ?string
+    {
+        $course = trim((string) ($slot['course'] ?? ''));
+
+        return $course !== '' ? $course : null;
     }
 
     /**
@@ -485,6 +510,7 @@ final class ScheduleController extends Controller
             'slots.*.weekday' => ['required', 'integer', 'between:'.self::WEEKDAY_MIN.','.self::WEEKDAY_MAX],
             'slots.*.start_time_local' => ['required', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
             'slots.*.duration_minutes' => ['required', 'integer', 'min:1', 'max:600'],
+            'slots.*.course' => ['sometimes', 'nullable', 'string', 'max:80'],
         ]);
     }
 }

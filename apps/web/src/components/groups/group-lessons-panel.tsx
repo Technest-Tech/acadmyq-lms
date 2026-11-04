@@ -3,9 +3,11 @@
 import {
   AlertTriangle,
   Ban,
+  CalendarClock,
   CalendarPlus,
   ClipboardCheck,
   Ellipsis,
+  History,
   MoveRight,
   RotateCcw,
   UserRoundCog,
@@ -25,6 +27,7 @@ import {
   needsMarking,
   todayIn,
 } from "@/components/groups/group-format";
+import { DateTile, SectionCard, SoftBadge, type PastelTone } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,7 +46,9 @@ import {
   type GroupDetail,
   type GroupLesson,
 } from "@/lib/groups-api";
+import { useCentreLook } from "@/lib/capabilities";
 import { HOLIDAY_REASON } from "@/lib/holidays-api";
+import { numeralLocale } from "@/lib/numerals";
 import { cn } from "@/lib/utils";
 
 type ModalState =
@@ -57,6 +62,7 @@ type ModalState =
 
 /** Upcoming lessons shown before "show all". */
 const UPCOMING_PREVIEW = 6;
+const STATUS_TILE: Record<GroupLesson["status"], PastelTone> = { SCHEDULED: "violet", HELD: "emerald", CANCELLED: "slate" };
 
 /**
  * A group's lessons, in the order the academy acts on them: the sheets still owed (red), what is
@@ -70,6 +76,8 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
   const canMark = can("session.mark_attendance");
   const canManage = can("group.manage");
   const canRevert = can("session.revert_attendance");
+  const look = useCentreLook();
+  const [showAllPast, setShowAllPast] = useState(false);
 
   const [lessons, setLessons] = useState<GroupLesson[]>([]);
   const [loading, setLoading] = useState(true);
@@ -161,16 +169,28 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
     return (
       <li
         key={lesson.id}
-        className={cn("flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between", overdue && "bg-rose-500/[0.04]")}
+        className={cn(
+          "flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between",
+          look && "hover:bg-muted/40 gap-3 px-4 transition-colors sm:px-5",
+          overdue && "bg-rose-500/[0.04]",
+        )}
         data-testid={`lesson-${lesson.id}`}
       >
-        <div className="min-w-0">
-          <p className="flex flex-wrap items-center gap-2 font-medium">
+        <div className={cn("min-w-0", look && "flex items-center gap-3")}>
+          {look && <DateTile iso={lesson.scheduled_at_utc} timeZone={group.timezone} locale={locale} tone={overdue ? "rose" : STATUS_TILE[lesson.status]} />}
+          <div className="min-w-0">
+          <p className={cn("flex flex-wrap items-center gap-2 font-medium", look && "font-bold")}>
             <span>
-              {lessonDate(lesson.scheduled_at_utc, group.timezone, locale)} ·{" "}
+              {look ? (
+                <>
+                  {new Intl.DateTimeFormat(numeralLocale(locale), { timeZone: group.timezone, weekday: "long" }).format(new Date(lesson.scheduled_at_utc))} ·{" "}
+                </>
+              ) : (
+                <>{lessonDate(lesson.scheduled_at_utc, group.timezone, locale)} · </>
+              )}
               {lessonTime(lesson.scheduled_at_utc, group.timezone, locale)}
             </span>
-            <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", tone)}>
+            <span className={cn("rounded-full border px-2 py-0.5 text-xs font-medium", tone, look && "border-transparent font-bold")}>
               {overdue ? t("lessonStatus.OVERDUE") : t(`lessonStatus.${lesson.status}`)}
             </span>
             {lesson.extra && <span className="text-muted-foreground text-xs">{t("lessons.extra")}</span>}
@@ -187,18 +207,36 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
             {lesson.status === "CANCELLED" && lesson.cancel_reason && lesson.cancel_reason !== HOLIDAY_REASON ? ` · ${lesson.cancel_reason}` : ""}
             {lesson.status === "HELD" && lesson.topic ? ` · ${lesson.topic}` : ""}
           </p>
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {c && lesson.status === "HELD" && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {look && c && lesson.status === "HELD" && (
+            <span className="flex items-center gap-1" title={t("lessons.countsTitle")}>
+              <SoftBadge tone="emerald" className="tabular-nums">
+                <span dir="ltr">
+                  {c.present + c.late} / {c.expected}
+                </span>
+              </SoftBadge>
+              {c.absent > 0 && (
+                <SoftBadge tone="rose" className="tabular-nums">
+                  <span dir="ltr">−{c.absent}</span>
+                </SoftBadge>
+              )}
+            </span>
+          )}
+          {!look && c && lesson.status === "HELD" && (
             <span className="text-sm tabular-nums" title={t("lessons.countsTitle")}>
               <strong className="text-emerald-600 dark:text-emerald-400">{c.present + c.late}</strong>
               <span className="text-muted-foreground"> / {c.expected}</span>
               {c.absent > 0 && <span className="ms-2 text-rose-600 dark:text-rose-400">−{c.absent}</span>}
             </span>
           )}
-          {c && lesson.status === "SCHEDULED" && (
-            <span className="text-muted-foreground text-xs">{t("students", { count: c.expected })}</span>
-          )}
+          {c && lesson.status === "SCHEDULED" &&
+            (look ? (
+              <SoftBadge tone="slate">{t("students", { count: c.expected })}</SoftBadge>
+            ) : (
+              <span className="text-muted-foreground text-xs">{t("students", { count: c.expected })}</span>
+            ))}
           {/* A sheet the office saved is read-only for the teacher (the API refuses too). */}
           {canMark && lesson.status !== "CANCELLED" && !lesson.outcome_locked && (
             <Button
@@ -240,62 +278,119 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
   }
 
   const visibleUpcoming = showAllUpcoming ? upcoming : upcoming.slice(0, UPCOMING_PREVIEW);
+  const visiblePast = showAllPast ? past : past.slice(0, UPCOMING_PREVIEW);
+  const addExtra = canManage && group.status === "ACTIVE" && (
+    <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setModal({ kind: "extra" })}>
+      <CalendarPlus className="size-3.5" />
+      {t("lessons.addExtra")}
+    </Button>
+  );
 
   return (
     <div className="space-y-4">
       {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
 
-      {canManage && group.status === "ACTIVE" && (
-        <div className="flex justify-end">
-          <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setModal({ kind: "extra" })}>
-            <CalendarPlus className="size-3.5" />
-            {t("lessons.addExtra")}
-          </Button>
-        </div>
-      )}
+      {look ? (
+        loading && lessons.length === 0 ? (
+          <div className="bg-muted h-64 animate-pulse rounded-2xl" aria-label={t("loading")} />
+        ) : (
+          <>
+            {owed.length > 0 && (
+              <SectionCard icon={AlertTriangle} tone="rose" title={t("lessons.owed", { count: owed.length })} flush>
+                <ul className="divide-y" data-testid="lessons-owed">
+                  {owed.map(renderRow)}
+                </ul>
+              </SectionCard>
+            )}
 
-      {loading && lessons.length === 0 ? (
-        <p className="text-muted-foreground py-8 text-center text-sm">{t("loading")}</p>
+            <SectionCard icon={CalendarClock} tone="violet" title={t("lessons.upcoming")} count={upcoming.length} action={addExtra} flush>
+              {upcoming.length === 0 ? (
+                <p className="text-muted-foreground p-8 text-center text-sm">{t("lessons.noUpcoming")}</p>
+              ) : (
+                <ul className="divide-y" data-testid="lessons-upcoming">
+                  {visibleUpcoming.map(renderRow)}
+                </ul>
+              )}
+              {upcoming.length > UPCOMING_PREVIEW && (
+                <div className="border-t p-2 text-center">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowAllUpcoming((v) => !v)}>
+                    {showAllUpcoming ? t("lessons.showLess") : t("lessons.showAll", { count: upcoming.length })}
+                  </Button>
+                </div>
+              )}
+            </SectionCard>
+
+            {past.length > 0 && (
+              <SectionCard icon={History} tone="slate" title={t("lessons.past")} count={past.length} flush>
+                <ul className="divide-y" data-testid="lessons-past">
+                  {visiblePast.map(renderRow)}
+                </ul>
+                {past.length > UPCOMING_PREVIEW && (
+                  <div className="border-t p-2 text-center">
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setShowAllPast((v) => !v)}>
+                      {showAllPast ? t("lessons.showLess") : t("lessons.showAll", { count: past.length })}
+                    </Button>
+                  </div>
+                )}
+              </SectionCard>
+            )}
+          </>
+        )
       ) : (
         <>
-          {owed.length > 0 && (
-            <section className="space-y-2">
-              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-rose-700 dark:text-rose-300">
-                <AlertTriangle className="size-4" />
-                {t("lessons.owed", { count: owed.length })}
-              </h3>
-              <ul className="divide-y overflow-hidden rounded-xl border border-rose-500/30" data-testid="lessons-owed">
-                {owed.map(renderRow)}
-              </ul>
-            </section>
+          {canManage && group.status === "ACTIVE" && (
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setModal({ kind: "extra" })}>
+                <CalendarPlus className="size-3.5" />
+                {t("lessons.addExtra")}
+              </Button>
+            </div>
           )}
 
-          <section className="space-y-2">
-            <h3 className="text-sm font-semibold">{t("lessons.upcoming")}</h3>
-            {upcoming.length === 0 ? (
-              <p className="text-muted-foreground rounded-xl border border-dashed p-4 text-center text-sm">
-                {t("lessons.noUpcoming")}
-              </p>
-            ) : (
-              <ul className="divide-y overflow-hidden rounded-xl border" data-testid="lessons-upcoming">
-                {visibleUpcoming.map(renderRow)}
-              </ul>
-            )}
-            {upcoming.length > UPCOMING_PREVIEW && (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setShowAllUpcoming((v) => !v)}>
-                {showAllUpcoming ? t("lessons.showLess") : t("lessons.showAll", { count: upcoming.length })}
-              </Button>
-            )}
-          </section>
+          {loading && lessons.length === 0 ? (
+            <p className="text-muted-foreground py-8 text-center text-sm">{t("loading")}</p>
+          ) : (
+            <>
+              {owed.length > 0 && (
+                <section className="space-y-2">
+                  <h3 className="flex items-center gap-1.5 text-sm font-semibold text-rose-700 dark:text-rose-300">
+                    <AlertTriangle className="size-4" />
+                    {t("lessons.owed", { count: owed.length })}
+                  </h3>
+                  <ul className="divide-y overflow-hidden rounded-xl border border-rose-500/30" data-testid="lessons-owed">
+                    {owed.map(renderRow)}
+                  </ul>
+                </section>
+              )}
 
-          {past.length > 0 && (
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold">{t("lessons.past")}</h3>
-              <ul className="divide-y overflow-hidden rounded-xl border" data-testid="lessons-past">
-                {past.map(renderRow)}
-              </ul>
-            </section>
+              <section className="space-y-2">
+                <h3 className="text-sm font-semibold">{t("lessons.upcoming")}</h3>
+                {upcoming.length === 0 ? (
+                  <p className="text-muted-foreground rounded-xl border border-dashed p-4 text-center text-sm">
+                    {t("lessons.noUpcoming")}
+                  </p>
+                ) : (
+                  <ul className="divide-y overflow-hidden rounded-xl border" data-testid="lessons-upcoming">
+                    {visibleUpcoming.map(renderRow)}
+                  </ul>
+                )}
+                {upcoming.length > UPCOMING_PREVIEW && (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowAllUpcoming((v) => !v)}>
+                    {showAllUpcoming ? t("lessons.showLess") : t("lessons.showAll", { count: upcoming.length })}
+                  </Button>
+                )}
+              </section>
+
+              {past.length > 0 && (
+                <section className="space-y-2">
+                  <h3 className="text-sm font-semibold">{t("lessons.past")}</h3>
+                  <ul className="divide-y overflow-hidden rounded-xl border" data-testid="lessons-past">
+                    {past.map(renderRow)}
+                  </ul>
+                </section>
+              )}
+            </>
           )}
         </>
       )}

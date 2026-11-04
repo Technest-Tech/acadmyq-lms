@@ -72,7 +72,7 @@ export function ProfileCard({
   return (
     <section
       className={cn(
-        "bg-card flex flex-col overflow-hidden rounded-2xl border shadow-sm",
+        "centre-surface bg-card flex flex-col overflow-hidden rounded-2xl border shadow-sm",
         className,
       )}
       data-testid={testId}
@@ -80,7 +80,7 @@ export function ProfileCard({
       <div className="relative border-b">
         <div
           className={cn(
-            "flex items-center gap-3 bg-gradient-to-r to-transparent px-5 py-3.5",
+            "profile-card__head flex items-center gap-3 bg-gradient-to-r to-transparent px-5 py-3.5",
             c.wash,
           )}
         >
@@ -138,7 +138,7 @@ export function FactCard({
   return (
     <div
       className={cn(
-        "bg-card flex items-start gap-3 rounded-xl border p-3.5 shadow-sm",
+        "fact-card centre-surface bg-card flex items-start gap-3 rounded-xl border p-3.5 shadow-sm",
         "bg-gradient-to-br to-transparent",
         c.wash,
       )}

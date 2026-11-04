@@ -943,6 +943,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // the week's attendance, running groups and the subscriptions about to run out. Behind the
     // centre switch — a Quran academy keeps its own dashboard and never calls this.
     Route::middleware('entitled:centre')->get('/dashboard/centre', [CentreDashboardController::class, 'show']);
+    Route::middleware('entitled:centre')->get('/dashboard/centre/trend', [CentreDashboardController::class, 'trend']);
 
     // ── Levels / grades (docs/centre-profile, Phase 2.1) ─────────────────────────────────────
     // The academy's own ordered list of levels (Settings, specialization.manage to change), the
@@ -1431,6 +1432,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::get('/payouts/recalc-preview', [PayoutController::class, 'recalcPreview']);
         Route::get('/payouts/{id}', [PayoutController::class, 'show']);
         Route::delete('/payouts/{id}', [PayoutController::class, 'destroy'])->whereUuid('id');
+        Route::patch('/payouts/{id}/transfer', [PayoutController::class, 'markTransfer'])->whereUuid('id');
         Route::post('/payouts/{id}/adjustments', [PayoutController::class, 'addAdjustment']);
         Route::delete('/payouts/{id}/adjustments/{adjustmentId}', [PayoutController::class, 'removeAdjustment']);
         Route::post('/payouts/{id}/reprice', [PayoutController::class, 'reprice']);

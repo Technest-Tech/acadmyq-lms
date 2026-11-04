@@ -28,7 +28,7 @@ export interface CommandItem {
  * caller passes in are searchable, so the palette inherits the sidebar's permission and entitlement
  * gating for free — a feature switched off for this client is not in the list at all.
  */
-export function CommandPalette({ items }: { items: CommandItem[] }) {
+export function CommandPalette({ items, variant }: { items: CommandItem[]; variant?: "bar" }) {
   const t = useTranslations();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -100,14 +100,25 @@ export function CommandPalette({ items }: { items: CommandItem[] }) {
         type="button"
         onClick={() => setOpen(true)}
         data-testid="command-trigger"
-        className="text-muted-foreground hover:bg-muted hover:border-border focus-visible:ring-ring/50 border-border/70 bg-muted/40 flex h-8 items-center gap-2 rounded-lg border px-2.5 transition-colors outline-none focus-visible:ring-2 md:w-64"
+        className={
+          variant === "bar"
+            ? "text-muted-foreground hover:border-primary/30 focus-visible:ring-ring/50 border-border bg-card flex size-10 items-center justify-center rounded-xl border transition-colors outline-none focus-visible:ring-2 md:h-11 md:w-full md:justify-start md:gap-2.5 md:px-4"
+            : "text-muted-foreground hover:bg-muted hover:border-border focus-visible:ring-ring/50 border-border/70 bg-muted/40 flex h-8 items-center gap-2 rounded-lg border px-2.5 transition-colors outline-none focus-visible:ring-2 md:w-64"
+        }
       >
-        <Search className="size-3.5 shrink-0" aria-hidden />
-        <span className="hidden flex-1 text-start text-[13px] md:block">
+        <Search className={variant === "bar" ? "size-5 shrink-0" : "size-3.5 shrink-0"} aria-hidden />
+        <span className={variant === "bar" ? "hidden flex-1 truncate text-start text-sm md:block" : "hidden flex-1 text-start text-[13px] md:block"}>
           {t("command.placeholder")}
         </span>
-        <kbd className="border-border bg-background text-muted-foreground/70 hidden rounded border px-1.5 py-0.5 font-sans text-[10px] font-medium md:block">
-          ⌘K
+        <kbd
+          dir="ltr"
+          className={
+            variant === "bar"
+              ? "border-border bg-muted text-muted-foreground hidden shrink-0 rounded-lg border px-2 py-1 font-sans text-xs font-semibold md:block"
+              : "border-border bg-background text-muted-foreground/70 hidden rounded border px-1.5 py-0.5 font-sans text-[10px] font-medium md:block"
+          }
+        >
+          {variant === "bar" ? "Ctrl + K" : "⌘K"}
         </kbd>
       </button>
 

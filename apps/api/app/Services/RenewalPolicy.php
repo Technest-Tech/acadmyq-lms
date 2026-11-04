@@ -80,9 +80,11 @@ final class RenewalPolicy
      * subject's teacher, or the untied blocks when null: every package an academy that never ties
      * one has).
      */
-    public static function packagesOwe(string $studentId, ?string $teacherId = null): bool
+    public static function packagesOwe(string $studentId, ?string $teacherId = null, ?string $courseKey = null): bool
     {
         return LessonPackages::inScope(DB::table('lesson_packages as p'), $teacherId, 'p.teacher_id')
+            // Under one teacher, two subjects owe apart. Null asks about all of the teacher's.
+            ->when($courseKey !== null, fn ($q) => $q->whereRaw("lower(trim(coalesce(p.course, ''))) = ?", [$courseKey]))
             ->join('invoices as i', 'i.id', '=', 'p.invoice_id')
             ->where('p.student_id', $studentId)
             ->where('i.status', '<>', 'VOID')

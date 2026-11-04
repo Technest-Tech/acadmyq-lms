@@ -68,3 +68,29 @@ export function applyWorkspaceTheme(centre: boolean): void {
     applyBranding(loadBranding());
   }
 }
+
+/** The last workspace this browser opened, so a reload paints in its colours before /auth/me answers. */
+const WORKSPACE_KEY = "acq.workspace";
+
+export function rememberWorkspace(centre: boolean): void {
+  try {
+    if (centre) localStorage.setItem(WORKSPACE_KEY, "centre");
+    else localStorage.removeItem(WORKSPACE_KEY);
+  } catch {
+    // Private mode or blocked storage: the first frame falls back to the default colours.
+  }
+}
+
+export function rememberedCentre(): boolean {
+  try {
+    return localStorage.getItem(WORKSPACE_KEY) === "centre";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Runs in <body> ahead of the shell's HTML on a hard load, so a centre's loading screen is violet
+ * from the first frame instead of flashing the default green while the session is fetched.
+ */
+export const WORKSPACE_INIT_SCRIPT = `try{if(localStorage.getItem("${WORKSPACE_KEY}")==="centre")document.documentElement.dataset.profile="centre"}catch(e){}`;

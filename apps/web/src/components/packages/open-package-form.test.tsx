@@ -308,6 +308,7 @@ describe("OpenPackageForm — a centre sells one subscription per subject", () =
       { teacher_id: "t-eng", teacher_name: "Mr Ali", course: "English" },
     ],
     open_subjects: ["t-maths"],
+    open_blocks: [{ teacher_id: "t-maths", course: "Maths" }],
   };
 
   it("offers the student's subjects, starts on the free one, and ties the subscription to its teacher", async () => {
@@ -317,12 +318,12 @@ describe("OpenPackageForm — a centre sells one subscription per subject", () =
     await pickStudent("Layla");
 
     const subject = screen.getByTestId("package-subject");
-    expect(subject).toHaveValue("t-eng");
+    expect(subject).toHaveValue("t-eng::english");
     expect(screen.queryByTestId("package-already-open")).toBeNull();
     // Maths already has one: picking it says so and blocks the save.
-    await userEvent.selectOptions(subject, "t-maths");
+    await userEvent.selectOptions(subject, "t-maths::maths");
     expect(screen.getByTestId("package-already-open").textContent).toContain(arMessages.packages.form.alreadyOpenSubject);
-    await userEvent.selectOptions(subject, "t-eng");
+    await userEvent.selectOptions(subject, "t-eng::english");
 
     await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "8");
     await userEvent.type(screen.getByTestId("pkg-lesson-unit-price"), "100");
@@ -344,7 +345,7 @@ describe("OpenPackageForm — a centre sells one subscription per subject", () =
       render(withAuth(centreSession(), <OpenPackageForm onSaved={onSaved} onCancel={() => {}} />));
       await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
       await pickStudent("Layla");
-      await userEvent.selectOptions(screen.getByTestId("package-subject"), "t-maths");
+      await userEvent.selectOptions(screen.getByTestId("package-subject"), "t-maths::maths");
       return onSaved;
     }
 
@@ -379,7 +380,7 @@ describe("OpenPackageForm — a centre sells one subscription per subject", () =
       render(withAuth(centreSession(), <OpenPackageForm onSaved={() => {}} onCancel={() => {}} />));
       await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
       await pickStudent("Layla");
-      await userEvent.selectOptions(screen.getByTestId("package-subject"), "t-maths");
+      await userEvent.selectOptions(screen.getByTestId("package-subject"), "t-maths::maths");
       await waitFor(() => expect(listLessonPackages).toHaveBeenCalled());
       expect(screen.queryByTestId("package-add-lessons")).toBeNull();
     });
@@ -398,6 +399,37 @@ describe("OpenPackageForm — a centre sells one subscription per subject", () =
 
     await userEvent.selectOptions(unit, "60");
     expect(screen.getByTestId("package-length-differs")).toBeInTheDocument();
+  });
+
+  it("sells a second subject with a teacher who already has one open, and says to set the timetable", async () => {
+    const onSaved = vi.fn();
+    listPackageStudents.mockResolvedValue({ students: [LAYLA] });
+    listTeachers.mockResolvedValue({ rows: [{ id: "t-maths", full_name: "Ms Rahma" }], total: 1, page: 1, pageSize: 200 });
+    render(withAuth(centreSession(), <OpenPackageForm onSaved={onSaved} onCancel={() => {}} />));
+    await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
+    await pickStudent("Layla");
+
+    await userEvent.selectOptions(screen.getByTestId("package-subject"), "__new__");
+    const teacher = screen.getByTestId("package-new-teacher");
+    await waitFor(() => expect(within(teacher).getByRole("option", { name: "Ms Rahma" })).toBeInTheDocument());
+    await userEvent.selectOptions(teacher, "t-maths");
+
+    // The same subject again is still refused…
+    await userEvent.type(screen.getByTestId("package-new-course"), "maths");
+    expect(screen.getByTestId("package-already-open")).toBeInTheDocument();
+
+    // …another one with the same teacher is not.
+    await userEvent.clear(screen.getByTestId("package-new-course"));
+    await userEvent.type(screen.getByTestId("package-new-course"), "Science");
+    expect(screen.queryByTestId("package-already-open")).toBeNull();
+
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "8");
+    await userEvent.type(screen.getByTestId("pkg-lesson-unit-price"), "100");
+    await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.open }));
+
+    await waitFor(() => expect(openLessonPackage).toHaveBeenCalledWith(expect.objectContaining({ teacher_id: "t-maths", course: "Science", hours: 8 })));
+    expect(openLessonPackage.mock.calls.at(-1)?.[0]).not.toHaveProperty("new_subject");
+    await waitFor(() => expect(onSaved.mock.calls[0]?.[0]).toContain(arMessages.packages.alerts.secondSubjectHint));
   });
 
   it("shows no subject picker to an academy that is not a centre", async () => {

@@ -158,6 +158,9 @@ export function ScheduleSection({
   const [confirmingImpact, setConfirmingImpact] = useState(false);
   // The length this student's price assumes. A new day starts from it, and a day that differs says so.
   const [pricedMinutes, setPricedMinutes] = useState<number | null>(null);
+  // The subjects open under this teacher: with two, each slot says which one its lessons are for.
+  const [subjects, setSubjects] = useState<string[]>([]);
+  const pickSubject = subjects.length >= 2;
 
   const weekdayOptions = useMemo(
     () =>
@@ -187,11 +190,13 @@ export function ScheduleSection({
       setSavedStart(saved);
       setStartDate(saved ?? todayLocal());
       setPricedMinutes(res.lesson_minutes ?? null);
+      setSubjects(res.subjects ?? []);
       setConfirmingBackfill(false);
       const loadedSlots = res.slots.map((s) => ({
         weekday: s.weekday,
         start_time_local: hhmm(s.start_time_local),
         duration_minutes: s.duration_minutes,
+        course: s.course ?? null,
       }));
       setSlots(loadedSlots);
       setSavedSlots(loadedSlots);
@@ -272,6 +277,7 @@ export function ScheduleSection({
           weekday: s.weekday,
           start_time_local: s.start_time_local,
           duration_minutes: s.duration_minutes,
+          ...(pickSubject ? { course: s.course ?? null } : {}),
         })),
       });
       setNotice(
@@ -431,6 +437,29 @@ export function ScheduleSection({
                     />
                   </div>
 
+                  {pickSubject && (
+                    <div className="space-y-1 sm:order-last sm:col-span-4">
+                      <label htmlFor={`slot-subject-${i}`} className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+                        {t("slotSubject")}
+                      </label>
+                      <select
+                        id={`slot-subject-${i}`}
+                        className={cn(fieldClass, "w-full px-3 py-2")}
+                        value={s.course ?? ""}
+                        disabled={!canManage}
+                        onChange={(e) => update(i, { course: e.target.value || null })}
+                        data-testid={`slot-subject-${i}`}
+                      >
+                        <option value="">{t("slotSubjectNone")}</option>
+                        {(s.course && !subjects.includes(s.course) ? [s.course, ...subjects] : subjects).map((course) => (
+                          <option key={course} value={course}>
+                            {course}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
                   {canManage ? (
                     <button
                       type="button"
@@ -450,6 +479,11 @@ export function ScheduleSection({
             </div>
           )}
 
+          {pickSubject && slots.length > 0 && (
+            <p className="text-muted-foreground text-xs" data-testid="slot-subject-hint">
+              {t("slotSubjectHint")}
+            </p>
+          )}
           <LessonLengthWarning priced={pricedMinutes} slots={slots} />
 
           {canManage && (

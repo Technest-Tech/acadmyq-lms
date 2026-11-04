@@ -27,7 +27,7 @@ export function CollectQuickAction() {
         type="button"
         onClick={() => setPicking(true)}
         data-testid="header-collect"
-        className="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold shadow-sm transition-colors outline-none focus-visible:ring-2"
+        className="collect-quick-action bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold shadow-sm transition-colors outline-none focus-visible:ring-2"
       >
         <Wallet className="size-4" aria-hidden />
         <span className="hidden sm:inline">{t("quickCollect")}</span>

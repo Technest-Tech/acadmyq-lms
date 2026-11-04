@@ -1,0 +1,466 @@
+/*
+ * THE LEARNING CENTRE'S LOOK. Everything here hangs off `html[data-profile="centre"]`, set by the
+ * app shell from the session's academy.profile, so a Quran academy never matches a single rule and
+ * renders exactly what it always did. On <html> rather than a wrapper because modals, tooltips and
+ * menus portal to <body>.
+ *
+ * A white card on a faint lavender ground under a deep violet sidebar: big bold numbers, pastel icon
+ * tiles, soft shadows, and none of the Quran academy's khatam lattice or gold. Tokens first, then
+ * the shared kit (the page band, the tiles, the panels, the tables) so every screen follows without
+ * being rewritten. Unlayered on purpose: it has to beat Tailwind's layered utilities.
+ */
+html[data-profile="centre"] {
+  --font-sans: var(--font-centre), ui-sans-serif, system-ui, sans-serif;
+
+  --background: oklch(0.982 0.006 292);
+  --foreground: oklch(0.22 0.045 285);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.045 285);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.045 285);
+  --primary: oklch(0.5 0.21 292);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.96 0.014 292);
+  --secondary-foreground: oklch(0.28 0.05 285);
+  --muted: oklch(0.965 0.01 292);
+  --muted-foreground: oklch(0.47 0.03 285);
+  --accent: oklch(0.96 0.014 292);
+  --accent-foreground: oklch(0.28 0.05 285);
+  --border: oklch(0.93 0.012 292);
+  --input: oklch(0.91 0.014 292);
+  --ring: oklch(0.5 0.21 292);
+  --chart-1: oklch(0.5 0.21 292);
+  --chart-2: oklch(0.65 0.15 240);
+
+  /* Every gold thread in the shared kit follows the palette, so none of it stays gold. */
+  --gold: oklch(0.72 0.12 292);
+  --gold-foreground: oklch(0.25 0.07 292);
+
+  --sidebar: oklch(0.2 0.07 283);
+  --sidebar-foreground: oklch(0.95 0.012 285);
+  --sidebar-primary: oklch(0.5 0.21 292);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(1 0 0 / 8%);
+  --sidebar-accent-foreground: oklch(1 0 0);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.7 0.15 292);
+
+  --hero-gradient: linear-gradient(270deg, oklch(0.955 0.022 292) 0%, oklch(0.925 0.04 292) 52%, oklch(0.83 0.09 292) 100%);
+  --hero-foreground: oklch(0.2 0.05 285);
+  --hero-muted: oklch(0.38 0.05 285);
+  --hero-border: oklch(0.9 0.03 292);
+
+  --card-shadow: 0 1px 2px oklch(0.3 0.06 285 / 4%), 0 10px 28px -14px oklch(0.3 0.09 285 / 14%);
+  --primary-gradient: linear-gradient(135deg, oklch(0.56 0.2 292), oklch(0.46 0.21 288));
+
+  /* One step up across the product: the small print is what people here were squinting at. */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.35;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.45;
+}
+
+html[dir="ltr"][data-profile="centre"] {
+  --hero-gradient: linear-gradient(90deg, oklch(0.955 0.022 292) 0%, oklch(0.925 0.04 292) 52%, oklch(0.83 0.09 292) 100%);
+}
+
+html.dark[data-profile="centre"] {
+  --background: oklch(0.15 0.025 285);
+  --foreground: oklch(0.96 0.006 285);
+  --card: oklch(0.205 0.032 285);
+  --card-foreground: oklch(0.96 0.006 285);
+  --popover: oklch(0.205 0.032 285);
+  --popover-foreground: oklch(0.96 0.006 285);
+  --primary: oklch(0.6 0.19 292);
+  --secondary: oklch(0.27 0.035 285);
+  --secondary-foreground: oklch(0.96 0.006 285);
+  --muted: oklch(0.27 0.035 285);
+  --muted-foreground: oklch(0.75 0.02 285);
+  --accent: oklch(0.27 0.035 285);
+  --accent-foreground: oklch(0.96 0.006 285);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.6 0.19 292);
+  --chart-1: oklch(0.68 0.17 292);
+  --sidebar: oklch(0.17 0.05 285);
+  --sidebar-primary: oklch(0.56 0.19 292);
+  --hero-gradient: linear-gradient(270deg, oklch(0.27 0.06 292) 0%, oklch(0.32 0.09 292) 55%, oklch(0.42 0.14 292) 100%);
+  --hero-foreground: oklch(0.97 0.006 285);
+  --hero-muted: oklch(0.84 0.03 285);
+  --hero-border: oklch(1 0 0 / 10%);
+  --card-shadow: 0 1px 2px oklch(0 0 0 / 30%);
+}
+
+html.dark[dir="ltr"][data-profile="centre"] {
+  --hero-gradient: linear-gradient(90deg, oklch(0.27 0.06 292) 0%, oklch(0.32 0.09 292) 55%, oklch(0.42 0.14 292) 100%);
+}
+
+/* ── What belongs to the Quran academy's identity ───────────────────────────────────────── */
+html[data-profile="centre"] .ornament,
+html[data-profile="centre"] svg.text-gold\/60,
+html[data-profile="centre"] svg.text-gold\/50 {
+  display: none;
+}
+
+/* The hairlines are positioned spans and one table row: emptied, not removed, so no row collapses. */
+html[data-profile="centre"] [class*="via-gold"] {
+  background-image: none;
+}
+
+/* ── Scrollbars: thin and quiet ─────────────────────────────────────────────────────────── */
+html[data-profile="centre"] *,
+html[data-profile="centre"] .scroll-ornate {
+  scrollbar-color: oklch(0.86 0.02 285) transparent;
+}
+
+html.dark[data-profile="centre"] *,
+html.dark[data-profile="centre"] .scroll-ornate {
+  scrollbar-color: oklch(1 0 0 / 20%) transparent;
+}
+
+html[data-profile="centre"] [data-testid="sidebar"],
+html[data-profile="centre"] [data-testid="sidebar"] * {
+  scrollbar-color: oklch(1 0 0 / 18%) transparent;
+}
+
+/* ── Surfaces ───────────────────────────────────────────────────────────────────────────── */
+html[data-profile="centre"] .centre-surface,
+html[data-profile="centre"] [data-slot="card"] {
+  border-color: color-mix(in oklab, var(--border) 70%, transparent);
+  border-radius: 1.125rem;
+  box-shadow: var(--card-shadow);
+}
+
+/* Every panel in the product is the same soft white card, whichever screen drew it. */
+html[data-profile="centre"] .bg-card.border[class*="rounded-"]:not(input, select, textarea, button, a) {
+  border-color: color-mix(in oklab, var(--border) 70%, transparent);
+  box-shadow: var(--card-shadow);
+}
+
+html[data-profile="centre"] .bg-card[class*="bg-gradient-to-"] {
+  background-image: none;
+}
+
+/* A panel's title bar sits on the card itself, not on a tinted wash. */
+html[data-profile="centre"] [class*="from-primary/[0.07]"],
+html[data-profile="centre"] .profile-card__head {
+  background-image: none;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────────────────────── */
+html[data-profile="centre"] [data-slot="button"] {
+  border-radius: 0.75rem;
+  font-weight: 600;
+}
+
+html[data-profile="centre"] [data-slot="button"][data-size="default"] {
+  height: 2.5rem;
+  padding-inline: 0.875rem;
+}
+
+html[data-profile="centre"] [data-slot="button"][data-size="lg"] {
+  height: 2.75rem;
+  padding-inline: 1.125rem;
+}
+
+html[data-profile="centre"] [data-slot="button"][data-size="sm"] {
+  height: 2.125rem;
+  padding-inline: 0.75rem;
+}
+
+html[data-profile="centre"] [data-slot="button"][data-size="icon"] {
+  height: 2.5rem;
+  width: 2.5rem;
+}
+
+html[data-profile="centre"] [data-slot="button"][data-variant="default"],
+html[data-profile="centre"] .collect-quick-action,
+html[data-profile="centre"] .centre-button-primary {
+  background-image: var(--primary-gradient);
+  color: var(--primary-foreground);
+  box-shadow: 0 8px 18px -10px oklch(0.45 0.2 292 / 70%);
+}
+
+html[data-profile="centre"] .collect-quick-action {
+  height: 2.5rem;
+  border-radius: 0.75rem;
+  padding-inline: 0.875rem;
+  font-weight: 600;
+}
+
+/* ── The band every screen opens on: light, with dark text, like the dashboard's ─────────── */
+html[data-profile="centre"] .page-hero {
+  border: 1px solid var(--hero-border);
+  border-radius: 1.25rem;
+  box-shadow: none;
+  color: var(--hero-foreground);
+  padding: 1.125rem 1.5rem;
+}
+
+html[data-profile="centre"] .page-hero__title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  filter: none;
+}
+
+html[data-profile="centre"] .page-hero [class*="text-white"] {
+  color: var(--hero-muted);
+}
+
+html[data-profile="centre"] .page-hero__tile {
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: var(--card-shadow);
+  --tw-ring-color: transparent;
+}
+
+html[data-profile="centre"] .page-hero .hero-pill {
+  background: var(--card);
+  border-color: var(--hero-border);
+  color: var(--hero-foreground);
+  backdrop-filter: none;
+}
+
+html[data-profile="centre"] .page-hero [class*="border-white"] {
+  border-color: var(--hero-border);
+}
+
+/*
+ * Every screen's main action is a solid white button in the Quran academy's colours, and what they all
+ * share is `hover:bg-white/90` (the text colour varies: emerald-800 on most, primary on the trials board).
+ */
+html[data-profile="centre"] .page-hero [class*="hover:bg-white/90"],
+html[data-profile="centre"] .page-hero .hero-main-action {
+  background-color: transparent;
+  background-image: var(--primary-gradient);
+  color: var(--primary-foreground);
+  box-shadow: 0 8px 18px -10px oklch(0.45 0.2 292 / 70%);
+}
+
+/* The band's other controls: white chips on the lavender, not glass on a dark ground. */
+html[data-profile="centre"] .page-hero [class*="bg-white/"]:not(.hero-pill, [class*="hover:bg-white/90"]) {
+  background-color: var(--card);
+  color: var(--hero-foreground);
+}
+
+/* ── SegmentTile becomes the dashboard's stat card: label, big number, icon tile at the end ── */
+html[data-profile="centre"] .segment-tile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label chip"
+    "value chip"
+    "hint  share";
+  align-items: start;
+  column-gap: 0.75rem;
+  row-gap: 0.125rem;
+  padding: 1rem 1.125rem;
+  background-image: none;
+  border-color: color-mix(in oklab, var(--border) 70%, transparent);
+  border-radius: 1.125rem;
+  box-shadow: var(--card-shadow);
+}
+
+html[data-profile="centre"] .segment-tile__top,
+html[data-profile="centre"] .segment-tile__body {
+  display: contents;
+}
+
+html[data-profile="centre"] .segment-tile__chip {
+  grid-area: chip;
+  align-self: center;
+  height: 3rem;
+  width: 3rem;
+  border-radius: 1rem;
+  box-shadow: none;
+}
+
+html[data-profile="centre"] .segment-tile__chip svg {
+  height: 1.375rem;
+  width: 1.375rem;
+}
+
+html[data-profile="centre"] .segment-tile__label {
+  grid-area: label;
+  margin-top: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+html[data-profile="centre"] .segment-tile__value {
+  grid-area: value;
+  margin-block: 0.25rem;
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+html[data-profile="centre"] .segment-tile__hint {
+  grid-area: hint;
+  align-self: center;
+  font-size: 0.75rem;
+}
+
+html[data-profile="centre"] .segment-tile__share {
+  grid-area: share;
+  justify-self: end;
+  border-radius: 999px;
+  background: oklch(0.96 0.04 160);
+  color: oklch(0.42 0.11 160);
+  padding: 0.0625rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+html.dark[data-profile="centre"] .segment-tile__share {
+  background: oklch(0.3 0.06 160);
+  color: oklch(0.85 0.1 160);
+}
+
+html[data-profile="centre"] .segment-tile__bar {
+  display: none;
+}
+
+html[data-profile="centre"] .fact-card {
+  background-image: none;
+  padding: 1rem;
+}
+
+html[data-profile="centre"] .fact-card > div:first-child {
+  height: 2.75rem;
+  width: 2.75rem;
+  border-radius: 0.875rem;
+  box-shadow: none;
+}
+
+/* The money screens' tile: the same card, its number the loudest thing on it. */
+html[data-profile="centre"] .centre-tile {
+  border-radius: 1.125rem;
+  padding: 1rem 1.125rem;
+}
+
+html[data-profile="centre"] .centre-tile__bar {
+  display: none;
+}
+
+html[data-profile="centre"] .centre-tile__label {
+  color: oklch(from var(--foreground) l c h / 85%);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+html[data-profile="centre"] .centre-tile__chip {
+  height: 2.75rem;
+  width: 2.75rem;
+  border-radius: 0.875rem;
+  box-shadow: none;
+}
+
+html[data-profile="centre"] .centre-tile__chip svg {
+  height: 1.25rem;
+  width: 1.25rem;
+}
+
+html[data-profile="centre"] .centre-tile__value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+/* ── Tables: plain, legible headers and calm rows ───────────────────────────────────────── */
+html[data-profile="centre"] .dt-table thead th {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+html[data-profile="centre"] .dt-table thead tr {
+  background: var(--muted);
+  backdrop-filter: none;
+}
+
+/* The product's tiniest print, at a size people can read. */
+html[data-profile="centre"] .text-\[10px\] {
+  font-size: 0.75rem;
+}
+
+html[data-profile="centre"] .text-\[11px\] {
+  font-size: 0.78125rem;
+}
+
+/* ── The sidebar ────────────────────────────────────────────────────────────────────────── */
+html[data-profile="centre"] .centre-nav-active {
+  background-image: var(--primary-gradient);
+  box-shadow: 0 10px 22px -12px oklch(0.45 0.21 292 / 90%);
+}
+
+/* The drawer's tools were written for a white header. */
+html[data-profile="centre"] .centre-drawer-tools button {
+  color: var(--sidebar-foreground);
+  background: var(--sidebar-accent);
+  border-color: var(--sidebar-border);
+}
+
+/* ── The dashboard's opening banner ─────────────────────────────────────────────────────── */
+html[data-profile="centre"] .centre-hero {
+  background: var(--hero-gradient);
+  border: 1px solid var(--hero-border);
+  color: var(--hero-foreground);
+}
+
+html[data-profile="centre"] .centre-hero__sub {
+  color: var(--hero-muted);
+}
+
+/* The light behind the drawing is for the lavender band; on a dark one it reads as a grey smudge. */
+html.dark[data-profile="centre"] .centre-art-glow {
+  display: none;
+}
+
+/* ── Dialogs and forms ─────────────────────────────────────────────────────────────────── */
+html[data-profile="centre"] input[type="checkbox"],
+html[data-profile="centre"] input[type="radio"] {
+  accent-color: var(--primary);
+}
+
+html[data-profile="centre"] [role="dialog"] h2 {
+  font-size: 1.125rem;
+  font-weight: 800;
+}
+
+/* The cards of a sectioned form stand on the page's lavender, not white on white. */
+html[data-profile="centre"] [role="dialog"]:has(.group-form--centre) > div:nth-child(2) {
+  background: var(--background);
+}
+
+html[data-profile="centre"] .group-form--centre input:not([type="checkbox"], [type="radio"]),
+html[data-profile="centre"] .group-form--centre select,
+html[data-profile="centre"] .group-form--centre textarea {
+  background-color: var(--card);
+}
+
+html[data-profile="centre"] .group-form--centre button[class*="bg-background"] {
+  background-color: var(--card);
+}
+
+html[data-profile="centre"] .group-form--centre label {
+  font-weight: 700;
+}
+
+html[data-profile="centre"] .group-form--centre label[class*="cursor-pointer"] {
+  font-weight: 400;
+}
+
+/* The save bar floats over the form; the strip under it is painted, so no card shows through there. */
+html[data-profile="centre"] .group-form--centre .group-form__bar {
+  border-color: color-mix(in oklab, var(--border) 70%, transparent);
+  box-shadow: 0 1.25rem 0 0 var(--background), 0 -6px 18px -12px oklch(0.3 0.09 285 / 30%);
+}
+
+/* Every dialog's fields on white, with the same weight of label. */
+html[data-profile="centre"] [role="dialog"] input:not([type="checkbox"], [type="radio"]),
+html[data-profile="centre"] [role="dialog"] select,
+html[data-profile="centre"] [role="dialog"] textarea {
+  background-color: var(--card);
+}

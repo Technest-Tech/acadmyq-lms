@@ -35,14 +35,51 @@ export interface CentreDashboard {
     /** Course terms (docs/centre-profile, Phase 2 §2): running groups about to end, and names waiting for a seat. */
     ending_soon?: number;
     waiting?: number;
+    /** Change against 30 days ago, in percent; null when there was nothing to compare with. */
+    delta_pct?: number | null;
   };
   subscriptions: {
     open: number;
     ending_soon: number;
     ending_soon_days: number;
+    delta_pct?: number | null;
   };
+  /** Null for someone who cannot read students. The four slices add up to `total`. */
+  students?: {
+    total: number;
+    active: number;
+    /** Joined in the last 30 days; not also counted in `active`. */
+    new_recent: number;
+    trial: number;
+    inactive: number;
+    delta_pct: number | null;
+  } | null;
+  latest_groups?: { id: string; name: string; level: string | null; members: number; capacity: number | null }[];
+  activity?: CentreActivity[];
+}
+
+export interface CentreActivity {
+  type: "student" | "group" | "subscription" | "receipt";
+  name: string | null;
+  amount_minor: number | null;
+  currency: string | null;
+  at: string;
+}
+
+export type TrendMonths = 3 | 6 | 12;
+
+export interface CentreTrend {
+  /** Every month in the range, oldest first, YYYY-MM. */
+  months: string[];
+  /** Null for someone who cannot read invoices. */
+  collected: { currency: string; by_month: { month: string; amount_minor: number }[] }[] | null;
+  lessons: { month: string; count: number }[];
 }
 
 export function getCentreDashboard(): Promise<CentreDashboard> {
   return apiFetch("/api/dashboard/centre");
+}
+
+export function getCentreTrend(months: TrendMonths): Promise<CentreTrend> {
+  return apiFetch(`/api/dashboard/centre/trend?months=${months}`);
 }

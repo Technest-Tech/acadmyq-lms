@@ -1,14 +1,16 @@
 "use client";
 
-import { Wallet } from "lucide-react";
+import { AlertTriangle, BadgeDollarSign, CircleDollarSign, GraduationCap, Receipt, Scale, UsersRound, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { StateChip } from "@/components/accounting/accounting-ui";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass, todayIn } from "@/components/groups/group-format";
+import { EmptyCard, PersonAvatar, SectionCard, SoftBadge, StatCard, pastelFor } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { PageHero } from "@/components/ui/page-hero";
+import { useCentreLook } from "@/lib/capabilities";
 import { getGroupPayments, type GroupPayments } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -17,10 +19,15 @@ import { cn } from "@/lib/utils";
  * The month's group money (docs/groups §Money), group by group: what was billed, what came in, what
  * is still owed, what the teacher cost and what is left — and every unpaid charge, by name. Money
  * roles only (`invoice.read`); the teacher-cost columns only for `payout.read`.
+ *
+ * A learning centre reads it in its own look (group-look): stat cards for the month, the groups on
+ * one white card with their money in soft blocks, the unpaid charges on a red-headed card. Everyone
+ * else's markup is exactly what it was.
  */
 export function PaymentsBoard() {
   const t = useTranslations("groups");
   const locale = useLocale();
+  const look = useCentreLook();
   const [month, setMonth] = useState(() => todayIn(Intl.DateTimeFormat().resolvedOptions().timeZone).slice(0, 7));
   const [data, setData] = useState<GroupPayments | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,14 +47,131 @@ export function PaymentsBoard() {
 
   const fmt = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
   const cost = data?.sees_teacher_cost ?? false;
+  const monthField = (
+    <input type="month" className={cn(fieldClass, "w-44")} value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} aria-label={t("moneyTab.month")} />
+  );
+
+  if (look) {
+    return (
+      <div className="space-y-5">
+        <PageHero icon={Wallet} title={t("board.payments.title")} subtitle={t("board.payments.subtitle")} latticeId="groups-payments-hero" actions={monthField} />
+
+        {error && <AlertBanner variant="error" message={error} />}
+
+        {data && (
+          <>
+            {data.totals.length === 0 ? (
+              <EmptyCard icon={Wallet} text={t("board.payments.empty")} />
+            ) : (
+              <div className={cn("grid grid-cols-2 gap-3 sm:gap-4", cost ? "xl:grid-cols-5" : "xl:grid-cols-3")} data-testid="payments-totals">
+                {data.totals.map((tot) => {
+                  const margin = tot.billed_minor - tot.teacher_cost_minor;
+                  return (
+                    <Fragment key={tot.currency}>
+                      <StatCard icon={Receipt} tone="violet" label={t("moneyTab.billed")} value={fmt(tot.billed_minor, tot.currency)} />
+                      <StatCard
+                        icon={CircleDollarSign}
+                        tone="emerald"
+                        label={t("moneyTab.paid")}
+                        value={fmt(tot.paid_minor, tot.currency)}
+                        progress={tot.billed_minor > 0 ? (tot.paid_minor / tot.billed_minor) * 100 : null}
+                        barTone="bg-emerald-500"
+                      />
+                      <StatCard icon={AlertTriangle} tone={tot.outstanding_minor > 0 ? "rose" : "slate"} label={t("moneyTab.outstanding")} value={fmt(tot.outstanding_minor, tot.currency)} />
+                      {cost && <StatCard icon={GraduationCap} tone="amber" label={t("board.payments.teacherCost")} value={fmt(tot.teacher_cost_minor, tot.currency)} />}
+                      {cost && <StatCard icon={Scale} tone={margin < 0 ? "rose" : "sky"} label={t("moneyTab.margin")} value={fmt(margin, tot.currency)} />}
+                    </Fragment>
+                  );
+                })}
+              </div>
+            )}
+
+            {data.groups.length > 0 && (
+              <SectionCard icon={UsersRound} tone="violet" title={t("board.payments.byGroup")} count={data.groups.length} flush>
+                <ul className="divide-y" data-testid="payments-groups">
+                  {data.groups.map((g) => (
+                    <li key={g.id} className="grid grid-cols-1 gap-3 px-4 py-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,3fr)] lg:items-center">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <PersonAvatar name={g.name} className="size-10 rounded-xl" />
+                        <div className="min-w-0">
+                          <Link href={`/groups/${g.id}?tab=${data.accounting ? "accounts" : "money"}`} className="block truncate font-bold hover:underline">
+                            {g.name}
+                          </Link>
+                          <p className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+                            {g.level && <span className={cn("rounded-md px-1.5 py-0.5 font-bold", pastelFor(g.level))}>{g.level}</span>}
+                            {g.teacher_name && <span>{g.teacher_name}</span>}
+                            <span>
+                              {g.price_minor != null && g.currency
+                                ? t(`moneyTab.rule.${g.billing_mode}`, { price: fmt(g.price_minor, g.currency) })
+                                : t("board.payments.noPrice")}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                      {g.money.length === 0 ? (
+                        <p className="text-muted-foreground text-xs lg:text-end">{t("board.payments.nothing")}</p>
+                      ) : (
+                        g.money.map((m) => (
+                          <dl key={m.currency} className={cn("grid grid-cols-3 gap-2 text-sm", m.teacher_cost_minor !== null && "sm:grid-cols-5")}>
+                            <Block label={t("moneyTab.billed")} value={fmt(m.billed_minor, m.currency)} tone="violet" />
+                            <Block label={t("moneyTab.paid")} value={fmt(m.paid_minor, m.currency)} tone="emerald" />
+                            <Block label={t("moneyTab.outstanding")} value={fmt(m.outstanding_minor, m.currency)} tone={m.outstanding_minor > 0 ? "rose" : "slate"} />
+                            {m.teacher_cost_minor !== null && <Block label={t("board.payments.teacherCost")} value={fmt(m.teacher_cost_minor, m.currency)} tone="amber" />}
+                            {m.teacher_cost_minor !== null && (
+                              <Block label={t("moneyTab.margin")} value={fmt(m.billed_minor - m.teacher_cost_minor, m.currency)} tone={m.billed_minor - m.teacher_cost_minor < 0 ? "rose" : "sky"} />
+                            )}
+                          </dl>
+                        ))
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            )}
+
+            {data.unpaid.length > 0 && (
+              <SectionCard icon={BadgeDollarSign} tone="rose" title={t("board.payments.unpaid", { count: data.unpaid.length })} flush>
+                <ul className="divide-y" data-testid="payments-unpaid">
+                  {data.unpaid.map((u) => (
+                    <li key={u.line_id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <PersonAvatar name={u.student_name ?? u.group_name} className="size-9" />
+                        <div className="min-w-0">
+                          <p className="truncate font-bold">{u.student_name ?? "—"}</p>
+                          <p className="text-muted-foreground truncate text-xs">
+                            {u.group_name} · {u.description}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="text-end">
+                          <span className="block font-extrabold tabular-nums">{fmt(u.remaining_minor ?? u.amount_minor, u.currency)}</span>
+                          {(u.paid_minor ?? 0) > 0 && (
+                            <span className="text-muted-foreground block text-xs tabular-nums">{t("board.payments.leftOf", { of: fmt(u.amount_minor, u.currency) })}</span>
+                          )}
+                        </span>
+                        {data.accounting ? (
+                          <StateChip state={(u.paid_minor ?? 0) > 0 ? "PARTIAL" : "UNPAID"} />
+                        ) : (
+                          <SoftBadge tone="rose">{t(`moneyTab.invoice.${u.invoice_status}`)}</SoftBadge>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
       <PageHero icon={Wallet} title={t("board.payments.title")} subtitle={t("board.payments.subtitle")} latticeId="groups-payments-hero" />
 
-      <div className="flex justify-end">
-        <input type="month" className={cn(fieldClass, "w-44")} value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} aria-label={t("moneyTab.month")} />
-      </div>
+      <div className="flex justify-end">{monthField}</div>
 
       {error && <AlertBanner variant="error" message={error} />}
 
@@ -148,6 +272,24 @@ export function PaymentsBoard() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/** The centre's money cell: a pastel block, the label small and the amount loud. */
+function Block({ label, value, tone }: { label: string; value: string; tone: "violet" | "emerald" | "rose" | "slate" | "amber" | "sky" }) {
+  const wash = {
+    violet: "bg-violet-50 dark:bg-violet-500/10",
+    emerald: "bg-emerald-50 dark:bg-emerald-500/10",
+    rose: "bg-rose-50 dark:bg-rose-500/10",
+    slate: "bg-slate-50 dark:bg-slate-500/10",
+    amber: "bg-amber-50 dark:bg-amber-500/10",
+    sky: "bg-sky-50 dark:bg-sky-500/10",
+  }[tone];
+  return (
+    <div className={cn("rounded-xl px-2.5 py-2", wash)}>
+      <dt className="text-muted-foreground text-[11px] font-bold">{label}</dt>
+      <dd className="mt-0.5 font-extrabold break-words tabular-nums">{value}</dd>
     </div>
   );
 }

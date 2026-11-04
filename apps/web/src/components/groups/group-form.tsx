@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Clock, Coins, GraduationCap, Link2, ListChecks, MapPin, Plus, Trash2, Users, Wallet } from "lucide-react";
+import { CalendarDays, Clock, Coins, GraduationCap, Link2, ListChecks, MapPin, Plus, StickyNote, Trash2, Users, Video, Wallet } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -26,7 +26,7 @@ import {
 import { LessonPriceFields, lessonPriceFromTotal, lessonsIn, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { LevelSelect } from "@/components/levels/level-select";
-import { useCapability } from "@/lib/capabilities";
+import { useCapability, useProfile } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 /** A typed major-unit amount ("450", "12.5") → integer minor units; "" → null. */
@@ -82,6 +82,74 @@ function Field({
 }
 
 /**
+ * One part of the form. A learning centre's look (`SessionAcademy.profile`) gives each part a card of
+ * its own, headed by what it is about. Every other academy keeps the form it always had: no card, and
+ * `plainClassName` is the plain bordered box the money and student parts already were.
+ */
+function FormSection({
+  look,
+  icon: Icon,
+  tile,
+  title,
+  hint,
+  titleEnd,
+  plainClassName,
+  testId,
+  children,
+}: {
+  look: boolean;
+  icon: ComponentType<{ className?: string }>;
+  /** The icon tile's colours, in the centre's look. */
+  tile: string;
+  title: string;
+  hint?: string;
+  titleEnd?: ReactNode;
+  plainClassName?: string;
+  testId?: string;
+  children: ReactNode;
+}) {
+  if (!look) {
+    if (plainClassName === undefined) return <>{children}</>;
+    return (
+      <section className={plainClassName} data-testid={testId}>
+        <p className="flex items-center gap-1.5 text-sm font-semibold">
+          <Icon className="text-muted-foreground size-4" />
+          {title}
+          {titleEnd}
+        </p>
+        {children}
+      </section>
+    );
+  }
+  return (
+    <section className="centre-surface bg-card rounded-2xl border p-4 sm:p-5" data-testid={testId}>
+      <header className="mb-4 flex items-center gap-3">
+        <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl", tile)}>
+          <Icon className="size-5" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <h3 className="flex flex-wrap items-center gap-x-2 text-base font-extrabold">
+            {title}
+            {titleEnd}
+          </h3>
+          {hint && <p className="text-muted-foreground text-xs">{hint}</p>}
+        </div>
+      </header>
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
+
+const TILES = {
+  violet: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+  sky: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+  amber: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+  emerald: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+  pink: "bg-pink-100 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300",
+  slate: "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300",
+} as const;
+
+/**
  * Create or edit a group: who teaches it, how many seats, online or in a room, its dates and its
  * weekly times. Saving regenerates its lessons server-side — future pending ones follow the edit,
  * held and past ones never move — which is what the hints under the timetable say in plain words.
@@ -101,6 +169,7 @@ export function GroupForm({
   const tw = useTranslations("scheduling");
   const locale = useLocale();
   const { can } = useAuth();
+  const look = useProfile() === "CENTRE";
   const editing = group !== undefined;
   // Each half of the money is its own capability, and an edit only shows what the API showed us.
   const canPrice = can("student.set_price") && (!editing || group.pricing !== null);
@@ -318,10 +387,9 @@ export function GroupForm({
     }
   }
 
-  return (
-    <div className="space-y-5" data-testid="group-form">
-      {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
-
+  const sections = (
+    <>
+      <FormSection look={look} icon={Users} tile={TILES.violet} title={t("form.sections.basics")} hint={t("form.sections.basicsHint")}>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <Field label={t("form.name")} icon={Users} required>
@@ -391,7 +459,10 @@ export function GroupForm({
         </Field>
       </div>
 
+      </FormSection>
+
       {/* Where the class happens. */}
+      <FormSection look={look} icon={MapPin} tile={TILES.sky} title={t("form.sections.place")} hint={t("form.sections.placeHint")}>
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t("form.mode")}>
           {(["ONLINE", "OFFLINE"] as const).map((m) => (
@@ -403,10 +474,21 @@ export function GroupForm({
               onClick={() => setMode(m)}
               className={cn(
                 "rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+                look && "flex items-center gap-3 p-3 text-start",
                 mode === m ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted",
               )}
             >
-              {t(`mode.${m}`)}
+              {look ? (
+                <>
+                  {m === "ONLINE" ? <Video className="size-5 shrink-0" aria-hidden /> : <MapPin className="size-5 shrink-0" aria-hidden />}
+                  <span className="min-w-0">
+                    <span className="block font-bold">{t(`mode.${m}`)}</span>
+                    <span className="text-muted-foreground block text-xs font-normal">{t(`form.sections.modeHint${m}`)}</span>
+                  </span>
+                </>
+              ) : (
+                t(`mode.${m}`)
+              )}
             </button>
           ))}
         </div>
@@ -434,6 +516,9 @@ export function GroupForm({
         )}
       </div>
 
+      </FormSection>
+
+      <FormSection look={look} icon={CalendarDays} tile={TILES.amber} title={t("form.sections.schedule")} hint={t("form.sections.scheduleHint")}>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label={t("form.startDate")} icon={CalendarDays} required hint={t("form.startDateHint")}>
           <input
@@ -475,11 +560,22 @@ export function GroupForm({
           {t("form.slots")}
           <span className="text-destructive">*</span>
         </p>
+        {look && (
+          <div className="text-muted-foreground hidden gap-2 px-2 text-xs font-semibold sm:grid sm:grid-cols-[minmax(0,1fr)_8rem_minmax(7rem,auto)_1.75rem]" aria-hidden>
+            <span>{tw("weekdayLabel")}</span>
+            <span>{tw("startTime")}</span>
+            <span>{tw("duration")}</span>
+            <span />
+          </div>
+        )}
         <ul className="space-y-2">
           {slots.map((s, i) => (
             <li
               key={i}
-              className="grid grid-cols-1 gap-2 rounded-xl border p-2 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center"
+              className={cn(
+                "grid grid-cols-1 gap-2 rounded-xl border p-2 sm:items-center",
+                look ? "bg-muted/40 sm:grid-cols-[minmax(0,1fr)_8rem_minmax(7rem,auto)_1.75rem]" : "sm:grid-cols-[1fr_auto_auto_auto]",
+              )}
               data-testid="group-slot"
             >
               <select
@@ -537,13 +633,18 @@ export function GroupForm({
         </Button>
         <p className="text-muted-foreground text-xs">{editing ? t("form.slotsEditHint") : t("form.slotsHint")}</p>
       </div>
+      </FormSection>
 
       {canPrice && (
-        <section className="space-y-3 rounded-xl border p-3" data-testid="group-pricing">
-          <p className="flex items-center gap-1.5 text-sm font-semibold">
-            <Wallet className="text-muted-foreground size-4" />
-            {t("money.studentPays")}
-          </p>
+        <FormSection
+          look={look}
+          icon={Wallet}
+          tile={TILES.emerald}
+          title={t("money.studentPays")}
+          hint={t("form.sections.pricingHint")}
+          plainClassName="space-y-3 rounded-xl border p-3"
+          testId="group-pricing"
+        >
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup" aria-label={t("money.billingMode")}>
             {BILLING_MODES.map((m) => (
               <button
@@ -680,15 +781,19 @@ export function GroupForm({
             </label>
           )}
           {editing && <p className="text-muted-foreground text-xs">{t("money.forwardOnly")}</p>}
-        </section>
+        </FormSection>
       )}
 
       {canPay && (
-        <section className="space-y-3 rounded-xl border p-3" data-testid="group-teacher-pay">
-          <p className="flex items-center gap-1.5 text-sm font-semibold">
-            <Coins className="text-muted-foreground size-4" />
-            {t("money.teacherEarns")}
-          </p>
+        <FormSection
+          look={look}
+          icon={Coins}
+          tile={TILES.pink}
+          title={t("money.teacherEarns")}
+          hint={t("form.sections.teacherHint")}
+          plainClassName="space-y-3 rounded-xl border p-3"
+          testId="group-teacher-pay"
+        >
           <select
             className={fieldClass}
             value={payMode ?? ""}
@@ -721,16 +826,20 @@ export function GroupForm({
             </Field>
           )}
           <p className="text-muted-foreground text-xs">{t(`money.payModeHint.${payMode ?? "DEFAULT"}`)}</p>
-        </section>
+        </FormSection>
       )}
 
       {!editing && (
-        <section className="space-y-2 rounded-xl border p-3" data-testid="group-students">
-          <p className="flex items-center gap-1.5 text-sm font-semibold">
-            <Users className="text-muted-foreground size-4" />
-            {t("form.students")}
-            {studentIds.size > 0 && <span className="text-muted-foreground text-xs font-normal">· {t("members.picked", { count: studentIds.size })}</span>}
-          </p>
+        <FormSection
+          look={look}
+          icon={Users}
+          tile={TILES.sky}
+          title={t("form.students")}
+          hint={t("form.sections.studentsHint")}
+          titleEnd={studentIds.size > 0 ? <span className="text-muted-foreground text-xs font-normal">· {t("members.picked", { count: studentIds.size })}</span> : undefined}
+          plainClassName="space-y-2 rounded-xl border p-3"
+          testId="group-students"
+        >
           <StudentPicker
             picked={studentIds}
             onToggle={(id) =>
@@ -743,14 +852,93 @@ export function GroupForm({
             }
           />
           <p className="text-muted-foreground text-xs">{t("form.studentsHint")}</p>
-        </section>
+        </FormSection>
       )}
 
+      <FormSection look={look} icon={StickyNote} tile={TILES.slate} title={t("form.sections.notes")}>
       <Field label={t("form.notes")}>
         <textarea className={textareaClass} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} />
       </Field>
+      </FormSection>
+    </>
+  );
 
-      <div className="flex items-center justify-end gap-2 border-t pt-4">
+  // What the form adds up to so far, beside it on a wide screen.
+  const summaryPrice = canPrice ? priceMinor() : null;
+  const summaryRows: { key: string; icon: ComponentType<{ className?: string }>; text: string; muted?: boolean }[] = [
+    {
+      key: "teacher",
+      icon: GraduationCap,
+      text: teacherOptions.find((o) => o.value === teacherId)?.label ?? t("form.sections.summaryTeacher"),
+      muted: !teacherId,
+    },
+    {
+      key: "place",
+      icon: mode === "ONLINE" ? Video : MapPin,
+      text: mode === "OFFLINE" && location.trim() ? location.trim() : t(`mode.${mode}`),
+    },
+    {
+      key: "seats",
+      icon: Users,
+      text: [
+        capacity ? t("form.sections.summarySeats", { count: capacity }) : t("form.sections.summaryNoSeats"),
+        studentIds.size > 0 ? t("members.picked", { count: studentIds.size }) : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    },
+  ];
+
+  return (
+    <div className={look ? "group-form--centre space-y-4" : "space-y-5"} data-testid="group-form">
+      {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
+
+      {look ? (
+        <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_15rem] lg:items-start lg:gap-4">
+          <div className="min-w-0 space-y-4">{sections}</div>
+          <aside className="centre-surface bg-card sticky top-0 hidden rounded-2xl border p-4 lg:block" data-testid="group-form-summary">
+            <h3 className="text-muted-foreground text-xs font-bold">{t("form.sections.summary")}</h3>
+            <p className={cn("mt-1 text-base leading-snug font-extrabold break-words", !name.trim() && "text-muted-foreground font-medium")}>
+              {name.trim() || t("form.sections.summaryName")}
+            </p>
+            <ul className="mt-3 space-y-2.5 border-t pt-3 text-sm">
+              {summaryRows.map(({ key, icon: Icon, text, muted }) => (
+                <li key={key} className="flex items-start gap-2">
+                  <Icon className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />
+                  <span className={cn("min-w-0 break-words", muted && "text-muted-foreground")}>{text}</span>
+                </li>
+              ))}
+              {sortSlots(slots).map((slot) => (
+                <li key={`${slot.weekday}-${slot.start_time_local}`} className="flex items-start gap-2">
+                  <Clock className="text-muted-foreground mt-0.5 size-4 shrink-0" aria-hidden />
+                  <span className="min-w-0">
+                    {tw(`weekday.${slot.weekday}`)} · {slot.start_time_local} · {slot.duration_minutes} {t("form.minutes")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {canPrice && (
+              <div className="mt-3 border-t pt-3">
+                <p className="text-muted-foreground text-xs">{t(`money.priceLabel.${billingMode}`)}</p>
+                <p className="mt-0.5 text-lg font-extrabold tabular-nums">
+                  {summaryPrice !== null && summaryPrice > 0
+                    ? formatMoney({ amount: summaryPrice, currency: currency || defaults.currency }, locale, { trimZeroDecimals: true })
+                    : t("form.sections.summaryNoPrice")}
+                </p>
+              </div>
+            )}
+          </aside>
+        </div>
+      ) : (
+        sections
+      )}
+
+      <div
+        className={cn(
+          "flex items-center justify-end gap-2",
+          look ? "group-form__bar bg-card sticky bottom-0 z-10 rounded-2xl border p-3" : "border-t pt-4",
+        )}
+      >
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
           {t("form.cancel")}
         </Button>

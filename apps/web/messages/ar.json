@@ -6,60 +6,71 @@
   "dashboard": {
     "title": "لوحة التحكم",
     "centre": {
-      "chart": {
-        "title": "التحصيل خلال الشهر",
-        "sub": "إجمالي ما دخل حتى اليوم",
-        "empty": "لا إيصالات هذا الشهر بعد.",
-        "attendanceTitle": "حضور هذا الأسبوع",
-        "present": "{n} حاضر",
-        "absent": "{n} غائب"
-      },
-      "subtitle": "نظرة حية على مركزك اليوم.",
-      "sections": {
-        "today": "اليوم",
-        "todayDesc": "ما يحتاج انتباهك الآن",
-        "money": "المال",
-        "moneyDesc": "التحصيل والمستحقات هذا الشهر",
-        "actions": "الإجراءات السريعة",
-        "actionsDesc": "انتقل مباشرةً إلى ما تحتاجه"
+      "hero": {
+        "greeting": "مرحبًا بك، {name}",
+        "subtitle": "إليك نظرة عامة على أداء مركزك اليوم.",
+        "addNew": "إضافة جديد",
+        "addStudent": "طالب جديد",
+        "addGroup": "مجموعة جديدة",
+        "collect": "تحصيل",
+        "timetable": "الجدول الأسبوعي"
       },
       "kpi": {
+        "students": "إجمالي الطلاب",
         "todayClasses": "حصص اليوم",
-        "todayClassesSub": "{groups, plural, one {مجموعة واحدة} two {مجموعتان} few {# مجموعات} many {# مجموعة} other {# مجموعة}} · {privateCount, plural, =0 {بدون حصص خاصة} one {حصة خاصة واحدة} two {حصتان خاصتان} few {# حصص خاصة} many {# حصة خاصة} other {# حصة خاصة}}",
-        "unmarked": "بدون كشف حضور",
-        "unmarkedSub": "حصص انتهى وقتها ولم تُسجَّل",
-        "unmarkedClear": "كل الحصص مسجَّلة",
-        "attendanceRate": "نسبة الحضور هذا الأسبوع",
-        "attendanceRateSub": "{present} حاضر · {absent} غائب",
-        "attendanceRateEmpty": "لم يُسجَّل كشف بعد",
-        "runningGroups": "مجموعات شغّالة",
-        "runningGroupsSub": "{members, plural, =0 {بدون طلاب مسجّلين} one {طالب واحد مسجّل} two {طالبان مسجّلان} few {# طلاب مسجّلون} many {# طالبًا مسجّلًا} other {# طالب مسجّل}}",
-        "freeSeats": "مقاعد متاحة",
-        "freeSeatsSub": "في المجموعات ذات السعة المحدودة",
-        "collected": "تحصيل الشهر",
-        "collectedSub": "{count, plural, =0 {لا إيصالات بعد} one {إيصال واحد} two {إيصالان} few {# إيصالات} many {# إيصالًا} other {# إيصال}}",
-        "outstanding": "المستحق على العائلات",
-        "outstandingSub": "منه {overdue} متأخر",
-        "endingSoon": "اشتراكات تنتهي قريبًا",
-        "endingSoonSub": "خلال {days} أيام أو بقيت حصة واحدة",
-        "salaries": "رواتب الشهر",
-        "salariesSub": "ما استحق للمدرسين حتى الآن",
-        "trials": "تحديد مستوى بانتظار قرار",
-        "trialsSub": "حصص تجريبية انتهت ولم تُحسم"
-      },
-      "actions": {
         "groups": "المجموعات",
-        "groupsDesc": "الحصص وكشوف الحضور",
-        "timetable": "الجدول الأسبوعي",
-        "timetableDesc": "المواعيد والقاعات",
-        "collect": "تحصيل",
-        "collectDesc": "تسجيل إيصال جديد",
-        "arrears": "المتأخرات",
-        "arrearsDesc": "من لم يدفع بعد",
-        "addStudent": "إضافة طالب",
-        "addStudentDesc": "تسجيل طالب جديد",
-        "payroll": "الرواتب",
-        "payrollDesc": "مستحقات المدرسين"
+        "subscriptions": "الاشتراكات النشطة",
+        "vsLastMonth": "مقارنة بالشهر الماضي",
+        "unmarked": "{count} بدون كشف",
+        "attendanceWeek": "حضور الأسبوع {rate}%"
+      },
+      "distribution": {
+        "title": "توزيع الطلاب",
+        "unit": "طالب",
+        "active": "طلاب نشطون",
+        "inactive": "غير نشطين",
+        "trial": "تحديد مستوى",
+        "new": "جدد (آخر 30 يوم)",
+        "empty": "لا طلاب بعد."
+      },
+      "trend": {
+        "collected": "التحصيل",
+        "lessons": "الحصص المنفذة",
+        "period": "آخر {months, plural, =3 {3 شهور} =6 {6 شهور} other {# شهر}}",
+        "owed": "المستحق على العائلات: {amount}",
+        "emptyMoney": "لا إيصالات في هذه الفترة بعد.",
+        "emptyLessons": "لا حصص منفذة في هذه الفترة بعد."
+      },
+      "groups": {
+        "title": "أحدث المجموعات",
+        "members": "{count} طالب",
+        "manage": "إدارة المجموعات",
+        "open": "فتح المجموعة",
+        "lessons": "حصص المجموعات",
+        "more": "خيارات {name}",
+        "empty": "لا مجموعات بعد."
+      },
+      "followUp": {
+        "title": "الاشتراكات والمتابعة",
+        "endingSoon": "اشتراكات تنتهي قريبًا",
+        "arrears": "متأخرات الدفع",
+        "trials": "مستوى بانتظار قرار",
+        "freeSeats": "مقاعد متاحة",
+        "manage": "إدارة الاشتراكات",
+        "subscriber": "مشترك",
+        "course": "كورس",
+        "family": "عائلة",
+        "student": "طالب",
+        "seat": "مقعد"
+      },
+      "activity": {
+        "title": "أحدث الأنشطة",
+        "student": "تم تسجيل طالب جديد",
+        "group": "تم إنشاء مجموعة جديدة",
+        "subscription": "تم فتح اشتراك",
+        "receipt": "تم تحصيل {amount}",
+        "all": "عرض كل الأنشطة",
+        "empty": "لا أنشطة بعد."
       }
     },
     "kpi": {
@@ -267,10 +278,13 @@
     "accountingReports": "التقارير",
     "packagesCentre": "الاشتراكات المفتوحة",
     "packagesFinishedCentre": "الاشتراكات المنتهية",
+    "centreSubscriptions": "الاشتراكات",
+    "centreAdmissions": "القبول والتسجيل",
     "packagesDue": "الباقات المستحقة",
     "packagesDueCentre": "الاشتراكات المستحقة",
     "trialsCentre": "حصص تحديد المستوى",
-    "scheduleCentre": "الجدول الأسبوعي"
+    "scheduleCentre": "الجدول الأسبوعي",
+    "groupsReportsCentre": "إحصائيات المجموعات"
   },
   "navGroup": {
     "general": "عام",
@@ -1895,6 +1909,18 @@
       "inactiveSub": "مُعطَّلون",
       "filterHint": "اختر بطاقة لتصفية القائمة أدناه — واضغطها مرة أخرى لعرض الجميع."
     },
+    "followUp": {
+      "title": "متابعة",
+      "hint": "من يستحق مكالمة اليوم: غياب متتالٍ، حضور ضعيف، أو شهر لم يُدفع.",
+      "absent_streak": "غياب متتالٍ",
+      "low_attendance": "حضور ضعيف",
+      "unpaid": "لم يدفع",
+      "streak": "غاب {count} مرات متتالية",
+      "rate": "حضور {rate}%",
+      "owes": "عليه {amount}",
+      "empty": "لا أحد — أخبار جيدة.",
+      "loadFailed": "تعذّر تحميل قائمة المتابعة."
+    },
     "tabs": {
       "all": "كل الطلاب",
       "trials": "التجريبية"
@@ -2578,7 +2604,10 @@
         "HELD": "تمت",
         "CANCELLED": "ملغاة"
       }
-    }
+    },
+    "slotSubject": "المادة",
+    "slotSubjectNone": "بدون تحديد",
+    "slotSubjectHint": "للطالب أكثر من مادة مع هذا المعلم. حدّد مادة كل حصة، والحصة بدون مادة تُخصم من أقدم اشتراك."
   },
   "notifications": {
     "title": "الإشعارات",
@@ -3334,7 +3363,8 @@
       "nextTermsSaved": "تم الحفظ — الشروط الجديدة تبدأ مع التجديد القادم، والباقة الحالية وفاتورتها كما هي.",
       "overdraftBilledLessons": "تمت فوترة الوقت الزائد.",
       "editedCredit": "تم التعديل. {amount} رجعت رصيدًا للأسرة.",
-      "editedDue": "تم التعديل. المطلوب من الأسرة الآن {amount}."
+      "editedDue": "تم التعديل. المطلوب من الأسرة الآن {amount}.",
+      "secondSubjectHint": "حدّد من جدول المعلم أي حصص تتبع هذه المادة."
     },
     "panel": {
       "title": "باقة الحصص",
@@ -3808,6 +3838,13 @@
       "lastMonth": "الشهر الماضي",
       "last30": "آخر ٣٠ يومًا"
     },
+    "colTransfer": "التحويل",
+    "transferDone": "تم التحويل",
+    "transferPending": "لم يُحوَّل بعد",
+    "transferMark": "تم تحويل مرتب {name}",
+    "transferTreasury": "صُرف من الخزنة",
+    "transferTreasuryPart": "من الخزنة: {amount}",
+    "transferDiffers": "حُوِّل {sent}، والكشف الآن {total}",
     "statementsTitle": "الكشوف الشهرية",
     "statementsHint": "كل كشف تمرّ به الفترة — افتح أيّها لعرض حصصه أو لإقفاله",
     "breakdownFixed": "الراتب الثابت",
@@ -7249,7 +7286,43 @@
       "manage": "أنشئ مجموعة، اختر مدرسها ومواعيدها الأسبوعية، ثم أضف الطلاب.",
       "read": "ستظهر هنا المجموعات التي تدرّسها."
     },
+    "card": {
+      "upcomingCount": "{count} قادمة",
+      "allMarked": "كل الكشوف مسجَّلة",
+      "noSheets": "لا كشوف بعد",
+      "ofPlanned": "من {planned} حصة",
+      "held": "تمت",
+      "upcoming": "قادمة",
+      "overdue": "بدون كشف",
+      "nextLesson": "الحصة القادمة",
+      "teacher": "المدرس",
+      "place": "المكان",
+      "times": "المواعيد",
+      "next": "القادمة",
+      "seatsLeft": "متبقي {count}",
+      "full": "مكتملة"
+    },
     "form": {
+      "sections": {
+        "basics": "بيانات المجموعة",
+        "basicsHint": "اسمها ومدرسها ومستواها وعدد مقاعدها.",
+        "place": "مكان الحصص",
+        "placeHint": "في قاعة بالمركز أو أونلاين.",
+        "modeHintONLINE": "رابط زوم أو ميت",
+        "modeHintOFFLINE": "قاعة في المركز",
+        "schedule": "الفترة والمواعيد",
+        "scheduleHint": "متى تبدأ ومتى تنتهي، وأيام الحصص كل أسبوع.",
+        "pricingHint": "ما يدفعه الطالب وطريقة حسابه.",
+        "teacherHint": "ما يستحقه المدرس عن هذه المجموعة.",
+        "studentsHint": "اختياري، وتقدر تضيفهم بعد الإنشاء.",
+        "notes": "ملاحظات",
+        "summary": "ملخص المجموعة",
+        "summaryName": "اسم المجموعة لسه ما اتكتبش",
+        "summaryTeacher": "لسه ما اخترتش مدرس",
+        "summaryNoPrice": "بدون سعر",
+        "summarySeats": "{count} مقعد",
+        "summaryNoSeats": "بدون حد للمقاعد"
+      },
       "subtitle": "حصصها تُنشأ من المواعيد الأسبوعية — من تاريخ البداية وحتى نهاية الشهر القادم.",
       "name": "اسم المجموعة",
       "namePlaceholder": "مثال: إنجليزي A1 — مسائي",
@@ -11016,6 +11089,12 @@
     }
   },
   "grades": {
+    "look": {
+      "assessments": "الاختبارات",
+      "average": "متوسط المجموعة",
+      "top": "أعلى مجموع",
+      "low": "أقل من 50%"
+    },
     "tabs": {
       "grades": "الدرجات",
       "reports": "تقارير الترم"

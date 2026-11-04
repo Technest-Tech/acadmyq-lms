@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
-import { Amiri, Great_Vibes, Playfair_Display, Tajawal } from "next/font/google";
+import { Almarai, Amiri, Great_Vibes, Playfair_Display, Tajawal } from "next/font/google";
 import { headers } from "next/headers";
 import { THEME_INIT_SCRIPT, ThemeProvider } from "@/components/theme-provider";
 import { ToastProvider } from "@/components/ui/toast";
@@ -9,12 +9,26 @@ import { Catalog } from "@/i18n/catalog";
 import { direction, type Locale } from "@/i18n/config";
 import { PATHNAME_HEADER } from "@/lib/request-headers";
 import "./globals.css";
+import "./centre-look.css";
 
 const tajawal = Tajawal({
   subsets: ["arabic", "latin"],
   weight: ["400", "500", "700"],
   variable: "--font-sans",
   display: "swap",
+});
+
+/**
+ * A learning centre's workspace face (`centre-look.css`): Almarai, whose extra bold carries the big
+ * numbers and titles of that look. Not a variable font, so its four weights are named; 500 and 600
+ * in the shared kit land on the nearest of them. `preload: false` because no other page uses it.
+ */
+const almarai = Almarai({
+  subsets: ["arabic", "latin"],
+  weight: ["300", "400", "700", "800"],
+  variable: "--font-centre",
+  display: "swap",
+  preload: false,
 });
 
 /**
@@ -116,7 +130,7 @@ export default async function RootLayout({
     <html
       lang={locale}
       dir={dir}
-      className={`${tajawal.variable} ${amiri.variable} ${playfair.variable} ${greatVibes.variable}`}
+      className={`${tajawal.variable} ${almarai.variable} ${amiri.variable} ${playfair.variable} ${greatVibes.variable}`}
       suppressHydrationWarning
     >
       <head>

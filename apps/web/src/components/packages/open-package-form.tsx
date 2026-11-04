@@ -24,6 +24,11 @@ import {
 import { useCapability } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 
+/** One subject of a student: a teacher and what they teach them. A teacher can teach them two. */
+export function subjectKey(teacherId: string, course?: string | null): string {
+  return `${teacherId}::${(course ?? "").trim().toLowerCase()}`;
+}
+
 /**
  * Sell an existing student a block of hours.
  *
@@ -67,14 +72,18 @@ export function OpenPackageForm({
   const [newTeacherId, setNewTeacherId] = useState("");
   const [newCourse, setNewCourse] = useState("");
 
+  const openKeysOf = (picked: PackageStudent | null | undefined) =>
+    new Set((picked?.open_blocks ?? []).map((b) => subjectKey(b.teacher_id, b.course)));
+
   /**
    * Where the subject picker starts: "any lesson" — unless that one is already open, then their
    * first subject still free, else a new subject (a centre's second subscription is a subject).
    */
   function defaultSubject(picked: PackageStudent | undefined): string {
     if (!centre || picked?.active_package_id == null) return "";
-    const free = (picked.subjects ?? []).find((sub) => !(picked.open_subjects ?? []).includes(sub.teacher_id));
-    return free?.teacher_id ?? NEW;
+    const open = openKeysOf(picked);
+    const free = (picked.subjects ?? []).find((sub) => !open.has(subjectKey(sub.teacher_id, sub.course)));
+    return free ? subjectKey(free.teacher_id, free.course) : NEW;
   }
 
   // Opened from a student's page: the student is chosen already, so start where a pick would.
@@ -82,8 +91,8 @@ export function OpenPackageForm({
     if (initialStudentId && students !== null) {
       const picked = students.find((s) => s.id === initialStudentId);
       const renewable = initialSubjectId !== undefined && centre
-        && (picked?.subjects ?? []).some((sub) => sub.teacher_id === initialSubjectId)
-        && !(picked?.open_subjects ?? []).includes(initialSubjectId);
+        && (picked?.subjects ?? []).some((sub) => subjectKey(sub.teacher_id, sub.course) === initialSubjectId)
+        && !openKeysOf(picked).has(initialSubjectId);
       setSubjectId(renewable ? initialSubjectId : defaultSubject(picked));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -141,11 +150,15 @@ export function OpenPackageForm({
   );
 
   const subjects = centre ? (student?.subjects ?? []) : [];
-  const openSubjects = new Set(student?.open_subjects ?? []);
-  // The teacher the block is tied to: a subject they already take, or the one picked as new.
-  const tiedTeacher = subjectId === NEW ? newTeacherId : subjectId;
+  const openKeys = openKeysOf(student);
+  const tiedSubject = subjects.find((sub) => subjectKey(sub.teacher_id, sub.course) === subjectId);
+  // The subject the block is tied to: one they already take, or the one picked as new.
+  const tiedTeacher = subjectId === NEW ? newTeacherId : (tiedSubject?.teacher_id ?? "");
+  const tiedCourse = subjectId === NEW ? newCourse : (tiedSubject?.course ?? null);
   const alreadyOpen =
-    student !== null && (tiedTeacher === "" ? subjectId !== NEW && student.active_package_id != null : openSubjects.has(tiedTeacher));
+    student !== null && (tiedTeacher === "" ? subjectId !== NEW && student.active_package_id != null : openKeys.has(subjectKey(tiedTeacher, tiedCourse)));
+  // Another subject already open with this teacher: its lessons need telling apart on the timetable.
+  const secondSubject = tiedTeacher !== "" && (student?.open_blocks ?? []).some((b) => b.teacher_id === tiedTeacher);
   // A subject holds one open block, so buying more with the same teacher means adding to that block.
   const [openBlocks, setOpenBlocks] = useState<LessonPackageRow[]>([]);
   const [topUp, setTopUp] = useState<LessonPackageRow | null>(null);
@@ -166,7 +179,10 @@ export function OpenPackageForm({
   }, [looksForBlock, studentId]);
   const blockToAddTo = looksForBlock
     ? openBlocks.find(
-        (p) => p.student_id === studentId && p.lesson_minutes !== null && (p.subject?.teacher_id ?? "") === tiedTeacher,
+        (p) =>
+          p.student_id === studentId &&
+          p.lesson_minutes !== null &&
+          (p.subject ? subjectKey(p.subject.teacher_id, p.subject.course) : "") === (tiedTeacher === "" ? "" : subjectKey(tiedTeacher, tiedCourse)),
       ) ?? null
     : null;
   // How long this subject's lessons really are. The length starts there, and says so if changed.
@@ -194,8 +210,9 @@ export function OpenPackageForm({
         ...terms.toPayload(),
         carry_over: canCarryOver && carryOver,
         ...(tiedTeacher !== "" ? { teacher_id: tiedTeacher } : {}),
-        // Picked as new and not already one of theirs: the link is made with the block.
-        ...(subjectId === NEW && !subjects.some((sub) => sub.teacher_id === newTeacherId) ? { new_subject: true, course: newCourse.trim() } : {}),
+        ...(tiedCourse?.trim() ? { course: tiedCourse.trim() } : {}),
+        // Picked as new with a teacher not already theirs: the link is made with the block.
+        ...(subjectId === NEW && !subjects.some((sub) => sub.teacher_id === newTeacherId) ? { new_subject: true } : {}),
       });
 
       const opened =
@@ -214,9 +231,13 @@ export function OpenPackageForm({
       // have moved this student already, and claiming a switch that did not happen is worse than
       // staying quiet about one that did.
       onSaved(
-        result.switched_to_package_billing
-          ? `${opened} ${t("alerts.switchedToPackages", { name: student?.full_name ?? "" })}`
-          : opened,
+        [
+          opened,
+          result.switched_to_package_billing ? t("alerts.switchedToPackages", { name: student?.full_name ?? "" }) : null,
+          secondSubject ? t("alerts.secondSubjectHint") : null,
+        ]
+          .filter(Boolean)
+          .join(" "),
       );
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -281,12 +302,15 @@ export function OpenPackageForm({
               {t("form.subjectAny")}
               {student?.active_package_id != null ? ` ${t("form.subjectOpen")}` : ""}
             </option>
-            {subjects.map((sub) => (
-              <option key={sub.teacher_id} value={sub.teacher_id}>
-                {[sub.course, sub.teacher_name].filter(Boolean).join(" · ")}
-                {openSubjects.has(sub.teacher_id) ? ` ${t("form.subjectOpen")}` : ""}
-              </option>
-            ))}
+            {subjects.map((sub) => {
+              const key = subjectKey(sub.teacher_id, sub.course);
+              return (
+                <option key={key} value={key}>
+                  {[sub.course, sub.teacher_name].filter(Boolean).join(" · ")}
+                  {openKeys.has(key) ? ` ${t("form.subjectOpen")}` : ""}
+                </option>
+              );
+            })}
             <option value={NEW}>{t("form.subjectNew")}</option>
           </select>
           {subjectId === NEW && (
@@ -314,7 +338,6 @@ export function OpenPackageForm({
                   {(teachers ?? []).map((tc) => (
                     <option key={tc.id} value={tc.id}>
                       {tc.full_name}
-                      {openSubjects.has(tc.id) ? ` ${t("form.subjectOpen")}` : ""}
                     </option>
                   ))}
                 </select>

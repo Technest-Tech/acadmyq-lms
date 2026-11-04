@@ -8,10 +8,12 @@ import { useAuth } from "@/components/auth-provider";
 import { AttendanceSheet } from "@/components/groups/attendance-sheet";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { LESSON_TONE, fieldClass, localDateTime, needsMarking, todayIn, wallTime } from "@/components/groups/group-format";
+import { EmptyCard } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
+import { useCentreLook } from "@/lib/capabilities";
 import { exportRowsToExcel } from "@/lib/export-excel";
 import {
   addGroupLesson,
@@ -120,6 +122,9 @@ export function TimetableBoard() {
   const canManage = can("group.manage");
   const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const today = todayIn(browserTz);
+  // The centre's look (group-look): the day strip and the filters on white cards, each hour block a
+  // card of its own. The markup is otherwise the same for everyone.
+  const look = useCentreLook();
 
   const [weekStart, setWeekStart] = useState(() => weekStartOf(today));
   // An index into the week (0 = Saturday), or the whole week.
@@ -347,7 +352,7 @@ export function TimetableBoard() {
         </div>
       </div>
 
-      <div className="no-scrollbar -mx-1 flex gap-1 overflow-x-auto px-1" role="tablist">
+      <div className={cn("no-scrollbar flex gap-1 overflow-x-auto", look ? "centre-surface bg-card rounded-2xl border p-1.5" : "-mx-1 px-1")} role="tablist">
         {days.map((d, i) => {
           const count = filtered.filter((r) => r.date === d).length;
           return (
@@ -358,9 +363,10 @@ export function TimetableBoard() {
               aria-selected={day === i}
               onClick={() => setDay(i)}
               className={cn(
-                "shrink-0 rounded-xl border px-3 py-1.5 text-start text-sm transition-colors",
-                day === i ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
-                d === today && day !== i && "border-primary/50",
+                "shrink-0 rounded-xl px-3 py-1.5 text-start text-sm transition-colors",
+                look ? "font-bold" : "border",
+                day === i ? (look ? "centre-button-primary" : "border-primary bg-primary text-primary-foreground") : "hover:bg-muted",
+                d === today && day !== i && (look ? "text-primary" : "border-primary/50"),
               )}
               data-testid={`timetable-day-${d}`}
             >
@@ -377,8 +383,9 @@ export function TimetableBoard() {
           aria-selected={day === "all"}
           onClick={() => setDay("all")}
           className={cn(
-            "shrink-0 rounded-xl border px-3 py-1.5 text-sm font-medium transition-colors",
-            day === "all" ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted",
+            "shrink-0 rounded-xl px-3 py-1.5 text-sm transition-colors",
+            look ? "font-bold" : "border font-medium",
+            day === "all" ? (look ? "centre-button-primary" : "border-primary bg-primary text-primary-foreground") : "hover:bg-muted",
           )}
           data-testid="timetable-day-all"
         >
@@ -386,7 +393,7 @@ export function TimetableBoard() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-6", look && "centre-surface bg-card rounded-2xl border p-3")}>
         {filterSelect(
           "hour",
           t("board.timetable.filters.allHours"),
@@ -436,11 +443,19 @@ export function TimetableBoard() {
       {clashCount > 0 && <AlertBanner variant="error" message={t("board.timetable.clashBanner", { count: clashCount })} />}
 
       {loading && lessons.length === 0 ? (
-        <p className="text-muted-foreground py-10 text-center text-sm">{t("loading")}</p>
+        look ? (
+          <div className="bg-muted h-48 animate-pulse rounded-2xl" aria-label={t("loading")} />
+        ) : (
+          <p className="text-muted-foreground py-10 text-center text-sm">{t("loading")}</p>
+        )
       ) : visible.length === 0 ? (
-        <div className="text-muted-foreground rounded-2xl border border-dashed p-10 text-center text-sm">
-          {filtering ? t("board.timetable.emptyFiltered") : t("board.timetable.empty")}
-        </div>
+        look ? (
+          <EmptyCard icon={Clock} text={filtering ? t("board.timetable.emptyFiltered") : t("board.timetable.empty")} />
+        ) : (
+          <div className="text-muted-foreground rounded-2xl border border-dashed p-10 text-center text-sm">
+            {filtering ? t("board.timetable.emptyFiltered") : t("board.timetable.empty")}
+          </div>
+        )
       ) : (
         <div className="space-y-6">
           {shownDays.map((d) => {
@@ -459,20 +474,26 @@ export function TimetableBoard() {
                     .filter((r) => r.hour === h)
                     .sort((a, b) => a.start.localeCompare(b.start) || a.lesson.group.name.localeCompare(b.lesson.group.name, locale));
                   return (
-                    <div key={h} className="overflow-hidden rounded-xl border" data-testid={`timetable-hour-${d}-${h}`}>
-                      <div className="bg-muted/50 flex items-center justify-between border-b px-3 py-2">
-                        <span className="inline-flex items-center gap-1.5 text-sm font-semibold tabular-nums">
-                          <Clock className="size-4" aria-hidden />
+                    <div key={h} className={cn("overflow-hidden border", look ? "centre-surface bg-card rounded-2xl" : "rounded-xl")} data-testid={`timetable-hour-${d}-${h}`}>
+                      <div className={cn("flex items-center justify-between border-b px-3 py-2", look ? "px-4 py-2.5" : "bg-muted/50")}>
+                        <span className={cn("inline-flex items-center gap-1.5 text-sm font-semibold tabular-nums", look && "gap-2.5 font-extrabold")}>
+                          {look ? (
+                            <span className="flex size-9 items-center justify-center rounded-xl bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+                              <Clock className="size-4" aria-hidden />
+                            </span>
+                          ) : (
+                            <Clock className="size-4" aria-hidden />
+                          )}
                           {wallTime(`${h}:00`, locale)}
                         </span>
-                        <span className="text-muted-foreground text-xs">
+                        <span className={cn("text-muted-foreground text-xs", look && "bg-muted rounded-full px-2.5 py-0.5 font-bold tabular-nums")}>
                           {t("board.timetable.hourCount", {
                             count: block.length,
                           })}
                         </span>
                       </div>
                       <div className="overflow-x-auto">
-                        <table className="w-full min-w-[46rem] text-sm">
+                        <table className={cn("w-full min-w-[46rem] text-sm", look && "dt-table")}>
                           <thead className="text-muted-foreground text-xs">
                             <tr className="border-b">
                               <th className="px-3 py-2 text-start font-medium">{t("board.timetable.col.time")}</th>

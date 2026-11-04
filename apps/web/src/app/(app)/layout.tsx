@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
 import { AuthProvider } from "@/components/auth-provider";
+import { WORKSPACE_INIT_SCRIPT } from "@/lib/branding";
 
 /**
  * Nothing behind the login belongs in a search index. A crawler that follows a stray link in here
@@ -27,8 +28,11 @@ export const metadata: Metadata = {
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <AuthProvider>
-      <AppShell>{children}</AppShell>
-    </AuthProvider>
+    <>
+      <script dangerouslySetInnerHTML={{ __html: WORKSPACE_INIT_SCRIPT }} />
+      <AuthProvider>
+        <AppShell>{children}</AppShell>
+      </AuthProvider>
+    </>
   );
 }

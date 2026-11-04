@@ -40,6 +40,7 @@ import { apiBase } from "@/lib/api-base";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { formatDateTime, formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { numeralLocale } from "@/lib/numerals";
 
 /** One thing the card can do. Exactly one of `onClick` / `href` / `external` is set. */
 type CardAction = {
@@ -994,7 +995,7 @@ function StatusPill({
 
 function formatDate(date: string, locale: string): string {
   return new Intl.DateTimeFormat(
-    locale.startsWith("ar") ? `${locale}-u-nu-arab` : locale,
+    numeralLocale(locale),
     { dateStyle: "medium", timeZone: "UTC" },
   ).format(new Date(`${date}T00:00:00Z`));
 }

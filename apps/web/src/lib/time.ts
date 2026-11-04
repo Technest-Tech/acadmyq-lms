@@ -1,3 +1,5 @@
+import { numeralLocale } from "@/lib/numerals";
+
 /**
  * Display-only time helpers (Master Spec §6.3): the API sends UTC ISO strings;
  * the client renders them as wall-clock in the viewer's/academy's timezone.
@@ -49,9 +51,7 @@ export function formatHours(minutes: number, locale: string): string {
 
 function bcp47(locale: string): string {
   // Arabic renders Arabic-Indic digits via the explicit numbering system (R-LOC / AC-9.12).
-  return locale.startsWith("ar") && !locale.includes("-nu-")
-    ? `${locale}-u-nu-arab`
-    : locale;
+  return numeralLocale(locale);
 }
 
 const REL_DIVISIONS: Array<{

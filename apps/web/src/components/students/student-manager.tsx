@@ -13,6 +13,7 @@ import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { EnrollmentWizard } from "@/components/students/enrollment-wizard";
+import { FollowUpCard } from "@/components/students/follow-up-card";
 import { StudentForm } from "@/components/students/student-form";
 import { StudentsList } from "@/components/students/students-list";
 import { TeacherStudentSessions } from "@/components/students/teacher-student-sessions";
@@ -22,6 +23,7 @@ import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import { SegmentTile } from "@/components/ui/segment-tile";
 import { deactivateStudent, listStudents } from "@/lib/api";
+import { useCapability, useCentreLook } from "@/lib/capabilities";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -63,6 +65,11 @@ export function StudentManager() {
   const router = useRouter();
   const { can, session } = useAuth();
   const isTeacher = session?.role === "TEACHER";
+  // A learning centre's call list (follow-up-card) sits above the roll: the "group students" page
+  // that a Quran academy keeps is hidden from a centre's sidebar (app-shell CENTRE_HIDDEN_KEYS).
+  const centreLook = useCentreLook();
+  const groupsOn = useCapability("groups");
+  const followUp = centreLook && groupsOn && can("group.read");
 
   /**
    * Opening a profile is a real navigation — the segment has to be fetched before anything
@@ -243,6 +250,8 @@ export function StudentManager() {
           {t("stats.filterHint")}
         </p>
       </div>
+
+      {followUp && <FollowUpCard refreshToken={refreshToken} onOpen={(id, name) => openStudent(id, name)} />}
 
       {/* ── Alert ──────────────────────────────────────────────────────────── */}
       {alert && (

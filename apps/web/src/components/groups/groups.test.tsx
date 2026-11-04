@@ -164,6 +164,88 @@ describe("GroupsManager — the groups page", () => {
   });
 });
 
+describe("GroupsManager — a learning centre's look", () => {
+  const centreSession = () =>
+    makeSession("ACADEMY_OWNER", {
+      academy: { name: "Lingo", displayName: "Lingo", logoUrl: null, country: "EG", defaultCurrency: "EGP", profile: "CENTRE" },
+      permissions: ["group.read", "group.manage"],
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listGroups.mockResolvedValue({ groups: [groupRow()], counts: { RUNNING: 1, UPCOMING: 2, FINISHED: 0, ARCHIVED: 3 } });
+  });
+
+  it("reads the tabs as stat cards that still cut the list, and keeps the card's facts", async () => {
+    const user = userEvent.setup();
+    render(withAuth(centreSession(), <GroupsManager />));
+
+    const card = await screen.findByTestId("group-card-g1");
+    expect(within(card).getByText("12 / 12")).toBeInTheDocument();
+    expect(within(card).getByTestId("group-overdue")).toBeInTheDocument();
+    expect(card).toHaveAttribute("href", "/groups/g1");
+
+    // "All" counts every group that is not archived.
+    expect(screen.getByTestId("segment-groups-ACTIVE")).toHaveTextContent("3");
+    await user.click(screen.getByTestId("segment-groups-ARCHIVED"));
+    await waitFor(() => expect(listGroups).toHaveBeenLastCalledWith(expect.objectContaining({ state: "ARCHIVED" })));
+    expect(screen.getByTestId("segment-groups-ARCHIVED")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("joins days that share a time, counts the lessons in coloured blocks, and says how many seats are left", async () => {
+    listGroups.mockResolvedValue({
+      groups: [
+        groupRow({
+          capacity: 15,
+          slots: [
+            { weekday: 1, start_time_local: "17:00", duration_minutes: 60 },
+            { weekday: 3, start_time_local: "17:00", duration_minutes: 60 },
+          ],
+        }),
+      ],
+      counts: { RUNNING: 1, UPCOMING: 0, FINISHED: 0, ARCHIVED: 0 },
+    });
+    render(withAuth(centreSession(), <GroupsManager />));
+
+    const card = await screen.findByTestId("group-card-g1");
+    // One line for Monday and Wednesday, not one each.
+    expect(within(card).getByText(/الاثنين، الأربعاء/)).toBeInTheDocument();
+    expect(within(card).getByText(ar.card.held).previousSibling).toHaveTextContent("4");
+    expect(within(card).getByText(ar.card.upcoming).previousSibling).toHaveTextContent("6");
+    expect(within(card).getByTestId("group-overdue")).toHaveTextContent("2");
+    expect(within(card).getByText("متبقي 3")).toBeInTheDocument();
+    // In reading order inside Arabic text: 12 of 15, not 15 of 12.
+    expect(within(card).getByText("12 / 15")).toHaveAttribute("dir", "ltr");
+  });
+
+  it("leaves the sheets block quiet when none are owed", async () => {
+    listGroups.mockResolvedValue({
+      groups: [groupRow({ lessons: { held: 4, cancelled: 0, upcoming: 6, overdue: 0, next_lesson_at: null } })],
+      counts: { RUNNING: 1, UPCOMING: 0, FINISHED: 0, ARCHIVED: 0 },
+    });
+    render(withAuth(centreSession(), <GroupsManager />));
+
+    const card = await screen.findByTestId("group-card-g1");
+    expect(within(card).queryByTestId("group-overdue")).toBeNull();
+    expect(within(card).getByText(ar.noNextLesson)).toBeInTheDocument();
+  });
+
+  it("offers the first group from the empty page to someone who can make one", async () => {
+    listGroups.mockResolvedValue({ groups: [], counts: { RUNNING: 0, UPCOMING: 0, FINISHED: 0, ARCHIVED: 0 } });
+    render(withAuth(centreSession(), <GroupsManager />));
+
+    expect(within(await screen.findByTestId("groups-empty")).getByRole("button", { name: ar.new })).toBeInTheDocument();
+  });
+
+  it("keeps the old tabs and card for every other academy", async () => {
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.read"] }), <GroupsManager />));
+
+    await screen.findByTestId("group-card-g1");
+    expect(screen.getByTestId("groups-tab-ACTIVE")).toBeInTheDocument();
+    expect(screen.queryByTestId("groups-tiles")).toBeNull();
+  });
+});
+
 describe("AttendanceSheet — everyone present, tap the exceptions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -335,6 +417,45 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
       teacher_pay_minor: null,
       teacher_share_bp: 4000,
     });
+  });
+
+  it("gives a centre's form its sections and a live summary, and sends the same thing", async () => {
+    const user = userEvent.setup();
+    render(
+      withAuth(
+        makeSession("ACADEMY_OWNER", {
+          academy: { name: "Lingo", displayName: "Lingo", logoUrl: null, country: "EG", defaultCurrency: "EGP", profile: "CENTRE" },
+          permissions: ["group.manage", "student.set_price", "teacher.set_pay"],
+        }),
+        <GroupForm onSaved={() => {}} onCancel={() => {}} />,
+      ),
+    );
+
+    expect(screen.getByRole("heading", { name: ar.form.sections.basics })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: ar.form.sections.schedule })).toBeInTheDocument();
+    const summary = within(screen.getByTestId("group-form-summary"));
+    expect(summary.getByText(ar.form.sections.summaryName)).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("group-name"), "English A1");
+    await user.click(screen.getByTestId("group-teacher"));
+    await user.click(await screen.findByText("Mona"));
+    expect(summary.getByText("English A1")).toBeInTheDocument();
+    expect(summary.getByText("Mona")).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("group-price"), "450");
+    expect(summary.getByText(/٤٥٠/)).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("group-save"));
+    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
+    expect(createGroup.mock.calls[0]![0]).toMatchObject({ name: "English A1", billing_mode: "MONTHLY", price_minor: 45000, currency: "EGP" });
+  });
+
+  it("keeps the plain form, with no sections or summary, for every other academy", () => {
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage", "student.set_price"] }), <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    expect(screen.queryByTestId("group-form-summary")).toBeNull();
+    expect(screen.queryByRole("heading", { name: ar.form.sections.basics })).toBeNull();
+    expect(screen.getByTestId("group-pricing")).toHaveClass("rounded-xl", "border", "p-3");
   });
 
   it("sells a monthly group by hours: the hours go up as minutes, and the join pro-rating drops away", async () => {

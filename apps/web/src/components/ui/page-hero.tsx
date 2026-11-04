@@ -40,8 +40,7 @@ export function PageHero({
     <header
       className="page-hero relative overflow-hidden rounded-2xl border border-transparent p-4 text-white shadow-lg sm:p-6"
       style={{
-        background:
-          "var(--hero-gradient)",
+        background: "var(--hero-gradient)",
       }}
     >
       <KhatamLattice
@@ -66,14 +65,14 @@ export function PageHero({
             <HeroAvatar name={avatarName} />
           ) : (
             Icon && (
-              <div className="ring-gold/40 flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 backdrop-blur-sm sm:size-12">
+              <div className="page-hero__tile ring-gold/40 flex size-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 backdrop-blur-sm sm:size-12">
                 <Icon className="size-5 sm:size-6" aria-hidden />
               </div>
             )
           )}
           <div className="min-w-0">
             {/* A phone wraps the title rather than cutting a student's name off mid-word. */}
-            <h1 className="text-xl font-bold leading-tight tracking-tight break-words drop-shadow-sm sm:truncate sm:text-2xl">
+            <h1 className="page-hero__title text-xl font-bold leading-tight tracking-tight break-words drop-shadow-sm sm:truncate sm:text-2xl">
               {title}
             </h1>
             {subtitle && <p className="mt-0.5 text-sm text-white/85">{subtitle}</p>}
@@ -105,7 +104,7 @@ function HeroAvatar({ name }: { name: string }) {
 
   return (
     <div className="relative shrink-0">
-      <div className="ring-gold/45 flex size-14 items-center justify-center rounded-2xl bg-white/15 text-lg font-bold ring-1 backdrop-blur-sm sm:size-16 sm:text-xl">
+      <div className="page-hero__tile ring-gold/45 flex size-14 items-center justify-center rounded-2xl bg-white/15 text-lg font-bold ring-1 backdrop-blur-sm sm:size-16 sm:text-xl">
         {initials}
       </div>
       <Octagram className="ornament text-gold absolute -bottom-1 -end-1 size-4 drop-shadow" />
@@ -124,7 +123,7 @@ export function HeroBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium backdrop-blur-sm",
+        "hero-pill inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium backdrop-blur-sm",
         tone === "gold"
           ? "border-gold/50 bg-gold text-gold-foreground font-bold"
           : "border-white/25 bg-white/15 text-white",
@@ -138,7 +137,7 @@ export function HeroBadge({
 /** The larger end-side pill — a count, a live indicator. */
 export function HeroPill({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/15 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
+    <span className="hero-pill inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/15 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
       {children}
     </span>
   );
