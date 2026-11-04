@@ -130,6 +130,12 @@ export function AttendanceReport({
   // The academy's own form (Settings → Lesson report) in place of the free-text box. Opt-in, so
   // strict: a session without a capability list must not flip every academy onto it.
   const hasLessonReport = auth?.capabilities?.includes("lesson_report") ?? false;
+  // The free-text lesson report is the Quran academy's machinery. A learning centre (`centre`) has
+  // no use for it unless it opted into the structured form: it records the OUTCOME and sends the
+  // WhatsApp message, and the report box, its edit button and the archive stay out of the way.
+  // Keyed on the switches, never on the profile; any academy that is not a centre is as it was.
+  const isCentre = auth?.capabilities?.includes("centre") ?? false;
+  const showReportEditor = hasLessonReport || !isCentre;
 
   // The four selectable outcomes are the same for everyone now (attended / free / the two
   // cancellations). A teacher's cancel still routes through approval; an owner's opens the
@@ -559,16 +565,18 @@ export function AttendanceReport({
                 {t("durationEdit.action")}
               </Button>
             )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setHistoryOpen(true)}
-            data-testid="open-history"
-          >
-            <History className="size-3.5" />
-            {t("viewHistory")}
-          </Button>
+          {showReportEditor && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setHistoryOpen(true)}
+              data-testid="open-history"
+            >
+              <History className="size-3.5" />
+              {t("viewHistory")}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -754,6 +762,8 @@ export function AttendanceReport({
       {/* ── Report text editor ────────────────────────────────────────── */}
       {canWrite && (
         <section>
+          {showReportEditor && (
+            <>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">{t("reportTitle")}</h3>
             <div className="flex flex-wrap items-center gap-2">
@@ -858,6 +868,8 @@ export function AttendanceReport({
               )}
             </div>
           )}
+            </>
+          )}
 
           <div className="mt-3">
             <div className="flex flex-wrap items-center justify-end gap-2">
@@ -906,7 +918,7 @@ export function AttendanceReport({
                   {report.whatsapp_sent_at ? t("sentBadge") : t("sendWhatsapp")}
                 </Button>
               )}
-              {editing && !readOnly && (
+              {editing && !readOnly && showReportEditor && (
                 <Button
                   type="button"
                   size="sm"

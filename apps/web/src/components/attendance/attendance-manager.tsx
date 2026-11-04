@@ -49,6 +49,7 @@ import { RescheduleModal } from "@/components/attendance/reschedule-modal";
 import { RevertOutcomeDialog } from "@/components/attendance/revert-outcome-dialog";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
+import { useCapability } from "@/lib/capabilities";
 import { actorLabel, DoneByCell, useTeamActorsState } from "@/components/team/done-by";
 import {
   addDays,
@@ -208,7 +209,10 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   const canCreateClass = can("session.create");
   // "Following": a supervisor saying they are on this lesson. The click is measured on the
   // Supervision page and silences the WhatsApp not-marked reminder for the lesson.
-  const canFollow = can("session.follow");
+  // The control belongs to the Supervision feature: an academy with it switched off (a learning
+  // centre's preset) has no Supervision page to measure the click on, so the button is not offered.
+  const hasSupervision = useCapability("supervision");
+  const canFollow = can("session.follow") && hasSupervision;
   // The Enter button's clock: re-read every half minute so a lesson's button lights up on time.
   const now = useNow();
 
@@ -1289,7 +1293,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                         earlyHorizonMinutes={ENTER_EARLY_HORIZON_MINUTES}
                                       />
                                     )}
-                                    {displayStatus === "SCHEDULED" && (
+                                    {hasSupervision && displayStatus === "SCHEDULED" && (
                                       <FollowControl
                                         sessionId={s.id}
                                         followed={followInfo(s)}
@@ -1458,7 +1462,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                   earlyHorizonMinutes={ENTER_EARLY_HORIZON_MINUTES}
                                 />
                               )}
-                              {displayStatus === "SCHEDULED" && (
+                              {hasSupervision && displayStatus === "SCHEDULED" && (
                                 <FollowControl
                                   sessionId={s.id}
                                   followed={followInfo(s)}

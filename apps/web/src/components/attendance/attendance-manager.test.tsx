@@ -387,6 +387,22 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     expect(screen.queryByTestId("row-follow")).not.toBeInTheDocument();
   });
 
+  it("offers no Following control to an academy whose Supervision feature is off (a centre)", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({
+      sessions: [{ ...daySession, followed_at: "2026-06-01T15:02:00Z", followed_by_name: "Omar Owner", followed_by_user_id: "u9" }, daySession],
+    });
+    renderManager(
+      makeSession("ACADEMY_OWNER", {
+        permissions: ["session.read", "session.mark_attendance", "session.follow"],
+        capabilities: ["invoicing", "groups", "accounting", "centre"],
+      }),
+    );
+
+    await screen.findByTestId("day-list");
+    expect(screen.queryByTestId("row-follow")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("row-following")).not.toBeInTheDocument();
+  });
+
   it("does not offer reschedule without the session.reschedule capability", async () => {
     vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
     renderManager(ownerSession());

@@ -576,3 +576,49 @@ describe("AttendanceReport — the academy's own lesson report (lesson_report)",
     expect(screen.queryByTestId("structured-report")).not.toBeInTheDocument();
   });
 });
+
+// ── A learning centre: the outcome and the WhatsApp message, not the report box ──
+// The free-text report is the Quran academy's machinery; a centre (`centre`) that never opted into
+// the structured report (`lesson_report`) records the outcome and keeps the report editor, its edit
+// button and the archive out of the way. Any academy that is not a centre is untouched (above).
+describe("AttendanceReport — a learning centre without the lesson report", () => {
+  function centreSession(withLessonReport = false): Session {
+    return makeSession("ACADEMY_OWNER", {
+      permissions: ["session.read", "session.mark_attendance", "session.write_report"],
+      capabilities: withLessonReport ? ["groups", "accounting", "centre", "lesson_report"] : ["groups", "accounting", "centre"],
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getSession).mockResolvedValue(detail());
+    vi.mocked(api.getStudentReports).mockResolvedValue({ reports: [], total: 0, page: 1, pageSize: 25 });
+  });
+
+  it("keeps the outcome and drops the report editor, its edit button and the archive", async () => {
+    renderPanel(centreSession());
+
+    expect(await screen.findByTestId("current-status")).toBeInTheDocument();
+    expect(screen.queryByTestId("report-text")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("edit-report")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("open-history")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("save-report")).not.toBeInTheDocument();
+  });
+
+  it("still offers the WhatsApp message once the lesson is attended and recorded", async () => {
+    const d = detail();
+    d.session.status = "ATTENDED";
+    d.report = { values: { report_text: "" }, filled_by_user_id: "u1", filled_at: "2026-06-01T16:00:00Z", whatsapp_sent_at: null, whatsapp_channel: null };
+    vi.mocked(api.getSession).mockResolvedValue(d);
+    renderPanel(centreSession());
+
+    expect(await screen.findByTestId("compose-whatsapp")).toBeInTheDocument();
+    expect(screen.queryByTestId("report-text")).not.toBeInTheDocument();
+  });
+
+  it("brings the report back for a centre that opted into the structured lesson report", async () => {
+    renderPanel(centreSession(true));
+
+    expect(await screen.findByTestId("open-history")).toBeInTheDocument();
+  });
+});
