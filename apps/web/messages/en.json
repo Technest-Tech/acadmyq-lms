@@ -10893,5 +10893,118 @@
     "save": "Save",
     "saved": "Absence alert settings saved.",
     "loadError": "Could not load the absence alert settings."
+  },
+  "courseTerm": {
+    "plannedLessons": "Planned lessons",
+    "plannedLessonsHint": "How many lessons the whole course has. Leave empty for an open-ended group.",
+    "progress": "{held} / {planned} lessons",
+    "progressTitle": "Lessons held out of the plan",
+    "remaining": "{count, plural, =0 {no lessons left} one {# lesson left} other {# lessons left}}",
+    "endsIn": "{days, plural, =0 {ends today} one {ends tomorrow} other {ends in # days}}",
+    "endedAgo": "{days, plural, one {ended yesterday} other {ended # days ago}}",
+    "endingSoon": "Ending soon",
+    "filterEndingSoon": "Ending soon",
+    "continues": "Continues {name}",
+    "archivedAs": {
+      "RENEWED": "This course ended and was renewed into a new term.",
+      "PROMOTED": "This course ended and its students were promoted to the next level.",
+      "CLOSED": "This course was closed."
+    },
+    "panel": {
+      "title": "End of course",
+      "subtitleRunning": "When the course ends: renew it for a new term, promote its students to the next level, or close it.",
+      "subtitleFinished": "This course has ended. Renew it for a new term, promote its students to the next level, or close it.",
+      "endingSoon": "This course is about to end.",
+      "renew": "Renew",
+      "promote": "Promote",
+      "close": "Close",
+      "failed": "That did not go through. Try again."
+    },
+    "renew": {
+      "title": "Renew the course",
+      "subtitle": "A new course with the same name, teacher, times, room and price. The current one is archived and the chosen students move to the new one from its start date.",
+      "name": "New course name",
+      "startDate": "Starts on",
+      "endDate": "Ends on",
+      "endDateHint": "Leave empty for a course with no fixed end.",
+      "members": "Students who continue",
+      "membersHint": "Untick anyone who will not continue in the new course.",
+      "noMembers": "No students in this course — the new one starts empty.",
+      "selectAll": "Select all",
+      "selectNone": "Clear all",
+      "upcomingWarning": "{count, plural, one {This course has # upcoming lesson} other {This course has # upcoming lessons}} that will be removed when it is archived.",
+      "submit": "Renew and open the new course",
+      "saving": "Renewing…",
+      "errors": {
+        "startDate": "Set the new course's start date.",
+        "endBeforeStart": "The end date is before the start date.",
+        "lessons": "Planned lessons must be a whole number above zero."
+      }
+    },
+    "promote": {
+      "title": "Promote the course's students",
+      "subtitle": "A new course at the next level with the same teacher and times. The chosen students are promoted into it (written to each student's history); the rest leave the current course and keep their level.",
+      "toLevel": "New level",
+      "toLevelPlaceholder": "Choose the level",
+      "noNext": "There is no level after this course's level — choose one yourself.",
+      "members": "Who passed",
+      "membersHint": "Untick anyone who did not pass; they leave the course and keep their current level.",
+      "submit": "Promote",
+      "saving": "Promoting…",
+      "done": "Promoted to {level}.",
+      "notPromoted": "{count, plural, =0 {Everyone was promoted.} one {# student was not promoted: {names}} other {# students were not promoted: {names}}}",
+      "openNew": "Open the new course",
+      "errors": {
+        "level": "Choose the new level.",
+        "members": "Pick at least one student, or close the course instead."
+      }
+    },
+    "close": {
+      "title": "Close the course",
+      "subtitle": "The course is archived, its students leave it and the waiting list is cleared. Its record and held lessons stay as they are.",
+      "reason": "Reason (optional)",
+      "reasonPlaceholder": "e.g. the teacher left, or too few students",
+      "submit": "Close the course",
+      "saving": "Closing…",
+      "done": "The course was closed."
+    },
+    "waitlist": {
+      "title": "Waiting list",
+      "hint": "Who wants a seat in this group while it is full. Nobody is seated automatically: when a seat opens, a hint appears here and you choose who comes in.",
+      "waitingCount": "Waiting: {count}",
+      "freeSeats": "{count, plural, one {# free seat} other {# free seats}} — seat the next in line.",
+      "empty": "Nobody is waiting.",
+      "add": "Add to waiting list",
+      "addTitle": "Add to the waiting list",
+      "addHint": "A student already registered, or a name and phone for someone not registered yet.",
+      "pickStudent": "Registered student",
+      "walkIn": "Name and phone",
+      "name": "Name",
+      "phone": "Phone",
+      "note": "Note",
+      "notePlaceholder": "e.g. prefers evening times",
+      "save": "Add",
+      "saving": "Adding…",
+      "added": "Added to the waiting list.",
+      "seat": "Seat",
+      "seatWalkIn": "Register them as a student first, then seat them.",
+      "seated": "{name} joined the group.",
+      "remove": "Remove",
+      "removed": "Removed from the waiting list.",
+      "moveUp": "Up",
+      "moveDown": "Down",
+      "addedBy": "Added by {name}",
+      "walkInTag": "not registered",
+      "errors": {
+        "pick": "Pick a student.",
+        "name": "Enter the name."
+      },
+      "loadFailed": "Could not load the waiting list.",
+      "failed": "That did not go through. Try again."
+    },
+    "dashboard": {
+      "endingSoon": "Courses ending soon",
+      "endingSoonSub": "{waiting, plural, =0 {Within {days} days, or two lessons left} one {and # person waiting for a seat} other {and # people waiting for a seat}}"
+    }
   }
 }

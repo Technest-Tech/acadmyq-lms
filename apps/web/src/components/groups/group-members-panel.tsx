@@ -50,6 +50,7 @@ type ModalState =
  */
 export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; onChanged: (g: GroupDetail) => void }) {
   const t = useTranslations("groups");
+  const tTerm = useTranslations("courseTerm");
   const { can } = useAuth();
   const canManage = can("group.manage");
   const canOpenStudent = can("student.read");
@@ -159,6 +160,11 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
           {seatsLeft !== null && (
             <span className={cn("ms-2 text-xs", seatsLeft === 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
               {seatsLeft === 0 ? t("members.full") : t("members.seatsLeft", { count: seatsLeft })}
+            </span>
+          )}
+          {(group.waiting_count ?? 0) > 0 && (
+            <span className="text-muted-foreground ms-2 text-xs" data-testid="members-waiting">
+              {tTerm("waitlist.waitingCount", { count: group.waiting_count })}
             </span>
           )}
         </p>

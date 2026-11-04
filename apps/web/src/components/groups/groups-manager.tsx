@@ -1,8 +1,8 @@
 "use client";
 
-import { AlertTriangle, CalendarClock, GraduationCap, MapPin, Plus, Search, UsersRound, Video } from "lucide-react";
+import { AlertTriangle, CalendarClock, GraduationCap, Hourglass, MapPin, Plus, Search, UsersRound, Video } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -39,8 +39,10 @@ const TABS: Tab[] = ["ACTIVE", "RUNNING", "UPCOMING", "FINISHED", "ARCHIVED"];
 export function GroupsManager() {
   const t = useTranslations("groups");
   const tLevels = useTranslations("levels");
+  const tTerm = useTranslations("courseTerm");
   const { can, session } = useAuth();
   const router = useRouter();
+  const search = useSearchParams();
   const canManage = can("group.manage");
   const isTeacher = session?.role === "TEACHER";
 
@@ -51,6 +53,8 @@ export function GroupsManager() {
   // A centre narrows the list to one of its levels (docs/centre-profile, Phase 2.1).
   const centre = useCapability("centre");
   const [levelId, setLevelId] = useState("");
+  // "Courses ending soon" (docs/centre-profile, Phase 2 §2): a chip, pre-set by the dashboard's link.
+  const [endingSoon, setEndingSoon] = useState(() => search.get("ending_soon") === "1");
   const [groups, setGroups] = useState<GroupRow[]>([]);
   const [counts, setCounts] = useState<Record<GroupState, number> | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,7 +72,13 @@ export function GroupsManager() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listGroups({ state: tab, q: q.trim() || undefined, teacher_id: teacherId || undefined, level_id: levelId || undefined });
+      const res = await listGroups({
+        state: tab,
+        q: q.trim() || undefined,
+        teacher_id: teacherId || undefined,
+        level_id: levelId || undefined,
+        ending_soon: centre && endingSoon ? true : undefined,
+      });
       setGroups(res.groups);
       setCounts(res.counts);
     } catch {
@@ -77,7 +87,7 @@ export function GroupsManager() {
     } finally {
       setLoading(false);
     }
-  }, [tab, q, teacherId, levelId, t]);
+  }, [tab, q, teacherId, levelId, centre, endingSoon, t]);
 
   useEffect(() => {
     const id = setTimeout(() => void load(), q ? 250 : 0);
@@ -134,6 +144,21 @@ export function GroupsManager() {
               </button>
             );
           })}
+          {centre && (
+            <button
+              type="button"
+              aria-pressed={endingSoon}
+              onClick={() => setEndingSoon((v) => !v)}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
+                endingSoon ? "border-amber-500 bg-amber-500 text-white" : "hover:bg-muted",
+              )}
+              data-testid="groups-filter-ending-soon"
+            >
+              <Hourglass className="size-3.5" aria-hidden />
+              {tTerm("filterEndingSoon")}
+            </button>
+          )}
         </div>
         <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-2", centre ? "lg:w-[40rem] lg:grid-cols-3" : "lg:w-[28rem]")}>
           <label className="relative">
@@ -196,8 +221,10 @@ export function GroupsManager() {
 
 function GroupCard({ group: g }: { group: GroupRow }) {
   const t = useTranslations("groups");
+  const tTerm = useTranslations("courseTerm");
   const tw = useTranslations("scheduling");
   const locale = useLocale();
+  const centre = useCapability("centre");
   const full = g.capacity !== null && g.member_count >= g.capacity;
   const share = g.capacity ? Math.min(100, Math.round((g.member_count / g.capacity) * 100)) : null;
 
@@ -218,6 +245,13 @@ function GroupCard({ group: g }: { group: GroupRow }) {
           {t(`state.${g.state}`)}
         </span>
       </div>
+      {centre && g.ending_soon && (
+        <p className="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300" data-testid="group-ending-soon">
+          <Hourglass className="size-3" aria-hidden />
+          {g.ends_in_days != null && g.ends_in_days >= 0 ? tTerm("endsIn", { days: g.ends_in_days }) : tTerm("endingSoon")}
+          {g.lessons_planned != null && ` · ${tTerm("progress", { held: g.lessons_held ?? 0, planned: g.lessons_planned })}`}
+        </p>
+      )}
 
       <div className="mt-3 space-y-1.5 text-sm">
         <p className="flex items-center gap-1.5">

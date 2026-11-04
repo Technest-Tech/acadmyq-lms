@@ -12,6 +12,8 @@ export type GroupMode = "ONLINE" | "OFFLINE";
 export type GroupLessonStatus = "SCHEDULED" | "HELD" | "CANCELLED";
 export type GroupAttendanceStatus = "PRESENT" | "LATE" | "ABSENT" | "EXCUSED";
 export type GroupBillingMode = "MONTHLY" | "PER_LESSON" | "COURSE";
+/** Why an archived group ended (course term, docs/centre-profile Phase 2 §2); null = archived by hand. */
+export type GroupClosedReason = "RENEWED" | "PROMOTED" | "CLOSED";
 /** null = the teacher's own rate, as for a private lesson of that length. */
 export type GroupTeacherPayMode = "PER_LESSON" | "PER_HOUR" | "PER_STUDENT" | "REVENUE_SHARE" | null;
 
@@ -87,6 +89,22 @@ export interface GroupRow {
   lessons: GroupLessonCounters;
   pricing: GroupPricing | null;
   teacher_pay: GroupTeacherPay | null;
+  // ── The course term (docs/centre-profile, Phase 2 §2) — nullable on every academy's rows ──
+  /** The lessons the term promises; null = not a counted course. */
+  lessons_planned?: number | null;
+  lessons_held?: number;
+  /** planned − held; null without a plan. */
+  lessons_remaining?: number | null;
+  /** Days to the end date (negative once past); null without one. */
+  ends_in_days?: number | null;
+  /** RUNNING and within 14 days of its end, or 2 planned lessons (or fewer) left. */
+  ending_soon?: boolean;
+  /** Names on the waiting list. */
+  waiting_count?: number;
+  /** The term this one renewed / promoted from. */
+  continues_group_id?: string | null;
+  continues_group_name?: string | null;
+  closed_reason?: GroupClosedReason | null;
 }
 
 export interface MemberAttendance {
@@ -207,6 +225,8 @@ export interface GroupInput {
   timezone?: string | null;
   start_date: string;
   end_date?: string | null;
+  /** A centre's course: how many lessons the term promises. */
+  lessons_planned?: number | null;
   notes?: string | null;
   slots: GroupSlot[];
   student_ids?: string[];
@@ -252,9 +272,11 @@ export function listGroups(params: {
   /** A centre's level filter (levels-api). */
   level_id?: string;
   q?: string;
+  /** Only the terms about to end (course term). */
+  ending_soon?: boolean;
 } = {}): Promise<{ groups: GroupRow[]; counts: Record<GroupState, number> }> {
   const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v);
+  for (const [k, v] of Object.entries(params)) if (v) qs.set(k, v === true ? "1" : String(v));
   const query = qs.toString();
   return apiFetch(`/api/groups${query ? `?${query}` : ""}`);
 }
@@ -388,6 +410,107 @@ export function rescheduleGroupLesson(
   input: { local_datetime?: string; duration_minutes?: number; teacher_id?: string; timezone?: string },
 ): Promise<GroupLessonSheet & { warnings: SchedulingWarning[] }> {
   return apiFetch(`/api/group-lessons/${id}/reschedule`, { method: "POST", body: JSON.stringify(input) });
+}
+
+// ── The course term: renew / promote / close + the waiting list (docs/centre-profile, Phase 2 §2) ──
+// Group calls behind the centre switch as well (402 for a Quran academy).
+
+export interface RenewGroupInput {
+  start_date: string;
+  end_date?: string | null;
+  lessons_planned?: number | null;
+  /** The new term's price (student.set_price); omitted = the old term's. */
+  price_minor?: number | null;
+  /** Omitted = the same name. */
+  name?: string | null;
+  /** Everyone moves on; otherwise `member_ids` says who. */
+  keep_members?: boolean;
+  member_ids?: string[];
+}
+
+export interface PromoteGroupInput {
+  /** Omitted = the next level by the academy's order. */
+  to_level_id?: string | null;
+  start_date: string;
+  end_date?: string | null;
+  lessons_planned?: number | null;
+  price_minor?: number | null;
+  name?: string | null;
+  /** Who passed. The rest leave the old term and keep their level. */
+  member_ids: string[];
+}
+
+/** The successor term; `previous_group_id` is the one just archived. */
+export function renewGroup(id: string, input: RenewGroupInput): Promise<{ group: GroupDetail; previous_group_id: string }> {
+  return apiFetch(`/api/groups/${id}/renew`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function promoteGroup(
+  id: string,
+  input: PromoteGroupInput,
+): Promise<{
+  group: GroupDetail;
+  previous_group_id: string;
+  to_level_id: string;
+  promoted: string[];
+  not_promoted: { student_id: string; full_name: string }[];
+}> {
+  return apiFetch(`/api/groups/${id}/promote`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function closeGroup(id: string, reason?: string | null): Promise<{ group: GroupDetail }> {
+  return apiFetch(`/api/groups/${id}/close`, { method: "POST", body: JSON.stringify({ reason: reason ?? null }) });
+}
+
+export interface WaitlistEntry {
+  id: string;
+  /** 1-based place in the queue. */
+  position: number;
+  /** null = a walk-in known by name and phone only (cannot be seated until created as a student). */
+  student_id: string | null;
+  name: string;
+  phone: string | null;
+  note: string | null;
+  status: "WAITING" | "SEATED" | "REMOVED";
+  added_by_name: string | null;
+  created_at: string;
+}
+
+export interface Waitlist {
+  entries: WaitlistEntry[];
+  waiting_count: number;
+  member_count: number;
+  capacity: number | null;
+  /** null = no seat limit. */
+  free_seats: number | null;
+}
+
+export function getGroupWaitlist(id: string): Promise<Waitlist> {
+  return apiFetch(`/api/groups/${id}/waitlist`);
+}
+
+export function addToWaitlist(
+  id: string,
+  input: { student_id?: string | null; name?: string | null; phone?: string | null; note?: string | null },
+): Promise<Waitlist & { entry_id: string }> {
+  return apiFetch(`/api/groups/${id}/waitlist`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function removeFromWaitlist(id: string, entryId: string): Promise<Waitlist> {
+  return apiFetch(`/api/groups/${id}/waitlist/${entryId}`, { method: "DELETE" });
+}
+
+/** The student joins through the members path: a full group refuses exactly as "Add students" does. */
+export function seatFromWaitlist(id: string, entryId: string, joinedOn?: string | null): Promise<Waitlist & { group: GroupDetail }> {
+  return apiFetch(`/api/groups/${id}/waitlist/${entryId}/seat`, {
+    method: "POST",
+    body: JSON.stringify({ joined_on: joinedOn ?? null }),
+  });
+}
+
+/** The whole WAITING queue, in its new order. */
+export function reorderWaitlist(id: string, ids: string[]): Promise<Waitlist> {
+  return apiFetch(`/api/groups/${id}/waitlist/reorder`, { method: "PATCH", body: JSON.stringify({ ids }) });
 }
 
 // ── The section's cross-group pages (GroupBoardController) ─────────────────────

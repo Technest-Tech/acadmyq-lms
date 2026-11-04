@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, Clock, Coins, GraduationCap, Link2, MapPin, Plus, Trash2, Users, Wallet } from "lucide-react";
+import { CalendarDays, Clock, Coins, GraduationCap, Link2, ListChecks, MapPin, Plus, Trash2, Users, Wallet } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -97,6 +97,7 @@ export function GroupForm({
   onCancel: () => void;
 }) {
   const t = useTranslations("groups");
+  const tTerm = useTranslations("courseTerm");
   const tw = useTranslations("scheduling");
   const locale = useLocale();
   const { can } = useAuth();
@@ -120,6 +121,8 @@ export function GroupForm({
   const [meetingUrl, setMeetingUrl] = useState(group?.meeting_url ?? "");
   const [startDate, setStartDate] = useState(group?.start_date ?? todayIn(group?.timezone ?? browserTz));
   const [endDate, setEndDate] = useState(group?.end_date ?? "");
+  // A centre's course promises a number of lessons (docs/centre-profile, Phase 2 §2).
+  const [lessonsPlanned, setLessonsPlanned] = useState(group?.lessons_planned != null ? String(group.lessons_planned) : "");
   const [notes, setNotes] = useState(group?.notes ?? "");
   const [slots, setSlots] = useState<GroupSlot[]>(
     group?.slots.length ? group.slots : [{ weekday: 1, start_time_local: "17:00", duration_minutes: 60 }],
@@ -212,6 +215,7 @@ export function GroupForm({
     if (!teacherId) return t("form.errors.teacher");
     if (!startDate) return t("form.errors.startDate");
     if (endDate && endDate < startDate) return t("form.errors.endDate");
+    if (lessonsPlanned && (!Number.isInteger(Number(lessonsPlanned)) || Number(lessonsPlanned) < 1)) return tTerm("renew.errors.lessons");
     if (slots.length === 0) return t("form.errors.slots");
     const keys = slots.map((s) => `${s.weekday}|${s.start_time_local}`);
     if (new Set(keys).size !== keys.length) return t("form.errors.duplicateSlot");
@@ -278,6 +282,7 @@ export function GroupForm({
       meeting_url: mode === "ONLINE" ? meetingUrl.trim() || null : null,
       start_date: startDate,
       end_date: endDate || null,
+      ...(centre ? { lessons_planned: lessonsPlanned ? Number(lessonsPlanned) : null } : {}),
       notes: notes.trim() || null,
       slots: sortSlots(slots),
       ...(!editing && studentIds.size > 0 ? { student_ids: [...studentIds] } : {}),
@@ -448,6 +453,19 @@ export function GroupForm({
             onChange={(e) => setEndDate(e.target.value)}
           />
         </Field>
+        {centre && (
+          <Field label={tTerm("plannedLessons")} icon={ListChecks} hint={tTerm("plannedLessonsHint")}>
+            <input
+              className={fieldClass}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={lessonsPlanned}
+              onChange={(e) => setLessonsPlanned(e.target.value)}
+              data-testid="group-lessons-planned"
+            />
+          </Field>
+        )}
       </div>
 
       {/* The weekly timetable. */}

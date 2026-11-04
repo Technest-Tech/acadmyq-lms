@@ -43,8 +43,10 @@ use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
 use App\Http\Controllers\Groups\ClassGroupController;
 use App\Http\Controllers\Groups\ClassGroupLessonController;
+use App\Http\Controllers\Groups\CourseTermController;
 use App\Http\Controllers\Groups\GroupAbsenceAlertController;
 use App\Http\Controllers\Groups\GroupBoardController;
+use App\Http\Controllers\Groups\GroupWaitlistController;
 use App\Http\Controllers\Groups\SubstituteController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Accounting\AccountingController;
@@ -989,6 +991,23 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/group-lessons/{id}/cancel', [ClassGroupLessonController::class, 'cancel'])->whereUuid(['id']);
         Route::post('/group-lessons/{id}/reschedule', [ClassGroupLessonController::class, 'reschedule'])->whereUuid(['id']);
     });
+
+    // ── Course term + waiting list (docs/centre-profile, Phase 2 §2) ──────────────────────────────
+    // A centre's group is a course term: when it ends it is renewed, its students promoted, or it is
+    // closed (CourseTerm) — and a full one keeps a waiting list at the door (GroupWaitlist). The
+    // lifecycle and the list are group.manage; reading the list is group.read. Behind the centre AND
+    // the groups switches: a Quran academy gets 402 and its group endpoints only gain nullable keys.
+    Route::middleware(['entitled:centre', 'entitled:groups'])->group(function () {
+        Route::post('/groups/{id}/renew', [CourseTermController::class, 'renew'])->whereUuid('id');
+        Route::post('/groups/{id}/promote', [CourseTermController::class, 'promote'])->whereUuid('id');
+        Route::post('/groups/{id}/close', [CourseTermController::class, 'close'])->whereUuid('id');
+        Route::get('/groups/{id}/waitlist', [GroupWaitlistController::class, 'index'])->whereUuid('id');
+        Route::post('/groups/{id}/waitlist', [GroupWaitlistController::class, 'store'])->whereUuid('id');
+        Route::patch('/groups/{id}/waitlist/reorder', [GroupWaitlistController::class, 'reorder'])->whereUuid('id');
+        Route::delete('/groups/{id}/waitlist/{entryId}', [GroupWaitlistController::class, 'destroy'])->whereUuid(['id', 'entryId']);
+        Route::post('/groups/{id}/waitlist/{entryId}/seat', [GroupWaitlistController::class, 'seat'])->whereUuid(['id', 'entryId']);
+    });
+    // ── end course term + waiting list ──────────────────────────────────────────────────────────────
 
     // ── Centre holidays + substitute teacher (docs/centre-profile, Phase 2 §3) ─────────────────────
     // The days a learning centre is closed: generation skips them, declaring one cancels the pending

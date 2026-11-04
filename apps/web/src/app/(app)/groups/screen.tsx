@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
+import { Suspense } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { GroupsManager } from "@/components/groups/groups-manager";
 
@@ -16,5 +17,10 @@ export function GroupsScreen() {
     return <p className="text-muted-foreground text-sm">{t("noAccess")}</p>;
   }
 
-  return <GroupsManager />;
+  // Suspense because the manager reads `?ending_soon=` (the centre dashboard's card deep-links to it).
+  return (
+    <Suspense>
+      <GroupsManager />
+    </Suspense>
+  );
 }
