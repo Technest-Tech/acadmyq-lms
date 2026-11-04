@@ -53,6 +53,13 @@ final class NotificationController extends Controller
     }
 
     /**
+     * A centre's subscription alerts (SUBSCRIPTION_FINISHED, SUBSCRIPTION_UNPAID,
+     * LESSON_OUTSIDE_SUBSCRIPTION): their own tab (`?category=SUBSCRIPTIONS`) and count, billing
+     * like the package ones (docs/centre-profile/01-PRIVATE-SUBSCRIPTION-SPLIT.md).
+     */
+    private const SUBSCRIPTIONS = 'SUBSCRIPTIONS';
+
+    /**
      * GET /api/notifications — the report alerts visible to the caller, newest first.
      * notification.read.
      */
@@ -61,12 +68,17 @@ final class NotificationController extends Controller
         Gate::authorize('notification.read');
 
         $log = self::logCategory($request->query('category'));
+        $subscriptions = $request->query('category') === self::SUBSCRIPTIONS;
 
         $rows = $this->visibleQuery()
             ->when(
                 $log !== null,
                 fn ($q) => $q->where('n.category', $log),
-                fn ($q) => $q->whereNotIn('n.category', self::LOGS),
+                fn ($q) => $q->when(
+                    $subscriptions,
+                    fn ($qq) => $qq->where('n.category', self::SUBSCRIPTIONS),
+                    fn ($qq) => $qq->whereNotIn('n.category', [self::SUBSCRIPTIONS, ...self::LOGS]),
+                ),
             )
             ->orderByDesc('n.created_at')
             ->limit(200)
@@ -95,12 +107,17 @@ final class NotificationController extends Controller
         // it just because they share the notifications table. Each category counts for its own tab.
         $reports = (int) $this->visibleQuery()
             ->whereNull('n.read_at')
-            ->whereNotIn('n.category', ['PACKAGES', ...self::LOGS])
+            ->whereNotIn('n.category', ['PACKAGES', self::SUBSCRIPTIONS, ...self::LOGS])
             ->count();
 
         $packages = (int) $this->visibleQuery()
             ->whereNull('n.read_at')
             ->where('n.category', 'PACKAGES')
+            ->count();
+
+        $subscriptions = (int) $this->visibleQuery()
+            ->whereNull('n.read_at')
+            ->where('n.category', self::SUBSCRIPTIONS)
             ->count();
 
         // Attended lessons: their own tab's count only, never the bell (see ATTENDED).
@@ -119,9 +136,10 @@ final class NotificationController extends Controller
             'classes' => $classes,
             'reports' => $reports,
             'packages' => $packages,
+            'subscriptions' => $subscriptions,
             'studentReports' => $studentReports,
             'attended' => $attended,
-            'total' => $classes + $reports + $packages,
+            'total' => $classes + $reports + $packages + $subscriptions,
         ]);
     }
 
@@ -177,6 +195,7 @@ final class NotificationController extends Controller
         // without the packages capability (a supervisor) does not get the money inbox with them.
         if (! Gate::allows('package.read')) {
             $hidden[] = 'PACKAGES';
+            $hidden[] = self::SUBSCRIPTIONS;
         }
 
         return DB::table('notifications as n')

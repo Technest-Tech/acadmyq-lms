@@ -9,10 +9,12 @@ use App\Http\Controllers\FamilyXpayController;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\LessonCount;
 use App\Support\PackagePurpose;
 use App\Support\Tenancy;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
@@ -48,6 +50,42 @@ final class FamilyPayController extends Controller
             ->where('s.guardian_id', $guardianId)
             ->whereIn('i.status', self::UNPAID)
             ->whereRaw('i.total_minor > i.amount_paid_minor');
+    }
+
+    /**
+     * The family's due subscription bills (a centre's blocks in lessons, docs/centre-profile/01-*),
+     * listed beside the package ones. Same shape of truth: the bill is unpaid.
+     */
+    public static function dueSubscriptionQuery(string $guardianId): Builder
+    {
+        return DB::table('centre_subscriptions as cs')
+            ->join('students as s', 's.id', '=', 'cs.student_id')
+            ->join('invoices as i', 'i.id', '=', 'cs.invoice_id')
+            ->where('s.guardian_id', $guardianId)
+            ->where('cs.status', '<>', 'CANCELLED')
+            ->whereIn('i.status', self::UNPAID)
+            ->whereRaw('i.total_minor > i.amount_paid_minor');
+    }
+
+    /**
+     * Every due bill of the family, each once — what one card payment covers ({@see FamilyXpayController}).
+     *
+     * @return Collection<int, object{invoice_id: string, currency: string, due_minor: int}>
+     */
+    public static function dueBills(string $guardianId): Collection
+    {
+        $columns = ['i.id as invoice_id', 'i.currency', DB::raw('(i.total_minor - i.amount_paid_minor) as due_minor')];
+
+        return self::dueQuery($guardianId)->get($columns)
+            ->concat(self::dueSubscriptionQuery($guardianId)->get($columns))
+            ->unique('invoice_id')
+            ->values();
+    }
+
+    /** Does the family owe anything on a package or subscription bill? */
+    public static function owes(string $guardianId): bool
+    {
+        return self::dueQuery($guardianId)->exists() || self::dueSubscriptionQuery($guardianId)->exists();
     }
 
     /** POST /api/packages/family/{guardianId}/pay-link — the family's link, made if it has none. */
@@ -143,6 +181,35 @@ final class FamilyPayController extends Controller
                 'url' => $origin.'/i/'.$p->public_token,
             ];
         })->values()->all();
+
+        // The centre's subscriptions in lessons: the bill says what it is for in the family's words.
+        $subscriptions = self::dueSubscriptionQuery($guardianId)
+            ->orderBy('s.full_name')->orderBy('cs.sequence_no')
+            ->get(['cs.invoice_id', 'cs.status', 'cs.sequence_no', 'cs.label', 'cs.course', 'cs.lessons_sold', 's.full_name as child',
+                'i.total_minor as invoice_total_minor', 'i.amount_paid_minor as invoice_paid_minor', 'i.currency', 'i.public_token',
+                DB::raw('(select count(*) from centre_subscription_lessons l where l.subscription_id = cs.id) as lessons')]);
+        foreach ($subscriptions as $cs) {
+            $due = (int) $cs->invoice_total_minor - (int) $cs->invoice_paid_minor;
+            $totals[$cs->currency] = ($totals[$cs->currency] ?? 0) + $due;
+            $items[] = [
+                'kind' => 'SUBSCRIPTION',
+                'child' => (string) $cs->child,
+                'package_no' => (int) $cs->sequence_no,
+                'label' => (string) $cs->label,
+                'course' => $cs->course,
+                'purpose' => (int) $cs->sequence_no <= 1 ? 'NEW' : 'RENEWAL',
+                'purpose_text' => [
+                    'ar' => 'اشتراك '.LessonCount::ar((int) $cs->lessons_sold).($cs->course !== null ? ' — '.$cs->course : '').((int) $cs->sequence_no > 1 ? ' (تجديد)' : ''),
+                    'en' => 'Subscription: '.LessonCount::en((int) $cs->lessons_sold).($cs->course !== null ? ' — '.$cs->course : '').((int) $cs->sequence_no > 1 ? ' (renewal)' : ''),
+                ],
+                'lessons' => (int) $cs->lessons,
+                'lessons_sold' => (int) $cs->lessons_sold,
+                'minutes' => null,
+                'due_minor' => $due,
+                'currency' => (string) $cs->currency,
+                'url' => $origin.'/i/'.$cs->public_token,
+            ];
+        }
         ksort($totals);
 
         // Only the methods a parent can use from here: a bank transfer for the whole amount (its

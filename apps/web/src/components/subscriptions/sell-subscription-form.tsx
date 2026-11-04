@@ -20,8 +20,16 @@ import { listSubscriptionStudents, sellSubscription, subscriptionSubjectKey, typ
  */
 function isPayFirstRefusal(err: unknown): boolean {
   if (!(err instanceof ApiError) || err.status !== 422) return false;
-  const body = (err.body ?? {}) as { code?: string; errors?: unknown; pay_first?: boolean; renewal_held?: boolean };
-  return body.code === "PAY_FIRST" || body.pay_first === true || body.renewal_held === true || body.errors === undefined;
+  const body = (err.body ?? {}) as { code?: string; errors?: Record<string, unknown>; pay_first?: boolean; renewal_held?: boolean };
+  // The API names the bill it is waiting on (`errors.unpaid_invoice_id`), which is the refusal itself.
+  return (
+    body.code === "PAY_FIRST" ||
+    body.pay_first === true ||
+    body.renewal_held === true ||
+    body.errors === undefined ||
+    "unpaid_invoice_id" in body.errors ||
+    "unpaid_subscription_id" in body.errors
+  );
 }
 
 /**

@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
-use App\Services\PackageSettlement;
 use App\Services\Payroll;
 use App\Services\PayrollLessonCorrection;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\CentreBooks;
 use App\Support\DataTable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -526,7 +526,7 @@ final class PayoutController extends Controller
             ->where('period_year', $year)
             ->where('period_month', $month)
             // A centre's bills stay OPEN (Invoicing::closePeriodInvoices): what they hold is still received.
-            ->whereIn('status', PackageSettlement::availableFor((string) app(AuthContext::class)->academyId)
+            ->whereIn('status', CentreBooks::enabledFor((string) app(AuthContext::class)->academyId)
                 ? ['OPEN', 'CLOSED', 'PAID', 'PARTIALLY_PAID']
                 : ['CLOSED', 'PAID', 'PARTIALLY_PAID'])
             ->groupBy('currency')

@@ -288,6 +288,8 @@ final class GroupAlerts
                     GroupAlertCatalog::TRIAL_NOT_MARKED => $this->trialsNotMarked($academyId, $floor, $group->settings['not_marked_after_minutes'], $now),
                     GroupAlertCatalog::PACKAGE_LOW => $this->packageNotifications($academyId, 'PACKAGE_LOW', GroupAlertCatalog::PACKAGE_LOW, $floor, $now),
                     GroupAlertCatalog::PACKAGE_ENDED => $this->packageNotifications($academyId, 'PACKAGE_COMPLETED', GroupAlertCatalog::PACKAGE_ENDED, $floor, $now),
+                    GroupAlertCatalog::SUBSCRIPTION_FINISHED => $this->subscriptionNotifications($academyId, GroupAlertCatalog::SUBSCRIPTION_FINISHED, $floor, $now),
+                    GroupAlertCatalog::SUBSCRIPTION_UNPAID => $this->subscriptionNotifications($academyId, GroupAlertCatalog::SUBSCRIPTION_UNPAID, $floor, $now),
                     GroupAlertCatalog::PAYMENT_RECEIVED => $this->payments($academyId, $floor, $now),
                     GroupAlertCatalog::PAYMENT_OVERDUE => $this->paymentsOverdue($academyId, $floor, $group->settings['payment_reminder_days'], $now),
                     default => [],
@@ -530,6 +532,57 @@ final class GroupAlerts
             'due_at' => CarbonImmutable::parse($t->scheduled_at_utc)->addMinutes((int) $t->duration_minutes + $afterMinutes),
             'payload' => $this->trialPayload($t, $link),
         ])->all();
+    }
+
+    /**
+     * The centre's subscription engine raises SUBSCRIPTION_FINISHED / SUBSCRIPTION_UNPAID owner
+     * notifications (the notification type IS the alert type), deduped per subscription; relayed
+     * the way the package ones are.
+     *
+     * @return list<array{subject: string, due_at: CarbonImmutable, payload: array<string,mixed>}>
+     */
+    private function subscriptionNotifications(string $academyId, string $type, CarbonImmutable $floor, CarbonImmutable $now): array
+    {
+        $lower = $this->later($floor, $now->subMinutes(GroupAlertCatalog::MAX_AGE_MINUTES[$type]));
+        $frontend = AcademyUrl::origin($academyId);
+
+        $rows = DB::table('notifications as n')
+            ->leftJoin('centre_subscriptions as cs', 'cs.id', '=', 'n.subject_id')
+            ->leftJoin('students as st', 'st.id', '=', 'cs.student_id')
+            ->leftJoin('guardians as g', 'g.id', '=', 'st.guardian_id')
+            ->leftJoin('invoices as i', 'i.id', '=', 'cs.invoice_id')
+            ->where('n.academy_id', $academyId)
+            ->where('n.type', $type)
+            ->where('n.created_at', '>=', $lower->format(self::TS))
+            ->orderBy('n.created_at')
+            ->limit(self::DETECT_LIMIT)
+            ->get([
+                'n.id', 'n.created_at', 'n.data', 'cs.label', 'cs.course', 'cs.lessons_sold', 'cs.sequence_no',
+                'st.full_name as student', 'g.full_name as guardian', 'g.whatsapp_phone as guardian_phone',
+                'i.status as invoice_status', 'i.public_token as invoice_token', 'i.total_minor', 'i.amount_paid_minor', 'i.currency',
+            ]);
+
+        return $rows->map(function (object $n) use ($frontend): array {
+            $data = json_decode((string) $n->data, true) ?: [];
+            $unpaidInvoice = $n->invoice_token !== null && ! in_array($n->invoice_status, ['PAID', 'VOID'], true) && (int) $n->total_minor > (int) $n->amount_paid_minor;
+
+            return [
+                'subject' => (string) $n->id,
+                'due_at' => CarbonImmutable::parse($n->created_at),
+                'payload' => [
+                    'student' => $n->student ?? ($data['student_name'] ?? null),
+                    'label' => $n->label ?? ($data['label'] ?? null),
+                    'course' => $n->course ?? ($data['course'] ?? null),
+                    'sequence_no' => $n->sequence_no !== null ? (int) $n->sequence_no : ($data['sequence_no'] ?? null),
+                    'lessons_sold' => $n->lessons_sold !== null ? (int) $n->lessons_sold : ($data['lessons_sold'] ?? null),
+                    'guardian' => $n->guardian,
+                    'guardian_phone' => $n->guardian_phone,
+                    'outstanding_minor' => $data['outstanding_minor'] ?? null,
+                    'currency' => $data['currency'] ?? $n->currency,
+                    'invoice_url' => $unpaidInvoice ? $frontend.'/i/'.$n->invoice_token : null,
+                ],
+            ];
+        })->all();
     }
 
     /**

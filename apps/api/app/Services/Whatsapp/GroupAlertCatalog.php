@@ -44,6 +44,12 @@ final class GroupAlertCatalog
     /** A lesson package closed — used up, or closed by hand. */
     public const PACKAGE_ENDED = 'PACKAGE_ENDED';
 
+    /** A centre subscription's lessons are used up (docs/centre-profile/01-PRIVATE-SUBSCRIPTION-SPLIT.md). */
+    public const SUBSCRIPTION_FINISHED = 'SUBSCRIPTION_FINISHED';
+
+    /** A centre subscription was sold while an earlier one of the student is still unpaid. */
+    public const SUBSCRIPTION_UNPAID = 'SUBSCRIPTION_UNPAID';
+
     /** Money was recorded against an invoice — by hand, PayPal or XPay. */
     public const PAYMENT_RECEIVED = 'PAYMENT_RECEIVED';
 
@@ -70,7 +76,7 @@ final class GroupAlertCatalog
 
     public const CATEGORIES = [
         'SUPERVISION' => [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::GROUP_LESSON_NOT_MARKED, self::REPORT_OVERDUE, self::TRIAL_STARTED, self::TRIAL_NOT_MARKED],
-        'ACCOUNTING' => [self::PACKAGE_LOW, self::PACKAGE_ENDED, self::PAYMENT_RECEIVED, self::PAYMENT_OVERDUE],
+        'ACCOUNTING' => [self::PACKAGE_LOW, self::PACKAGE_ENDED, self::SUBSCRIPTION_FINISHED, self::SUBSCRIPTION_UNPAID, self::PAYMENT_RECEIVED, self::PAYMENT_OVERDUE],
     ];
 
     /** The alerts whose truth can lapse before they go out, so they are re-checked at send time. */
@@ -90,6 +96,8 @@ final class GroupAlertCatalog
         self::TRIAL_NOT_MARKED => 6 * 60,
         self::PACKAGE_LOW => 48 * 60,
         self::PACKAGE_ENDED => 48 * 60,
+        self::SUBSCRIPTION_FINISHED => 48 * 60,
+        self::SUBSCRIPTION_UNPAID => 48 * 60,
         self::PAYMENT_RECEIVED => 48 * 60,
         // A missed reminder is not chased: the next one is only days away.
         self::PAYMENT_OVERDUE => 24 * 60,

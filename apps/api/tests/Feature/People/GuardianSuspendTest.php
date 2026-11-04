@@ -23,6 +23,19 @@ uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::cla
  * their coming lessons leave the calendar, no group month is raised on them, nothing already
  * recorded moves, and resuming brings the timetables and the lessons back.
  */
+/** A learning centre: the membership pause is the centre's (a Quran academy holding groups keeps its sheet). */
+function suspendCentreOn(string $academyId): void
+{
+    DB::statement("select set_config('app.current_academy_id', ?, true)", [$academyId]);
+    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+    try {
+        app(\App\Services\ModuleBilling::class)->setDisabledFeatures($academyId, 'MANAGEMENT', [], ['centre']);
+    } finally {
+        DB::statement("select set_config('app.current_academy_id', '', true)");
+        DB::statement("select set_config('app.current_role', '', true)");
+    }
+}
+
 beforeEach(function () {
     Carbon::setTestNow('2026-06-17 09:00:00');
     $this->seed(DemoAcademySeeder::class);
@@ -94,6 +107,7 @@ it('pauses the family: timetables off, coming lessons gone, nothing else touched
 });
 
 it('raises no group month on a paused family, and bills it again once resumed', function () {
+    suspendCentreOn($this->academy);
     Sanctum::actingAs($this->owner);
     $groupId = $this->postJson('/api/groups', [
         'name' => 'English A1', 'teacher_id' => $this->teacher, 'start_date' => '2026-06-01',
@@ -143,6 +157,7 @@ it('raises no group month on a paused family, and bills it again once resumed', 
 });
 
 it('does not bill the join month again when the family is back inside a month already paid, and skips a group that ended meanwhile', function () {
+    suspendCentreOn($this->academy);
     Sanctum::actingAs($this->owner);
     $running = $this->postJson('/api/groups', [
         'name' => 'English A1', 'teacher_id' => $this->teacher, 'start_date' => '2026-06-01',

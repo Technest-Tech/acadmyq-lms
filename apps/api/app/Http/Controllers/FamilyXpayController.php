@@ -49,11 +49,8 @@ final class FamilyXpayController extends Controller
 
         [$active, $bills, $academyName] = Tenancy::withContext($ctx, fn (): array => [
             DB::table('academy_payment_settings')->where('method', 'XPAY')->where('is_active', true)->exists(),
-            FamilyPayController::dueQuery($guardianId)
-                ->get(['i.id as invoice_id', 'i.currency', DB::raw('(i.total_minor - i.amount_paid_minor) as due_minor')])
-                // Two packages can share one bill (an overdraft rolled onto the next block's bill).
-                ->unique('invoice_id')
-                ->values(),
+            // Package and subscription bills alike, each once (two packages can share one bill).
+            FamilyPayController::dueBills($guardianId),
             (string) DB::table('academies')->where('id', $academyId)->value('name'),
         ]);
         if (! $active) {

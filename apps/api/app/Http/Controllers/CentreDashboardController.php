@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Services\CentreSubscriptionRows;
 use App\Services\CourseTerm;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -38,7 +39,7 @@ final class CentreDashboardController extends Controller
 
     private const ACTIVITY_ROWS = 4;
 
-    public function __construct(private readonly CourseTerm $terms) {}
+    public function __construct(private readonly CourseTerm $terms, private readonly CentreSubscriptionRows $subscriptions) {}
 
     public function show(): JsonResponse
     {
@@ -104,21 +105,15 @@ final class CentreDashboardController extends Controller
             ->where(fn ($q) => $q->whereNull('g.end_date')->orWhere('g.end_date', '>=', $thenDate))
             ->count();
 
-        // ── Subscriptions (lesson_packages in lessons): open, and the ones about to run out ───
-        $soon = $now->addDays(self::ENDING_SOON_DAYS)->toDateString();
-        $subs = DB::table('lesson_packages as p')
-            ->where('p.status', 'ACTIVE')
-            ->selectRaw('count(*) as open')
-            ->selectRaw(
-                'count(*) filter (where (p.expires_on is not null and p.expires_on between ?::date and ?::date)'
-                .' or (p.minutes_total + coalesce(p.carried_over_minutes, 0) - p.minutes_consumed) <= coalesce(p.lesson_minutes, 60)) as ending_soon',
-                [$today, $soon],
-            )
-            ->first();
+        // ── Subscriptions (centre_subscriptions, docs/centre-profile/01-*): open, about to run out
+        // (two lessons or fewer left), finished with no next block sold, and students taught
+        // outside any block. The old keys keep their names so the home screen needs no change.
+        $subs = $this->subscriptions->summary();
 
-        $subsThen = DB::table('lesson_packages as p')
-            ->where('p.created_at', '<', $thenUtc)
-            ->where(fn ($q) => $q->whereNull('p.closed_at')->orWhere('p.closed_at', '>=', $thenUtc))
+        $subsThen = DB::table('centre_subscriptions as cs')
+            ->where('cs.created_at', '<', $thenUtc)
+            ->where(fn ($q) => $q->whereNull('cs.finished_at')->orWhere('cs.finished_at', '>=', $thenUtc))
+            ->where(fn ($q) => $q->whereNull('cs.closed_at')->orWhere('cs.closed_at', '>=', $thenUtc))
             ->count();
 
         $terms = $this->terms->dashboardCounts();
@@ -150,10 +145,13 @@ final class CentreDashboardController extends Controller
                 'delta_pct' => $this->deltaPct((int) $groups->running, $groupsThen),
             ],
             'subscriptions' => [
-                'open' => (int) $subs->open,
-                'ending_soon' => (int) $subs->ending_soon,
+                'open' => $subs['open'],
+                'ending' => $subs['ending'],
+                'ending_soon' => $subs['ending'],
                 'ending_soon_days' => self::ENDING_SOON_DAYS,
-                'delta_pct' => $this->deltaPct((int) $subs->open, $subsThen),
+                'finished_unrenewed' => $subs['finished_unrenewed'],
+                'outside' => $subs['outside_students'],
+                'delta_pct' => $this->deltaPct($subs['open'], $subsThen),
             ],
             'students' => Gate::allows('student.read') ? $this->students($now, $thenUtc) : null,
             'latest_groups' => Gate::allows('group.read') ? $this->latestGroups($today) : [],
@@ -313,6 +311,12 @@ final class CentreDashboardController extends Controller
                 ->leftJoin('students as s', 's.id', '=', 'p.student_id')
                 ->orderByDesc('p.created_at')->limit($take)
                 ->get(['s.full_name', 'p.created_at']) as $r) {
+                $rows[] = $this->activityRow('subscription', $r->full_name, $r->created_at);
+            }
+            foreach (DB::table('centre_subscriptions as cs')
+                ->leftJoin('students as s', 's.id', '=', 'cs.student_id')
+                ->orderByDesc('cs.created_at')->limit($take)
+                ->get(['s.full_name', 'cs.created_at']) as $r) {
                 $rows[] = $this->activityRow('subscription', $r->full_name, $r->created_at);
             }
         }

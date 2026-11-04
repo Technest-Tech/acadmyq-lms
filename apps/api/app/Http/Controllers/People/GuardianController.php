@@ -372,9 +372,10 @@ final class GuardianController extends Controller
                 ->where('sc.is_active', true)->whereNull('sc.deleted_at')
                 ->pluck('sc.id')->map(fn ($v) => (string) $v)->all();
             DB::table('schedules')->whereIn('id', $scheduleIds)->update(['is_active' => false, 'paused_by_suspension' => true, 'updated_at' => now()]);
-            // The children's group memberships pause the same way (docs/groups): closed today with
+            // A centre's children's group memberships pause the same way (docs/groups): closed today with
+            // (a Quran academy holding groups keeps its sheet as it was — the centre rule, pinned by CancelDuesTest)
             // reason SUSPENDED and remembered, so resume re-opens exactly these.
-            if (Entitlement::hasCapability($this->currentAcademyId(), 'groups')) {
+            if (Entitlement::hasCapability($this->currentAcademyId(), 'groups') && Entitlement::hasCapability($this->currentAcademyId(), 'centre')) {
                 $pausedMemberships = app(ClassGroups::class)->pauseForSuspension($id);
             }
 
@@ -427,7 +428,7 @@ final class GuardianController extends Controller
                 ->pluck('sc.id')->map(fn ($v) => (string) $v)->all();
             DB::table('schedules')->whereIn('id', $scheduleIds)->update(['is_active' => true, 'paused_by_suspension' => false, 'updated_at' => now()]);
             // The memberships the suspension closed come back from today, in any group still running.
-            if (Entitlement::hasCapability($this->currentAcademyId(), 'groups')) {
+            if (Entitlement::hasCapability($this->currentAcademyId(), 'groups') && Entitlement::hasCapability($this->currentAcademyId(), 'centre')) {
                 $resumedMemberships = app(ClassGroups::class)->resumeAfterSuspension($id, $this->ctx()->userId, $this->ctx()->role);
             }
 

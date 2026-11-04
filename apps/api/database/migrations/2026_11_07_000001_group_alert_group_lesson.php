@@ -19,7 +19,8 @@ return new class extends Migration
             alter table whatsapp_group_alerts add constraint whatsapp_group_alerts_event_chk check (event_type in (
               'SESSION_STARTED', 'SESSION_NOT_MARKED', 'GROUP_LESSON_NOT_MARKED', 'REPORT_OVERDUE', 'TRIAL_STARTED', 'TRIAL_NOT_MARKED',
               'PACKAGE_LOW', 'PACKAGE_ENDED', 'PAYMENT_RECEIVED', 'PAYMENT_OVERDUE', 'TEST',
-              'LESSON_REMINDER', 'LESSON_STARTING'
+              'LESSON_REMINDER', 'LESSON_STARTING',
+              'SUBSCRIPTION_FINISHED', 'SUBSCRIPTION_UNPAID'
             ));
         SQL);
     }
@@ -35,7 +36,8 @@ return new class extends Migration
             alter table whatsapp_group_alerts add constraint whatsapp_group_alerts_event_chk check (event_type in (
               'SESSION_STARTED', 'SESSION_NOT_MARKED', 'REPORT_OVERDUE', 'TRIAL_STARTED', 'TRIAL_NOT_MARKED',
               'PACKAGE_LOW', 'PACKAGE_ENDED', 'PAYMENT_RECEIVED', 'PAYMENT_OVERDUE', 'TEST',
-              'LESSON_REMINDER', 'LESSON_STARTING'
+              'LESSON_REMINDER', 'LESSON_STARTING',
+              'SUBSCRIPTION_FINISHED', 'SUBSCRIPTION_UNPAID'
             ));
         SQL);
     }
