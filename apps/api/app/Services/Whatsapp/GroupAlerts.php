@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Whatsapp;
 
+use App\Jobs\FlagOverdueReportsJob;
 use App\Support\AcademyUrl;
 use App\Support\AuthContext;
 use App\Support\Entitlement;
@@ -134,6 +135,8 @@ final class GroupAlerts
                 'timezone' => $this->timezone($academyId),
                 'token' => $this->sender->tokenFor($academyId),
                 'reminders' => in_array('whatsapp.group_reminders', $capabilities, true) ? $this->reminders->settings($academyId) : null,
+                // An academy that asks for no lesson report (a learning centre) is never told one is late.
+                'reports' => FlagOverdueReportsJob::wantsLessonReports($capabilities),
             ];
         });
 
@@ -147,7 +150,7 @@ final class GroupAlerts
         $reminderBudget = $connected ? $this->reminderBudget($probe) : 0;
 
         [$detected, $claimed] = $this->inAcademy($academyId, function () use ($academyId, $setup, $connected, $reminderBudget, $now): array {
-            [$inserted, $candidates] = $this->detect($academyId, $setup['groups'], $now, $setup['reminders']);
+            [$inserted, $candidates] = $this->detect($academyId, $setup['groups'], $now, $setup['reminders'], $setup['reports']);
             $this->retire($academyId, $setup['groups'], $candidates, $now);
             $this->recoverStaleClaims($academyId, $now);
 
@@ -266,7 +269,7 @@ final class GroupAlerts
      * @return array{0: int, 1: array<string, array<string, array<string, true>>>} inserted count, and
      *                                                                             group → type → subject set
      */
-    private function detect(string $academyId, array $groups, CarbonImmutable $now, ?array $reminders = null): array
+    private function detect(string $academyId, array $groups, CarbonImmutable $now, ?array $reminders = null, bool $reports = true): array
     {
         $inserted = 0;
         $candidates = [];
@@ -277,7 +280,7 @@ final class GroupAlerts
                 $found = match ($type) {
                     GroupAlertCatalog::SESSION_STARTED => $this->sessionsStarted($academyId, $floor, $now),
                     GroupAlertCatalog::SESSION_NOT_MARKED => $this->sessionsNotMarked($academyId, $floor, $group->settings['not_marked_after_minutes'], $now),
-                    GroupAlertCatalog::REPORT_OVERDUE => $this->reportsOverdue($academyId, $floor, $group->settings['report_overdue_hours'], $now),
+                    GroupAlertCatalog::REPORT_OVERDUE => $reports ? $this->reportsOverdue($academyId, $floor, $group->settings['report_overdue_hours'], $now) : [],
                     GroupAlertCatalog::TRIAL_STARTED => $this->trialsStarted($academyId, $floor, $now),
                     GroupAlertCatalog::TRIAL_NOT_MARKED => $this->trialsNotMarked($academyId, $floor, $group->settings['not_marked_after_minutes'], $now),
                     GroupAlertCatalog::PACKAGE_LOW => $this->packageNotifications($academyId, 'PACKAGE_LOW', GroupAlertCatalog::PACKAGE_LOW, $floor, $now),

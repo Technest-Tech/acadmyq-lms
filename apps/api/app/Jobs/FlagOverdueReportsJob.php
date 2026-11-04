@@ -6,6 +6,7 @@ namespace App\Jobs;
 
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\Entitlement;
 use App\Support\Tenancy;
 use App\Support\TenantContext;
 use Illuminate\Bus\Queueable;
@@ -23,6 +24,10 @@ use Illuminate\Support\Str;
  * raises an in-app alert to the owner(s) (REPORT_OVERDUE). The Notifications page is owner-only, so
  * no teacher-facing reminder is written. Idempotent: a unique (session_id, type) index means
  * re-runs never duplicate, and filing the report clears the alert (SessionReportController::put).
+ *
+ * Only academies that ask their teachers for a lesson report at all (`wantsLessonReports`): a
+ * learning centre's private lessons carry an outcome, not a memorisation-style report, so flagging
+ * them would fill the Reports tab with noise about a form nobody expects to be filled.
  *
  * Mirrors RollSessionWindowJob's tenancy discipline: each academy's work runs in its OWN
  * Tenancy::withContext transaction so the job never crosses an academy boundary.
@@ -48,6 +53,19 @@ final class FlagOverdueReportsJob implements ShouldQueue
     public function __construct(private readonly ?string $onlyAcademyId = null) {}
 
     /**
+     * Does this academy expect a report on a private lesson? Either the structured lesson report
+     * (opt-in) or the classic teacher→owner progress reports — the CENTRE preset switches the
+     * latter off and never opts into the former, which is what makes a centre report-less. Keyed
+     * on the two switches, never on the profile (docs/centre-profile/00-OVERVIEW.md).
+     *
+     * @param  list<string>  $capabilities  an academy's resolved capabilities
+     */
+    public static function wantsLessonReports(array $capabilities): bool
+    {
+        return in_array('lesson_report', $capabilities, true) || in_array('student_reports', $capabilities, true);
+    }
+
+    /**
      * @return array<string, int> academyId → number of sessions newly flagged
      */
     public function handle(): array
@@ -65,6 +83,10 @@ final class FlagOverdueReportsJob implements ShouldQueue
             );
 
             $results[$academyId] = Tenancy::withContext($ctx, function () use ($academyId, $cutoffEnd, $lookback) {
+                if (! self::wantsLessonReports(Entitlement::resolve($academyId)['capabilities'])) {
+                    return 0;
+                }
+
                 return $this->flagForAcademy($academyId, $cutoffEnd, $lookback);
             });
         }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Jobs\FlagOverdueReportsJob;
+use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -135,4 +136,41 @@ it('requires notification.read to view the feed', function () {
     // An unauthenticated request is rejected; an authenticated teacher (no notification.read) is
     // forbidden — the gate is enforced for real, not just by auth.
     $this->getJson('/api/notifications')->assertStatus(401);
+});
+
+// ── Who asks for a report at all ─────────────────────────────────────────────
+
+/** Switch the academy's lesson-report features as a Super Admin would from the client's Features card. */
+function reportSwitches(string $academyId, array $disabled, array $enabled = []): void
+{
+    DB::statement("select set_config('app.current_academy_id', ?, true)", [$academyId]);
+    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+    try {
+        app(ModuleBilling::class)->setDisabledFeatures($academyId, 'MANAGEMENT', $disabled, $enabled);
+    } finally {
+        DB::statement("select set_config('app.current_academy_id', '', true)");
+        DB::statement("select set_config('app.current_role', '', true)");
+    }
+}
+
+it('raises nothing for an academy that asks for no lesson report (a learning centre), and still does for one that does', function () {
+    // The CENTRE preset: progress reports off, the structured report never opted into.
+    reportSwitches($this->academy, ['student_reports']);
+    expect(sweep($this->academy))->toBe([$this->academy => 0]);
+    $this->asAcademy($this->academy);
+    expect(DB::table('notifications')->where('session_id', $this->overdue)->exists())->toBeFalse();
+
+    // A centre that opts into the structured lesson report is asking for one again.
+    reportSwitches($this->academy, ['student_reports'], ['lesson_report']);
+    expect(sweep($this->academy))->toBe([$this->academy => 1]);
+    $this->asAcademy($this->academy);
+    expect(DB::table('notifications')->where('session_id', $this->overdue)->where('type', 'REPORT_OVERDUE')->exists())->toBeTrue();
+});
+
+it('keeps flagging a Quran academy, which holds progress reports by default', function () {
+    expect(FlagOverdueReportsJob::wantsLessonReports(['student_reports']))->toBeTrue()
+        ->and(FlagOverdueReportsJob::wantsLessonReports(['lesson_report']))->toBeTrue()
+        ->and(FlagOverdueReportsJob::wantsLessonReports(['centre', 'groups', 'accounting']))->toBeFalse();
+
+    expect(sweep($this->academy))->toBe([$this->academy => 1]);
 });

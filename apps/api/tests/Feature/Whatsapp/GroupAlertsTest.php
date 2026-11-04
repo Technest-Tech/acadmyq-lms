@@ -172,6 +172,26 @@ it('reminds the group about a lesson nobody marked N minutes after it started', 
         ->toContain('10 min after the start');
 });
 
+it('never tells a learning centre that a lesson report is late — it asks for none', function () {
+    linkTestGroup($this->academy, ['REPORT_OVERDUE', 'SESSION_NOT_MARKED'], ['report_overdue_hours' => 2, 'not_marked_after_minutes' => 10], since: '2026-09-14T11:00:00+00:00');
+    // The CENTRE preset: progress reports off, the structured lesson report never opted into.
+    $this->enterAcademyAsSuperAdmin($this->academy);
+    app(\App\Services\ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', ['student_reports'], []);
+    $this->clearTenantContext();
+
+    // Ended 10:30 with no report — overdue for a Quran academy, nothing for a centre.
+    $this->createSession($this->academy, $this->omar, $this->teacher, ['scheduled_at_utc' => '2026-09-14 10:00:00+00', 'duration_minutes' => 30, 'status' => 'ATTENDED']);
+    // The "not marked" alert is about the outcome, which a centre still records: it goes out as before.
+    $late = $this->createSession($this->academy, $this->laila, $this->teacher, ['scheduled_at_utc' => '2026-09-14 12:45:00+00', 'status' => 'SCHEDULED']);
+
+    sweepGroups($this->academy);
+
+    expect(groupAlerts($this->academy, 'REPORT_OVERDUE'))->toBeEmpty();
+    expect(groupAlerts($this->academy, 'SESSION_NOT_MARKED')->pluck('subject_key')->all())->toBe([$late]);
+    expect(sentMessages())->toHaveCount(1);
+    expect(sentMessages()[0]->data()['text'])->not->toContain('Lesson report not written');
+});
+
 /** A trial straight into the table — booking has its own tests. */
 function insertTrial(string $academyId, string $teacherId, string $startUtc, int $minutes = 30, string $status = 'SCHEDULED', string $name = 'Sara Lead'): string
 {

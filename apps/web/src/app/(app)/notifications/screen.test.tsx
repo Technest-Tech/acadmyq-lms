@@ -53,8 +53,8 @@ beforeEach(() => {
   );
 });
 
-function renderScreen() {
-  return render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["notification.read"] }), <NotificationsScreen />));
+function renderScreen(overrides: Record<string, unknown> = {}) {
+  return render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["notification.read"], ...overrides }), <NotificationsScreen />));
 }
 
 it("shows attended lessons in their own tab, apart from the report alerts", async () => {
@@ -89,4 +89,30 @@ it("keeps attended lessons out of the reports tab", async () => {
   const list = await screen.findByTestId("reports-list");
   expect(within(list).getAllByTestId("report-card")).toHaveLength(1);
   expect(within(list).queryByText(/Sara/)).not.toBeInTheDocument();
+});
+
+// ── Who gets a Reports tab at all ────────────────────────────────────────────
+// The feed behind it is the overdue-lesson-report sweep, which runs only for an academy that asks
+// for a report: the classic progress reports (`student_reports`, on by default — a Quran academy)
+// or the structured lesson report (`lesson_report`, opt-in). A learning centre holds neither.
+
+it("hides the Reports tab from an academy that asks for no lesson report (a centre)", async () => {
+  renderScreen({ capabilities: ["invoicing", "groups", "accounting", "centre"] });
+
+  await screen.findByTestId("tab-attended");
+  expect(screen.queryByTestId("tab-reports")).not.toBeInTheDocument();
+  expect(screen.getByTestId("tab-classes")).toBeInTheDocument();
+  expect(screen.getByTestId("tab-packages")).toBeInTheDocument();
+});
+
+it("keeps the Reports tab for a centre that opted into the structured lesson report", async () => {
+  renderScreen({ capabilities: ["invoicing", "groups", "accounting", "centre", "lesson_report"] });
+
+  expect(await screen.findByTestId("tab-reports")).toBeInTheDocument();
+});
+
+it("keeps the Reports tab for a Quran academy, which holds progress reports by default", async () => {
+  renderScreen();
+
+  expect(await screen.findByTestId("tab-reports")).toBeInTheDocument();
 });

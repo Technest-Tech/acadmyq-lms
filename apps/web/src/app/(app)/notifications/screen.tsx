@@ -23,6 +23,7 @@ import {
   type CancellationBillingValues,
 } from "@/components/attendance/cancellation-billing-modal";
 import { useAuth } from "@/components/auth-provider";
+import { useCapability } from "@/lib/capabilities";
 import { Button } from "@/components/ui/button";
 import { AlertBanner } from "@/components/ui/alert";
 import { PageHero } from "@/components/ui/page-hero";
@@ -58,6 +59,13 @@ export function NotificationsScreen() {
   const t = useTranslations("notifications");
   const locale = useLocale();
   const { can } = useAuth();
+  // The Reports tab is the overdue-LESSON-REPORT feed. An academy that asks its teachers for none
+  // — the learning centre: progress reports switched off, the structured report never opted into
+  // — has nothing to list there, and the job that fills it skips such an academy for the same
+  // reason (FlagOverdueReportsJob::wantsLessonReports). Keyed on the two switches, not the profile.
+  const hasStructuredReport = useCapability("lesson_report");
+  const hasProgressReports = useCapability("student_reports");
+  const hasLessonReports = hasStructuredReport || hasProgressReports;
 
   const [tab, setTab] = useState<TabKey>("classes");
   const [requests, setRequests] = useState<CancellationRequestRow[]>([]);
@@ -115,7 +123,7 @@ export function NotificationsScreen() {
   const TABS: { key: TabKey; icon: ComponentType<{ className?: string }>; count: number }[] = [
     { key: "classes", icon: Ban, count: counts.classes },
     { key: "attended", icon: CalendarCheck, count: counts.attended },
-    { key: "reports", icon: ClipboardX, count: counts.reports },
+    ...(hasLessonReports ? [{ key: "reports" as const, icon: ClipboardX, count: counts.reports }] : []),
     { key: "packages", icon: Layers, count: counts.packages },
   ];
 
