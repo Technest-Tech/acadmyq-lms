@@ -31,6 +31,7 @@ import type {
   PortalPayload,
   PortalProgressReport,
   PortalReportField,
+  PortalTermReport,
 } from "@/lib/portal-api";
 import {
   COPY,
@@ -209,6 +210,7 @@ export function ParentPage({
   const next = data.upcoming[0] ?? null;
   // A centre's page: the payload carries each child's groups, sheets and the family's account.
   const centreChildren = data.children.filter((c) => c.group_lessons !== undefined);
+  const reportChildren = data.children.filter((c) => (c.term_reports?.length ?? 0) > 0);
 
   return (
     <div dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="parent-page min-h-dvh bg-[#f5f3ec] font-sans text-slate-900">
@@ -304,6 +306,20 @@ export function ParentPage({
               {centreChildren.map((child) => (
                 <ChildGroupsCard key={child.id} child={child} ctx={ctx} />
               ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── A centre: the term reports the office published (Phase 2 §5) ── */}
+        {reportChildren.length > 0 && (
+          <section className="mt-7" data-testid="parent-term-reports">
+            <SectionTitle icon={GraduationCap}>{t.termReports.title}</SectionTitle>
+            <div className="space-y-3">
+              {reportChildren.map((child) =>
+                (child.term_reports ?? []).map((report) => (
+                  <ChildTermReportCard key={`${child.id}-${report.group_id}`} child={child} report={report} ctx={ctx} />
+                )),
+              )}
             </div>
           </section>
         )}
@@ -1044,6 +1060,135 @@ function GroupLessonRow({ lesson, ctx }: { lesson: PortalGroupLesson; ctx: ViewC
         </dl>
       )}
     </li>
+  );
+}
+
+// ── A centre's term reports ─────────────────────────────────────────────────
+
+/** The colour a percent reads in: under 50 a worry, 85 and up a win. */
+function percentClass(p: number | null): string {
+  if (p === null) return "text-slate-400";
+  if (p < 50) return "text-rose-600";
+  if (p >= 85) return "text-emerald-700";
+  return "text-slate-900";
+}
+
+function percentText(p: number | null, lang: Lang): string {
+  return p === null ? "—" : `${num(p, lang)}%`;
+}
+
+/** One published term report: the group and period, attendance, the grades table, the total, the teacher's word. */
+function ChildTermReportCard({ child, report, ctx }: { child: PortalChild; report: PortalTermReport; ctx: ViewCtx }) {
+  const { lang } = ctx;
+  const t = COPY[lang].termReports;
+  const hue = ctx.hueOf.get(child.id) ?? HUES[0];
+  const meta = [report.group_name, report.level ? COPY[lang].groups.level(report.level) : null, report.teacher_name ? COPY[lang].groups.teacher(report.teacher_name) : null]
+    .filter(Boolean)
+    .join(" · ");
+  const att = report.attendance;
+
+  return (
+    <article className={`${CARD} overflow-hidden`} data-testid="parent-term-report">
+      <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
+        <Avatar name={child.name} hue={hue} />
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[15px] font-bold text-slate-900">{t.childReports(child.name)}</h3>
+          <p className="truncate text-xs text-slate-500">{meta}</p>
+          <p className="text-[11px] text-slate-400 tabular-nums">{t.period(plainDate(report.period.from, lang, true), plainDate(report.period.to, lang, true))}</p>
+        </div>
+        {report.overall_grade && (
+          <div className="shrink-0 rounded-xl bg-emerald-50 px-3 py-1.5 text-center ring-1 ring-emerald-200" data-testid="parent-overall-grade">
+            <p className="text-[10px] font-semibold text-emerald-700">{t.overallGrade}</p>
+            <p className="text-base font-bold text-emerald-900">{report.overall_grade}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 px-4 py-4 sm:grid-cols-[auto_minmax(0,1fr)]">
+        <section data-testid="parent-report-attendance">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+            <ClipboardCheck className="size-3.5 text-emerald-700" aria-hidden />
+            {t.attendance} <span className="font-normal text-slate-400">· {t.lessonsHeld(num(att.lessons_held, lang))}</span>
+          </p>
+          {att.rate === null ? (
+            <p className="mt-2 text-xs text-slate-500">{t.noAttendance}</p>
+          ) : (
+            <div className="mt-2 flex items-center gap-4">
+              <AttendanceRing rate={att.rate} lang={lang} />
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                {(["PRESENT", "LATE", "ABSENT", "EXCUSED"] as const).map((mark) => {
+                  const count = att[mark.toLowerCase() as "present" | "late" | "absent" | "excused"];
+                  return (
+                    <div key={mark} className="flex items-baseline justify-between gap-2">
+                      <dt className="text-slate-500">{COPY[lang].groups.marks[mark]}</dt>
+                      <dd className={`font-bold tabular-nums ${mark === "ABSENT" && count > 0 ? "text-rose-600" : "text-slate-800"}`}>{num(count, lang)}</dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            </div>
+          )}
+        </section>
+
+        <section className="min-w-0" data-testid="parent-report-grades">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+            <Star className="size-3.5 text-emerald-700" aria-hidden />
+            {t.grades}
+          </p>
+          {report.grades.length === 0 ? (
+            <p className="mt-2 text-xs text-slate-500">{t.noGrades}</p>
+          ) : (
+            <table className="mt-2 w-full text-xs">
+              <thead>
+                <tr className="text-slate-500">
+                  <th className="pb-1 text-start font-semibold">{t.assessment}</th>
+                  <th className="pb-1 text-end font-semibold">{t.score}</th>
+                  <th className="pb-1 text-end font-semibold">{t.percent}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {report.grades.map((g, i) => (
+                  <tr key={`${g.title}-${i}`}>
+                    <td className="py-1.5">
+                      <p className="font-medium text-slate-800">{g.title}</p>
+                      <p className="text-[11px] text-slate-400">{t.kinds[g.kind] ?? g.kind}</p>
+                    </td>
+                    <td className="py-1.5 text-end tabular-nums">
+                      {g.absent ? (
+                        <span className="text-rose-600">{t.absent}</span>
+                      ) : g.score === null ? (
+                        <span className="text-slate-400">{t.notGraded}</span>
+                      ) : (
+                        <>
+                          {num(g.score, lang)} <span className="text-slate-400">/ {num(g.max_score, lang)}</span>
+                        </>
+                      )}
+                    </td>
+                    <td className={`py-1.5 text-end font-bold tabular-nums ${percentClass(g.percent)}`}>{percentText(g.percent, lang)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-slate-200">
+                  <td className="pt-2 font-bold text-slate-900">{t.total}</td>
+                  <td className={`pt-2 text-end text-sm font-bold tabular-nums ${percentClass(report.total.weighted_percent)}`} colSpan={2} data-testid="parent-report-total">
+                    {percentText(report.total.weighted_percent, lang)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </section>
+      </div>
+
+      {report.comment && (
+        <section className="border-t border-slate-100 px-4 py-3" data-testid="parent-report-comment">
+          <p className="text-xs font-semibold text-slate-700">{t.comment}</p>
+          <p className="mt-1 text-sm whitespace-pre-line text-slate-800">{report.comment}</p>
+        </section>
+      )}
+      <p className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-400">{t.publishedOn(plainDate(report.published_at.slice(0, 10), lang, true))}</p>
+    </article>
   );
 }
 

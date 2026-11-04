@@ -210,6 +210,27 @@ type Copy = {
     payFamily: string;
     allClear: string;
   };
+  /** A published term report (Phase 2 §5) — rendered only when the payload carries one. */
+  termReports: {
+    title: string;
+    childReports: (name: string) => string;
+    period: (from: string, to: string) => string;
+    attendance: string;
+    lessonsHeld: (n: string) => string;
+    noAttendance: string;
+    grades: string;
+    noGrades: string;
+    assessment: string;
+    score: string;
+    percent: string;
+    absent: string;
+    notGraded: string;
+    total: string;
+    overallGrade: string;
+    comment: string;
+    publishedOn: (date: string) => string;
+    kinds: Record<string, string>;
+  };
 };
 
 export const COPY: Record<Lang, Copy> = {
@@ -295,6 +316,26 @@ export const COPY: Record<Lang, Copy> = {
       payFamily: "ادفع المستحق",
       allClear: "لا توجد مستحقات — شكراً لكم",
     },
+    termReports: {
+      title: "تقارير الترم",
+      childReports: (name) => `تقرير ${name}`,
+      period: (from, to) => `من ${from} إلى ${to}`,
+      attendance: "الحضور",
+      lessonsHeld: (n) => `${n} حصة`,
+      noAttendance: "لا توجد حصص مسجّلة في هذه الفترة.",
+      grades: "الدرجات",
+      noGrades: "لا توجد اختبارات مسجّلة بعد.",
+      assessment: "الاختبار",
+      score: "الدرجة",
+      percent: "النسبة",
+      absent: "غائب",
+      notGraded: "—",
+      total: "المجموع",
+      overallGrade: "التقدير العام",
+      comment: "تعليق المعلّم",
+      publishedOn: (date) => `نُشر ${date}`,
+      kinds: { QUIZ: "كويز", HOMEWORK: "واجب", MIDTERM: "نصف الترم", FINAL: "نهائي", ORAL: "شفوي", PROJECT: "مشروع", OTHER: "أخرى" },
+    },
   },
   en: {
     hello: (name) => `Hello, ${name}`,
@@ -377,6 +418,26 @@ export const COPY: Record<Lang, Copy> = {
       methods: { CASH: "Cash", INSTAPAY: "InstaPay", WALLET: "Wallet", BANK_TRANSFER: "Bank transfer", CARD: "Card", OTHER: "Other" },
       payFamily: "Pay what is due",
       allClear: "Nothing due — thank you",
+    },
+    termReports: {
+      title: "Term reports",
+      childReports: (name) => `${name}'s report`,
+      period: (from, to) => `${from} to ${to}`,
+      attendance: "Attendance",
+      lessonsHeld: (n) => `${n} lessons`,
+      noAttendance: "No lessons recorded in this period.",
+      grades: "Grades",
+      noGrades: "No assessments recorded yet.",
+      assessment: "Assessment",
+      score: "Score",
+      percent: "Percent",
+      absent: "Absent",
+      notGraded: "—",
+      total: "Total",
+      overallGrade: "Overall grade",
+      comment: "Teacher's comment",
+      publishedOn: (date) => `Published ${date}`,
+      kinds: { QUIZ: "Quiz", HOMEWORK: "Homework", MIDTERM: "Mid-term", FINAL: "Final", ORAL: "Oral", PROJECT: "Project", OTHER: "Other" },
     },
   },
 };

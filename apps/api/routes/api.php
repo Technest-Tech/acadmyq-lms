@@ -57,6 +57,8 @@ use App\Http\Controllers\Accounting\RenewalPolicyController;
 use App\Http\Controllers\Accounting\SettlementController;
 use App\Http\Controllers\Accounting\TreasuryController;
 use App\Http\Controllers\Groups\GroupAccountsController;
+use App\Http\Controllers\Groups\GroupAssessmentController;
+use App\Http\Controllers\Groups\GroupTermReportController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
 use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
 use App\Http\Controllers\Learner\CheckoutController as LearnerCheckoutController;
@@ -1008,6 +1010,28 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/groups/{id}/waitlist/{entryId}/seat', [GroupWaitlistController::class, 'seat'])->whereUuid(['id', 'entryId']);
     });
     // ── end course term + waiting list ──────────────────────────────────────────────────────────────
+
+    // ── Centre assessments + term reports (docs/centre-profile, Phase 2 §5) ──────────────────────
+    // A group's grade sheet (assessments × students) and the per-student term report composed from
+    // attendance + grades + the teacher's comment, publishable to the parent's page. Reads ride
+    // `group.read` (a TEACHER's own groups); writing columns, cells and comments is `group.manage` OR
+    // the group's own teacher (MarksOwnGroup); publishing is `group.manage` alone. Centre + groups
+    // only: a Quran academy gets 402 and holds no rows.
+    Route::middleware(['entitled:centre', 'entitled:groups'])->group(function () {
+        Route::get('/groups/{id}/assessments', [GroupAssessmentController::class, 'index'])->whereUuid('id');
+        Route::post('/groups/{id}/assessments', [GroupAssessmentController::class, 'store'])->whereUuid('id');
+        Route::patch('/groups/{id}/assessments/{aid}', [GroupAssessmentController::class, 'update'])->whereUuid(['id', 'aid']);
+        Route::delete('/groups/{id}/assessments/{aid}', [GroupAssessmentController::class, 'destroy'])->whereUuid(['id', 'aid']);
+        Route::put('/groups/{id}/assessments/{aid}/scores', [GroupAssessmentController::class, 'scores'])->whereUuid(['id', 'aid']);
+        Route::get('/groups/{id}/grades', [GroupAssessmentController::class, 'sheet'])->whereUuid('id');
+        Route::get('/groups/{id}/reports', [GroupTermReportController::class, 'index'])->whereUuid('id');
+        Route::post('/groups/{id}/reports/publish-all', [GroupTermReportController::class, 'publishAll'])->whereUuid('id');
+        Route::get('/groups/{id}/students/{studentId}/report', [GroupTermReportController::class, 'show'])->whereUuid(['id', 'studentId']);
+        Route::put('/groups/{id}/students/{studentId}/report', [GroupTermReportController::class, 'update'])->whereUuid(['id', 'studentId']);
+        Route::post('/groups/{id}/students/{studentId}/report/publish', [GroupTermReportController::class, 'publish'])->whereUuid(['id', 'studentId']);
+        Route::post('/groups/{id}/students/{studentId}/report/unpublish', [GroupTermReportController::class, 'unpublish'])->whereUuid(['id', 'studentId']);
+    });
+    // ── end centre assessments ───────────────────────────────────────────────────────────────────
 
     // ── Centre holidays + substitute teacher (docs/centre-profile, Phase 2 §3) ─────────────────────
     // The days a learning centre is closed: generation skips them, declaring one cancels the pending

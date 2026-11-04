@@ -160,6 +160,36 @@ export interface PortalChild {
   /** A centre's blocks (`groups` held): the week ahead and the latest sheets, and the 30-day marks. */
   group_lessons?: { upcoming: PortalGroupLesson[]; recent: PortalGroupLesson[] };
   attendance_summary?: PortalAttendanceSummary;
+  /** Term reports the centre PUBLISHED for this child (docs/centre-profile, Phase 2 §5); the key is absent until one is. */
+  term_reports?: PortalTermReport[];
+}
+
+/** One graded assessment on a published term report — the parent's view, no staff note. */
+export interface PortalTermGrade {
+  title: string;
+  kind: string;
+  held_on: string | null;
+  max_score: number;
+  weight: number;
+  score: number | null;
+  absent: boolean;
+  /** 0–100; null when not graded. */
+  percent: number | null;
+}
+
+export interface PortalTermReport {
+  group_id: string;
+  group_name: string;
+  level: string | null;
+  teacher_name: string | null;
+  /** The membership window the report covers (YYYY-MM-DD). */
+  period: { from: string; to: string; left: boolean };
+  attendance: { present: number; late: number; absent: number; excused: number; rate: number | null; lessons_held: number };
+  grades: PortalTermGrade[];
+  total: { weighted_percent: number | null };
+  comment: string | null;
+  overall_grade: string | null;
+  published_at: string;
 }
 
 export interface PortalProgressReport {
