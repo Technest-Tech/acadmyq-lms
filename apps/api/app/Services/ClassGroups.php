@@ -456,6 +456,104 @@ final class ClassGroups
         return $rows->count();
     }
 
+    // ── A suspended family ───────────────────────────────────────────────────
+
+    /** The `left_reason` of a membership closed because the family was suspended. */
+    public const LEFT_SUSPENDED = 'SUSPENDED';
+
+    /**
+     * A family suspended (GuardianController::suspend): each child's open memberships are closed
+     * today with reason SUSPENDED and remembered (`paused_by_suspension`), so the roster, the sheet
+     * and the billing all read the pause the same way a student who left is read — and resuming
+     * knows exactly which memberships to bring back. Groups must be the academy's feature; without
+     * it there is nothing to pause.
+     *
+     * @return int memberships paused
+     */
+    public function pauseForSuspension(string $guardianId): int
+    {
+        $rows = DB::table('class_group_members as m')
+            ->join('students as st', 'st.id', '=', 'm.student_id')
+            ->join('class_groups as g', 'g.id', '=', 'm.group_id')
+            ->where('st.guardian_id', $guardianId)
+            ->whereNull('st.deleted_at')
+            ->where('m.status', 'ACTIVE')
+            ->get(['m.id', 'm.joined_on', 'g.timezone']);
+
+        foreach ($rows as $row) {
+            $today = self::localToday((string) $row->timezone);
+            DB::table('class_group_members')->where('id', $row->id)->update([
+                'status' => 'LEFT',
+                'left_on' => max(Carbon::parse($row->joined_on)->format('Y-m-d'), $today),
+                'left_reason' => self::LEFT_SUSPENDED,
+                'paused_by_suspension' => true,
+                'updated_at' => now(),
+            ]);
+        }
+
+        return $rows->count();
+    }
+
+    /**
+     * The family resumed: every membership the suspension closed is re-opened as a NEW membership
+     * from today (the gap stays a gap — the sheets in between never expected the child), in any
+     * group still running; a group archived or ended meanwhile is left alone. The flag is cleared
+     * either way, so a second suspension starts from a clean slate. Billing resumes without
+     * charging the gap: a month already paid in this group is not raised again
+     * (GroupBilling::onMemberResumed).
+     *
+     * @return int memberships re-opened
+     */
+    public function resumeAfterSuspension(string $guardianId, string $actorUserId, string $actorRole): int
+    {
+        $paused = DB::table('class_group_members as m')
+            ->join('students as st', 'st.id', '=', 'm.student_id')
+            ->where('st.guardian_id', $guardianId)
+            ->whereNull('st.deleted_at')
+            ->where('m.paused_by_suspension', true)
+            ->orderBy('m.left_on')
+            ->get(['m.id', 'm.group_id', 'm.student_id', 'm.price_minor']);
+
+        $resumed = 0;
+        foreach ($paused as $row) {
+            DB::table('class_group_members')->where('id', $row->id)->update(['paused_by_suspension' => false, 'updated_at' => now()]);
+
+            $group = DB::table('class_groups')->where('id', $row->group_id)->first();
+            if ($group === null || $group->status !== 'ACTIVE' || self::state($group) === 'FINISHED') {
+                continue;
+            }
+            $alreadyIn = DB::table('class_group_members')
+                ->where('group_id', $group->id)->where('student_id', $row->student_id)->where('status', 'ACTIVE')
+                ->exists();
+            if ($alreadyIn) {
+                continue;
+            }
+
+            $today = self::localToday((string) $group->timezone);
+            DB::table('class_group_members')->insert([
+                'id' => (string) Str::uuid(),
+                'academy_id' => (string) $group->academy_id,
+                'group_id' => (string) $group->id,
+                'student_id' => (string) $row->student_id,
+                'joined_on' => max($today, Carbon::parse($group->start_date)->format('Y-m-d')),
+                'status' => 'ACTIVE',
+                'price_minor' => $row->price_minor,
+                'added_by' => $this->userOrNull($actorUserId),
+            ]);
+            $resumed++;
+
+            $this->billing->onMemberResumed($group, (string) $row->student_id);
+        }
+
+        if ($resumed > 0) {
+            $academyId = (string) DB::table('guardians')->where('id', $guardianId)->value('academy_id');
+            Audit::log('class_group.members_resumed', 'guardian', $guardianId, $academyId, $actorUserId, $actorRole,
+                after: ['resumed' => $resumed]);
+        }
+
+        return $resumed;
+    }
+
     // ── The sheet ────────────────────────────────────────────────────────────
 
     /**

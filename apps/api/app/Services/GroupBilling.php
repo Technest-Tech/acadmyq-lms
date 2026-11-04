@@ -654,6 +654,49 @@ final class GroupBilling
     }
 
     /**
+     * A member back from a suspension (ClassGroups::resumeAfterSuspension), re-joined today. The
+     * months of the pause were never raised (billableMembers skips a suspended family) and stay
+     * that way; what is owed from today is raised as for any joiner — except that a month this
+     * group already billed them for is not raised twice (the moved-in member's rule, pointed at
+     * this same group), and a course fee already paid here is not charged again.
+     */
+    public function onMemberResumed(object $group, string $studentId): void
+    {
+        if ($group->billing_mode === self::COURSE) {
+            $paid = DB::table('invoice_line_items')
+                ->where('class_group_id', $group->id)->where('student_id', $studentId)
+                ->where('group_charge', self::COURSE)->whereNull('cancelled_at')
+                ->exists();
+            if (! $paid) {
+                $this->billCourse($group, [$studentId]);
+            }
+
+            return;
+        }
+
+        if ($group->billing_mode !== self::MONTHLY) {
+            return;
+        }
+
+        if (self::byHours($group)) {
+            // Idempotent: only hours not yet bought raise a month.
+            $this->billHourMonths($group, [$studentId]);
+
+            return;
+        }
+
+        $joined = DB::table('class_group_members')
+            ->where('group_id', $group->id)->where('student_id', $studentId)->where('status', 'ACTIVE')
+            ->value('joined_on');
+        if ($joined === null) {
+            return;
+        }
+        foreach ($this->monthsSince((string) $joined, (string) $group->timezone) as [$y, $m]) {
+            $this->billMonth($group, $y, $m, [$studentId], (string) $group->id);
+        }
+    }
+
+    /**
      * Pay first let go (RenewalPolicy::release, the nightly run): raise what the hold skipped for
      * these members — from the first month held back, never anything older (a suspension's months
      * stay unbilled) — and hold again wherever an earlier charge is still owed.

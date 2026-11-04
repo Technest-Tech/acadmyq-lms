@@ -8,10 +8,12 @@ use App\Services\SessionGenerator;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Services\ChargeCancellation;
+use App\Services\ClassGroups;
 use App\Services\FamilyCharges;
 use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\DoneBy;
+use App\Support\Entitlement;
 use App\Support\Phone;
 use App\Support\StudentTeachers;
 use Illuminate\Database\Query\Builder;
@@ -361,7 +363,8 @@ final class GuardianController extends Controller
         $cancellable = $cancelIds === [] ? [] : app(ChargeCancellation::class)->advanceDues($this->currentAcademyId(), $id)->pluck('id')->all();
         $cancelIds = array_values(array_intersect(array_unique($cancelIds), $cancellable));
 
-        $paused = DB::transaction(function () use ($id): array {
+        $pausedMemberships = 0;
+        $paused = DB::transaction(function () use ($id, &$pausedMemberships): array {
             DB::table('guardians')->where('id', $id)->update(['suspended_at' => now(), 'suspended_by' => $this->ctx()->userId, 'updated_at' => now()]);
             $scheduleIds = DB::table('schedules as sc')
                 ->join('students as st', 'st.id', '=', 'sc.student_id')
@@ -369,6 +372,11 @@ final class GuardianController extends Controller
                 ->where('sc.is_active', true)->whereNull('sc.deleted_at')
                 ->pluck('sc.id')->map(fn ($v) => (string) $v)->all();
             DB::table('schedules')->whereIn('id', $scheduleIds)->update(['is_active' => false, 'paused_by_suspension' => true, 'updated_at' => now()]);
+            // The children's group memberships pause the same way (docs/groups): closed today with
+            // reason SUSPENDED and remembered, so resume re-opens exactly these.
+            if (Entitlement::hasCapability($this->currentAcademyId(), 'groups')) {
+                $pausedMemberships = app(ClassGroups::class)->pauseForSuspension($id);
+            }
 
             return $scheduleIds;
         });
@@ -385,11 +393,12 @@ final class GuardianController extends Controller
             }
         }
 
-        Audit::log('guardian.suspend', 'guardian', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['suspended_at' => now()->toIso8601String(), 'paused_schedules' => count($paused), 'cancelled_dues' => $cancelled]);
+        Audit::log('guardian.suspend', 'guardian', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['suspended_at' => now()->toIso8601String(), 'paused_schedules' => count($paused), 'paused_memberships' => $pausedMemberships, 'cancelled_dues' => $cancelled]);
 
         return response()->json([
             'ok' => true,
             'paused_schedules' => count($paused),
+            'paused_memberships' => $pausedMemberships,
             'cancelled' => array_map(fn ($c, $a) => ['currency' => $c, 'amount_minor' => $a], array_keys($cancelled), array_values($cancelled)),
         ]);
     }
@@ -407,7 +416,8 @@ final class GuardianController extends Controller
             return response()->json(['ok' => true, 'already' => true]);
         }
 
-        $resumed = DB::transaction(function () use ($id): array {
+        $resumedMemberships = 0;
+        $resumed = DB::transaction(function () use ($id, &$resumedMemberships): array {
             DB::table('guardians')->where('id', $id)->update(['suspended_at' => null, 'suspended_by' => null, 'updated_at' => now()]);
             $scheduleIds = DB::table('schedules as sc')
                 ->join('students as st', 'st.id', '=', 'sc.student_id')
@@ -416,14 +426,18 @@ final class GuardianController extends Controller
                 ->whereNull('st.deleted_at')
                 ->pluck('sc.id')->map(fn ($v) => (string) $v)->all();
             DB::table('schedules')->whereIn('id', $scheduleIds)->update(['is_active' => true, 'paused_by_suspension' => false, 'updated_at' => now()]);
+            // The memberships the suspension closed come back from today, in any group still running.
+            if (Entitlement::hasCapability($this->currentAcademyId(), 'groups')) {
+                $resumedMemberships = app(ClassGroups::class)->resumeAfterSuspension($id, $this->ctx()->userId, $this->ctx()->role);
+            }
 
             return $scheduleIds;
         });
         $this->regenerate($resumed);
 
-        Audit::log('guardian.resume', 'guardian', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['resumed_schedules' => count($resumed)]);
+        Audit::log('guardian.resume', 'guardian', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: ['resumed_schedules' => count($resumed), 'resumed_memberships' => $resumedMemberships]);
 
-        return response()->json(['ok' => true, 'resumed_schedules' => count($resumed)]);
+        return response()->json(['ok' => true, 'resumed_schedules' => count($resumed), 'resumed_memberships' => $resumedMemberships]);
     }
 
     /** @param  list<string>  $scheduleIds */
