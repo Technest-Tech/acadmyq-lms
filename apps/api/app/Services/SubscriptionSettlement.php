@@ -63,6 +63,8 @@ final class SubscriptionSettlement
             'unused_lessons' => $sold - $used,
             'price_minor' => $agreed,
             'used_value_minor' => $usedValue,
+            // The family card reads the package row's name for the same figure.
+            'used_minor' => $usedValue,
             'paid_minor' => $paid,
             'owed_back_minor' => $open ? max(0, $paid - $usedValue) : 0,
             'currency' => (string) $sub->currency,
@@ -88,12 +90,13 @@ final class SubscriptionSettlement
      * `method` whose receipts land in one account (the treasury's method → account map).
      *
      * @param  array{method?: ?string, cash_account_id?: ?string, reference?: ?string, note?: ?string}|null  $refund
+     * @param  ?string  $note  the decision's note (`settlement_note`); a refund's own note stands in when there is none
      * @return array{mode: string, amount_minor: int, currency: string, expense_id: ?string, expense_number: ?string}
      */
-    public function settle(string $subscriptionId, string $mode, ?array $refund, ?string $userId, ?string $role): array
+    public function settle(string $subscriptionId, string $mode, ?array $refund, ?string $note, ?string $userId, ?string $role): array
     {
         // Its own savepoint: a refused refund (a closed day) must not leave the bill brought down.
-        return DB::transaction(function () use ($subscriptionId, $mode, $refund, $userId, $role): array {
+        return DB::transaction(function () use ($subscriptionId, $mode, $refund, $note, $userId, $role): array {
             $sub = DB::table('centre_subscriptions')->where('id', $subscriptionId)->lockForUpdate()->first();
             if ($sub === null) {
                 abort(404, 'Subscription not found.');
@@ -110,7 +113,8 @@ final class SubscriptionSettlement
             }
             $amount = $preview['owed_back_minor'];
             $currency = $preview['currency'];
-            $note = isset($refund['note']) && trim((string) $refund['note']) !== '' ? trim((string) $refund['note']) : null;
+            $note = $note !== null && trim($note) !== '' ? mb_substr(trim($note), 0, 500)
+                : (isset($refund['note']) && trim((string) $refund['note']) !== '' ? mb_substr(trim((string) $refund['note']), 0, 500) : null);
             $expense = null;
 
             if ($mode !== 'KEEP') {

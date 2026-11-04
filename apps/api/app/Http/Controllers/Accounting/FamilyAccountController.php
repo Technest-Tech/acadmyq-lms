@@ -85,8 +85,10 @@ final class FamilyAccountController extends Controller
 
         $sessionIds = DB::table('invoice_line_items')->whereIn('id', $lines->pluck('id')->all())->whereNotNull('session_id')->pluck('id')->map(fn ($v) => (string) $v)->flip();
         $groupNames = DB::table('class_groups')->whereIn('id', $lines->pluck('class_group_id')->filter()->unique()->values()->all())->pluck('name', 'id');
+        // A centre subscription's line (docs/centre-profile/01-*): the row links to the block.
+        $subscriptionOfLine = DB::table('centre_subscriptions')->whereIn('invoice_line_id', $lines->pluck('id')->all())->pluck('id', 'invoice_line_id');
         $dueByChild = [];
-        $charges = $lines->sortBy(fn ($l) => ($l->session_date ?? '').'|'.$l->id)->values()->map(function ($l) use (&$balance, &$dueByChild, $today, $sessionIds, $groupNames) {
+        $charges = $lines->sortBy(fn ($l) => ($l->session_date ?? '').'|'.$l->id)->values()->map(function ($l) use (&$balance, &$dueByChild, $today, $sessionIds, $groupNames, $subscriptionOfLine) {
             $left = (int) $l->amount_minor - (int) $l->allocated;
             $date = $l->session_date !== null ? Carbon::parse($l->session_date)->format('Y-m-d') : sprintf('%04d-%02d-01', (int) $l->period_year, (int) $l->period_month);
             if (substr($date, 0, 7) < substr($today, 0, 7)) {
@@ -99,8 +101,9 @@ final class FamilyAccountController extends Controller
             return [
                 'id' => (string) $l->id,
                 'invoice_id' => (string) $l->invoice_id,
-                'source' => $l->class_group_id !== null ? 'GROUP' : (isset($sessionIds[(string) $l->id]) ? 'PRIVATE' : 'OTHER'),
+                'source' => $l->class_group_id !== null ? 'GROUP' : (isset($sessionIds[(string) $l->id]) || isset($subscriptionOfLine[(string) $l->id]) ? 'PRIVATE' : 'OTHER'),
                 'group_name' => $l->class_group_id !== null ? ($groupNames[(string) $l->class_group_id] ?? null) : null,
+                'subscription_id' => isset($subscriptionOfLine[(string) $l->id]) ? (string) $subscriptionOfLine[(string) $l->id] : null,
                 'description' => (string) $l->description,
                 'student_id' => $l->student_id !== null ? (string) $l->student_id : null,
                 'student_name' => $l->student_name,

@@ -132,20 +132,23 @@ final class CentreSubscriptionController extends Controller
         ]);
     }
 
-    /** POST /subscriptions/{id}/close { reason, settlement?, refund? } */
+    /**
+     * POST /subscriptions/{id}/close { reason, settlement?, settlement_note?, refund? }. On a block
+     * already CLOSED and PENDING, with an empty reason, this is the settlement alone.
+     */
     public function close(Request $request, string $id): JsonResponse
     {
         Gate::authorize('package.manage');
-        $data = $request->validate(['reason' => ['required', 'string', 'max:500']] + self::settlementRules());
+        $data = $request->validate(['reason' => ['sometimes', 'nullable', 'string', 'max:500']] + self::settlementRules());
         $this->authorizeSettlement($data['settlement'] ?? null);
         $ctx = app(AuthContext::class);
 
-        $closed = $this->subscriptions->close($id, (string) $data['reason'], $data['settlement'] ?? null, self::withSettlementNote($data), $ctx->userId, $ctx->role);
+        $closed = $this->subscriptions->close($id, $data['reason'] ?? null, $data['settlement'] ?? null, $data['refund'] ?? null, $data['settlement_note'] ?? null, $ctx->userId, $ctx->role);
 
         return response()->json(['subscription' => $this->rows->one($id), 'settlement' => $closed['settlement']]);
     }
 
-    /** POST /subscriptions/{id}/settle { settlement, refund? } — a block closed PENDING, decided later. */
+    /** POST /subscriptions/{id}/settle { settlement, settlement_note?, refund? } — a block closed PENDING, decided later. */
     public function settle(Request $request, string $id): JsonResponse
     {
         Gate::authorize('package.manage');
@@ -153,7 +156,7 @@ final class CentreSubscriptionController extends Controller
         $this->authorizeSettlement($data['settlement']);
         $ctx = app(AuthContext::class);
 
-        $settled = $this->settlement->settle($id, (string) $data['settlement'], self::withSettlementNote($data), $ctx->userId, $ctx->role);
+        $settled = $this->settlement->settle($id, (string) $data['settlement'], $data['refund'] ?? null, $data['settlement_note'] ?? null, $ctx->userId, $ctx->role);
 
         return response()->json(['subscription' => $this->rows->one($id), 'settlement' => $settled]);
     }
@@ -207,31 +210,13 @@ final class CentreSubscriptionController extends Controller
     {
         return [
             'settlement' => ['sometimes', 'nullable', Rule::in(SubscriptionSettlement::MODES)],
+            'settlement_note' => ['sometimes', 'nullable', 'string', 'max:500'],
             'refund' => ['sometimes', 'nullable', 'array'],
             'refund.method' => ['sometimes', 'nullable', 'string', 'max:32'],
             'refund.cash_account_id' => ['sometimes', 'nullable', 'uuid'],
             'refund.reference' => ['sometimes', 'nullable', 'string', 'max:120'],
             'refund.note' => ['sometimes', 'nullable', 'string', 'max:500'],
-            // The web sends the note at the top level (a KEEP has no refund block); it lands in the
-            // same `settle_note` column whatever the mode.
-            'settlement_note' => ['sometimes', 'nullable', 'string', 'max:500'],
         ];
-    }
-
-    /** The refund block with the top-level `settlement_note` folded in as its note when it has none. */
-    private static function withSettlementNote(array $data): ?array
-    {
-        $refund = $data['refund'] ?? null;
-        $note = isset($data['settlement_note']) && trim((string) $data['settlement_note']) !== '' ? trim((string) $data['settlement_note']) : null;
-        if ($note === null) {
-            return $refund;
-        }
-        $refund = $refund ?? [];
-        if (! isset($refund['note']) || trim((string) $refund['note']) === '') {
-            $refund['note'] = $note;
-        }
-
-        return $refund;
     }
 
     private function authorizeSettlement(?string $mode): void
