@@ -300,3 +300,105 @@ key), academy export dataset `subscriptions`.
 Deploy note: steps 1–2 (API) can go live alone — nothing calls them. Step 3 (web) switches the
 centre's navigation to `/subscriptions`, so it ships in the same release as step 5 (data move + preset
 flip); until then the web work stays on the branch.
+
+### Contract additions and deviations (API half, as built 2026-11-05)
+
+The contract above stands; the API adds to it and deviates in these places only:
+
+- **`MoneyPolicy::for` picks `SubscriptionMoney` when `centre` is ON **and `packages` is OFF**** —
+  not on `centre` alone. The split ships while lingo and LetsLearn still run on the block engine
+  (`packages` ON for them until step 5); on `centre` alone, their lessons would have stopped
+  consuming packages the day step 2 deployed. Pinned by `SubscriptionsTest` ("keeps every other
+  academy on the package engine"). The preset flip is what moves a centre over.
+- **`subscription` on `POST /students` is told apart by shape**: the monthly terms block has always
+  travelled under the same key, so a block of lessons is recognised by `lessons_sold` (monthly terms
+  never carry it); `subscription_terms` is accepted as the monthly block too. The response adds
+  `subscriptionId`, `subscriptionInvoiceId`, `warnings`.
+- **`POST /subscriptions/{id}/settle { settlement, refund? }`** — a block closed without a decision
+  is `PENDING` on the family card and has to be settled later; the contract listed no route for it.
+- **`refund`** takes `method` (resolved to the treasury account mapped for that method and currency,
+  the way a receipt is) **or `cash_account_id`**; `reference` and `note` go on the expense.
+- **`GET /subscriptions?view=outside`** returns the latest subscription row of each student with
+  outside lessons, **plus `outside: [{ student, teacher, course, count, first_on, last_on,
+  session_ids }]`** — a student taught outside any block who never bought one has no
+  SubscriptionRow to put them in.
+- `SubscriptionRow` gains `invoice_status`, `invoice_token`, `renewed`, `reminders_sent`,
+  `last_reminded_at`, `student.deleted`; `StudentPick` gains `currency`,
+  `untied_open_subscription_id`, `outside_count`. `SettlementPreview` carries `lessons_sold`,
+  `lessons_used`, `unused_lessons`, `settlement`, `settled`, `accounts`, `can_settle` beside the
+  four contract fields. `POST /subscriptions` also returns `lessons_taken`; `remind` returns
+  `deeplink`, `phone`, `kind`, `reminders_sent` beside `sent` / `preview`.
+- `GET /dashboard/centre` keeps `ending_soon` / `ending_soon_days` / `delta_pct` beside the new
+  `ending`, `finished_unrenewed`, `outside`. `GET /accounting/family/{id}` `unsettled` rows carry
+  `kind` (`PACKAGE` | `SUBSCRIPTION`) and `id`; subscription rows name `subscription_id`.
+  `/f/{token}` subscription items carry `kind: SUBSCRIPTION`, `lessons_sold` and `purpose_text
+  {ar, en}`; `minutes` is null on them. `GET /p/{token}` children get `subscriptions` only for a
+  centre (a Quran family's page keeps its exact keys).
+- The 422 of a pay-first refusal names the bill in `errors.student_id[0]` and carries
+  `errors.unpaid_invoice_id[0]` and `errors.unpaid_subscription_id[0]`.
+- `centre_subscriptions.legacy_package_id` (unique, nullable) remembers the `lesson_packages` row
+  the data move came from — what makes `centre:migrate-packages` idempotent.
+
+## As built — the API half (2026-11-05, branch `worktree-agent-ac702fd615ae339d3` off e2a945c)
+
+Steps 1, 2, the readers, the alerts and the data-move command, in one commit; the web half is on its
+own branch against the contract.
+
+- **Step 1** `App\Support\CentreBooks::enabledFor` replaced every `PackageSettlement::availableFor`
+  used as the "centre on receipts" proxy (Invoicing, InvoiceController ×3, Payroll ×2,
+  PayoutController, FamilyAccountController). Pure rename; `PackageSettlement::availableFor` stays
+  for the settlement itself and `LessonPackages::rewritePackageInvoiceLine` (step 6 strips that).
+- **Step 2** `App\Billing\LessonMoney` (interface) with `PackageMoney` (today's
+  `LessonPackages::consume/release`, verbatim) and `SubscriptionMoney`; `App\Support\MoneyPolicy::for`
+  picks by switch (see deviation above). `Invoicing::onSessionBillable` / `onSessionUnbilled` ask the
+  policy and nothing else changed in them. `SubscriptionMoney` leaves a monthly-billed centre
+  student (PER_HOUR / PER_SESSION / PER_MONTH / FREE) to the monthly path; no row or PER_PACKAGE →
+  `CentreSubscriptions::count()` and "handled", so no AUTO line and no hourly fallback.
+- **Tables** `centre_subscriptions`, `centre_subscription_lessons` (migration
+  `2026_11_07_000001_centre_subscriptions`, dated after the course-term and assessments migrations
+  so it runs last), RLS forced, the two partial unique indexes of the plan, `invoice_line_id` with
+  `on delete set null`, `settle_*` columns as on `lesson_packages`, `reminders_sent` /
+  `last_reminded_at`, `legacy_package_id`. The same migration adds `SUBSCRIPTION_FINISHED` /
+  `SUBSCRIPTION_UNPAID` to `whatsapp_group_alerts_event_chk`.
+- **Service** `App\Services\CentreSubscriptions` (715 lines) with exactly the plan's public surface
+  plus `blockFor`, `lessonSubject`, `courseKey` (scope helpers the readers share); settlement in
+  `SubscriptionSettlement` (ported from `PackageSettlement`, refunds through its `refundCredit`,
+  the `app.settling_invoice_id` escape for a closed bill); the bill line in `SubscriptionBilling`
+  (raise once, re-issue in place; discount through `PayerDiscounts::apply`, re-priced only when the
+  price changed); rows, views, summary and the picker in `CentreSubscriptionRows`. Every write in one
+  `DB::transaction`, every mutation `Audit::log`ged under entity `centre_subscription`.
+- **Scope at count time**: the lesson's timetable teacher (else its own) and the subject it names;
+  tied blocks of that teacher first (the course named, else the oldest), then the untied block; the
+  block must have started on or before the lesson's local date. Outside rows remember teacher /
+  course / date so a later sale takes them; a sale takes them up to what it has free, oldest first.
+  The outside alert is one per student (its subject_id) and is cleared when their outside count
+  returns to zero so it can fire again; the finished alert is cleared on reopen for the same reason.
+- **Edit** with `starts_on` moved later releases the block's earlier lessons to outside; moved
+  earlier, it takes outside lessons in range. A subject move keeps the block's lessons on it; an
+  outside lesson of the OLD subject is not the new subject's to take. `lessons_sold` below what is
+  counted is refused.
+- **Cancel** voids the bill only when the block's line is the bill's only one (it always is: a sale
+  raises its own MANUAL invoice). `ChargeCancellation::cancel` on a subscription line ends the block
+  (cancel if nothing counted and nothing paid, else close); `advanceDues` lists a running block's
+  line as `kind: SUBSCRIPTION`; `duesOf` / `letGoAllOf` already covered the line.
+- **`SessionDurationCorrection`** needed no change: it acts only on `lesson_package_credits`, and a
+  centre block has none — a no-op by construction.
+- **Command** `centre:migrate-packages {academy} [--dry-run|--apply]`: `lessons_sold` =
+  `LessonCount::whole(minutes_total + carried, lesson_minutes)` with the length falling back to the
+  block's usual credit length, then 60; status ACTIVE → OPEN or FINISHED by used ≥ sold; COMPLETED →
+  FINISHED (EXHAUSTED or used ≥ sold) else CLOSED; CANCELLED → CANCELLED; settlement columns
+  copied; the line by `packageLineDescriptions`, then by label (a settled line says "— N used").
+  Prints the two sums before and after and refuses to finish if they differ; `--apply` verifies
+  every package has a row and every credit a lesson. Exercised only in
+  `MigratePackagesCommandTest`, never run anywhere.
+- **Traps hit**: a closure that calls another tenant-context closure from inside its own clears the
+  GUCs on the way out (the test helpers must not nest); `assignTeacher` in the test traits ENDS the
+  student's earlier link (insert the second subject by hand); a receipt dated before a treasury
+  account's opening day is outside its balance; the alerts a group relays must be younger than
+  `MAX_AGE_MINUTES`, so a test that writes them under a frozen 2026-06 clock has to unfreeze first;
+  `Entitlement::resolve` reads `module_subscriptions` under RLS, so `MoneyPolicy::for` outside a
+  tenant context sees no switches and answers `PackageMoney`.
+- **Pre-existing, unrelated failures** seen while running the touched suites: `GroupAlertsTest`
+  "backs off after a failed send" (fails identically with the pre-change alert files) and
+  `Rls/IntrospectionTest` "stores no monetary column as float or numeric" (`group_assessments`
+  numeric columns from the assessments feature).
