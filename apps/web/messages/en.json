@@ -476,6 +476,10 @@
             "label": "Attendance not marked",
             "desc": "If nobody marks the lesson (attended, absent or cancelled) this long after it starts:"
           },
+          "GROUP_LESSON_NOT_MARKED": {
+            "label": "Group sheet not saved",
+            "desc": "If a group lesson’s attendance sheet is still not saved this long after it ENDS (same minutes as attendance; clients with groups only):"
+          },
           "REPORT_OVERDUE": {
             "label": "Report not written",
             "desc": "If a lesson marked as held has no report this long after it ends:"
@@ -2679,7 +2683,15 @@
     "attended": {
       "title": "{teacher} taught {student}",
       "markedBy": "Marked by {name}",
-      "open": "Open lesson"
+      "open": "Open lesson",
+      "groupTitle": "Sheet saved: {group}, {present}/{expected} present",
+      "openGroup": "Open the group"
+    },
+    "groupCancelled": {
+      "heading": "Cancelled group lessons",
+      "title": "{group} lesson cancelled — {teacher}",
+      "by": "by {name}",
+      "open": "Open the group"
     }
   },
   "studentReports": {

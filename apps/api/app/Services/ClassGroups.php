@@ -607,6 +607,8 @@ final class ClassGroups
         // the savepoint around this method undoes the sheet with it, so the two never disagree.
         $this->syncMoney($lesson->id);
 
+        $this->logSheetSaved($lesson, $counts['PRESENT'] + $counts['LATE'], count($marks), $actorUserId, $actorRole);
+
         Audit::log($wasHeld ? 'class_group_lesson.attendance_updated' : 'class_group_lesson.attendance_saved',
             'class_group_lesson', (string) $lesson->id, (string) $lesson->academy_id, $actorUserId, $actorRole,
             after: ['counts' => $counts, 'group_id' => (string) $lesson->group_id],
@@ -665,6 +667,8 @@ final class ClassGroups
 
         $cleared = DB::table('class_group_attendance')->where('lesson_id', $lesson->id)->delete();
         $restored = DB::table('class_group_lesson_removals')->where('lesson_id', $lesson->id)->delete();
+        // "Sheet saved" / "cancelled" would now be false: the lesson's log rows go with its outcome.
+        DB::table('notifications')->where('subject_id', $lesson->id)->whereIn('type', [self::LOG_SHEET_SAVED, self::LOG_CANCELLED])->delete();
 
         DB::table('class_group_lessons')->where('id', $lesson->id)->update([
             'status' => 'SCHEDULED',
@@ -698,8 +702,86 @@ final class ClassGroups
             'updated_at' => now(),
         ]);
 
+        $this->logCancelled($lesson, $reason, $actorUserId, $actorRole);
+
         Audit::log('class_group_lesson.cancelled', 'class_group_lesson', (string) $lesson->id, (string) $lesson->academy_id, $actorUserId, $actorRole,
             after: ['status' => 'CANCELLED', 'reason' => $reason]);
+    }
+
+    // ── The Notifications logs ───────────────────────────────────────────────
+
+    /** The "Attended classes" log's row for a group sheet (category ATTENDED, like LESSON_ATTENDED). */
+    public const LOG_SHEET_SAVED = 'GROUP_LESSON_ATTENDED';
+
+    /** The "Classes" log's row for a group lesson cancelled from the board (category CLASSES). */
+    public const LOG_CANCELLED = 'GROUP_LESSON_CANCELLED';
+
+    /**
+     * One row per lesson in the Notifications "Attended classes" log: "sheet saved: {group},
+     * {present}/{expected}". Re-saving the sheet updates the row's numbers rather than adding a
+     * second; reverting the sheet deletes it (undoSheet). Anchored on `subject_id` (the lesson),
+     * which the (subject_id, type) index dedupes exactly as a private lesson is on session_id.
+     */
+    private function logSheetSaved(object $lesson, int $present, int $expected, string $actorUserId, string $actorRole): void
+    {
+        $data = json_encode($this->logPayload($lesson, $actorUserId, $actorRole) + [
+            'present' => $present,
+            'expected' => $expected,
+        ], JSON_UNESCAPED_UNICODE);
+
+        $updated = DB::table('notifications')
+            ->where('subject_id', $lesson->id)->where('type', self::LOG_SHEET_SAVED)
+            ->update(['data' => $data]);
+        if ($updated === 0) {
+            DB::table('notifications')->insertOrIgnore([
+                'id' => (string) Str::uuid(),
+                'academy_id' => (string) $lesson->academy_id,
+                'type' => self::LOG_SHEET_SAVED,
+                'category' => 'ATTENDED',
+                'audience_role' => 'ACADEMY_OWNER',
+                'recipient_user_id' => null,
+                'session_id' => null,
+                'subject_id' => (string) $lesson->id,
+                'data' => $data,
+            ]);
+        }
+    }
+
+    /** One row per cancelled group lesson in the Notifications "Classes" log — a record, never a request. */
+    private function logCancelled(object $lesson, ?string $reason, string $actorUserId, string $actorRole): void
+    {
+        DB::table('notifications')->insertOrIgnore([
+            'id' => (string) Str::uuid(),
+            'academy_id' => (string) $lesson->academy_id,
+            'type' => self::LOG_CANCELLED,
+            'category' => 'CLASSES',
+            'audience_role' => 'ACADEMY_OWNER',
+            'recipient_user_id' => null,
+            'session_id' => null,
+            'subject_id' => (string) $lesson->id,
+            'data' => json_encode($this->logPayload($lesson, $actorUserId, $actorRole) + [
+                'reason' => $reason,
+                'expected' => $this->roster($lesson)->count(),
+            ], JSON_UNESCAPED_UNICODE),
+        ]);
+    }
+
+    /** @return array<string, mixed> what both logs say about the lesson */
+    private function logPayload(object $lesson, string $actorUserId, string $actorRole): array
+    {
+        $group = DB::table('class_groups')->where('id', $lesson->group_id)->first(['name', 'level']);
+
+        return [
+            'group_id' => (string) $lesson->group_id,
+            'group_name' => $group?->name,
+            'group_level' => $group?->level,
+            'teacher_id' => (string) $lesson->teacher_id,
+            'teacher_name' => DB::table('teachers')->where('id', $lesson->teacher_id)->value('full_name'),
+            'scheduled_at_utc' => Carbon::parse($lesson->scheduled_at_utc)->utc()->toIso8601String(),
+            'duration_minutes' => (int) $lesson->duration_minutes,
+            'marked_by_name' => DB::table('users')->where('id', $actorUserId)->value('full_name'),
+            'marked_by_role' => $actorRole,
+        ];
     }
 
     /** Re-read the lesson and bring its charges and its payout line in line with it. */

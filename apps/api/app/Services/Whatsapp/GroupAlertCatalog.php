@@ -21,6 +21,13 @@ final class GroupAlertCatalog
     /** A lesson was marked as held, and N hours after it ended there is still no report. */
     public const REPORT_OVERDUE = 'REPORT_OVERDUE';
 
+    /**
+     * A group lesson (docs/groups) ended N minutes ago (the same `not_marked_after_minutes` knob)
+     * and its sheet is still not saved — nobody recorded who came. Counted from the END, like a
+     * trial: a group's sheet is saved after the class. Only an academy holding `groups` has any.
+     */
+    public const GROUP_LESSON_NOT_MARKED = 'GROUP_LESSON_NOT_MARKED';
+
     /** A free trial's start time has arrived. */
     public const TRIAL_STARTED = 'TRIAL_STARTED';
 
@@ -62,12 +69,12 @@ final class GroupAlertCatalog
     public const TEST = 'TEST';
 
     public const CATEGORIES = [
-        'SUPERVISION' => [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE, self::TRIAL_STARTED, self::TRIAL_NOT_MARKED],
+        'SUPERVISION' => [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::GROUP_LESSON_NOT_MARKED, self::REPORT_OVERDUE, self::TRIAL_STARTED, self::TRIAL_NOT_MARKED],
         'ACCOUNTING' => [self::PACKAGE_LOW, self::PACKAGE_ENDED, self::PAYMENT_RECEIVED, self::PAYMENT_OVERDUE],
     ];
 
     /** The alerts whose truth can lapse before they go out, so they are re-checked at send time. */
-    public const CONDITIONAL = [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::REPORT_OVERDUE, self::TRIAL_STARTED, self::TRIAL_NOT_MARKED, self::PAYMENT_OVERDUE, self::LESSON_REMINDER, self::LESSON_STARTING];
+    public const CONDITIONAL = [self::SESSION_STARTED, self::SESSION_NOT_MARKED, self::GROUP_LESSON_NOT_MARKED, self::REPORT_OVERDUE, self::TRIAL_STARTED, self::TRIAL_NOT_MARKED, self::PAYMENT_OVERDUE, self::LESSON_REMINDER, self::LESSON_STARTING];
 
     /**
      * How long an alert may wait for a connected number before it stops being worth sending. A
@@ -77,6 +84,7 @@ final class GroupAlertCatalog
     public const MAX_AGE_MINUTES = [
         self::SESSION_STARTED => 20,
         self::SESSION_NOT_MARKED => 6 * 60,
+        self::GROUP_LESSON_NOT_MARKED => 6 * 60,
         self::REPORT_OVERDUE => 24 * 60,
         self::TRIAL_STARTED => 20,
         self::TRIAL_NOT_MARKED => 6 * 60,

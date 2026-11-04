@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\ModuleBilling;
 use App\Services\Whatsapp\GroupAlerts;
 use Carbon\CarbonImmutable;
 use Database\Seeders\DemoAcademySeeder;
@@ -12,6 +13,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
 use Tests\Concerns\InteractsWithTenancy;
@@ -172,11 +174,68 @@ it('reminds the group about a lesson nobody marked N minutes after it started', 
         ->toContain('10 min after the start');
 });
 
+it('reminds the group about a group lesson whose sheet is still not saved N minutes after it ended', function () {
+    // Monday 14 Sept, 13:00 UTC. The group meets Mondays 12:00–13:00 Cairo (09:00–10:00 UTC) from the 7th.
+    linkTestGroup($this->academy, ['GROUP_LESSON_NOT_MARKED'], ['not_marked_after_minutes' => 10], since: '2026-09-14T08:00:00+00:00');
+    $owner = $this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-ga-groups@test.local']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($owner);
+    $groupId = $this->postJson('/api/groups', [
+        'name' => 'English A1', 'level' => 'A1', 'teacher_id' => $this->teacher, 'start_date' => '2026-09-07',
+        'slots' => [['weekday' => 1, 'start_time_local' => '12:00', 'duration_minutes' => 60]],
+        'student_ids' => [$this->omar, $this->laila],
+    ])->assertCreated()->json('group.id');
+    $this->enterAcademyAsSuperAdmin($this->academy);
+    $lessons = DB::table('class_group_lessons')->where('group_id', $groupId)->orderBy('occurrence_local_date')->get();
+    // Back-filled from the 7th and generated ahead: last week's, today's, and the weeks to come.
+    expect($lessons->pluck('occurrence_local_date')->map(fn ($d) => substr((string) $d, 0, 10))->take(2)->all())->toBe(['2026-09-07', '2026-09-14']);
+    $today = $lessons->firstWhere(fn ($l) => substr((string) $l->occurrence_local_date, 0, 10) === '2026-09-14');
+    $this->clearTenantContext();
+
+    sweepGroups($this->academy);
+
+    // Today's lesson (ended 10:00, due 10:10) and not last week's, which fell due before the group was linked.
+    expect(groupAlerts($this->academy, 'GROUP_LESSON_NOT_MARKED')->pluck('subject_key')->all())->toBe([$today->id]);
+    expect(sentMessages())->toHaveCount(1);
+    expect(sentMessages()[0]->data()['text'])
+        ->toContain('Group attendance sheet not saved')
+        ->toContain('10 min after the lesson ended')
+        ->toContain('English A1 — Mona Teacher — 2 students');
+
+    // Saving the sheet is what the reminder asked for: nothing new, and the sweep stays idempotent.
+    Sanctum::actingAs($owner);
+    $this->postJson("/api/group-lessons/{$today->id}/attendance", ['entries' => []])->assertOk();
+    sweepGroups($this->academy);
+    expect(groupAlerts($this->academy, 'GROUP_LESSON_NOT_MARKED'))->toHaveCount(1);
+    expect(sentMessages())->toHaveCount(1);
+});
+
+it('sends no group-lesson reminder to an academy without the groups feature', function () {
+    linkTestGroup($this->academy, ['GROUP_LESSON_NOT_MARKED'], ['not_marked_after_minutes' => 10], since: '2026-09-14T08:00:00+00:00');
+    $owner = $this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-ga-nogroups@test.local']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($owner);
+    $this->postJson('/api/groups', [
+        'name' => 'English A1', 'teacher_id' => $this->teacher, 'start_date' => '2026-09-07',
+        'slots' => [['weekday' => 1, 'start_time_local' => '12:00', 'duration_minutes' => 60]],
+        'student_ids' => [$this->omar],
+    ])->assertCreated();
+    // The Super Admin switches the feature off: the lessons stay, the alert stops with them.
+    $this->enterAcademyAsSuperAdmin($this->academy);
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', ['groups'], []);
+    $this->clearTenantContext();
+
+    sweepGroups($this->academy);
+
+    expect(groupAlerts($this->academy, 'GROUP_LESSON_NOT_MARKED'))->toBeEmpty();
+    expect(sentMessages())->toBeEmpty();
+});
+
 it('never tells a learning centre that a lesson report is late — it asks for none', function () {
     linkTestGroup($this->academy, ['REPORT_OVERDUE', 'SESSION_NOT_MARKED'], ['report_overdue_hours' => 2, 'not_marked_after_minutes' => 10], since: '2026-09-14T11:00:00+00:00');
     // The CENTRE preset: progress reports off, the structured lesson report never opted into.
     $this->enterAcademyAsSuperAdmin($this->academy);
-    app(\App\Services\ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', ['student_reports'], []);
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', ['student_reports'], []);
     $this->clearTenantContext();
 
     // Ended 10:30 with no report — overdue for a Quran academy, nothing for a centre.

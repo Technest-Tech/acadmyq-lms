@@ -37,6 +37,22 @@ final class NotificationController extends Controller
     private const ATTENDED = 'ATTENDED';
 
     /**
+     * The "Classes" log's half that is not a request: a group lesson cancelled from the board
+     * (ClassGroups::cancel). No approval flow — the row only says it happened. Fetched with
+     * `?category=CLASSES`, and like ATTENDED kept out of the default feed and the bell.
+     */
+    private const CLASSES = 'CLASSES';
+
+    /** The activity logs: each has its own feed and never crowds the alerts out. */
+    private const LOGS = [self::ATTENDED, self::CLASSES];
+
+    /** A log category named by the request, or null for the alerts. */
+    private static function logCategory(?string $raw): ?string
+    {
+        return in_array($raw, self::LOGS, true) ? $raw : null;
+    }
+
+    /**
      * GET /api/notifications — the report alerts visible to the caller, newest first.
      * notification.read.
      */
@@ -44,13 +60,13 @@ final class NotificationController extends Controller
     {
         Gate::authorize('notification.read');
 
-        $attended = $request->query('category') === self::ATTENDED;
+        $log = self::logCategory($request->query('category'));
 
         $rows = $this->visibleQuery()
             ->when(
-                $attended,
-                fn ($q) => $q->where('n.category', self::ATTENDED),
-                fn ($q) => $q->where('n.category', '!=', self::ATTENDED),
+                $log !== null,
+                fn ($q) => $q->where('n.category', $log),
+                fn ($q) => $q->whereNotIn('n.category', self::LOGS),
             )
             ->orderByDesc('n.created_at')
             ->limit(200)
@@ -79,7 +95,7 @@ final class NotificationController extends Controller
         // it just because they share the notifications table. Each category counts for its own tab.
         $reports = (int) $this->visibleQuery()
             ->whereNull('n.read_at')
-            ->whereNotIn('n.category', ['PACKAGES', self::ATTENDED])
+            ->whereNotIn('n.category', ['PACKAGES', ...self::LOGS])
             ->count();
 
         $packages = (int) $this->visibleQuery()
@@ -133,14 +149,14 @@ final class NotificationController extends Controller
     {
         Gate::authorize('notification.read');
 
-        $attended = $request->input('category') === self::ATTENDED;
+        $log = self::logCategory($request->input('category'));
 
         $marked = $this->visibleQuery()
             ->whereNull('n.read_at')
             ->when(
-                $attended,
-                fn ($q) => $q->where('n.category', self::ATTENDED),
-                fn ($q) => $q->where('n.category', '!=', self::ATTENDED),
+                $log !== null,
+                fn ($q) => $q->where('n.category', $log),
+                fn ($q) => $q->whereNotIn('n.category', self::LOGS),
             )
             ->update(['read_at' => now()]);
 

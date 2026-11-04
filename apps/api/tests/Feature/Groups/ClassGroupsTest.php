@@ -399,6 +399,57 @@ it('marks everyone present except the exceptions, and the lesson held', function
     expect($members['Adam']['attendance']['rate'])->toEqual(1);
 });
 
+it('logs a saved sheet in the attended-classes feed, by the lesson, with the count; the revert takes it back', function () {
+    $groupId = makeGroup($this, ['student_ids' => [$this->students['Adam'], $this->students['Bassel'], $this->students['Celine']]]);
+    $lesson = lessonOn($this, $groupId, '2026-06-15');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/group-lessons/{$lesson->id}/attendance", [
+        'entries' => [['student_id' => $this->students['Bassel'], 'status' => 'ABSENT']],
+    ])->assertOk();
+
+    $log = collect($this->getJson('/api/notifications?category=ATTENDED')->assertOk()->json('notifications'));
+    $row = $log->firstWhere('subject_id', $lesson->id);
+    expect($row)->not->toBeNull()
+        ->and($row['type'])->toBe('GROUP_LESSON_ATTENDED')
+        ->and($row['session_id'])->toBeNull()
+        ->and($row['data'])->toMatchArray(['group_name' => 'English A1 — evening', 'teacher_name' => 'Miss Mona', 'present' => 2, 'expected' => 3, 'marked_by_role' => 'ACADEMY_OWNER']);
+    // Its own tab's count, never the bell.
+    $summary = $this->getJson('/api/notifications/summary')->assertOk()->json();
+    expect($summary['attended'])->toBe(1)->and($summary['reports'])->toBe(0)->and($summary['total'])->toBe(0);
+    // The alerts feed does not list it.
+    expect(collect($this->getJson('/api/notifications')->json('notifications'))->firstWhere('subject_id', $lesson->id))->toBeNull();
+
+    // Re-saving edits the row's numbers in place; it is still one row.
+    $this->postJson("/api/group-lessons/{$lesson->id}/attendance", ['entries' => []])->assertOk();
+    $log = collect($this->getJson('/api/notifications?category=ATTENDED')->json('notifications'))->where('subject_id', $lesson->id);
+    expect($log)->toHaveCount(1)->and($log->first()['data']['present'])->toBe(3);
+
+    $this->postJson("/api/group-lessons/{$lesson->id}/attendance/revert")->assertOk();
+    expect(collect($this->getJson('/api/notifications?category=ATTENDED')->json('notifications'))->firstWhere('subject_id', $lesson->id))->toBeNull();
+});
+
+it('logs a lesson cancelled from the board in the classes feed — a record, not a request', function () {
+    $groupId = makeGroup($this, ['student_ids' => [$this->students['Adam']]]);
+    $lesson = lessonOn($this, $groupId, '2026-06-22');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/group-lessons/{$lesson->id}/cancel", ['reason' => 'Public holiday'])->assertOk();
+
+    $row = collect($this->getJson('/api/notifications?category=CLASSES')->assertOk()->json('notifications'))->firstWhere('subject_id', $lesson->id);
+    expect($row)->not->toBeNull()
+        ->and($row['type'])->toBe('GROUP_LESSON_CANCELLED')
+        ->and($row['data'])->toMatchArray(['group_name' => 'English A1 — evening', 'reason' => 'Public holiday', 'expected' => 1]);
+    // Nothing to approve: the classes count stays the pending requests', and the bell is quiet.
+    $summary = $this->getJson('/api/notifications/summary')->assertOk()->json();
+    expect($summary['classes'])->toBe(0)->and($summary['total'])->toBe(0);
+    expect(collect($this->getJson('/api/notifications')->json('notifications'))->firstWhere('subject_id', $lesson->id))->toBeNull();
+
+    // Undoing the cancellation takes the record with it.
+    $this->postJson("/api/group-lessons/{$lesson->id}/attendance/revert")->assertOk();
+    expect(collect($this->getJson('/api/notifications?category=CLASSES')->json('notifications'))->firstWhere('subject_id', $lesson->id))->toBeNull();
+});
+
 it('re-saving edits the sheet in place', function () {
     $groupId = makeGroup($this, ['student_ids' => [$this->students['Adam']]]);
     $lesson = lessonOn($this, $groupId, '2026-06-15');

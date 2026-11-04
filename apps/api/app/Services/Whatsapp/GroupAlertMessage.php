@@ -53,6 +53,13 @@ final class GroupAlertMessage
                     : $settings['not_marked_after_minutes'].' min after the start, nobody has marked it attended, absent or cancelled.',
                 ...$this->sessionLines($payloads, $ar, $timezone, $now),
             ],
+            GroupAlertCatalog::GROUP_LESSON_NOT_MARKED => [
+                $ar ? ($many ? '⚠️ *كشوف حضور مجموعات لم تُسجَّل*' : '⚠️ *كشف حضور المجموعة لم يُسجَّل*') : ($many ? '⚠️ *Group attendance sheets not saved*' : '⚠️ *Group attendance sheet not saved*'),
+                $ar
+                    ? 'مرّ '.$this->arMinutes($settings['not_marked_after_minutes']).' على انتهاء الحصة ولم يُسجِّل أحد من حضر.'
+                    : $settings['not_marked_after_minutes'].' min after the lesson ended, nobody has saved who came.',
+                ...$this->groupLessonLines($payloads, $ar, $timezone, $now),
+            ],
             GroupAlertCatalog::REPORT_OVERDUE => [
                 $ar ? '📝 *تقرير الحصة لم يُكتب*' : '📝 *Lesson report not written*',
                 $ar
@@ -122,6 +129,26 @@ final class GroupAlertMessage
             return $ar
                 ? "• {$time} — المعلم {$teacher} مع {$student}"
                 : "• {$time} — {$teacher} with {$student}";
+        }, $payloads);
+    }
+
+    /**
+     * One line per group lesson: when, which group, whose, and how many were expected.
+     *
+     * @param  list<array<string,mixed>>  $payloads
+     * @return list<string>
+     */
+    private function groupLessonLines(array $payloads, bool $ar, string $timezone, CarbonImmutable $now): array
+    {
+        return array_map(function (array $p) use ($ar, $timezone, $now): string {
+            $time = $this->when((string) ($p['starts_at'] ?? ''), $timezone, $now, $ar);
+            $group = trim((string) ($p['group'] ?? '')) ?: '—';
+            $teacher = trim((string) ($p['teacher'] ?? '')) ?: '—';
+            $expected = (int) ($p['expected'] ?? 0);
+
+            return $ar
+                ? "• {$time} — {$group} — المعلم {$teacher} — {$expected} طالب"
+                : "• {$time} — {$group} — {$teacher} — {$expected} students";
         }, $payloads);
     }
 

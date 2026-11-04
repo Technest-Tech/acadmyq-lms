@@ -1142,6 +1142,8 @@ export function createConnectLink(
 export type WhatsAppGroupEvent =
   | "SESSION_STARTED"
   | "SESSION_NOT_MARKED"
+  // A group lesson's sheet not saved this long after it ENDS (docs/groups); only with `groups`.
+  | "GROUP_LESSON_NOT_MARKED"
   | "REPORT_OVERDUE"
   | "TRIAL_STARTED"
   | "TRIAL_NOT_MARKED"
@@ -5749,15 +5751,19 @@ export type NotificationType =
   | "PACKAGE_UNPAID"
   | "NO_ACTIVE_PACKAGE"
   // One per lesson marked attended — the "Attended classes" log, never counted on the bell.
-  | "LESSON_ATTENDED";
+  | "LESSON_ATTENDED"
+  // The group lessons' rows in the same two logs (docs/groups): a sheet saved, a lesson cancelled
+  // from the board. Anchored on `subject_id` (the group lesson), never on a session.
+  | "GROUP_LESSON_ATTENDED"
+  | "GROUP_LESSON_CANCELLED";
 
 /** One report-overdue alert (Notifications "Reports" tab). */
 export interface NotificationRow {
   id: string;
   type: NotificationType;
-  category: "REPORTS" | "PACKAGES" | "ATTENDED";
+  category: "REPORTS" | "PACKAGES" | "ATTENDED" | "CLASSES";
   session_id: string | null;
-  /** Anchor for non-session alerts — a lesson_packages.id for the PACKAGE_* types. */
+  /** Anchor for non-session alerts — a lesson_packages.id for the PACKAGE_* types, a group lesson's id for GROUP_LESSON_*. */
   subject_id: string | null;
   data: {
     student_name?: string | null;
@@ -5781,6 +5787,12 @@ export interface NotificationRow {
     // LESSON_ATTENDED: who recorded it (a teacher, or staff marking on their behalf)
     marked_by_name?: string | null;
     marked_by_role?: string;
+    // GROUP_LESSON_ATTENDED / GROUP_LESSON_CANCELLED: the group, and the sheet's count
+    group_id?: string;
+    group_name?: string | null;
+    group_level?: string | null;
+    present?: number;
+    expected?: number;
   };
   read_at: string | null;
   created_at: string;
@@ -5788,9 +5800,10 @@ export interface NotificationRow {
 
 /**
  * The notification feed. Without a category: the alerts (reports, packages). `"ATTENDED"`: the
- * attended-classes log, which is fetched on its own so it never crowds the alerts out.
+ * attended-classes log; `"CLASSES"`: the cancelled-group-lesson log — each fetched on its own so it
+ * never crowds the alerts out.
  */
-export function listNotifications(category?: "ATTENDED"): Promise<{
+export function listNotifications(category?: "ATTENDED" | "CLASSES"): Promise<{
   notifications: NotificationRow[];
 }> {
   return apiFetch(`/api/notifications${category ? `?category=${category}` : ""}`);
@@ -5817,7 +5830,7 @@ export function markNotificationRead(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/notifications/${id}/read`, { method: "POST" });
 }
 
-export function markAllNotificationsRead(category?: "ATTENDED"): Promise<{
+export function markAllNotificationsRead(category?: "ATTENDED" | "CLASSES"): Promise<{
   ok: boolean;
   marked: number;
 }> {

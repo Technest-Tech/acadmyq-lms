@@ -71,6 +71,7 @@ export function NotificationsScreen() {
   const [requests, setRequests] = useState<CancellationRequestRow[]>([]);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
   const [attended, setAttended] = useState<NotificationRow[]>([]);
+  const [cancelledGroupLessons, setCancelledGroupLessons] = useState<NotificationRow[]>([]);
   const [counts, setCounts] = useState({ classes: 0, attended: 0, reports: 0, packages: 0 });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -87,16 +88,18 @@ export function NotificationsScreen() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [{ requests: reqs }, { notifications: notifs }, { notifications: log }, summary] =
+      const [{ requests: reqs }, { notifications: notifs }, { notifications: log }, { notifications: cancelled }, summary] =
         await Promise.all([
           listCancellationRequests(),
           listNotifications(),
           listNotifications("ATTENDED"),
+          listNotifications("CLASSES"),
           getNotificationsSummary(),
         ]);
       setRequests(reqs);
       setNotifications(notifs);
       setAttended(log);
+      setCancelledGroupLessons(cancelled);
       setCounts({
         classes: summary.classes,
         attended: summary.attended ?? 0,
@@ -198,6 +201,7 @@ export function NotificationsScreen() {
       ) : tab === "classes" ? (
         <ClassesTab
           requests={requests}
+          cancelledGroupLessons={cancelledGroupLessons}
           fmt={fmt}
           onChanged={load}
           onError={setError}
@@ -230,33 +234,72 @@ export function NotificationsScreen() {
 
 function ClassesTab({
   requests,
+  cancelledGroupLessons,
   fmt,
   onChanged,
   onError,
 }: {
   requests: CancellationRequestRow[];
+  /** Group lessons cancelled from the board (docs/groups) — a record each, nothing to approve. */
+  cancelledGroupLessons: NotificationRow[];
   fmt: (iso: string) => string;
   onChanged: () => Promise<void>;
   onError: (msg: string) => void;
 }) {
   const t = useTranslations("notifications");
 
-  if (requests.length === 0) {
+  if (requests.length === 0 && cancelledGroupLessons.length === 0) {
     return <EmptyState message={t("empty.classes")} />;
   }
 
   return (
-    <ul className="space-y-3" data-testid="classes-list">
-      {requests.map((r) => (
-        <RequestCard
-          key={r.id}
-          request={r}
-          fmt={fmt}
-          onChanged={onChanged}
-          onError={onError}
-        />
-      ))}
-    </ul>
+    <div className="space-y-5">
+      {requests.length > 0 && (
+        <ul className="space-y-3" data-testid="classes-list">
+          {requests.map((r) => (
+            <RequestCard
+              key={r.id}
+              request={r}
+              fmt={fmt}
+              onChanged={onChanged}
+              onError={onError}
+            />
+          ))}
+        </ul>
+      )}
+      {cancelledGroupLessons.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-muted-foreground px-1 text-xs font-semibold">{t("groupCancelled.heading")}</h3>
+          <ul className="bg-card divide-y rounded-2xl border" data-testid="group-cancelled-list">
+            {cancelledGroupLessons.map((n) => (
+              <li key={n.id} data-testid="group-cancelled-row" className="flex items-center gap-3 px-4 py-3">
+                <div className="bg-rose-100 ring-rose-200/60 dark:bg-rose-950/40 flex size-9 shrink-0 items-center justify-center rounded-xl ring-1">
+                  <Ban className="size-4 text-rose-700 dark:text-rose-400" aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm leading-tight font-semibold">
+                    {t("groupCancelled.title", { group: n.data.group_name ?? "—", teacher: n.data.teacher_name ?? "—" })}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5 text-xs tabular-nums">
+                    {n.data.scheduled_at_utc ? fmt(n.data.scheduled_at_utc) : "—"}
+                    {n.data.reason ? ` · ${n.data.reason}` : ""}
+                    {n.data.marked_by_name ? ` · ${t("groupCancelled.by", { name: n.data.marked_by_name })}` : ""}
+                  </p>
+                  {n.data.group_id && (
+                    <Link
+                      href={`/groups/${n.data.group_id}`}
+                      className="text-primary mt-1 inline-block text-xs font-semibold hover:underline"
+                    >
+                      {t("groupCancelled.open")}
+                    </Link>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -654,6 +697,8 @@ function AttendedTab({
             {g.rows.map((n) => {
               const unread = n.read_at === null;
               const byStaff = n.data.marked_by_role !== undefined && n.data.marked_by_role !== "TEACHER";
+              // A group sheet (docs/groups): "sheet saved: {group}, {present}/{expected}", opening the group.
+              const groupSheet = n.type === "GROUP_LESSON_ATTENDED";
               return (
                 <li
                   key={n.id}
@@ -669,10 +714,16 @@ function AttendedTab({
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm leading-tight font-semibold">
-                      {t("attended.title", {
-                        teacher: n.data.teacher_name ?? "—",
-                        student: n.data.student_name ?? "—",
-                      })}
+                      {groupSheet
+                        ? t("attended.groupTitle", {
+                            group: n.data.group_name ?? "—",
+                            present: n.data.present ?? 0,
+                            expected: n.data.expected ?? 0,
+                          })
+                        : t("attended.title", {
+                            teacher: n.data.teacher_name ?? "—",
+                            student: n.data.student_name ?? "—",
+                          })}
                     </p>
                     <p className="text-muted-foreground mt-0.5 text-xs tabular-nums">
                       {n.data.scheduled_at_utc ? timeFmt.format(new Date(n.data.scheduled_at_utc)) : "—"}
@@ -687,6 +738,14 @@ function AttendedTab({
                         className="text-primary mt-1 inline-block text-xs font-semibold hover:underline"
                       >
                         {t("attended.open")}
+                      </Link>
+                    )}
+                    {groupSheet && n.data.group_id && (
+                      <Link
+                        href={`/groups/${n.data.group_id}`}
+                        className="text-primary mt-1 inline-block text-xs font-semibold hover:underline"
+                      >
+                        {t("attended.openGroup")}
                       </Link>
                     )}
                   </div>

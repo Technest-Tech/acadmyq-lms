@@ -45,11 +45,53 @@ const attended: NotificationRow = {
   created_at: "2026-10-06T11:00:00Z",
 };
 
+const groupSheet: NotificationRow = {
+  id: "n3",
+  type: "GROUP_LESSON_ATTENDED",
+  category: "ATTENDED",
+  session_id: null,
+  subject_id: "gl1",
+  data: {
+    group_id: "g1",
+    group_name: "English A1",
+    teacher_name: "Mona",
+    scheduled_at_utc: "2026-10-06T12:00:00Z",
+    duration_minutes: 60,
+    present: 7,
+    expected: 9,
+    marked_by_role: "TEACHER",
+  },
+  read_at: null,
+  created_at: "2026-10-06T13:00:00Z",
+};
+
+const groupCancelled: NotificationRow = {
+  id: "n4",
+  type: "GROUP_LESSON_CANCELLED",
+  category: "CLASSES",
+  session_id: null,
+  subject_id: "gl2",
+  data: {
+    group_id: "g1",
+    group_name: "English A1",
+    teacher_name: "Mona",
+    scheduled_at_utc: "2026-10-08T12:00:00Z",
+    duration_minutes: 60,
+    reason: "Public holiday",
+    marked_by_name: "Omar Owner",
+    marked_by_role: "ACADEMY_OWNER",
+  },
+  read_at: null,
+  created_at: "2026-10-07T13:00:00Z",
+};
+
 beforeEach(() => {
   listNotifications.mockReset();
   markAllNotificationsRead.mockReset().mockResolvedValue({ ok: true, marked: 1 });
   listNotifications.mockImplementation((category?: string) =>
-    Promise.resolve({ notifications: category === "ATTENDED" ? [attended] : [overdue] }),
+    Promise.resolve({
+      notifications: category === "ATTENDED" ? [attended] : category === "CLASSES" ? [] : [overdue],
+    }),
   );
 });
 
@@ -115,4 +157,38 @@ it("keeps the Reports tab for a Quran academy, which holds progress reports by d
   renderScreen();
 
   expect(await screen.findByTestId("tab-reports")).toBeInTheDocument();
+});
+
+// ── Group lessons in the two logs (docs/groups, coherence audit §3) ──────────
+
+it("lists a saved group sheet in the attended log, with the count, opening the group", async () => {
+  listNotifications.mockImplementation((category?: string) =>
+    Promise.resolve({ notifications: category === "ATTENDED" ? [groupSheet, attended] : category === "CLASSES" ? [] : [overdue] }),
+  );
+  const user = userEvent.setup();
+  renderScreen();
+
+  await user.click(await screen.findByTestId("tab-attended"));
+
+  const rows = await screen.findAllByTestId("attended-row");
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toHaveTextContent("English A1");
+  expect(rows[0]).toHaveTextContent("7/9");
+  expect(within(rows[0]!).getByRole("link")).toHaveAttribute("href", "/groups/g1");
+  // The private row reads as before.
+  expect(within(rows[1]!).getByRole("link")).toHaveAttribute("href", "/sessions/s1");
+});
+
+it("lists a group lesson cancelled from the board under the classes tab, with nothing to approve", async () => {
+  listNotifications.mockImplementation((category?: string) =>
+    Promise.resolve({ notifications: category === "ATTENDED" ? [attended] : category === "CLASSES" ? [groupCancelled] : [overdue] }),
+  );
+  renderScreen();
+
+  const row = await screen.findByTestId("group-cancelled-row");
+  expect(row).toHaveTextContent("English A1");
+  expect(row).toHaveTextContent("Public holiday");
+  expect(within(row).getByRole("link")).toHaveAttribute("href", "/groups/g1");
+  expect(screen.queryByTestId("classes-list")).not.toBeInTheDocument();
+  expect(within(row).queryByRole("button")).not.toBeInTheDocument();
 });

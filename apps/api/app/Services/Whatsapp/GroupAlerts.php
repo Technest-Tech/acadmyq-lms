@@ -137,6 +137,8 @@ final class GroupAlerts
                 'reminders' => in_array('whatsapp.group_reminders', $capabilities, true) ? $this->reminders->settings($academyId) : null,
                 // An academy that asks for no lesson report (a learning centre) is never told one is late.
                 'reports' => FlagOverdueReportsJob::wantsLessonReports($capabilities),
+                // Group lessons exist only for an academy holding the feature (docs/groups §4).
+                'group_lessons' => in_array('groups', $capabilities, true),
             ];
         });
 
@@ -150,7 +152,7 @@ final class GroupAlerts
         $reminderBudget = $connected ? $this->reminderBudget($probe) : 0;
 
         [$detected, $claimed] = $this->inAcademy($academyId, function () use ($academyId, $setup, $connected, $reminderBudget, $now): array {
-            [$inserted, $candidates] = $this->detect($academyId, $setup['groups'], $now, $setup['reminders'], $setup['reports']);
+            [$inserted, $candidates] = $this->detect($academyId, $setup['groups'], $now, $setup['reminders'], $setup['reports'], $setup['group_lessons']);
             $this->retire($academyId, $setup['groups'], $candidates, $now);
             $this->recoverStaleClaims($academyId, $now);
 
@@ -269,7 +271,7 @@ final class GroupAlerts
      * @return array{0: int, 1: array<string, array<string, array<string, true>>>} inserted count, and
      *                                                                             group → type → subject set
      */
-    private function detect(string $academyId, array $groups, CarbonImmutable $now, ?array $reminders = null, bool $reports = true): array
+    private function detect(string $academyId, array $groups, CarbonImmutable $now, ?array $reminders = null, bool $reports = true, bool $groupLessons = true): array
     {
         $inserted = 0;
         $candidates = [];
@@ -280,6 +282,7 @@ final class GroupAlerts
                 $found = match ($type) {
                     GroupAlertCatalog::SESSION_STARTED => $this->sessionsStarted($academyId, $floor, $now),
                     GroupAlertCatalog::SESSION_NOT_MARKED => $this->sessionsNotMarked($academyId, $floor, $group->settings['not_marked_after_minutes'], $now),
+                    GroupAlertCatalog::GROUP_LESSON_NOT_MARKED => $groupLessons ? $this->groupLessonsNotMarked($academyId, $floor, $group->settings['not_marked_after_minutes'], $now) : [],
                     GroupAlertCatalog::REPORT_OVERDUE => $reports ? $this->reportsOverdue($academyId, $floor, $group->settings['report_overdue_hours'], $now) : [],
                     GroupAlertCatalog::TRIAL_STARTED => $this->trialsStarted($academyId, $floor, $now),
                     GroupAlertCatalog::TRIAL_NOT_MARKED => $this->trialsNotMarked($academyId, $floor, $group->settings['not_marked_after_minutes'], $now),
@@ -397,6 +400,55 @@ final class GroupAlerts
             'subject' => (string) $s->id,
             'due_at' => CarbonImmutable::parse($s->scheduled_at_utc)->addMinutes($afterMinutes),
             'payload' => $this->sessionPayload($s),
+        ])->all();
+    }
+
+    /**
+     * Group lessons (docs/groups) that ended N minutes ago with no sheet saved — still SCHEDULED,
+     * not cancelled. One lesson is one row whatever the class size, so this is one line per class.
+     * The teacher is the lesson's own (a substitute, when one took it).
+     *
+     * @return list<array{subject: string, due_at: CarbonImmutable, payload: array<string,mixed>}>
+     */
+    private function groupLessonsNotMarked(string $academyId, CarbonImmutable $floor, int $afterMinutes, CarbonImmutable $now): array
+    {
+        $lowerDue = $this->later($floor, $now->subMinutes(GroupAlertCatalog::MAX_AGE_MINUTES[GroupAlertCatalog::GROUP_LESSON_NOT_MARKED]));
+
+        $rows = DB::table('class_group_lessons as l')
+            ->join('class_groups as g', 'g.id', '=', 'l.group_id')
+            ->leftJoin('teachers as te', 'te.id', '=', 'l.teacher_id')
+            ->where('l.academy_id', $academyId)
+            ->where('l.status', 'SCHEDULED')
+            ->where('g.status', 'ACTIVE')
+            // A coarse bound on the raw column keeps the calendar index in play; the exact due-time
+            // window below it is what decides.
+            ->where('l.scheduled_at_utc', '>=', $lowerDue->subMinutes($afterMinutes)->subDay()->format(self::TS))
+            ->where('l.scheduled_at_utc', '<=', $now->format(self::TS))
+            ->whereRaw('l.scheduled_at_utc + make_interval(mins => l.duration_minutes + ?) <= ?::timestamptz', [$afterMinutes, $now->format(self::TS)])
+            ->whereRaw('l.scheduled_at_utc + make_interval(mins => l.duration_minutes + ?) >= ?::timestamptz', [$afterMinutes, $lowerDue->format(self::TS)])
+            ->orderBy('l.scheduled_at_utc')
+            ->limit(self::DETECT_LIMIT)
+            ->select([
+                'l.id', 'l.scheduled_at_utc', 'l.duration_minutes', 'l.occurrence_local_date',
+                'g.name as group_name', 'g.level as group_level', 'te.full_name as teacher',
+                DB::raw('(select count(*) from class_group_members m join students st on st.id = m.student_id
+                          where m.group_id = l.group_id and m.joined_on <= l.occurrence_local_date
+                            and (m.left_on is null or m.left_on > l.occurrence_local_date)
+                            and st.deleted_at is null) as expected'),
+            ])
+            ->get();
+
+        return $rows->map(fn (object $l): array => [
+            'subject' => (string) $l->id,
+            'due_at' => CarbonImmutable::parse($l->scheduled_at_utc)->addMinutes((int) $l->duration_minutes + $afterMinutes),
+            'payload' => [
+                'group' => $l->group_name,
+                'level' => $l->group_level,
+                'teacher' => $l->teacher,
+                'starts_at' => CarbonImmutable::parse($l->scheduled_at_utc)->utc()->format(self::TS),
+                'duration_minutes' => (int) $l->duration_minutes,
+                'expected' => (int) $l->expected,
+            ],
         ])->all();
     }
 

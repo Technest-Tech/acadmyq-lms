@@ -283,7 +283,7 @@ function GroupRow({
             ) : (
               group.events.map((e) => (
                 <StatusChip key={e} tone="neutral">
-                  {e === "SESSION_NOT_MARKED" || e === "TRIAL_NOT_MARKED"
+                  {e === "SESSION_NOT_MARKED" || e === "TRIAL_NOT_MARKED" || e === "GROUP_LESSON_NOT_MARKED"
                     ? t("eventShortMinutes", { event: t(`events.${e}.label`), n: group.settings.not_marked_after_minutes })
                     : e === "REPORT_OVERDUE"
                       ? t("eventShortHours", { event: t(`events.${e}.label`), n: group.settings.report_overdue_hours })
@@ -354,6 +354,8 @@ function AlertLine({ alert }: { alert: WhatsAppGroupAlert }) {
       case "TRIAL_STARTED":
       case "TRIAL_NOT_MARKED":
         return [p.teacher, p.student].filter(Boolean).join(" → ");
+      case "GROUP_LESSON_NOT_MARKED":
+        return [p.teacher, p.group].filter(Boolean).join(" → ");
       case "PACKAGE_LOW":
       case "PACKAGE_ENDED":
         return [p.student, p.label].filter(Boolean).join(" — ");
@@ -603,10 +605,23 @@ function GroupFormModal({
                         onChange={(v) => setTiming("not_marked_after_minutes", v)}
                       />
                     )}
+                    {/* Group lessons share the lessons' "not marked" minutes — one knob, shown once. */}
+                    {e === "GROUP_LESSON_NOT_MARKED" &&
+                      events.includes(e) &&
+                      !events.includes("SESSION_NOT_MARKED") && (
+                        <TimingInput
+                          id="wa-group-not-marked"
+                          value={settings.not_marked_after_minutes}
+                          unit={t("minutes")}
+                          bounds={catalog.setting_bounds.not_marked_after_minutes}
+                          onChange={(v) => setTiming("not_marked_after_minutes", v)}
+                        />
+                      )}
                     {/* Trials share the lessons' "not marked" minutes — one knob, shown once. */}
                     {e === "TRIAL_NOT_MARKED" &&
                       events.includes(e) &&
-                      !events.includes("SESSION_NOT_MARKED") && (
+                      !events.includes("SESSION_NOT_MARKED") &&
+                      !events.includes("GROUP_LESSON_NOT_MARKED") && (
                         <TimingInput
                           id="wa-trial-not-marked"
                           value={settings.not_marked_after_minutes}

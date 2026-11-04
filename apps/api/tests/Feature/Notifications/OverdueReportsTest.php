@@ -8,6 +8,7 @@ use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -77,7 +78,7 @@ it('does not flag a session that ended less than the grace window ago', function
 it('does not flag a session that already has a report', function () {
     $this->asAcademy($this->academy);
     DB::table('session_reports')->insert([
-        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'id' => (string) Str::uuid(),
         'academy_id' => $this->academy,
         'session_id' => $this->overdue,
         'values' => '{}',
