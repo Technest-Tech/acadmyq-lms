@@ -14,6 +14,7 @@ import { LessonRemindersManager } from "@/components/settings/lesson-reminders-m
 import { LessonReportManager } from "@/components/settings/lesson-report-manager";
 import { LevelsManager } from "@/components/settings/levels-manager";
 import { ReportCardManager } from "@/components/settings/report-card-manager";
+import { RoomsManager } from "@/components/settings/rooms-manager";
 import { SpecializationsManager } from "@/components/settings/specializations-manager";
 import { WhatsAppManager } from "@/components/settings/whatsapp-manager";
 import { useCapability } from "@/lib/capabilities";
@@ -131,6 +132,8 @@ export function SettingsManager() {
             <SpecializationsManager />
             {/* A centre's levels / grades sit under the same catalogue tab (docs/centre-profile, Phase 2.1). */}
             {hasCentre && <LevelsManager />}
+            {/* …and its rooms, which groups pick and the timetable filters by (02-COHERENCE-AUDIT §3). */}
+            {hasCentre && <RoomsManager />}
           </div>
         )}
         {active === "lessonReport" && <LessonReportManager />}

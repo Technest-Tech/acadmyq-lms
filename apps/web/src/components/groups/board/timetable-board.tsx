@@ -13,7 +13,8 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
-import { useCentreLook } from "@/lib/capabilities";
+import { RoomSelect } from "@/components/rooms/room-select";
+import { useCapability, useCentreLook } from "@/lib/capabilities";
 import { exportRowsToExcel } from "@/lib/export-excel";
 import {
   addGroupLesson,
@@ -25,6 +26,7 @@ import {
   type GroupRow,
   type SchedulingWarning,
 } from "@/lib/groups-api";
+import { listRooms, type Room } from "@/lib/rooms-api";
 import { cn } from "@/lib/utils";
 
 /** A centre's week opens on Saturday, the way its own sheet is laid out. */
@@ -46,6 +48,8 @@ export interface TimetableRow {
   /** "16" — the hour block it sits under (a 16:30 class is still a four o'clock class). */
   hour: string;
   room: string;
+  /** The room on the centre's list (02-COHERENCE-AUDIT §3); null = a typed room, or none. */
+  roomId: string | null;
   subject: string;
   teacher: string;
 }
@@ -69,6 +73,27 @@ function roomKey(room: string): string {
   return room.trim().toLowerCase();
 }
 
+/**
+ * Room names → the listed room's id: from the centre's list when given, and from every row already
+ * in a listed room. A group still on a typed room that spells a listed room's name is in that room —
+ * the server's clash check reads it the same way.
+ */
+export function roomIndex(rows: TimetableRow[], rooms: Room[] = []): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const r of rooms) index.set(roomKey(r.name), r.id);
+  for (const r of rows) if (r.roomId && !index.has(roomKey(r.room))) index.set(roomKey(r.room), r.roomId);
+  return index;
+}
+
+/** Which room a row is in: `id:<room>` for a listed room, `text:<spelling>` for a typed one, "" for none. */
+export function roomSlot(row: TimetableRow, index: Map<string, string>): string {
+  if (row.roomId) return `id:${row.roomId}`;
+  const key = roomKey(row.room);
+  if (key === "") return "";
+  const id = index.get(key);
+  return id ? `id:${id}` : `text:${key}`;
+}
+
 export function toTimetableRow(l: BoardLesson): TimetableRow {
   const start = localDateTime(l.scheduled_at_utc, l.group.timezone);
   const endIso = new Date(new Date(l.scheduled_at_utc).getTime() + l.duration_minutes * 60_000).toISOString();
@@ -78,7 +103,8 @@ export function toTimetableRow(l: BoardLesson): TimetableRow {
     start: start.time,
     end: localDateTime(endIso, l.group.timezone).time,
     hour: start.time.slice(0, 2),
-    room: l.group.location?.trim() ?? "",
+    room: l.group.room?.name ?? l.group.location?.trim() ?? "",
+    roomId: l.group.room?.id ?? null,
     subject: l.group.specialization_name ?? "",
     teacher: l.teacher_name ?? "",
   };
@@ -88,14 +114,15 @@ export function toTimetableRow(l: BoardLesson): TimetableRow {
  * The lessons that share a room with another group at an overlapping time on the same day —
  * a centre's commonest timetable mistake, flagged red on the row. Cancelled lessons free the room.
  */
-export function roomClashes(rows: TimetableRow[]): Set<string> {
+export function roomClashes(rows: TimetableRow[], rooms: Room[] = []): Set<string> {
   const out = new Set<string>();
-  const live = rows.filter((r) => r.room !== "" && r.lesson.status !== "CANCELLED");
+  const index = roomIndex(rows, rooms);
+  const live = rows.filter((r) => roomSlot(r, index) !== "" && r.lesson.status !== "CANCELLED");
   for (let i = 0; i < live.length; i++) {
     for (let j = i + 1; j < live.length; j++) {
       const a = live[i]!;
       const b = live[j]!;
-      if (a.date !== b.date || a.lesson.group.id === b.lesson.group.id || roomKey(a.room) !== roomKey(b.room)) continue;
+      if (a.date !== b.date || a.lesson.group.id === b.lesson.group.id || roomSlot(a, index) !== roomSlot(b, index)) continue;
       const aStart = new Date(a.lesson.scheduled_at_utc).getTime();
       const bStart = new Date(b.lesson.scheduled_at_utc).getTime();
       if (aStart < bStart + b.lesson.duration_minutes * 60_000 && bStart < aStart + a.lesson.duration_minutes * 60_000) {
@@ -125,6 +152,9 @@ export function TimetableBoard() {
   // The centre's look (group-look): the day strip and the filters on white cards, each hour block a
   // card of its own. The markup is otherwise the same for everyone.
   const look = useCentreLook();
+  // The centre's rooms list (Settings): the room filter and "set the room" pick from it.
+  const centre = useCapability("centre");
+  const [rooms, setRooms] = useState<Room[]>([]);
 
   const [weekStart, setWeekStart] = useState(() => weekStartOf(today));
   // An index into the week (0 = Saturday), or the whole week.
@@ -170,10 +200,17 @@ export function TimetableBoard() {
     void load();
   }, [load]);
   useEffect(loadGroups, [loadGroups]);
+  useEffect(() => {
+    if (!centre) return;
+    void listRooms()
+      .then((res) => setRooms(res.rooms))
+      .catch(() => setRooms([]));
+  }, [centre]);
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => shiftDate(weekStart, i)), [weekStart]);
   const rows = useMemo(() => lessons.map(toTimetableRow), [lessons]);
-  const clashes = useMemo(() => roomClashes(rows), [rows]);
+  const clashes = useMemo(() => roomClashes(rows, rooms), [rows, rooms]);
+  const index = useMemo(() => roomIndex(rows, rooms), [rows, rooms]);
 
   const options = useMemo(() => {
     const uniq = (values: string[]) => [...new Set(values.filter((v) => v !== ""))].sort((a, b) => a.localeCompare(b, locale));
@@ -181,10 +218,20 @@ export function TimetableBoard() {
       hours: [...new Set(rows.map((r) => r.hour))].sort(),
       groups: [...new Map(rows.map((r) => [r.lesson.group.id, r.lesson.group.name])).entries()].sort((a, b) => a[1].localeCompare(b[1], locale)),
       teachers: uniq(rows.map((r) => r.teacher)),
-      rooms: uniq(rows.map((r) => r.room)),
+      // The list's rooms in its own order, then any room typed before the list that no row maps to.
+      rooms: (() => {
+        const out = new Map<string, string>();
+        for (const r of rooms) if (r.is_active || rows.some((row) => row.roomId === r.id)) out.set(`id:${r.id}`, r.name);
+        const typed = new Map<string, string>();
+        for (const row of rows) {
+          const slot = roomSlot(row, index);
+          if (slot !== "" && !out.has(slot)) typed.set(slot, row.room);
+        }
+        return [...out.entries(), ...[...typed.entries()].sort((a, b) => a[1].localeCompare(b[1], locale))];
+      })(),
       subjects: uniq(rows.map((r) => r.subject)),
     };
-  }, [rows, locale]);
+  }, [rows, rooms, index, locale]);
 
   const filtered = useMemo(
     () =>
@@ -193,10 +240,10 @@ export function TimetableBoard() {
           (!filters.hour || r.hour === filters.hour) &&
           (!filters.group || r.lesson.group.id === filters.group) &&
           (!filters.teacher || r.teacher === filters.teacher) &&
-          (!filters.room || roomKey(r.room) === roomKey(filters.room)) &&
+          (!filters.room || roomSlot(r, index) === filters.room) &&
           (!filters.subject || r.subject === filters.subject),
       ),
-    [rows, filters],
+    [rows, filters, index],
   );
 
   const shownDays = day === "all" ? days : [days[day]!];
@@ -410,7 +457,7 @@ export function TimetableBoard() {
         {filterSelect(
           "room",
           t("board.timetable.filters.allRooms"),
-          options.rooms.map((v) => [v, v]),
+          options.rooms,
           t("board.timetable.col.room"),
         )}
         {filterSelect(
@@ -570,13 +617,15 @@ export function TimetableBoard() {
         {modal.kind === "room" && (
           <RoomForm
             initial={modal.lesson.group.location ?? ""}
+            rooms={centre ? rooms : undefined}
+            initialRoomId={modal.lesson.group.room?.id ?? ""}
             busy={busy}
             onCancel={() => setModal({ kind: "closed" })}
             onSubmit={(room) =>
               run(async () => {
                 await updateGroup(modal.lesson.group.id, {
                   mode: "OFFLINE",
-                  location: room,
+                  ...("roomId" in room ? { room_id: room.roomId } : { location: room.text }),
                 });
                 finish(t("board.timetable.roomSaved"));
               })
@@ -809,9 +858,44 @@ function MoveForm({
   );
 }
 
-function RoomForm({ initial, busy, onCancel, onSubmit }: { initial: string; busy: boolean; onCancel: () => void; onSubmit: (room: string | null) => void }) {
+/**
+ * The group's room. A centre picks it from its rooms list (`rooms` given); anyone else types it, as
+ * before the list existed.
+ */
+function RoomForm({
+  initial,
+  rooms,
+  initialRoomId,
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  initial: string;
+  rooms?: Room[];
+  initialRoomId: string;
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (room: { roomId: string | null } | { text: string | null }) => void;
+}) {
   const t = useTranslations("groups");
   const [room, setRoom] = useState(initial);
+  const [roomId, setRoomId] = useState(initialRoomId);
+
+  if (rooms !== undefined) {
+    return (
+      <div className="space-y-4">
+        <RoomSelect value={roomId} onChange={setRoomId} rooms={rooms} withAddLink testId="timetable-room-select" />
+        <div className="flex justify-end gap-2 border-t pt-4">
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+            {t("form.cancel")}
+          </Button>
+          <Button type="button" disabled={busy} onClick={() => onSubmit({ roomId: roomId || null })} data-testid="timetable-room-save">
+            {t("board.timetable.saveRoom")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -828,7 +912,7 @@ function RoomForm({ initial, busy, onCancel, onSubmit }: { initial: string; busy
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
           {t("form.cancel")}
         </Button>
-        <Button type="button" disabled={busy} onClick={() => onSubmit(room.trim() || null)}>
+        <Button type="button" disabled={busy} onClick={() => onSubmit({ text: room.trim() || null })}>
           {t("board.timetable.saveRoom")}
         </Button>
       </div>

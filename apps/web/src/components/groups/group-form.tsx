@@ -26,6 +26,8 @@ import {
 import { LessonPriceFields, lessonPriceFromTotal, lessonsIn, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { LevelSelect } from "@/components/levels/level-select";
+import { RoomSelect } from "@/components/rooms/room-select";
+import { listRooms, type Room } from "@/lib/rooms-api";
 import { useCapability, useProfile } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
@@ -166,6 +168,7 @@ export function GroupForm({
 }) {
   const t = useTranslations("groups");
   const tTerm = useTranslations("courseTerm");
+  const tRooms = useTranslations("rooms");
   const tw = useTranslations("scheduling");
   const locale = useLocale();
   const { can } = useAuth();
@@ -187,6 +190,11 @@ export function GroupForm({
   const centre = useCapability("centre");
   const [mode, setMode] = useState<GroupMode>(group?.mode ?? (centre ? "OFFLINE" : "ONLINE"));
   const [location, setLocation] = useState(group?.location ?? "");
+  // A centre's room comes from its list (02-COHERENCE-AUDIT §3), not typed. A group still holding a
+  // room typed before the list keeps that text until a room is picked.
+  const [roomId, setRoomId] = useState(group?.room?.id ?? "");
+  const legacyLocation = group?.room ? "" : (group?.location?.trim() ?? "");
+  const [rooms, setRooms] = useState<Room[] | undefined>(undefined);
   const [meetingUrl, setMeetingUrl] = useState(group?.meeting_url ?? "");
   const [startDate, setStartDate] = useState(group?.start_date ?? todayIn(group?.timezone ?? browserTz));
   const [endDate, setEndDate] = useState(group?.end_date ?? "");
@@ -248,6 +256,13 @@ export function GroupForm({
       .then((res) => setSubjects(res.specializations.filter((s) => s.is_active)))
       .catch(() => setSubjects([]));
   }, []);
+
+  useEffect(() => {
+    if (!centre) return;
+    void listRooms()
+      .then((res) => setRooms(res.rooms))
+      .catch(() => setRooms([]));
+  }, [centre]);
 
   // An edit can be opened on a group whose teacher has since been deactivated: keep them pickable.
   const teacherOptions = useMemo(() => {
@@ -347,7 +362,13 @@ export function GroupForm({
       ...(centre ? { level_id: levelId || null } : { level: level.trim() || null }),
       capacity: capacity ? Number(capacity) : null,
       mode,
-      location: mode === "OFFLINE" ? location.trim() || null : null,
+      // A centre picks a room from its list and the server names the text; everyone else types it.
+      ...(centre
+        ? {
+            room_id: mode === "OFFLINE" ? roomId || null : null,
+            location: mode === "OFFLINE" && !roomId ? legacyLocation || null : null,
+          }
+        : { location: mode === "OFFLINE" ? location.trim() || null : null }),
       meeting_url: mode === "ONLINE" ? meetingUrl.trim() || null : null,
       start_date: startDate,
       end_date: endDate || null,
@@ -502,6 +523,10 @@ export function GroupForm({
               onChange={(e) => setMeetingUrl(e.target.value)}
               placeholder="https://"
             />
+          </Field>
+        ) : centre ? (
+          <Field label={tRooms("select.label")} icon={MapPin} hint={!roomId && legacyLocation ? tRooms("legacyText", { text: legacyLocation }) : undefined}>
+            <RoomSelect value={roomId} onChange={setRoomId} rooms={rooms} withAddLink testId="group-room" />
           </Field>
         ) : (
           <Field label={t("form.location")} icon={MapPin}>
@@ -865,6 +890,7 @@ export function GroupForm({
 
   // What the form adds up to so far, beside it on a wide screen.
   const summaryPrice = canPrice ? priceMinor() : null;
+  const placeText = centre ? (rooms?.find((r) => r.id === roomId)?.name ?? (roomId ? (group?.room?.name ?? "") : legacyLocation)) : location.trim();
   const summaryRows: { key: string; icon: ComponentType<{ className?: string }>; text: string; muted?: boolean }[] = [
     {
       key: "teacher",
@@ -875,7 +901,7 @@ export function GroupForm({
     {
       key: "place",
       icon: mode === "ONLINE" ? Video : MapPin,
-      text: mode === "OFFLINE" && location.trim() ? location.trim() : t(`mode.${mode}`),
+      text: mode === "OFFLINE" && placeText ? placeText : t(`mode.${mode}`),
     },
     {
       key: "seats",

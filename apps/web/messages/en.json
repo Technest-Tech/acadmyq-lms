@@ -11228,5 +11228,35 @@
       "issuedOn": "Issued on {date}",
       "loadFailed": "Could not load the report."
     }
+  },
+  "rooms": {
+    "cardTitle": "Rooms",
+    "hint": "The centre's rooms and how many seats each holds. A group picks its room from here, the timetable filters by it, and you are warned when two groups are booked into one room at once.",
+    "add": "Add",
+    "namePlaceholder": "e.g. Room 1, Lab, Second-floor hall…",
+    "capacity": "Seats",
+    "seats": "{count} seats",
+    "empty": "No rooms yet — add the first one above.",
+    "rename": "Edit",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "confirmDelete": "Delete this room?",
+    "inUse": "{groups} groups",
+    "inactive": "Off",
+    "activate": "Switch on",
+    "deactivate": "Switch off",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "addLink": "Manage rooms in Settings",
+    "legacyText": "Typed before: {text} — pick a room from the list.",
+    "errors": {
+      "capacity": "Seats is a whole number above zero, or leave it empty."
+    },
+    "select": {
+      "label": "Room",
+      "none": "No room",
+      "loading": "Loading…",
+      "withCapacity": "{name} ({capacity} seats)"
+    }
   }
 }

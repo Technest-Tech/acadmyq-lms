@@ -111,8 +111,11 @@ trait InteractsWithClassGroups
      */
     protected function roomWarnings(object $group, Carbon $startUtc, int $durationMinutes, string $excludeLessonId): array
     {
-        $room = trim((string) ($group->location ?? ''));
-        if ($room === '' || ! Entitlement::hasCapability((string) $group->academy_id, 'centre')) {
+        $roomId = isset($group->room_id) ? (string) $group->room_id : null;
+        $room = $roomId !== null
+            ? trim((string) (DB::table('academy_rooms')->where('id', $roomId)->value('name') ?? $group->location ?? ''))
+            : trim((string) ($group->location ?? ''));
+        if (($roomId === null && $room === '') || ! Entitlement::hasCapability((string) $group->academy_id, 'centre')) {
             return [];
         }
 
@@ -122,7 +125,18 @@ trait InteractsWithClassGroups
             ->where('l.id', '!=', $excludeLessonId)
             ->where('l.group_id', '!=', $group->id)
             ->whereIn('l.status', ['SCHEDULED', 'HELD'])
-            ->whereRaw('lower(btrim(g.location)) = lower(?)', [$room])
+            // Two groups on the rooms list share a room by id; a group still on free text is
+            // compared by that text, as before the list existed.
+            ->where(function ($q) use ($roomId, $room): void {
+                if ($roomId !== null) {
+                    $q->where('g.room_id', $roomId);
+                    if ($room !== '') {
+                        $q->orWhere(fn ($t) => $t->whereNull('g.room_id')->whereRaw('lower(btrim(g.location)) = lower(?)', [$room]));
+                    }
+                } else {
+                    $q->whereRaw('lower(btrim(g.location)) = lower(?)', [$room]);
+                }
+            })
             ->whereBetween('l.scheduled_at_utc', [
                 $startUtc->copy()->subDay()->format('Y-m-d H:i:sP'),
                 $endUtc->format('Y-m-d H:i:sP'),

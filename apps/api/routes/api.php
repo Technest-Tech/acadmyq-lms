@@ -74,6 +74,7 @@ use App\Http\Controllers\Learner\SiteController as LearnerSiteController;
 use App\Http\Controllers\LessonPackageController;
 use App\Http\Controllers\Levels\LevelController;
 use App\Http\Controllers\Levels\StudentLevelController;
+use App\Http\Controllers\Rooms\RoomController;
 use App\Http\Controllers\Lms\CodeController;
 use App\Http\Controllers\Lms\CourseController;
 use App\Http\Controllers\Lms\DashboardController as LmsDashboardController;
@@ -956,6 +957,16 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::delete('/levels/{id}', [LevelController::class, 'destroy'])->whereUuid('id');
         Route::post('/students/{id}/promote', [StudentLevelController::class, 'promote'])->whereUuid('id');
         Route::get('/students/{id}/level-history', [StudentLevelController::class, 'history'])->whereUuid('id');
+    });
+
+    // ── Rooms (docs/centre-profile/02-COHERENCE-AUDIT §3) ────────────────────────────────────
+    // The centre's own list of rooms (Settings, specialization.manage to change); a group points
+    // at one and the timetable's clash check compares rooms by id. A centre's only.
+    Route::middleware('entitled:centre')->group(function () {
+        Route::get('/rooms', [RoomController::class, 'index']);
+        Route::post('/rooms', [RoomController::class, 'store']);
+        Route::patch('/rooms/{id}', [RoomController::class, 'update'])->whereUuid('id');
+        Route::delete('/rooms/{id}', [RoomController::class, 'destroy'])->whereUuid('id');
     });
 
     // Group classes (docs/groups) — one teacher, several students, a weekly timetable, its own
