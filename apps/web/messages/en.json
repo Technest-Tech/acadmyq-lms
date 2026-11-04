@@ -1305,7 +1305,8 @@
       "punctuality": "Punctuality",
       "salary": "Salary",
       "reports": "Reports",
-      "lessons": "Lessons"
+      "lessons": "Lessons",
+      "groups": "Groups"
     },
     "calendar": {
       "today": "Today",
@@ -1561,6 +1562,10 @@
       "deleteHint": "A lesson on a closed invoice or a finalized salary cannot be deleted.",
       "deleteConfirm": "Delete lesson",
       "deleteCancel": "Keep it"
+    },
+    "groups": {
+      "empty": "Teaches no groups at the moment.",
+      "owedThisWeek": "{count, plural, =0 {No sheets owed this week} one {# sheet owed this week} other {# sheets owed this week}}"
     }
   },
   "settings": {
