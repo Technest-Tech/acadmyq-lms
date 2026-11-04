@@ -192,6 +192,12 @@ export function ParentPage({
   const progress = only(data.progress_reports);
   const lessonReports = recent.filter((l) => (l.report?.length ?? 0) > 0 || l.topic || l.homework);
   const unpaid = data.invoices.filter((i) => i.state !== "PAID").length;
+  // Both feeds behind the Reports tab are the Quran academy's (monthly progress reports, the lesson
+  // report). A centre's family has neither — its term reports sit in their own section above — so
+  // the tab exists only when there is something to read in it, counted over every child.
+  const anyReports =
+    data.progress_reports.length > 0 ||
+    data.recent.some((l) => (l.report?.length ?? 0) > 0 || l.topic || l.homework);
 
   function switchLang() {
     const next: Lang = lang === "ar" ? "en" : "ar";
@@ -326,9 +332,11 @@ export function ParentPage({
 
         {/* ── Tabs (+ the child filter), kept in reach while scrolling ── */}
         <div className="sticky top-0 z-10 -mx-4 mt-7 bg-[#f5f3ec]/90 px-4 pt-3 pb-3 backdrop-blur">
-          <div role="tablist" className="grid grid-cols-3 gap-1 rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-900/[0.06]">
+          <div role="tablist" className={`grid ${anyReports ? "grid-cols-3" : "grid-cols-2"} gap-1 rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-900/[0.06]`}>
             <TabButton id="lessons" tab={tab} onSelect={setTab} icon={CalendarDays} label={t.tabs.lessons} count={upcoming.length} />
-            <TabButton id="reports" tab={tab} onSelect={setTab} icon={FileText} label={t.tabs.reports} count={progress.length + lessonReports.length} />
+            {anyReports && (
+              <TabButton id="reports" tab={tab} onSelect={setTab} icon={FileText} label={t.tabs.reports} count={progress.length + lessonReports.length} />
+            )}
             <TabButton id="invoices" tab={tab} onSelect={setTab} icon={Receipt} label={t.tabs.invoices} count={unpaid} alert={unpaid > 0} />
           </div>
           {severalChildren && tab !== "invoices" && (
