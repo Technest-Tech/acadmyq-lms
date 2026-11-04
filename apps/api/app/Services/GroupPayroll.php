@@ -91,8 +91,21 @@ final class GroupPayroll
             'PER_HOUR' => (int) round($rate * $durationMinutes / 60),
             'PER_STUDENT' => $rate * $came,
             'REVENUE_SHARE' => 0,
-            default => $this->payroll->lessonPayMinor($teacher, null, $durationMinutes),
+            default => $this->teacherOwnPay($teacher, $durationMinutes, $came),
         };
+    }
+
+    /**
+     * No pay mode on the group: the teacher's own terms (Payroll::lessonPayMinor). A teacher paid
+     * PER STUDENT earns their per-student rate for each student who came — the group's own
+     * PER_STUDENT mode read through the teacher's rate — where a private lesson has one student.
+     * An hourly teacher earns the hour; a fixed-salary one earns nothing per lesson, as before.
+     */
+    private function teacherOwnPay(object $teacher, int $durationMinutes, int $came): int
+    {
+        $perStudent = ($teacher->pay_type ?? Payroll::PAY_HOURLY) === Payroll::PAY_PER_STUDENT;
+
+        return $this->payroll->lessonPayMinor($teacher, null, $durationMinutes) * ($perStudent ? $came : 1);
     }
 
     /**
