@@ -8,9 +8,11 @@ use App\Http\Controllers\Controller;
 use App\Services\ChargeCancellation;
 use App\Services\Ledger;
 use App\Services\PackageSettlement;
+use App\Services\SubscriptionSettlement;
 use App\Services\PayerDiscounts;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\CentreBooks;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -255,7 +257,7 @@ final class FamilyAccountController extends Controller
 
         ksort($balance);
         // Settling and paying credit back are a centre's (PackageSettlement::availableFor).
-        $settles = PackageSettlement::availableFor($academyId);
+        $settles = CentreBooks::enabledFor($academyId);
         $canRefund = $settles && Gate::allows('invoice.mark_paid') && Gate::allows('expense.manage');
 
         return response()->json([
@@ -299,7 +301,11 @@ final class FamilyAccountController extends Controller
             ])->values()->all(),
             'timeline' => array_slice($timeline, 0, 150),
             // Subscriptions closed with lessons paid and not taken, waiting on a decision (PackageSettlement).
-            'unsettled' => $settles ? app(PackageSettlement::class)->pendingFor($guardianId)->all() : [],
+            'unsettled' => $settles
+                ? app(PackageSettlement::class)->pendingFor($guardianId)->map(fn (array $p) => ['kind' => 'PACKAGE', 'id' => $p['package_id']] + $p)
+                    ->concat(app(SubscriptionSettlement::class)->pendingFor($guardianId))
+                    ->values()->all()
+                : [],
             // Where credit can be paid back from (the refund dialog).
             'refund_accounts' => $canRefund ? DB::table('cash_accounts')->where('is_active', true)->orderBy('sort_order')->get(['id', 'name', 'kind', 'currency'])
                 ->map(fn ($a) => ['id' => (string) $a->id, 'name' => (string) $a->name, 'kind' => (string) $a->kind, 'currency' => (string) $a->currency])->all() : [],

@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\ClientErrorController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Centre\CentreSubscriptionController;
 use App\Http\Controllers\Centre\HolidayController;
 use App\Http\Controllers\CentreDashboardController;
 use App\Http\Controllers\CertificateTemplateController;
@@ -1046,6 +1047,24 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/holidays', [HolidayController::class, 'store']);
         Route::delete('/holidays/{id}', [HolidayController::class, 'destroy'])->whereUuid('id');
         Route::middleware('entitled:groups')->post('/group-lessons/{id}/substitute', [SubstituteController::class, 'set'])->whereUuid('id');
+    });
+
+    // ── Centre private subscriptions (docs/centre-profile/01-PRIVATE-SUBSCRIPTION-SPLIT.md) ──────
+    // A block of N lessons sold for one subject, on the ordinary one-to-one lessons; its own money
+    // object off the Quran package engine. package.read / package.manage (the same codes, renamed in
+    // the catalogue copy). Literal segments (`summary`, `students`) before `{id}`. Centre-only: 402.
+    Route::middleware('entitled:centre')->group(function () {
+        Route::get('/subscriptions', [CentreSubscriptionController::class, 'index']);
+        Route::get('/subscriptions/summary', [CentreSubscriptionController::class, 'summary']);
+        Route::get('/subscriptions/students', [CentreSubscriptionController::class, 'students']);
+        Route::post('/subscriptions', [CentreSubscriptionController::class, 'store']);
+        Route::get('/subscriptions/{id}', [CentreSubscriptionController::class, 'show'])->whereUuid('id');
+        Route::patch('/subscriptions/{id}', [CentreSubscriptionController::class, 'update'])->whereUuid('id');
+        Route::get('/subscriptions/{id}/settlement', [CentreSubscriptionController::class, 'settlement'])->whereUuid('id');
+        Route::post('/subscriptions/{id}/close', [CentreSubscriptionController::class, 'close'])->whereUuid('id');
+        Route::post('/subscriptions/{id}/settle', [CentreSubscriptionController::class, 'settle'])->whereUuid('id');
+        Route::post('/subscriptions/{id}/cancel', [CentreSubscriptionController::class, 'cancel'])->whereUuid('id');
+        Route::post('/subscriptions/{id}/remind', [CentreSubscriptionController::class, 'remind'])->whereUuid('id');
     });
 
     // ── Centre enrolment (docs/centre-profile Phase 2 §6) ─────────────────────────────────────────

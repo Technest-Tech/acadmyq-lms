@@ -10,6 +10,7 @@ use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
+use App\Services\CentreSubscriptions;
 use App\Services\Invoicing;
 use App\Services\LessonPackages;
 use App\Services\SessionDurationCorrection;
@@ -418,7 +419,11 @@ final class SessionController extends Controller
         // sequence never skips; null while the session is still SCHEDULED or was cancelled.
         [$sessionNumber, $sessionNumberScope] = $this->lessonNumber($session, $academy?->timezone);
 
+        // A centre's block in lessons (docs/centre-profile/01-*): the lesson's number on it, 1..sold.
+        $subscription = app(CentreSubscriptions::class)->lessonNumber($session);
+
         return response()->json([
+            'subscription' => $subscription,
             'session' => [
                 'id' => (string) $session->id,
                 'student_id' => (string) $session->student_id,

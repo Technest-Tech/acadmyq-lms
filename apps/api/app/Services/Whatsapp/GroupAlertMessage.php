@@ -82,6 +82,15 @@ final class GroupAlertMessage
                 $ar ? '🔚 *انتهت باقة*' : '🔚 *Package ended*',
                 ...array_map(fn (array $p): string => $this->packageEndedLine($p, $ar), $payloads),
             ],
+            GroupAlertCatalog::SUBSCRIPTION_FINISHED => [
+                $ar ? ($many ? '🔚 *اشتراكات انتهت*' : '🔚 *انتهى اشتراك*') : ($many ? '🔚 *Subscriptions finished*' : '🔚 *Subscription finished*'),
+                ...array_map(fn (array $p): string => $this->subscriptionFinishedLine($p, $ar), $payloads),
+                $ar ? 'الحصص التالية تُسجَّل خارج الاشتراك حتى يُباع اشتراك جديد.' : 'Further lessons are recorded outside any subscription until a new one is sold.',
+            ],
+            GroupAlertCatalog::SUBSCRIPTION_UNPAID => [
+                $ar ? '💳 *اشتراك جديد واشتراك سابق لم يُسدَّد*' : '💳 *New subscription while an earlier one is unpaid*',
+                ...array_map(fn (array $p): string => $this->subscriptionUnpaidLine($p, $ar), $payloads),
+            ],
             GroupAlertCatalog::PAYMENT_RECEIVED => [
                 $ar ? ($many ? '💰 *تم تسجيل دفعات*' : '💰 *تم تسجيل دفعة*') : ($many ? '💰 *Payments received*' : '💰 *Payment received*'),
                 ...array_map(fn (array $p): string => $this->paymentLine($p, $ar), $payloads),
@@ -200,6 +209,37 @@ final class GroupAlertMessage
         $line = $ar
             ? '• '.$this->name($p['student'] ?? null).' — «'.$this->name($p['label'] ?? null)."»: متبقٍ {$left}"
             : '• '.$this->name($p['student'] ?? null).' — "'.$this->name($p['label'] ?? null)."\": {$left} left";
+
+        return $line.$this->guardianSuffix($p, $ar);
+    }
+
+    /** @param array<string,mixed> $p */
+    private function subscriptionFinishedLine(array $p, bool $ar): string
+    {
+        $subject = trim((string) ($p['course'] ?? '')) !== '' ? ' ('.trim((string) $p['course']).')' : '';
+        $sold = (int) ($p['lessons_sold'] ?? 0);
+        $count = $sold > 0 ? ($ar ? LessonCount::ar($sold) : LessonCount::en($sold)) : null;
+        $line = $ar
+            ? '• '.$this->name($p['student'] ?? null).' — «'.$this->name($p['label'] ?? null).'»'.$subject.($count !== null ? ": استُهلكت {$count}" : '')
+            : '• '.$this->name($p['student'] ?? null).' — "'.$this->name($p['label'] ?? null).'"'.$subject.($count !== null ? ": {$count} used up" : '');
+
+        $line .= $this->guardianSuffix($p, $ar);
+        if (! empty($p['invoice_url'])) {
+            $line .= "\n  ".($ar ? 'الفاتورة (لم تُسدَّد): ' : 'Invoice (unpaid): ').$p['invoice_url'];
+        }
+
+        return $line;
+    }
+
+    /** @param array<string,mixed> $p */
+    private function subscriptionUnpaidLine(array $p, bool $ar): string
+    {
+        $owed = isset($p['outstanding_minor']) && $p['outstanding_minor'] !== null
+            ? number_format(((int) $p['outstanding_minor']) / 100, (int) $p['outstanding_minor'] % 100 === 0 ? 0 : 2).' '.trim((string) ($p['currency'] ?? ''))
+            : null;
+        $line = $ar
+            ? '• '.$this->name($p['student'] ?? null).' — «'.$this->name($p['label'] ?? null).'»'.($owed !== null ? ": متبقٍ على اشتراك سابق {$owed}" : '')
+            : '• '.$this->name($p['student'] ?? null).' — "'.$this->name($p['label'] ?? null).'"'.($owed !== null ? ": {$owed} still owed on an earlier subscription" : '');
 
         return $line.$this->guardianSuffix($p, $ar);
     }

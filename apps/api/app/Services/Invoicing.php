@@ -6,6 +6,8 @@ namespace App\Services;
 
 use App\Billing\BillingHook;
 use App\Support\Audit;
+use App\Support\CentreBooks;
+use App\Support\MoneyPolicy;
 use App\Support\PublicInvoiceToken;
 use App\Support\StudentStatus;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -72,7 +74,10 @@ final class Invoicing implements BillingHook
         // eat paid-for minutes either. consume() returns false when it declines the lesson (the
         // student is on package billing but has no open package) and the monthly path below takes
         // over, because a delivered lesson still has to be billed to somebody.
-        if ($allowPackage && ! $this->isFreeTrial((string) $session->id) && $this->packages->consume($session)) {
+        //
+        // Which clock that is — the hour block, or a centre's subscription counted in lessons — is
+        // the academy's policy ({@see MoneyPolicy}), resolved from its switches and never asked here.
+        if ($allowPackage && ! $this->isFreeTrial((string) $session->id) && MoneyPolicy::for((string) $session->academy_id)->onBillable($session)) {
             return;
         }
 
@@ -175,8 +180,8 @@ final class Invoicing implements BillingHook
         // reversal is a package concern and there is no invoice line to undo. release() refuses
         // once the package is closed AND its bill has moved past OPEN, which is the package-side
         // equivalent of the closed-invoice immutability guard — the throw rolls the whole
-        // attendance change back.
-        if ($this->packages->release($session)) {
+        // attendance change back. The same policy that took the lesson's money gives it back.
+        if (MoneyPolicy::for((string) $session->academy_id)->onUnbilled($session)) {
             return;
         }
 
@@ -455,7 +460,7 @@ final class Invoicing implements BillingHook
         string $actorUserId,
         string $actorRole,
     ): int {
-        if (PackageSettlement::availableFor($academyId)) {
+        if (CentreBooks::enabledFor($academyId)) {
             return 0;
         }
 

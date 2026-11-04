@@ -58,14 +58,18 @@ final class ChargeCancellation
         $timezone = (string) (DB::table('academies')->where('id', $academyId)->value('timezone') ?: 'UTC');
         $monthStart = Carbon::now($timezone)->startOfMonth()->toDateString();
         $runningPackage = "select 1 from lesson_packages p where p.invoice_id = li.invoice_id and p.status = 'ACTIVE'";
+        // A centre subscription still running (docs/centre-profile/01-*): its line is the whole charge.
+        $runningSubscription = "select 1 from centre_subscriptions cs where cs.invoice_line_id = li.id and cs.status = 'OPEN'";
 
         return $this->linesQuery($academyId)
             ->whereIn('li.student_id', $childIds)
-            ->where(function ($q) use ($monthStart, $runningPackage): void {
+            ->where(function ($q) use ($monthStart, $runningPackage, $runningSubscription): void {
                 $q->where(fn ($g) => $g->whereIn('li.group_charge', ['MONTHLY', 'COURSE'])
                     ->whereRaw('coalesce(li.group_period, li.session_date) >= ?::date', [$monthStart]))
-                    ->orWhereRaw("exists ({$runningPackage})");
+                    ->orWhereRaw("exists ({$runningPackage})")
+                    ->orWhereRaw("exists ({$runningSubscription})");
             })
+            ->selectRaw("exists ({$runningSubscription}) as is_subscription")
             ->orderByRaw('li.session_date asc nulls last')
             ->orderBy('li.id')
             ->get()
@@ -74,7 +78,7 @@ final class ChargeCancellation
                 'student_id' => (string) $l->student_id,
                 'student_name' => (string) $l->student_name,
                 'description' => (string) $l->description,
-                'kind' => $l->class_group_id !== null ? 'GROUP' : 'PACKAGE',
+                'kind' => $l->class_group_id !== null ? 'GROUP' : ((bool) $l->is_subscription ? 'SUBSCRIPTION' : 'PACKAGE'),
                 'date' => $l->session_date !== null ? Carbon::parse($l->session_date)->format('Y-m-d') : null,
                 'remaining_minor' => (int) $l->amount_minor - (int) $l->allocated,
                 'currency' => (string) $l->currency,
@@ -129,10 +133,35 @@ final class ChargeCancellation
                 }
             }
 
+            // A centre subscription whose charge is let go stops the same way: cancelled if nothing was
+            // counted on it (its bill voided), else closed where it stands — its lessons stay counted.
+            $subscription = DB::table('centre_subscriptions')->where('invoice_line_id', $lineId)->whereIn('status', ['OPEN', 'FINISHED'])->first();
+            if ($subscription !== null) {
+                $this->endSubscription($subscription, $userId, $role);
+                if (DB::table('invoices')->where('id', $invoiceId)->value('status') === 'VOID') {
+                    $this->audit($academyId, $invoiceId, $owed, $total, $reason, $userId, $role, voided: true);
+
+                    return ['lines' => $owed->count(), 'cancelled_minor' => $total, 'currency' => $currency];
+                }
+            }
+
             $this->takeOff($academyId, $invoiceId, $owed, $total, $reason, $userId, $role);
 
             return ['lines' => $owed->count(), 'cancelled_minor' => $total, 'currency' => $currency];
         });
+    }
+
+    private function endSubscription(object $subscription, ?string $userId, ?string $role): void
+    {
+        $engine = app(CentreSubscriptions::class);
+        $used = DB::table('centre_subscription_lessons')->where('subscription_id', $subscription->id)->count();
+        $paid = (int) DB::table('receipt_allocations')->where('invoice_line_id', $subscription->invoice_line_id)->sum('amount_minor');
+        if ($used === 0 && $paid === 0) {
+            $engine->cancel((string) $subscription->id, 'CHARGE_CANCELLED', $userId, $role);
+
+            return;
+        }
+        $engine->close((string) $subscription->id, 'CHARGE_CANCELLED', null, null, $userId, $role);
     }
 
     /** A subscription whose bill is let go stops: cancelled if none of it was used, else closed as it stands. */

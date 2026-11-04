@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\People;
 
+use App\Http\Controllers\Centre\CentreSubscriptionController;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
+use App\Services\CentreSubscriptions;
 use App\Services\ChargeCancellation;
 use App\Services\ClassGroups;
 use App\Services\FamilyCharges;
@@ -115,7 +117,38 @@ final class StudentController extends Controller
         // student on a 30-cap plan is rejected with an at-limit/upgrade message, not created.
         $this->enforceLimit($academyId, 'students', 'maxStudents', 'students');
 
+        // A centre's private subscription sold with the student (docs/centre-profile/01-*, "API
+        // contract": `subscription` = SellInput without student_id). It is told apart from the
+        // monthly terms block, which has always travelled under the same key, by its shape — a
+        // block of lessons names `lessons_sold`; monthly terms never do. `subscription_terms` is
+        // the contract's name for the monthly block and is taken as the same thing.
+        $sell = null;
+        if ($request->has('subscription.lessons_sold')) {
+            $sell = $request->validate(CentreSubscriptionController::sellRules('subscription.'))['subscription'];
+            $request->replace(array_diff_key($request->all(), ['subscription' => true]));
+        }
+        if ($request->has('subscription_terms') && ! $request->has('subscription')) {
+            $request->merge(['subscription' => $request->input('subscription_terms')]);
+        }
+
         $data = $this->validateStudent($request, creating: true);
+        if ($sell !== null) {
+            if (isset($data['subscription']) || isset($data['package'])) {
+                throw ValidationException::withMessages([
+                    'subscription' => ['Choose one way to bill the student. / اختر طريقة واحدة لمحاسبة الطالب.'],
+                ]);
+            }
+            // Selling a block names a price AND opens a subscription: both rights, and the centre.
+            Gate::authorize('student.set_price');
+            Gate::authorize('package.manage');
+            if (! Entitlement::check($this->ctx(), 'centre')) {
+                return response()->json([
+                    'error' => 'upgrade_required',
+                    'message' => 'Subscriptions are not included in your current plan.',
+                    'feature' => 'centre',
+                ], 402);
+            }
+        }
 
         // An inline package is the other billing clock, chosen at the moment the student is
         // created — so the owner never has to create them, then go to /packages, then find them
@@ -154,7 +187,7 @@ final class StudentController extends Controller
         // Every write below in one unit: the request transaction COMMITS what was written before a
         // refusal further down (an inactive teacher, a package that will not open), which left a
         // student — and now a brand-new parent — behind a 422, to be created twice on the retry.
-        $created = DB::transaction(function () use ($academyId, $data, $package, $selfGuardian, $newGuardian): array {
+        $created = DB::transaction(function () use ($academyId, $data, $package, $sell, $selfGuardian, $newGuardian): array {
             // R-STU-2: an adult-solo student still gets a real guardian row, mirrored from their
             // own details, so Sprint 7 invoicing always has a consistent billing anchor.
             if ($selfGuardian) {
@@ -232,15 +265,26 @@ final class StudentController extends Controller
                     after: ['teacher_id' => $link['teacher_id'], 'course' => $link['course'], 'effective_date' => now()->toDateString()]);
             }
 
-            return [$studentId, $guardianId, $packageResult];
+            // The centre's subscription, sold in the same unit as the student: its teachers are
+            // linked above, so a block for one of them finds its subject; a refused sale rolls the
+            // student back with it.
+            $sold = null;
+            if ($sell !== null) {
+                $sold = app(CentreSubscriptions::class)->sell(['student_id' => $studentId] + $sell, $this->ctx()->userId, $this->ctx()->role);
+            }
+
+            return [$studentId, $guardianId, $packageResult, $sold];
         });
-        [$studentId, $guardianId, $packageResult] = $created;
+        [$studentId, $guardianId, $packageResult, $sold] = $created;
 
         return response()->json([
             'studentId' => $studentId,
             'guardianId' => $guardianId,
             'packageId' => $packageResult['package_id'] ?? null,
             'packageInvoiceId' => $packageResult['invoice_id'] ?? null,
+            'subscriptionId' => $sold['subscription_id'] ?? null,
+            'subscriptionInvoiceId' => $sold['invoice_id'] ?? null,
+            'warnings' => $sold['warnings'] ?? [],
         ], 201);
     }
 

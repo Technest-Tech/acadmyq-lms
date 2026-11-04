@@ -48,8 +48,16 @@ final class GuardianPortalCentre
     {
         $capabilities = Entitlement::resolve($academyId)['capabilities'];
 
+        $children = in_array('groups', $capabilities, true) ? $this->childBlocks($childIds, $tz, $now) : [];
+        // The child's private subscriptions in lessons (docs/centre-profile/01-*): a centre's only.
+        if (in_array('centre', $capabilities, true)) {
+            foreach ($this->subscriptions($childIds) as $id => $rows) {
+                $children[$id] = ($children[$id] ?? []) + ['subscriptions' => $rows];
+            }
+        }
+
         return [
-            'children' => in_array('groups', $capabilities, true) ? $this->childBlocks($childIds, $tz, $now) : [],
+            'children' => $children,
             'family' => in_array('accounting', $capabilities, true)
                 ? ['family_account' => $this->familyAccount($guardianId, $academyId, $tz, $now)]
                 : [],
@@ -87,6 +95,41 @@ final class GuardianPortalCentre
             if (isset($reports[$id])) {
                 $out[$id]['term_reports'] = $reports[$id];
             }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Each child's subscriptions: lessons left of sold per subject, open or finished (unrenewed) —
+     * the page's bars. Every child gets a list, empty when they have none.
+     *
+     * @param  list<string>  $ids
+     * @return array<string, list<array<string, mixed>>>
+     */
+    private function subscriptions(array $ids): array
+    {
+        $out = array_fill_keys($ids, []);
+        if ($ids === []) {
+            return $out;
+        }
+        $rows = DB::table('centre_subscriptions as cs')
+            ->leftJoin('teachers as t', 't.id', '=', 'cs.teacher_id')
+            ->whereIn('cs.student_id', $ids)
+            ->whereIn('cs.status', ['OPEN', 'FINISHED'])
+            ->orderBy('cs.sequence_no')
+            ->get(['cs.student_id', 'cs.label', 'cs.course', 'cs.lessons_sold', 'cs.status', 't.full_name as teacher_name',
+                DB::raw('(select count(*) from centre_subscription_lessons l where l.subscription_id = cs.id) as lessons_used')]);
+        foreach ($rows as $r) {
+            $out[(string) $r->student_id][] = [
+                'label' => (string) $r->label,
+                'teacher_name' => $r->teacher_name,
+                'course' => $r->course,
+                'lessons_sold' => (int) $r->lessons_sold,
+                'lessons_used' => (int) $r->lessons_used,
+                'lessons_left' => max(0, (int) $r->lessons_sold - (int) $r->lessons_used),
+                'status' => (string) $r->status,
+            ];
         }
 
         return $out;
@@ -371,7 +414,7 @@ final class GuardianPortalCentre
             return null;
         }
         $cards = DB::table('academy_payment_settings')->where('method', 'XPAY')->where('is_active', true)->exists();
-        if (! $cards || ! FamilyPayController::dueQuery($guardianId)->exists()) {
+        if (! $cards || ! FamilyPayController::owes($guardianId)) {
             return null;
         }
 

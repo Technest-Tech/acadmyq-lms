@@ -24,7 +24,7 @@ final class AcademyExport
     /** Sheet order in the workbook. */
     public const DATASETS = [
         'students', 'guardians', 'teachers', 'staff', 'courses', 'timetables', 'lessons',
-        'lesson_reports', 'trials', 'packages', 'invoices', 'payments', 'payouts', 'groups',
+        'lesson_reports', 'trials', 'packages', 'subscriptions', 'invoices', 'payments', 'payouts', 'groups',
         'group_members',
     ];
 
@@ -39,6 +39,7 @@ final class AcademyExport
         'lesson_reports' => ['Lesson reports', 'تقارير الحصص'],
         'trials' => ['Trial lessons', 'الحصص التجريبية'],
         'packages' => ['Packages', 'الباقات'],
+        'subscriptions' => ['Subscriptions', 'الاشتراكات'],
         'invoices' => ['Invoices', 'الفواتير'],
         'payments' => ['Payments', 'المدفوعات'],
         'payouts' => ['Teacher payouts', 'رواتب المعلمين'],
@@ -85,6 +86,10 @@ final class AcademyExport
 
     private const PACKAGE_STATUS = [
         'ACTIVE' => ['Open', 'مفتوحة'], 'COMPLETED' => ['Finished', 'منتهية'], 'CANCELLED' => ['Cancelled', 'ملغاة'],
+    ];
+
+    private const SUBSCRIPTION_STATUS = [
+        'OPEN' => ['Open', 'مفتوح'], 'FINISHED' => ['Finished', 'منتهٍ'], 'CLOSED' => ['Closed', 'مُغلق'], 'CANCELLED' => ['Cancelled', 'ملغى'],
     ];
 
     private const PAY_TYPE = [
@@ -185,6 +190,7 @@ final class AcademyExport
             'lesson_reports' => $this->lessonReports(),
             'trials' => $this->trials(),
             'packages' => $this->packages(),
+            'subscriptions' => $this->subscriptions(),
             'invoices' => $this->invoices(),
             'payments' => $this->payments(),
             'payouts' => $this->payouts(),
@@ -507,6 +513,46 @@ final class AcademyExport
             ->selectRaw($this->localDate('p.closed_at').' as closed_on', [$this->timezone])
             ->orderBy('s.full_name')
             ->orderBy('p.sequence_no');
+
+        return [$columns, $query];
+    }
+
+    /** A centre's private subscriptions in lessons (docs/centre-profile/01-*). */
+    private function subscriptions(): array
+    {
+        $columns = [
+            self::col('student', 'Student', 'الطالب', width: 28),
+            self::col('label', 'Subscription', 'الاشتراك', width: 22),
+            self::col('sequence_no', 'No.', 'رقم', 'number', width: 7),
+            self::col('teacher', 'Teacher', 'المعلم', width: 22),
+            self::col('course', 'Subject', 'المادة', width: 16),
+            self::col('lessons_sold', 'Lessons', 'الحصص', 'number', width: 10),
+            self::col('lessons_used', 'Lessons used', 'الحصص المستهلكة', 'number', width: 12),
+            self::col('lesson_minutes', 'Lesson length (min)', 'طول الحصة (د)', 'number', width: 12),
+            self::col('lesson_price', 'Lesson price', 'سعر الحصة', 'money', width: 13),
+            self::col('price', 'Price', 'السعر', 'money', width: 13),
+            self::col('currency', 'Currency', 'العملة', width: 10),
+            self::col('status', 'Status', 'الحالة', 'enum', self::SUBSCRIPTION_STATUS, 12),
+            self::col('starts_on', 'Starts on', 'يبدأ', 'date', width: 13),
+            self::col('finished_on', 'Finished on', 'انتهى', 'date', width: 13),
+            self::col('closed_on', 'Closed on', 'أُغلق', 'date', width: 13),
+        ];
+
+        $query = DB::table('centre_subscriptions as cs')
+            ->leftJoin('students as s', 's.id', '=', 'cs.student_id')
+            ->leftJoin('teachers as t', 't.id', '=', 'cs.teacher_id')
+            ->where('cs.academy_id', $this->academyId)
+            ->select([
+                's.full_name as student', 'cs.label', 'cs.sequence_no', 't.full_name as teacher', 'cs.course',
+                'cs.lessons_sold',
+                DB::raw('(select count(*) from centre_subscription_lessons l where l.subscription_id = cs.id) as lessons_used'),
+                'cs.lesson_minutes', 'cs.lesson_price_minor as lesson_price', 'cs.price_minor as price', 'cs.currency', 'cs.status',
+                DB::raw("to_char(cs.starts_on, 'YYYY-MM-DD') as starts_on"),
+            ])
+            ->selectRaw($this->localDate('cs.finished_at').' as finished_on', [$this->timezone])
+            ->selectRaw($this->localDate('cs.closed_at').' as closed_on', [$this->timezone])
+            ->orderBy('s.full_name')
+            ->orderBy('cs.sequence_no');
 
         return [$columns, $query];
     }

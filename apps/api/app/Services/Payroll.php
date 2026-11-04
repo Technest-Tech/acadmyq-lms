@@ -9,6 +9,7 @@ use App\Jobs\OpenFixedSalaryPayoutsJob;
 use App\Payroll\PayoutHook;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\CentreBooks;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -156,7 +157,7 @@ final class Payroll implements PayoutHook
 
         if ($payout !== null && $payout->finalized_at !== null) {
             $ctx = app()->bound(AuthContext::class) ? app(AuthContext::class) : null;
-            if ($ctx !== null && PackageSettlement::availableFor($academyId)) {
+            if ($ctx !== null && CentreBooks::enabledFor($academyId)) {
                 $this->carryLessonDifference($payoutId, -$amountMinor, $this->lessonUndoneReason($session), (string) $ctx->userId, (string) $ctx->role);
 
                 return;
@@ -674,7 +675,7 @@ final class Payroll implements PayoutHook
      */
     public function sealedLessonPay(object $session): ?array
     {
-        if (! (bool) $session->paid_to_teacher || ! PackageSettlement::availableFor((string) $session->academy_id)) {
+        if (! (bool) $session->paid_to_teacher || ! CentreBooks::enabledFor((string) $session->academy_id)) {
             return null;
         }
         $line = $this->lessonLine((string) $session->id);

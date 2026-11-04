@@ -6,11 +6,11 @@ namespace App\Http\Controllers;
 
 use App\Services\Invoicing;
 use App\Services\Ledger;
-use App\Services\PackageSettlement;
 use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\CentreBooks;
 use App\Support\DataTable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -138,7 +138,7 @@ final class InvoiceController extends Controller
         // A centre's list is money to collect or money collected. A voided bill, or one whose charges
         // were all let go, has neither: it is gone as far as the desk is concerned (lingo, 2026-11-03,
         // "deleted, but still in the bills"). The status filter can still bring the voided ones up.
-        if (PackageSettlement::availableFor((string) app(AuthContext::class)->academyId)
+        if (CentreBooks::enabledFor((string) app(AuthContext::class)->academyId)
             && data_get($request->query('filter'), 'status') !== 'VOID') {
             $query->where('inv.status', '<>', 'VOID')->whereRaw('(inv.total_minor > 0 or inv.amount_paid_minor > 0)');
         }
@@ -445,7 +445,7 @@ final class InvoiceController extends Controller
     /** A centre's bills all stay OPEN, so for them the status filter reads what is paid on the bill. */
     private function whereStatus($query, string $status): void
     {
-        if (! PackageSettlement::availableFor((string) app(AuthContext::class)->academyId)) {
+        if (! CentreBooks::enabledFor((string) app(AuthContext::class)->academyId)) {
             $query->where('inv.status', $status);
 
             return;
@@ -494,7 +494,7 @@ final class InvoiceController extends Controller
 
         // A centre's bills all stay OPEN: for them the counts read what is paid on the bill, over the
         // same bills the list shows (see index()).
-        $centre = PackageSettlement::availableFor((string) app(AuthContext::class)->academyId);
+        $centre = CentreBooks::enabledFor((string) app(AuthContext::class)->academyId);
         if ($centre) {
             $base->where('status', '<>', 'VOID')->whereRaw('(total_minor > 0 or amount_paid_minor > 0)');
         }
