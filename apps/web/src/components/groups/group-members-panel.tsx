@@ -164,7 +164,7 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
           )}
           {(group.waiting_count ?? 0) > 0 && (
             <span className="text-muted-foreground ms-2 text-xs" data-testid="members-waiting">
-              {tTerm("waitlist.waitingCount", { count: group.waiting_count })}
+              {tTerm("waitlist.waitingCount", { count: group.waiting_count ?? 0 })}
             </span>
           )}
         </p>

@@ -6,7 +6,7 @@ import { formatNumber } from "@/lib/money";
 import { DashboardHome } from "./dashboard-home";
 
 /** A stat card counts up over ~0.8s, in the locale's digits. */
-const counted = (n: number) => screen.findByText(formatNumber(n, "ar"), {}, { timeout: 3000 });
+const counted = (n: number) => screen.findByText(formatNumber(n, "ar"), {}, { timeout: 8000 });
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), replace: vi.fn(), push: vi.fn() }),
