@@ -2,13 +2,15 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../../messages/ar.json";
+import { subRow, studentPick } from "@/components/subscriptions/test-fixtures";
+import { formatMoney } from "@/lib/money";
 import { makeSession, withAuth } from "@/test/auth";
 import { SubscriptionsCard } from "./subscriptions-card";
 
 /**
  * The student's subscriptions card (centre mode): groups and private subscriptions on one card,
  * enrol in a group from it, edit or end any open row — and nothing at all for an academy without
- * `centre`.
+ * `centre`. The private half reads the centre's own table (docs/centre-profile/01), never packages.
  */
 const groupsApi = { listBoardMembers: vi.fn(), listGroups: vi.fn(), addGroupMembers: vi.fn(), getGroup: vi.fn(), updateGroupMember: vi.fn(), removeGroupMember: vi.fn(), undoGroupMember: vi.fn() };
 vi.mock("@/lib/groups-api", async (importOriginal) => ({
@@ -27,31 +29,34 @@ vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   getStudentRenewalPolicy: (...a: unknown[]) => policyApi.getStudentRenewalPolicy(...a),
   setStudentRenewalPolicy: (...a: unknown[]) => policyApi.setStudentRenewalPolicy(...a),
 }));
+const subsApi = { listSubscriptions: vi.fn(), listSubscriptionStudents: vi.fn(), sellSubscription: vi.fn(), updateSubscription: vi.fn(), getSubscriptionSettlement: vi.fn(), closeSubscription: vi.fn(), cancelSubscription: vi.fn(), getSubscription: vi.fn() };
+vi.mock("@/lib/subscriptions-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/subscriptions-api")>()),
+  listSubscriptions: (...a: unknown[]) => subsApi.listSubscriptions(...a),
+  listSubscriptionStudents: (...a: unknown[]) => subsApi.listSubscriptionStudents(...a),
+  sellSubscription: (...a: unknown[]) => subsApi.sellSubscription(...a),
+  updateSubscription: (...a: unknown[]) => subsApi.updateSubscription(...a),
+  getSubscriptionSettlement: (...a: unknown[]) => subsApi.getSubscriptionSettlement(...a),
+  closeSubscription: (...a: unknown[]) => subsApi.closeSubscription(...a),
+  cancelSubscription: (...a: unknown[]) => subsApi.cancelSubscription(...a),
+  getSubscription: (...a: unknown[]) => subsApi.getSubscription(...a),
+}));
 const listLessonPackages = vi.fn();
-const pkgApi = { closeLessonPackage: vi.fn(), cancelLessonPackage: vi.fn(), updateLessonPackage: vi.fn(), getPackageSettlement: vi.fn() };
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   listLessonPackages: (...a: unknown[]) => listLessonPackages(...a),
-  listPackageStudents: () => Promise.resolve({ students: [] }),
-  closeLessonPackage: (...a: unknown[]) => pkgApi.closeLessonPackage(...a),
-  cancelLessonPackage: (...a: unknown[]) => pkgApi.cancelLessonPackage(...a),
-  updateLessonPackage: (...a: unknown[]) => pkgApi.updateLessonPackage(...a),
-  getPackageSettlement: (...a: unknown[]) => pkgApi.getPackageSettlement(...a),
+  listTeachers: () => Promise.resolve({ rows: [{ id: "t1", full_name: "Mr Ali" }], total: 1, page: 1, pageSize: 200 }),
 }));
 
 const ar = arMessages.students.subscriptions;
+const money = (minor: number) => formatMoney({ amount: minor, currency: "EGP" }, "ar");
+const arSubs = arMessages.subscriptions;
 const arGroups = arMessages.groups.members;
 const perms = ["student.read", "group.read", "group.manage", "package.read", "package.manage"];
 const member = (over: Record<string, unknown> = {}) => ({
   id: "m1", group_id: "g1", group_name: "English A1", group_level: "A1", teacher_id: "t1", teacher_name: "Miss Mona", student_id: "s1", full_name: "Adam", guardian_name: null,
   student_removed: false, joined_on: "2026-05-01", left_on: null, status: "ACTIVE", left_reason: null, attendance: { present: 4, late: 0, absent: 0, excused: 0, marked: 4, rate: 1 }, recent: [], absent_streak: 0,
   charge: { currency: "EGP", billed_minor: 45000, outstanding_minor: 45000 }, ...over,
-});
-const pkg = (over: Record<string, unknown> = {}) => ({
-  id: "p1", student_id: "s1", student_name: "Adam", label: "10 hours with Ali", sequence_no: 1, status: "ACTIVE", bill_timing: "ON_START", minutes_total: 600, carried_over_minutes: 0, minutes_sold: 600,
-  minutes_consumed: 150, minutes_remaining: 450, minutes_overdrawn: 0, lesson_count: 3, upcoming_lesson_count: 2, next_lesson_at: null, percent_used: 25, price_minor: 100000, hourly_rate_minor: 10000, currency: "EGP",
-  starts_on: "2026-06-01", expires_on: null, closed_at: null, closed_reason: null, invoice_id: "i1", invoice_status: "OPEN", invoice_token: null, invoice_total_minor: 100000, invoice_paid_minor: 100000, outstanding_minor: 0, paid_at: null,
-  absorbed_overdraft_minutes: 0, auto_renew: true, ...over,
 });
 const groupDetail = {
   id: "g1", name: "English A1", timezone: "Africa/Cairo", start_date: "2026-04-01", capacity: null, member_count: 1, state: "RUNNING",
@@ -62,12 +67,14 @@ const owner = () => makeSession("ACADEMY_OWNER", { permissions: [...perms, "stud
 
 beforeEach(() => {
   Object.values(groupsApi).forEach((f) => f.mockReset());
-  listLessonPackages.mockReset();
-  Object.values(pkgApi).forEach((f) => f.mockReset());
+  Object.values(subsApi).forEach((f) => f.mockReset());
   Object.values(policyApi).forEach((f) => f.mockReset());
+  listLessonPackages.mockReset();
   groupsApi.getGroup.mockResolvedValue({ group: groupDetail });
   groupsApi.listBoardMembers.mockResolvedValue({ members: [member()], thresholds: { streak: 3, low_rate: 0.6 }, sees_money: true });
-  listLessonPackages.mockResolvedValue({ packages: [pkg()] });
+  subsApi.listSubscriptions.mockResolvedValue({ rows: [subRow()], summary: {}, meta: {} });
+  subsApi.listSubscriptionStudents.mockResolvedValue({ rows: [studentPick()] });
+  subsApi.getSubscriptionSettlement.mockResolvedValue({ paid_minor: 72000, used_value_minor: 27000, owed_back_minor: 0, currency: "EGP", can_refund: false });
 });
 
 describe("SubscriptionsCard", () => {
@@ -75,47 +82,32 @@ describe("SubscriptionsCard", () => {
     const { container } = render(withAuth(makeSession("ACADEMY_OWNER", { permissions: perms, capabilities: ["invoicing", "groups", "packages"] }), <SubscriptionsCard studentId="s1" studentName="Adam" />));
     expect(container.querySelector('[data-testid="student-subscriptions"]')).toBeNull();
     expect(groupsApi.listBoardMembers).not.toHaveBeenCalled();
-    expect(listLessonPackages).not.toHaveBeenCalled();
+    expect(subsApi.listSubscriptions).not.toHaveBeenCalled();
   });
 
-  it("lists the student's groups and private subscriptions, and enrols them in another group", async () => {
+  it("lists the student's groups and private subscriptions — read from /subscriptions, never packages — and enrols them in another group", async () => {
     groupsApi.listGroups.mockResolvedValue({ groups: [{ id: "g1", name: "English A1", start_date: "2026-05-01", lessons: { held: 3 } }, { id: "g2", name: "Math B2", teacher_name: "Mr Ali", start_date: "2026-06-10", lessons: { held: 0 } }], counts: {} });
     groupsApi.addGroupMembers.mockResolvedValue({ added: 1, group: {} });
     render(withAuth(makeSession("ACADEMY_OWNER", { permissions: perms, capabilities: ["invoicing", "groups", "packages", "centre"] }), <SubscriptionsCard studentId="s1" studentName="Adam" />));
 
-    const card = await screen.findByTestId("student-subscriptions");
+    await screen.findByTestId("student-subscriptions");
     expect(groupsApi.listBoardMembers).toHaveBeenCalledWith({ student_id: "s1", status: "ALL" });
-    expect(listLessonPackages).toHaveBeenCalledWith({ student_id: "s1" });
+    expect(subsApi.listSubscriptions).toHaveBeenCalledWith({ student_id: "s1" });
+    expect(listLessonPackages).not.toHaveBeenCalled();
     expect(within(await screen.findByTestId("subs-groups")).getByRole("link", { name: "English A1" })).toHaveAttribute("href", "/groups/g1?tab=accounts");
-    expect(within(screen.getByTestId("subs-packages")).getByText("10 hours with Ali")).toBeTruthy();
-    const left = ar.remaining.split("{hours}")[1]!.trim();
-    expect(within(card).getByText((text) => text.includes(left))).toBeTruthy();
+    const row = within(screen.getByTestId("subs-packages")).getByTestId("subscription-sub1");
+    // The block's facts: lessons used of sold, the lesson's price and length, the bill paid.
+    expect(within(row).getByTestId("subscription-lessons-bar")).toHaveTextContent("3 / 8");
+    expect(within(row).getByTestId("subscription-facts").textContent).toContain("40");
+    expect(within(row).getByTestId("subscription-bill")).toHaveTextContent(arSubs.row.paid);
 
     await userEvent.click(screen.getByTestId("subs-join-group"));
-    // The group they are already in is not offered again.
     const pick = await screen.findByTestId("subs-group-pick");
     await waitFor(() => expect(within(pick).queryByRole("option", { name: /Math B2/ })).toBeTruthy());
     expect(within(pick).queryByRole("option", { name: /English A1/ })).toBeNull();
     await userEvent.selectOptions(pick, "g2");
     await userEvent.click(screen.getByTestId("subs-join-confirm"));
-    // A class nobody has attended yet takes the student from its first lesson.
     await waitFor(() => expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g2", expect.objectContaining({ student_ids: ["s1"], joined_on: "2026-06-10" })));
-  });
-
-  it("reads a subscription sold in lessons as lessons and the lesson's price — not hours", async () => {
-    // 8 lessons of 40 minutes for 720: two taught.
-    listLessonPackages.mockResolvedValue({
-      packages: [pkg({ label: "8 × 40", lesson_minutes: 40, minutes_total: 320, minutes_sold: 320, minutes_consumed: 80, minutes_remaining: 240, price_minor: 72000, hourly_rate_minor: 13500 })],
-    });
-    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: perms, capabilities: ["invoicing", "groups", "packages", "centre"] }), <SubscriptionsCard studentId="s1" studentName="Adam" />));
-
-    const row = await screen.findByTestId("subs-package-p1");
-    const tp = arMessages.packages.card;
-    // "6 lessons left", "2 of 8 lessons", "90/lesson (40 min)" — and no hourly rate.
-    expect(row.textContent).toContain(ar.remainingLessons.split("{count, plural")[0]!.trim() || "");
-    expect(row.textContent).toContain(tp.perLesson.split("{amount}")[1]!.split("{minutes}")[0]!.trim());
-    expect(row.textContent).toContain("40");
-    expect(row.textContent).not.toContain(tp.perHour.split("{amount}")[1]!.trim());
   });
 
   it("edits a group membership: the join date opens on the row's own, and saves through the member endpoint", async () => {
@@ -127,7 +119,6 @@ describe("SubscriptionsCard", () => {
     await waitFor(() => expect(groupsApi.getGroup).toHaveBeenCalledWith("g1"));
     const date = await screen.findByTestId("join-date");
     expect(date).toHaveValue("2026-05-01");
-    // The price tab is there for whoever may price; the move tab always.
     expect(screen.getByTestId("subs-tab-price")).toBeTruthy();
     expect(screen.getByTestId("subs-tab-move")).toBeTruthy();
 
@@ -159,85 +150,83 @@ describe("SubscriptionsCard", () => {
     expect(within(row).queryByTestId("subs-end")).toBeNull();
   });
 
-  it("edits a private subscription with the packages page's form, and ends it by closing — or cancelling one never used", async () => {
-    listLessonPackages.mockResolvedValue({ packages: [pkg(), pkg({ id: "p2", label: "Untouched", minutes_consumed: 0, minutes_remaining: 600 })] });
-    pkgApi.closeLessonPackage.mockResolvedValue({ ok: true, invoice_id: "i1", returned_to_monthly: false });
-    pkgApi.cancelLessonPackage.mockResolvedValue({ ok: true });
+  it("edits a private subscription with the subscriptions page's form, and ends it by closing with a reason", async () => {
+    subsApi.updateSubscription.mockResolvedValue({ subscription: subRow({ lessons_sold: 10 }), invoice_id: "i1", credited_minor: 0, due_minor: 18000, moved_lessons: 0 });
+    subsApi.closeSubscription.mockResolvedValue({ subscription: subRow({ status: "CLOSED" }), settlement: null });
     render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
 
-    await userEvent.click(within(await screen.findByTestId("subs-package-p1")).getByTestId("subs-edit"));
-    expect(await screen.findByDisplayValue("10 hours with Ali")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.cancel }));
+    await userEvent.click(within(await screen.findByTestId("subscription-sub1")).getByTestId("subscription-edit"));
+    const lessons = await screen.findByTestId("edit-lessons");
+    expect(lessons).toHaveValue(8);
+    await userEvent.clear(lessons);
+    await userEvent.type(lessons, "10");
+    await userEvent.click(screen.getByTestId("edit-confirm"));
+    await waitFor(() => expect(subsApi.updateSubscription).toHaveBeenCalledWith("sub1", expect.objectContaining({ lessons_sold: 10, lesson_price_minor: 9000, price_minor: 90000, teacher_id: "t1", course: "English", starts_on: "2026-10-01" })));
+    // What a dearer block leaves owed is said back.
+    await waitFor(() => expect(document.body.textContent).toContain(money(18000)));
+    expect(document.body.textContent).toContain(arSubs.edit.savedDue.split("{amount}")[0]!.trim());
 
-    // A used package closes (what was used is billed); there is no cancel for it.
-    await userEvent.click(within(screen.getByTestId("subs-package-p1")).getByTestId("subs-end"));
-    expect(screen.queryByTestId("pkg-cancel-instead")).toBeNull();
-    await userEvent.type(screen.getByLabelText(arMessages.packages.close.reason), "left the centre");
-    await userEvent.click(screen.getByTestId("pkg-close-confirm"));
-    // Nothing paid beyond what was used to decide on (no settlement asked): none sent.
-    await waitFor(() => expect(pkgApi.closeLessonPackage).toHaveBeenCalledWith("p1", "left the centre", false, undefined));
-
-    // One nothing was taken from can be cancelled instead.
-    await userEvent.click(within(await screen.findByTestId("subs-package-p2")).getByTestId("subs-end"));
-    await userEvent.click(await screen.findByTestId("pkg-cancel-confirm"));
-    await waitFor(() => expect(pkgApi.cancelLessonPackage).toHaveBeenCalledWith("p2", undefined, undefined));
+    await userEvent.click(within(await screen.findByTestId("subscription-sub1")).getByTestId("subscription-close"));
+    await waitFor(() => expect(subsApi.getSubscriptionSettlement).toHaveBeenCalledWith("sub1"));
+    // Nothing paid beyond what was used: no settlement asked. A used block cannot be deleted.
+    expect(screen.queryByTestId("subscription-settlement")).toBeNull();
+    expect(screen.queryByTestId("close-cancel-instead")).toBeNull();
+    await userEvent.type(screen.getByTestId("close-reason"), "left the centre");
+    await userEvent.click(screen.getByTestId("close-confirm"));
+    await waitFor(() => expect(subsApi.closeSubscription).toHaveBeenCalledWith("sub1", { reason: "left the centre" }));
   });
 
-  it("asks, as a block paid up front closes with lessons left, what becomes of the money — and sends the answer with the close", async () => {
-    const session = makeSession("ACADEMY_OWNER", { permissions: [...perms, "invoice.read", "invoice.mark_paid"], capabilities: ["invoicing", "groups", "packages", "centre", "accounting"] });
-    pkgApi.getPackageSettlement.mockResolvedValue({
-      preview: { settlement: null, unused_minutes: 450, lesson_minutes: null, price_minor: 100000, used_minor: 25000, paid_minor: 100000, owed_back_minor: 75000, currency: "EGP" },
-      settled: null, accounts: [], can_settle: true, can_refund: false,
-    });
-    policyApi.getStudentRenewalPolicy.mockResolvedValue({ policy: "FREE", family_policy: null, guardian_id: null, effective: "FREE" });
-    pkgApi.closeLessonPackage.mockResolvedValue({ ok: true, invoice_id: "i1", returned_to_monthly: false, settlement: { mode: "KEEP", amount_minor: 75000, currency: "EGP", expense_id: null, expense_number: null } });
-    render(withAuth(session, <SubscriptionsCard studentId="s1" studentName="Adam" />));
+  it("asks, as a paid block closes with lessons left, what becomes of the money — and sends the answer with the close", async () => {
+    subsApi.getSubscriptionSettlement.mockResolvedValue({ paid_minor: 72000, used_value_minor: 27000, owed_back_minor: 45000, currency: "EGP", can_refund: false });
+    subsApi.closeSubscription.mockResolvedValue({ subscription: subRow({ status: "CLOSED" }), settlement: { mode: "KEEP", amount_minor: 45000, currency: "EGP" } });
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
 
-    await userEvent.click(within(await screen.findByTestId("subs-package-p1")).getByTestId("subs-end"));
-    const fields = await screen.findByTestId("settlement-fields");
-    await waitFor(() => expect(pkgApi.getPackageSettlement).toHaveBeenCalledWith("p1"));
-    // No account to pay it back from: that choice is offered, and closed.
-    expect(within(screen.getByTestId("settle-mode-REFUND")).getByRole("radio")).toBeDisabled();
-    expect(within(fields).getByTestId("settle-mode-LATER")).toBeTruthy();
-    await userEvent.click(within(screen.getByTestId("settle-mode-KEEP")).getByRole("radio"));
-    await userEvent.type(screen.getByTestId("settle-note"), "Stopped without notice");
-    await userEvent.click(screen.getByTestId("pkg-close-confirm"));
-    await waitFor(() =>
-      expect(pkgApi.closeLessonPackage).toHaveBeenCalledWith("p1", undefined, false, { mode: "KEEP", cash_account_id: null, note: "Stopped without notice" }),
-    );
+    await userEvent.click(within(await screen.findByTestId("subscription-sub1")).getByTestId("subscription-close"));
+    const fields = await screen.findByTestId("subscription-settlement");
+    // No refund from here: that choice is offered, and closed; "later" is there.
+    expect(within(screen.getByTestId("subscription-settle-REFUND")).getByRole("radio")).toBeDisabled();
+    expect(within(fields).getByTestId("subscription-settle-LATER")).toBeTruthy();
+    await userEvent.click(within(screen.getByTestId("subscription-settle-KEEP")).getByRole("radio"));
+    await userEvent.type(screen.getByTestId("subscription-settle-note"), "Stopped without notice");
+    await userEvent.type(screen.getByTestId("close-reason"), "stopped");
+    await userEvent.click(screen.getByTestId("close-confirm"));
+    await waitFor(() => expect(subsApi.closeSubscription).toHaveBeenCalledWith("sub1", { reason: "stopped", settlement: "KEEP", settlement_note: "Stopped without notice" }));
+    await waitFor(() => expect(document.body.textContent).toContain(money(45000)));
   });
 
-  it("says why a finished subscription ended and who ended it, and renews only a subject's latest block with nothing open", async () => {
-    const sama = { teacher_id: "t9", teacher_name: "Ms Sama", course: "Connect Plus" };
-    listLessonPackages.mockResolvedValue({
-      packages: [
-        pkg({ id: "open", subject: { teacher_id: "t1", teacher_name: "Mr Ali", course: "English OL" }, sequence_no: 3 }),
-        pkg({ id: "ended", subject: sama, sequence_no: 2, status: "COMPLETED", closed_reason: "CLOSED_EARLY", closed_at: "2026-10-28T10:00:00Z", closed_by_name: "Nour" }),
-        pkg({ id: "older", subject: sama, sequence_no: 1, status: "COMPLETED", closed_reason: "EXHAUSTED", closed_at: "2026-10-20T10:00:00Z", closed_by_name: null }),
-        pkg({ id: "ali-old", subject: { teacher_id: "t1", teacher_name: "Mr Ali", course: "English OL" }, sequence_no: 0, status: "COMPLETED", closed_reason: "EXHAUSTED" }),
+  it("says why a finished subscription ended, and sells the next one only for a subject's latest block with nothing open — prefilled from it", async () => {
+    const sama = { id: "t9", full_name: "Ms Sama" };
+    subsApi.listSubscriptions.mockResolvedValue({
+      rows: [
+        subRow({ id: "open", sequence_no: 3 }),
+        subRow({ id: "ended", teacher: sama, course: "Connect Plus", sequence_no: 2, status: "CLOSED", closed_reason: "travelling", closed_at: "2026-10-28T10:00:00Z", closed_by_name: "Nour", lessons_used: 8, lessons_left: 0 }),
+        subRow({ id: "older", teacher: sama, course: "Connect Plus", sequence_no: 1, status: "FINISHED", finished_at: "2026-10-20T10:00:00Z", lessons_used: 8, lessons_left: 0 }),
+        subRow({ id: "ali-old", sequence_no: 0, status: "FINISHED", lessons_used: 8, lessons_left: 0 }),
       ],
+      summary: {},
+      meta: {},
     });
-    const user = userEvent.setup();
     render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
 
-    const ended = await screen.findByTestId("subs-package-ended");
-    const why = within(ended).getByTestId("subs-package-closed");
-    expect(why).toHaveTextContent(arMessages.packages.closedReason.CLOSED_EARLY);
-    expect(why).toHaveTextContent("أنهاه Nour");
-    expect(within(screen.getByTestId("subs-package-older")).getByTestId("subs-package-closed")).toHaveTextContent(arMessages.packages.closedReason.EXHAUSTED);
-
-    // Connect Plus has nothing open: its newest block renews; English OL is still running.
-    expect(screen.queryByTestId("subs-renew-older")).toBeNull();
-    expect(screen.queryByTestId("subs-renew-ali-old")).toBeNull();
-    await user.click(screen.getByTestId("subs-renew-ended"));
+    const ended = await screen.findByTestId("subscription-ended");
+    expect(within(ended).getByTestId("subscription-facts")).toHaveTextContent("travelling · Nour");
+    // Connect Plus has nothing open: its newest block sells again; English is still running.
+    expect(within(screen.getByTestId("subscription-older")).queryByTestId("subscription-renew")).toBeNull();
+    expect(within(screen.getByTestId("subscription-ali-old")).queryByTestId("subscription-renew")).toBeNull();
+    await userEvent.click(within(ended).getByTestId("subscription-renew"));
     expect(await screen.findByText(ar.newPrivateTitle.replace("{name}", "Adam"))).toBeInTheDocument();
+    // The sell form starts from the finished block's terms.
+    expect(await screen.findByTestId("sell-lessons")).toHaveValue(8);
+    expect(screen.getByTestId("sell-unit-price")).toHaveValue(90);
   });
 
-  it("offers no edit or end to whoever may not manage groups or packages", async () => {
+  it("offers no edit or end to whoever may not manage groups or subscriptions", async () => {
     render(withAuth(makeSession("SUPERVISOR", { permissions: ["student.read", "group.read", "package.read"], capabilities: ["invoicing", "groups", "packages", "centre"] }), <SubscriptionsCard studentId="s1" studentName="Adam" />));
-    await screen.findByTestId("subs-group-g1");
+    await screen.findByTestId("subscription-sub1");
     expect(screen.queryByTestId("subs-edit")).toBeNull();
     expect(screen.queryByTestId("subs-end")).toBeNull();
+    expect(screen.queryByTestId("subscription-edit")).toBeNull();
+    expect(screen.queryByTestId("subscription-close")).toBeNull();
   });
 
   it("sets this student's renewal policy where the academy is on receipts — and asks nothing elsewhere", async () => {
@@ -257,16 +246,6 @@ describe("SubscriptionsCard", () => {
     await waitFor(() => expect(within(screen.getByTestId("renewal-policy")).getByTestId("renewal-PAY_FIRST")).toHaveAttribute("aria-checked", "true"));
   });
 
-  it("shows a family-wide pay first as set, locked, pointing at the family's page", async () => {
-    const withAccounting = makeSession("ACADEMY_OWNER", { permissions: [...perms, "invoice.read", "invoice.mark_paid"], capabilities: ["invoicing", "groups", "packages", "centre", "accounting"] });
-    policyApi.getStudentRenewalPolicy.mockResolvedValue({ policy: "FREE", family_policy: "PAY_FIRST", guardian_id: "gd1", effective: "PAY_FIRST" });
-    render(withAuth(withAccounting, <SubscriptionsCard studentId="s1" studentName="Adam" />));
-    const control = await screen.findByTestId("renewal-policy");
-    expect(within(control).getByTestId("renewal-PAY_FIRST")).toHaveAttribute("aria-checked", "true");
-    expect(within(control).getByTestId("renewal-FREE")).toBeDisabled();
-    expect(within(control).getByRole("link", { name: arMessages.accounting.renewal.inherited })).toHaveAttribute("href", "/guardians/gd1");
-  });
-
   it("offers Delete only on a group subscription that can still be undone, and deletes it", async () => {
     groupsApi.listBoardMembers.mockResolvedValue({
       members: [member({ deletable: true }), member({ id: "m2", group_id: "g2", group_name: "Math B2", deletable: false })],
@@ -283,23 +262,20 @@ describe("SubscriptionsCard", () => {
     expect(await screen.findByText(ar.deleted)).toBeTruthy();
   });
 
-  it("offers Delete only on a private subscription nothing has happened on, and deletes it", async () => {
-    listLessonPackages.mockResolvedValue({
-      packages: [
-        pkg(),
-        pkg({ id: "p2", label: "Opened by mistake", minutes_consumed: 0, minutes_remaining: 600, lesson_count: 0, invoice_paid_minor: 0, outstanding_minor: 100000 }),
-        pkg({ id: "p3", label: "Paid, unused", minutes_consumed: 0, minutes_remaining: 600, lesson_count: 0 }),
-      ],
+  it("offers Delete only on a private subscription the API says can go, and voids it", async () => {
+    subsApi.listSubscriptions.mockResolvedValue({
+      rows: [subRow(), subRow({ id: "sub2", label: "Opened by mistake", lessons_used: 0, lessons_left: 8, invoice_paid_minor: 0, outstanding_minor: 72000, deletable: true })],
+      summary: {},
+      meta: {},
     });
-    pkgApi.cancelLessonPackage.mockResolvedValue({ ok: true });
+    subsApi.cancelSubscription.mockResolvedValue(undefined);
     render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
 
-    const wrong = await screen.findByTestId("subs-package-p2");
-    expect(within(screen.getByTestId("subs-package-p1")).queryByTestId("subs-delete")).toBeNull();
-    expect(within(screen.getByTestId("subs-package-p3")).queryByTestId("subs-delete")).toBeNull();
-    await userEvent.click(within(wrong).getByTestId("subs-delete"));
-    await userEvent.click(await screen.findByTestId("subs-package-delete-confirm"));
-    await waitFor(() => expect(pkgApi.cancelLessonPackage).toHaveBeenCalledWith("p2"));
-    expect(await screen.findByText(ar.deleted)).toBeTruthy();
+    const wrong = await screen.findByTestId("subscription-sub2");
+    expect(within(screen.getByTestId("subscription-sub1")).queryByTestId("subscription-cancel")).toBeNull();
+    await userEvent.click(within(wrong).getByTestId("subscription-cancel"));
+    await userEvent.click(await screen.findByTestId("subscription-cancel-confirm"));
+    await waitFor(() => expect(subsApi.cancelSubscription).toHaveBeenCalledWith("sub2"));
+    expect(await screen.findByText(arSubs.cancel.done)).toBeTruthy();
   });
 });

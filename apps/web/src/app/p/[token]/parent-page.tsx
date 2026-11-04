@@ -500,12 +500,29 @@ function ChildCard({ child, ctx }: { child: PortalChild; ctx: ViewCtx }) {
       <dl className="mt-1.5 grid grid-cols-3 gap-2 text-center">
         <MonthStat label={t.attended} value={num(child.month.attended, lang)} tone="text-emerald-700" />
         <MonthStat label={t.absent} value={num(child.month.absent, lang)} tone={child.month.absent > 0 ? "text-rose-600" : "text-slate-700"} />
-        {!child.packages.some((p) => p.lesson_minutes) && (
+        {!child.packages.some((p) => p.lesson_minutes) && !(child.subscriptions?.length) && (
           <MonthStat label={t.hoursLabel} value={num(Math.round((child.month.minutes / 60) * 10) / 10, lang)} tone="text-slate-700" />
         )}
       </dl>
 
-      {child.packages.map((p, i) => {
+      {/* A centre's subscriptions: lessons left of sold per subject — in place of the minutes bars. */}
+      {(child.subscriptions ?? []).map((s, i) => {
+        const pct = s.lessons_sold > 0 ? Math.min(100, Math.round((s.lessons_left / s.lessons_sold) * 100)) : 0;
+        return (
+          <div key={`sub-${i}`} className="mt-4" data-testid="parent-subscription">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-xs">
+              <span className="font-semibold text-slate-700">{[s.course ?? s.label, s.teacher_name].filter(Boolean).join(" · ")}</span>
+              <span className="text-slate-500">{t.lessonsLeft(s.lessons_left, s.lessons_sold)}</span>
+            </div>
+            <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div className={`h-full rounded-full ${s.status !== "OPEN" ? "bg-rose-400" : pct <= 25 ? "bg-amber-500" : hue.bar}`} style={{ width: `${pct}%` }} />
+            </div>
+            {s.status === "FINISHED" && <p className="mt-1 text-[11px] text-amber-700">{t.subscriptionFinished}</p>}
+          </div>
+        );
+      })}
+
+      {(child.subscriptions?.length ? [] : child.packages).map((p, i) => {
         const pct = p.total_minutes > 0 ? Math.min(100, Math.round((p.remaining_minutes / p.total_minutes) * 100)) : 0;
         return (
           <div key={i} className="mt-4">

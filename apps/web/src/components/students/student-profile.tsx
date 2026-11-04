@@ -13,7 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -66,6 +66,8 @@ export function StudentProfile({ studentId }: { studentId: string }) {
   const t = useTranslations("students");
   const locale = useLocale();
   const router = useRouter();
+  // `?tab=schedule`: the door a subscription sale with no timetable yet opens straight onto.
+  const search = useSearchParams();
   const { can } = useAuth();
   // The level / grade (docs/centre-profile Phase 2 §1) is a centre's: the card and the badge render
   // behind the switch, so a Quran academy's profile never fetches it. The legacy student-detail
@@ -76,7 +78,10 @@ export function StudentProfile({ studentId }: { studentId: string }) {
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
   const [history, setHistory] = useState<TeacherAssignmentHistoryItem[]>([]);
   const [notFound, setNotFound] = useState(false);
-  const [tab, setTab] = useState<TabKey>("profile");
+  const [tab, setTab] = useState<TabKey>(() => {
+    const wanted = search?.get("tab");
+    return wanted === "subscription" || wanted === "teacher" || wanted === "schedule" || wanted === "settings" ? wanted : "profile";
+  });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [action, setAction] = useState<"none" | "trial" | "enroll">("none");

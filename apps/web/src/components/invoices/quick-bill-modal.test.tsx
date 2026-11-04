@@ -7,6 +7,11 @@ import { QuickBillModal } from "@/components/invoices/quick-bill-modal";
 
 const listLessonPackages = vi.fn();
 const createQuickBill = vi.fn();
+const listSubscriptions = vi.fn();
+vi.mock("@/lib/subscriptions-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/subscriptions-api")>()),
+  listSubscriptions: (...args: unknown[]) => listSubscriptions(...args),
+}));
 
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
@@ -128,5 +133,29 @@ describe("QuickBillModal — billing a family", () => {
       }),
     );
     expect(await screen.findByTestId("quick-bill-link")).toBeInTheDocument();
+  });
+});
+
+describe("QuickBillModal — a centre's subscription bill comes first (docs/centre-profile/01)", () => {
+  it("reads the student's due subscriptions instead of packages, and points at the subscriptions page", async () => {
+    listSubscriptions.mockResolvedValue({
+      rows: [{ id: "sub1", label: "8 × English", outstanding_minor: 72000, currency: "EGP", invoice_id: "i1", student: { id: "s1" } }],
+      summary: {},
+      meta: {},
+    });
+    listLessonPackages.mockClear().mockResolvedValue({ packages: [] });
+    render(
+      withAuth(
+        makeSession("ACADEMY_OWNER", { permissions: ["invoice.read", "invoice.create", "package.read"], capabilities: ["invoicing", "accounting", "centre"] }),
+        <QuickBillModal open onClose={() => {}} onCreated={() => {}} onView={() => {}} />,
+      ),
+    );
+    await pickStudent("مسك");
+    const note = await screen.findByTestId("quick-subscription-due");
+    expect(listSubscriptions).toHaveBeenCalledWith({ student_id: "s1", view: "due" });
+    expect(listLessonPackages).not.toHaveBeenCalled();
+    expect(note).toHaveTextContent("8 × English");
+    expect(screen.getByTestId("quick-open-subscription")).toHaveAttribute("href", "/subscriptions?view=due");
+    expect(screen.queryByTestId("quick-package-due")).toBeNull();
   });
 });

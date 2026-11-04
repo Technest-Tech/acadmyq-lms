@@ -300,3 +300,46 @@ key), academy export dataset `subscriptions`.
 Deploy note: steps 1–2 (API) can go live alone — nothing calls them. Step 3 (web) switches the
 centre's navigation to `/subscriptions`, so it ships in the same release as step 5 (data move + preset
 flip); until then the web work stays on the branch.
+
+### Web needs (noted while building step 3 against this contract, 2026-11-05)
+
+What the web half assumes beyond the text above. Each is a small addition the API should honour
+(or the web line to change if it answers differently):
+
+- **`SubscriptionRow.invoice_token`** (optional): the quick-bill modal used to hand over the
+  package bill's own pay link. The row has `invoice_id` but no token, so for a centre the note
+  names the block owed and links to `/subscriptions?view=due` instead. Add the token and the
+  "use this bill" button comes back.
+- **`unsettled[]` rows on `GET /accounting/family/{guardianId}`**: the web reads `kind` and
+  `subscription_id ?? package_id` as the id; `used_minor` / `paid_minor` / `owed_back_minor` /
+  `currency` as the package row has them. A `kind: SUBSCRIPTION` row is settled with
+  **`POST /subscriptions/{id}/close { reason: "", settlement, refund? }` on an already CLOSED block
+  whose settlement is PENDING** — the API must accept that as "settle only" (no second close,
+  `reason` may be empty).
+- **`charges[].subscription_id`** on the same reader: a PRIVATE charge line that carries it is
+  linked to `/subscriptions?id=<id>` (the block's detail opens).
+- **`CloseInput.settlement_note`** (web addition): the KEEP reason / a word on the credit, since
+  `refund.note` only exists for a refund.
+- **`refund.method`** is sent as a `ReceiptMethod` code (CASH / INSTAPAY / WALLET / BANK_TRANSFER /
+  CARD / OTHER), with `reference` and `note`; no treasury account id is sent. If the API wants a
+  cash account, add `refund.cash_account_id` and the web gets a picker.
+- **Pay-first refusal**: the web shows the override checkbox on a 422 whose body carries
+  `code: "PAY_FIRST"` (or `pay_first: true` / `renewal_held: true`), and, failing those, on any 422
+  with no `errors` map (a rule refusal, not a field error). Please send `code: "PAY_FIRST"`.
+- **`POST /students` `subscription:`** carries the SellTerms for a centre, but a Quran academy's
+  form still sends its monthly terms (`plan_label`, …) under the SAME key. Tell them apart by the
+  `centre` switch (or by `lessons_sold` being present). The create response may add
+  `subscriptionId` (the web reads `packageId ?? subscriptionId` for "opened").
+- **The enrolment wizard's convert** does NOT send `subscription:` on the student PATCH: it calls
+  `POST /subscriptions` (the block), then `addGroupMembers`, then `PATCH /students/{id}
+  { status: REGULAR }`. REGULAR must be reachable once a `centre_subscriptions` row is open (or a
+  group membership exists) — the "needs an active subscription" rule in the student update.
+- **Notification `data`** read by the subscriptions tab: `student_name`, `label`, `lessons_sold`
+  (FINISHED), `outstanding_minor` + `currency` (UNPAID), `outside_count` (OUTSIDE). The alerts come
+  from `GET /notifications?category=SUBSCRIPTIONS` and the count from `summary.subscriptions`.
+- **`GET /p/{token}` children[].subscriptions[]** is rendered as the contract says; when present it
+  replaces the package bars and the "hours" month stat on the child's card.
+- **`LessonRow.number`** is read as `number | null` — null for a lesson attended outside the block
+  (flagged in the detail). If the API lists only counted lessons, nothing is lost.
+- **Student profile deep link**: `/students/{id}?tab=schedule` opens the Schedule tab (added to
+  `student-profile.tsx`), the door the "no timetable with this teacher" warning uses.

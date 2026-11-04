@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../messages/ar.json";
@@ -13,6 +13,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), replace, push }),
   usePathname: () => pathname,
 }));
+const getSubscriptionsSummary = vi.fn();
+vi.mock("@/lib/subscriptions-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/subscriptions-api")>()),
+  getSubscriptionsSummary: (...a: unknown[]) => getSubscriptionsSummary(...a),
+}));
 
 // The shell persists the rail and the theme, and the theme writes to <html> — all of which outlive
 // a render. Without this, whichever test ran first would decide the others' starting state.
@@ -20,6 +25,7 @@ beforeEach(() => {
   pathname = "/";
   push.mockClear();
   replace.mockClear();
+  getSubscriptionsSummary.mockReset().mockResolvedValue({ open: 0, finished_unrenewed: 0, outside_students: 0, due_count: 0, outstanding: [], ending: 0 });
   localStorage.clear();
   document.documentElement.classList.remove("dark");
 });
@@ -537,12 +543,41 @@ describe("AppShell — the learning centre's shape (`academy.profile === CENTRE`
     expect(document.querySelector('[data-nav="groupsReports"]')?.textContent).toContain(arMessages.nav.groupsReportsCentre);
 
     // Subscriptions and admissions are a dropdown each, closed until opened.
-    expect(keys).not.toContain("packagesDue");
+    expect(keys).not.toContain("subsDue");
     expect(keys).not.toContain("trials");
     fireEvent.click(document.querySelector('[data-nav="centreAdmissions"]')!);
     fireEvent.click(document.querySelector('[data-nav="centreSubscriptions"]')!);
     expect(document.querySelector('[data-nav="trials"]')?.textContent).toContain(arMessages.nav.trialsCentre);
-    expect(document.querySelector('[data-nav="packagesDue"]')?.textContent).toContain(arMessages.nav.packagesDueCentre);
+    expect(document.querySelector('[data-nav="subsDue"]')?.textContent).toContain(arMessages.nav.subsDue);
+  });
+
+  it("lists the four /subscriptions views under the subscriptions dropdown, hides the packages pages, and carries the due and outside badges (docs/centre-profile/01)", async () => {
+    getSubscriptionsSummary.mockResolvedValue({ open: 4, finished_unrenewed: 1, outside_students: 2, due_count: 3, outstanding: [], ending: 0 });
+    renderShell("ACADEMY_OWNER", centreSession);
+    await ready();
+    fireEvent.click(document.querySelector('[data-nav="centreSubscriptions"]')!);
+    const keys = navKeys();
+    expect(keys.filter((k) => k.startsWith("subs"))).toEqual(["subsDue", "subsOpen", "subsFinished", "subsOutside"]);
+    expect(keys).not.toContain("packages");
+    expect(keys).not.toContain("packagesDue");
+    expect(keys).not.toContain("packagesFinished");
+    const href = (key: string) => document.querySelector(`[data-nav="${key}"]`)?.closest("a")?.getAttribute("href") ?? document.querySelector(`[data-nav="${key}"]`)?.getAttribute("href");
+    expect(href("subsDue")).toBe("/subscriptions?view=due");
+    expect(href("subsOpen")).toBe("/subscriptions?view=open");
+    expect(href("subsFinished")).toBe("/subscriptions?view=finished");
+    expect(href("subsOutside")).toBe("/subscriptions?view=outside");
+    await waitFor(() => expect(getSubscriptionsSummary).toHaveBeenCalled());
+    await waitFor(() => expect(document.querySelector('[data-nav="subsDue"]')?.textContent).toContain("3"));
+    expect(document.querySelector('[data-nav="subsOutside"]')?.textContent).toContain("2");
+  });
+
+  it("never lists the subscriptions views for a Quran academy, nor asks the API for their numbers", async () => {
+    renderShell("ACADEMY_OWNER", { ...centreSession, academy: { ...centreAcademy, profile: "QURAN" as const } });
+    await ready();
+    const keys = navKeys();
+    expect(keys.some((k) => k.startsWith("subs"))).toBe(false);
+    expect(keys).toContain("packagesDue");
+    expect(getSubscriptionsSummary).not.toHaveBeenCalled();
   });
 
   it("puts the groups' timetable board behind الجدول الأسبوعي and gives the calendar its own row, in Teaching", async () => {

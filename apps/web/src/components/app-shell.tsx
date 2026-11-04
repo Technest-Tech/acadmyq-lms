@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertTriangle,
   Award,
   BookOpen,
   CircleDollarSign,
@@ -97,6 +98,7 @@ import { applyWorkspaceTheme, rememberedCentre, rememberWorkspace } from "@/lib/
 import { getEnrolmentSummary } from "@/lib/enrolment-api";
 import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { roleLabel } from "@/lib/roles";
+import { getSubscriptionsSummary } from "@/lib/subscriptions-api";
 import { cn } from "@/lib/utils";
 
 type NavKey =
@@ -154,6 +156,10 @@ type NavKey =
   | "packages"
   | "packagesDue"
   | "packagesFinished"
+  | "subsDue"
+  | "subsOpen"
+  | "subsFinished"
+  | "subsOutside"
   | "centreSubscriptions"
   | "centreAdmissions"
   | "payroll"
@@ -230,6 +236,10 @@ const CENTRE_GROUP_OF: Partial<Record<NavKey, NavGroup>> = {
   packagesDue: "teaching",
   packages: "teaching",
   packagesFinished: "teaching",
+  subsDue: "teaching",
+  subsOpen: "teaching",
+  subsFinished: "teaching",
+  subsOutside: "teaching",
   centreSubscriptions: "teaching",
   centreAdmissions: "teaching",
   trials: "teaching",
@@ -247,6 +257,10 @@ const CENTRE_ORDER: readonly NavKey[] = [
   "attendance",
   "centreSubscriptions",
   "centreAdmissions",
+  "subsDue",
+  "subsOpen",
+  "subsFinished",
+  "subsOutside",
   "packagesDue",
   "packages",
   "packagesFinished",
@@ -275,7 +289,15 @@ const CENTRE_ORDER: readonly NavKey[] = [
  * preset switches them off, so NAV_CAPABILITY already hides them — and the server refuses them,
  * which a hidden link never does.
  */
-const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices", "groupsLessons", "groupsStudents"]);
+const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices", "groupsLessons", "groupsStudents", "packages", "packagesDue", "packagesFinished"]);
+
+/**
+ * The centre's subscriptions pages (docs/centre-profile/01-PRIVATE-SUBSCRIPTION-SPLIT.md): four views
+ * of `/subscriptions`, the rows under the "الاشتراكات" dropdown. They replace the packages rows for a
+ * centre — the hour-package pages keep serving the Quran academy and are hidden here — and exist for
+ * no other shape: the server answers 402 on them without `centre`.
+ */
+const CENTRE_ONLY_KEYS = new Set<NavKey>(["subsDue", "subsOpen", "subsFinished", "subsOutside", "calendarCentre"]);
 
 /**
  * Where a centre's "timetable" goes. The item named الجدول الأسبوعي opened the generic calendar for
@@ -285,7 +307,6 @@ const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices", "groupsLessons", "groups
  * name (`calendarCentre`, a centre-only item). A Quran academy's `schedule` is `/calendar`, as it was.
  */
 const CENTRE_HREF_OF: Partial<Record<NavKey, string>> = { schedule: "/groups/lessons" };
-const CENTRE_ONLY_KEYS = new Set<NavKey>(["calendarCentre"]);
 
 /**
  * The two dropdowns only a centre's sidebar has, gathering pages that were each a row of their own.
@@ -293,6 +314,10 @@ const CENTRE_ONLY_KEYS = new Set<NavKey>(["calendarCentre"]);
  */
 const CENTRE_ONLY_PARENTS = new Set<NavKey>(["centreSubscriptions", "centreAdmissions"]);
 const CENTRE_PARENT_OF: Partial<Record<NavKey, NavKey>> = {
+  subsDue: "centreSubscriptions",
+  subsOpen: "centreSubscriptions",
+  subsFinished: "centreSubscriptions",
+  subsOutside: "centreSubscriptions",
   packagesDue: "centreSubscriptions",
   packages: "centreSubscriptions",
   packagesFinished: "centreSubscriptions",
@@ -353,7 +378,13 @@ const NAV: ReadonlyArray<{
     group: "general",
   },
 
-  { key: "centreSubscriptions", icon: Crown, permission: null, href: "/packages/due", group: "teaching" },
+  { key: "centreSubscriptions", icon: Crown, permission: null, href: "/subscriptions?view=due", group: "teaching" },
+  // The centre's subscriptions, one row per view: what is owed (carries the badge), the open blocks,
+  // the finished ones waiting for the next sale, and students taking lessons outside any block.
+  { key: "subsDue", icon: CircleDollarSign, permission: "package.read", href: "/subscriptions?view=due", group: "teaching" },
+  { key: "subsOpen", icon: Layers, permission: "package.read", href: "/subscriptions?view=open", group: "teaching" },
+  { key: "subsFinished", icon: PackageCheck, permission: "package.read", href: "/subscriptions?view=finished", group: "teaching" },
+  { key: "subsOutside", icon: AlertTriangle, permission: "package.read", href: "/subscriptions?view=outside", group: "teaching" },
   { key: "centreAdmissions", icon: UserPlus, permission: null, href: "/trials", group: "teaching" },
 
   // ── People ──────────────────────────────────────────────────────────────
@@ -853,6 +884,10 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string | readonly string[]>> = {
   packages: "packages",
   packagesDue: "packages",
   packagesFinished: "packages",
+  subsDue: "centre",
+  subsOpen: "centre",
+  subsFinished: "centre",
+  subsOutside: "centre",
   payroll: "payroll",
   // Teacher performance and Discounts & Awards share one switch of their own, so an academy can
   // pay teachers without measuring them.
@@ -960,6 +995,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [srCount, setSrCount] = useState(0);
   const [attnCount, setAttnCount] = useState(0);
   const [pkgCount, setPkgCount] = useState(0);
+  // A centre's subscriptions: what is owed, and the students taking lessons outside any block.
+  const [subsDueCount, setSubsDueCount] = useState(0);
+  const [subsOutsideCount, setSubsOutsideCount] = useState(0);
   const [salesCount, setSalesCount] = useState(0);
   const [bookingCount, setBookingCount] = useState(0);
   const [trialCount, setTrialCount] = useState(0);
@@ -1081,6 +1119,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       stop();
     };
   }, [session, can, pathname]);
+
+  // Subscriptions badges (a centre, docs/centre-profile/01): blocks with money owed, and students
+  // with a lesson outside any block. Derived like the packages badge — they clear when the desk acts.
+  useEffect(() => {
+    if (session === null || !centreShape || !can("package.read") || !(capabilities?.includes("centre") ?? false)) {
+      setSubsDueCount(0);
+      setSubsOutsideCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () =>
+      getSubscriptionsSummary()
+        .then((s) => {
+          if (!alive) return;
+          setSubsDueCount(s.due_count);
+          setSubsOutsideCount(s.outside_students);
+        })
+        .catch(() => {});
+    const stop = pollWhileVisible(refresh);
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, [session, can, pathname, centreShape, capabilities]);
 
   // Sales badge (docs/lms/10 §4): transfer receipts waiting on a human. Like the packages badge it
   // is DERIVED state, not "unread" — it clears when the client actually decides, not when they look.
@@ -1381,6 +1443,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (href === "/groups") {
       return pathname === "/groups" || /^\/groups\/[0-9a-f]{8}-[0-9a-f-]{27}/i.test(pathname);
     }
+    // The subscriptions views share one path and differ by `?view=`: the row whose view is open
+    // lights up, and only that one (a page with no view reads as "open").
+    const query = href.indexOf("?");
+    if (query !== -1) {
+      const path = href.slice(0, query);
+      if (pathname !== path) return false;
+      const wanted = new URLSearchParams(href.slice(query + 1)).get("view");
+      const current = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("view");
+      return (current ?? "open") === wanted;
+    }
     return pathname === href || (!isExactOnly(href) && pathname.startsWith(href));
   };
   /** A nav item that opens a dropdown: it has sub-pages among the visible items. */
@@ -1411,6 +1483,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         count: pkgCount,
         label: `${pkgCount} packages awaiting payment`,
       };
+    }
+    if (key === "subsDue" && subsDueCount > 0) {
+      return { count: subsDueCount, label: `${subsDueCount} subscriptions awaiting payment` };
+    }
+    if (key === "subsOutside" && subsOutsideCount > 0) {
+      return { count: subsOutsideCount, label: `${subsOutsideCount} students outside a subscription` };
     }
     if (key === "lmsSales" && salesCount > 0) {
       return {

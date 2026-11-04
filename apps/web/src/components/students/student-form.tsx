@@ -19,6 +19,7 @@ import {
   usePackageTerms,
 } from "@/components/packages/package-terms";
 import { MonthlyTermsFields, useMonthlyTerms } from "@/components/students/monthly-terms";
+import { StudentSubscriptionFields, useStudentSubscriptionDraft } from "@/components/subscriptions/student-subscription-fields";
 import {
   TeacherLinksField,
   toTeacherInputs,
@@ -152,8 +153,8 @@ function splitPhone(phone: string | null | undefined, fallbackCountry = "SA"): {
 type Intent = "trial" | "enrolled";
 
 /** Which clock an active student starts on. Mutually exclusive — two clocks is a double bill. */
-/** `none` = no private subscription at all — a centre student on groups only. */
-type Billing = "monthly" | "package" | "none";
+/** `none` = no private subscription at all — a centre student on groups only; `subscription` = a centre's block of lessons. */
+type Billing = "monthly" | "package" | "none" | "subscription";
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
@@ -198,6 +199,7 @@ export function StudentForm({
 }) {
   const t = useTranslations("students");
   const tLevels = useTranslations("levels");
+  const tSubs = useTranslations("subscriptions");
   const locale = useLocale();
   const { can, session } = useAuth();
   // Naming a price is a pricing act wherever it happens — the API enforces `student.set_price`
@@ -264,7 +266,10 @@ export function StudentForm({
         session.capabilities.includes("packages")));
   // A centre (`centre`) sells subscriptions: a new student starts on one; a Quran academy starts monthly.
   const centre = session?.capabilities?.includes("centre") ?? false;
-  const [billing, setBilling] = useState<Billing>(centre && packagesAvailable ? "package" : "monthly");
+  // A centre's private subscription (docs/centre-profile/01): its own object, sold in the same save
+  // as `subscription:` — needs the pricing right and the subscriptions' manage code, nothing else.
+  const subscriptionAvailable = centre && canPrice && can("package.manage");
+  const [billing, setBilling] = useState<Billing>(subscriptionAvailable ? "subscription" : centre && packagesAvailable ? "package" : "monthly");
   // A centre enrols the student in their groups in the same save (docs/groups/01-ACCOUNTING.md,
   // "Centre mode"): the chosen groups, and the active ones to choose from.
   const groupsOn = centre && (session?.capabilities?.includes("groups") ?? false) && can("group.manage");
@@ -284,7 +289,8 @@ export function StudentForm({
       .then((r) => setGroupOptions(r.groups))
       .catch(() => setGroupOptions([]));
   }, [groupsOn]);
-  const onPackage = packagesAvailable && billing === "package";
+  const onPackage = !centre && packagesAvailable && billing === "package";
+  const onSubscription = subscriptionAvailable && billing === "subscription";
   const groupsOnly = groupsOnlyChoice && billing === "none";
 
   function pickGroup(id: string) {
@@ -306,6 +312,8 @@ export function StudentForm({
   const guardianCurrency =
     (addingParent ? parentCurrency : (guardians.find((g) => g.id === (fixedGuardianId ?? guardianId))?.currency ?? "")) || defaults.currency;
   const terms = usePackageTerms({ defaultCurrency: guardianCurrency });
+  // A centre's block: the subject is one of the teacher links above, or a new one.
+  const subscriptionDraft = useStudentSubscriptionDraft(teacherLinks.map((l) => ({ teacher_id: l.teacher_id, course: l.course.trim() || null })));
 
   const currencyOptions = useMemo<ComboboxOption[]>(
     () => [
@@ -410,12 +418,16 @@ export function StudentForm({
       setError(t("form.packageTermsRequired"));
       return false;
     }
+    if (showPackage && onSubscription && !subscriptionDraft.valid) {
+      setError(tSubs("studentForm.termsRequired"));
+      return false;
+    }
     // Groups only: at least one group, or there is nothing to bill this active student for.
     if (showPackage && groupsOnly && groupPicks.length === 0) {
       setError(t("form.groupOrPrivateRequired"));
       return false;
     }
-    if (showPackage && !onPackage && !groupsOnly && !monthly.valid) {
+    if (showPackage && !onPackage && !onSubscription && !groupsOnly && !monthly.valid) {
       setError(t("form.packageRequired"));
       return false;
     }
@@ -454,7 +466,9 @@ export function StudentForm({
         // The package path opens the package in the same request, which also creates the
         // student's package-billing subscription — so it sends no `subscription` of its own.
         ...(showPackage && onPackage ? { package: terms.toPayload() } : {}),
-        ...(showPackage && !onPackage && !groupsOnly ? { subscription: monthly.toPayload() } : {}),
+        // A centre's block travels as `subscription` too (docs/centre-profile/01 "API contract").
+        ...(showPackage && onSubscription ? { subscription: subscriptionDraft.toPayload() } : {}),
+        ...(showPackage && !onPackage && !onSubscription && !groupsOnly ? { subscription: monthly.toPayload() } : {}),
       });
       // The groups: each enrolment is its own call; one that fails leaves the student made and
       // the form open to say which one, rather than losing the save.
@@ -471,7 +485,7 @@ export function StudentForm({
         setError(t("form.groupJoinFailed", { names: failed.join("، ") }));
         return;
       }
-      onCreated(res.studentId, { packageOpened: Boolean(res.packageId) });
+      onCreated(res.studentId, { packageOpened: Boolean(res.packageId ?? res.subscriptionId) });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -770,7 +784,7 @@ export function StudentForm({
             <div>
               <p className="text-sm font-semibold">{t("form.billingTitle")}</p>
               <p className="text-muted-foreground mt-0.5 text-xs">
-                {onPackage ? t("form.billingPackageIntro") : groupsOnly ? t("form.groupsOnlyIntro") : t("form.packageHint")}
+                {onSubscription ? tSubs("studentForm.intro") : onPackage ? t("form.billingPackageIntro") : groupsOnly ? t("form.groupsOnlyIntro") : t("form.packageHint")}
               </p>
             </div>
 
@@ -856,7 +870,33 @@ export function StudentForm({
               </div>
             )}
 
-            {(packagesAvailable || groupsOnlyChoice) && (
+            {centre && (subscriptionAvailable || groupsOnlyChoice) ? (
+              <div className="space-y-1.5" data-testid="centre-private-choice">
+                <p className="text-sm font-semibold">{t("form.privateTitle")}</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {groupsOnlyChoice && (
+                    <ChoiceCard
+                      icon={CalendarRange}
+                      title={t("form.noPrivate")}
+                      hint={t("form.noPrivateHint")}
+                      selected={billing === "none"}
+                      onSelect={() => setBilling("none")}
+                      testId="billing-monthly"
+                    />
+                  )}
+                  {subscriptionAvailable && (
+                    <ChoiceCard
+                      icon={Layers}
+                      title={t("form.billingSubscription")}
+                      hint={t("form.billingSubscriptionHint")}
+                      selected={billing === "subscription"}
+                      onSelect={() => setBilling("subscription")}
+                      testId="billing-package"
+                    />
+                  )}
+                </div>
+              </div>
+            ) : (packagesAvailable || groupsOnlyChoice) && (
               <div className="space-y-1.5">
                 {groupsOnlyChoice && <p className="text-sm font-semibold">{t("form.privateTitle")}</p>}
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -891,7 +931,15 @@ export function StudentForm({
               </div>
             )}
 
-            {onPackage ? (
+            {onSubscription ? (
+              <StudentSubscriptionFields
+                draft={subscriptionDraft}
+                links={teacherLinks.map((l) => ({ teacher_id: l.teacher_id, course: l.course.trim() || null }))}
+                teachers={teachers}
+                currency={guardianCurrency}
+                idPrefix="new-student-sub"
+              />
+            ) : onPackage ? (
               <PackageTermsFields terms={terms} idPrefix="new-student-pkg" />
             ) : groupsOnly ? null : (
               <MonthlyTermsFields terms={monthly} idPrefix="new-student-monthly" />

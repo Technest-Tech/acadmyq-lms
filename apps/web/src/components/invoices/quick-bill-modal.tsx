@@ -24,6 +24,8 @@ import {
 import { fetchRoster } from "@/lib/roster";
 import { formatMoney } from "@/lib/money";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
+import { useCapability } from "@/lib/capabilities";
+import { listSubscriptions, type SubscriptionRow } from "@/lib/subscriptions-api";
 import { cn } from "@/lib/utils";
 
 type PayerMode = "student" | "guardian" | "name";
@@ -69,6 +71,7 @@ export interface QuickBillModalProps {
 export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillModalProps) {
   const t = useTranslations("invoices.quick");
   const tInv = useTranslations("invoices");
+  const tSubs = useTranslations("subscriptions");
   const locale = useLocale();
   const invoiceUrl = useInvoiceUrl();
   /**
@@ -78,6 +81,10 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
    * pays the hand-made one. So the modal says so and hands over the package's own link instead.
    */
   const [duePackage, setDuePackage] = useState<LessonPackageRow | null>(null);
+  // A centre's blocks are subscriptions (docs/centre-profile/01): the same question, read from
+  // their own table. The note names the block owed; its bill is reached from the subscriptions page.
+  const centre = useCapability("centre");
+  const [dueSubscription, setDueSubscription] = useState<SubscriptionRow | null>(null);
 
   const [mode, setMode] = useState<PayerMode>("student");
   const [students, setStudents] = useState<ComboboxOption[]>([]);
@@ -165,19 +172,29 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
   const checkKey = checkIds.join(",");
   useEffect(() => {
     setDuePackage(null);
+    setDueSubscription(null);
     if (!open || checkKey === "") return;
     let cancelled = false;
-    void Promise.all(checkKey.split(",").map((id) => listLessonPackages({ student_id: id, scope: "due" })))
-      .then((all) => {
-        if (cancelled) return;
-        const due = all.flatMap((res) => res.packages);
-        setDuePackage(due.find((p) => p.invoice_token !== null && p.outstanding_minor > 0) ?? null);
-      })
-      .catch(() => {});
+    if (centre) {
+      void Promise.all(checkKey.split(",").map((id) => listSubscriptions({ student_id: id, view: "due" })))
+        .then((all) => {
+          if (cancelled) return;
+          setDueSubscription(all.flatMap((res) => res.rows).find((r) => r.outstanding_minor > 0) ?? null);
+        })
+        .catch(() => {});
+    } else {
+      void Promise.all(checkKey.split(",").map((id) => listLessonPackages({ student_id: id, scope: "due" })))
+        .then((all) => {
+          if (cancelled) return;
+          const due = all.flatMap((res) => res.packages);
+          setDuePackage(due.find((p) => p.invoice_token !== null && p.outstanding_minor > 0) ?? null);
+        })
+        .catch(() => {});
+    }
     return () => {
       cancelled = true;
     };
-  }, [open, checkKey]);
+  }, [open, checkKey, centre]);
 
   const reset = useCallback(() => {
     setMode("student");
@@ -436,6 +453,17 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
             />
           )}
         </div>
+
+        {dueSubscription !== null && (
+          <div className="flex flex-col gap-2 rounded-xl border border-amber-400/60 bg-amber-500/10 p-3 text-sm sm:flex-row sm:items-center sm:justify-between" data-testid="quick-subscription-due">
+            <p className="text-amber-900 dark:text-amber-200">
+              {tSubs("quickBill.note", { label: dueSubscription.label, amount: formatMoney({ amount: dueSubscription.outstanding_minor, currency: dueSubscription.currency }, locale) })}
+            </p>
+            <a href="/subscriptions?view=due" className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")} data-testid="quick-open-subscription">
+              {tSubs("quickBill.open")}
+            </a>
+          </div>
+        )}
 
         {duePackage !== null && duePackage.invoice_token !== null && (
           <div

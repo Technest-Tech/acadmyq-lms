@@ -30,6 +30,7 @@ import { MethodBadge, Panel, Tile, dayLabel, toMajorText, waLink } from "@/compo
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
 import { RenewalPolicyControl } from "@/components/accounting/renewal-policy-control";
 import { RefundCreditModal, SettleModal } from "@/components/accounting/settle-package";
+import { SettleSubscriptionModal } from "@/components/accounting/settle-subscription";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
@@ -104,6 +105,8 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
   const [cancelBusy, setCancelBusy] = useState(false);
   // A subscription closed with lessons paid and not taken, being decided; credit being paid back.
   const [settling, setSettling] = useState<UnsettledPackage | null>(null);
+  // A centre's subscription closed waiting on the same decision: settled through its own route.
+  const [settlingSubscription, setSettlingSubscription] = useState<UnsettledPackage | null>(null);
   const [refunding, setRefunding] = useState<{ currency: string; credit_minor: number } | null>(null);
 
   const load = useCallback(async () => {
@@ -277,7 +280,7 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
           <p className="text-muted-foreground mb-2 text-xs">{t("family.unsettled.hint")}</p>
           <ul className="divide-y" data-testid="family-unsettled">
             {(data.unsettled ?? []).map((u) => (
-              <li key={u.package_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2.5" data-testid={`unsettled-${u.package_id}`}>
+              <li key={u.subscription_id ?? u.package_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2.5" data-testid={`unsettled-${u.subscription_id ?? u.package_id}`}>
                 <div className="min-w-0">
                   <p className="text-sm font-medium break-words">
                     {u.student_name} · {u.label}
@@ -291,7 +294,7 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
                 <div className="flex shrink-0 items-center gap-2">
                   <span className="font-semibold text-amber-700 tabular-nums dark:text-amber-300">{money(u.owed_back_minor, u.currency)}</span>
                   {data.can_settle && (
-                    <Button type="button" size="xs" onClick={() => setSettling(u)} data-testid={`unsettled-decide-${u.package_id}`}>
+                    <Button type="button" size="xs" onClick={() => (u.kind === "SUBSCRIPTION" ? setSettlingSubscription(u) : setSettling(u))} data-testid={`unsettled-decide-${u.subscription_id ?? u.package_id}`}>
                       {t("family.unsettled.decide")}
                     </Button>
                   )}
@@ -391,7 +394,15 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
             {charges.map((c) => (
               <li key={c.id} className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 py-2.5" data-testid={`family-charge-${c.id}`}>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium break-words">{c.description}</p>
+                  <p className="text-sm font-medium break-words">
+                    {c.subscription_id ? (
+                      <Link href={`/subscriptions?id=${c.subscription_id}`} className="hover:underline" data-testid={`charge-subscription-${c.id}`}>
+                        {c.description}
+                      </Link>
+                    ) : (
+                      c.description
+                    )}
+                  </p>
                   <p className="text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs">
                     <span className={cn("rounded px-1.5 py-0.5 font-semibold", c.source === "GROUP" ? "bg-primary/10 text-primary" : c.source === "PRIVATE" ? "bg-violet-500/10 text-violet-700 dark:text-violet-300" : "bg-muted")}>
                       {c.group_name ?? t(`family.source.${c.source}`)}
@@ -488,6 +499,16 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
         onClose={() => setSettling(null)}
         onDone={(message) => {
           setSettling(null);
+          setNotice(message);
+          void load();
+        }}
+      />
+      <SettleSubscriptionModal
+        item={settlingSubscription}
+        canRefund={data.can_refund ?? false}
+        onClose={() => setSettlingSubscription(null)}
+        onDone={(message) => {
+          setSettlingSubscription(null);
           setNotice(message);
           void load();
         }}

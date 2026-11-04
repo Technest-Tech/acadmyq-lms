@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers, Loader2, Pencil, Plus, Receipt, RefreshCw, Square, Trash2 } from "lucide-react";
+import { Layers, Loader2, Pencil, Plus, Receipt, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -10,35 +10,35 @@ import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { JoinDateForm, leftReasonText, MemberPriceForm, MoveMemberForm, RemoveMemberForm } from "@/components/groups/group-members-panel";
-import { ClosePackageModal } from "@/components/packages/close-package-modal";
-import { EditPackageForm } from "@/components/packages/edit-package-form";
-import { lessonBalance, pricePerLesson } from "@/components/packages/lesson-price-fields";
-import { TopUpPackageForm } from "@/components/packages/top-up-package-form";
-import { OpenPackageForm, subjectKey } from "@/components/packages/open-package-form";
+import { CloseSubscriptionModal } from "@/components/subscriptions/close-subscription-modal";
+import { EditSubscriptionForm } from "@/components/subscriptions/edit-subscription-form";
+import { SellSubscriptionForm } from "@/components/subscriptions/sell-subscription-form";
+import { SubscriptionDetail } from "@/components/subscriptions/subscription-detail";
+import { SubscriptionRowCard, type RowActions as SubscriptionRowActions } from "@/components/subscriptions/subscription-row";
+import { CancelSubscriptionModal } from "@/components/subscriptions/subscriptions-manager";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { ProfileCard } from "@/components/ui/profile-card";
 import { getStudentRenewalPolicy, setStudentRenewalPolicy, type StudentRenewalPolicy } from "@/lib/accounting-api";
-import { cancelLessonPackage, listLessonPackages, type LessonPackageRow } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
 import { addGroupMembers, getGroup, listBoardMembers, listGroups, undoGroupMember, type BoardMember, type GroupDetail, type GroupRow } from "@/lib/groups-api";
+import { listSubscriptions, subscriptionScope, type SubscriptionRow } from "@/lib/subscriptions-api";
 import { formatMoney } from "@/lib/money";
-import { formatDateTime, formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /**
- * The student's subscriptions (docs/groups/01-ACCOUNTING.md, "Centre mode"): everything they are
- * paying for, on one card — each group they are in and each private subscription (a block of hours
- * with a teacher), with where it stands — and the two doors to add one. A centre thinks in
- * subscriptions, not in a timetable plus a package; this card is that view over the records that
- * already exist (group memberships, lesson packages). It renders NOTHING without `centre`.
+ * The student's subscriptions (docs/groups/01-ACCOUNTING.md, "Centre mode"; the private half on
+ * docs/centre-profile/01-PRIVATE-SUBSCRIPTION-SPLIT.md): everything they are paying for, on one
+ * card — each group they are in and each private subscription (a block of lessons for a subject),
+ * with where it stands — and the two doors to add one. A centre thinks in subscriptions, not in a
+ * timetable plus a package; this card is that view over the records that already exist (group
+ * memberships, `centre_subscriptions`). It renders NOTHING without `centre`.
  *
- * Every open row can be edited or ended here, with the group page's and the packages page's own
- * forms: a student pauses or drops ONE group and keeps the rest, so ending is per row — a
+ * Every open row can be edited or ended here, with the group page's and the subscriptions page's
+ * own forms: a student pauses or drops ONE group and keeps the rest, so ending is per row — a
  * membership gets a leave date and a reason (PAUSED / STOPPED), a private subscription is closed
- * (what was used is billed) or, if untouched, cancelled. Only a row opened by mistake, with nothing
- * on it yet, can be deleted outright.
+ * (with the settlement of what was paid and not taken) or, if untouched, cancelled.
  */
 export function SubscriptionsCard({ studentId, studentName, onChanged }: { studentId: string; studentName: string; onChanged?: () => void }) {
   const centre = useCapability("centre");
@@ -48,52 +48,42 @@ export function SubscriptionsCard({ studentId, studentName, onChanged }: { stude
 
 type Action =
   | { kind: "join" }
-  | { kind: "package"; subjectId?: string }
+  | { kind: "sell"; prefill?: SubscriptionRow }
   | { kind: "groupEdit" | "groupEnd" | "groupDelete"; member: BoardMember }
-  | { kind: "pkgEdit" | "pkgEnd" | "pkgDelete" | "pkgTopUp"; row: LessonPackageRow };
-
-/**
- * A private subscription opened by mistake can go — while nothing has happened on it: no lesson
- * counted, no money in. The API voids its still-unpaid bill with it; anything further is ended.
- */
-function packageDeletable(p: LessonPackageRow): boolean {
-  return p.status === "ACTIVE" && p.minutes_consumed === 0 && p.lesson_count === 0 && p.invoice_paid_minor === 0;
-}
+  | { kind: "subEdit" | "subEnd" | "subCancel" | "subDetail"; row: SubscriptionRow };
 
 function Subscriptions({ studentId, studentName, onChanged }: { studentId: string; studentName: string; onChanged?: () => void }) {
   const t = useTranslations("students");
-  const tp = useTranslations("packages");
+  const ts = useTranslations("subscriptions");
   const tg = useTranslations("groups");
   const locale = useLocale();
   const { can } = useAuth();
   const manageGroups = can("group.manage");
-  const managePackages = can("package.manage");
-  // A centre sells more lessons on a running subscription.
-  const centre = useCapability("centre");
+  const manageSubs = can("package.manage");
   // Renewal policy lives with the money: only an academy on receipts knows what is paid.
   const policyOn = useCapability("accounting") && can("invoice.read");
   const [policy, setPolicy] = useState<StudentRenewalPolicy | null>(null);
   const groupsOn = useCapability("groups") && can("group.read");
-  const packagesOn = useCapability("packages") && can("package.read");
+  const subsOn = can("package.read");
   const [members, setMembers] = useState<BoardMember[] | null>(null);
-  const [packages, setPackages] = useState<LessonPackageRow[] | null>(null);
+  const [subs, setSubs] = useState<SubscriptionRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [modal, setModal] = useState<Action | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [m, p] = await Promise.all([
+      const [m, s] = await Promise.all([
         groupsOn ? listBoardMembers({ student_id: studentId, status: "ALL" }).then((r) => r.members) : Promise.resolve([]),
-        packagesOn ? listLessonPackages({ student_id: studentId }).then((r) => r.packages) : Promise.resolve([]),
+        subsOn ? listSubscriptions({ student_id: studentId }).then((r) => r.rows) : Promise.resolve([]),
       ]);
       setMembers(m);
-      setPackages(p);
+      setSubs(s);
       setError(null);
     } catch (err) {
       setError(apiErrorMessage(err, t("subscriptions.loadFailed")));
     }
-  }, [studentId, groupsOn, packagesOn, t]);
+  }, [studentId, groupsOn, subsOn, t]);
 
   useEffect(() => {
     void load();
@@ -107,23 +97,22 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   }, [policyOn, studentId]);
 
   const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
   const active = (members ?? []).filter((m) => m.status === "ACTIVE");
   const former = (members ?? []).filter((m) => m.status !== "ACTIVE");
-  const openPackages = (packages ?? []).filter((p) => p.status === "ACTIVE");
-  const closedPackages = (packages ?? []).filter((p) => p.status !== "ACTIVE");
-  // Per subject (or "any lesson"), the newest finished block — when nothing is open for it.
+  const openSubs = (subs ?? []).filter((s) => s.status === "OPEN");
+  const closedSubs = (subs ?? []).filter((s) => s.status !== "OPEN");
+  // Per subject, the newest finished block — when nothing is open for it: the one to sell again.
   const renewableIds = new Set<string>();
-  const scopeOf = (p: LessonPackageRow) => (p.subject ? subjectKey(p.subject.teacher_id, p.subject.course) : "");
-  const seenScopes = new Set(openPackages.map(scopeOf));
-  for (const p of [...closedPackages].sort((a, b) => b.sequence_no - a.sequence_no)) {
-    const scope = scopeOf(p);
+  const seenScopes = new Set(openSubs.map(subscriptionScope));
+  for (const s of [...closedSubs].sort((a, b) => b.sequence_no - a.sequence_no)) {
+    if (s.status === "CANCELLED") continue;
+    const scope = subscriptionScope(s);
     if (seenScopes.has(scope)) continue;
     seenScopes.add(scope);
-    renewableIds.add(p.id);
+    renewableIds.add(s.id);
   }
-  const loaded = members !== null && packages !== null;
-  const nothing = loaded && members.length === 0 && packages.length === 0;
+  const loaded = members !== null && subs !== null;
+  const nothing = loaded && members.length === 0 && subs.length === 0;
 
   function done(msg: string) {
     setModal(null);
@@ -131,6 +120,14 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
     void load();
     onChanged?.();
   }
+
+  const subActions: SubscriptionRowActions = {
+    onOpen: (row) => setModal({ kind: "subDetail", row }),
+    onEdit: manageSubs ? (row) => setModal({ kind: "subEdit", row }) : undefined,
+    onRenew: manageSubs ? (row) => setModal({ kind: "sell", prefill: row }) : undefined,
+    onClose: manageSubs ? (row) => setModal({ kind: "subEnd", row }) : undefined,
+    onCancel: manageSubs ? (row) => setModal({ kind: "subCancel", row }) : undefined,
+  };
 
   return (
     <ProfileCard
@@ -147,8 +144,8 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
               {t("subscriptions.joinGroup")}
             </Button>
           )}
-          {packagesOn && managePackages && (
-            <Button type="button" size="xs" className="gap-1" onClick={() => setModal({ kind: "package" })} data-testid="subs-new-package">
+          {subsOn && manageSubs && (
+            <Button type="button" size="xs" className="gap-1" onClick={() => setModal({ kind: "sell" })} data-testid="subs-new-package">
               <Plus className="size-3.5" aria-hidden />
               {t("subscriptions.newPrivate")}
             </Button>
@@ -171,10 +168,10 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
           />
         </div>
       )}
-      {!loaded && !error && <p className="text-muted-foreground py-4 text-center text-sm">{tp("loading")}</p>}
+      {!loaded && !error && <p className="text-muted-foreground py-4 text-center text-sm">{ts("loading")}</p>}
       {nothing && <p className="text-muted-foreground py-4 text-center text-sm">{t("subscriptions.empty")}</p>}
 
-      {loaded && (members.length > 0 || packages.length > 0) && (
+      {loaded && (members.length > 0 || subs.length > 0) && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {members.length > 0 && (
             <section>
@@ -213,96 +210,20 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
               </ul>
             </section>
           )}
-          {packages.length > 0 && (
+          {subs.length > 0 && (
             <section>
               <h4 className="text-muted-foreground mb-2 text-xs font-semibold uppercase tracking-wide">{t("subscriptions.private")}</h4>
-              <ul className="divide-y rounded-xl border" data-testid="subs-packages">
-                {[...openPackages, ...closedPackages].map((p) => (
-                  <li key={p.id} className={cn("flex items-start justify-between gap-3 p-3 text-sm", p.status !== "ACTIVE" && "opacity-60")} data-testid={`subs-package-${p.id}`}>
-                    <div className="min-w-0">
-                      <Link href={`/packages${p.status === "ACTIVE" ? "" : "/finished"}`} className="font-medium hover:underline" title={t("subscriptions.openPackage")}>
-                        {p.label}
-                      </Link>
-                      <p className="text-muted-foreground text-xs">
-                        {[
-                          p.subject ? [p.subject.course, p.subject.teacher_name].filter(Boolean).join(" · ") : null,
-                          t("subscriptions.since", { date: dayLabel(p.starts_on, locale) }),
-                          p.status !== "ACTIVE"
-                            ? tp(`status.${p.status}`)
-                            : p.lesson_minutes
-                              ? t("subscriptions.remainingLessons", { count: lessonBalance(p, p.lesson_minutes).left })
-                              : t("subscriptions.remaining", { hours: (p.minutes_remaining / 60).toLocaleString(locale, { maximumFractionDigits: 1 }) }),
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                      {/* The block itself: used of bought, lessons, the lesson's price, the bill, renewal. */}
-                      <p className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs" data-testid="subs-package-details">
-                        <span>
-                          {p.lesson_minutes
-                            ? tp("card.used", { used: lessonBalance(p, p.lesson_minutes).used.toLocaleString(locale), total: tp("card.lessonsCount", { count: lessonBalance(p, p.lesson_minutes).sold }) })
-                            : tp("card.used", { used: formatHours(p.minutes_consumed, locale), total: formatHours(p.minutes_sold, locale) })}
-                        </span>
-                        <span>· {tp("card.lessonsUsed")}: {p.lesson_count}</span>
-                        {p.status === "ACTIVE" && p.upcoming_lesson_count > 0 && <span>· {tp("card.upcomingCount", { count: p.upcoming_lesson_count })}</span>}
-                        <span>
-                          ·{" "}
-                          {p.lesson_minutes
-                            ? tp("card.perLesson", { amount: money(pricePerLesson(p, p.lesson_minutes), p.currency), minutes: p.lesson_minutes })
-                            : tp("card.perHour", { amount: money(p.hourly_rate_minor, p.currency) })}
-                        </span>
-                        {p.status === "ACTIVE" && p.auto_renew && (
-                          <span className="inline-flex items-center gap-0.5" title={tp("card.autoRenewNext", { n: p.sequence_no + 1 })}>
-                            · <RefreshCw className="size-3" aria-hidden />
-                          </span>
-                        )}
-                      </p>
-                      {p.status !== "ACTIVE" && (
-                        <p className="text-muted-foreground text-xs" data-testid="subs-package-closed">
-                          {[
-                            closedReasonText(p.closed_reason, tp),
-                            p.closed_at ? dayLabel(p.closed_at.slice(0, 10), locale) : null,
-                            p.closed_by_name ? tp("closedBy", { name: p.closed_by_name }) : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </p>
-                      )}
-                      {p.status === "ACTIVE" && p.next_lesson_at && (
-                        <p className="text-muted-foreground text-xs">
-                          {tp("card.nextLesson")}: {formatDateTime(p.next_lesson_at, timezone, locale)}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1.5 text-end text-xs">
-                      <p className="font-semibold tabular-nums">{money(p.price_minor, p.currency)}</p>
-                      <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", p.invoice_id === null ? "bg-muted text-muted-foreground" : p.outstanding_minor > 0 ? "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300")} data-testid="subs-package-bill">
-                        {p.invoice_id === null ? tp("card.notBilledYet") : p.outstanding_minor > 0 ? tp("card.amountDue", { amount: money(p.outstanding_minor, p.currency) }) : tp("card.paid")}
-                      </span>
-                      {p.status === "ACTIVE" && managePackages && (
-                        <RowActions
-                          onEdit={() => setModal({ kind: "pkgEdit", row: p })}
-                          onTopUp={centre && p.lesson_minutes !== null ? () => setModal({ kind: "pkgTopUp", row: p }) : undefined}
-                          onEnd={() => setModal({ kind: "pkgEnd", row: p })}
-                          onDelete={packageDeletable(p) ? () => setModal({ kind: "pkgDelete", row: p }) : undefined}
-                        />
-                      )}
-                      {/* The latest finished block of a subject with nothing open: start it again. */}
-                      {p.status !== "ACTIVE" && managePackages && renewableIds.has(p.id) && (
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          className="gap-1"
-                          onClick={() => setModal({ kind: "package", subjectId: scopeOf(p) || undefined })}
-                          data-testid={`subs-renew-${p.id}`}
-                        >
-                          <RefreshCw className="size-3" aria-hidden />
-                          {t("subscriptions.renew")}
-                        </Button>
-                      )}
-                    </div>
-                  </li>
+              <ul className="space-y-2" data-testid="subs-packages">
+                {[...openSubs, ...closedSubs].map((row) => (
+                  <SubscriptionRowCard
+                    key={row.id}
+                    row={row}
+                    canManage={manageSubs}
+                    canRemind={false}
+                    compact
+                    // The latest finished block of a subject with nothing open is the one to sell again.
+                    actions={{ ...subActions, onRenew: renewableIds.has(row.id) ? subActions.onRenew : undefined }}
+                  />
                 ))}
               </ul>
             </section>
@@ -313,17 +234,8 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
       {modal?.kind === "join" && (
         <JoinGroupModal studentId={studentId} studentName={studentName} exclude={new Set(active.map((m) => m.group_id))} onClose={() => setModal(null)} onDone={() => done(t("subscriptions.joined"))} />
       )}
-      <Modal open={modal?.kind === "package"} onClose={() => setModal(null)} title={t("subscriptions.newPrivateTitle", { name: studentName })} size="lg">
-        {modal?.kind === "package" && (
-          <OpenPackageForm
-            initialStudentId={studentId}
-            initialSubjectId={modal.subjectId}
-            // A finished block ended with lessons left can hand them to the new one.
-            studentsWithHistory={closedPackages.length > 0 ? new Set([studentId]) : undefined}
-            onSaved={(msg) => done(msg)}
-            onCancel={() => setModal(null)}
-          />
-        )}
+      <Modal open={modal?.kind === "sell"} onClose={() => setModal(null)} title={t("subscriptions.newPrivateTitle", { name: studentName })} description={ts("sell.description")} size="lg">
+        {modal?.kind === "sell" && <SellSubscriptionForm initialStudentId={studentId} prefill={modal.prefill} onSaved={(msg) => done(msg)} onCancel={() => setModal(null)} />}
       </Modal>
       {(modal?.kind === "groupEdit" || modal?.kind === "groupEnd") && (
         <MembershipModal
@@ -337,19 +249,19 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
       {modal?.kind === "groupDelete" && (
         <DeleteMembershipModal member={modal.member} studentName={studentName} onClose={() => setModal(null)} onDone={(msg) => done(msg)} />
       )}
-      <Modal open={modal?.kind === "pkgTopUp"} onClose={() => setModal(null)} title={t("subscriptions.addLessonsTitle", { name: studentName })} size="md">
-        {modal?.kind === "pkgTopUp" && <TopUpPackageForm row={modal.row} onSaved={(msg) => done(msg)} onCancel={() => setModal(null)} />}
+      <Modal open={modal?.kind === "subEdit"} onClose={() => setModal(null)} title={t("subscriptions.editPrivateTitle", { name: studentName })} description={ts("edit.description")} size="lg">
+        {modal?.kind === "subEdit" && <EditSubscriptionForm row={modal.row} onSaved={(msg) => done(msg)} onCancel={() => setModal(null)} />}
       </Modal>
-      <Modal open={modal?.kind === "pkgEdit"} onClose={() => setModal(null)} title={t("subscriptions.editPrivateTitle", { name: studentName })} description={tp("edit.description")} size="md">
-        {modal?.kind === "pkgEdit" && <EditPackageForm row={modal.row} onSaved={(msg) => done(msg)} onCancel={() => setModal(null)} />}
+      <CloseSubscriptionModal row={modal?.kind === "subEnd" ? modal.row : null} title={t("subscriptions.endPrivateTitle")} onClose={() => setModal(null)} onDone={(msg) => done(msg)} />
+      {modal?.kind === "subCancel" && <CancelSubscriptionModal row={modal.row} onClose={() => setModal(null)} onDone={(msg) => done(msg)} />}
+      <Modal open={modal?.kind === "subDetail"} onClose={() => setModal(null)} title={modal?.kind === "subDetail" ? modal.row.label : ""} size="lg">
+        {modal?.kind === "subDetail" && <SubscriptionDetail id={modal.row.id} initial={modal.row} />}
       </Modal>
-      <ClosePackageModal row={modal?.kind === "pkgEnd" ? modal.row : null} title={t("subscriptions.endPrivateTitle")} allowCancel onClose={() => setModal(null)} onDone={(msg) => done(msg)} />
-      {modal?.kind === "pkgDelete" && <DeletePackageModal row={modal.row} studentName={studentName} onClose={() => setModal(null)} onDone={(msg) => done(msg)} />}
     </ProfileCard>
   );
 }
 
-function RowActions({ onEdit, onTopUp, onEnd, onDelete }: { onEdit: () => void; onTopUp?: () => void; onEnd: () => void; onDelete?: () => void }) {
+function RowActions({ onEdit, onEnd, onDelete }: { onEdit: () => void; onEnd: () => void; onDelete?: () => void }) {
   const t = useTranslations("students");
   return (
     <div className="flex flex-wrap justify-end gap-1">
@@ -357,12 +269,6 @@ function RowActions({ onEdit, onTopUp, onEnd, onDelete }: { onEdit: () => void; 
         <Pencil className="size-3" aria-hidden />
         {t("subscriptions.edit")}
       </Button>
-      {onTopUp && (
-        <Button type="button" size="xs" variant="ghost" className="gap-1" onClick={onTopUp} data-testid="subs-add-lessons">
-          <Plus className="size-3" aria-hidden />
-          {t("subscriptions.addLessons")}
-        </Button>
-      )}
       <Button type="button" size="xs" variant="ghost" className="gap-1 text-rose-600 dark:text-rose-400" onClick={onEnd} data-testid="subs-end">
         <Square className="size-3" aria-hidden />
         {t("subscriptions.end")}
@@ -419,48 +325,6 @@ function DeleteMembershipModal({ member, studentName, onClose, onDone }: { membe
       }
     >
       <p className="text-muted-foreground text-sm">{t("subscriptions.deleteHint")}</p>
-      {error && <AlertBanner variant="error" message={error} />}
-    </Modal>
-  );
-}
-
-/** Void a private subscription opened by mistake — its unpaid bill goes with it (POST /packages/{id}/cancel). */
-function DeletePackageModal({ row, studentName, onClose, onDone }: { row: LessonPackageRow; studentName: string; onClose: () => void; onDone: (message: string) => void }) {
-  const t = useTranslations("students");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function confirm() {
-    setBusy(true);
-    setError(null);
-    try {
-      await cancelLessonPackage(row.id);
-      onDone(t("subscriptions.deleted"));
-    } catch (err) {
-      setError(apiErrorMessage(err, t("subscriptions.deleteFailed")));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={t("subscriptions.deletePrivateTitle", { name: studentName, label: row.label })}
-      size="sm"
-      footer={
-        <>
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-            {t("subscriptions.keep")}
-          </Button>
-          <Button type="button" variant="destructive" onClick={() => void confirm()} disabled={busy} data-testid="subs-package-delete-confirm">
-            {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            {t("subscriptions.deleteConfirm")}
-          </Button>
-        </>
-      }
-    >
-      <p className="text-muted-foreground text-sm">{t("subscriptions.deletePrivateHint")}</p>
       {error && <AlertBanner variant="error" message={error} />}
     </Modal>
   );
@@ -615,11 +479,4 @@ function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { 
       </form>
     </Modal>
   );
-}
-
-/** Why a private subscription is finished, in the desk's words; a typed reason is shown as typed. */
-export function closedReasonText(reason: string | null, tp: (key: string) => string): string | null {
-  if (!reason) return null;
-  const known = ["EXHAUSTED", "CLOSED_EARLY", "CHARGE_CANCELLED", "STUDENT_REMOVED", "CARRIED_OVER", "CANCELLED", "RENEWAL_UNDONE"];
-  return known.includes(reason) ? tp(`closedReason.${reason}`) : reason;
 }

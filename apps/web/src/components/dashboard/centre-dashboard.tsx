@@ -195,7 +195,7 @@ export function CentreDashboard() {
       label: t("followUp.endingSoon"),
       count: numbers.subscriptions.ending_soon,
       unit: t("followUp.subscriber"),
-      href: "/packages/due",
+      href: "/subscriptions?view=open",
     });
     if (groupsOn) {
       followUps.push({
@@ -357,7 +357,7 @@ export function CentreDashboard() {
               chip={<DeltaChip value={numbers?.subscriptions.delta_pct} />}
               note={numbers?.subscriptions.delta_pct !== null && numbers?.subscriptions.delta_pct !== undefined ? t("kpi.vsLastMonth") : undefined}
               loading={loading}
-              href="/packages"
+              href="/subscriptions?view=open"
               locale={locale}
             />
           </section>
@@ -471,7 +471,7 @@ export function CentreDashboard() {
             <ListCard
               Icon={Crown}
               title={t("followUp.title")}
-              footerHref="/packages/due"
+              footerHref="/subscriptions?view=due"
               footerLabel={t("followUp.manage")}
               testId="follow-ups"
             >
