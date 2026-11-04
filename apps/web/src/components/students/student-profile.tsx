@@ -5,6 +5,7 @@ import {
   BookOpen,
   CalendarDays,
   GraduationCap,
+  Layers,
   Settings2,
   UserCheck,
   UserCircle2,
@@ -16,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { LevelCard } from "@/components/levels/level-card";
 import { KhatamLattice } from "@/components/ornaments";
 import { StudentTimetable } from "@/components/scheduling/student-timetable";
 import { formatNameList } from "@/components/students/teacher-links-field";
@@ -42,6 +44,7 @@ import {
   type TeacherAssignmentHistoryItem,
   type TeacherRow,
 } from "@/lib/api";
+import { useCapability } from "@/lib/capabilities";
 import { fetchRoster } from "@/lib/roster";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -64,6 +67,10 @@ export function StudentProfile({ studentId }: { studentId: string }) {
   const locale = useLocale();
   const router = useRouter();
   const { can } = useAuth();
+  // The level / grade (docs/centre-profile Phase 2 §1) is a centre's: the card and the badge render
+  // behind the switch, so a Quran academy's profile never fetches it. The legacy student-detail
+  // page rendered them; this page — the one the route opens — did not.
+  const centre = useCapability("centre");
 
   const [data, setData] = useState<StudentDetailData | null>(null);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
@@ -206,6 +213,12 @@ export function StudentProfile({ studentId }: { studentId: string }) {
               <HeroBadge>
                 <BookOpen className="size-3" aria-hidden />
                 {sub.plan_label}
+              </HeroBadge>
+            )}
+            {centre && typeof data.student.level_name === "string" && data.student.level_name !== "" && (
+              <HeroBadge>
+                <Layers className="size-3" aria-hidden />
+                <span data-testid="student-level-badge">{data.student.level_name}</span>
               </HeroBadge>
             )}
           </>
@@ -371,15 +384,19 @@ export function StudentProfile({ studentId }: { studentId: string }) {
 
       {/* ── Tab body ────────────────────────────────────────────────── */}
       {tab === "profile" && (
-        <ProfileSection
-          data={data}
-          canEdit={canEdit && isActive}
-          onSaved={(message) => {
-            setNotice(message ?? t("form.saved"));
-            void refresh();
-          }}
-          onError={setError}
-        />
+        <div className="space-y-5">
+          <ProfileSection
+            data={data}
+            canEdit={canEdit && isActive}
+            onSaved={(message) => {
+              setNotice(message ?? t("form.saved"));
+              void refresh();
+            }}
+            onError={setError}
+          />
+          {/* Level / grade: where the student stands, "ترقية", and the trail of promotions — a centre's only. */}
+          {centre && <LevelCard studentId={studentId} studentName={data.student.full_name} onChanged={() => void refresh()} />}
+        </div>
       )}
 
       {tab === "subscription" && (
