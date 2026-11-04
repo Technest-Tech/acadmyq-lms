@@ -74,3 +74,31 @@ or a section nobody needs? Verdicts per surface: **keep**, **fix**, **move**, **
 4. Group lessons into the two logs and the staff alert; suspend pauses memberships; PER_STUDENT
    pay on group lessons; teacher Groups tab; level card on the live profile.
 5. The "online lessons" setting and the three surfaces behind it.
+
+## 6. As built (2026-11-05, branch `worktree-agent-af7c2f130dc31ccc8` off `e2a945c`)
+
+Order 5.1, 5.2 and 5.4 above, each its own commit. Every change keys on a feature switch
+(`lesson_report` / `student_reports`, `supervision`, `centre` + `accounting`, `groups`), never on
+the profile, and is pinned with the switch on and off; the Quran path is byte-for-byte what it was.
+
+| # | Surface | What was built | Where |
+|---|---|---|---|
+| 1a | Reports feed | `FlagOverdueReportsJob::wantsLessonReports(caps)` = `lesson_report` or `student_reports`; the sweep returns 0 for an academy holding neither, the REPORT_OVERDUE staff alert is not detected for it (`GroupAlerts` setup `reports`), the notifications Reports tab is not listed | `app/Jobs/FlagOverdueReportsJob.php`, `Services/Whatsapp/GroupAlerts.php`, `notifications/screen.tsx`; tests `OverdueReportsTest`, `GroupAlertsTest`, `screen.test.tsx` |
+| 1b | Attendance, private tab | `FollowControl` and `canFollow` behind `useCapability("supervision")`; in `AttendanceReport` the report editor, its edit/format buttons, the history (archive) button and Save are behind `showReportEditor = lesson_report \|\| !centre`; the outcome strip and the WhatsApp button stay | `attendance-manager.tsx`, `attendance-report.tsx` + both tests |
+| 1c | Financial statistics | `NAV_REPLACED_BY` takes a list: `financialStats: ["accounting", "centre"]` (all held ⇒ hidden; page still opens by URL) | `app-shell.tsx`, `app-shell.test.tsx` |
+| 1d | Parent portal | Reports tab rendered only when a progress report or a lesson report exists for any child (`anyReports`); term reports untouched | `app/p/[token]/parent-page.tsx`, `parent-page.groups.test.tsx` |
+| 2 | Timetable in the menu | For a centre `schedule` links to `/groups/lessons` (`CENTRE_HREF_OF`; the board already opens on the timetable view) and carries the sheets-owed badge; new centre-only item `calendarCentre` → `/calendar` (`CENTRE_ONLY_KEYS`, label `nav.calendarCentre` "التقويم" / "Calendar"); Teaching order groups, timetable, calendar, attendance | `app-shell.tsx`, `ar.json`/`en.json`, `app-shell.test.tsx` |
+| 3a | Staff alert | `GROUP_LESSON_NOT_MARKED` (Supervision category, CONDITIONAL, max age 6 h): a SCHEDULED group lesson of an ACTIVE group, `not_marked_after_minutes` after its END, with the expected count in the line; only when the academy holds `groups`; CHECK constraint migration `2026_11_07_000001`; admin card label + shared minutes knob | `GroupAlertCatalog/Message/GroupAlerts.php`, `whatsapp-groups-card.tsx`, `GroupAlertsTest` (2 tests) |
+| 3b | Notification logs | Saving a sheet writes one `GROUP_LESSON_ATTENDED` row (category ATTENDED, `subject_id` = lesson, "sheet saved: {group}, {present}/{expected}", updated on re-save, deleted on revert); cancelling from the board writes `GROUP_LESSON_CANCELLED` (category CLASSES — a log listed under the Classes tab, no approval, never on the bell). `NotificationController` treats ATTENDED and CLASSES alike as logs behind `?category=` | `Services/ClassGroups.php`, `NotificationController.php`, `notifications/screen.tsx`, `lib/api.ts`; tests `ClassGroupsTest` (2), `screen.test.tsx` (2) |
+| 4 | Guardian suspend | `ClassGroups::pauseForSuspension` closes the children's open memberships today with `left_reason = 'SUSPENDED'` and `paused_by_suspension = true` (migration `2026_11_07_000002`, additive); `resumeAfterSuspension` re-opens exactly those as new memberships from the resume day in groups still running and clears the flag; `GroupBilling::onMemberResumed` bills from today with the moved-in rule against the same group (a month already paid is not raised again) and skips a paid course fee. Both behind `groups`. Responses carry `paused_memberships` / `resumed_memberships` | `GuardianController.php`, `ClassGroups.php`, `GroupBilling.php`; `GuardianSuspendTest` (extended + 1 new) |
+| 5 | PER_STUDENT teacher | `GroupPayroll::lessonAmount` default path: a teacher paid PER_STUDENT with no pay mode on the group earns `lessonPayMinor × came`; hourly unchanged | `GroupPayroll.php`, `ClassGroupMoneyTest` (2) |
+| 6 | Teacher Groups tab | `components/teachers/teacher-groups.tsx`: active groups via `listGroups({teacher_id, state: ACTIVE})`, sheets owed this week from `listBoardLessons({view: "owed", teacher_id})` (week starts Saturday); tab behind `groups` + `group.read` | `teacher-workspace.tsx`, `teacher-groups.test.tsx`, `teachers.tabs.groups` / `teachers.groups.*` |
+| 7 | Level on the live profile | `LevelCard` under `ProfileSection` and the level badge in the hero of `student-profile.tsx`, behind `useCapability("centre")` | `student-profile.tsx`, new `student-profile.test.tsx` |
+
+**Not built:** §5.3 (rooms, classification label, group defaults) was out of this brief; §5.5 the
+"online lessons" setting (Enter button, meeting-link fields, punctuality tab) was left for want of
+time — it needs an academy setting with a derived default (any ONLINE group or teacher meeting URL)
+and touches the teacher form and `settings-manager.tsx`, which other work holds.
+
+**Known pre-existing red:** `GroupAlertsTest` "backs off after a failed send and tries again later"
+fails on `e2a945c` before any of this (the `automation_send_log` assertion); unrelated.
