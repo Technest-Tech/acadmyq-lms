@@ -70,6 +70,9 @@ final class GuardianPortalCentre
         $upcoming = $this->upcoming($ids, $now);
         $recent = $this->recent($ids, $now);
         $summary = $this->summary($ids, $now);
+        // Term reports the office published (Phase 2 §5). A child with none gets no key at all, so
+        // an academy that never grades sends the page it always sent.
+        $reports = app(GroupAssessments::class)->publishedFor($ids);
 
         $out = [];
         foreach ($ids as $id) {
@@ -81,6 +84,9 @@ final class GuardianPortalCentre
                 ],
                 'attendance_summary' => $summary[$id] ?? ['present' => 0, 'late' => 0, 'absent' => 0, 'excused' => 0, 'rate' => null],
             ];
+            if (isset($reports[$id])) {
+                $out[$id]['term_reports'] = $reports[$id];
+            }
         }
 
         return $out;

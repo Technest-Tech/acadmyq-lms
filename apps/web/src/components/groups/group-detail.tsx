@@ -21,6 +21,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { GradeSheet } from "@/components/grades/grade-sheet";
+import { TermReportsPanel } from "@/components/grades/term-reports-panel";
 import { GroupAccountsPanel } from "@/components/groups/group-accounts-panel";
 import { GroupForm, apiErrorMessage } from "@/components/groups/group-form";
 import { hoursText, monthLessons, percent, pricingRuleKey, sortSlots, wallTime } from "@/components/groups/group-format";
@@ -42,8 +44,10 @@ import { archiveGroup, deleteGroup, getGroup, restoreGroup, type GroupDetail } f
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-type Tab = "lessons" | "members" | "money" | "accounts" | "overview";
-const TABS: Tab[] = ["lessons", "members", "money", "accounts", "overview"];
+type Tab = "lessons" | "members" | "grades" | "reports" | "money" | "accounts" | "overview";
+const TABS: Tab[] = ["lessons", "members", "grades", "reports", "money", "accounts", "overview"];
+/** A centre's tabs (docs/centre-profile, Phase 2 §5): the grade sheet and the term reports. */
+const CENTRE_TABS: Tab[] = ["grades", "reports"];
 
 /**
  * One group's page (docs/groups): its lessons (the default — that is where the daily work is),
@@ -52,6 +56,7 @@ const TABS: Tab[] = ["lessons", "members", "money", "accounts", "overview"];
  */
 export function GroupDetailScreen({ groupId }: { groupId: string }) {
   const t = useTranslations("groups");
+  const tg = useTranslations("grades");
   const { can } = useAuth();
   const router = useRouter();
   const search = useSearchParams();
@@ -59,9 +64,12 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
   // The money tab is the owner's view of the bills — never a supervisor's or a teacher's. An academy
   // on receipts (accounting) gets the collection sheet in its place.
   const accounting = useCapability("accounting");
+  // Grades and term reports are a centre's; a Quran academy's group page is what it was.
+  const centre = useCapability("centre");
   const tabs = TABS.filter((k) => {
     if (k === "money") return can("invoice.read") && !accounting;
     if (k === "accounts") return can("invoice.read") && accounting;
+    if (CENTRE_TABS.includes(k)) return centre;
     return true;
   });
 
@@ -201,7 +209,7 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
             )}
             data-testid={`group-tab-${key}`}
           >
-            {t(`detail.tabs.${key}`)}
+            {CENTRE_TABS.includes(key) ? tg(`tabs.${key}`) : t(`detail.tabs.${key}`)}
             {key === "lessons" && group.lessons.overdue > 0 && (
               <span className="ms-1.5 rounded-full bg-rose-500 px-1.5 text-xs font-bold text-white tabular-nums">{group.lessons.overdue}</span>
             )}
@@ -212,6 +220,8 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
 
       {tab === "lessons" && <GroupLessonsPanel group={group} onChanged={() => void load()} />}
       {tab === "members" && <GroupMembersPanel group={group} onChanged={setGroup} />}
+      {tab === "grades" && <GradeSheet groupId={group.id} />}
+      {tab === "reports" && <TermReportsPanel groupId={group.id} />}
       {tab === "money" && <GroupMoneyPanel group={group} />}
       {tab === "accounts" && <GroupAccountsPanel group={group} />}
       {tab === "overview" && <GroupOverview group={group} />}

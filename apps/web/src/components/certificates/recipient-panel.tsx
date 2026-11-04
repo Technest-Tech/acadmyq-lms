@@ -42,6 +42,22 @@ export function bulkNames(state: RecipientState): string[] {
   return names.slice(0, BULK_LIMIT);
 }
 
+/**
+ * The recipient another screen hands over in the query string: `recipient` (required for anything
+ * to happen), `course` and a `date` in YYYY-MM-DD. Null when there is no recipient to take.
+ */
+export function prefillFromQuery(search: string): Partial<RecipientState> | null {
+  const params = new URLSearchParams(search);
+  const name = params.get("recipient")?.trim();
+  if (!name) return null;
+  const patch: Partial<RecipientState> = { mode: "single", name };
+  const course = params.get("course")?.trim();
+  if (course) patch.courseTitle = course;
+  const date = params.get("date");
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) patch.date = date;
+  return patch;
+}
+
 function uniqueStudents(rows: StudentRow[]): StudentRow[] {
   const seen = new Set<string>();
   return rows.filter((s) => {
@@ -90,6 +106,18 @@ export function RecipientPanel({
   const names = bulkNames(state);
   const firstSerial = serialAt(state.serial, 0);
   const lastSerial = serialAt(state.serial, Math.max(0, names.length - 1));
+
+  // Another screen may hand over a recipient (`?recipient=&course=&date=` — the centre's term
+  // report does). Read once, on mount, straight from the location so the page needs no Suspense
+  // boundary; a URL without the parameter changes nothing.
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (prefilled.current || typeof window === "undefined") return;
+    prefilled.current = true;
+    const patch = prefillFromQuery(window.location.search);
+    if (patch) onChange(patch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a one-time read of the URL on mount
+  }, []);
 
   return (
     <div className="space-y-5">
