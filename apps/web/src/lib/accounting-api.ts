@@ -456,6 +456,8 @@ export interface FamilyCharge {
   payer_id: string;
   /** On a bill still open — the only kind whose charge can be cancelled. */
   bill_open?: boolean;
+  /** A centre: the subscription this line was raised for (its `invoice_line_id`), to open it from here. */
+  subscription_id?: string | null;
 }
 
 export type DiscountKind = "PERCENT" | "FIXED";
@@ -530,7 +532,10 @@ export type FamilyEvent =
 
 /** A child's subscription closed with lessons paid and not taken, waiting on a decision. */
 export interface UnsettledPackage extends SettlementPreview {
+  /** A centre's subscription (settled through POST /subscriptions/{id}/close) or a Quran hour package. */
+  kind?: "SUBSCRIPTION" | "PACKAGE";
   package_id: string;
+  subscription_id?: string | null;
   student_id: string;
   student_name: string;
   label: string;

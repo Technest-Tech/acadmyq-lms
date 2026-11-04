@@ -142,6 +142,16 @@ export interface PortalFamilyAccount {
   pay_url: string | null;
 }
 
+export interface PortalSubscription {
+  label: string;
+  teacher_name: string | null;
+  course: string | null;
+  lessons_sold: number;
+  lessons_used: number;
+  lessons_left: number;
+  status: "OPEN" | "FINISHED" | "CLOSED" | "CANCELLED";
+}
+
 export interface PortalChild {
   id: string;
   name: string;
@@ -156,6 +166,8 @@ export interface PortalChild {
     expires_on: string | null;
   }[];
   month: { attended: number; absent: number; minutes: number };
+  /** A centre's private subscriptions (docs/centre-profile/01): lessons left of sold per subject; replaces the package bars when present. */
+  subscriptions?: PortalSubscription[];
   next_lesson: PortalLesson | null;
   /** A centre's blocks (`groups` held): the week ahead and the latest sheets, and the 30-day marks. */
   group_lessons?: { upcoming: PortalGroupLesson[]; recent: PortalGroupLesson[] };

@@ -3373,7 +3373,12 @@ export interface StudentInput {
   teacher_id?: string | null;
   /** Create only: every teacher the student starts with, one per course. */
   teachers?: StudentTeacherInput[];
-  subscription?: SubscriptionInput;
+  /**
+   * The monthly terms — or, for a learning centre, the private subscription to sell in the same save
+   * (`SellTerms`, docs/centre-profile/01 "API contract": SellInput without the student). The server
+   * tells the two apart by the `centre` switch.
+   */
+  subscription?: SubscriptionInput | import("@/lib/subscriptions-api").SellTerms;
   /**
    * Put the new student straight onto a lesson package instead of monthly billing — the other
    * clock, chosen at creation. The server opens the package in the same request (which also
@@ -3446,6 +3451,8 @@ export function createStudent(input: StudentInput): Promise<{
   /** Set when `package` was sent: the package the save opened. */
   packageId?: string | null;
   packageInvoiceId?: string | null;
+  /** A centre: set when `subscription` carried a block to sell — the subscription the save opened. */
+  subscriptionId?: string | null;
 }> {
   return apiFetch("/api/students", {
     method: "POST",
@@ -5748,6 +5755,10 @@ export type NotificationType =
   | "PACKAGE_COMPLETED"
   | "PACKAGE_UNPAID"
   | "NO_ACTIVE_PACKAGE"
+  // A centre's subscription alerts (docs/centre-profile/01 "API contract", category SUBSCRIPTIONS).
+  | "SUBSCRIPTION_FINISHED"
+  | "SUBSCRIPTION_UNPAID"
+  | "LESSON_OUTSIDE_SUBSCRIPTION"
   // One per lesson marked attended — the "Attended classes" log, never counted on the bell.
   | "LESSON_ATTENDED";
 
@@ -5755,9 +5766,12 @@ export type NotificationType =
 export interface NotificationRow {
   id: string;
   type: NotificationType;
-  category: "REPORTS" | "PACKAGES" | "ATTENDED";
+  category: "REPORTS" | "PACKAGES" | "ATTENDED" | "SUBSCRIPTIONS";
   session_id: string | null;
-  /** Anchor for non-session alerts — a lesson_packages.id for the PACKAGE_* types. */
+  /**
+   * Anchor for non-session alerts — a lesson_packages.id for the PACKAGE_* types; a centre's
+   * subscription id for SUBSCRIPTION_*, the student's for LESSON_OUTSIDE_SUBSCRIPTION.
+   */
   subject_id: string | null;
   data: {
     student_name?: string | null;
@@ -5778,6 +5792,13 @@ export interface NotificationRow {
     currency?: string;
     invoice_id?: string | null;
     reason?: string;
+    // A centre's subscription alerts
+    subscription_id?: string;
+    lessons_sold?: number;
+    lessons_used?: number;
+    lessons_left?: number;
+    outside_count?: number;
+    course?: string | null;
     // LESSON_ATTENDED: who recorded it (a teacher, or staff marking on their behalf)
     marked_by_name?: string | null;
     marked_by_role?: string;
@@ -5790,7 +5811,7 @@ export interface NotificationRow {
  * The notification feed. Without a category: the alerts (reports, packages). `"ATTENDED"`: the
  * attended-classes log, which is fetched on its own so it never crowds the alerts out.
  */
-export function listNotifications(category?: "ATTENDED"): Promise<{
+export function listNotifications(category?: "ATTENDED" | "SUBSCRIPTIONS"): Promise<{
   notifications: NotificationRow[];
 }> {
   return apiFetch(`/api/notifications${category ? `?category=${category}` : ""}`);
@@ -5802,6 +5823,8 @@ export interface NotificationSummary {
   reports: number;
   /** Unread lesson-package alerts — its own tab, so it never inflates the reports count. */
   packages: number;
+  /** A centre: unread subscription alerts (finished, unpaid, lessons outside a block). */
+  subscriptions?: number;
   /** Pending student progress reports awaiting review (drives the tab badge, not the bell). */
   studentReports: number;
   /** Unread attended-lesson entries — its own tab's count, never part of `total`. */

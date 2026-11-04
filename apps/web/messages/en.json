@@ -282,6 +282,10 @@
     "centreAdmissions": "Admissions",
     "packagesDue": "Due packages",
     "packagesDueCentre": "Due subscriptions",
+    "subsDue": "Due subscriptions",
+    "subsOpen": "Open subscriptions",
+    "subsFinished": "Finished subscriptions",
+    "subsOutside": "Students without one",
     "trialsCentre": "Placement lessons",
     "scheduleCentre": "Timetable",
     "groupsReportsCentre": "Group statistics"
@@ -11209,6 +11213,247 @@
       "certificate": "Completion certificate",
       "issuedOn": "Issued on {date}",
       "loadFailed": "Could not load the report."
+    }
+  },
+  "subscriptions": {
+    "title": "Subscriptions",
+    "subtitle": "Private subscriptions: what is open, what is owed, what finished and awaits renewal, and who takes lessons without one.",
+    "loading": "Loading…",
+    "loadFailed": "Couldn’t load the subscriptions.",
+    "forbidden": "You don’t have permission to view subscriptions.",
+    "openCount": "{count, plural, =0 {No open subscriptions} one {# open subscription} other {# open subscriptions}}",
+    "search": "Search by student, parent or subscription",
+    "allTeachers": "All teachers",
+    "groupsNote": "Group subscriptions (months) are managed from each group’s page → Accounts.",
+    "groupsLink": "Open groups",
+    "prevPage": "Previous",
+    "nextPage": "Next",
+    "pageOf": "Page {page} of {pages}",
+    "tabs": {
+      "open": "Open",
+      "due": "Due",
+      "finished": "Finished",
+      "outside": "No subscription"
+    },
+    "stats": {
+      "open": "Open subscriptions",
+      "ending": "{count, plural, =0 {None about to end} one {# about to end} other {# about to end}}",
+      "due": "Awaiting payment",
+      "finished": "Finished, not renewed",
+      "finishedHint": "Ran out with nothing sold after",
+      "outside": "Students without one",
+      "outsideHint": "Attended lessons outside any subscription"
+    },
+    "empty": {
+      "open": "No open subscriptions. Sell one from here.",
+      "due": "Nothing owed. Every subscription is paid.",
+      "finished": "No finished subscriptions awaiting renewal.",
+      "outside": "Nobody is taking lessons without a subscription."
+    },
+    "status": {
+      "OPEN": "Open",
+      "FINISHED": "Finished",
+      "CLOSED": "Closed",
+      "CANCELLED": "Cancelled"
+    },
+    "row": {
+      "lessons": "Lessons",
+      "usedOf": "{used} / {sold}",
+      "perLesson": "{amount} per lesson",
+      "perLessonLength": "{amount} per lesson ({minutes} min)",
+      "notBilled": "Not billed",
+      "due": "{amount} due",
+      "paid": "Paid",
+      "since": "From {date}",
+      "nextLesson": "Next lesson {when}",
+      "upcoming": "{count, plural, one {# upcoming lesson} other {# upcoming lessons}}",
+      "closedOn": "Closed {date}",
+      "outside": "{count, plural, one {# lesson outside} other {# lessons outside}}",
+      "renewalHeld": "Renewal held until the last one is paid",
+      "settlementPending": "Settlement awaiting a decision",
+      "untied": "Any lesson"
+    },
+    "family": {
+      "owes": "Family owes"
+    },
+    "actions": {
+      "detail": "Details",
+      "edit": "Edit",
+      "sellNext": "Sell next",
+      "close": "Close",
+      "cancel": "Delete",
+      "remindPayment": "Payment reminder",
+      "remindFinished": "Renewal reminder"
+    },
+    "subject": {
+      "label": "Subject",
+      "pick": "Pick a subject",
+      "open": "(open)",
+      "new": "New subject…",
+      "name": "Subject name",
+      "namePlaceholder": "e.g. English, Maths",
+      "teacher": "Teacher",
+      "teacherPick": "Pick a teacher",
+      "hint": "A subscription is for one subject: a teacher and what they teach. One open subscription per subject.",
+      "newHint": "The teacher is linked to the student as the subscription opens. The timetable is built from the student’s page."
+    },
+    "terms": {
+      "lessons": "Lessons",
+      "length": "Lesson length",
+      "minutes": "{minutes} min",
+      "otherLength": "Other…",
+      "lessonPrice": "Price per lesson",
+      "total": "Total",
+      "readout": "{lessons} lessons × {price} = {total}",
+      "dealNote": "agreed price",
+      "tooFew": "Not below what was already taught ({used}).",
+      "label": "Name (optional)",
+      "labelPlaceholder": "Written automatically if left blank",
+      "startsOn": "Starts on",
+      "startsHint": "Leave blank to start from the first lesson outside a subscription, else today."
+    },
+    "sell": {
+      "action": "Sell a subscription",
+      "title": "Sell a private subscription",
+      "renewTitle": "Renew {name}’s subscription",
+      "description": "A number of lessons for one subject at a price per lesson. One line goes on the family’s bill on save.",
+      "student": "Student",
+      "studentPlaceholder": "Choose a student",
+      "searchStudent": "Search students…",
+      "noStudents": "No active students.",
+      "alreadyOpen": "This subject already has an open subscription. Add lessons by editing it, or close it first.",
+      "noTimetable": "This student has no timetable with this teacher yet — lessons won’t appear until one is built.",
+      "openSchedule": "Open the student’s schedule",
+      "overrideTitle": "Sell despite the earlier unpaid bill",
+      "overrideHint": "Pay-first holds the sale until the last one is paid. Tick to override this once.",
+      "confirm": "Sell",
+      "renewConfirm": "Renew",
+      "cancel": "Cancel",
+      "sold": "Subscription sold.",
+      "soldDue": "Subscription sold. {amount} is due on the bill.",
+      "failed": "Couldn’t sell the subscription."
+    },
+    "edit": {
+      "title": "Edit {name}’s subscription",
+      "description": "Everything can change: teacher, subject, start date, lessons, price and length. The bill line is re-issued in place.",
+      "used": "{used} of {sold} taught.",
+      "teacher": "Teacher",
+      "untied": "Any teacher",
+      "course": "Subject",
+      "coursePlaceholder": "Subject name",
+      "startsHint": "Moving the start moves the counted lessons with it.",
+      "billNote": "The bill is unpaid: its line changes to the new amount.",
+      "billNotePaid": "{amount} of the bill is paid. The difference becomes credit or a due, as the edit goes.",
+      "movedLessons": "{count, plural, one {# lesson moved.} other {# lessons moved.}}",
+      "saved": "Saved.",
+      "savedCredit": "Saved. {amount} became family credit.",
+      "savedDue": "Saved. {amount} is now due.",
+      "failed": "Couldn’t save the edit.",
+      "confirm": "Save",
+      "cancel": "Cancel"
+    },
+    "close": {
+      "title": "Close the subscription",
+      "description": "What was taught stays counted. Lessons paid for and not taken are settled here.",
+      "remaining": "{left} of {sold} lessons left.",
+      "reason": "Reason",
+      "reasonPlaceholder": "e.g. the student stopped, travelling…",
+      "cancelHint": "No lesson counted and nothing paid: it can be deleted instead, voiding its bill line.",
+      "cancelConfirm": "Delete it",
+      "confirm": "Close",
+      "back": "Back",
+      "closed": "Subscription closed.",
+      "cancelled": "Subscription deleted.",
+      "failed": "Couldn’t close it.",
+      "cancelFailed": "Couldn’t delete it."
+    },
+    "cancel": {
+      "title": "Delete “{label}” for {name}?",
+      "hint": "For a subscription opened by mistake: it goes with its bill line. Only while no lesson was counted and nothing was paid.",
+      "confirm": "Delete",
+      "keep": "Keep",
+      "done": "Subscription deleted.",
+      "failed": "Couldn’t delete it."
+    },
+    "settle": {
+      "title": "Lessons paid for and not taken",
+      "for": "{name} · {label}",
+      "owedBack": "The family is owed {amount} from a subscription that didn’t finish",
+      "breakdown": "They paid {paid}; what was used is worth {used}",
+      "mode": {
+        "CREDIT": "Family credit",
+        "REFUND": "Refund",
+        "KEEP": "The centre keeps it",
+        "LATER": "Decide later"
+      },
+      "hint": {
+        "CREDIT": "The rest becomes credit, taken off any new due automatically.",
+        "REFUND": "The amount goes back to the family; how, and the reference, are recorded.",
+        "KEEP": "No money moves. The decision and the reason are recorded.",
+        "LATER": "Stays visible on the family’s account until someone decides."
+      },
+      "noRefund": "A refund can’t be made from here.",
+      "method": "Refund method",
+      "reference": "Reference (optional)",
+      "note": "Note (optional)",
+      "keepReason": "Reason",
+      "back": "Back",
+      "confirm": "Confirm",
+      "saved": "Decision saved.",
+      "failed": "Couldn’t save the decision.",
+      "done": {
+        "CREDIT": "{amount} became family credit.",
+        "REFUND": "{amount} refunded to the family {number}.",
+        "KEEP": "Recorded that the centre keeps {amount}."
+      }
+    },
+    "detail": {
+      "title": "Subscription details",
+      "student": "Student",
+      "subject": "Subject",
+      "lessons": "Lessons",
+      "lessonPrice": "Price per lesson",
+      "total": "Total",
+      "bill": "Bill",
+      "startsOn": "Starts on",
+      "closedOn": "Closed",
+      "openedBy": "Sold by",
+      "lessonsTitle": "Lessons on this subscription",
+      "noLessons": "No lessons counted yet.",
+      "minutes": "{minutes} min",
+      "outsideLesson": "outside the subscription"
+    },
+    "remind": {
+      "title": "Reminder",
+      "sent": "The reminder was sent to {name}’s family.",
+      "notSent": "Not sent automatically — copy the message and send it to {name}’s family.",
+      "ok": "OK",
+      "failed": "Couldn’t send the reminder."
+    },
+    "alerts": {
+      "tab": "Subscriptions",
+      "empty": "No subscription alerts. All is well.",
+      "open": "Open the subscriptions page",
+      "SUBSCRIPTION_FINISHED": {
+        "title": "{student}’s subscription finished",
+        "body": "“{label}” ({sold} lessons) is used up. Sell the next one."
+      },
+      "SUBSCRIPTION_UNPAID": {
+        "title": "{student} got a new subscription with an earlier one unpaid",
+        "body": "{amount} is still owed on an earlier subscription. Lessons go on — this is an alert, not a block."
+      },
+      "LESSON_OUTSIDE_SUBSCRIPTION": {
+        "title": "{student} is taking lessons without a subscription",
+        "body": "{count, plural, one {# lesson was attended} other {# lessons were attended}} outside any subscription. The next one sold takes them."
+      }
+    },
+    "studentForm": {
+      "intro": "The subscription is sold on save: one line on the family’s bill, on the subscriptions page at once.",
+      "termsRequired": "Pick a subject and type the lessons and the price per lesson."
+    },
+    "quickBill": {
+      "note": "“{label}” already has a bill waiting ({amount}). Collect it from the subscriptions page instead of a new bill.",
+      "open": "Open what is due"
     }
   }
 }

@@ -23,6 +23,7 @@ import {
 } from "@/components/packages/package-terms";
 import { MonthlyTermsFields, useMonthlyTerms } from "@/components/students/monthly-terms";
 import { ChoiceCard } from "@/components/students/student-form";
+import { StudentSubscriptionFields, useStudentSubscriptionDraft, type SubjectLink } from "@/components/subscriptions/student-subscription-fields";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -40,6 +41,8 @@ import {
 } from "@/lib/api";
 import { fetchRoster } from "@/lib/roster";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
+import { addGroupMembers, listGroups, type GroupRow } from "@/lib/groups-api";
+import { sellSubscription } from "@/lib/subscriptions-api";
 import { cn } from "@/lib/utils";
 
 // ── Shared ─────────────────────────────────────────────────────────────────────
@@ -140,8 +143,27 @@ export function EnrollmentWizard({
     (session?.capabilities == null ||
       (session.capabilities.includes("invoicing") &&
         session.capabilities.includes("packages")));
+  /**
+   * A learning centre (`centre`, docs/centre-profile/01): the pricing step is its private
+   * subscription (a block of lessons for a subject, POST /subscriptions) and the groups to join —
+   * the same two things the new-student form asks — never the Quran monthly clock or an hour package.
+   */
+  const centre = session?.capabilities?.includes("centre") ?? false;
+  const subscriptionAvailable = centre && canPrice && can("package.manage");
+  const groupsOn = centre && (session?.capabilities?.includes("groups") ?? false) && can("group.manage");
   const [billing, setBilling] = useState<"monthly" | "package">("monthly");
-  const onPackage = packagesAvailable && billing === "package";
+  const onPackage = !centre && packagesAvailable && billing === "package";
+  // A centre: the private subscription is optional — groups alone are a valid enrolment.
+  const [withSubscription, setWithSubscription] = useState(true);
+  const [studentLinks, setStudentLinks] = useState<SubjectLink[]>([]);
+  const [groupOptions, setGroupOptions] = useState<GroupRow[] | null>(null);
+  const [groupPicks, setGroupPicks] = useState<{ id: string; joinedOn: string }[]>([]);
+  const groupIds = groupPicks.map((g) => g.id);
+  // The subject can be the teacher picked on the schedule step, even before the link is saved.
+  const [teacherId, setTeacherId] = useState(currentTeacherId ?? "");
+  const links: SubjectLink[] = teacherId && !studentLinks.some((l) => l.teacher_id === teacherId) ? [...studentLinks, { teacher_id: teacherId, course: null }] : studentLinks;
+  const subscriptionDraft = useStudentSubscriptionDraft(links);
+  const onSubscription = subscriptionAvailable && withSubscription;
   // The guardian pays, so their currency seeds the package's. Fetched only when it can matter.
   // The academy's own defaults (Settings → Academy) open the pickers; the form can still change them.
   const defaults = useAcademyDefaults();
@@ -149,11 +171,30 @@ export function EnrollmentWizard({
   const terms = usePackageTerms({ defaultCurrency: guardianCurrency });
 
   useEffect(() => {
-    if (!packagesAvailable) return;
+    if (!packagesAvailable && !subscriptionAvailable) return;
     void getStudent(studentId)
-      .then((d) => setGuardianCurrency(d.guardian?.currency ?? ""))
+      .then((d) => {
+        setGuardianCurrency(d.guardian?.currency ?? "");
+        setStudentLinks((d.teachers ?? []).map((l) => ({ teacher_id: l.teacher_id, course: l.course })));
+      })
       .catch(() => {});
-  }, [packagesAvailable, studentId]);
+  }, [packagesAvailable, subscriptionAvailable, studentId]);
+
+  useEffect(() => {
+    if (!groupsOn) return;
+    void listGroups({ state: "ACTIVE" })
+      .then((r) => setGroupOptions(r.groups))
+      .catch(() => setGroupOptions([]));
+  }, [groupsOn]);
+
+  function pickGroup(id: string) {
+    const g = groupOptions?.find((x) => x.id === id);
+    if (!g || groupIds.includes(id)) return;
+    const today = todayLocal();
+    // A class nobody has attended yet takes the student from its first lesson; else from today.
+    const joinedOn = g.lessons?.held === 0 ? g.start_date : today < g.start_date ? g.start_date : today;
+    setGroupPicks((prev) => [...prev, { id, joinedOn }]);
+  }
   const [step, setStep] = useState(0);
   // The timetable's own start date. It lives on THIS step because the schedule is saved before
   // the pricing step below — by the time the enrolment start date is typed there, the lessons
@@ -165,7 +206,6 @@ export function EnrollmentWizard({
   const [busy, setBusy] = useState(false);
 
   // Schedule step
-  const [teacherId, setTeacherId] = useState(currentTeacherId ?? "");
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [timezone, setTimezone] = useState(
     () => Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -230,6 +270,19 @@ export function EnrollmentWizard({
     setBusy(true);
     setError(null);
     try {
+      if (withPricing && centre) {
+        // The centre's enrolment: the block sold first (POST /subscriptions, which links a new
+        // subject's teacher as it opens), then the groups, then the student is regular.
+        if (onSubscription) {
+          await sellSubscription({ student_id: studentId, ...subscriptionDraft.toPayload() });
+        }
+        for (const pick of groupPicks) {
+          await addGroupMembers(pick.id, { student_ids: [studentId], joined_on: pick.joinedOn });
+        }
+        await updateStudent(studentId, { status: "REGULAR" });
+        onCompleted({ packageOpened: onSubscription });
+        return;
+      }
       if (withPricing && onPackage) {
         // Opening the package creates the student's package-billing subscription in the same
         // request, which is exactly what makes REGULAR reachable on the next line — the API only
@@ -258,7 +311,7 @@ export function EnrollmentWizard({
     }
   }
 
-  const hasPricing = onPackage ? terms.valid : monthly.valid;
+  const hasPricing = centre ? (onSubscription ? subscriptionDraft.valid : groupPicks.length > 0) : onPackage ? terms.valid : monthly.valid;
 
   // ── Step 1: Schedule & Teacher ─────────────────────────────────────────────
   const scheduleStep = (
@@ -384,7 +437,82 @@ export function EnrollmentWizard({
         </p>
       </div>
 
-      {packagesAvailable && (
+      {centre && (
+        <div className="space-y-3" data-testid="enroll-centre-pricing">
+          {groupsOn && (
+            <div className="space-y-2 rounded-xl border bg-background/60 p-3" data-testid="enroll-group-subs">
+              <div>
+                <p className="text-sm font-semibold">{t("form.groupSubs")}</p>
+                <p className="text-muted-foreground text-xs">{t("form.groupSubsHint")}</p>
+              </div>
+              {groupPicks.length > 0 && (
+                <ul className="divide-y rounded-lg border bg-background" data-testid="enroll-group-subs-list">
+                  {groupPicks.map((pick) => {
+                    const g = groupOptions?.find((x) => x.id === pick.id);
+                    return (
+                      <li key={pick.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm" data-testid={`enroll-group-sub-${pick.id}`}>
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium">{g?.name ?? pick.id}</span>
+                          {g?.teacher_name && <span className="text-muted-foreground block text-xs">{g.teacher_name}</span>}
+                        </span>
+                        <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                          {t("form.groupFrom")}
+                          <input
+                            type="date"
+                            className={cn(inputBase, "w-36 px-2 py-1 text-xs")}
+                            value={pick.joinedOn}
+                            min={g?.start_date}
+                            onChange={(e) => setGroupPicks((prev) => prev.map((x) => (x.id === pick.id ? { ...x, joinedOn: e.target.value } : x)))}
+                            data-testid={`enroll-group-sub-from-${pick.id}`}
+                          />
+                        </label>
+                        <button type="button" onClick={() => setGroupPicks((prev) => prev.filter((x) => x.id !== pick.id))} className="text-muted-foreground hover:text-destructive text-xs">
+                          {t("form.removeGroup")}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <div className="relative">
+                <Plus className="text-primary pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" aria-hidden />
+                <select
+                  className={cn(inputBase, "border-primary/40 text-primary border-dashed py-2 ps-9 pe-3 text-sm font-medium")}
+                  value=""
+                  onChange={(e) => pickGroup(e.target.value)}
+                  aria-label={t("form.pickGroup")}
+                  disabled={groupOptions !== null && groupOptions.filter((g) => !groupIds.includes(g.id)).length === 0}
+                  data-testid="enroll-group-subs-pick"
+                >
+                  <option value="">{groupOptions === null ? "…" : groupOptions.length === 0 ? t("form.noGroups") : groupPicks.length === 0 ? t("form.addGroup") : t("form.addAnotherGroup")}</option>
+                  {(groupOptions ?? [])
+                    .filter((g) => !groupIds.includes(g.id))
+                    .map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                        {g.teacher_name ? ` · ${g.teacher_name}` : ""}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+          )}
+          {subscriptionAvailable && (
+            <div className="space-y-1.5">
+              <p className="text-sm font-semibold">{t("form.privateTitle")}</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {groupsOn && (
+                  <ChoiceCard icon={CalendarRange} title={t("form.noPrivate")} hint={t("form.noPrivateHint")} selected={!withSubscription} onSelect={() => setWithSubscription(false)} testId="enroll-billing-none" />
+                )}
+                <ChoiceCard icon={Layers} title={t("form.billingSubscription")} hint={t("form.billingSubscriptionHint")} selected={withSubscription} onSelect={() => setWithSubscription(true)} testId="enroll-billing-subscription" />
+              </div>
+            </div>
+          )}
+          {onSubscription && <StudentSubscriptionFields draft={subscriptionDraft} links={links} teachers={teachers} currency={guardianCurrency} idPrefix="enroll-sub" />}
+        </div>
+      )}
+
+      {!centre && packagesAvailable && (
         <div className="space-y-1.5">
           <span className="text-sm font-medium">{t("form.billingTitle")}</span>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -408,7 +536,7 @@ export function EnrollmentWizard({
         </div>
       )}
 
-      {onPackage ? (
+      {centre ? null : onPackage ? (
         <PackageTermsFields terms={terms} idPrefix="enroll-pkg" />
       ) : (
         <MonthlyTermsFields terms={monthly} idPrefix="enroll-monthly" />

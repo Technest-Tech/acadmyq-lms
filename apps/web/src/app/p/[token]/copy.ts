@@ -161,6 +161,9 @@ type Copy = {
   tomorrow: string;
   group: string;
   hoursLeft: (left: string, total: string) => string;
+  /** A centre's block: lessons left of the lessons sold. */
+  lessonsLeft: (left: number, total: number) => string;
+  subscriptionFinished: string;
   expires: (date: string) => string;
   status: Record<PortalLessonStatus, string>;
   report: string;
@@ -258,6 +261,8 @@ export const COPY: Record<Lang, Copy> = {
     tomorrow: "غداً",
     group: "مجموعة",
     hoursLeft: (left, total) => `متبقٍ ${left} من ${total}`,
+    lessonsLeft: (left, total) => `متبقٍ ${num(left, "ar")} من ${lessons(total, "ar")}`,
+    subscriptionFinished: "انتهى الاشتراك — بانتظار التجديد",
     expires: (date) => `تنتهي ${date}`,
     status: {
       SCHEDULED: "قادمة",
@@ -361,6 +366,8 @@ export const COPY: Record<Lang, Copy> = {
     tomorrow: "Tomorrow",
     group: "Group",
     hoursLeft: (left, total) => `${left} left of ${total}`,
+    lessonsLeft: (left, total) => `${num(left, "en")} left of ${lessons(total, "en")}`,
+    subscriptionFinished: "Subscription finished — awaiting renewal",
     expires: (date) => `Expires ${date}`,
     status: {
       SCHEDULED: "Upcoming",

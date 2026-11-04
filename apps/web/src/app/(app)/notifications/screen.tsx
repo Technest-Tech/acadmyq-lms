@@ -39,11 +39,12 @@ import {
   type NotificationRow,
   rejectCancellation,
 } from "@/lib/api";
+import { useCapability } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-type TabKey = "classes" | "attended" | "reports" | "packages";
+type TabKey = "classes" | "attended" | "reports" | "packages" | "subscriptions";
 
 const STATUS_CHIP: Record<CancellationStatus, string> = {
   PENDING:
@@ -56,14 +57,19 @@ const STATUS_CHIP: Record<CancellationStatus, string> = {
 
 export function NotificationsScreen() {
   const t = useTranslations("notifications");
+  const tSubs = useTranslations("subscriptions");
   const locale = useLocale();
   const { can } = useAuth();
+  // A centre's money alerts are its subscriptions' (docs/centre-profile/01): the packages tab gives
+  // way to a subscriptions one, read from its own category so the two feeds never mix.
+  const centre = useCapability("centre");
 
   const [tab, setTab] = useState<TabKey>("classes");
   const [requests, setRequests] = useState<CancellationRequestRow[]>([]);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
   const [attended, setAttended] = useState<NotificationRow[]>([]);
-  const [counts, setCounts] = useState({ classes: 0, attended: 0, reports: 0, packages: 0 });
+  const [subscriptionAlerts, setSubscriptionAlerts] = useState<NotificationRow[]>([]);
+  const [counts, setCounts] = useState({ classes: 0, attended: 0, reports: 0, packages: 0, subscriptions: 0 });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -79,28 +85,31 @@ export function NotificationsScreen() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [{ requests: reqs }, { notifications: notifs }, { notifications: log }, summary] =
+      const [{ requests: reqs }, { notifications: notifs }, { notifications: log }, summary, subs] =
         await Promise.all([
           listCancellationRequests(),
           listNotifications(),
           listNotifications("ATTENDED"),
           getNotificationsSummary(),
+          centre ? listNotifications("SUBSCRIPTIONS") : Promise.resolve({ notifications: [] as NotificationRow[] }),
         ]);
       setRequests(reqs);
       setNotifications(notifs);
       setAttended(log);
+      setSubscriptionAlerts(subs.notifications);
       setCounts({
         classes: summary.classes,
         attended: summary.attended ?? 0,
         reports: summary.reports,
         packages: summary.packages,
+        subscriptions: summary.subscriptions ?? 0,
       });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [centre]);
 
   useEffect(() => {
     void load();
@@ -116,7 +125,7 @@ export function NotificationsScreen() {
     { key: "classes", icon: Ban, count: counts.classes },
     { key: "attended", icon: CalendarCheck, count: counts.attended },
     { key: "reports", icon: ClipboardX, count: counts.reports },
-    { key: "packages", icon: Layers, count: counts.packages },
+    centre ? { key: "subscriptions", icon: Layers, count: counts.subscriptions } : { key: "packages", icon: Layers, count: counts.packages },
   ];
 
   // One feed, two audiences. Package alerts share the notifications table with the overdue-report
@@ -175,7 +184,7 @@ export function NotificationsScreen() {
             )}
           >
             <Icon className="size-4" />
-            <span>{t(`tabs.${key}`)}</span>
+            <span>{key === "subscriptions" ? tSubs("alerts.tab") : t(`tabs.${key}`)}</span>
             {count > 0 && (
               <span className="bg-primary text-primary-foreground ms-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular-nums">
                 {count}
@@ -207,6 +216,8 @@ export function NotificationsScreen() {
           onChanged={load}
           onError={setError}
         />
+      ) : tab === "subscriptions" ? (
+        <SubscriptionsTab notifications={subscriptionAlerts} onChanged={load} onError={setError} />
       ) : (
         <PackagesTab
           notifications={packageNotifications}
@@ -840,6 +851,110 @@ function PackagesTab({
                   onClick={() => void markRead(n.id)}
                   className="shrink-0 gap-1.5 self-end sm:self-auto"
                 >
+                  <Check className="size-3.5" />
+                  {t("actions.markRead")}
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// ── Subscriptions (a centre's subscription alerts) ────────────────────────────
+
+/** Where each alert is chased from: a finished block on the finished view, money on due, an outside lesson on its own view. */
+const SUBSCRIPTION_ALERT_VIEW: Record<string, string> = {
+  SUBSCRIPTION_FINISHED: "finished",
+  SUBSCRIPTION_UNPAID: "due",
+  LESSON_OUTSIDE_SUBSCRIPTION: "outside",
+};
+
+/**
+ * What the centre's subscription engine wants the desk to know (docs/centre-profile/01): a block
+ * used up (sell the next one), a block sold while an earlier one is unpaid (pay-first was
+ * overridden), a lesson attended outside any block (the next sale takes it). Alerts, never blocks:
+ * a lesson is never stopped because a family owes money.
+ */
+function SubscriptionsTab({ notifications, onChanged, onError }: { notifications: NotificationRow[]; onChanged: () => Promise<void>; onError: (msg: string) => void }) {
+  const t = useTranslations("notifications");
+  const ts = useTranslations("subscriptions.alerts");
+  const locale = useLocale();
+  const [busy, setBusy] = useState(false);
+  const hasUnread = notifications.some((n) => n.read_at === null);
+
+  async function markRead(id: string) {
+    try {
+      await markNotificationRead(id);
+      await onChanged();
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+
+  async function markAll() {
+    setBusy(true);
+    try {
+      await markAllNotificationsRead();
+      await onChanged();
+    } catch (err) {
+      onError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (notifications.length === 0) {
+    return <EmptyState message={ts("empty")} />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {hasUnread && (
+        <div className="flex justify-end">
+          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => void markAll()} className="gap-1.5">
+            <CheckCheck className="size-3.5" />
+            {t("actions.markAllRead")}
+          </Button>
+        </div>
+      )}
+      <ul className="space-y-3" data-testid="subscriptions-list">
+        {notifications.map((n) => {
+          const unread = n.read_at === null;
+          const alarming = n.type === "SUBSCRIPTION_UNPAID" || n.type === "LESSON_OUTSIDE_SUBSCRIPTION";
+          const known = n.type in SUBSCRIPTION_ALERT_VIEW;
+          return (
+            <li
+              key={n.id}
+              data-testid="subscription-alert"
+              data-unread={unread}
+              className={cn("bg-card flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-start sm:justify-between", unread && "border-primary/30 bg-primary/[0.03]", alarming && "border-destructive/30")}
+            >
+              <div className="flex min-w-0 items-start gap-3">
+                <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl ring-1", alarming ? "bg-destructive/10 ring-destructive/20" : "bg-primary/10 ring-primary/20")}>
+                  <Layers className={cn("size-5", alarming ? "text-destructive" : "text-primary")} aria-hidden />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold leading-tight">{known ? ts(`${n.type}.title`, { student: n.data.student_name ?? "—" }) : n.type}</p>
+                  {known && (
+                    <p className="text-muted-foreground mt-1 text-sm">
+                      {ts(`${n.type}.body`, {
+                        label: n.data.label ?? "—",
+                        sold: n.data.lessons_sold ?? 0,
+                        count: n.data.outside_count ?? 0,
+                        amount: n.data.outstanding_minor !== undefined ? formatMoney({ amount: n.data.outstanding_minor, currency: n.data.currency ?? "EGP" }, locale) : "—",
+                      })}
+                    </p>
+                  )}
+                  <Link href={`/subscriptions?view=${SUBSCRIPTION_ALERT_VIEW[n.type] ?? "open"}`} className="text-primary mt-1.5 inline-block text-xs font-semibold hover:underline">
+                    {ts("open")}
+                  </Link>
+                </div>
+              </div>
+              {unread && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => void markRead(n.id)} className="shrink-0 gap-1.5 self-end sm:self-auto">
                   <Check className="size-3.5" />
                   {t("actions.markRead")}
                 </Button>
