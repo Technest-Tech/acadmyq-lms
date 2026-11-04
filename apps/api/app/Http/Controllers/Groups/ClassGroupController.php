@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Groups;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Groups\Concerns\InteractsWithClassGroups;
 use App\Services\ClassGroups;
+use App\Services\CourseTerm;
 use App\Services\GroupBilling;
 use App\Services\GroupLessonGenerator;
 use App\Services\GroupPayroll;
@@ -45,6 +46,7 @@ final class ClassGroupController extends Controller
         private readonly GroupLessonGenerator $generator,
         private readonly GroupBilling $billing,
         private readonly GroupPayroll $payroll,
+        private readonly CourseTerm $terms,
     ) {}
 
     /**
@@ -62,6 +64,8 @@ final class ClassGroupController extends Controller
             'teacher_id' => ['sometimes', 'nullable', 'uuid'],
             'level_id' => ['sometimes', 'nullable', 'uuid'],
             'q' => ['sometimes', 'nullable', 'string', 'max:120'],
+            // A centre's "courses ending soon" (CourseTerm): only the rows whose term is about to end.
+            'ending_soon' => ['sometimes', 'nullable', 'boolean'],
         ]);
 
         $query = DB::table('class_groups as g')
@@ -91,6 +95,7 @@ final class ClassGroupController extends Controller
         $ids = $all->pluck('id')->map(fn ($id) => (string) $id)->all();
         $counters = $this->groups->lessonCounters($ids);
         $slots = $this->slotsFor($ids);
+        $terms = $this->terms->extrasFor($ids);
 
         $counts = array_fill_keys(self::STATES, 0);
         $rows = [];
@@ -103,7 +108,11 @@ final class ClassGroupController extends Controller
                 continue;
             }
 
-            $rows[] = $this->present($g, $state, $slots[(string) $g->id] ?? [], $counters[(string) $g->id] ?? null);
+            $row = $this->present($g, $state, $slots[(string) $g->id] ?? [], $counters[(string) $g->id] ?? null, $terms[(string) $g->id] ?? null);
+            if (! empty($data['ending_soon']) && ! $row['ending_soon']) {
+                continue;
+            }
+            $rows[] = $row;
         }
 
         return response()->json(['groups' => $rows, 'counts' => $counts]);
@@ -138,6 +147,7 @@ final class ClassGroupController extends Controller
                 'timezone' => $data['timezone'] ?? $this->academyTimezone($academyId),
                 'start_date' => $data['start_date'],
                 'end_date' => $data['end_date'] ?? null,
+                'lessons_planned' => $data['lessons_planned'] ?? null,
                 'notes' => $data['notes'] ?? null,
                 'status' => 'ACTIVE',
                 'created_by' => $this->ctx()->userId,
@@ -199,7 +209,7 @@ final class ClassGroupController extends Controller
 
         $fields = array_intersect_key($data, array_flip([
             'name', 'specialization_id', 'level', 'level_id', 'teacher_id', 'capacity', 'mode', 'location',
-            'meeting_url', 'timezone', 'start_date', 'end_date', 'notes',
+            'meeting_url', 'timezone', 'start_date', 'end_date', 'lessons_planned', 'notes',
             ...self::PRICE_FIELDS, ...self::TEACHER_PAY_FIELDS,
         ]));
         if (isset($fields['name'])) {
@@ -667,7 +677,7 @@ final class ClassGroupController extends Controller
         $marked = array_sum(array_column($attendance, 'marked'));
         $came = array_sum(array_map(fn ($a) => $a['present'] + $a['late'], $attendance));
 
-        return $this->present($g, ClassGroups::state($g), $this->groups->slotsOf($id), $counters) + [
+        return $this->present($g, ClassGroups::state($g), $this->groups->slotsOf($id), $counters, $this->terms->extrasFor([$id])[$id] ?? null) + [
             'notes' => $g->notes,
             'effective_meeting_url' => $g->meeting_url ?? $g->teacher_meeting_url,
             'members' => $members,
@@ -675,8 +685,14 @@ final class ClassGroupController extends Controller
         ];
     }
 
-    /** The list row. */
-    private function present(object $g, string $state, array $slots, ?array $counters): array
+    /** The group as GET /groups/{id} answers it — for the term controllers, which return the successor. */
+    public function payload(string $id): array
+    {
+        return $this->detail($id);
+    }
+
+    /** The list row. `$term` is this group's slice of {@see CourseTerm::extrasFor}. */
+    private function present(object $g, string $state, array $slots, ?array $counters, ?array $term = null): array
     {
         return [
             'id' => (string) $g->id,
@@ -715,7 +731,9 @@ final class ClassGroupController extends Controller
                 'share_bp' => $g->teacher_share_bp !== null ? (int) $g->teacher_share_bp : null,
                 'currency' => $g->teacher_currency ?? DB::table('teachers')->where('id', $g->teacher_id)->value('currency'),
             ] : null,
-        ];
+            // The course term (docs/centre-profile, Phase 2 §2): nullable keys, null / 0 / false for a
+            // group with no plan, no end date and nobody waiting.
+        ] + CourseTerm::progress($g, $state, (int) ($counters['held'] ?? 0), $term ?? []);
     }
 
     /** Whoever may set a student's price, or read the invoices it lands on, may see it. */
@@ -808,6 +826,8 @@ final class ClassGroupController extends Controller
             'timezone' => ['sometimes', 'nullable', 'string', 'max:64', 'timezone'],
             'start_date' => [$req, 'date_format:Y-m-d'],
             'end_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
+            // A centre's course: how many lessons the term promises (CourseTerm); null = not counted.
+            'lessons_planned' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1000'],
             'notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
             'slots' => [$req, 'array', 'min:1', 'max:21'],
             'slots.*.weekday' => ['required', 'integer', 'between:0,6'],

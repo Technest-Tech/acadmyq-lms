@@ -102,6 +102,9 @@ final class EnrolmentRequestController extends Controller
             }
         }
 
+        // TODO(course-term): a request for a FULL group could be put on that group's waiting list from
+        // here (GroupWaitlist::add with the request's name + phone, or its student once created) —
+        // docs/centre-profile Phase 2 §2 left the inbox → waitlist link for later.
         if ($after !== []) {
             DB::table('enrolment_requests')->where('id', $id)->update($after + [
                 'handled_by' => $this->ctx()->userId,

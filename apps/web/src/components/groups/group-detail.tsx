@@ -12,6 +12,7 @@ import {
   Link2,
   MapPin,
   Pencil,
+  Repeat,
   Trash2,
   UsersRound,
   Wallet,
@@ -21,12 +22,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { CourseEndPanel } from "@/components/groups/course-end-panel";
 import { GroupAccountsPanel } from "@/components/groups/group-accounts-panel";
 import { GroupForm, apiErrorMessage } from "@/components/groups/group-form";
 import { hoursText, monthLessons, percent, pricingRuleKey, sortSlots, wallTime } from "@/components/groups/group-format";
 import { GroupLessonsPanel } from "@/components/groups/group-lessons-panel";
 import { GroupMembersPanel } from "@/components/groups/group-members-panel";
 import { GroupMoneyPanel } from "@/components/groups/group-money-panel";
+import { WaitlistPanel } from "@/components/groups/waitlist-panel";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +55,7 @@ const TABS: Tab[] = ["lessons", "members", "money", "accounts", "overview"];
  */
 export function GroupDetailScreen({ groupId }: { groupId: string }) {
   const t = useTranslations("groups");
+  const tTerm = useTranslations("courseTerm");
   const { can } = useAuth();
   const router = useRouter();
   const search = useSearchParams();
@@ -59,6 +63,8 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
   // The money tab is the owner's view of the bills — never a supervisor's or a teacher's. An academy
   // on receipts (accounting) gets the collection sheet in its place.
   const accounting = useCapability("accounting");
+  // A centre's group is a course term (docs/centre-profile, Phase 2 §2): progress, end, waiting list.
+  const centre = useCapability("centre");
   const tabs = TABS.filter((k) => {
     if (k === "money") return can("invoice.read") && !accounting;
     if (k === "accounts") return can("invoice.read") && accounting;
@@ -137,6 +143,18 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
                 : t("students", { count: group.member_count })}
             </HeroBadge>
             <HeroBadge>{t(`mode.${group.mode}`)}</HeroBadge>
+            {centre && group.lessons_planned != null && (
+              <HeroBadge>
+                <span data-testid="group-progress" title={tTerm("progressTitle")}>
+                  {tTerm("progress", { held: group.lessons_held ?? 0, planned: group.lessons_planned })}
+                </span>
+              </HeroBadge>
+            )}
+            {centre && group.state === "RUNNING" && group.ends_in_days != null && group.ends_in_days >= 0 && (
+              <HeroBadge tone={group.ending_soon ? "gold" : "plain"}>
+                <span data-testid="group-ends-in">{tTerm("endsIn", { days: group.ends_in_days })}</span>
+              </HeroBadge>
+            )}
           </>
         }
         actions={
@@ -185,7 +203,26 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
 
       {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
-      {group.status === "ARCHIVED" && <AlertBanner variant="info" message={t("detail.archivedBanner")} />}
+      {group.status === "ARCHIVED" && (
+        <AlertBanner variant="info" message={centre && group.closed_reason ? tTerm(`archivedAs.${group.closed_reason}`) : t("detail.archivedBanner")} />
+      )}
+      {centre && group.continues_group_id && (
+        <p className="text-muted-foreground text-sm">
+          <Link href={`/groups/${group.continues_group_id}`} className="hover:text-foreground inline-flex items-center gap-1 hover:underline" data-testid="group-continues">
+            <Repeat className="size-3.5" aria-hidden />
+            {tTerm("continues", { name: group.continues_group_name ?? "…" })}
+          </Link>
+        </p>
+      )}
+      {centre && canManage && (group.state === "RUNNING" || group.state === "FINISHED") && (
+        <CourseEndPanel
+          group={group}
+          onClosed={(g) => {
+            setGroup(g);
+            setNotice(tTerm("close.done"));
+          }}
+        />
+      )}
 
       <div className="no-scrollbar -mx-1 flex gap-1 overflow-x-auto border-b px-1" role="tablist">
         {tabs.map((key) => (
@@ -211,7 +248,12 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
       </div>
 
       {tab === "lessons" && <GroupLessonsPanel group={group} onChanged={() => void load()} />}
-      {tab === "members" && <GroupMembersPanel group={group} onChanged={setGroup} />}
+      {tab === "members" && (
+        <>
+          <GroupMembersPanel group={group} onChanged={setGroup} />
+          {centre && <WaitlistPanel group={group} onGroupChanged={setGroup} />}
+        </>
+      )}
       {tab === "money" && <GroupMoneyPanel group={group} />}
       {tab === "accounts" && <GroupAccountsPanel group={group} />}
       {tab === "overview" && <GroupOverview group={group} />}

@@ -32,6 +32,9 @@ export interface CentreDashboard {
     /** Sum of the capped groups' seats (uncapped groups count none). */
     capacity: number;
     free_seats: number;
+    /** Course terms (docs/centre-profile, Phase 2 §2): running groups about to end, and names waiting for a seat. */
+    ending_soon?: number;
+    waiting?: number;
   };
   subscriptions: {
     open: number;

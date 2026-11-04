@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Services\CourseTerm;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +26,8 @@ final class CentreDashboardController extends Controller
 
     /** A subscription counts as "ending soon" within this many days of its end date. */
     private const ENDING_SOON_DAYS = 7;
+
+    public function __construct(private readonly CourseTerm $terms) {}
 
     public function show(): JsonResponse
     {
@@ -91,6 +94,8 @@ final class CentreDashboardController extends Controller
             )
             ->first();
 
+        $terms = $this->terms->dashboardCounts();
+
         return response()->json([
             'today' => [
                 'date' => $today,
@@ -112,6 +117,9 @@ final class CentreDashboardController extends Controller
                 'members' => (int) $groups->members,
                 'capacity' => (int) $groups->capacity,
                 'free_seats' => (int) $groups->free_seats,
+                // Course terms (docs/centre-profile, Phase 2 §2): about to end, and names waiting for a seat.
+                'ending_soon' => $terms['ending_soon'],
+                'waiting' => $terms['waiting'],
             ],
             'subscriptions' => [
                 'open' => (int) $subs->open,

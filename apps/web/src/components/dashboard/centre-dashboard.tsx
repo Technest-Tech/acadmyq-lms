@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Receipt,
   RefreshCw,
+  Repeat,
   Sparkles,
   UserPlus,
   Users,
@@ -41,6 +42,7 @@ import { cn } from "@/lib/utils";
  */
 export function CentreDashboard() {
   const t = useTranslations("dashboard.centre");
+  const tTerm = useTranslations("courseTerm");
   const tDash = useTranslations("dashboard");
   const locale = useLocale();
   const { session, can } = useAuth();
@@ -193,6 +195,20 @@ export function CentreDashboard() {
                 href="/packages/due"
                 locale={locale}
               />
+              {/* Course terms about to end (docs/centre-profile, Phase 2 §2); the sub line adds who is waiting for a seat. */}
+              {groupsOn && (
+                <StatCard
+                  Icon={Repeat}
+                  color={numbers && (numbers.groups.ending_soon ?? 0) > 0 ? "amber" : "slate"}
+                  label={tTerm("dashboard.endingSoon")}
+                  value={numbers?.groups.ending_soon ?? null}
+                  sub={numbers ? tTerm("dashboard.endingSoonSub", { days: 14, waiting: numbers.groups.waiting ?? 0 }) : undefined}
+                  loading={loading}
+                  alert={(numbers?.groups.ending_soon ?? 0) > 0}
+                  href="/groups?ending_soon=1"
+                  locale={locale}
+                />
+              )}
               {trialsOn && (
                 <StatCard
                   Icon={Sparkles}
