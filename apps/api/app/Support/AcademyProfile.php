@@ -47,8 +47,11 @@ final class AcademyProfile
         self::CENTRE => [
             'enabled' => ['centre', 'accounting'],
             // Built for the one-to-one Quran lesson: following a lesson that was not marked, the
-            // rubric that scores a teacher, the memorisation report and its picture.
-            'disabled' => ['supervision', 'teacher_quality', 'report_card', 'student_reports'],
+            // rubric that scores a teacher, the memorisation report and its picture — and the hour
+            // packages, because a centre's private subscription is its own engine
+            // (docs/centre-profile/01-PRIVATE-SUBSCRIPTION-SPLIT.md): with `packages` off,
+            // MoneyPolicy hands a centre's lessons to CentreSubscriptions.
+            'disabled' => ['supervision', 'teacher_quality', 'report_card', 'student_reports', 'packages'],
         ],
     ];
 

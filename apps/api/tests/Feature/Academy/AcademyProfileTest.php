@@ -83,10 +83,10 @@ it('switches a new centre client onto receipts and the centre ways, and off the 
     $this->enterAcademyAsSuperAdmin($id);
     $ov = profileMgmtOverrides($id);
     expect($ov['enabled'])->toEqualCanonicalizing(['centre', 'accounting'])
-        ->and($ov['disabled'])->toEqualCanonicalizing(['supervision', 'teacher_quality', 'report_card', 'student_reports']);
+        ->and($ov['disabled'])->toEqualCanonicalizing(['supervision', 'teacher_quality', 'report_card', 'student_reports', 'packages']);
 
     $caps = Entitlement::resolve($id)['capabilities'];
-    expect($caps)->toContain('centre', 'accounting', 'groups', 'packages', 'trials', 'certificates', 'payroll')
+    expect($caps)->toContain('centre', 'accounting', 'groups', 'trials', 'certificates', 'payroll')
         ->not->toContain('supervision', 'teacher_quality', 'report_card', 'student_reports');
 
     expect(DB::table('audit_log')->where('academy_id', $id)->where('action', 'module_subscription.features')->exists())->toBeTrue();
@@ -115,7 +115,7 @@ it('merges the preset onto the switches an academy already holds', function () {
     $changed = AcademyProfile::applyPreset(app(ModuleBilling::class), $id, AcademyProfile::CENTRE);
 
     expect($changed['enabled'])->toEqualCanonicalizing(['lesson_report', 'centre', 'accounting'])
-        ->and($changed['disabled'])->toEqualCanonicalizing(['crm', 'supervision', 'teacher_quality', 'report_card', 'student_reports']);
+        ->and($changed['disabled'])->toEqualCanonicalizing(['crm', 'supervision', 'teacher_quality', 'report_card', 'student_reports', 'packages']);
     // The Quran preset is empty, so applying it moves nothing back: the move is the type alone.
     $back = AcademyProfile::applyPreset(app(ModuleBilling::class), $id, AcademyProfile::QURAN);
     expect($back['enabled'])->toEqualCanonicalizing($changed['enabled'])

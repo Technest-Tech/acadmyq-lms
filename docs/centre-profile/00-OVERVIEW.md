@@ -15,7 +15,7 @@ One codebase, two kinds of school. The **profile** says which kind an academy is
 | Piece | Where |
 |---|---|
 | The profile itself | `academy_types.code` — `App\Support\AcademyProfile::forAcademy()` maps it (anything but `CENTRE` ⇒ `QURAN`) |
-| The preset | `AcademyProfile::PRESETS` — CENTRE switches ON `centre` + `accounting`, OFF `supervision`, `teacher_quality`, `report_card`, `student_reports`; QURAN is empty |
+| The preset | `AcademyProfile::PRESETS` — CENTRE switches ON `centre` + `accounting`, OFF `supervision`, `teacher_quality`, `report_card`, `student_reports` and (since the subscription split, `01-PRIVATE-SUBSCRIPTION-SPLIT.md`) `packages`; QURAN is empty |
 | Applied when | a Super Admin creates a client with the CENTRE type (`Admin\AcademyController::store`), or `php artisan profile:set <academy> CENTRE` moves an existing one — the preset MERGES onto the client's switches, never replaces them |
 | Reaches the web as | `GET /auth/me` → `academy.profile`; `GET /entitlements` → `profile` |
 | Web shape | `app-shell.tsx` (`CENTRE_NAV_GROUPS`, `CENTRE_GROUP_OF`, `CENTRE_ORDER`, `CENTRE_HIDDEN_KEYS`, `CENTRE_LABEL_KEYS`), `dashboard-home.tsx` → `centre-dashboard.tsx`, `nav.*Centre` strings |

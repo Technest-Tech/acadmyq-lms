@@ -43,7 +43,7 @@ final class FeatureCatalog
         'lesson_report' => 'Structured lesson report — the academy\'s own form and WhatsApp message',
         'groups' => 'Group classes — groups, members, timetable & attendance',
         'accounting' => 'Accounting — numbered receipts, partial payments, balances & collection sheets',
-        'centre' => 'Centre mode — subscriptions wording, packages by default, any student on a manual lesson, salary blocks',
+        'centre' => 'Centre mode — lesson subscriptions of its own (centre_subscriptions), groups first, any student on a manual lesson, salary blocks',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
         'video.only' => 'Video-only workspace (the panel shows the video classroom only)',
         'lms' => 'LMS — online courses (course builder & learner site)',
