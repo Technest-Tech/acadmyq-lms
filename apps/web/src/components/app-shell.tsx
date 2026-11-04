@@ -11,6 +11,7 @@ import {
   CalendarCheck2,
   CalendarClock,
   CalendarDays,
+  CalendarRange,
   ChevronDown,
   ClipboardCheck,
   ClipboardList,
@@ -122,6 +123,7 @@ type NavKey =
   | "teachers"
   | "staff"
   | "schedule"
+  | "calendarCentre"
   | "videoClassroom"
   | "trials"
   | "enrolment"
@@ -222,6 +224,7 @@ const CENTRE_GROUP_OF: Partial<Record<NavKey, NavGroup>> = {
   groupsPayments: "teaching",
   groupsReports: "teaching",
   schedule: "teaching",
+  calendarCentre: "teaching",
   attendance: "teaching",
   // A centre's packages ARE its lesson subscriptions (the `*Centre` labels below).
   packagesDue: "teaching",
@@ -240,6 +243,7 @@ const CENTRE_GROUP_OF: Partial<Record<NavKey, NavGroup>> = {
 const CENTRE_ORDER: readonly NavKey[] = [
   "groups",
   "schedule",
+  "calendarCentre",
   "attendance",
   "centreSubscriptions",
   "centreAdmissions",
@@ -272,6 +276,16 @@ const CENTRE_ORDER: readonly NavKey[] = [
  * which a hidden link never does.
  */
 const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices", "groupsLessons", "groupsStudents"]);
+
+/**
+ * Where a centre's "timetable" goes. The item named الجدول الأسبوعي opened the generic calendar for
+ * everyone; a centre's timetable is the groups' board (day → hour → group / teacher / room), which
+ * had no menu entry of its own. So for a centre `schedule` links to that board, and the calendar —
+ * the only place private lessons, trials and group lessons sit together — keeps a row under its own
+ * name (`calendarCentre`, a centre-only item). A Quran academy's `schedule` is `/calendar`, as it was.
+ */
+const CENTRE_HREF_OF: Partial<Record<NavKey, string>> = { schedule: "/groups/lessons" };
+const CENTRE_ONLY_KEYS = new Set<NavKey>(["calendarCentre"]);
 
 /**
  * The two dropdowns only a centre's sidebar has, gathering pages that were each a row of their own.
@@ -396,6 +410,15 @@ const NAV: ReadonlyArray<{
   {
     key: "schedule",
     icon: CalendarDays,
+    permission: "schedule.read",
+    href: "/calendar",
+    group: "people",
+  },
+  // A centre only (CENTRE_ONLY_KEYS): its `schedule` is the groups' timetable board, so the
+  // calendar gets a row under its own name.
+  {
+    key: "calendarCentre",
+    icon: CalendarRange,
     permission: "schedule.read",
     href: "/calendar",
     group: "people",
@@ -841,12 +864,16 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string | readonly string[]>> = {
 };
 
 /**
- * Items a client stops seeing once it holds a capability that brings a fuller page for the same job.
- * The Groups section's "Payments" is the classic month's group money; a client on receipts gets the
- * Accounting section's group collection & profit page instead. Every other client keeps it as is.
+ * Items a client stops seeing once it holds a capability (or every one of a list) that brings a
+ * fuller page for the same job. The Groups section's "Payments" is the classic month's group money;
+ * a client on receipts gets the Accounting section's group collection & profit page instead. The
+ * financial statistics (invoices vs payouts) answer the question a centre's Accounting ▸ Reports
+ * already answers from its receipts, with different numbers once bills never close — so a centre
+ * on receipts drops the row (the page itself still opens by URL). Every other client keeps both.
  */
-const NAV_REPLACED_BY: Partial<Record<NavKey, string>> = {
+const NAV_REPLACED_BY: Partial<Record<NavKey, string | readonly string[]>> = {
   groupsPayments: "accounting",
+  financialStats: ["accounting", "centre"],
 };
 
 /**
@@ -1269,7 +1296,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   /** Replaced for this client by a fuller page elsewhere (NAV_REPLACED_BY), so not listed twice. */
   const isReplaced = (key: NavKey) => {
     const by = NAV_REPLACED_BY[key];
-    return by !== undefined && capabilities !== null && capabilities.includes(by);
+    if (by === undefined || capabilities === null) return false;
+    const required: readonly string[] = typeof by === "string" ? [by] : by;
+    return required.every((cap) => capabilities.includes(cap));
   };
 
   const items = NAV.filter((item) => {
@@ -1288,12 +1317,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (isReplaced(item.key)) return false;
     // A centre's shape (CENTRE_HIDDEN_KEYS): the month-bill page gives way to Accounting.
     if (centreShape && CENTRE_HIDDEN_KEYS.has(item.key)) return false;
-    if (!centreShape && CENTRE_ONLY_PARENTS.has(item.key)) return false;
+    if (!centreShape && (CENTRE_ONLY_PARENTS.has(item.key) || CENTRE_ONLY_KEYS.has(item.key))) return false;
     return true;
   })
     .map((item) => {
-      const parent = centreShape ? CENTRE_PARENT_OF[item.key] : undefined;
-      return parent !== undefined ? { ...item, parent } : item;
+      if (!centreShape) return item;
+      const parent = CENTRE_PARENT_OF[item.key];
+      const href = CENTRE_HREF_OF[item.key];
+      return parent !== undefined || href !== undefined
+        ? { ...item, ...(parent !== undefined ? { parent } : {}), ...(href !== undefined ? { href } : {}) }
+        : item;
     })
     .filter((item, _, all) => !CENTRE_ONLY_PARENTS.has(item.key) || all.some((other) => other.parent === item.key));
   // The centre's sidebar regroups and reorders the same items (CENTRE_GROUP_OF / CENTRE_ORDER);
@@ -1385,7 +1418,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         label: `${salesCount} payment receipts awaiting review`,
       };
     }
-    if (key === "groupsLessons" && groupOwedCount > 0) {
+    // A centre's `schedule` IS the groups' board, so the sheets owed count on it there.
+    if ((key === "groupsLessons" || (centreShape && key === "schedule")) && groupOwedCount > 0) {
       return {
         count: groupOwedCount,
         label: `${groupOwedCount} group lessons waiting for attendance`,

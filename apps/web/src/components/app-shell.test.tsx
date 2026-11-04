@@ -545,6 +545,43 @@ describe("AppShell — the learning centre's shape (`academy.profile === CENTRE`
     expect(document.querySelector('[data-nav="packagesDue"]')?.textContent).toContain(arMessages.nav.packagesDueCentre);
   });
 
+  it("puts the groups' timetable board behind الجدول الأسبوعي and gives the calendar its own row, in Teaching", async () => {
+    renderShell("ACADEMY_OWNER", centreSession);
+    await ready();
+    const keys = navKeys();
+
+    // Teaching: groups, timetable, calendar, attendance — in that order.
+    expect(keys.indexOf("groups")).toBeLessThan(keys.indexOf("schedule"));
+    expect(keys.indexOf("schedule")).toBeLessThan(keys.indexOf("calendarCentre"));
+    expect(keys.indexOf("calendarCentre")).toBeLessThan(keys.indexOf("attendance"));
+    const schedule = document.querySelector('[data-nav="schedule"]')!;
+    expect(schedule.getAttribute("href")).toBe("/groups/lessons");
+    expect(schedule.textContent).toContain(arMessages.nav.scheduleCentre);
+    const calendar = document.querySelector('[data-nav="calendarCentre"]')!;
+    expect(calendar.getAttribute("href")).toBe("/calendar");
+    expect(calendar.textContent).toContain(arMessages.nav.calendarCentre);
+  });
+
+  it("drops the financial statistics for a centre on receipts, and keeps them for everyone else", async () => {
+    const withStats = { ...centreSession, capabilities: [...centreSession.capabilities, "financial_statistics"] };
+    const { unmount } = renderShell("ACADEMY_OWNER", withStats);
+    await ready();
+    expect(navKeys()).not.toContain("financialStats");
+    unmount();
+
+    // Same academy without receipts: the statistics are its only money report.
+    const noReceipts = { ...withStats, capabilities: withStats.capabilities.filter((c) => c !== "accounting") };
+    const second = renderShell("ACADEMY_OWNER", noReceipts);
+    await ready();
+    expect(navKeys()).toContain("financialStats");
+    second.unmount();
+
+    // A Quran academy on receipts (Al-Furqan) keeps both pages.
+    renderShell("ACADEMY_OWNER", { ...withStats, capabilities: withStats.capabilities.filter((c) => c !== "centre"), academy: { ...centreAcademy, profile: "QURAN" as const } });
+    await ready();
+    expect(navKeys()).toContain("financialStats");
+  });
+
   it("drops a centre's dropdown when nothing inside it is reachable", async () => {
     renderShell("ACADEMY_OWNER", { ...centreSession, capabilities: ["groups", "centre"], permissions: ["group.read", "student.read"] });
     await ready();
@@ -565,6 +602,9 @@ describe("AppShell — the learning centre's shape (`academy.profile === CENTRE`
     expect(keys).toContain("invoices");
     expect(screen.queryByText(arMessages.navGroup.teaching)).toBeNull();
     expect(keys.indexOf("students")).toBeLessThan(keys.indexOf("groups"));
+    // The calendar row is the centre's; a Quran academy's الجدول is the calendar itself.
+    expect(keys).not.toContain("calendarCentre");
+    expect(document.querySelector('[data-nav="schedule"]')?.getAttribute("href")).toBe("/calendar");
     expect(document.querySelector('[data-nav="trials"]')?.textContent).toContain(arMessages.nav.trials);
     expect(document.querySelector('[data-nav="trials"]')?.textContent).not.toContain(arMessages.nav.trialsCentre);
   });
