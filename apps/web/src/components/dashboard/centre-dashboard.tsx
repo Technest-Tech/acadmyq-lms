@@ -7,7 +7,6 @@ import {
   ClipboardCheck,
   Hourglass,
   Layers,
-  LayoutDashboard,
   Receipt,
   RefreshCw,
   Repeat,
@@ -15,19 +14,18 @@ import {
   UserPlus,
   Users,
   Wallet,
-  type LucideIcon,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { ActionCard, SectionTitle, StatCard } from "@/components/dashboard/academy-dashboard";
+import { AttendanceRing, CentreAction, CentreSectionTitle, CentreStat, CollectionsChart } from "@/components/dashboard/centre-kit";
 import { MyLessonsToday } from "@/components/dashboard/my-lessons-today";
 import { SubscriptionBanner } from "@/components/dashboard/subscription-banner";
-import { PageHero } from "@/components/ui/page-hero";
 import { getAccountingOverview, type AccountingOverview } from "@/lib/accounting-api";
 import { getProfitSummary, getTrialSummary, type ProfitSummaryRow, type TrialSummary } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
 import { getCentreDashboard, type CentreDashboard as CentreNumbers } from "@/lib/centre-dashboard-api";
+import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 /**
@@ -97,25 +95,32 @@ export function CentreDashboard() {
   const unmarked = (numbers?.today.group_unmarked ?? 0) + (numbers?.today.private_unmarked ?? 0);
   const rate = numbers?.week.attendance_rate ?? null;
 
+  // `money` null means the overview could not be read: the card says "—", never a false zero.
+  const moneyOf = (amount: number | undefined, cur: string | undefined) =>
+    money === null ? null : { amount: amount ?? 0, currency: cur ?? currency };
+
   return (
     <div className="space-y-6" data-testid="centre-dashboard">
-      <PageHero
-        icon={LayoutDashboard}
-        latticeId="centre-hero"
-        title={`${greeting}, ${session?.user.fullName?.split(" ")[0] ?? "—"} 👋`}
-        subtitle={`${dateLabel} · ${t("subtitle")}`}
-        actions={
-          <button
-            type="button"
-            onClick={() => void load(true)}
-            disabled={refreshing}
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/25 bg-white/15 text-white backdrop-blur-sm transition-colors hover:bg-white/25 disabled:opacity-60"
-            title="Refresh"
-          >
-            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-          </button>
-        }
-      />
+      {/* A title line, not a banner: the first screen belongs to today's numbers. */}
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight break-words sm:text-2xl">
+            {greeting}, {session?.user.fullName?.split(" ")[0] ?? "—"} 👋
+          </h1>
+          <p className="text-muted-foreground mt-0.5 text-sm">
+            {dateLabel} · {t("subtitle")}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load(true)}
+          disabled={refreshing}
+          className="bg-card text-muted-foreground hover:text-foreground flex size-9 shrink-0 items-center justify-center rounded-xl border shadow-sm transition-colors disabled:opacity-60"
+          title="Refresh"
+        >
+          <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
+        </button>
+      </header>
 
       <SubscriptionBanner />
 
@@ -125,11 +130,11 @@ export function CentreDashboard() {
         <>
           {/* ── Today ── */}
           <section className="space-y-3">
-            <SectionTitle Icon={CalendarDays} color="emerald" title={t("sections.today")} desc={t("sections.todayDesc")} />
+            <CentreSectionTitle title={t("sections.today")} desc={t("sections.todayDesc")} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <StatCard
+              <CentreStat
                 Icon={CalendarDays}
-                color="emerald"
+                tone="violet"
                 label={t("kpi.todayClasses")}
                 value={numbers ? numbers.today.group_lessons + numbers.today.private_lessons : null}
                 sub={numbers ? t("kpi.todayClassesSub", { groups: numbers.today.group_lessons, privateCount: numbers.today.private_lessons }) : undefined}
@@ -137,9 +142,9 @@ export function CentreDashboard() {
                 href={groupsOn ? "/groups/lessons" : "/attendance"}
                 locale={locale}
               />
-              <StatCard
+              <CentreStat
                 Icon={AlarmClock}
-                color={unmarked > 0 ? "amber" : "teal"}
+                tone={unmarked > 0 ? "amber" : "emerald"}
                 label={t("kpi.unmarked")}
                 value={numbers ? unmarked : null}
                 sub={numbers ? (unmarked > 0 ? t("kpi.unmarkedSub") : t("kpi.unmarkedClear")) : undefined}
@@ -148,9 +153,9 @@ export function CentreDashboard() {
                 href={groupsOn ? "/groups/lessons" : "/attendance?view=overdue"}
                 locale={locale}
               />
-              <StatCard
+              <CentreStat
                 Icon={ClipboardCheck}
-                color="sky"
+                tone="sky"
                 label={t("kpi.attendanceRate")}
                 value={rate === null ? null : Math.round(rate * 100)}
                 sub={
@@ -165,9 +170,9 @@ export function CentreDashboard() {
                 href="/groups/reports"
                 locale={locale}
               />
-              <StatCard
+              <CentreStat
                 Icon={Layers}
-                color="indigo"
+                tone="indigo"
                 label={t("kpi.runningGroups")}
                 value={numbers?.groups.running ?? null}
                 sub={numbers ? t("kpi.runningGroupsSub", { members: numbers.groups.members }) : undefined}
@@ -175,90 +180,115 @@ export function CentreDashboard() {
                 href="/groups"
                 locale={locale}
               />
-              <StatCard
-                Icon={Users}
-                color="violet"
-                label={t("kpi.freeSeats")}
-                value={numbers?.groups.free_seats ?? null}
-                sub={t("kpi.freeSeatsSub")}
-                loading={loading}
-                href="/groups/students"
-                locale={locale}
-              />
-              <StatCard
-                Icon={Hourglass}
-                color={numbers && numbers.subscriptions.ending_soon > 0 ? "orange" : "cyan"}
-                label={t("kpi.endingSoon")}
-                value={numbers?.subscriptions.ending_soon ?? null}
-                sub={numbers ? t("kpi.endingSoonSub", { days: numbers.subscriptions.ending_soon_days }) : undefined}
-                loading={loading}
-                href="/packages/due"
-                locale={locale}
-              />
-              {/* Course terms about to end (docs/centre-profile, Phase 2 §2); the sub line adds who is waiting for a seat. */}
-              {groupsOn && (
-                <StatCard
-                  Icon={Repeat}
-                  color={numbers && (numbers.groups.ending_soon ?? 0) > 0 ? "amber" : "slate"}
-                  label={tTerm("dashboard.endingSoon")}
-                  value={numbers?.groups.ending_soon ?? null}
-                  sub={numbers ? tTerm("dashboard.endingSoonSub", { days: 14, waiting: numbers.groups.waiting ?? 0 }) : undefined}
-                  loading={loading}
-                  alert={(numbers?.groups.ending_soon ?? 0) > 0}
-                  href="/groups?ending_soon=1"
-                  locale={locale}
-                />
-              )}
-              {trialsOn && (
-                <StatCard
-                  Icon={Sparkles}
-                  color={trials && (trials.needs_decision ?? 0) > 0 ? "rose" : "fuchsia"}
-                  label={t("kpi.trials")}
-                  value={trials?.needs_decision ?? null}
-                  sub={t("kpi.trialsSub")}
-                  loading={loading}
-                  alert={(trials?.needs_decision ?? 0) > 0}
-                  href="/trials"
-                  locale={locale}
-                />
-              )}
             </div>
+          </section>
+
+          {/* ── The month's collections, the week's sheets ── */}
+          {(accountingOn || groupsOn) && !loading && (
+            <section className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+              {accountingOn && money !== null && (
+                <CollectionsChart
+                  days={collected?.by_day ?? []}
+                  today={money.today}
+                  currency={collected?.currency ?? currency}
+                  locale={locale}
+                  title={t("chart.title")}
+                  sub={t("chart.sub")}
+                  empty={t("chart.empty")}
+                  href="/accounting"
+                />
+              )}
+              {groupsOn && numbers && (
+                <AttendanceRing
+                  rate={rate}
+                  title={t("chart.attendanceTitle")}
+                  presentLabel={t("chart.present", { n: numbers.week.present })}
+                  absentLabel={t("chart.absent", { n: numbers.week.absent })}
+                  empty={t("kpi.attendanceRateEmpty")}
+                  locale={locale}
+                  wide={!accountingOn || money === null}
+                />
+              )}
+            </section>
+          )}
+
+          {/* ── What is coming up ── */}
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <CentreStat
+              Icon={Users}
+              tone="violet"
+              label={t("kpi.freeSeats")}
+              value={numbers?.groups.free_seats ?? null}
+              sub={t("kpi.freeSeatsSub")}
+              loading={loading}
+              href="/groups/students"
+              locale={locale}
+            />
+            <CentreStat
+              Icon={Hourglass}
+              tone={numbers && numbers.subscriptions.ending_soon > 0 ? "amber" : "slate"}
+              label={t("kpi.endingSoon")}
+              value={numbers?.subscriptions.ending_soon ?? null}
+              sub={numbers ? t("kpi.endingSoonSub", { days: numbers.subscriptions.ending_soon_days }) : undefined}
+              loading={loading}
+              href="/packages/due"
+              locale={locale}
+            />
+            {/* Course terms about to end (docs/centre-profile, Phase 2 §2); the sub line adds who is waiting for a seat. */}
+            {groupsOn && (
+              <CentreStat
+                Icon={Repeat}
+                tone={numbers && (numbers.groups.ending_soon ?? 0) > 0 ? "amber" : "slate"}
+                label={tTerm("dashboard.endingSoon")}
+                value={numbers?.groups.ending_soon ?? null}
+                sub={numbers ? tTerm("dashboard.endingSoonSub", { days: 14, waiting: numbers.groups.waiting ?? 0 }) : undefined}
+                loading={loading}
+                alert={(numbers?.groups.ending_soon ?? 0) > 0}
+                href="/groups?ending_soon=1"
+                locale={locale}
+              />
+            )}
+            {trialsOn && (
+              <CentreStat
+                Icon={Sparkles}
+                tone={trials && (trials.needs_decision ?? 0) > 0 ? "rose" : "slate"}
+                label={t("kpi.trials")}
+                value={trials?.needs_decision ?? null}
+                sub={t("kpi.trialsSub")}
+                loading={loading}
+                alert={(trials?.needs_decision ?? 0) > 0}
+                href="/trials"
+                locale={locale}
+              />
+            )}
           </section>
 
           {/* ── Money ── */}
           {(accountingOn || payrollOn) && (
             <section className="space-y-3">
-              <SectionTitle Icon={Wallet} color="gold" title={t("sections.money")} desc={t("sections.moneyDesc")} />
+              <CentreSectionTitle title={t("sections.money")} desc={t("sections.moneyDesc")} />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {accountingOn && (
                   <>
-                    <StatCard
+                    <CentreStat
                       Icon={Receipt}
-                      color="emerald"
+                      tone="emerald"
                       label={t("kpi.collected")}
-                      value={null}
-                      isMoney={!loading}
-                      moneyAmount={collected?.amount_minor ?? 0}
-                      moneyCurrency={collected?.currency ?? currency}
+                      money={moneyOf(collected?.amount_minor, collected?.currency)}
                       sub={money ? t("kpi.collectedSub", { count: collected?.count ?? 0 }) : undefined}
                       loading={loading}
                       href="/accounting"
                       locale={locale}
                     />
-                    <StatCard
+                    <CentreStat
                       Icon={AlarmClock}
-                      color={owed && owed.overdue_minor > 0 ? "rose" : "amber"}
+                      tone={owed && owed.overdue_minor > 0 ? "rose" : "amber"}
                       label={t("kpi.outstanding")}
-                      value={null}
-                      isMoney={!loading}
-                      moneyAmount={owed?.due_minor ?? 0}
-                      moneyCurrency={owed?.currency ?? currency}
+                      money={moneyOf(owed?.due_minor, owed?.currency)}
                       sub={
                         money
                           ? t("kpi.outstandingSub", {
-                              overdue: new Intl.NumberFormat(locale, { style: "currency", currency: owed?.currency ?? currency, maximumFractionDigits: 0 }).format(
-                                (owed?.overdue_minor ?? 0) / 100,
-                              ),
+                              overdue: formatMoney({ amount: owed?.overdue_minor ?? 0, currency: owed?.currency ?? currency }, locale),
                             })
                           : undefined
                       }
@@ -270,14 +300,11 @@ export function CentreDashboard() {
                   </>
                 )}
                 {payrollOn && (
-                  <StatCard
+                  <CentreStat
                     Icon={Wallet}
-                    color="blue"
+                    tone="sky"
                     label={t("kpi.salaries")}
-                    value={null}
-                    isMoney={!loading}
-                    moneyAmount={salaries?.payouts_minor ?? 0}
-                    moneyCurrency={salaries?.currency ?? currency}
+                    money={profit === null ? null : { amount: salaries?.payouts_minor ?? 0, currency: salaries?.currency ?? currency }}
                     sub={t("kpi.salariesSub")}
                     loading={loading}
                     href="/payroll"
@@ -290,22 +317,18 @@ export function CentreDashboard() {
 
           {/* ── Quick actions ── */}
           <section className="space-y-3">
-            <SectionTitle Icon={Sparkles} color="gold" title={t("sections.actions")} desc={t("sections.actionsDesc")} />
+            <CentreSectionTitle title={t("sections.actions")} desc={t("sections.actionsDesc")} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {groupsOn && <Action href="/groups/lessons" Icon={ClipboardCheck} color="emerald" label={t("actions.groups")} desc={t("actions.groupsDesc")} badge={numbers?.today.group_unmarked} />}
-              {can("schedule.read") && <Action href="/calendar" Icon={CalendarDays} color="sky" label={t("actions.timetable")} desc={t("actions.timetableDesc")} />}
-              {accountingOn && <Action href="/accounting" Icon={Receipt} color="gold" label={t("actions.collect")} desc={t("actions.collectDesc")} />}
-              {accountingOn && <Action href="/accounting/arrears" Icon={AlarmClock} color="rose" label={t("actions.arrears")} desc={t("actions.arrearsDesc")} badge={owed?.payers} />}
-              {can("student.create") && <Action href="/students" Icon={UserPlus} color="violet" label={t("actions.addStudent")} desc={t("actions.addStudentDesc")} />}
-              {payrollOn && <Action href="/payroll" Icon={BarChart3} color="blue" label={t("actions.payroll")} desc={t("actions.payrollDesc")} />}
+              {groupsOn && <CentreAction href="/groups/lessons" Icon={ClipboardCheck} tone="violet" label={t("actions.groups")} desc={t("actions.groupsDesc")} badge={numbers?.today.group_unmarked} />}
+              {can("schedule.read") && <CentreAction href="/calendar" Icon={CalendarDays} tone="sky" label={t("actions.timetable")} desc={t("actions.timetableDesc")} />}
+              {accountingOn && <CentreAction href="/accounting" Icon={Receipt} tone="emerald" label={t("actions.collect")} desc={t("actions.collectDesc")} />}
+              {accountingOn && <CentreAction href="/accounting/arrears" Icon={AlarmClock} tone="rose" label={t("actions.arrears")} desc={t("actions.arrearsDesc")} badge={owed?.payers} />}
+              {can("student.create") && <CentreAction href="/students" Icon={UserPlus} tone="indigo" label={t("actions.addStudent")} desc={t("actions.addStudentDesc")} />}
+              {payrollOn && <CentreAction href="/payroll" Icon={BarChart3} tone="slate" label={t("actions.payroll")} desc={t("actions.payrollDesc")} />}
             </div>
           </section>
         </>
       )}
     </div>
   );
-}
-
-function Action(props: { href: string; Icon: LucideIcon; color: string; label: string; desc: string; badge?: number }) {
-  return <ActionCard {...props} />;
 }

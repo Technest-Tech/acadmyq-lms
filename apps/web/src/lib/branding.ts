@@ -48,3 +48,23 @@ export function applyBranding(branding: Branding): void {
   root.style.setProperty("--ring", branding.primary);
   root.style.setProperty("--gold", branding.accent);
 }
+
+/**
+ * Put the workspace's colours on <html> for the academy's profile. A Quran academy gets exactly what
+ * it always got (`applyBranding`). A learning centre takes its palette from globals.css
+ * (`html[data-profile="centre"]`), so the inline colours `applyBranding` writes have to come off first:
+ * an inline custom property beats any selector, and it is written even with nothing saved.
+ */
+export function applyWorkspaceTheme(centre: boolean): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (centre) {
+    root.dataset.profile = "centre";
+    root.style.removeProperty("--primary");
+    root.style.removeProperty("--ring");
+    root.style.removeProperty("--gold");
+  } else {
+    delete root.dataset.profile;
+    applyBranding(loadBranding());
+  }
+}

@@ -105,7 +105,7 @@ function Spin({ className }: { className?: string }) {
 
 // ── Animated count-up ──────────────────────────────────────────────────────────
 
-function CountUp({ value, locale }: { value: number; locale: string }) {
+export function CountUp({ value, locale }: { value: number; locale: string }) {
   const [displayed, setDisplayed] = useState(0);
   const frameRef = useRef<number>(0);
 

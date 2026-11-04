@@ -61,7 +61,7 @@ import {
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useLayoutEffect, useState, type ComponentType } from "react";
 import { CollectQuickAction } from "@/components/accounting/collect-quick-action";
 import { useAuth } from "@/components/auth-provider";
 import { ChangePasswordModal } from "@/components/change-password-modal";
@@ -91,7 +91,7 @@ import {
   Octagram,
   OrnateRule,
 } from "@/components/ornaments";
-import { applyBranding, loadBranding } from "@/lib/branding";
+import { applyWorkspaceTheme } from "@/lib/branding";
 import { getEnrolmentSummary } from "@/lib/enrolment-api";
 import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { roleLabel } from "@/lib/roles";
@@ -262,6 +262,20 @@ const CENTRE_ORDER: readonly NavKey[] = [
  * NAV_CAPABILITY already hides them — and the server refuses them, which a hidden link never does.
  */
 const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices"]);
+
+/**
+ * A centre's phone bar: the first four of these the signed-in person can reach, then the full menu.
+ * The screens a front desk or a teacher returns to all day, one thumb away instead of behind a drawer.
+ */
+const CENTRE_BOTTOM_NAV: readonly NavKey[] = [
+  "dashboard",
+  "groups",
+  "attendance",
+  "students",
+  "accounting",
+  "schedule",
+  "myPayroll",
+];
 
 /** Items whose label a centre reads differently (`nav.<key>Centre`). */
 const CENTRE_LABEL_KEYS = new Set<NavKey>([
@@ -1128,9 +1142,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [session, can, capabilities, pathname]);
 
-  useEffect(() => {
-    applyBranding(loadBranding());
-  }, []);
+  // Before paint, so a centre's first frame is already violet. Signing out clears the session, so
+  // the login screen is back on the default colours.
+  useLayoutEffect(() => {
+    applyWorkspaceTheme(centreShape);
+  }, [centreShape]);
 
   useEffect(() => {
     if (!loading && session === null) {
@@ -1376,7 +1392,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           "focus-visible:ring-ring/50 outline-none focus-visible:ring-2",
           collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
           isActive
-            ? "bg-primary/[0.12] text-primary font-semibold"
+            ? centreShape
+              ? "bg-sidebar-primary text-sidebar-primary-foreground font-semibold shadow-sm"
+              : "bg-primary/[0.12] text-primary font-semibold"
             : "text-sidebar-foreground hover:bg-sidebar-accent",
         )}
       >
@@ -1384,7 +1402,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             the one warm mark in a column of emerald and has to be findable at a glance. */}
         {isActive && (
           <span
-            className="from-gold to-gold/40 absolute inset-y-1.5 start-0 w-[3px] rounded-full bg-gradient-to-b"
+            className="ornament from-gold to-gold/40 absolute inset-y-1.5 start-0 w-[3px] rounded-full bg-gradient-to-b"
             aria-hidden
           />
         )}
@@ -1392,7 +1410,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={cn(
             "size-4 shrink-0 transition-colors",
             isActive
-              ? "text-primary"
+              ? centreShape
+                ? "text-sidebar-primary-foreground"
+                : "text-primary"
               : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
           )}
           aria-hidden
@@ -1462,13 +1482,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={cn(
             "group relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-start text-sm font-medium transition-colors duration-150",
             "focus-visible:ring-ring/50 outline-none focus-visible:ring-2",
-            holdsPage ? "text-primary font-semibold" : "text-sidebar-foreground hover:bg-sidebar-accent",
+            holdsPage
+              ? centreShape
+                ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
+                : "text-primary font-semibold"
+              : "text-sidebar-foreground hover:bg-sidebar-accent",
           )}
         >
           <Icon
             className={cn(
               "size-4 shrink-0 transition-colors",
-              holdsPage ? "text-primary" : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
+              holdsPage
+                ? centreShape
+                  ? "text-sidebar-accent-foreground"
+                  : "text-primary"
+                : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
             )}
             aria-hidden
           />
@@ -1495,8 +1523,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     collapsed ? (
       <div className="bg-sidebar-border mx-auto mb-1.5 h-px w-6" aria-hidden />
     ) : (
-      <p className="text-sidebar-foreground/40 mb-1.5 flex select-none items-center gap-1.5 px-2.5 text-[10px] font-bold tracking-[0.1em] uppercase">
-        <Octagram className="text-gold/70 size-2 shrink-0" />
+      <p
+        className={cn(
+          "mb-1.5 flex select-none items-center gap-1.5 px-2.5 text-[10px] font-bold tracking-[0.1em] uppercase",
+          centreShape ? "text-sidebar-foreground/65" : "text-sidebar-foreground/40",
+        )}
+      >
+        <Octagram className="ornament text-gold/70 size-2 shrink-0" />
         {label}
       </p>
     );
@@ -1531,7 +1564,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               height, fading as it descends, over a faint emerald wash. Everything below sits on
               top of it (the nav is `relative`). */}
           <div
-            className="text-primary pointer-events-none absolute inset-0 opacity-[0.09]"
+            className="ornament text-primary pointer-events-none absolute inset-0 opacity-[0.09]"
             style={{
               maskImage: "linear-gradient(180deg, black 20%, transparent 100%)",
               WebkitMaskImage:
@@ -1542,7 +1575,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <KhatamLattice id="sidebar-wall" size={56} className="size-full" />
           </div>
           <div
-            className="pointer-events-none absolute inset-0"
+            className="ornament pointer-events-none absolute inset-0"
             style={{
               background:
                 "linear-gradient(180deg, oklch(0.519 0.158 163.2 / 0.10) 0%, transparent 42%)",
@@ -1552,7 +1585,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* A gold thread down the sidebar's outer edge — the frame's own hairline. */}
           <span
             aria-hidden
-            className="via-gold/45 pointer-events-none absolute inset-y-0 end-0 w-px bg-gradient-to-b from-transparent to-transparent"
+            className="ornament via-gold/45 pointer-events-none absolute inset-y-0 end-0 w-px bg-gradient-to-b from-transparent to-transparent"
           />
           {/* ── Brand ──────────────────────────────────────────────────────
               WHOSE panel this is. A client sees their own academy — logo (or initials) and name,
@@ -1567,7 +1600,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           >
             <div
-              className="text-primary pointer-events-none absolute inset-0 opacity-[0.10]"
+              className="ornament text-primary pointer-events-none absolute inset-0 opacity-[0.10]"
               style={{
                 maskImage: "linear-gradient(180deg, black, transparent 88%)",
                 WebkitMaskImage:
@@ -1579,7 +1612,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* The gold hairline sits ON the border, brightest under the name. */}
             <span
               aria-hidden
-              className="via-gold/50 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
+              className="ornament via-gold/50 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
             />
 
             <div className="relative flex min-w-0 items-center gap-2.5">
@@ -1593,7 +1626,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               ) : session.academy ? (
                 <span
                   aria-hidden
-                  className="bg-primary/12 text-primary ring-gold/30 flex size-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1"
+                  className={cn(
+                    "flex size-8 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold ring-1",
+                    centreShape ? "bg-sidebar-primary text-sidebar-primary-foreground ring-white/15" : "bg-primary/12 text-primary ring-gold/30",
+                  )}
                 >
                   {academyInitials}
                 </span>
@@ -1748,7 +1784,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <header className="bg-background border-border relative flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-4 md:px-5">
             <span
               aria-hidden
-              className="via-gold/35 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
+              className="ornament via-gold/35 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
             />
             {/* Mobile menu toggle */}
             <button
@@ -1929,7 +1965,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 part of the frame, faint enough that a table never fights it. Fixed to the viewport
                 so it does not slide around as the page scrolls. */}
             <div
-              className="text-primary pointer-events-none fixed inset-0 opacity-[0.05]"
+              className="ornament text-primary pointer-events-none fixed inset-0 opacity-[0.05]"
               style={{
                 maskImage:
                   "radial-gradient(120% 90% at 50% 0%, black, transparent 78%)",
@@ -1944,10 +1980,65 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               key={pathname}
               className="animate-page-enter relative mx-auto max-w-[1600px] p-4 md:p-6"
             >
-              <OrnateRule className="mb-4 md:mb-5" />
+              <OrnateRule className="ornament mb-4 md:mb-5" />
               {children}
             </div>
           </main>
+
+          {/* In the column's flow, not fixed: <main> shrinks to make room, so it can never cover the
+              end of a page. */}
+          {centreShape && !videoOnly && !lmsOnly && (
+            <nav
+              data-testid="bottom-nav"
+              className="bg-card border-border flex shrink-0 items-stretch border-t pb-[env(safe-area-inset-bottom)] md:hidden"
+            >
+              {CENTRE_BOTTOM_NAV.map((key) => items.find((item) => item.key === key))
+                .filter((item) => item !== undefined)
+                .slice(0, 4)
+                .map((item) => {
+                  const Icon = item.icon;
+                  const active =
+                    item.href === "/dashboard"
+                      ? pathname === item.href
+                      : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  const waiting =
+                    badgeFor(item.key)?.count ??
+                    childrenOf(item.key).reduce((sum, c) => sum + (badgeFor(c.key)?.count ?? 0), 0);
+                  return (
+                    <Link
+                      key={item.key}
+                      href={item.href}
+                      data-bottom-nav={item.key}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "relative flex min-w-0 flex-1 flex-col items-center gap-1 py-2 text-[11px] font-medium",
+                        active ? "text-primary font-semibold" : "text-muted-foreground",
+                      )}
+                    >
+                      <Icon className="size-5 shrink-0" aria-hidden />
+                      <span className="max-w-full truncate px-1">{navLabel(item.key)}</span>
+                      {waiting > 0 && (
+                        <span
+                          className="bg-destructive absolute end-[calc(50%-1rem)] top-1.5 size-2 rounded-full"
+                          aria-hidden
+                        />
+                      )}
+                    </Link>
+                  );
+                })}
+              <button
+                type="button"
+                data-bottom-nav="more"
+                aria-label={t("header.menu")}
+                aria-expanded={open}
+                onClick={() => setOpen((v) => !v)}
+                className="text-muted-foreground flex min-w-0 flex-1 flex-col items-center gap-1 py-2 text-[11px] font-medium"
+              >
+                <Menu className="size-5 shrink-0" aria-hidden />
+                <span className="max-w-full truncate px-1">{t("header.menu")}</span>
+              </button>
+            </nav>
+          )}
         </div>
       </div>
     </TooltipProvider>

@@ -38,24 +38,24 @@ export function PageHero({
 }) {
   return (
     <header
-      className="relative overflow-hidden rounded-2xl border border-transparent p-4 text-white shadow-lg sm:p-6"
+      className="page-hero relative overflow-hidden rounded-2xl border border-transparent p-4 text-white shadow-lg sm:p-6"
       style={{
         background:
-          "linear-gradient(135deg, oklch(0.30 0.065 163) 0%, oklch(0.38 0.105 168) 48%, oklch(0.32 0.085 196) 100%)",
+          "var(--hero-gradient)",
       }}
     >
       <KhatamLattice
         id={latticeId}
         size={64}
-        className="pointer-events-none absolute inset-0 h-full w-full text-white opacity-[0.16]"
+        className="ornament pointer-events-none absolute inset-0 h-full w-full text-white opacity-[0.16]"
       />
-      <div className="pointer-events-none absolute -end-12 -top-16 size-56 rounded-full bg-white/15 blur-3xl" />
+      <div className="ornament pointer-events-none absolute -end-12 -top-16 size-56 rounded-full bg-white/15 blur-3xl" />
       <div
-        className="pointer-events-none absolute -bottom-24 start-1/4 size-48 rounded-full blur-3xl"
+        className="ornament pointer-events-none absolute -bottom-24 start-1/4 size-48 rounded-full blur-3xl"
         style={{ background: "oklch(0.835 0.118 85 / 0.30)" }}
       />
       {Icon && (
-        <div className="pointer-events-none absolute -end-6 bottom-0 opacity-10">
+        <div className="ornament pointer-events-none absolute -end-6 bottom-0 opacity-10">
           <Icon className="size-40" aria-hidden />
         </div>
       )}
@@ -108,7 +108,7 @@ function HeroAvatar({ name }: { name: string }) {
       <div className="ring-gold/45 flex size-14 items-center justify-center rounded-2xl bg-white/15 text-lg font-bold ring-1 backdrop-blur-sm sm:size-16 sm:text-xl">
         {initials}
       </div>
-      <Octagram className="text-gold absolute -bottom-1 -end-1 size-4 drop-shadow" />
+      <Octagram className="ornament text-gold absolute -bottom-1 -end-1 size-4 drop-shadow" />
     </div>
   );
 }

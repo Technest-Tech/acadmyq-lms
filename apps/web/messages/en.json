@@ -6,6 +6,14 @@
   "dashboard": {
     "title": "Dashboard",
     "centre": {
+      "chart": {
+        "title": "Collections this month",
+        "sub": "Running total up to today",
+        "empty": "No receipts this month yet.",
+        "attendanceTitle": "Attendance this week",
+        "present": "{n} present",
+        "absent": "{n} absent"
+      },
       "subtitle": "A live view of your centre today.",
       "sections": {
         "today": "Today",

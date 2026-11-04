@@ -571,3 +571,38 @@ describe("AppShell — the centre's enrolment inbox (docs/centre-profile Phase 2
     expect(navKeys()).not.toContain("enrolment");
   });
 });
+
+describe("AppShell — the learning centre's look", () => {
+  const permissions = ["group.read", "session.read", "student.read", "invoice.read", "notification.read"];
+  const capabilities = ["groups", "accounting", "centre", "invoicing"];
+  const academy = { name: "Lingo", displayName: "Lingo", logoUrl: null, country: "EG", defaultCurrency: "EGP" };
+
+  it("puts a centre on its own palette and takes the inline brand colours off", async () => {
+    document.documentElement.style.setProperty("--primary", "#2f9e6f");
+    renderShell("ACADEMY_OWNER", { permissions, capabilities, academy: { ...academy, profile: "CENTRE" as const } });
+    await ready();
+
+    expect(document.documentElement.dataset.profile).toBe("centre");
+    expect(document.documentElement.style.getPropertyValue("--primary")).toBe("");
+  });
+
+  it("leaves a Quran academy on the default colours, with no phone bar", async () => {
+    delete document.documentElement.dataset.profile;
+    renderShell("ACADEMY_OWNER", { permissions, capabilities, academy: { ...academy, profile: "QURAN" as const } });
+    await ready();
+
+    expect(document.documentElement.dataset.profile).toBeUndefined();
+    expect(document.documentElement.style.getPropertyValue("--primary")).toBe("#2f9e6f");
+    expect(screen.queryByTestId("bottom-nav")).toBeNull();
+  });
+
+  it("gives a centre a phone bar of four screens it can reach, plus the menu", async () => {
+    renderShell("ACADEMY_OWNER", { permissions, capabilities, academy: { ...academy, profile: "CENTRE" as const } });
+    await ready();
+
+    const keys = Array.from(screen.getByTestId("bottom-nav").querySelectorAll("[data-bottom-nav]")).map((el) =>
+      el.getAttribute("data-bottom-nav"),
+    );
+    expect(keys).toEqual(["dashboard", "groups", "attendance", "students", "more"]);
+  });
+});

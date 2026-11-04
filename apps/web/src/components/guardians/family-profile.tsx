@@ -1342,7 +1342,7 @@ export function FamilyProfileSkeleton() {
         className="h-[8.5rem] animate-pulse rounded-2xl shadow-lg"
         style={{
           background:
-            "linear-gradient(135deg, oklch(0.30 0.065 163) 0%, oklch(0.38 0.105 168) 48%, oklch(0.32 0.085 196) 100%)",
+            "var(--hero-gradient)",
         }}
       />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

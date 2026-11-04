@@ -511,13 +511,13 @@ export function StudentProfileSkeleton() {
         className="relative h-[8.5rem] overflow-hidden rounded-2xl shadow-lg"
         style={{
           background:
-            "linear-gradient(135deg, oklch(0.30 0.065 163) 0%, oklch(0.38 0.105 168) 48%, oklch(0.32 0.085 196) 100%)",
+            "var(--hero-gradient)",
         }}
       >
         <KhatamLattice
           id="student-skeleton-lattice"
           size={64}
-          className="pointer-events-none absolute inset-0 h-full w-full text-white opacity-[0.16]"
+          className="ornament pointer-events-none absolute inset-0 h-full w-full text-white opacity-[0.16]"
         />
         <div className="relative flex items-center gap-4 p-4 sm:p-6">
           <div className="size-16 shrink-0 animate-pulse rounded-2xl bg-white/20" />
