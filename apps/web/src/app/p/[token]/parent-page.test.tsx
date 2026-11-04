@@ -158,3 +158,28 @@ describe("ParentPage", () => {
     expect(within(april!).getByRole("link", { name: /View/ })).toHaveAttribute("href", "https://nour.acadmyq.com/i/tok2");
   });
 });
+
+describe("ParentPage — a centre's subscriptions (docs/centre-profile/01)", () => {
+  it("shows lessons left of sold per subject, in place of the minutes bars, and says when one finished", () => {
+    const data: PortalPayload = {
+      ...DATA,
+      children: [
+        {
+          ...DATA.children[0]!,
+          subscriptions: [
+            { label: "8 × English", teacher_name: "Mr Ali", course: "English", lessons_sold: 8, lessons_used: 3, lessons_left: 5, status: "OPEN" },
+            { label: "Maths", teacher_name: "Ms Sama", course: "Maths", lessons_sold: 4, lessons_used: 4, lessons_left: 0, status: "FINISHED" },
+          ],
+        },
+        DATA.children[1]!,
+      ],
+    };
+    render(<ParentPage data={data} initialLang="en" renderedAt={NOW} />);
+    const bars = screen.getAllByTestId("parent-subscription");
+    expect(bars).toHaveLength(2);
+    expect(bars[0]).toHaveTextContent("English · Mr Ali");
+    expect(bars[0]).toHaveTextContent("5 left of 8 lessons");
+    expect(bars[1]).toHaveTextContent("Subscription finished");
+    expect(screen.queryByText("7 hours left of 10 hours")).not.toBeInTheDocument();
+  });
+});

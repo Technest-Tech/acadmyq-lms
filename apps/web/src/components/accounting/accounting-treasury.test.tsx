@@ -55,6 +55,11 @@ const api = {
 };
 const getPayout = vi.fn();
 const settlePackage = vi.fn();
+const closeSubscription = vi.fn();
+vi.mock("@/lib/subscriptions-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/subscriptions-api")>()),
+  closeSubscription: (...a: unknown[]) => closeSubscription(...a),
+}));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getPayout: (...a: unknown[]) => getPayout(...a),
@@ -744,5 +749,28 @@ describe("Discount presets", () => {
     await screen.findByTestId("preset-p1");
     expect(screen.queryByTestId("preset-add")).toBeNull();
     expect(screen.queryByTestId("preset-edit-p1")).toBeNull();
+  });
+});
+
+describe("FamilyAccountsCard — a centre's subscriptions (docs/centre-profile/01)", () => {
+  it("settles a subscription closed waiting on the decision through its own close route, and links a subscription's charge line to it", async () => {
+    api.getFamilyAccount.mockResolvedValue({
+      ...family(),
+      unsettled: [{ kind: "SUBSCRIPTION", subscription_id: "sub5", package_id: "sub5", student_id: "s2", student_name: "Bassel", label: "8 × English", closed_on: "2026-06-10", settlement: "PENDING", unused_minutes: 0, lesson_minutes: null, price_minor: 72000, used_minor: 27000, paid_minor: 72000, owed_back_minor: 45000, currency: "EGP" }],
+      charges: [{ ...family().charges[0]!, id: "c9", description: "8 × English", source: "PRIVATE", subscription_id: "sub5" }],
+      can_refund: true,
+      can_settle: true,
+    });
+    closeSubscription.mockReset().mockResolvedValue({ subscription: { id: "sub5" }, settlement: { mode: "KEEP", amount_minor: 45000, currency: "EGP" } });
+    render(withAuth(owner(["invoicing", "groups", "accounting", "centre"]), <FamilyAccountsCard guardianId="gd1" />));
+
+    expect((await screen.findByTestId("unsettled-sub5")).textContent).toContain("Bassel");
+    expect(screen.getByTestId("charge-subscription-c9")).toHaveAttribute("href", "/subscriptions?id=sub5");
+    await userEvent.click(screen.getByTestId("unsettled-decide-sub5"));
+    await userEvent.click(within(await screen.findByTestId("subscription-settle-KEEP")).getByRole("radio"));
+    await userEvent.type(screen.getByTestId("subscription-settle-note"), "late notice");
+    await userEvent.click(screen.getByTestId("subscription-settle-confirm"));
+    await waitFor(() => expect(closeSubscription).toHaveBeenCalledWith("sub5", { reason: "", settlement: "KEEP", settlement_note: "late notice" }));
+    expect(settlePackage).not.toHaveBeenCalled();
   });
 });

@@ -401,8 +401,63 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "centre"] });
     await fillActiveStudent(user);
     // The subscription's own fields are already open: no click on the billing tile needed — in lessons.
-    expect(screen.getByLabelText(enMessages.packages.form.lessons)).toBeInTheDocument();
+    expect(screen.getByTestId("new-student-sub-subscription")).toBeInTheDocument();
+    expect(screen.queryByTestId("new-student-pkg-hours")).not.toBeInTheDocument();
     expect(screen.getByTestId("billing-package").textContent).toContain(enMessages.students.form.billingSubscription);
+  });
+
+  it("sells a centre's new student a block for one of the teacher links typed above — sent as `subscription` (docs/centre-profile/01)", async () => {
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s7", guardianId: "g1", subscriptionId: "sub1" });
+    const user = userEvent.setup();
+    const { onCreated } = renderForm({ canManagePackages: true, capabilities: ["invoicing", "centre"] });
+    await fillActiveStudent(user);
+    // A teacher link is a subject: it appears in the picker as the block's subject.
+    await user.click(await screen.findByTestId("add-teacher-link"));
+    await user.click(screen.getByTestId("teacher-link-select-0"));
+    // The subscription tile's own teacher list holds the same name: pick from the open dropdown.
+    await user.click(within(await screen.findByRole("listbox")).getByRole("option", { name: /Teacher One/ }));
+    await user.clear(screen.getByTestId("teacher-link-course-0"));
+    await user.type(screen.getByTestId("teacher-link-course-0"), "English");
+    const subject = screen.getByTestId("new-student-sub-subject") as HTMLSelectElement;
+    await waitFor(() => expect(subject.value).toBe("t1::english"));
+    expect(within(subject).getByRole("option", { name: "English · Teacher One" })).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("submit-student"));
+    expect(await screen.findByText(enMessages.subscriptions.studentForm.termsRequired)).toBeInTheDocument();
+    expect(api.createStudent).not.toHaveBeenCalled();
+
+    await user.type(screen.getByTestId("new-student-sub-lessons"), "8");
+    await user.selectOptions(screen.getByTestId("new-student-sub-length"), "40");
+    await user.type(screen.getByTestId("new-student-sub-unit-price"), "90");
+    expect(screen.getByTestId("new-student-sub-total")).toHaveValue(720);
+    await user.click(screen.getByTestId("submit-student"));
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    const sent = vi.mocked(api.createStudent).mock.calls[0]![0];
+    expect(sent).toMatchObject({
+      status: "REGULAR",
+      teachers: [{ teacher_id: "t1", course: "English" }],
+      subscription: { teacher_id: "t1", course: "English", lessons_sold: 8, lesson_minutes: 40, lesson_price_minor: 9000, price_minor: 72000 },
+    });
+    expect(sent).not.toHaveProperty("package");
+    expect(sent.subscription).not.toHaveProperty("plan_label");
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("s7", { packageOpened: true }));
+  });
+
+  it("sells a centre's new student a block for a new subject when no teacher link was typed", async () => {
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s8", guardianId: "g1", subscriptionId: "sub2" });
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "centre"] });
+    await fillActiveStudent(user);
+    expect((screen.getByTestId("new-student-sub-subject") as HTMLSelectElement).value).toBe("__new__");
+    await user.type(screen.getByTestId("new-student-sub-new-course"), "Maths");
+    await user.selectOptions(screen.getByTestId("new-student-sub-new-teacher"), "t1");
+    await user.type(screen.getByTestId("new-student-sub-lessons"), "4");
+    await user.type(screen.getByTestId("new-student-sub-unit-price"), "100");
+    await user.click(screen.getByTestId("submit-student"));
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createStudent).mock.calls[0]![0]).toMatchObject({
+      subscription: { teacher_id: "t1", course: "Maths", new_subject: true, lessons_sold: 4, lesson_price_minor: 10000, price_minor: 40000 },
+    });
   });
 
   it("keeps a Quran academy's new student monthly by default", async () => {

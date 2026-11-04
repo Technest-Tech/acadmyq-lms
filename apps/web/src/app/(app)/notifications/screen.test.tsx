@@ -14,7 +14,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   listNotifications: (category?: string) => listNotifications(category),
   markAllNotificationsRead: (category?: string) => markAllNotificationsRead(category),
   getNotificationsSummary: () =>
-    Promise.resolve({ classes: 0, reports: 1, packages: 0, studentReports: 0, attended: 1, total: 1 }),
+    Promise.resolve({ classes: 0, reports: 1, packages: 0, studentReports: 0, attended: 1, total: 1, subscriptions: 2 }),
 }));
 
 const overdue: NotificationRow = {
@@ -45,11 +45,32 @@ const attended: NotificationRow = {
   created_at: "2026-10-06T11:00:00Z",
 };
 
+const finished: NotificationRow = {
+  id: "n3",
+  type: "SUBSCRIPTION_FINISHED",
+  category: "SUBSCRIPTIONS",
+  session_id: null,
+  subject_id: "sub1",
+  data: { student_name: "Adam", label: "8 × English", lessons_sold: 8 },
+  read_at: null,
+  created_at: "2026-11-01T11:00:00Z",
+};
+const outside: NotificationRow = {
+  id: "n4",
+  type: "LESSON_OUTSIDE_SUBSCRIPTION",
+  category: "SUBSCRIPTIONS",
+  session_id: null,
+  subject_id: "s1",
+  data: { student_name: "Adam", outside_count: 2 },
+  read_at: "2026-11-02T11:00:00Z",
+  created_at: "2026-11-02T10:00:00Z",
+};
+
 beforeEach(() => {
   listNotifications.mockReset();
   markAllNotificationsRead.mockReset().mockResolvedValue({ ok: true, marked: 1 });
   listNotifications.mockImplementation((category?: string) =>
-    Promise.resolve({ notifications: category === "ATTENDED" ? [attended] : [overdue] }),
+    Promise.resolve({ notifications: category === "ATTENDED" ? [attended] : category === "SUBSCRIPTIONS" ? [finished, outside] : [overdue] }),
   );
 });
 
@@ -89,4 +110,27 @@ it("keeps attended lessons out of the reports tab", async () => {
   const list = await screen.findByTestId("reports-list");
   expect(within(list).getAllByTestId("report-card")).toHaveLength(1);
   expect(within(list).queryByText(/Sara/)).not.toBeInTheDocument();
+});
+
+it("gives a centre a subscriptions tab in place of packages, read from its own category, each alert pointing at its view (docs/centre-profile/01)", async () => {
+  render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["notification.read"], capabilities: ["centre", "groups"] }), <NotificationsScreen />));
+  const tab = await screen.findByTestId("tab-subscriptions");
+  expect(screen.queryByTestId("tab-packages")).toBeNull();
+  expect(tab).toHaveTextContent("2");
+  expect(listNotifications).toHaveBeenCalledWith("SUBSCRIPTIONS");
+  await userEvent.click(tab);
+  const alerts = await screen.findAllByTestId("subscription-alert");
+  expect(alerts).toHaveLength(2);
+  expect(alerts[0]).toHaveTextContent("Adam");
+  expect(alerts[0]).toHaveTextContent("8 × English");
+  expect(within(alerts[0]!).getByRole("link")).toHaveAttribute("href", "/subscriptions?view=finished");
+  expect(within(alerts[1]!).getByRole("link")).toHaveAttribute("href", "/subscriptions?view=outside");
+  expect(alerts[1]).toHaveAttribute("data-unread", "false");
+});
+
+it("keeps the packages tab for an academy without centre mode, and never reads the subscriptions category", async () => {
+  renderScreen();
+  expect(await screen.findByTestId("tab-packages")).toBeTruthy();
+  expect(screen.queryByTestId("tab-subscriptions")).toBeNull();
+  expect(listNotifications).not.toHaveBeenCalledWith("SUBSCRIPTIONS");
 });
