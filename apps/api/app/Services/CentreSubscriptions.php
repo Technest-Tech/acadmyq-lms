@@ -92,6 +92,11 @@ final class CentreSubscriptions
                 Audit::log('student.teacher_added', 'student', $studentId, $academyId, $actorUserId, $actorRole,
                     after: ['teacher_id' => $teacherId, 'course' => $course, 'effective_date' => now()->toDateString(), 'with_subscription' => true]);
             }
+            // Selling a block puts the student on the block clock for the rest of the system (the
+            // REGULAR rule, the list badges): the `subscriptions` row says PER_PACKAGE, as a package
+            // sale always did. Only the centre engine reads it from here on.
+            app(LessonPackages::class)->ensurePackageBilling($studentId, $academyId, $lessonPrice, $currency, $startsOn, $actorUserId, $actorRole);
+
             // Buying a block ends the trial: a student left on TRIAL is never billed.
             if ((string) $student->status === StudentStatus::TRIAL) {
                 DB::table('students')->where('id', $studentId)->update(['status' => StudentStatus::REGULAR, 'updated_at' => now()]);
@@ -113,6 +118,7 @@ final class CentreSubscriptions
             $sub = DB::table('centre_subscriptions')->where('id', $id)->first();
 
             $invoiceId = $this->billing->raise($sub, $academy, $actorUserId, $actorRole);
+            $sub = DB::table('centre_subscriptions')->where('id', $id)->first();
             $taken = $this->takeOutside($sub);
             $warnings = $this->flagUnpaidPredecessors($sub);
 
@@ -206,28 +212,36 @@ final class CentreSubscriptions
     }
 
     /**
-     * Close a block early, and — when asked — settle what was paid for lessons never had.
+     * Close a block early, and — when asked — settle what was paid for lessons never had. On a block
+     * already CLOSED and waiting (settlement PENDING) this is the settlement alone: the family card
+     * decides later through the same door, with an empty reason.
      *
      * @param  array{method?: ?string, cash_account_id?: ?string, reference?: ?string, note?: ?string}|null  $refund
+     * @param  ?string  $note  the KEEP reason / a word on the credit (`settlement_note`)
      * @return array{settlement: ?array<string, mixed>}
      */
-    public function close(string $id, string $reason, ?string $mode, ?array $refund, ?string $actorUserId, ?string $actorRole): array
+    public function close(string $id, ?string $reason, ?string $mode, ?array $refund, ?string $note, ?string $actorUserId, ?string $actorRole): array
     {
-        return DB::transaction(function () use ($id, $reason, $mode, $refund, $actorUserId, $actorRole): array {
+        return DB::transaction(function () use ($id, $reason, $mode, $refund, $note, $actorUserId, $actorRole): array {
             $sub = $this->lock($id);
-            if (! in_array($sub->status, ['OPEN', 'FINISHED'], true)) {
+            $settleOnly = $sub->status === 'CLOSED' && $sub->settlement === 'PENDING';
+            if (! $settleOnly && ! in_array($sub->status, ['OPEN', 'FINISHED'], true)) {
                 throw ValidationException::withMessages(['subscription' => ['This subscription is already closed. / هذا الاشتراك منتهٍ بالفعل.']]);
             }
-            DB::table('centre_subscriptions')->where('id', $id)->update([
-                'status' => 'CLOSED', 'closed_at' => now(), 'closed_reason' => mb_substr(trim($reason), 0, 500) ?: 'CLOSED', 'closed_by' => $actorUserId, 'updated_at' => now(),
-            ]);
-            Audit::log(self::ENTITY.'.closed', self::ENTITY, $id, (string) $sub->academy_id, $actorUserId, $actorRole,
-                before: ['status' => $sub->status], after: ['status' => 'CLOSED', 'reason' => $reason, 'lessons_used' => $this->used($id)]);
-
-            $this->settlement->markIfOwed($id);
+            if (! $settleOnly) {
+                DB::table('centre_subscriptions')->where('id', $id)->update([
+                    'status' => 'CLOSED', 'closed_at' => now(), 'closed_reason' => mb_substr(trim((string) $reason), 0, 500) ?: 'CLOSED', 'closed_by' => $actorUserId,
+                    'settle_note' => $note !== null && trim($note) !== '' ? mb_substr(trim($note), 0, 500) : null, 'updated_at' => now(),
+                ]);
+                Audit::log(self::ENTITY.'.closed', self::ENTITY, $id, (string) $sub->academy_id, $actorUserId, $actorRole,
+                    before: ['status' => $sub->status], after: ['status' => 'CLOSED', 'reason' => $reason, 'note' => $note, 'lessons_used' => $this->used($id)]);
+                $this->settlement->markIfOwed($id);
+            }
             $settled = null;
             if ($mode !== null && DB::table('centre_subscriptions')->where('id', $id)->value('settlement') === 'PENDING') {
-                $settled = $this->settlement->settle($id, $mode, $refund, $actorUserId, $actorRole);
+                $settled = $this->settlement->settle($id, $mode, $refund, $note, $actorUserId, $actorRole);
+            } elseif ($mode !== null && $settleOnly) {
+                throw ValidationException::withMessages(['subscription' => ['This subscription is already settled. / تمت تسوية هذا الاشتراك بالفعل.']]);
             }
 
             return ['settlement' => $settled];
@@ -291,7 +305,9 @@ final class CentreSubscriptions
                     after: ['session_id' => (string) $session->id, 'teacher_id' => $teacherId, 'course' => $course, 'lesson_on' => $on]);
                 $this->notify($academyId, 'LESSON_OUTSIDE_SUBSCRIPTION', $studentId, [
                     'student_id' => $studentId, 'student_name' => $this->studentName($studentId),
-                    'session_id' => (string) $session->id, 'teacher_id' => $teacherId, 'course' => $course,
+                    'session_id' => (string) $session->id, 'teacher_id' => $teacherId,
+                    'teacher_name' => $teacherId !== null ? DB::table('teachers')->where('id', $teacherId)->value('full_name') : null,
+                    'course' => $course !== '' ? ($session->course ?? $course) : null,
                     'outside_count' => $this->outsideCount($studentId),
                 ]);
 
@@ -538,11 +554,11 @@ final class CentreSubscriptions
             return;
         }
         $due = number_format(((int) $owed->total_minor - (int) $owed->amount_paid_minor) / 100, 2).' '.$owed->currency;
-        throw ValidationException::withMessages([
-            'student_id' => ["This family pays first: subscription #{$owed->sequence_no} ({$owed->label}) still owes {$due} on its bill. / هذه الأسرة تدفع أولًا: الاشتراك رقم {$owed->sequence_no} ({$owed->label}) ما زال عليه {$due} على فاتورته."],
-            'unpaid_invoice_id' => [(string) $owed->invoice_id],
-            'unpaid_subscription_id' => [(string) $owed->id],
-        ]);
+        throw PayFirstRefusal::of(
+            "This family pays first: subscription #{$owed->sequence_no} ({$owed->label}) still owes {$due} on its bill. / هذه الأسرة تدفع أولًا: الاشتراك رقم {$owed->sequence_no} ({$owed->label}) ما زال عليه {$due} على فاتورته.",
+            (string) $owed->invoice_id,
+            (string) $owed->id,
+        );
     }
 
     /** Outside lessons of the block's subject from its start, oldest first, up to what it has free. Returns how many. */
@@ -604,7 +620,7 @@ final class CentreSubscriptions
         $outstanding = (int) $unpaid->sum(fn ($r) => (int) $r->total_minor - (int) $r->amount_paid_minor);
         $this->notify((string) $sub->academy_id, 'SUBSCRIPTION_UNPAID', (string) $sub->id, [
             'subscription_id' => (string) $sub->id, 'student_id' => (string) $sub->student_id, 'student_name' => $this->studentName((string) $sub->student_id),
-            'label' => (string) $sub->label,
+            'label' => (string) $sub->label, 'invoice_id' => $sub->invoice_id !== null ? (string) $sub->invoice_id : null,
             'unpaid_subscriptions' => $unpaid->map(fn ($r) => ['id' => (string) $r->id, 'label' => (string) $r->label, 'sequence_no' => (int) $r->sequence_no])->values()->all(),
             'outstanding_minor' => $outstanding, 'currency' => (string) $unpaid->first()->currency,
         ]);

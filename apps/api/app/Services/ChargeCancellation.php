@@ -161,7 +161,7 @@ final class ChargeCancellation
 
             return;
         }
-        $engine->close((string) $subscription->id, 'CHARGE_CANCELLED', null, null, $userId, $role);
+        $engine->close((string) $subscription->id, 'CHARGE_CANCELLED', null, null, null, $userId, $role);
     }
 
     /** A subscription whose bill is let go stops: cancelled if none of it was used, else closed as it stands. */

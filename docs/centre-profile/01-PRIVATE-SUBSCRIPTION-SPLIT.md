@@ -339,6 +339,39 @@ The contract above stands; the API adds to it and deviates in these places only:
 - `centre_subscriptions.legacy_package_id` (unique, nullable) remembers the `lesson_packages` row
   the data move came from — what makes `centre:migrate-packages` idempotent.
 
+Honouring the web half's "Web needs" (2026-11-05, second pass):
+
+- `SubscriptionRow.invoice_token` is there (the bill's public pay token).
+- `unsettled[]` rows carry `kind`, `subscription_id` and `id`, and `used_minor` beside
+  `used_value_minor`; **`POST /subscriptions/{id}/close` on a block already CLOSED with settlement
+  PENDING is the settlement alone** — `reason` may be empty (it is now optional on the route), the
+  decision comes from `settlement` (+ `refund`), a second attempt on a settled block is a 422.
+  `charges[]` rows carry `subscription_id` when the line is a block's (and read `source: PRIVATE`).
+- `CloseInput.settlement_note` (free text): stored in `centre_subscriptions.settle_note` on the
+  close and on the settlement (a refund's `note` stands in when there is none).
+- `refund.method` is a ReceiptMethod code resolved to the treasury account mapped for that method
+  and currency, as a receipt is; no account mapped → 422 naming the account. `cash_account_id`
+  stays as the alternative.
+- The pay-first refusal is `App\Services\PayFirstRefusal` (a ValidationException with its own
+  `render()`): the 422 body carries `code: "PAY_FIRST"`, `pay_first: true`, `unpaid_invoice_id`
+  and `unpaid_subscription_id` at the top level beside `message` / `errors`.
+- `POST /students` tells the centre's SellInput from the Quran monthly terms by `lessons_sold`
+  being present (and refuses it with a 402 unless the academy holds `centre`); the Quran shape is
+  untouched for everyone else.
+- `CentreSubscriptions::sell` now calls `LessonPackages::ensurePackageBilling` (the `subscriptions`
+  row becomes PER_PACKAGE, created if missing), so the student is REGULAR-able and the list badges
+  read as before; only the centre engine reads it from then on. The wizard's convert
+  (`POST /subscriptions` → `POST /groups/{id}/members` → `PATCH /students/{id} {status: REGULAR}`)
+  is pinned by a test.
+- Notification `data`: SUBSCRIPTION_FINISHED `{student_id, student_name, subscription_id, label,
+  course, lessons_sold, sequence_no}`; SUBSCRIPTION_UNPAID `{student_id, student_name,
+  subscription_id, label, invoice_id, outstanding_minor, currency, unpaid_subscriptions[]}`;
+  LESSON_OUTSIDE_SUBSCRIPTION `{student_id, student_name, outside_count, teacher_id, teacher_name,
+  course, session_id}`.
+- `LessonRow.number` is always set: `GET /subscriptions/{id}` lists only the lessons counted on the
+  block; a student's outside lessons are on `view=outside` (`outside[]`) and the student's
+  `outside_count`.
+
 ## As built — the API half (2026-11-05, branch `worktree-agent-ac702fd615ae339d3` off e2a945c)
 
 Steps 1, 2, the readers, the alerts and the data-move command, in one commit; the web half is on its

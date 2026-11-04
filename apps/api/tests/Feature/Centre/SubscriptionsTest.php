@@ -371,9 +371,10 @@ it('pays the unused part back out of the treasury, or keeps it, and a block clos
     $kept = ($this->sell)(['lessons_sold' => 2])->assertCreated()->json('subscription.id');
     ($this->pay)(($this->sub)($kept)->invoice_id, 20000);
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/subscriptions/{$kept}/close", ['reason' => 'Gone', 'settlement' => 'KEEP', 'refund' => ['note' => 'agreed']])->assertOk()
+    $this->postJson("/api/subscriptions/{$kept}/close", ['reason' => 'Gone', 'settlement' => 'KEEP', 'settlement_note' => 'late cancellation'])->assertOk()
         ->assertJsonPath('subscription.settlement', 'KEEP')->assertJsonPath('settlement.amount_minor', 20000);
-    expect((int) ($this->line)($kept)->amount_minor)->toBe(20000)->and(($this->balance)())->toBe(['due' => 0, 'credit' => 0]);
+    expect((int) ($this->line)($kept)->amount_minor)->toBe(20000)->and(($this->balance)())->toBe(['due' => 0, 'credit' => 0])
+        ->and(($this->sub)($kept)->settle_note)->toBe('late cancellation');
 
     // Undecided: PENDING on the family card, settled from there.
     $later = ($this->sell)(['lessons_sold' => 2])->assertCreated()->json('subscription.id');
@@ -381,9 +382,12 @@ it('pays the unused part back out of the treasury, or keeps it, and a block clos
     Sanctum::actingAs($this->owner);
     $this->postJson("/api/subscriptions/{$later}/close", ['reason' => 'Undecided'])->assertOk()->assertJsonPath('subscription.settlement', 'PENDING')->assertJsonPath('settlement', null);
     $waiting = $this->getJson("/api/accounting/family/{$this->guardian}")->assertOk()->json('unsettled');
-    expect($waiting)->toHaveCount(1)->and($waiting[0])->toMatchArray(['kind' => 'SUBSCRIPTION', 'subscription_id' => $later, 'student_name' => 'Hassan', 'owed_back_minor' => 20000]);
-    $this->postJson("/api/subscriptions/{$later}/settle", ['settlement' => 'CREDIT'])->assertOk()->assertJsonPath('settlement.amount_minor', 20000);
-    expect(($this->balance)())->toBe(['due' => 0, 'credit' => 20000]);
+    expect($waiting)->toHaveCount(1)->and($waiting[0])->toMatchArray(['kind' => 'SUBSCRIPTION', 'subscription_id' => $later, 'id' => $later, 'student_name' => 'Hassan', 'owed_back_minor' => 20000, 'used_minor' => 0, 'paid_minor' => 20000, 'currency' => 'EGP']);
+    // The family card settles through the close door: an already closed block, an empty reason, the decision and a note.
+    $this->postJson("/api/subscriptions/{$later}/close", ['reason' => '', 'settlement' => 'CREDIT', 'settlement_note' => 'agreed with the father'])->assertOk()
+        ->assertJsonPath('settlement.amount_minor', 20000)->assertJsonPath('subscription.settlement', 'CREDIT');
+    expect(($this->balance)())->toBe(['due' => 0, 'credit' => 20000])->and(($this->sub)($later)->settle_note)->toBe('agreed with the father');
+    $this->postJson("/api/subscriptions/{$later}/close", ['reason' => '', 'settlement' => 'KEEP'])->assertStatus(422);
     // The credit pays the next block by itself, so closing that one unused waits on a decision too;
     // a block nobody paid for owes nothing back: no settlement at all.
     $next = ($this->sell)(['lessons_sold' => 2])->assertCreated()->assertJsonPath('due_minor', 0)->json('subscription.id');
@@ -425,8 +429,9 @@ it('holds a sale while the last block of the subject is unpaid under pay-first, 
     $first = ($this->sell)(['lessons_sold' => 1])->assertCreated();
     ($this->attend)('2026-06-01 10:00:00+00');
 
-    $refused = ($this->sell)()->assertStatus(422);
+    $refused = ($this->sell)()->assertStatus(422)->assertJsonPath('code', 'PAY_FIRST')->assertJsonPath('pay_first', true);
     expect($refused->json('errors.unpaid_invoice_id.0'))->toBe($first->json('invoice_id'))
+        ->and($refused->json('unpaid_invoice_id'))->toBe($first->json('invoice_id'))
         ->and($refused->json('errors.student_id.0'))->toContain('#1')->toContain('100.00 EGP');
     $this->getJson('/api/subscriptions?view=finished')->assertOk()->assertJsonPath('rows.0.renewal_held', true);
 
@@ -522,13 +527,22 @@ it('files the alerts under SUBSCRIPTIONS on the notifications page, and relays t
 
     Sanctum::actingAs($this->owner);
     $this->getJson('/api/notifications/summary')->assertOk()->assertJsonPath('subscriptions', 2)->assertJsonPath('packages', 0);
-    $types = collect($this->getJson('/api/notifications?category=SUBSCRIPTIONS')->assertOk()->json('notifications'))->pluck('type')->sort()->values()->all();
-    expect($types)->toBe(['SUBSCRIPTION_FINISHED', 'SUBSCRIPTION_UNPAID']);
+    $alerts = collect($this->getJson('/api/notifications?category=SUBSCRIPTIONS')->assertOk()->json('notifications'))->keyBy('type');
+    expect($alerts->keys()->sort()->values()->all())->toBe(['SUBSCRIPTION_FINISHED', 'SUBSCRIPTION_UNPAID'])
+        ->and($alerts['SUBSCRIPTION_FINISHED']['data'])->toMatchArray(['student_id' => $this->hassan, 'student_name' => 'Hassan', 'subscription_id' => $id, 'lessons_sold' => 1])
+        ->and($alerts['SUBSCRIPTION_UNPAID']['data'])->toMatchArray(['student_id' => $this->hassan, 'student_name' => 'Hassan', 'subscription_id' => $next, 'outstanding_minor' => 10000, 'currency' => 'EGP', 'invoice_id' => ($this->sub)($next)->invoice_id]);
+    ($this->attend)('2026-06-02 10:00:00+00');
+    ($this->attend)('2026-06-03 10:00:00+00');
+    ($this->attend)('2026-06-04 10:00:00+00');
+    Sanctum::actingAs($this->owner);
+    $outside = collect($this->getJson('/api/notifications?category=SUBSCRIPTIONS')->json('notifications'))->firstWhere('type', 'LESSON_OUTSIDE_SUBSCRIPTION');
+    expect($outside['data'])->toMatchArray(['student_id' => $this->hassan, 'student_name' => 'Hassan', 'outside_count' => 1, 'teacher_name' => 'Ms Sama']);
     expect(collect($this->getJson('/api/notifications')->json('notifications'))->pluck('category')->unique()->all())->toBe(['SUBSCRIPTIONS']);
 
     app(GroupAlerts::class)->run($this->academy);
     $texts = Http::recorded(fn (HttpRequest $r) => str_contains($r->url(), '/api/send-message'))->map(fn (array $pair) => $pair[0]->data()['text'])->all();
-    expect(implode("\n", $texts))->toContain('Subscription finished')->toContain('Hassan')->toContain('1 lesson used up')
+    // Both blocks have finished by now, so the heading is the plural one.
+    expect(implode("\n", $texts))->toContain('Subscriptions finished')->toContain('Hassan')->toContain('1 lesson used up')->toContain('2 lessons used up')
         ->toContain('New subscription while an earlier one is unpaid')->toContain('100 EGP still owed');
 });
 
@@ -551,7 +565,9 @@ it('feeds the centre dashboard, the parent portal, the family card, the suspend 
         ->assertJsonPath('dues.0.kind', 'SUBSCRIPTION')->assertJsonPath('dues.0.remaining_minor', 80000);
     $this->getJson("/api/guardians/{$this->guardian}/removal-dues")->assertOk()->assertJsonPath('dues.0.amount_minor', 80000);
 
-    $this->getJson("/api/accounting/family/{$this->guardian}")->assertOk()->assertJsonPath('balance.0.due_minor', 80000)->assertJsonPath('unsettled', []);
+    $this->getJson("/api/accounting/family/{$this->guardian}")->assertOk()->assertJsonPath('balance.0.due_minor', 80000)->assertJsonPath('unsettled', [])
+        ->assertJsonPath('charges.0.subscription_id', $id)->assertJsonPath('charges.0.source', 'PRIVATE');
+    $this->getJson('/api/subscriptions?view=due')->assertOk()->assertJsonPath('rows.0.invoice_token', ($this->row)('invoices', ($this->sub)($id)->invoice_id)->public_token);
 
     $url = $this->postJson("/api/guardians/{$this->guardian}/portal")->assertOk()->json('url');
     $this->clearTenantContext();
@@ -585,7 +601,16 @@ it('sells a subscription with the student on POST /students, in the same unit â€
     $sub = ($this->sub)($res->json('subscriptionId'));
     expect($sub->student_id)->toBe($res->json('studentId'))->and((int) $sub->price_minor)->toBe(50000)->and($sub->course)->toBe('English')->and($sub->status)->toBe('OPEN')
         ->and($res->json('subscriptionInvoiceId'))->toBe($sub->invoice_id);
-    expect(csTenant($this->academy, fn () => DB::table('subscriptions')->where('student_id', $res->json('studentId'))->exists()))->toBeFalse();
+    // The rest of the system sees a student on the block clock (REGULAR needs a billing row).
+    expect(csTenant($this->academy, fn () => DB::table('subscriptions')->where('student_id', $res->json('studentId'))->where('status', 'ACTIVE')->value('price_basis')))->toBe('PER_PACKAGE');
+
+    // The enrolment wizard's convert: sell to the trial student, then PATCH them REGULAR.
+    $trial = $this->createStudent($this->academy, $this->guardian, ['full_name' => 'Trial Kid', 'status' => 'TRIAL']);
+    ($this->alsoTeaches)($trial, $this->teacher, 'English');
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/subscriptions', ['student_id' => $trial, 'teacher_id' => $this->teacher, 'lessons_sold' => 4, 'lesson_price_minor' => 10000])->assertCreated();
+    $this->patchJson("/api/students/{$trial}", ['status' => 'REGULAR'])->assertOk();
+    expect(csTenant($this->academy, fn () => DB::table('students')->where('id', $trial)->value('status')))->toBe('REGULAR');
 
     // A refused sale rolls the student back with it.
     $before = csTenant($this->academy, fn () => DB::table('students')->count());
