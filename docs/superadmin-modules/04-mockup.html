@@ -1,0 +1,735 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Super Admin — Client-First Redesign</title>
+<style>
+  :root{
+    --bg: oklch(0.985 0.003 160);
+    --ink: oklch(0.24 0.015 250);
+    --muted: oklch(0.5 0.02 245);
+    --card: oklch(1 0 0);
+    --line: oklch(0.9 0.008 200);
+    --soft: oklch(0.965 0.006 180);
+    --accent: oklch(0.519 0.158 163.2);
+    --accent-ink: oklch(0.99 0 0);
+    --m-mgmt: oklch(0.5 0.14 255);
+    --m-video: oklch(0.52 0.16 300);
+    --m-wa: oklch(0.53 0.13 148);
+    --trial: oklch(0.58 0.13 70);
+    --danger: oklch(0.55 0.19 25);
+    --shadow: 0 1px 2px oklch(0.2 0.02 250 / .06), 0 8px 24px oklch(0.2 0.02 250 / .07);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg: oklch(0.17 0.012 255);
+      --ink: oklch(0.93 0.005 160);
+      --muted: oklch(0.65 0.015 240);
+      --card: oklch(0.215 0.014 252);
+      --line: oklch(0.31 0.015 250);
+      --soft: oklch(0.25 0.014 250);
+      --accent: oklch(0.66 0.14 163.2);
+      --accent-ink: oklch(0.15 0.02 163);
+      --m-mgmt: oklch(0.68 0.12 255);
+      --m-video: oklch(0.7 0.13 300);
+      --m-wa: oklch(0.7 0.12 148);
+      --trial: oklch(0.72 0.12 75);
+      --danger: oklch(0.68 0.16 25);
+      --shadow: 0 1px 2px oklch(0 0 0 / .3), 0 8px 24px oklch(0 0 0 / .35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg: oklch(0.17 0.012 255); --ink: oklch(0.93 0.005 160); --muted: oklch(0.65 0.015 240);
+    --card: oklch(0.215 0.014 252); --line: oklch(0.31 0.015 250); --soft: oklch(0.25 0.014 250);
+    --accent: oklch(0.66 0.14 163.2); --accent-ink: oklch(0.15 0.02 163);
+    --m-mgmt: oklch(0.68 0.12 255); --m-video: oklch(0.7 0.13 300); --m-wa: oklch(0.7 0.12 148);
+    --trial: oklch(0.72 0.12 75); --danger: oklch(0.68 0.16 25);
+    --shadow: 0 1px 2px oklch(0 0 0 / .3), 0 8px 24px oklch(0 0 0 / .35);
+  }
+  :root[data-theme="light"]{
+    --bg: oklch(0.985 0.003 160); --ink: oklch(0.24 0.015 250); --muted: oklch(0.5 0.02 245);
+    --card: oklch(1 0 0); --line: oklch(0.9 0.008 200); --soft: oklch(0.965 0.006 180);
+    --accent: oklch(0.519 0.158 163.2); --accent-ink: oklch(0.99 0 0);
+    --m-mgmt: oklch(0.5 0.14 255); --m-video: oklch(0.52 0.16 300); --m-wa: oklch(0.53 0.13 148);
+    --trial: oklch(0.58 0.13 70); --danger: oklch(0.55 0.19 25);
+    --shadow: 0 1px 2px oklch(0.2 0.02 250 / .06), 0 8px 24px oklch(0.2 0.02 250 / .07);
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font: 16px/1.6 -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap{max-width:1040px; margin-inline:auto; padding:48px 24px 96px}
+  .prose{max-width:68ch}
+  h1,h2,h3{line-height:1.2; text-wrap:balance; margin:0}
+  h1{font-size:clamp(28px,4.5vw,40px); font-weight:750; letter-spacing:-.02em}
+  h2{font-size:23px; font-weight:700; letter-spacing:-.01em; margin-block:0 10px}
+  h3{font-size:16.5px; font-weight:650}
+  p{margin:.55em 0}
+  section{margin-block:64px}
+  .eyebrow{
+    display:inline-flex; gap:8px; align-items:center;
+    font-size:11.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--accent); margin-bottom:14px;
+  }
+  .eyebrow .n{
+    display:inline-grid; place-items:center; inline-size:22px; block-size:22px;
+    border-radius:6px; background:var(--accent); color:var(--accent-ink); font-size:12px; letter-spacing:0;
+  }
+  .sub{color:var(--muted); font-size:17px; max-width:62ch}
+  .legend{display:flex; gap:10px; flex-wrap:wrap; margin-top:22px}
+  code{
+    font:12.5px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    background:var(--soft); border:1px solid var(--line); border-radius:5px; padding:1px 6px;
+  }
+  a{color:var(--accent)}
+
+  /* ---------- chips & pills ---------- */
+  .chip{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:11.5px; font-weight:650; letter-spacing:.02em;
+    padding:2.5px 9px; border-radius:999px; white-space:nowrap;
+    background: color-mix(in oklab, var(--c) 13%, transparent);
+    color: var(--c); border:1px solid color-mix(in oklab, var(--c) 30%, transparent);
+  }
+  .chip::before{content:""; inline-size:7px; block-size:7px; border-radius:50%; background:var(--c)}
+  .chip.mgmt{--c:var(--m-mgmt)} .chip.video{--c:var(--m-video)} .chip.wa{--c:var(--m-wa)}
+  .chip.off{--c:var(--muted); opacity:.62} .chip.off::before{background:transparent; border:1.5px solid var(--c)}
+  .pill{
+    display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:650;
+    padding:2px 9px; border-radius:999px;
+    background:color-mix(in oklab, var(--c) 14%, transparent); color:var(--c);
+  }
+  .pill::before{content:""; inline-size:6px; block-size:6px; border-radius:50%; background:var(--c)}
+  .pill.active{--c:var(--accent)} .pill.trial{--c:var(--trial)} .pill.suspended{--c:var(--danger)} .pill.off{--c:var(--muted)}
+
+  /* ---------- stat tiles ---------- */
+  .tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin:26px 0}
+  .tile{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; box-shadow:var(--shadow)}
+  .tile b{display:block; font-size:30px; font-weight:750; letter-spacing:-.02em; line-height:1.1}
+  .tile span{font-size:13px; color:var(--muted)}
+  .tile.bad b{color:var(--danger)}
+
+  /* ---------- window frame ---------- */
+  figure{margin:28px 0 8px}
+  figcaption{font-size:13px; color:var(--muted); margin-top:10px; max-width:75ch}
+  .win{
+    border:1px solid var(--line); border-radius:14px; overflow:hidden;
+    background:var(--card); box-shadow:var(--shadow);
+  }
+  .winbar{
+    display:flex; align-items:center; gap:10px; padding:9px 14px;
+    border-bottom:1px solid var(--line); background:var(--soft);
+  }
+  .dots{display:flex; gap:5px}
+  .dots i{inline-size:10px; block-size:10px; border-radius:50%; background:var(--line); display:block}
+  .url{
+    flex:1; max-width:420px; margin-inline:auto; text-align:center;
+    font:11.5px ui-monospace, Menlo, monospace; color:var(--muted);
+    background:var(--card); border:1px solid var(--line); border-radius:6px; padding:3px 10px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .app{display:grid; grid-template-columns:190px 1fr; min-block-size:300px}
+  @media (max-width:640px){ .app{grid-template-columns:1fr} .snav{display:none} }
+  .snav{border-inline-end:1px solid var(--line); background:var(--soft); padding:12px 10px; font-size:12.5px}
+  .snav .brand{display:flex; align-items:center; gap:7px; font-weight:700; font-size:12.5px; padding:4px 8px 12px}
+  .snav .brand i{inline-size:18px; block-size:18px; border-radius:5px; background:var(--accent); display:block}
+  .snav a{
+    display:flex; align-items:center; justify-content:space-between; gap:6px;
+    padding:5.5px 9px; border-radius:7px; color:var(--ink); text-decoration:none; margin-block:1px;
+  }
+  .snav a .cnt{font-size:10.5px; color:var(--muted)}
+  .snav a.on{background:color-mix(in oklab, var(--accent) 14%, transparent); color:var(--accent); font-weight:650}
+  .main{padding:16px 18px; min-inline-size:0}
+  .scroll-x{overflow-x:auto}
+
+  /* ---------- mock tables ---------- */
+  table.mt{width:100%; border-collapse:collapse; font-size:12.5px; min-inline-size:560px}
+  table.mt th{
+    text-align:start; font-size:10.5px; text-transform:uppercase; letter-spacing:.09em;
+    color:var(--muted); font-weight:650; padding:7px 10px; border-bottom:1px solid var(--line);
+  }
+  table.mt td{padding:8.5px 10px; border-bottom:1px solid color-mix(in oklab, var(--line) 55%, transparent); vertical-align:middle}
+  table.mt tr:last-child td{border-bottom:none}
+  .cname{font-weight:650; white-space:nowrap}
+  .cname small{display:block; font-weight:400; color:var(--muted); font-size:11px}
+  .money{font:12px ui-monospace, Menlo, monospace; white-space:nowrap}
+
+  /* ---------- mock ui bits ---------- */
+  .btn{
+    display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:650;
+    border:1px solid var(--line); background:var(--card); color:var(--ink);
+    border-radius:8px; padding:5px 11px; white-space:nowrap;
+  }
+  .btn.primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+  .btn.ghost{border-color:transparent; background:transparent; color:var(--muted)}
+  .btn.danger{color:var(--danger); border-color:color-mix(in oklab, var(--danger) 35%, transparent)}
+  .toolbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px}
+  .search{
+    flex:1; min-inline-size:140px; max-inline-size:260px; font-size:12px; color:var(--muted);
+    border:1px solid var(--line); border-radius:8px; padding:5px 11px; background:var(--card);
+  }
+  .seg{display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; font-size:11.5px}
+  .seg b{padding:4.5px 10px; background:var(--soft); font-weight:650}
+  .seg span{padding:4.5px 10px; color:var(--muted)}
+
+  /* ---------- subscriptions card ---------- */
+  .subcard{border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-top:12px}
+  .subcard header{
+    display:flex; justify-content:space-between; align-items:center; gap:10px;
+    padding:10px 14px; background:var(--soft); border-bottom:1px solid var(--line);
+    font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
+  }
+  .mrow{
+    display:grid; grid-template-columns: 130px 110px 1fr auto; gap:10px; align-items:center;
+    padding:12px 14px; border-bottom:1px solid color-mix(in oklab, var(--line) 55%, transparent);
+    font-size:12.5px;
+  }
+  .mrow:last-child{border-bottom:none}
+  @media (max-width:640px){ .mrow{grid-template-columns:1fr 1fr; row-gap:6px} }
+  .mrow .mname{display:flex; align-items:center; gap:8px; font-weight:700; font-size:12px}
+  .mrow .mname i{inline-size:9px; block-size:9px; border-radius:3px; background:var(--c); display:block}
+  .mrow.mgmt{--c:var(--m-mgmt)} .mrow.video{--c:var(--m-video)} .mrow.wa{--c:var(--m-wa)}
+  .mrow.disabled{opacity:.66; background:color-mix(in oklab, var(--soft) 60%, transparent)}
+  .plansel{
+    display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:7px;
+    padding:3.5px 9px; font-size:12px; font-weight:650; background:var(--card); white-space:nowrap;
+  }
+  .plansel::after{content:"▾"; font-size:9px; color:var(--muted)}
+  .mstate{display:flex; flex-direction:column; gap:2px; min-inline-size:0}
+  .mstate small{color:var(--muted); font-size:11px}
+  .mact{display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end}
+
+  /* ---------- tabs ---------- */
+  .tabs{display:flex; gap:2px; border-bottom:1px solid var(--line); margin-top:18px; overflow-x:auto}
+  .tabs button{
+    appearance:none; background:none; border:none; border-bottom:2px solid transparent;
+    font:650 12.5px/1 inherit; font-family:inherit; color:var(--muted); padding:9px 13px; cursor:pointer; white-space:nowrap;
+  }
+  .tabs button.on{color:var(--accent); border-bottom-color:var(--accent)}
+  .tabs button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px; border-radius:6px}
+  .tabpane{display:none; padding-top:14px}
+  .tabpane.on{display:block}
+
+  /* ---------- sidebar before/after ---------- */
+  .ba{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:22px}
+  @media (max-width:720px){ .ba{grid-template-columns:1fr} }
+  .navcard{border:1px solid var(--line); border-radius:12px; background:var(--card); overflow:hidden; box-shadow:var(--shadow)}
+  .navcard .hd{
+    padding:10px 16px; font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    border-bottom:1px solid var(--line); background:var(--soft); display:flex; justify-content:space-between; align-items:center;
+  }
+  .navcard .hd .tag{font-size:10.5px; letter-spacing:.02em; text-transform:none; font-weight:650; padding:1px 8px; border-radius:999px}
+  .navcard.before .hd .tag{background:color-mix(in oklab, var(--danger) 14%, transparent); color:var(--danger)}
+  .navcard.after .hd .tag{background:color-mix(in oklab, var(--accent) 14%, transparent); color:var(--accent)}
+  .navcard ul{list-style:none; margin:0; padding:10px 12px; font-size:13px}
+  .navcard li{padding:4.5px 8px; border-radius:6px; display:flex; align-items:baseline; justify-content:space-between; gap:10px}
+  .navcard li .note{font-size:11px; color:var(--muted); text-align:end}
+  .navcard li.grp{font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-top:8px}
+  .navcard li.warn .note{color:var(--danger)}
+  .navcard li b{font-weight:650}
+  .navcard li .mono{font:11px ui-monospace, Menlo, monospace; color:var(--muted)}
+
+  /* ---------- mapping table ---------- */
+  .map{width:100%; border-collapse:collapse; font-size:13.5px}
+  .map th{
+    text-align:start; font-size:11px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted);
+    padding:8px 10px; border-bottom:1.5px solid var(--line);
+  }
+  .map td{padding:9px 10px; border-bottom:1px solid color-mix(in oklab, var(--line) 60%, transparent); vertical-align:top}
+  .map .del{color:var(--danger); font-weight:650}
+  .map .keep{color:var(--accent); font-weight:650}
+  .arrow{color:var(--muted)}
+
+  /* ---------- phases ---------- */
+  .phases{display:grid; gap:10px; margin-top:20px; counter-reset:ph}
+  .ph{
+    display:grid; grid-template-columns:44px 1fr; gap:14px; align-items:start;
+    border:1px solid var(--line); border-radius:12px; background:var(--card); padding:14px 16px;
+  }
+  .ph i{
+    counter-increment:ph; inline-size:32px; block-size:32px; border-radius:9px; display:grid; place-items:center;
+    background:color-mix(in oklab, var(--accent) 13%, transparent); color:var(--accent); font-style:normal; font-weight:750; font-size:13px;
+  }
+  .ph i::before{content:"R" counter(ph)}
+  .ph h3{margin-bottom:2px}
+  .ph p{margin:2px 0 0; font-size:14px; color:var(--muted)}
+  .ph .get{font-size:12.5px; margin-top:7px; color:var(--ink)}
+  .ph .get b{color:var(--accent)}
+
+  .callout{
+    border:1px solid color-mix(in oklab, var(--accent) 35%, var(--line)); background:color-mix(in oklab, var(--accent) 7%, var(--card));
+    border-radius:12px; padding:16px 20px; margin-top:24px; font-size:15px;
+  }
+  .qlist{margin:10px 0 0; padding-inline-start:20px}
+  .qlist li{margin-block:6px}
+  .qlist .d{color:var(--muted); font-size:13.5px}
+  hr{border:none; border-top:1px solid var(--line); margin:0}
+  @media (prefers-reduced-motion: no-preference){
+    .tabpane.on{animation:fade .18s ease}
+    @keyframes fade{from{opacity:0; transform:translateY(2px)} to{opacity:1}}
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+<header class="prose">
+  <div class="eyebrow"><span class="n">A</span> Academiq · Super Admin · Redesign proposal</div>
+  <h1>Modules belong to the client, not to the sidebar</h1>
+  <p class="sub">One page per job, one place to change each fact. You pick Management / Video / WhatsApp per client with three switches, the free trial has one clock per module, and nothing is duplicated. All screens below are mockups with sample data.</p>
+  <div class="legend">
+    <span class="chip mgmt">Management</span>
+    <span class="chip video">Video</span>
+    <span class="chip wa">WhatsApp</span>
+    <span class="pill trial">Trial</span>
+    <span class="pill active">Active</span>
+    <span class="pill suspended">Suspended</span>
+  </div>
+</header>
+
+<!-- ================= 1 · DIAGNOSIS ================= -->
+<section>
+  <div class="eyebrow"><span class="n">1</span> Why it feels broken</div>
+  <h2>The panel shows three old systems at once</h2>
+  <div class="prose">
+    <p>Your instinct is right. The new per-module subscription model <b>exists in the database and works</b> (the access engine already uses it) — but every admin page still reads and writes the <b>old</b> tables. Management billing, video access, and WhatsApp settings are three separate systems, each with its own buttons on different pages. That is the conflict you feel.</p>
+  </div>
+  <div class="tiles">
+    <div class="tile bad"><b>5</b><span>different places store “trial” state — they can disagree</span></div>
+    <div class="tile bad"><b>14</b><span>controls duplicated across pages (extend trial exists in 3, each behaving differently)</span></div>
+    <div class="tile bad"><b>4×</b><span>the same academy list is rendered on four different pages</span></div>
+    <div class="tile bad"><b>0</b><span>admin pages read the new per-module subscriptions — it’s invisible to you</span></div>
+  </div>
+  <div class="prose">
+    <p>Other findings: the academy page still shows the dead <b>Wasender token</b> panel next to the real QR connect; creating an academy <b>cannot set modules or trial length</b> (a trial only happens through the FREE-plan trick, and video/WhatsApp must be configured later on two other pages); and the plan editor <b>cannot create Video or WhatsApp plans</b> at all.</p>
+  </div>
+</section>
+
+<!-- ================= 2 · THE FIX ================= -->
+<section>
+  <div class="eyebrow"><span class="n">2</span> The new track</div>
+  <h2>A short flat sidebar — the “module” idea moves into the client</h2>
+  <div class="prose">
+    <p>Two rules drive everything:</p>
+    <p><b>1 · Client-first.</b> You manage <i>clients</i>, and each client has up to three subscriptions (Management, Video, WhatsApp). Any mix, each with its own plan, its own trial, its own price.</p>
+    <p><b>2 · One writer per fact.</b> Every fact can be changed on exactly one page. Everywhere else it is read-only and links there. This is what removes the conflicts permanently.</p>
+  </div>
+
+  <div class="ba">
+    <div class="navcard before">
+      <div class="hd">Today <span class="tag">4 dropdowns, mixed logic</span></div>
+      <ul>
+        <li class="grp">▾ Platform</li>
+        <li><b>Overview</b></li>
+        <li class="warn"><b>Academies</b> <span class="note">detail hides inside, no URL</span></li>
+        <li><b>Users</b></li>
+        <li class="warn"><b>Billing &amp; Subscriptions</b> <span class="note">repeats trial/suspend buttons</span></li>
+        <li><b>Audit Log</b></li>
+        <li><b>Platform Settings</b></li>
+        <li><b>Roles &amp; Permissions</b></li>
+        <li class="grp">▾ Management System</li>
+        <li class="warn"><b>Plans</b> <span class="note">but clients &amp; billing are under “Platform”</span></li>
+        <li><b>Staff Departments</b></li>
+        <li class="grp">▾ WhatsApp Service</li>
+        <li class="warn"><b>Automation</b> <span class="note">5 tabs, per-client + global mixed</span></li>
+        <li class="grp">▾ Video Platform</li>
+        <li class="warn"><b>Video Oversight</b> <span class="note">its own separate trial clock</span></li>
+      </ul>
+    </div>
+    <div class="navcard after">
+      <div class="hd">Proposed <span class="tag">9 flat items, one job each</span></div>
+      <ul>
+        <li><b>Overview</b> <span class="mono">/admin</span></li>
+        <li><b>Clients</b> <span class="note">← 80% of your day happens here</span></li>
+        <li><b>Billing</b> <span class="note">money only: proof inbox, dues, MRR</span></li>
+        <li><b>Plans</b> <span class="note">tabs: Management · Video · WhatsApp</span></li>
+        <li><b>Video Ops</b> <span class="note">health &amp; usage, platform-wide only</span></li>
+        <li><b>WhatsApp Ops</b> <span class="note">gateway health &amp; activity only</span></li>
+        <li><b>Users</b></li>
+        <li><b>Settings</b> <span class="note">general · payment · flags · roles · departments</span></li>
+        <li><b>Audit</b></li>
+      </ul>
+    </div>
+  </div>
+  <figure><figcaption>Everything a client needs — subscriptions, trial, video config, WhatsApp connection, bills — lives on the client’s own page. The per-module pages keep only platform-wide operations.</figcaption></figure>
+</section>
+
+<!-- ================= 3 · SCREENS ================= -->
+<section>
+  <div class="eyebrow"><span class="n">3</span> The screens</div>
+  <h2>Clients — one roster with module chips</h2>
+
+  <figure>
+    <div class="win">
+      <div class="winbar"><span class="dots"><i></i><i></i><i></i></span><span class="url">academiq.app/admin/clients</span></div>
+      <div class="app">
+        <nav class="snav" aria-label="mock sidebar">
+          <div class="brand"><i></i>Academiq</div>
+          <a>Overview</a>
+          <a class="on">Clients</a>
+          <a>Billing <span class="cnt">3</span></a>
+          <a>Plans</a>
+          <a>Video Ops</a>
+          <a>WhatsApp Ops</a>
+          <a>Users</a>
+          <a>Settings</a>
+          <a>Audit</a>
+        </nav>
+        <div class="main">
+          <div class="toolbar">
+            <span class="search">Search clients…</span>
+            <span class="seg"><b>All 24</b><span>Trial 6</span><span>Suspended 2</span></span>
+            <span class="seg"><span class="chip mgmt" style="border:none;background:none;padding:2px 6px">18</span><span class="chip video" style="border:none;background:none;padding:2px 6px">7</span><span class="chip wa" style="border:none;background:none;padding:2px 6px">11</span></span>
+            <span style="flex:1"></span>
+            <span class="btn primary">+ New client</span>
+          </div>
+          <div class="scroll-x">
+          <table class="mt">
+            <thead><tr><th>Client</th><th>Modules</th><th>Status</th><th>Monthly</th><th></th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="cname">Al Noor Academy<small>340 students · Cairo</small></td>
+                <td><span class="chip mgmt">M</span> <span class="chip off">V</span> <span class="chip wa">W</span></td>
+                <td><span class="pill active">Active</span></td>
+                <td class="money">EGP 1,199</td>
+                <td><span class="btn ghost">Open →</span></td>
+              </tr>
+              <tr>
+                <td class="cname">Cairo Music School<small>85 students</small></td>
+                <td><span class="chip mgmt">M</span> <span class="chip off">V</span> <span class="chip off">W</span></td>
+                <td><span class="pill trial">Trial · 3d left</span></td>
+                <td class="money">—</td>
+                <td><span class="btn ghost">Open →</span></td>
+              </tr>
+              <tr>
+                <td class="cname">Bright Steps Center<small>210 students</small></td>
+                <td><span class="chip mgmt">M</span> <span class="chip video">V</span> <span class="chip wa">W</span></td>
+                <td><span class="pill active">Active</span></td>
+                <td class="money">EGP 1,599</td>
+                <td><span class="btn ghost">Open →</span></td>
+              </tr>
+              <tr>
+                <td class="cname">Elite Physics — Mr. Hany<small>video-only client</small></td>
+                <td><span class="chip off">M</span> <span class="chip video">V</span> <span class="chip off">W</span></td>
+                <td><span class="pill trial">Trial · 5d left</span></td>
+                <td class="money">—</td>
+                <td><span class="btn ghost">Open →</span></td>
+              </tr>
+              <tr>
+                <td class="cname">Sunrise Nursery<small>WhatsApp-only · no login</small></td>
+                <td><span class="chip off">M</span> <span class="chip off">V</span> <span class="chip wa">W</span></td>
+                <td><span class="pill active">Active</span></td>
+                <td class="money">EGP 250</td>
+                <td><span class="btn ghost">Open →</span></td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>One list replaces the four lists you have today. The three chips answer “what does this client have?” at a glance; filters by module and status. Every row opens a real page with its own URL — so Billing, Overview and Ops pages can link straight to a client.</figcaption>
+  </figure>
+
+  <h2 style="margin-top:44px">The client page — everything in one place</h2>
+
+  <figure>
+    <div class="win">
+      <div class="winbar"><span class="dots"><i></i><i></i><i></i></span><span class="url">academiq.app/admin/clients/bright-steps</span></div>
+      <div class="app">
+        <nav class="snav" aria-label="mock sidebar">
+          <div class="brand"><i></i>Academiq</div>
+          <a>Overview</a>
+          <a class="on">Clients</a>
+          <a>Billing <span class="cnt">3</span></a>
+          <a>Plans</a>
+          <a>Video Ops</a>
+          <a>WhatsApp Ops</a>
+          <a>Users</a>
+          <a>Settings</a>
+          <a>Audit</a>
+        </nav>
+        <div class="main">
+          <div class="toolbar" style="margin-bottom:6px">
+            <div>
+              <div style="font-size:16px;font-weight:750">Bright Steps Center
+                <span class="pill active" style="vertical-align:2px">Active</span>
+              </div>
+              <div style="font-size:11.5px;color:var(--muted)">EGP · Africa/Cairo · created Mar 2026 · owner o.salem@brightsteps.eg</div>
+            </div>
+            <span style="flex:1"></span>
+            <span class="btn">Enter academy</span>
+            <span class="btn danger">Suspend…</span>
+          </div>
+
+          <div class="subcard">
+            <header><span>Subscriptions — the only place to change them</span><span style="font-weight:650;text-transform:none;letter-spacing:0">Total EGP 1,599/mo</span></header>
+            <div class="mrow mgmt">
+              <span class="mname"><i></i>Management</span>
+              <span class="plansel">PRO</span>
+              <span class="mstate"><span class="pill active">Active · renews Aug 1</span><small>EGP 999/mo · yearly available</small></span>
+              <span class="mact"><span class="btn">Change plan…</span><span class="btn ghost">Pause</span></span>
+            </div>
+            <div class="mrow video">
+              <span class="mname"><i></i>Video</span>
+              <span class="plansel">MEET</span>
+              <span class="mstate"><span class="pill trial">Trial · 3 days left</span><small>then EGP 400/mo · 10 rooms · recording on</small></span>
+              <span class="mact"><span class="btn">Extend…</span><span class="btn primary">Activate</span></span>
+            </div>
+            <div class="mrow wa">
+              <span class="mname"><i></i>WhatsApp</span>
+              <span class="plansel">WA Standard</span>
+              <span class="mstate"><span class="pill active">Active · connected</span><small>EGP 200/mo · 1,240 sends this month</small></span>
+              <span class="mact"><span class="btn">Change plan…</span><span class="btn ghost">Pause</span></span>
+            </div>
+          </div>
+
+          <div class="tabs" role="tablist" id="ctabs">
+            <button class="on" data-pane="p-billing" role="tab" aria-selected="true">Billing</button>
+            <button data-pane="p-video" role="tab" aria-selected="false">Video</button>
+            <button data-pane="p-wa" role="tab" aria-selected="false">WhatsApp</button>
+            <button data-pane="p-set" role="tab" aria-selected="false">Settings</button>
+          </div>
+
+          <div class="tabpane on" id="p-billing" role="tabpanel">
+            <div class="scroll-x">
+            <table class="mt">
+              <thead><tr><th>Bill</th><th>Lines</th><th>Amount</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                <tr><td>July 2026</td><td><span class="chip mgmt">M 999</span> <span class="chip wa">W 200</span> <span class="chip video">V 400</span></td><td class="money">EGP 1,599</td><td><span class="pill trial">Proof under review</span></td><td><span class="btn ghost">View proof →</span></td></tr>
+                <tr><td>June 2026</td><td><span class="chip mgmt">M 999</span> <span class="chip wa">W 200</span></td><td class="money">EGP 1,199</td><td><span class="pill active">Paid</span></td><td><span class="btn ghost">Receipt</span></td></tr>
+              </tbody>
+            </table>
+            </div>
+            <div class="toolbar" style="margin-top:10px"><span class="btn">Generate bill</span><span class="btn">Send via WhatsApp</span></div>
+          </div>
+
+          <div class="tabpane" id="p-video" role="tabpanel">
+            <div class="toolbar" style="margin-bottom:8px">
+              <span class="plansel">Tier: MEET</span>
+              <span class="seg"><b>Rooms 6/10</b><span>Recording ON</span><span>Monitor ON</span></span>
+              <span style="flex:1"></span><span class="btn">Edit limits…</span>
+            </div>
+            <div class="scroll-x">
+            <table class="mt">
+              <thead><tr><th>Room</th><th>Teacher</th><th>Last session</th><th></th></tr></thead>
+              <tbody>
+                <tr><td>Grade 6 — Math</td><td>Mr. Hassan</td><td>Today 14:00 · 22 joined</td><td><span class="btn ghost">Logs</span></td></tr>
+                <tr><td>Grade 4 — Science</td><td>Ms. Dina</td><td>Yesterday · recorded</td><td><span class="btn ghost">Logs</span></td></tr>
+              </tbody>
+            </table>
+            </div>
+          </div>
+
+          <div class="tabpane" id="p-wa" role="tabpanel">
+            <div class="toolbar">
+              <span class="pill active">Connected · +20 100 ···· 431</span>
+              <span class="btn">Reconnect (QR)</span><span class="btn ghost">Logout</span>
+              <span style="flex:1"></span>
+              <span class="seg"><b>Billing msgs ON</b><span>Lesson msgs ON</span></span>
+            </div>
+            <div class="toolbar"><span class="btn">API keys (2)…</span><span class="btn">Public connect link</span><span class="btn ghost">Send test</span></div>
+          </div>
+
+          <div class="tabpane" id="p-set" role="tabpanel">
+            <div class="toolbar"><span class="search" style="max-inline-size:220px">Name: Bright Steps Center</span><span class="search" style="max-inline-size:200px">Subdomain: brightsteps</span><span class="btn">Save</span></div>
+            <div class="toolbar"><span class="btn">Owner email…</span><span class="btn">Reset owner password</span><span style="flex:1"></span><span class="btn danger">Delete client…</span></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+    <figcaption>The Subscriptions card is the answer to “management only, video only, WhatsApp only, or any mix”: three rows, each with its own plan, its own trial clock, and the only Extend / Activate / Pause buttons in the whole panel. Tabs appear only for enabled modules. The old page’s Wasender-token panel, duplicated subscription blocks and quick-links are gone.</figcaption>
+  </figure>
+
+  <h2 style="margin-top:44px">Creating a client — modules and trial decided up front</h2>
+
+  <figure>
+    <div class="win">
+      <div class="winbar"><span class="dots"><i></i><i></i><i></i></span><span class="url">academiq.app/admin/clients/new</span></div>
+      <div class="app" style="grid-template-columns:1fr">
+        <div class="main" style="max-inline-size:660px;margin-inline:auto;padding-block:22px">
+          <div style="font-size:15px;font-weight:750;margin-bottom:2px">New client — Step 2 of 3: Modules</div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Choose what this client subscribes to. You can change this any time on the client page.</div>
+
+          <div class="subcard" style="margin-top:0">
+            <div class="mrow mgmt">
+              <span class="mname"><i></i>☑ Management</span>
+              <span class="plansel">PRO · 999</span>
+              <span class="mstate"><span class="pill trial">Start with 5-day trial</span><small>or activate paid now</small></span>
+              <span></span>
+            </div>
+            <div class="mrow video">
+              <span class="mname"><i></i>☑ Video</span>
+              <span class="plansel">MEET · 400</span>
+              <span class="mstate"><span class="pill trial">Start with 5-day trial</span><small>10 rooms · recording on</small></span>
+              <span></span>
+            </div>
+            <div class="mrow wa disabled">
+              <span class="mname"><i></i>☐ WhatsApp</span>
+              <span class="plansel">—</span>
+              <span class="mstate"><small>enable later from the client page</small></span>
+              <span></span>
+            </div>
+          </div>
+
+          <div class="toolbar" style="margin-top:14px">
+            <label style="font-size:12px;color:var(--muted)"><input type="checkbox" checked> Create owner login (uncheck for a WhatsApp-only client)</label>
+            <span style="flex:1"></span>
+            <span class="btn ghost">Back</span><span class="btn primary">Continue</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>The trial is decided here, per module, with one default (5 days, editable in Settings) — no more FREE-plan trick, no separate video clock set on another page three days later. A WhatsApp-only external client is this same wizard with one box checked and no owner login.</figcaption>
+  </figure>
+
+  <h2 style="margin-top:44px">Plans &amp; Billing — organized by module, money in one place</h2>
+
+  <figure>
+    <div class="win">
+      <div class="winbar"><span class="dots"><i></i><i></i><i></i></span><span class="url">academiq.app/admin/plans</span></div>
+      <div class="app" style="grid-template-columns:1fr">
+        <div class="main">
+          <div class="tabs" style="margin-top:0">
+            <button class="on">Management (3)</button><button>Video (2)</button><button>WhatsApp (2)</button><button>Add-ons</button>
+          </div>
+          <div class="tabpane on" style="padding-top:12px">
+            <div class="scroll-x">
+            <table class="mt">
+              <thead><tr><th>Plan</th><th>Price</th><th>Clients</th><th>Limits</th><th>Active</th><th></th></tr></thead>
+              <tbody>
+                <tr><td class="cname">FREE</td><td class="money">0</td><td>4</td><td>50 students · 3 teachers</td><td><span class="pill active">on</span></td><td><span class="btn ghost">Edit</span></td></tr>
+                <tr><td class="cname">BASIC</td><td class="money">EGP 699</td><td>9</td><td>200 students · 10 teachers</td><td><span class="pill active">on</span></td><td><span class="btn ghost">Edit</span></td></tr>
+                <tr><td class="cname">PRO</td><td class="money">EGP 999</td><td>11</td><td>unlimited</td><td><span class="pill active">on</span></td><td><span class="btn ghost">Edit</span></td></tr>
+              </tbody>
+            </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption>One catalog, one tab per module — and the editor finally gets the module field, so you can create Video and WhatsApp plans yourself. The Billing page keeps only money: the payment-proof inbox, who owes what, and MRR split by module. Its rows link to client pages instead of repeating their buttons.</figcaption>
+  </figure>
+</section>
+
+<!-- ================= 4 · ONE WRITER ================= -->
+<section>
+  <div class="eyebrow"><span class="n">4</span> The anti-conflict rule</div>
+  <h2>One writer per fact</h2>
+  <div class="prose"><p>This table becomes law for the panel. Anything not on its page shows as read-only with a link. This is what guarantees “no duplicates” stays true next year, not just after this redesign.</p></div>
+  <figure>
+    <div class="win" style="box-shadow:none"><div class="main scroll-x" style="padding:6px 16px">
+    <table class="map">
+      <thead><tr><th>Fact</th><th>The one place to change it</th></tr></thead>
+      <tbody>
+        <tr><td>Module on/off · plan · trial start/extend · activate · pause</td><td><b>Client page → Subscriptions card</b> (initial state from the wizard)</td></tr>
+        <tr><td>Client bills: generate, send, mark paid, void</td><td>Client page → Billing tab</td></tr>
+        <tr><td>Payment-proof approve / reject</td><td>Billing → Review inbox (client tab links to it)</td></tr>
+        <tr><td>Manual suspension of a whole client</td><td>Client page header</td></tr>
+        <tr><td>Video tier, room limits, recording/monitor flags</td><td>Client page → Video tab</td></tr>
+        <tr><td>WhatsApp connection (QR), message toggles, API keys</td><td>Client page → WhatsApp tab</td></tr>
+        <tr><td>Plan catalog + prices + module of each plan</td><td>Plans page</td></tr>
+        <tr><td>Default trial days · payment methods · feature flags · gateway limits</td><td>Settings</td></tr>
+      </tbody>
+    </table>
+    </div></div>
+  </figure>
+</section>
+
+<!-- ================= 5 · MAPPING ================= -->
+<section>
+  <div class="eyebrow"><span class="n">5</span> Where every current page goes</div>
+  <h2>Nothing is lost — it moves to its one home</h2>
+  <figure>
+    <div class="win" style="box-shadow:none"><div class="main scroll-x" style="padding:6px 16px">
+    <table class="map">
+      <thead><tr><th>Today</th><th></th><th>In the redesign</th></tr></thead>
+      <tbody>
+        <tr><td>Academies list + hidden detail view</td><td class="arrow">→</td><td class="keep">Clients + real client pages (/admin/clients/[id])</td></tr>
+        <tr><td>Academy detail: subscription panel, plan manager, add-ons</td><td class="arrow">→</td><td class="keep">Client page → Subscriptions card</td></tr>
+        <tr><td>Academy detail: Wasender token panel</td><td class="arrow">→</td><td class="del">Deleted (legacy — QR connect replaced it)</td></tr>
+        <tr><td>Billing table row buttons (extend +5d, activate, suspend)</td><td class="arrow">→</td><td class="del">Deleted — rows link to the client page</td></tr>
+        <tr><td>Billing: proof queue, MRR, dues</td><td class="arrow">→</td><td class="keep">Billing (money only, MRR now per module)</td></tr>
+        <tr><td>Plans page + hidden add-on editor</td><td class="arrow">→</td><td class="keep">Plans with module tabs; add-ons unhidden</td></tr>
+        <tr><td>Automation: overview / API-clients tabs + Manage modal (per-client)</td><td class="arrow">→</td><td class="keep">Client page → WhatsApp tab</td></tr>
+        <tr><td>Automation: activity / system / guide tabs (platform-wide)</td><td class="arrow">→</td><td class="keep">WhatsApp Ops</td></tr>
+        <tr><td>Video Oversight: per-academy access/trial/tier controls</td><td class="arrow">→</td><td class="keep">Client page → Subscriptions card + Video tab</td></tr>
+        <tr><td>Video Oversight: health, usage, compliance</td><td class="arrow">→</td><td class="keep">Video Ops</td></tr>
+        <tr><td>Video academy detail: duplicated read-only subscription block</td><td class="arrow">→</td><td class="del">Deleted</td></tr>
+        <tr><td>Users · Settings · Roles matrix · Staff departments · Audit</td><td class="arrow">→</td><td class="keep">Users / Settings tabs / Audit (unchanged behavior)</td></tr>
+      </tbody>
+    </table>
+    </div></div>
+  </figure>
+</section>
+
+<!-- ================= 6 · PHASES ================= -->
+<section>
+  <div class="eyebrow"><span class="n">6</span> Build order</div>
+  <h2>Five phases — your biggest pains fixed in the first two</h2>
+  <div class="phases">
+    <div class="ph"><i></i><div>
+      <h3>Make per-module subscriptions the real engine (backend)</h3>
+      <p>Trial / activate / pause / prices move onto the per-module rows; one expiry job; per-module plan editing; new client endpoints. Old tables stay as mirrors until R5.</p>
+      <div class="get">You get: <b>one trial clock per module that always reflects correctly</b> — the “5 places for trial” problem dies here.</div>
+    </div></div>
+    <div class="ph"><i></i><div>
+      <h3>The Clients hub (frontend)</h3>
+      <p>New roster with module chips, the client page with the Subscriptions card and tabs, the new wizard, the flat sidebar. Old routes redirect.</p>
+      <div class="get">You get: <b>“management only / video only / WhatsApp only / any mix” as three switches</b>, and one page per client.</div>
+    </div></div>
+    <div class="ph"><i></i><div>
+      <h3>Billing + Plans rebuild</h3>
+      <p>Billing becomes money-only (proof inbox, dues, MRR per module). Plans get module tabs and the unhidden add-on editor.</p>
+      <div class="get">You get: <b>subscriptions and packages readable at a glance</b>.</div>
+    </div></div>
+    <div class="ph"><i></i><div>
+      <h3>Ops cleanup + WhatsApp-only clients</h3>
+      <p>Video Ops and WhatsApp Ops keep only platform-wide monitoring; per-client controls finish moving to client tabs; legacy panels deleted; the wizard’s no-login WhatsApp-only path ships.</p>
+      <div class="get">You get: <b>zero duplicated controls anywhere</b>.</div>
+    </div></div>
+    <div class="ph"><i></i><div>
+      <h3>Drop the legacy tables</h3>
+      <p>Old plan/video columns and the old subscription table are removed once nothing reads them. The mirrors and redirects go away.</p>
+      <div class="get">You get: <b>one system, permanently</b> — no way for old and new to disagree again.</div>
+    </div></div>
+  </div>
+
+  <div class="callout">
+    <b>To approve this direction, four small questions</b> (defaults in brackets apply if you just say “go”):
+    <ol class="qlist">
+      <li>Default trial length per module? <span class="d">[5 days for all three]</span></li>
+      <li>When you create a client on a <i>paid</i> plan, start with a trial anyway? <span class="d">[yes — you can click “activate paid now” instead]</span></li>
+      <li>Staff Departments moves into Settings? <span class="d">[yes]</span></li>
+      <li>Payment-proof review stays one global inbox on Billing? <span class="d">[yes]</span></li>
+    </ol>
+  </div>
+</section>
+
+<footer style="color:var(--muted); font-size:13px; border-top:1px solid var(--line); padding-top:18px">
+  Proposal doc: <code>docs/superadmin-modules/04-CLIENT-FIRST-REDESIGN.md</code> · keeps the already-built data model &amp; access engine; changes only the panel and the unfinished billing wiring · all screen data above is sample data.
+</footer>
+
+</div>
+
+<script>
+  document.querySelectorAll('.tabs#ctabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabs = btn.closest('.tabs');
+      tabs.querySelectorAll('button').forEach(b => { b.classList.remove('on'); b.setAttribute('aria-selected','false'); });
+      btn.classList.add('on'); btn.setAttribute('aria-selected','true');
+      const container = tabs.parentElement;
+      container.querySelectorAll(':scope > .tabpane').forEach(p => p.classList.remove('on'));
+      container.querySelector('#' + btn.dataset.pane).classList.add('on');
+    });
+  });
+</script>
+</body>
+</html>
