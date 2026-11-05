@@ -478,3 +478,48 @@ own branch against the contract.
   "backs off after a failed send" (fails identically with the pre-change alert files) and
   `Rls/IntrospectionTest` "stores no monetary column as float or numeric" (`group_assessments`
   numeric columns from the assessments feature).
+
+## Lingo's real data (read-only on prod, 2026-11-05, Lingo only)
+
+Hand queries that mirror the move's rules; the command itself is not on prod yet, so this is not its
+dry-run. LetsLearn and the list of other academies holding `centre` were not read.
+
+| What | Count |
+|---|---|
+| Packages | 160: 85 ACTIVE → OPEN, 33 → FINISHED, 13 → CLOSED, 29 → CANCELLED |
+| Billed at the end (ON_COMPLETION), held renewals, PAY_FIRST families | 0 |
+| Unbilled overdraft, hourly lines on PER_PACKAGE students | 0 |
+| Used more than sold, finished with lessons left, duplicates on open blocks | 0 |
+| Line not found | 3, all CANCELLED with VOID bills, old wording; no effect |
+| Open counter changes | 1: Nancy, `1 × 90`, card reads 1 of 1, the move reads 0 of 1 (it absorbed 30 min) |
+| Settlement PENDING | 13, of which 2 hold paid money and would list twice until the legacy row is closed |
+| Unmarked past lessons dated before the only open block | 3, two students: go outside when marked |
+| Open block with an expiry | 1 (the new engine has no expiry) |
+
+The auto-renewal the split removes: 17 fired in the last 30 days. 8 voided, 7 unpaid (4,945 EGP), 2
+with a zero bill, none paid. After the move the desk owns renewal: 47 of 85 open blocks are on
+auto-renew today, 17 have at most one lesson left (12 of them on auto-renew), and 13 PER_PACKAGE
+students have no open block (6 with lessons coming).
+
+The preset's OFF list against use: `session_reports` 91 rows but 90 empty (a side effect of marking
+from the office), progress reports 0, rubric reports 0, follow-ups 1. `payout_adjustments` 23
+deductions since 11-03 (1,903 EGP; the reasons read are all "Lesson undone"): they stay on the
+statements, but `teacher_quality` off closes the Discounts & Awards page and its `/quality/adjustments`
+routes, which breaks this doc's own rule of never hiding a page that holds data.
+
+## Open before step 5 (found 2026-11-05, not fixed yet)
+
+Read from the code, not reproduced:
+1. The move leaves `lesson_packages` rows ACTIVE / PENDING, and old readers still act on them: the
+   held-renewal release on a receipt, `ChargeCancellation::cancel` (voids and returns before ending the
+   subscription), `PackageSettlement::pendingFor` (listed twice), `closeOpenPackage` on student removal,
+   the discount picker. Likely fix: the command closes the legacy row.
+2. `StudentController::endActiveBilling` never closes a `centre_subscriptions` row.
+3. No knowledge of the new table: discount picker + `PayerDiscounts` targets, `FamilyCharges`,
+   `InvoiceController` follow-up, `TreasuryController::voidExpense`, `ScheduleController::show`.
+4. The duplicate guard on the create-class modal was never built.
+5. Not gated on `centre`, so they reach Quran academies with groups: PER_STUDENT pay on group lessons
+   (`GroupPayroll::teacherOwnPay`, money), the parent portal Reports tab, group rows in the notification
+   logs; `FlagOverdueReportsJob` also stops for a Quran academy with `student_reports` off.
+6. The web reads `/subscriptions` as soon as `centre` is on, so deploy and move must happen together,
+   for every academy holding `centre`.
